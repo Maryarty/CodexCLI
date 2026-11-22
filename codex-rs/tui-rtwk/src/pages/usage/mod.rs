@@ -1,26 +1,30 @@
 //! `usage` (S20): the view half of the `/usage` dashboard. One `PageRoute`
 //! over the model (`ScreenStates.usage`): the heading, the report tabs, a rule,
-//! the period control, the report's body and the key hints. The overview is
-//! the oracle's summary: the profile block, the five numbers, the activity
-//! heat map and the insights, centred in the body. Its model, events and
-//! intents are core's `codex_tui_core::screens::usage`.
-//! Oracle: `tui/src/analytics/` (`render.rs`, `summary.rs`, `chrome.rs`,
-//! `hints.rs`, `data.rs`, `chart.rs`).
+//! the report's controls, the report's body and the key hints (oracle:
+//! `analytics/render.rs`, `chrome.rs`, `controls.rs`, `hints.rs`). The tabs are
+//! the account kind's sections (`Model::visible_sections`); the Overview is
+//! `overview.rs`, the other reports `report.rs`. The model, its events and
+//! intents are core's `codex_tui_core::screens::usage`; what the page holds
+//! itself is the widget's (R14).
 
-use rtwk::focus::{Focus, KeyPress};
+use std::rc::Rc;
+
+use rtwk::focus::{Focus, KeyBindings, KeyPress};
+use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::l10n::NumSyms;
 use rtwk::layout::{
-    BorderType, Center, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize,
-    Padding, Positioned, Row, SizedBox, Stack, StackFit,
+    BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
+    Row, SizedBox,
 };
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
 use rtwk::style::{Attrs, Span, Style};
-use rtwk::text::{Text, TextAlign, TextWrap};
-use rtwk::{AnyWidget, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk::{Cx, l10n::NumSyms};
+use rtwk::text::{Text, TextWrap};
+use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::screens::usage::models::plan_label;
 use codex_tui_core::screens::usage::{
-    Failure, Intent as UsageIntent, Model, Overview, Panel, Report,
+    Control, Intent as UsageIntent, Model, Section, TokenActivityView,
 };
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
@@ -32,451 +36,599 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 
+mod keys;
+pub mod overview;
+pub mod report;
 pub mod strings;
 
 use strings::Strings;
+
+/// The most tabs an account kind shows.
+const TABS: usize = 7;
 
 /// What the debug menu lists for this directory.
 pub fn debug_entries() -> Vec<DebugEntry> {
     vec![
         DebugEntry {
             name: "overview",
-            description: "the summary of a Plus account at 140 cells",
+            description: "the Overview of a Plus account at 140 cells",
             script: include_str!("fixtures/overview.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { panels_only: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "credits_refund",
+            description: "an Enterprise account's Credits report with a refund, the focused report",
+            script: include_str!("fixtures/credits_refund.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
         },
         DebugEntry {
             name: "panel_states",
-            description: "four panels: loading, unavailable, an error, an empty range",
+            description: "four reports: loading, unavailable, an error, an empty range",
             script: include_str!("fixtures/panel_states.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { panels_only: true }.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(true).into()),
         },
     ]
 }
 
 /// The route of this screen, pushed by the widget that opens it
-/// (`Navigator::of(cx).push`).
+/// (`Navigator::of(cx).push`): it opens a session of the model.
 pub fn route() -> PageRoute<()> {
-    PageRoute::new(|_| Screen { panels_only: false }.into())
+    PageRoute::new(|_| Screen::opening(None).into())
+}
+
+/// The route of `/usage daily|weekly|cumulative`.
+pub fn route_with(view: TokenActivityView) -> PageRoute<()> {
+    PageRoute::new(move |_| Screen::opening(Some(view)).into())
 }
 
 /// Opens the dashboard on the live model (debug menu).
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|_| Screen { panels_only: false }.into())
+    DebugOpen::Route(|_| Screen::opening(None).into())
 }
 
-/// The dashboard; `panels_only` shows just the four panels' messages (the
-/// oracle's test renders those without chrome).
+/// The dashboard. `open` starts a session of the model when the widget is
+/// created (a seeded fixture does not); `panels` shows four reports' bodies
+/// stacked, without chrome (the oracle's test renders those alone).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen {
-    pub panels_only: bool,
+    open: Option<Option<TokenActivityView>>,
+    panels: bool,
 }
 
-/// Widget state: none (R14); the report is the model's.
-#[derive(Debug)]
-pub struct ScreenState;
+impl Screen {
+    fn opening(view: Option<TokenActivityView>) -> Self {
+        Self {
+            open: Some(view),
+            panels: false,
+        }
+    }
+
+    fn seeded(panels: bool) -> Self {
+        Self { open: None, panels }
+    }
+}
+
+/// The handlers of the clicks, made once.
+#[derive(Clone, Default)]
+struct Taps {
+    tabs: Vec<Handler<PointerEvent>>,
+    range: Option<Handler<PointerEvent>>,
+    group: Option<Handler<PointerEvent>>,
+    model: Option<Handler<PointerEvent>>,
+}
+
+/// The reports of an account (the model's `Section`s).
+const SECTIONS: usize = 8;
+
+/// The days of the shortest range: the selected day starts at the last.
+const LAST_DAY: usize = 6;
+
+/// Widget state: the handlers of its clicks, the selected day and the open
+/// detail of each report, whether the report is the focused one (R14: indexes
+/// and flags, never what the model holds).
+pub struct ScreenState {
+    taps: Taps,
+    cursors: [usize; SECTIONS],
+    details: [Option<usize>; SECTIONS],
+    zoomed: bool,
+}
+
+impl Default for ScreenState {
+    fn default() -> Self {
+        Self {
+            taps: Taps::default(),
+            cursors: [LAST_DAY; SECTIONS],
+            details: [None; SECTIONS],
+            zoomed: true,
+        }
+    }
+}
+
+/// A step of the selected day.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Day {
+    By(isize),
+    /// The first (false) or the last day.
+    Edge(bool),
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
-    Report(Report),
-    /// Tab: the next report, the first after the last.
-    NextReport,
-    /// A key of the footer whose action is not built yet: the hint's index.
+    /// The `index`-th tab (a digit, a click).
+    Pick(usize),
+    /// Tab and Shift+Tab: the next or previous tab, wrapping.
+    Step(isize),
+    Range,
+    Group,
+    Model,
+    Refresh,
+    /// A key whose action is not built yet: the hint's index.
     NotYet(usize),
     Close,
+    /// An arrow, `h`, `l`, Home or End on a report.
+    Day(Day),
+    /// Enter and space: the numbers of the selected day, whole.
+    Details,
+    /// Esc closes the detail first, then the page.
+    Escape,
 }
 
 impl StatefulWidget for Screen {
     type State = ScreenState;
 
     fn create_state(&self) -> ScreenState {
-        ScreenState
+        ScreenState::default()
     }
 }
 
 impl_widget!(stateful eq Screen);
 
-/// A figure with a suffix: 142_300_000_000 as `142.3B` (oracle: `tokens.rs`).
-fn compact(value: u64, units: &[&str; 4]) -> String {
-    let mut scaled = value;
-    let mut unit = 0;
-    let mut divisor = 1u64;
-    while scaled >= 1000 && unit < units.len() {
-        scaled /= 1000;
-        divisor *= 1000;
-        unit += 1;
-    }
-    if unit == 0 {
-        return value.to_string();
-    }
-    let tenths = value * 10 / divisor;
-    let (whole, tenth) = (tenths / 10, tenths % 10);
-    if tenth == 0 {
-        format!("{whole}{}", units[unit - 1])
-    } else {
-        format!("{whole}.{tenth}{}", units[unit - 1])
-    }
-}
-
 /// The styles the dashboard draws with.
-#[derive(Clone)]
-struct Look {
-    dim: Style,
-    bold: Style,
-    accent: Style,
-    selected: Style,
+#[derive(Clone, Debug, PartialEq)]
+pub struct Look {
+    pub dim: Style,
+    /// Labels and instructions (oracle: `secondary_style`, a blend of the
+    /// terminal's colours where it has them).
+    pub secondary: Style,
+    pub bold: Style,
+    pub accent: Style,
+    pub selected: Style,
+    /// The plot's series: the theme's info, accent and success hues (the
+    /// oracle: the terminal's cyan, magenta and green), the terminal's own after.
+    pub series: [Style; 4],
 }
 
 /// An empty row.
-fn gap() -> AnyWidget {
+pub fn gap() -> AnyWidget {
     SizedBox::new(None, Some(1), None).into()
 }
 
-fn line(shown: impl Into<String>, style: Style) -> Text {
+pub fn line(shown: impl Into<String>, style: Style) -> Text {
     Text::line(shown.into()).style(style).wrap(TextWrap::None)
 }
 
-fn message<T>(panel: &Panel<T>, strings: &Strings) -> Option<&'static str> {
-    match panel {
-        Panel::Loading => Some(strings.loading),
-        Panel::Unavailable => Some(strings.unavailable),
-        Panel::Failed(Failure::Analytics) => Some(strings.failed_analytics),
-        Panel::Failed(Failure::Credits) => Some(strings.failed_credits),
-        Panel::Ready(_) => None,
-    }
-}
-
-/// The four panels, one message each, a blank row between (oracle:
-/// `Remote::message` and the chart's empty range).
-fn panels(model: &Model, strings: &Strings) -> AnyWidget {
-    let list_message = |panel: &Panel<Vec<_>>| {
-        message(panel, strings).or(match panel {
-            Panel::Ready(days) if days.is_empty() => Some(strings.empty_range),
-            _ => None,
-        })
-    };
-    let shown = [
-        message(&model.overview, strings),
-        list_message(&model.history),
-        list_message(&model.credits),
-        list_message(&model.usage),
-    ];
-    Column::new()
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .spacing(1)
-        .children(shown.into_iter().flatten().map(|m| Text::new(m).into()))
-        .into()
-}
-
-/// The five figures, a column each (oracle: `summary.rs`).
-fn figures(overview: &Overview, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
-    let figures = [
-        (
-            compact(overview.lifetime_tokens, &strings.units),
-            strings.lifetime_tokens,
-        ),
-        (
-            compact(overview.peak_tokens, &strings.units),
-            strings.peak_tokens,
-        ),
-        (
-            strings.duration(
-                overview.longest_chat_secs / 3600,
-                overview.longest_chat_secs % 3600 / 60,
-                num,
-            ),
-            strings.longest_chat,
-        ),
-        (
-            strings.days(u64::from(overview.current_streak_days), num),
-            strings.current_streak,
-        ),
-        (
-            strings.days(u64::from(overview.longest_streak_days), num),
-            strings.longest_streak,
-        ),
-    ];
-    let row = |style: &Style, pick: fn(&(String, &'static str)) -> String| -> AnyWidget {
-        let cells = figures.iter().map(|figure| {
-            Expanded::new(
-                1,
-                line(pick(figure), style.clone()).text_align(TextAlign::Center),
-            )
-            .into()
-        });
-        Row::new().children(cells).into()
-    };
-    Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(row(&look.bold, |(value, _)| value.clone()))
-        .child(row(&look.dim, |(_, label)| (*label).to_string()))
-        .into()
-}
-
-/// The activity heat map: month marks over seven weekday rows of cells
-/// (`□` none, `■` some), then the legend.
-fn heat_map(overview: &Overview, strings: &Strings, look: &Look) -> AnyWidget {
-    let activity = &overview.activity;
-    let mut months = Stack::new().fit(StackFit::Expand);
-    for mark in activity.months.iter().filter(|m| m.week < activity.weeks) {
-        let at = i32::try_from(3 + 2 * mark.week).unwrap_or(i32::MAX);
-        months = months.child(
-            Positioned::new(line(mark.label.clone(), look.dim.clone()))
-                .left(at)
-                .top(0),
-        );
-    }
-    let mut rows = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(SizedBox::new(None, Some(1), Some(months.into())));
-    for (day, weekday) in strings.weekdays.iter().enumerate() {
-        let mut spans = vec![Span::styled((*weekday).to_string(), look.dim.clone())];
-        for week in 0..activity.weeks {
-            if week + 1 == activity.weeks && day > activity.last_day {
-                break;
-            }
-            let level = activity
-                .cells
-                .iter()
-                .find(|(w, d, _)| *w == week && *d == day)
-                .map_or(0, |(_, _, level)| *level);
-            spans.push(if level == 0 {
-                Span::styled(strings.cell_none, look.dim.clone())
-            } else {
-                Span::styled(strings.cell_some, look.accent.clone())
-            });
-        }
-        rows = rows.child(Text::rich(spans).wrap(TextWrap::None).max_lines(1));
-    }
-    let legend = Text::rich([
-        Span::styled(strings.less, look.dim.clone()),
-        Span::styled(strings.legend_none, look.dim.clone()),
-        Span::styled(strings.legend_scale, look.accent.clone()),
-        Span::styled(strings.legend_gap, look.dim.clone()),
-        Span::styled(strings.more, look.dim.clone()),
-    ])
-    .wrap(TextWrap::None);
-    Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(Padding::new(EdgeInsets::only(1, 0, 0, 0), rows))
-        .child(gap())
-        .child(Padding::new(EdgeInsets::only(3, 0, 0, 0), legend))
-        .into()
-}
-
-/// A label at the left and its value at the right of the room it gets.
-fn entry(label: &str, value: String) -> AnyWidget {
-    Row::new()
-        .child(Expanded::new(1, line(label, Style::default())))
-        .child(line(value, Style::default()))
-        .into()
-}
-
-/// Two columns with a four-cell gap between.
-fn pair(left: AnyWidget, right: AnyWidget) -> AnyWidget {
-    Row::new()
-        .child(Expanded::new(1, left))
-        .child(SizedBox::new(Some(4), None, None))
-        .child(Expanded::new(1, right))
-        .into()
-}
-
-fn nothing() -> AnyWidget {
+pub fn nothing() -> AnyWidget {
     SizedBox::new(Some(0), Some(0), None).into()
 }
 
-/// Insights on the left, the most used on the right.
-fn insights(overview: &Overview, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(pair(
-            line(strings.insights, look.bold.clone()).into(),
-            line(strings.top_uses, look.bold.clone()).into(),
-        ))
-        .child(gap());
-    for index in 0..overview.insights.len().max(overview.top.len()) {
-        let left = overview
-            .insights
-            .get(index)
-            .map_or_else(nothing, |i| entry(&i.label, i.value.clone()));
-        let right = overview
-            .top
-            .get(index)
-            .map_or_else(nothing, |t| entry(&t.name, strings.runs(t.runs, num)));
-        column = column.child(pair(left, right));
+/// The name of a tab (oracle: `chrome.rs` `tab_label`).
+fn tab_name(strings: &Strings, model: &Model, section: Section) -> &'static str {
+    match section {
+        Section::Summary => strings.tab_overview,
+        Section::Usage if model.business() => strings.tab_tokens,
+        Section::Usage => strings.tab_usage,
+        Section::Credits => strings.tab_credits,
+        Section::Activity => strings.tab_messages,
+        Section::Plugins => strings.tab_plugins,
+        Section::Skills => strings.tab_skills,
+        Section::Chats => strings.tab_chats,
+        Section::Plan => strings.tab_plan,
     }
-    column.into()
 }
 
-/// The overview's body: profile, numbers, heat map, insights (oracle:
-/// `summary.rs`); the block is at most 110 cells wide, centred.
-fn summary(
+/// The heading: the plan and the account (oracle: `render.rs`).
+fn heading(model: &Model, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
+    let title = match model.account.ready() {
+        Some(plan) => strings.heading_with(plan_label(*plan), num),
+        None => strings.heading.to_string(),
+    };
+    let mut spans = vec![Span::styled(title, look.bold.clone())];
+    if let Some(account) = &model.account_label {
+        spans.push(Span::styled(
+            strings.account_suffix(account, num),
+            look.dim.clone(),
+        ));
+    }
+    Text::rich(spans).wrap(TextWrap::None).max_lines(1).into()
+}
+
+/// The tab strip (oracle: `render_filled_tab_bar`, the labels numbered from
+/// 80 cells).
+fn tabs(
     model: &Model,
-    overview: &Overview,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    taps: &Taps,
+    inner: i32,
+) -> AnyWidget {
+    let visible = model.visible_sections();
+    let labels: Rc<[String]> = visible
+        .iter()
+        .enumerate()
+        .map(|(index, section)| {
+            let name = tab_name(strings, model, *section);
+            if inner >= 80 {
+                strings.tab_numbered(index as u64 + 1, name, num)
+            } else {
+                name.to_owned()
+            }
+        })
+        .collect();
+    crate::widgets::tab_strip::Tabs {
+        labels,
+        active: visible
+            .iter()
+            .position(|section| *section == model.section)
+            .unwrap_or(0),
+        marks: (strings.tab_left, strings.tab_right),
+        styles: (look.selected.clone(), look.dim.clone()),
+        taps: taps.tabs.clone(),
+    }
+    .widget()
+}
+
+/// One control: its key, a blank and its label, a click on it does its
+/// action (oracle: `controls.rs`).
+fn control(spans: Vec<Span>, tap: &Option<Handler<PointerEvent>>) -> AnyWidget {
+    let text: AnyWidget = Text::rich(spans).wrap(TextWrap::None).max_lines(1).into();
+    match tap {
+        Some(tap) => GestureDetector::new()
+            .on_tap(tap.clone())
+            .child(text)
+            .into(),
+        None => text,
+    }
+}
+
+/// The report's controls: the range with its dates, the grouping and the
+/// model filter; from 100 cells on one row, below on two.
+fn controls(
+    model: &Model,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    taps: &Taps,
+    inner: i32,
+) -> AnyWidget {
+    let key = |text: &'static str| Span::styled(text, look.dim.clone());
+    let blank = || Span::styled(strings.cell_gap, look.dim.clone());
+    let mut rows: [Vec<AnyWidget>; 2] = [Vec::new(), Vec::new()];
+    let report = model.control_available(Control::Range, false);
+    if report {
+        let range = model.range_of(model.section);
+        let on = look.accent.clone().attrs(Attrs::BOLD);
+        let pick = |active: bool| if active { on.clone() } else { look.dim.clone() };
+        let dates = model.section_date_range(model.section);
+        let interval = strings.interval(
+            dates.start().ymd(),
+            dates.end().ymd(),
+            inner.max(0) as usize,
+            num,
+        );
+        rows[0].push(control(
+            vec![
+                key(strings.range_key),
+                blank(),
+                Span::styled(strings.range_week, pick(range == 0)),
+                Span::styled(strings.range_slash, look.dim.clone()),
+                Span::styled(strings.range_month, pick(range == 1)),
+                Span::styled(
+                    format!("{}{interval}", strings.control_gap),
+                    Style::default(),
+                ),
+            ],
+            &taps.range,
+        ));
+    }
+    let option_row = usize::from(inner < 100 && report);
+    if model.control_available(Control::Group, false) {
+        let group = model.groups[model.section as usize];
+        rows[option_row].push(control(
+            vec![
+                key(strings.group_key),
+                blank(),
+                Span::styled(model.group_label(model.section, group), Style::default()),
+            ],
+            &taps.group,
+        ));
+    }
+    if model.control_available(Control::Model, false) {
+        let name = model
+            .token_model
+            .as_deref()
+            .map_or(strings.all_models, |name| model.model_name(name));
+        rows[option_row].push(control(
+            vec![
+                key(strings.model_key),
+                blank(),
+                Span::styled(name.to_owned(), Style::default()),
+            ],
+            &taps.model,
+        ));
+    }
+    let height = if inner >= 100 { 2 } else { 3 };
+    let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Start);
+    for row in rows {
+        let mut shown = Row::new();
+        for (at, widget) in row.into_iter().enumerate() {
+            if at > 0 {
+                shown = shown.child(line(strings.control_gap, look.dim.clone()));
+            }
+            shown = shown.child(widget);
+        }
+        column = column.child(SizedBox::new(None, Some(1), Some(shown.into())));
+    }
+    SizedBox::new(None, Some(height), Some(column.into())).into()
+}
+
+/// The footer's two rows: what the page does, then the keys that go to
+/// other reports (oracle: `hints.rs`, wide spelling).
+fn footer(
+    model: &Model,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    shown: report::Shown,
+) -> AnyWidget {
+    let mut actions: Vec<(String, String)> = Vec::new();
+    if report::is_chart(model.section) {
+        actions.push((strings.hint_day.0.to_owned(), strings.hint_day.1.to_owned()));
+        if model.day_has_details(model.section, shown.cursor) {
+            actions.push((
+                strings.hint_details.0.to_owned(),
+                strings.hint_details.1.to_owned(),
+            ));
+        }
+    }
+    actions.push((strings.back.0.to_owned(), strings.back.1.to_owned()));
+    let report = if model.visible_sections().is_empty() {
+        vec![("R".to_owned(), "retry".to_owned())]
+    } else {
+        let mut hints = vec![(
+            strings.hint_report(model.visible_sections().len() as u64, num),
+            "report".to_owned(),
+        )];
+        hints.extend(
+            strings
+                .hints
+                .iter()
+                .map(|(key, hint)| ((*key).to_owned(), (*hint).to_owned())),
+        );
+        hints
+    };
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(crate::widgets::page_keys::footer_with(
+            actions,
+            look.dim.clone(),
+            look.dim.clone(),
+            " \u{b7} ",
+        ))
+        .child(crate::widgets::page_keys::footer_with(
+            report,
+            look.dim.clone(),
+            look.dim.clone(),
+            " \u{b7} ",
+        ))
+        .into()
+}
+
+/// The report below the controls.
+fn body(
+    model: &Model,
     strings: &Strings,
     num: &NumSyms,
     look: &Look,
     width: i32,
+    shown: report::Shown,
 ) -> AnyWidget {
-    const BLOCK: i32 = 110;
-    let mut block = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(figures(overview, strings, num, look))
-        .child(gap())
-        .child(line(strings.activity, look.bold.clone()))
-        .child(line(strings.last_year, look.dim.clone()))
-        .child(gap())
-        .child(heat_map(overview, strings, look))
-        .child(gap())
-        .child(insights(overview, strings, num, look))
-        .child(gap());
-    if let Some(date) = &model.as_of {
-        block = block.child(line(strings.as_of(date, num), look.dim.clone()));
+    if model.visible_sections().is_empty() {
+        let message = model.account.message().unwrap_or(strings.not_available);
+        return line(message, Style::default()).into();
     }
-    let block = Center::new(SizedBox::new(
-        Some(width.min(BLOCK)),
-        None,
-        Some(block.into()),
-    ))
-    .height_factor(1);
-    let mut whole = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch);
-    if let Some(account) = &model.account {
-        let centred =
-            |shown: &str, style: &Style| line(shown, style.clone()).text_align(TextAlign::Center);
-        whole = whole
-            .child(centred(&account.name, &look.bold))
-            .child(centred(&account.handle, &look.dim))
-            .child(centred(&account.plan, &look.dim))
-            .child(gap());
-    }
-    let whole = whole.child(block);
-    if model.account.is_some() {
-        Center::new(whole).into()
-    } else {
-        whole.into()
+    match model.section {
+        Section::Summary => overview::body(model, strings, num, look, width),
+        section => report::body(model, section, strings, num, look, shown),
     }
 }
 
-fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width: i32) -> AnyWidget {
-    let text = |shown: &'static str| -> AnyWidget { Text::new(shown).into() };
-    match model.report {
-        Report::Overview => match &model.overview {
-            Panel::Ready(overview) => summary(model, overview, strings, num, look, width),
-            other => message(other, strings).map_or_else(nothing, text),
-        },
-        Report::Usage => match &model.usage {
-            Panel::Ready(days) if !days.is_empty() => Column::new()
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .children(days.iter().map(|day| {
-                    Row::new()
-                        .spacing(2)
-                        .child(Text::new(day.date.clone()))
-                        .child(Text::new(compact(day.total, &strings.units)))
-                        .into()
-                }))
-                .into(),
-            other => text(message(other, strings).unwrap_or(strings.empty_range)),
-        },
-        _ => text(message(&model.history, strings).unwrap_or(strings.empty_range)),
-    }
-}
-
-/// The whole dashboard (oracle: `render.rs`): heading, tabs, rule, the
-/// period control, the body, the key hints.
+/// The whole dashboard (oracle: `render.rs`).
 fn dashboard(
     model: &Model,
     strings: &Strings,
     num: &NumSyms,
     look: &Look,
+    taps: &Taps,
     width: i32,
+    shown: report::Shown,
 ) -> AnyWidget {
     let inset = i32::from(width > 2);
-    let inner = width - 2 * inset;
-    let controls = if inner >= 100 { 2 } else { 3 };
-    let heading = match &model.account {
-        Some(account) => strings.heading_with(&account.plan, num),
-        None => strings.heading.to_string(),
-    };
-    let tabs = Row::new()
-        .spacing(1)
-        .children(Report::ALL.iter().enumerate().map(|(index, report)| {
-            let label = if inner >= 80 {
-                format!(" {} {} ", index + 1, strings.tabs[index])
-            } else {
-                format!(" {} ", strings.tabs[index])
-            };
-            let style = if *report == model.report {
-                look.selected.clone()
-            } else {
-                Style::default()
-            };
-            line(label, style).into()
-        }));
+    let inner = (width - 2 * inset).max(1);
     let rule = Divider::new()
         .kind(BorderType::Single)
         .style(look.dim.clone())
         .merge(false);
     let column = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(line(heading, look.bold.clone()))
-        .child(tabs)
-        .child(rule)
+        .child(heading(model, strings, num, look))
         .child(SizedBox::new(
             None,
-            Some(controls),
-            Some(line(strings.control_daily, look.dim.clone()).into()),
+            Some(1),
+            Some(tabs(model, strings, num, look, taps, inner)),
         ))
-        .child(Expanded::new(1, body(model, strings, num, look, inner)))
-        .child(crate::widgets::page_keys::footer(
-            [strings.back],
-            look.dim.clone(),
-            look.dim.clone(),
+        .child(rule)
+        .child(controls(model, strings, num, look, taps, inner))
+        .child(Expanded::new(
+            1,
+            body(model, strings, num, look, inner, shown),
         ))
-        .child(crate::widgets::page_keys::footer_with(
-            strings.hints,
-            look.dim.clone(),
-            look.dim.clone(),
-            " · ",
-        ));
+        .child(footer(model, strings, num, look, shown));
     Padding::new(EdgeInsets::only(inset, 0, inset, 0), column).into()
+}
+
+/// Four reports' bodies, one under the other with a blank row between
+/// (the oracle's test of the loading, unavailable, error and empty states).
+fn panels(model: &Model, strings: &Strings) -> AnyWidget {
+    Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .spacing(1)
+        .children(
+            [
+                Section::Usage,
+                Section::Plugins,
+                Section::Credits,
+                Section::Activity,
+            ]
+            .into_iter()
+            .map(|section| report::message(model, section, strings)),
+        )
+        .into()
 }
 
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
 
+    fn init_state(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
+        self.taps = Taps {
+            tabs: (0..TABS)
+                .map(|index| cx.map(move |_: PointerEvent| Msg::Pick(index)))
+                .collect(),
+            range: Some(cx.map(|_: PointerEvent| Msg::Range)),
+            group: Some(cx.map(|_: PointerEvent| Msg::Group)),
+            model: Some(cx.map(|_: PointerEvent| Msg::Model)),
+        };
+        if let Some(view) = w.open {
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Open { view }));
+        }
+    }
+
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
-        match msg {
-            Msg::Report(report) => {
-                let hs = read::<Hs, _>(cx);
-                cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Report(report)));
+        let hs = read::<Hs, _>(cx);
+        let model = watch::<ScreenStates, _>(cx).usage.clone();
+        let visible = model.visible_sections();
+        let section = model.section;
+        let mut rebuild = Rebuild::No;
+        let intent = match msg {
+            Msg::Day(step) => {
+                let last = model.day_count(section).max(1) - 1;
+                let cursor = &mut self.cursors[section as usize];
+                let before = *cursor;
+                *cursor = match step {
+                    Day::By(delta) => (*cursor as isize + delta).clamp(0, last as isize) as usize,
+                    Day::Edge(false) => 0,
+                    Day::Edge(true) => last,
+                };
+                // An open detail follows the selected day.
+                let detail = &mut self.details[section as usize];
+                if detail.is_some() {
+                    *detail = Some(*cursor);
+                }
+                if *cursor != before {
+                    rebuild = Rebuild::Yes;
+                }
+                None
             }
-            Msg::NextReport => {
-                let model = &watch::<ScreenStates, _>(cx).usage;
-                let at = Report::ALL
+            Msg::Details => {
+                let cursor = self.cursors[section as usize];
+                // The counted reports have nothing to open on an empty day.
+                let opens = report::is_chart(section)
+                    && (!matches!(
+                        section,
+                        Section::Plugins | Section::Activity | Section::Skills
+                    ) || model.day_has_details(section, cursor));
+                if opens {
+                    let detail = &mut self.details[section as usize];
+                    *detail = if *detail == Some(cursor) {
+                        None
+                    } else {
+                        Some(cursor)
+                    };
+                    rebuild = Rebuild::Yes;
+                }
+                None
+            }
+            Msg::Escape => {
+                if self.details[section as usize].take().is_some() {
+                    rebuild = Rebuild::Yes;
+                    None
+                } else {
+                    cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
+                    Navigator::maybe_pop(cx);
+                    None
+                }
+            }
+            Msg::Pick(index) => visible
+                .get(index)
+                .map(|section| UsageIntent::Select(*section)),
+            Msg::Step(delta) if !visible.is_empty() => {
+                let at = visible
                     .iter()
-                    .position(|r| *r == model.report)
+                    .position(|section| *section == model.section)
                     .unwrap_or(0);
-                let next = Report::ALL[(at + 1) % Report::ALL.len()];
-                let hs = read::<Hs, _>(cx);
-                cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Report(next)));
+                let next = (at as isize + delta).rem_euclid(visible.len() as isize) as usize;
+                Some(UsageIntent::Select(visible[next]))
             }
+            Msg::Step(_) => None,
+            Msg::Range => {
+                // The days keep their dates: the 30 days hold the 7 after
+                // 23 older ones (oracle: `change_range`).
+                if model.control_available(Control::Range, false) {
+                    let group = model.range_group(section);
+                    let longer = model.ranges[group as usize] == 0;
+                    for other in visible.iter().filter(|other| {
+                        !matches!(other, Section::Chats | Section::Plan | Section::Summary)
+                            && model.range_group(**other) == group
+                    }) {
+                        let index = *other as usize;
+                        self.cursors[index] = if longer {
+                            self.cursors[index] + 23
+                        } else {
+                            self.cursors[index].saturating_sub(23)
+                        };
+                        self.details[index] = self.details[index].and_then(|day| {
+                            if longer {
+                                Some(day + 23)
+                            } else {
+                                day.checked_sub(23)
+                            }
+                        });
+                    }
+                    rebuild = Rebuild::Yes;
+                }
+                Some(UsageIntent::Range)
+            }
+            Msg::Group => Some(UsageIntent::Group),
+            Msg::Model => Some(UsageIntent::Model),
+            Msg::Refresh => Some(UsageIntent::Refresh),
             Msg::NotYet(index) => {
                 let action = strings::of(cx).hints[index].1;
                 drop(crate::widgets::page_keys::not_yet(cx, action));
+                None
             }
             Msg::Close => {
+                cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
                 Navigator::maybe_pop(cx);
+                None
             }
+        };
+        if let Some(intent) = intent {
+            cx.emit(&hs.screen, ScreenIntent::Usage(intent));
         }
-        Rebuild::No
+        rebuild
     }
 
     fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
@@ -484,9 +636,23 @@ impl State for ScreenState {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let screens = watch::<ScreenStates, _>(cx);
-        let panels_only = w.panels_only;
+        let panels_only = w.panels;
+        let taps = self.taps.clone();
+        let section = screens.usage.section as usize;
+        let shown = report::Shown {
+            cursor: self.cursors[section],
+            detail: self.details[section],
+            zoomed: self.zoomed,
+        };
         let look = Look {
             dim: tokens.dim(),
+            secondary: tokens.dim(),
+            series: [
+                tokens.info(),
+                tokens.accent(),
+                tokens.success(),
+                Style::new(),
+            ],
             bold: tokens.bold(),
             accent: tokens.accent(),
             selected: tokens.selected().attrs(Attrs::REVERSE),
@@ -496,22 +662,37 @@ impl State for ScreenState {
             if panels_only {
                 panels(model, strings)
             } else {
-                dashboard(model, strings, &num, &look, constraints.max_width)
+                dashboard(
+                    model,
+                    strings,
+                    &num,
+                    &look,
+                    &taps,
+                    constraints.max_width,
+                    shown,
+                )
             }
         });
         let mut focus = Focus::new(body)
             .autofocus()
-            .bind(KeyPress::ESC, cx.send(Msg::Close));
-        for (index, report) in Report::ALL.iter().enumerate() {
+            .bind(KeyPress::TAB, cx.send(Msg::Step(1)))
+            .bind(KeyPress::BACKTAB, cx.send(Msg::Step(-1)))
+            .bind('r', cx.send(Msg::Range))
+            .bind('g', cx.send(Msg::Group))
+            .bind('m', cx.send(Msg::Model))
+            .bind('R', cx.send(Msg::Refresh));
+        for index in 0..TABS {
             let digit = char::from_digit(index as u32 + 1, 10).unwrap_or('1');
-            focus = focus.bind(digit, cx.send(Msg::Report(*report)));
+            focus = focus.bind(digit, cx.send(Msg::Pick(index)));
         }
-        // The footer's other keys: tab cycles the reports; the dashboard, the
-        // help and the refresh are not built yet and say so.
-        focus = focus.bind(KeyPress::TAB, cx.send(Msg::NextReport));
-        for (index, key) in [(1, 'z'), (2, '?'), (3, 'R')] {
+        // The dashboard and the help are not built yet and say so.
+        for (index, key) in [(0, 'z'), (1, '?')] {
             focus = focus.bind(key, cx.send(Msg::NotYet(index)));
         }
-        focus.into()
+        let keys = keys::LIST_KEYS
+            .iter()
+            .map(|(name, msg)| (*name, cx.send(msg.clone())))
+            .collect::<Vec<_>>();
+        KeyBindings::new(keys, focus).into()
     }
 }

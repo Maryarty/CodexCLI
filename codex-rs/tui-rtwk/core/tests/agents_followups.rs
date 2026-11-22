@@ -240,7 +240,7 @@ fn another_screens_events_leave_the_centers_model_shared() {
     let before = app.screens().clone();
     run(
         &mut app,
-        AppEv::Screen(ScreenEv::Usage(usage::Ev::AsOf(String::new()))),
+        AppEv::Screen(ScreenEv::Usage(usage::Ev::Invalidated { session: 0 })),
     );
     assert!(
         !std::rc::Rc::ptr_eq(&before, app.screens()),
