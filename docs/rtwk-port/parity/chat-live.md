@@ -53,3 +53,40 @@ Registration outside the area: `src/pages/session/mod.rs` (`mod banners; mod pen
 ## Binary
 `acargo build -p codex-rtwk`; mock-model check.py `--bin rtwk --bin oracle` on `interrupted` (Esc mid-stream), `usage-limit`, `error-retry`: PASS both binaries (2/2 each).
 The captures are raw pty streams; no VT replay was run, so no row-by-row checkpoint is claimed. Mouse: page tests only (rtwk_test), not walked in a pty.
+
+# chunk-live C2 — steer / queue / interrupt restore (brief §6 step 2), first part of the whole job
+Person's decision 2026-11-22: Enter during a running turn STEERS (`turn/steer`); the queue takes a message only when the turn refuses the steer; Tab queues.
+Status of the whole job: step 2 (core + restore UI) committed; steps 1, 3–11 not started (see "Left"). Oracle shards chat_live_1..5 unchanged by C2
+(chat_live_5 3/5/35/0, 0 red, 0 stale: the steer oracle tests that remain pending need the three-section preview, the Tab/Esc routes, or the notices below).
+Checks: core 671 tests, rules, the page/app subset (158) green; the ignored page tests listed below are the only Tab-queue coverage lost until `Hs.thread_screen`.
+
+## Built (ADR-003: the thread model is the one owner; the page only reads and emits)
+- core `threads.rs`: `PendingSteer`, `Restore { seq, messages, replace }` (`onto(draft)`), `ThreadModel::{pending_steers, rejected_steers, restore}`;
+  Submit while running steers through the chat slot RPC (`chat::Command::Steer` → `ThreadAsk::Steer` → `TurnSteer`, `expected_turn_id`);
+  the echo of the user item pops the pending steer; a refusal ("cannot steer a …") parks it in `rejected_steers` and it goes out merged at the turn end;
+  "no active turn" starts a turn; "expected active turn id …" retries once with the named turn; any other failure gives the message back to the composer;
+  `ThreadIntent::{Queue, InterruptForSteers, EditQueued}`; an interrupted turn restores rejected, pending, then queued messages (in that order);
+  `ConnectionLost` gives steers back; image placeholders are renumbered when messages merge.
+- core `screens/chat.rs`: `Command::Steer`, `Reply::Steered`, `Ctx::Steer`, wire/decode. `protocol/mod.rs`: `turn_input` is `pub(crate)`.
+- page `session/live/restore.rs` (`put_back`) + `session_page.rs`: the composer applies each restore `seq` once (text, image elements, caret at the end).
+- tests: core/tests/model.rs (steer, queue, refusal, retry, restore order, Esc-with-steers, edit-queued, image renumbering); tests/app/skeleton.rs
+  `a_message_typed_while_a_turn_runs_is_steered`.
+- Area widened (tm, on the record): core/src/protocol/mod.rs, tests/kit/mod.rs, tests/app/skeleton.rs.
+
+## Needs (other owners' files; nothing here is worked around)
+- `src/app/view.rs` (keymap): `Hs.thread_screen: Handler<(ThreadId, ScreenThreadIntent)>` → `AppEv::Intent(Intent::ThreadScreen { thread, intent })` (the arm exists, app.rs ~1403).
+  The page then emits `Queue(message)` for Tab, `InterruptForSteers` for Esc with steers pending, `EditQueued` for the edit-queued key. Until then a Tab submits and steers.
+  Three page tests are `#[ignore = "pending(chat-live): …"]` for it: skeleton.rs `queued_messages_are_sent_in_order_one_per_turn_end`, `a_queue_survives_a_second_submit`,
+  `running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts`; chat_live.rs `messages_queued_during_a_turn_show_above_the_composer_with_the_count_of_the_rest`.
+- `core/src/app.rs`: arms for `McpServerStatusUpdated` (chat MCP startup) and `BackendEv::Lagged` (MCP settle); `tests/kit/seed.rs` + `fixtures/script.rs`: `lagged`/`respond` steps
+  (`Screen::respond` is in tests/kit/mod.rs); `fixtures/builders.rs`: a `turn_interrupted` builder (model.rs defines a local one).
+- `pending_input.rs` (chat-status): the three-section preview (steers, rejected steers, queued) and its footer hint; `activity.rs` (chat-status): headers for MCP startup, retry, safety.
+- `actions.rs` (settings): `review_mode: false` must read `ThreadPart.review_mode`. `composer/footer.rs` (transcript): "tab to queue message" while steering, the Plan label.
+- `threads/cells.rs` + `cells/notice.rs` (cells): Notice variants `Interrupted`, `InterruptedForSteer`, `GoalBudgetReached` and their rows (no interruption notice is added yet).
+- `transcript_pane.rs` (transcript): an arm for a visible-warning item. popups: `Menu::List` opens for the safety retry and the Implement-plan prompts.
+
+## Left (brief §6 numbering)
+3 warnings / errors / retry header / Worked-for / startup warnings panel · 6 MCP startup · 5 backend banners, Luna Reserve, usage notice (actionable banner replacing `Callout`) ·
+4 safety buffering and misalignment · 7 review / goal / side gates (Esc warning in review mode) · 8 external writer · 9 plan mode (Plan-stream queueing) ·
+10 replay C4 (`ReplayKind`, the 30 todo tests of chat_live_2) · 1 layout (move into `live/`) · 11 pack, pty scenario on both binaries, rebase on `claude/tui-rtwk`, fmt, clippy `--workspace`, whole nextest, shards, `shards.py --check`.
+Binary run (check.py scenario on rtwk and oracle) not done yet: it belongs to step 11.
