@@ -390,7 +390,7 @@ fn inline_banner_snapshot() {
 fn escape_closes_shortcut_help_before_inline_banner() {
     kit::pending(
         Owner::UiPane,
-        "no inline banner with the shortcut overlay: no entry chat/inline_banner_short (`Continue working`, 80 columns; the height is the banner's desired height)",
+        "no entry chat/inline_banner_short (an inline banner `Continue working`, 80 columns; chat-live registers entries): the keys are page-tested on the backend banner, tests/pages/chat_status.rs `escape_closes_the_help_before_it_dismisses_the_banner`",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 4)
@@ -438,10 +438,6 @@ fn transition_events_reach_a_view_covered_by_a_modal() {
 // ORACLE bottom_pane/mod.rs:3129 ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint kind=ui owner=ui-pane
 #[test]
 fn ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint() {
-    kit::pending(
-        Owner::UiPane,
-        "no history search in the live chat: Ctrl+R opens the search over the draft `draft`; Ctrl+C must close it without clearing the draft or drawing the quit hint",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.type_text("draft");
     let typed = s.shot();

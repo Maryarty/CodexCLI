@@ -260,7 +260,7 @@ fn history_navigation_restores_remote_and_local_image_attachments() {
 fn history_navigation_restores_remote_only_submissions() {
     kit::pending(
         Owner::ChatLive,
-        "no remote image URLs and no prompt history on the chat composer: a remote-only submission is recorded, and Up restores it with an empty draft",
+        "the kit has no seed for set_remote_image_urls, and a remote-only submit is not recorded: `UserMessage` has no remote_images (the draft restores them from history, tests/pages/composer_images.rs)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: two remote image URLs and no text; Enter records the empty submission

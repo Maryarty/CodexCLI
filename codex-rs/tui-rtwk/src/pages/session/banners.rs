@@ -35,8 +35,8 @@ use crate::widgets::measure;
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
 use crate::widgets::picker::{Event, Picker};
 
-/// The chat screen's notice (a command's answer, or why a command is not
-/// available): `add_info_message` is plain text, `add_error_message` is red.
+/// What commands answered before any thread existed (`chat::Model.notes`):
+/// the rows a thread's transcript would hold, drawn above the composer.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct NoticeLine;
 
@@ -44,24 +44,17 @@ impl_widget!(stateless eq NoticeLine);
 
 impl StatelessWidget for NoticeLine {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
-        let tokens = theme::Tokens::of(cx);
-        let strings = chat_strings::of(cx);
         let states = watch::<ScreenStates, _>(cx);
-        let Some(notice) = &states.chat.notice else {
+        if states.chat.notes.is_empty() {
             return SizedBox::shrink().into();
-        };
-        let notice = match notice {
-            chat::ChatNotice::Command(notice) => notice.clone(),
-            chat::ChatNotice::NotAvailable(command) => {
-                codex_tui_core::commands::Notice::NotAvailable(*command)
-            }
-        };
-        let text = Text::new(strings.notice(&notice));
-        if notice.is_info() {
-            text.into()
-        } else {
-            text.style(tokens.error()).into()
         }
+        let mut column = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .main_axis_size(MainAxisSize::Min);
+        for note in &states.chat.notes {
+            column = column.child(super::cells::note::NoteCell { note: note.clone() });
+        }
+        column.into()
     }
 }
 

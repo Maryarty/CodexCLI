@@ -38,12 +38,26 @@ pub enum Access {
     Full,
 }
 
+/// A question with two answers, No first: the oracle's confirmations of
+/// `/archive` and `/delete` (`SelectionViewParams::confirmation`). The words
+/// are the view's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Confirm {
+    /// Archive the session; `running` says a turn is in progress, which the
+    /// archive stops.
+    Archive { running: bool },
+    /// Delete the session for good.
+    Delete,
+}
+
 /// A menu the generic selection dialog shows; one variant per
 /// parameterisation, its rows data (the words are the view's).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Menu {
     Models(Vec<ModelRow>),
     Permissions { current: Option<Access> },
+    /// A confirmation: No (row 0), then Yes (row 1).
+    Confirm(Confirm),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -55,7 +69,7 @@ impl Menu {
     pub fn len(&self) -> usize {
         match self {
             Menu::Models(rows) => rows.len(),
-            Menu::Permissions { .. } => 2,
+            Menu::Permissions { .. } | Menu::Confirm(_) => 2,
             Menu::List(list) => list.items.len(),
         }
     }
@@ -70,6 +84,8 @@ impl Menu {
 pub enum Picked {
     Model(String),
     Access(Access),
+    /// The answer of a confirmation was Yes (No picks nothing).
+    Confirmed(Confirm),
     /// An item of a generic list, by id.
     Item(String),
     /// The secondary action of an item of a generic list, by id.
@@ -136,6 +152,15 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 Some(Menu::Permissions { .. }) => match index {
                     0 => Some(Picked::Access(Access::Ask)),
                     1 => Some(Picked::Access(Access::Full)),
+                    _ => None,
+                },
+                Some(Menu::Confirm(confirm)) => match index {
+                    1 => Some(Picked::Confirmed(*confirm)),
+                    // No: the question is closed, nothing is picked.
+                    0 => {
+                        model.menu = None;
+                        None
+                    }
                     _ => None,
                 },
                 Some(Menu::List(_)) | None => None,

@@ -8,14 +8,15 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::commands::fuzzy_match;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::Shared;
+use crate::screens::composer::clipboard::Pasted;
 use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
 use crate::screens::composer::mentions::candidate::Capability;
 use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
+use crate::screens::composer::mentions::session::Sources;
 use crate::screens::composer::mentions::task::TaskMention;
 use crate::screens::composer::mentions::usage::MentionUsage;
 pub use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
@@ -31,8 +32,6 @@ pub const KIND: Kind = Kind::Part;
 /// seed it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// Paths relative to the working directory (`@` file search).
-    pub files: Vec<String>,
     /// Skills, apps and plugins (`$`, `@`).
     pub mentions: Vec<Mention>,
     /// The tasks the last task search found (`@`).
@@ -41,6 +40,8 @@ pub struct Model {
     pub file_matches: FileMatches,
     /// The window of recent `$` picks.
     pub usage: MentionUsage,
+    /// The images the host took from the clipboard (Ctrl+V).
+    pub pasted: Pasted,
     /// The message history file as far as it was read. Shared: `ScreenStates`
     /// is cloned on every change of any screen, a long history is not.
     pub history: Shared<Store>,
@@ -59,6 +60,10 @@ pub enum Ask {
     FileSearch(FileSearchAsk),
     /// A `$` pick was made: the usage file keeps its identity.
     RecordMention(String),
+    /// Ctrl+V: write the clipboard's image to a file; answered with
+    /// `Ev::ImagePasted`. A clipboard with no image, or none at all, is the
+    /// host's to tell the user (`Failed to paste image: ...`), no answer.
+    ClipboardImage,
     /// Append a submitted prompt to the file (`AppendMessageHistoryEntry`);
     /// no answer.
     Append(String),
@@ -67,97 +72,26 @@ pub enum Ask {
     Lookup(Lookup),
 }
 
-/// What a popup row stands for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CandidateKind {
-    File,
-    Skill,
-    App,
-    Plugin,
-}
-
-/// One row of the `$` or `@` popup.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Candidate {
-    pub kind: CandidateKind,
-    /// The name, or the path of a file.
-    pub label: String,
-    pub description: String,
-    /// What follows the sigil when it is picked.
-    pub insert: String,
-}
-
 impl Model {
     /// The asks since the last call, oldest first: what the host runs.
     pub fn take_asks(&mut self) -> Vec<Ask> {
         std::mem::take(&mut self.asks)
     }
 
+    /// What the mention popups are fed from.
+    pub fn sources(&self) -> Sources<'_> {
+        Sources {
+            mentions: &self.mentions,
+            tasks: &self.tasks,
+            usage: &self.usage,
+            file_matches: &self.file_matches,
+        }
+    }
+
     /// The asks not taken yet, oldest first.
     pub fn pending_asks(&self) -> &[Ask] {
         &self.asks
     }
-
-    /// The rows of a popup for `query`: best match first, ties in the data's
-    /// order. `$` lists skills and apps; `@` files, skills, plugins and apps
-    /// (a skill picked from `@` is inserted as `$name`).
-    pub fn candidates(&self, sigil: Sigil, query: &str) -> Vec<Candidate> {
-        let mut scored: Vec<(i32, Candidate)> = Vec::new();
-        let mut push = |name: &str, candidate: Candidate| {
-            if let Some((_, score)) = fuzzy_match(name, query) {
-                scored.push((score, candidate));
-            }
-        };
-        if sigil == Sigil::At {
-            for path in &self.files {
-                // The file name decides the match, the path is what is shown.
-                let file_name = path.rsplit('/').next().unwrap_or(path);
-                push(
-                    file_name,
-                    Candidate {
-                        kind: CandidateKind::File,
-                        label: path.clone(),
-                        description: String::new(),
-                        insert: path.clone(),
-                    },
-                );
-            }
-        }
-        for mention in &self.mentions {
-            let wanted = matches!(
-                (sigil, mention.kind),
-                (Sigil::Dollar, MentionKind::Skill | MentionKind::App)
-                    | (Sigil::At, MentionKind::Skill | MentionKind::Plugin | MentionKind::App)
-            );
-            if !wanted {
-                continue;
-            }
-            push(
-                &mention.name,
-                Candidate {
-                    kind: match mention.kind {
-                        MentionKind::Skill => CandidateKind::Skill,
-                        MentionKind::App => CandidateKind::App,
-                        MentionKind::Plugin => CandidateKind::Plugin,
-                    },
-                    label: mention.name.clone(),
-                    description: mention.description.clone(),
-                    insert: mention.insert.clone(),
-                },
-            );
-        }
-        scored.sort_by_key(|(score, _)| *score);
-        scored.into_iter().map(|(_, c)| c).collect()
-    }
-}
-
-/// The sigil of a mention popup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sigil {
-    /// `$`: skills.
-    Dollar,
-    /// `@`: files, skills, plugins and apps.
-    At,
 }
 
 /// Where reverse history search stands (`HistorySearchStatus`).
@@ -291,7 +225,6 @@ impl HistorySearch {
 /// (and the metadata read when a thread opens).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    Files(Vec<String>),
     Mentions(Vec<Mention>),
     /// The tasks a task search found.
     Tasks(Vec<TaskMention>),
@@ -299,6 +232,8 @@ pub enum Ev {
     FileMatches { query: String, matches: Vec<FileMatch> },
     /// The recent `$` picks the usage file held, oldest first.
     MentionUsage(Vec<String>),
+    /// The clipboard's image was written to this file (`Ask::ClipboardImage`).
+    ImagePasted(std::path::PathBuf),
     /// A history file of these prompts, oldest first, all read (a script's
     /// seed).
     History(Vec<String>),
@@ -334,16 +269,20 @@ pub enum Intent {
     SearchFiles(FileSearchAsk),
     /// A `$` mention was picked (by the skill's path).
     RecordMention(String),
+    /// A task was picked: the list of tasks the search found is spent.
+    SpendTasks,
+    /// Ctrl+V: the clipboard's image is wanted (`Ask::ClipboardImage`).
+    PasteImage,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Files(files) => model.files = files,
         Ev::Mentions(mentions) => model.mentions = mentions,
         Ev::Tasks(tasks) => model.tasks = tasks,
         Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
         Ev::MentionUsage(recent) => model.usage = MentionUsage::from_recent(recent),
+        Ev::ImagePasted(path) => model.pasted.on_image(path),
         Ev::History(history) => *model.history = Store::seeded(history),
         Ev::HistoryMetadata {
             log_id,
@@ -380,6 +319,8 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
         Intent::SearchFiles(ask) => model.asks.push(Ask::FileSearch(ask)),
+        Intent::SpendTasks => model.tasks.clear(),
+        Intent::PasteImage => model.asks.push(Ask::ClipboardImage),
         Intent::RecordMention(identity) => {
             model.usage.record(&identity);
             model.asks.push(Ask::RecordMention(identity));
@@ -436,19 +377,20 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// The seed form of this screen's events: `{"files":["src/a.rs"]}`,
+/// The seed form of this screen's events:
 /// `{"mentions":[{kind,name,description,insert,path?,plugin_id?,capabilities?}]}` (capabilities: `"skills"`, `{"mcp_servers":2}`, `{"apps":1}`),
 /// `{"tasks":[{thread,title,cwd?,snippet?}]}`,
 /// `{"file_matches":{"query":"q","matches":[{path,dir?,score?,indices?}]}}`,
-/// `{"mention_usage":["path"]}` and `{"history":["..."]}` (oldest first).
+/// `{"mention_usage":["path"]}`, `{"image_pasted":"/path/to.png"}` and
+/// `{"history":["..."]}` (oldest first).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
-    Files(Vec<String>),
     Mentions(Vec<SeedMention>),
     Tasks(Vec<SeedTask>),
     FileMatches(SeedFileMatches),
     MentionUsage(Vec<String>),
+    ImagePasted(std::path::PathBuf),
     History(Vec<String>),
 }
 
@@ -513,7 +455,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
-        SeedEv::Files(files) => Ev::Files(files),
         SeedEv::History(history) => Ev::History(history),
         SeedEv::Mentions(mentions) => Ev::Mentions(
             mentions
@@ -570,5 +511,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 .collect(),
         },
         SeedEv::MentionUsage(recent) => Ev::MentionUsage(recent),
+        SeedEv::ImagePasted(path) => Ev::ImagePasted(path),
     })
 }

@@ -1,0 +1,5 @@
+# The status line is the `hostname` item (status_line_hostname_renders_current_machine_hostname).
+# Oracle data: chatwidget/tests/status_and_layout.rs:3243. The host fills the fact with
+# `codex_config::os_host_name()` (host/src/facts.rs); the page shows the fact.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"hostname":"devbox.local","items":["hostname"]}}}

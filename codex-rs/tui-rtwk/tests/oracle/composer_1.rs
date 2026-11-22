@@ -49,7 +49,11 @@ fn light_terminal_palette_renders_light_composer_snapshot() {
         Owner::ChatLive,
         "screen feature: the composer paints no light-terminal background (cell (0, 1) bg is Reset, the oracle's is Rgb(244,244,244)); the terminal colours come from the kit's `light()` seed",
     );
-    let s = Screen::build(Owner::ChatLive).size(48, 6).light().live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(48, 6)
+        .light()
+        .live()
+        .open();
     s.assert_style(0, 1, "bg=Rgb(244,244,244)");
     s.assert_snap("light_terminal_palette_composer");
 }

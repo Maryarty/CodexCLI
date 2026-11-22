@@ -1,0 +1,4 @@
+# Status line and title are the `reasoning` item, the Fast tier on (status_line_and_terminal_title_reasoning_render_only_effort).
+# Oracle data: chatwidget/tests/status_and_layout.rs:4391 model gpt-5.4, effort xhigh.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.4","effort":"xhigh","service_tier":"priority","items":["reasoning"],"terminal_title":["reasoning"]}}}

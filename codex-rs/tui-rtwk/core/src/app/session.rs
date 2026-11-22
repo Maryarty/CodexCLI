@@ -4,8 +4,22 @@ use std::rc::Rc;
 
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
-use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat, status};
-use crate::threads::{ThreadAsk, ThreadEv};
+use crate::rpc::Answer;
+use crate::screens::select::{Confirm, Menu, Picked};
+use crate::screens::{
+    ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
+};
+use crate::threads::{
+    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, UserMessage,
+};
+
+/// The Desktop app's link to a thread (`desktop_thread_deeplink`), the thread's
+/// id after it.
+const DESKTOP_THREAD_URL: &str = "codex://threads/";
+
+/// `/init`: the prompt the oracle sends as a user message
+/// (`assets/prompt_for_init_command.md`).
+const INIT_PROMPT: &str = include_str!("../../assets/prompt_for_init_command.md");
 
 pub(super) fn active_backend(app: &CodexApp) -> BackendId {
     let agents = &app.screens.agents;
@@ -108,10 +122,12 @@ pub(super) fn session_intent(
             );
             fx.commands.push(request);
         }
-        S::Stop | S::Compact | S::Rename { name: Some(_) } => {
+        S::Cd { path } => change_directory(app, source, &path, fx),
+        S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
+        S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
+        S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {
-                    S::Stop => ThreadEv::Interrupt,
                     S::Rename { name: Some(name) } => ThreadEv::ScreenIntent(
                         ScreenThreadIntent::Chat(chat::ThreadIntent::Rename(name)),
                     ),
@@ -122,13 +138,326 @@ pub(super) fn session_intent(
                 apply_thread(app, &thread, ev, fx);
             }
         }
-        _ => chat::apply_intent(
-            &mut Rc::make_mut(&mut app.screens).chat,
-            chat::Intent::Session {
-                thread: source,
-                command,
-                intent,
+        // `clean_background_terminals`: the op, then the line saying so.
+        S::Stop => {
+            if let Some(thread) = &source {
+                let ev = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+                    chat::ThreadIntent::CleanTerminals,
+                ));
+                apply_thread(app, thread, ev, fx);
+            }
+            session_note(app, source, Note::from(NoteKey::StoppingTerminals), fx);
+        }
+        S::MemoryMaintenance => session_note(
+            app,
+            source,
+            Note::from(NoteKey::Stub(Stub::MemoryMaintenance)),
+            fx,
+        ),
+        S::Pwd => {
+            let directory = working_directory(app, source.as_ref());
+            session_note(
+                app,
+                source,
+                Note::from(NoteKey::WorkingDirectory(directory)),
+                fx,
+            );
+        }
+        S::Rollout => {
+            let path = source
+                .as_ref()
+                .and_then(|id| app.threads.get(id))
+                .and_then(|model| model.screen_slots().chat.path.clone());
+            session_note(app, source, Note::from(NoteKey::Rollout(path)), fx);
+        }
+        // `AppEvent::OpenDesktopThread`: the Desktop app takes the thread by its link.
+        S::App => match source {
+            Some(thread) => {
+                fx.commands.push(Command::OpenUrl {
+                    url: [DESKTOP_THREAD_URL, thread.as_str()].concat(),
+                });
+                session_note(app, Some(thread), Note::from(NoteKey::DesktopOpened), fx);
+            }
+            None => session_note(
+                app,
+                None,
+                Note::from(crate::commands::Notice::SessionStarting(command)),
+                fx,
+            ),
+        },
+        // The prompt goes as a message of the thread it was typed in.
+        S::Init => {
+            if let Some(thread) = source {
+                super::submit(app, &thread, UserMessage::text(INIT_PROMPT), fx);
+            }
+        }
+        // `toggle_raw_output_mode_and_notify`: the mode, then the line saying so.
+        S::Raw { on } => {
+            let enabled = on.unwrap_or(!app.screens.chat.raw_output);
+            chat::apply_intent(
+                &mut Rc::make_mut(&mut app.screens).chat,
+                chat::Intent::RawOutput(enabled),
+                fx,
+            );
+            session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
+        }
+        // What another chunk or a later step builds: until then the answer
+        // that says so. Every variant is named, so a new one cannot slip by.
+        S::Recap
+        | S::Worktree
+        | S::Rename { name: None }
+        | S::Plan { .. }
+        | S::Goal { .. }
+        | S::Side { .. }
+        | S::Copy
+        | S::Export { .. }
+        | S::Tui
+        | S::Mcp { .. }
+        | S::Apps
+        | S::Plugins
+        | S::Logout
+        | S::Vim
+        | S::Ide { .. }
+        | S::Daybreak
+        | S::ElevateSandbox
+        | S::Hooks
+        | S::DebugConfig
+        | S::Ps
+        | S::Review { .. }
+        | S::Model { .. }
+        | S::Permissions { .. }
+        | S::Title { .. }
+        | S::Statusline { .. }
+        | S::VoiceControl(_)
+        | S::ResumeNamed { .. } => session_note(
+            app,
+            source,
+            Note::from(crate::commands::Notice::NotAvailable(command)),
+            fx,
+        ),
+    }
+}
+
+/// `/cd` (`request_working_directory_change`, `AppEvent::ChangeWorkingDirectory`):
+/// the session goes on in the directory, as a fork of the conversation when it
+/// has history to keep and as a fresh thread when it has none. The new thread
+/// takes the screen as `/new` and `/fork` do (`AppCtx::NewConversation`).
+fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx: &mut AppFx) {
+    let refuse = |app: &mut CodexApp, source: Option<ThreadId>, why, fx: &mut AppFx| {
+        session_note(app, source, Note::from(NoteKey::CdRefused(why)), fx);
+    };
+    let Some((thread, model)) = source.as_ref().and_then(|id| {
+        app.threads
+            .get(id)
+            .map(|model| (id.clone(), Rc::clone(model)))
+    }) else {
+        return refuse(app, source, CdRefusal::NotStarted, fx);
+    };
+    let part = &model.screen_slots().chat;
+    // `can_change_working_directory`: an idle primary session, nothing queued.
+    let idle = !model.is_running()
+        && !model.can_interrupt()
+        && model.queue().is_empty()
+        && model.pending_steers().is_empty();
+    if !idle
+        || app.screens.chat.flags.side_conversation_active
+        || part.parent_owned
+        || part.ephemeral
+    {
+        return refuse(app, source, CdRefusal::NotIdle, fx);
+    }
+    let has_history = model
+        .transcript()
+        .iter()
+        .any(|(_, item)| !matches!(item, Item::Note(_)));
+    if has_history && part.path.is_none() {
+        return refuse(app, source, CdRefusal::HistoryNotSaved, fx);
+    }
+    if app
+        .outgoing
+        .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+    {
+        return;
+    }
+    let base = part
+        .cwd
+        .clone()
+        .or_else(|| app.screens.chat.status.cwd.clone())
+        .unwrap_or_default();
+    let cwd = Some(crate::commands::resolve_directory(
+        path,
+        &base,
+        app.screens.agents.home.as_deref(),
+    ));
+    let ask = if has_history {
+        ThreadAsk::ForkAt {
+            thread: thread.to_string(),
+            cwd,
+        }
+    } else {
+        ThreadAsk::Start { cwd }
+    };
+    let ticket = app.mint.next();
+    let backend = app.screens.agents.owner_of(thread.as_str());
+    app.outgoing.insert(
+        ticket,
+        AppCtx::NewConversation {
+            source,
+            backend,
+            name: None,
+        },
+    );
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+    });
+}
+
+/// `/archive`, `/delete` (`slash_dispatch.rs`): the confirmation opens in the
+/// select sheet, whatever the session is (the checks are the answer Yes's).
+fn ask_removal(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    action: agents::Action,
+    fx: &mut AppFx,
+) {
+    let confirm = match action {
+        agents::Action::Archive => Confirm::Archive {
+            running: source
+                .and_then(|id| app.threads.get(&id).map(|model| model.is_running()))
+                .unwrap_or(false),
+        },
+        agents::Action::Delete => Confirm::Delete,
+    };
+    select::apply_intent(
+        &mut Rc::make_mut(&mut app.screens).select,
+        select::Intent::Open(Menu::Confirm(confirm)),
+        fx,
+    );
+}
+
+/// The answer Yes of a confirmation the select sheet closed on: the pick is
+/// taken off the screen's record and acted on (No picks nothing).
+pub(super) fn confirmed(app: &mut CodexApp, fx: &mut AppFx) {
+    let yes = |picked: &Picked| matches!(picked, Picked::Confirmed(_));
+    if !app.screens.select.picked.iter().any(yes) {
+        return;
+    }
+    let mut asked = Vec::new();
+    Rc::make_mut(&mut app.screens)
+        .select
+        .picked
+        .retain(|picked| match picked {
+            Picked::Confirmed(confirm) => {
+                asked.push(*confirm);
+                false
+            }
+            _ => true,
+        });
+    for confirm in asked {
+        let action = match confirm {
+            Confirm::Archive { .. } => agents::Action::Archive,
+            Confirm::Delete => agents::Action::Delete,
+        };
+        remove_current_thread(app, action, fx);
+    }
+}
+
+/// `archive_current_thread`, `delete_current_thread` (app/event_dispatch.rs):
+/// the server is asked to remove the thread the chat shows. Saved side chats
+/// and the voice session of the thread are not carried (no `/side`, no voice
+/// session in the port).
+fn remove_current_thread(app: &mut CodexApp, action: agents::Action, fx: &mut AppFx) {
+    let source = app.session.active.clone();
+    let refuse = |app: &mut CodexApp, why, fx: &mut AppFx| {
+        let note = Note::from(NoteKey::Remove(action, why));
+        session_note(app, source.clone(), note, fx);
+    };
+    let Some(thread) = source.clone() else {
+        return refuse(app, RemoveNote::NotStarted, fx);
+    };
+    if app.screens.chat.flags.side_conversation_active {
+        return refuse(app, RemoveNote::SideConversation, fx);
+    }
+    let asked =
+        |ctx: &AppCtx| matches!(ctx, AppCtx::Removal { thread: held, .. } if *held == thread);
+    if app.outgoing.any(asked) {
+        return;
+    }
+    let command = match action {
+        agents::Action::Archive => agents::Command::Archive {
+            thread: thread.to_string(),
+        },
+        agents::Action::Delete => agents::Command::Delete {
+            thread: thread.to_string(),
+        },
+    };
+    let ticket = app.mint.next();
+    app.outgoing
+        .insert(ticket, AppCtx::Removal { thread, action });
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(command),
+    });
+}
+
+/// The server answered the removal of `thread`: true when it is gone (the
+/// caller empties the chat when it was the shown one, and the command center
+/// takes its place: `return_to_agents_after_removal`); refused, the thread
+/// stays and the chat says so.
+pub(super) fn removed(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    action: agents::Action,
+    answer: Answer,
+    fx: &mut AppFx,
+) -> bool {
+    if !matches!(
+        answer,
+        Answer::Screen(ScreenReply::Agents(agents::Reply::Done))
+    ) {
+        let note = Note::from(NoteKey::Remove(action, RemoveNote::Failed));
+        session_note(app, Some(thread.clone()), note, fx);
+        return false;
+    }
+    app.threads.forget(thread);
+    true
+}
+
+/// `config.cwd`: the directory of the thread, else the one the host read for
+/// the status line.
+fn working_directory(app: &CodexApp, thread: Option<&ThreadId>) -> String {
+    thread
+        .and_then(|id| app.threads.get(id))
+        .and_then(|model| model.screen_slots().chat.cwd.clone())
+        .or_else(|| app.screens.chat.status.cwd.clone())
+        .unwrap_or_default()
+}
+
+/// What a command line answered with (oracle `add_info_message` /
+/// `add_error_message`): an entry of the thread it was submitted in, so it
+/// stays in the transcript; with no thread yet, a note of the chat screen.
+pub(super) fn session_note(
+    app: &mut CodexApp,
+    thread: Option<ThreadId>,
+    note: Note,
+    fx: &mut AppFx,
+) {
+    match thread.filter(|id| app.threads.get(id).is_some()) {
+        Some(thread) => apply_thread(
+            app,
+            &thread,
+            ThreadEv::Appended {
+                turn: None,
+                item: Item::Note(note),
             },
+            fx,
+        ),
+        None => chat::apply_intent(
+            &mut Rc::make_mut(&mut app.screens).chat,
+            chat::Intent::Note { thread: None, note },
             fx,
         ),
     }
