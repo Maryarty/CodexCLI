@@ -39,11 +39,12 @@ tests, 8 (host), 9 (menu, reset credits) and 10 (binary run, generated shard) ar
   rebase brings `src/keymap` (`tui.keymap` remaps).
 
 ### Checks at this tip
-`acargo fmt`, clippy `--workspace --all-targets -D warnings` exit 0, whole nextest 857 run / 856 pass; the
-one red is the known flake `shell_agents::typing_a_word_asks_the_server_once` (known-red.txt),
-`shards.py --check` 0 files stale. R14 (`r14_widget_state_fields_hold_no_screen_model_types`) was red
-because two of my core types were named `Cell` and `What` (the scan flags `Rc<Cell<bool>>` of other
-owners and a doc comment of agents); renamed to `Square` and `AskKind`, green now.
+Rebased on claude/tui-rtwk `0eb53b241` (keymap merged). `acargo fmt`, clippy `--workspace --all-targets -D warnings`
+exit 0, whole nextest 1773 run / 1773 pass, `shards.py --check` 0 files stale. Two reds on the way, both mine, fixed:
+R14 flagged my core types `View` (now `ReportView`) and `Renderer` (now `GridPainter`) against other owners'
+widget-state fields of the same name; `no_literal_colours_anywhere` flagged `Color::CYAN/MAGENTA/GREEN` in the
+view: the plot's series now come from the theme's tokens (`info`, `accent`, `success`; `src/app/theme.rs` is
+chunk-cells' area and could not be widened, so no new token: the terminal theme holds those three hues).
 
 ### Outside the original area (area widened on the record, additive)
 - `core/tests/agents_followups.rs:243`: `usage::Ev::Invalidated{session:0}` (the Ev changed shape).

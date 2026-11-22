@@ -5,7 +5,7 @@
 //! styled lines; this builds the same decisions as values, the words being
 //! the view's (`Unit`, `Note`, `Message` name the text, they do not hold it).
 //! The cursor, the open detail, the zoom and the viewport are the widget's
-//! (R14) and come in as `View`.
+//! (R14) and come in as `ReportView`.
 
 use super::Model;
 use super::data::{amount, compact_amount, credit_amount};
@@ -16,7 +16,7 @@ use super::sections::Section;
 
 /// What the widget holds that decides the report's shape.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct View {
+pub struct ReportView {
     /// The selected day, an index into the range.
     pub cursor: usize,
     /// The open detail (Enter): the whole numbers, no remainder row.
@@ -229,7 +229,7 @@ impl Model {
     pub fn focused(
         &self,
         section: Section,
-        view: View,
+        view: ReportView,
         width: usize,
         date_label: DateLabel<'_>,
     ) -> Option<Report> {
@@ -270,7 +270,7 @@ impl Model {
     pub fn report(
         &self,
         section: Section,
-        view: View,
+        view: ReportView,
         width: usize,
         height: usize,
         date_label: DateLabel<'_>,

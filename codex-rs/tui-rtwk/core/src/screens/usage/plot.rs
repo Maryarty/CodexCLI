@@ -269,7 +269,7 @@ impl Layout {
 
 /// Shared inputs for painting and annotations; all phases use the same
 /// calendar geometry.
-struct Renderer<'a> {
+struct GridPainter<'a> {
     days: &'a [Slot<'a>],
     values: Vec<[f64; 4]>,
     cursor: usize,
@@ -320,7 +320,7 @@ pub fn chart(
         - 1
         + 2;
     let layout = Layout::new(days.len(), cursor, width, height, label_width, bands.len());
-    let renderer = Renderer {
+    let renderer = GridPainter {
         days,
         values,
         cursor,
@@ -343,7 +343,7 @@ pub fn chart(
     plot
 }
 
-impl Renderer<'_> {
+impl GridPainter<'_> {
     fn paint_bars(&self, plot: &mut Plot) {
         let Layout {
             axis_width,

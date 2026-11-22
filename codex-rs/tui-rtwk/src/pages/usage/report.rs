@@ -11,14 +11,14 @@ use rtwk::layout::{
     CellPainter, Column, CrossAxisAlignment, CustomPaint, Divider, Expanded, MainAxisSize, Row,
     SizedBox,
 };
-use rtwk::style::{Attrs, Color, Span, Style};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::canvas::Canvas;
 
 use codex_tui_core::screens::usage::plot::{Ink, Plot};
 use codex_tui_core::screens::usage::report::{
-    Body, Head, Label, Left, Message, Note, Report, Right, Row as Line, Summary, View,
+    Body, Head, Label, Left, Message, Note, Report, ReportView, Right, Row as Line, Summary,
 };
 use codex_tui_core::screens::usage::{Load, Model, Section};
 
@@ -75,7 +75,7 @@ pub fn body(
     }
     let (model, strings, num, look) = (model.clone(), *strings, *num, look.clone());
     LayoutBuilder::new(move |_, constraints| {
-        let view = View {
+        let view = ReportView {
             cursor: shown.cursor,
             detail: shown.detail,
             zoomed: shown.zoomed,
@@ -96,12 +96,7 @@ pub fn body(
 /// The ink's style (oracle: `styles.rs`, `plot/painting.rs`): the series are
 /// the terminal's cyan, magenta and green and its own colour for the rest.
 fn style_of(ink: Ink, look: &Look) -> Style {
-    let series = |index: usize| match index {
-        0 => Style::new().fg(Color::CYAN),
-        1 => Style::new().fg(Color::MAGENTA),
-        2 => Style::new().fg(Color::GREEN),
-        _ => Style::new(),
-    };
+    let series = |index: usize| look.series[index.min(3)].clone();
     match ink {
         Ink::Plain => Style::new(),
         Ink::Series(index) => series(index),

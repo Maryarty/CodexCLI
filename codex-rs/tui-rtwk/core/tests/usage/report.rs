@@ -4,7 +4,7 @@
 
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::usage::report::{
-    Body, Head, Label, Left, Message, Right, Summary, Unit, View,
+    Body, Head, Label, Left, Message, ReportView, Right, Summary, Unit,
 };
 use codex_tui_core::screens::usage::{Model, Section};
 use pretty_assertions::assert_eq;
@@ -76,8 +76,8 @@ fn label(date: codex_tui_core::screens::usage::NaiveDate, month: bool) -> String
     }
 }
 
-fn view(cursor: usize, viewport: usize) -> View {
-    View {
+fn view(cursor: usize, viewport: usize) -> ReportView {
+    ReportView {
         cursor,
         detail: None,
         zoomed: true,

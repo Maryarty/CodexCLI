@@ -193,6 +193,9 @@ pub struct Look {
     pub bold: Style,
     pub accent: Style,
     pub selected: Style,
+    /// The plot's series: the theme's info, accent and success hues (the
+    /// oracle: the terminal's cyan, magenta and green), the terminal's own after.
+    pub series: [Style; 4],
 }
 
 /// An empty row.
@@ -644,6 +647,12 @@ impl State for ScreenState {
         let look = Look {
             dim: tokens.dim(),
             secondary: tokens.dim(),
+            series: [
+                tokens.info(),
+                tokens.accent(),
+                tokens.success(),
+                Style::new(),
+            ],
             bold: tokens.bold(),
             accent: tokens.accent(),
             selected: tokens.selected().attrs(Attrs::REVERSE),
