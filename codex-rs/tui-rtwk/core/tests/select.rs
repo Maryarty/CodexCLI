@@ -24,14 +24,18 @@ fn a_permission_pick_closes_the_menu_and_the_app_takes_it() {
     // The app applies a permission pick at once (core/tests/select_live.rs
     // holds its asks); what stays is the line for the history.
     assert!(model.picked.is_empty());
-    assert_eq!(
-        model.notes,
-        vec![Note::PermissionsUpdated(Label::Mode {
-            preset: Preset::Auto,
-            reviewer: Reviewer::User
-        })]
-    );
+    assert!(model.notes.is_empty(), "told at once");
     assert!(model.menu().is_none());
+    // No thread is open: the line is a note of the chat screen.
+    assert_eq!(
+        sandbox.app().screens().chat.notes,
+        vec![codex_tui_core::threads::Note::from(
+            codex_tui_core::threads::NoteKey::Select(Note::PermissionsUpdated(Label::Mode {
+                preset: Preset::Auto,
+                reviewer: Reviewer::User
+            }))
+        )]
+    );
 }
 
 #[test]

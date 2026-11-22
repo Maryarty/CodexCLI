@@ -142,6 +142,29 @@ pub struct Strings {
     pub high_load: &'static str,
     /// `REVIEW_STEER_UNAVAILABLE_MESSAGE` (`interaction.rs`).
     pub review_steer_unavailable: &'static str,
+    /// The words of the picker sheets (the effort and mode names the notes
+    /// repeat).
+    pub picker: &'static crate::sheets::select::strings::Strings,
+    // The notes of `/model`, `/permissions` and `/apps`
+    // (`model_defaults.rs`, `config_persistence.rs`, `connectors.rs`).
+    pub note_no_models: &'static str,
+    pub note_models_not_loaded: &'static str,
+    pub note_model_changed: Msg<1>,
+    pub note_session_only: &'static str,
+    pub note_default_effort: &'static str,
+    pub note_permissions_updated: Msg<1>,
+    pub note_permission_requested: Msg<1>,
+    pub note_save_model_failed: Msg<1>,
+    pub note_save_plan_failed: Msg<1>,
+    pub note_save_profile_failed: Msg<1>,
+    pub note_overridden: Msg<1>,
+    pub note_setting_model: &'static str,
+    pub note_setting_plan: &'static str,
+    pub note_setting_permissions: &'static str,
+    pub note_ultra: Msg<2>,
+    pub note_apps_disabled: &'static str,
+    pub note_apps_hint: &'static str,
+    pub note_no_apps: &'static str,
     /// The hint of the `/` popup is the framework's; this is the empty one.
     pub num: NumSyms,
 }
@@ -231,6 +254,29 @@ pub const EN: Strings = Strings {
     retry_busy: msg!("Server is busy, reconnecting {0}"),
     high_load: "Codex is currently experiencing high load.",
     review_steer_unavailable: "Steer messages aren't supported during /review. Press Ctrl+C now to cancel the review.",
+    picker: &crate::sheets::select::strings::EN,
+    note_no_models: "No additional models are available right now.",
+    note_models_not_loaded: "Could not load models. Try /model again.",
+    note_model_changed: msg!("Model changed to {0}"),
+    note_session_only: " for this session only",
+    note_default_effort: "default",
+    note_permissions_updated: msg!("Permissions updated to {0}"),
+    note_permission_requested: msg!("Permission selection requested: {0}"),
+    note_save_model_failed: msg!("Failed to save default model: {0}"),
+    note_save_plan_failed: msg!("Failed to save Plan mode reasoning effort: {0}"),
+    note_save_profile_failed: msg!("Failed to set permission profile: {0}"),
+    note_overridden: msg!(
+        "Saved {0}, but a higher-priority configuration layer overrides the saved value."
+    ),
+    note_setting_model: "default model and reasoning effort",
+    note_setting_plan: "Plan mode reasoning effort",
+    note_setting_permissions: "permissions",
+    note_ultra: msg!(
+        "Ultra reasoning may proactively use multiple agents. This session is configured for {0} concurrent threads with up to {1} subagents which can increase usage quickly. Consider setting features.multi_agent_v2.max_concurrent_threads_per_session below 8."
+    ),
+    note_apps_disabled: "Apps are disabled.",
+    note_apps_hint: "Enable the apps feature to use $ or /apps.",
+    note_no_apps: "No apps available.",
     num: NumSyms::ENGLISH,
 };
 
@@ -387,6 +433,97 @@ impl Strings {
             }
             NoteKey::Remove(Action::Archive, RemoveNote::Failed) => self.archive_failed.to_string(),
             NoteKey::Remove(Action::Delete, RemoveNote::Failed) => self.delete_failed.to_string(),
+            NoteKey::Select(note) => self.picker_note(note),
+        }
+    }
+
+    /// The words of what a picker said (`select::Note`).
+    fn picker_note(&self, note: &codex_tui_core::screens::select::Note) -> String {
+        use codex_tui_core::screens::select::permissions::{Label, Preset, Reviewer};
+        use codex_tui_core::screens::select::{Note, Setting};
+        let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        let picker = self.picker;
+        match note {
+            Note::NoAdditionalModels => self.note_no_models.to_string(),
+            Note::ModelsNotLoaded => self.note_models_not_loaded.to_string(),
+            Note::ModelChanged {
+                model,
+                effort,
+                session,
+            } => {
+                let mut line = text(self.note_model_changed, model);
+                if !model.starts_with("codex-auto-") {
+                    line.push(' ');
+                    match effort {
+                        None | Some(codex_protocol::openai_models::ReasoningEffort::None) => {
+                            line.push_str(self.note_default_effort);
+                        }
+                        Some(effort) => line.push_str(effort.as_str()),
+                    }
+                }
+                if *session {
+                    line.push_str(self.note_session_only);
+                }
+                line
+            }
+            Note::UltraConcurrency(threads) => Fmt::new(
+                self.note_ultra,
+                [int(*threads), int(threads.saturating_sub(1))],
+                &self.num,
+            )
+            .to_string(),
+            Note::PermissionsUpdated(label) | Note::PermissionSelectionRequested(label) => {
+                let name = match label {
+                    Label::Mode {
+                        preset: Preset::Auto,
+                        reviewer: Reviewer::AutoReview,
+                    } => picker.mode_approve.to_string(),
+                    Label::Mode {
+                        preset: Preset::Auto,
+                        ..
+                    } => picker.mode_ask.to_string(),
+                    Label::Mode {
+                        preset: Preset::FullAccess,
+                        ..
+                    } => picker.mode_full.to_string(),
+                    Label::Mode {
+                        preset: Preset::ReadOnly,
+                        ..
+                    } => picker.mode_read.to_string(),
+                    Label::Profile(id) => id.clone(),
+                };
+                let message = match note {
+                    Note::PermissionSelectionRequested(_) => self.note_permission_requested,
+                    _ => self.note_permissions_updated,
+                };
+                text(message, &name)
+            }
+            Note::SaveFailed { setting, error } => text(
+                match setting {
+                    Setting::Model => self.note_save_model_failed,
+                    Setting::PlanEffort => self.note_save_plan_failed,
+                    Setting::Permissions => self.note_save_profile_failed,
+                },
+                error,
+            ),
+            Note::Overridden(setting) => text(
+                self.note_overridden,
+                match setting {
+                    Setting::Model => self.note_setting_model,
+                    Setting::PlanEffort => self.note_setting_plan,
+                    Setting::Permissions => self.note_setting_permissions,
+                },
+            ),
+            Note::AppsDisabled => format!(
+                "{}{INLINE_GAP}{}",
+                self.note_apps_disabled, self.note_apps_hint
+            ),
+            Note::NoApps => self.note_no_apps.to_string(),
+            Note::AppsFailed(error) => error.clone(),
+            Note::AppLinkUnavailable(status) => {
+                picker.app_status_line(picker.apps_no_link, *status)
+            }
         }
     }
 

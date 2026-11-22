@@ -42,7 +42,24 @@ fn answer(app: &mut CodexApp, ticket: Ticket, reply: select::Reply) -> AppFx {
 }
 
 /// The one select command in `fx`, with its ticket; no thread rides with it.
+/// The `model/list` that opening `/permissions` warms the catalog with (for
+/// the cyber warning of full access) is not counted.
 fn asked(fx: &AppFx) -> (Ticket, select::Command) {
+    let warmed = |command: &&Command| {
+        matches!(
+            command,
+            Command::Screen {
+                command: ScreenCommand::Select(select::Command::Models { .. }),
+                ..
+            }
+        )
+    };
+    let all: Vec<_> = fx.commands().iter().collect();
+    let asks: Vec<_> = if all.len() > 1 {
+        all.into_iter().filter(|c| !warmed(c)).collect()
+    } else {
+        all
+    };
     let [
         Command::Screen {
             ticket,
@@ -50,7 +67,7 @@ fn asked(fx: &AppFx) -> (Ticket, select::Command) {
             command: ScreenCommand::Select(command),
             ..
         },
-    ] = fx.commands()
+    ] = asks.as_slice()
     else {
         panic!("expected one select command, got {:?}", fx.commands());
     };
@@ -60,6 +77,30 @@ fn asked(fx: &AppFx) -> (Ticket, select::Command) {
 
 fn profile(id: &str) -> Profile {
     serde_json::from_value(json!({"id": id})).expect("profile")
+}
+
+/// What the pickers said, as the transcript of the thread in use has it
+/// (the screen's notes are drained into it).
+fn said(app: &CodexApp) -> Vec<select::Note> {
+    use codex_tui_core::threads::{Item, NoteKey};
+    let mut said: Vec<_> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Note(note) => match &note.key {
+                NoteKey::Select(note) => Some(note.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert!(
+        app.screens().select.notes.is_empty(),
+        "the screen's notes are told at once"
+    );
+    said.shrink_to_fit();
+    said
 }
 
 fn model_menu() -> PermsCurrent {
@@ -144,6 +185,52 @@ fn a_failed_model_list_clears_the_wait() {
         AppEv::Reply(ticket, Reply::error(RpcError::Remote("down".into()))),
     );
     assert_eq!(app.screens().select.catalog.pending, None);
+}
+
+/// The full-access confirmation is the cyber one when the catalog says the
+/// thread's model is a cyber model: `/permissions` asks `model/list` once,
+/// out of sight, for it.
+#[test]
+fn the_model_catalog_is_warmed_for_the_cyber_warning() {
+    let mut app = CodexApp::new();
+    let current = PermsCurrent {
+        model: Some("gpt-cyber".into()),
+        ..model_menu()
+    };
+    let fx = open(&mut app, SelectIntent::OpenPermissions(current));
+    let models: Vec<_> = all(&fx)
+        .into_iter()
+        .filter_map(|(ticket, command)| {
+            matches!(command, select::Command::Models { .. }).then_some(ticket)
+        })
+        .collect();
+    assert_eq!(models.len(), 1, "one model/list: {:?}", fx.commands());
+    let cyber: Preset = serde_json::from_value(json!({
+        "model": "gpt-cyber", "name": "Cyber", "default_effort": "high",
+        "efforts": [{"effort": "high"}], "specialty": "cyber"
+    }))
+    .expect("preset");
+    answer(&mut app, models[0], select::Reply::Models(vec![cyber]));
+    assert!(
+        matches!(permissions_menu(&app), PermissionsMenu::Loading(_)),
+        "the answer is not for a picker"
+    );
+    let (ticket, _) = asked(&fx);
+    let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
+    let (ticket, _) = asked(&fx);
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Profiles {
+            profiles: vec![profile(":danger-full-access")],
+            next: None,
+        },
+    );
+    open(&mut app, SelectIntent::Choose(":danger-full-access".into()));
+    match permissions_menu(&app) {
+        PermissionsMenu::FullAccess { current, .. } => assert!(current.cyber),
+        other => panic!("expected the confirmation, got {other:?}"),
+    }
 }
 
 /// `/permissions` reads the requirements, then page after page of the
@@ -355,16 +442,13 @@ fn a_default_model_pick_updates_the_thread_saves_it_and_then_says_so() {
             ("model_reasoning_effort", Some("high"))
         ]
     );
-    assert!(
-        app.screens().select.notes.is_empty(),
-        "nothing is said before the write"
-    );
+    assert!(said(&app).is_empty(), "nothing is said before the write");
     answer(
         &mut app,
         *write,
         select::Reply::Written { overridden: false },
     );
-    let notes = &app.screens().select.notes;
+    let notes = said(&app);
     assert!(matches!(
         notes.as_slice(),
         [select::Note::ModelChanged { model, session: false, .. }] if model == "gpt-sol"
@@ -382,7 +466,7 @@ fn a_session_pick_updates_the_thread_and_writes_nothing() {
     };
     assert_eq!(patch.model.as_deref(), Some("gpt-sol"));
     assert!(matches!(
-        app.screens().select.notes.as_slice(),
+        said(&app).as_slice(),
         [select::Note::ModelChanged { session: true, .. }]
     ));
 }
@@ -394,13 +478,12 @@ fn a_write_that_is_overridden_or_failed_is_reported() {
     let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
     let (write, _) = all(&fx).pop().expect("a write");
     answer(&mut app, write, select::Reply::Written { overridden: true });
+    // The warning is for the detailed transcript only (`add_warning_message`).
     assert!(matches!(
-        app.screens().select.notes.as_slice(),
-        [
-            select::Note::Overridden(select::Setting::Model),
-            select::Note::ModelChanged { .. }
-        ]
+        said(&app).as_slice(),
+        [select::Note::ModelChanged { .. }]
     ));
+    assert!(!select::Note::Overridden(select::Setting::Model).in_transcript());
     let mut app = threaded();
     let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
     let (write, _) = all(&fx).pop().expect("a write");
@@ -409,7 +492,7 @@ fn a_write_that_is_overridden_or_failed_is_reported() {
         AppEv::Reply(write, Reply::error(RpcError::Remote("read-only".into()))),
     );
     assert_eq!(
-        app.screens().select.notes,
+        said(&app),
         vec![select::Note::SaveFailed {
             setting: select::Setting::Model,
             error: "read-only".into()
@@ -436,9 +519,52 @@ fn a_permission_pick_updates_the_thread_and_says_so() {
     assert_eq!(thread, "thread-1");
     assert_eq!(patch.permissions.as_deref(), Some(":workspace"));
     assert!(matches!(
-        app.screens().select.notes.as_slice(),
+        said(&app).as_slice(),
         [select::Note::PermissionsUpdated(_)]
     ));
+}
+
+/// A catalog pick of a thread is asked of the server and said once it took
+/// it (`Permission selection requested: ..`); the profile the thread has is
+/// neither asked nor said.
+#[test]
+fn a_catalog_pick_is_said_after_the_server_took_it() {
+    use codex_tui_core::fixtures::script::build;
+    let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+    for (active, expected) in [(None, 1), (Some(":workspace"), 0)] {
+        let mut app = build(&format!("{script}\n")).expect("plays").app;
+        let fx = open(
+            &mut app,
+            SelectIntent::OpenPermissions(PermsCurrent {
+                discover: true,
+                profile: active.map(Into::into),
+                approval: active.map(|_| codex_app_server_protocol::AskForApproval::OnRequest),
+                ..PermsCurrent::default()
+            }),
+        );
+        let (ticket, _) = asked(&fx);
+        let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
+        let (ticket, _) = asked(&fx);
+        answer(
+            &mut app,
+            ticket,
+            select::Reply::Profiles {
+                profiles: vec![profile(":workspace")],
+                next: None,
+            },
+        );
+        let fx = open(&mut app, SelectIntent::Choose(":workspace".into()));
+        let asks = all(&fx);
+        assert_eq!(asks.len(), expected, "{asks:?}");
+        assert!(said(&app).is_empty(), "nothing before the answer");
+        if let Some((ticket, _)) = asks.first() {
+            answer(&mut app, *ticket, select::Reply::Updated);
+            assert!(matches!(
+                said(&app).as_slice(),
+                [select::Note::PermissionSelectionRequested(_)]
+            ));
+        }
+    }
 }
 
 fn app_of(id: &str, installed: bool, enabled: bool, url: bool) -> App {
@@ -502,7 +628,7 @@ fn apps_that_cannot_open_say_why() {
     let mut app = threaded();
     open(&mut app, SelectIntent::Close);
     open(&mut app, SelectIntent::OpenApps { enabled: false });
-    assert_eq!(app.screens().select.notes, vec![select::Note::AppsDisabled]);
+    assert_eq!(said(&app), vec![select::Note::AppsDisabled]);
     assert_eq!(app.screens().select.menu(), None);
 
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
@@ -510,10 +636,7 @@ fn apps_that_cannot_open_say_why() {
     answer(&mut app, ticket, select::Reply::Apps(vec![]));
     open(&mut app, SelectIntent::Close);
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
-    assert_eq!(
-        app.screens().select.notes.last(),
-        Some(&select::Note::NoApps)
-    );
+    assert_eq!(said(&app).last(), Some(&select::Note::NoApps));
     assert_eq!(app.screens().select.menu(), None);
     // Still asked for again, forced: the cache is ready.
     assert!(apps_command(&fx).2);
@@ -612,7 +735,7 @@ fn picking_an_app_opens_its_page_or_says_it_has_none() {
     );
     open(&mut app, SelectIntent::Choose("b".into()));
     assert_eq!(
-        app.screens().select.notes,
+        said(&app),
         vec![select::Note::AppLinkUnavailable(Status::Installable)]
     );
 }
