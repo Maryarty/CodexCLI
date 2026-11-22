@@ -72,6 +72,23 @@ pub fn effects(selection: &Selection) -> Effects {
     }
 }
 
+/// What a service-tier switch changes (`set_service_tier_selection`,
+/// `build_service_tier_selection_edits`): the thread's tier for its next turns and the saved
+/// default, where the fast tier is written as `fast`.
+pub fn tier_effects(tier: &str) -> Effects {
+    let saved = match tier {
+        "priority" => "fast",
+        other => other,
+    };
+    Effects {
+        patch: Some(SettingsPatch {
+            service_tier: Some(Some(tier.to_owned())),
+            ..SettingsPatch::default()
+        }),
+        edits: vec![Edit { key: "service_tier", value: Some(saved.to_owned()) }],
+    }
+}
+
 /// What a permission pick changes in the thread (`override_turn_context`
 /// with the profile, the policy and the reviewer): the profile of a preset is
 /// its built-in one; the session only, nothing is written to the config.

@@ -8,7 +8,7 @@ use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{
-    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch, parent_owned_takes,
+    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers, parent_owned_takes,
 };
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
@@ -69,8 +69,18 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     let states = read::<ScreenStates, _>(cx);
     let thread = read::<ThreadModel, _>(cx);
     let session = read::<SessionSlice, _>(cx);
+    // the commands the current model's service tiers add (`/fast`)
+    let thread_model = thread.screen_slots().chat.model.clone();
+    let tiers = codex_tui_core::screens::chat::facts::tier_commands(
+        &states.chat.status,
+        thread_model.as_deref(),
+        &states.select.catalog,
+        &states.chat.service_tiers,
+    );
+    let mut flags = states.chat.flags;
+    flags.service_tier_commands_enabled = !tiers.is_empty();
     let facts = DispatchCx {
-        flags: states.chat.flags,
+        flags,
         task_running: thread.is_running(),
         side_conversation: states.chat.flags.side_conversation_active,
         review_mode: thread.screen_slots().chat.review_mode(),
@@ -95,7 +105,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     // A thread its parent controls takes the commands that do not reach the
     // agent and nothing else; the composer keeps the line
     // (`InputResult::ParentOwnedInputBlocked`, `handle_parent_owned_submission`).
-    if thread.screen_slots().chat.parent_owned && !parent_owned_takes(line, states.chat.flags) {
+    if thread.screen_slots().chat.parent_owned && !parent_owned_takes(line, flags) {
         say(cx, Note::from(NoteKey::ParentOwned));
         return;
     }
@@ -131,7 +141,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         return;
     }
-    let outcome = dispatch(line, &facts);
+    let outcome = dispatch_with_tiers(line, &facts, &tiers);
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -215,6 +225,20 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     intent,
                 },
             );
+        }
+        Outcome::Tier(tier) => {
+            record(cx);
+            clear_sent(&w.ui);
+            // the tier the thread runs on now, else the config's
+            let current = match &thread.screen_slots().chat.service_tier {
+                Some(tier) => tier.clone(),
+                None => states.chat.status.service_tier.clone(),
+            };
+            let intent = codex_tui_core::screens::select::Intent::ServiceTier {
+                id: tier.id,
+                current,
+            };
+            cx.emit(&hs.screen, ScreenIntent::Select(intent));
         }
         Outcome::Insert(text) => w.ui.composer.reset(text),
         Outcome::Quit => cx.emit(&hs.quit, ()),

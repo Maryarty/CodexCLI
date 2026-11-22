@@ -75,6 +75,9 @@ pub enum Picked {
     /// A permission mode or profile of the `/permissions` family, and how it
     /// applies.
     Permissions(permissions::Selection),
+    /// The service tier the model's tier command switched to (`default` is the one that
+    /// leaves the tier).
+    Tier(String),
     /// The answer of a confirmation was Yes (No picks nothing).
     Confirmed(Confirm),
     /// An item of a generic list, by id.
@@ -117,6 +120,8 @@ pub enum Note {
     UltraConcurrency(usize),
     /// `Permissions updated to {label}`.
     PermissionsUpdated(permissions::Label),
+    /// `Service tier set to {tier}`, after the default was saved.
+    ServiceTierSet(String),
     /// `Permission selection requested: {label}`: the server took a profile
     /// pick of a thread.
     PermissionSelectionRequested(permissions::Label),
@@ -165,6 +170,8 @@ pub enum Setting {
     PlanEffort,
     /// The thread's permissions.
     Permissions,
+    /// The default service tier.
+    ServiceTier,
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
@@ -445,6 +452,8 @@ pub enum Intent {
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
     OpenModels(Current),
+    /// The catalog is asked for, with no menu: the app does it when it connects.
+    LoadModels,
     /// `/permissions`: the menu for what the thread has now; the catalog is
     /// asked for when it has none (`Profiles::pending` is the request).
     OpenPermissions(permissions::Current),
@@ -465,6 +474,9 @@ pub enum Intent {
     Confirm,
     /// The menu shown was closed without a pick; the one below shows again.
     Close,
+    /// `/fast`, `/ultrafast`...: the tier `id` is switched on, or off when it is `current`
+    /// (`toggle_service_tier_from_ui`).
+    ServiceTier { id: String, current: Option<String> },
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -556,7 +568,18 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.open_models(current);
             }
         }
+        Intent::LoadModels => {
+            model.catalog.request();
+        }
         Intent::OpenPermissions(current) => model.open_permissions(current),
+        Intent::ServiceTier { id, current } => {
+            let next = if current.as_deref() == Some(id.as_str()) {
+                codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()
+            } else {
+                id
+            };
+            model.picked.push(Picked::Tier(next));
+        }
         Intent::OpenApps { enabled } => model.open_apps(enabled),
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {

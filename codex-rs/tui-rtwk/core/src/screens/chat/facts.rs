@@ -391,6 +391,44 @@ pub fn tier_display_name(
         })
 }
 
+/// `current_model_service_tier_commands`: the tiers the current model offers in the catalog,
+/// each as a command named in lower case; a tier is offered when its feature is on (flex always;
+/// `ultrafast` needs `UltrafastMode`, any other `FastMode`). A model the catalog does not know
+/// offers the tiers the session was seeded with, filtered the same way.
+pub fn tier_commands(
+    status: &StatusFacts,
+    thread_model: Option<&str>,
+    catalog: &Catalog,
+    seeded: &[ServiceTierCommand],
+) -> Vec<ServiceTierCommand> {
+    let enabled = |id: &str| match id {
+        "flex" => true,
+        "ultrafast" => status.ultrafast_mode,
+        _ => status.fast_mode,
+    };
+    let command = |id: &str, name: &str, description: &str| ServiceTierCommand {
+        id: id.to_string(),
+        name: name.to_lowercase(),
+        description: description.to_string(),
+    };
+    let known = thread_model
+        .or(status.model.as_deref())
+        .and_then(|model| catalog.presets.iter().find(|preset| preset.model == model));
+    match known {
+        Some(preset) => preset
+            .service_tiers
+            .iter()
+            .filter(|tier| enabled(&tier.id))
+            .map(|tier| command(&tier.id, &tier.name, &tier.description))
+            .collect(),
+        None => seeded
+            .iter()
+            .filter(|tier| enabled(&tier.id))
+            .map(|tier| command(&tier.id, &tier.name, &tier.description))
+            .collect(),
+    }
+}
+
 /// The footer's facts of the shown thread, one projection of the parts that hold them
 /// (oracle `collaboration_mode_label`, `collaboration_mode_indicator`, `FooterProps`).
 #[derive(Clone, Debug, PartialEq, Eq)]

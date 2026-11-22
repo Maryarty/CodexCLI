@@ -956,6 +956,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 fx,
             );
             read_session(app, fx);
+            // the model catalog is read at connect (`refresh_available_models`): the tier
+            // commands of the model and the footer's model name come from it
+            select::intent(app, crate::screens::select::Intent::LoadModels, fx);
             match app.first_thread {
                 FirstThread::Never => {}
                 FirstThread::OnConnect => start_first_thread(app, fx),

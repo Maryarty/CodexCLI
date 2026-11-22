@@ -239,6 +239,7 @@ fn models(page: &models::Page, s: &Strings) -> List {
             .map(|row| item(row, &page.heading, s))
             .collect(),
         initial: page.initial,
+        numbered_rows: Some(9),
         ..List::default()
     }
 }

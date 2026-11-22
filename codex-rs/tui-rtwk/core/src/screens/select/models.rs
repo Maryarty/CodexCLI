@@ -33,6 +33,15 @@ pub struct EffortOption {
     pub description: String,
 }
 
+/// A service tier a model offers (`ModelServiceTier`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Tier {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
 /// A model of the catalog (`ModelPreset`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Preset {
@@ -52,6 +61,12 @@ pub struct Preset {
     /// stronger for.
     #[serde(default)]
     pub specialty: Option<String>,
+    /// The service tiers the model offers (`service_tiers`).
+    #[serde(default)]
+    pub service_tiers: Vec<Tier>,
+    /// The tier the model runs on when none is configured.
+    #[serde(default)]
+    pub default_service_tier: Option<String>,
 }
 
 fn yes() -> bool {
@@ -76,6 +91,16 @@ impl Preset {
                 })
                 .collect(),
             specialty: model.model_specialty.clone(),
+            service_tiers: model
+                .service_tiers
+                .iter()
+                .map(|tier| Tier {
+                    id: tier.id.clone(),
+                    name: tier.name.clone(),
+                    description: tier.description.clone(),
+                })
+                .collect(),
+            default_service_tier: model.default_service_tier.clone(),
         }
     }
 

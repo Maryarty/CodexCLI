@@ -15,18 +15,35 @@ use super::strings::Strings;
 pub const ROWS: usize = codex_tui_core::commands::MAX_POPUP_ROWS;
 
 /// The suggestions for `before`, the composer's text up to the caret.
-pub fn suggestions(states: &ScreenStates, strings: &Strings, before: &str) -> Vec<Suggestion> {
+pub fn suggestions(
+    states: &ScreenStates,
+    strings: &Strings,
+    model: Option<&str>,
+    before: &str,
+) -> Vec<Suggestion> {
     match trigger(before) {
-        Some(trigger) if trigger.kind == TriggerKind::Slash => commands(states, strings, before),
+        Some(trigger) if trigger.kind == TriggerKind::Slash => {
+            commands(states, strings, model, before)
+        }
         _ => Vec::new(),
     }
 }
 
-fn commands(states: &ScreenStates, strings: &Strings, before: &str) -> Vec<Suggestion> {
-    let mut popup = CommandPopup::new(
-        CommandPopupFlags::from(states.chat.flags),
-        states.chat.service_tiers.clone(),
+fn commands(
+    states: &ScreenStates,
+    strings: &Strings,
+    model: Option<&str>,
+    before: &str,
+) -> Vec<Suggestion> {
+    let tiers = codex_tui_core::screens::chat::facts::tier_commands(
+        &states.chat.status,
+        model,
+        &states.select.catalog,
+        &states.chat.service_tiers,
     );
+    let mut flags = states.chat.flags;
+    flags.service_tier_commands_enabled = !tiers.is_empty();
+    let mut popup = CommandPopup::new(CommandPopupFlags::from(flags), tiers);
     popup.on_composer_text_change(before.to_string());
     popup
         .rows()

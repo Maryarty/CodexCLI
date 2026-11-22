@@ -68,6 +68,53 @@ fn bedrock_govcloud_model_pickers() {
     }
 }
 
+// ORACLE chatwidget/tests/bedrock_catalog_tests.rs:122 bedrock_ultrafast_slash_command_selects_and_clears_tier kind=snap owner=dialogs-pane
+#[test]
+fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
+    // (name, model, bundled catalog, the custom catalog's `model/list` answer)
+    let cases = [
+        ("mantle", "openai.gpt-6-astra", MANTLE, include_str!("fixtures/chat_popups_1/mantle_custom.json")),
+        ("runtime_global", "global.openai.gpt-6-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_global_custom.json")),
+        ("runtime_us", "us.openai.gpt-6-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_us_custom.json")),
+        ("mantle_sol61", "openai.gpt-6.1-sol", MANTLE, include_str!("fixtures/chat_popups_1/mantle_sol61_custom.json")),
+        ("runtime_global_sol61", "global.openai.gpt-6.1-sol", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_global_sol61_custom.json")),
+        ("runtime_us_sol61", "us.openai.gpt-6.1-sol", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_us_sol61_custom.json")),
+        ("mantle_astra62", "openai.gpt-6.2-astra", MANTLE, include_str!("fixtures/chat_popups_1/mantle_astra62_custom.json")),
+        ("runtime_global_astra62", "global.openai.gpt-6.2-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_global_astra62_custom.json")),
+        ("runtime_us_astra62", "us.openai.gpt-6.2-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_us_astra62_custom.json")),
+    ];
+    for (name, model, bundled, custom) in cases {
+        let mut s = on_catalog(100, 6, model, bundled);
+        // the catalog is read when the picker opens (the oracle's chat holds it already)
+        let refresh = |s: &mut Screen| {
+            s.type_text("/model").keys("enter");
+            s.keys("esc");
+        };
+        refresh(&mut s);
+        // The snapshot joins two frames under `Bundled catalog:` / `Custom catalog:` labels the
+        // kit does not parse (kit gap), and draws the popup above the composer: the row
+        // the popup lists is what is compared.
+        s.type_text("/ultrafast");
+        s.assert_contains("/ultrafast  The fastest available responses for latency-sensitive work.");
+        // Enter switches the tier on: the thread's settings and the saved default
+        s.keys("enter");
+        let patches = s.request_params("thread/settings/update");
+        assert!(patches.iter().any(|p| p.to_string().contains("ultrafast")), "{name}: {patches:?}");
+        let writes = s.request_params("config/batchWrite");
+        assert!(writes.iter().any(|p| p.to_string().contains("ultrafast")), "{name}: {writes:?}");
+        // the server's catalog turns custom: its one tier is named Express
+        let custom = custom.trim();
+        s.feed(&format!(r#"{{"step":"respond","method":"model/list","result":{custom}}}"#));
+        refresh(&mut s);
+        s.type_text("/express");
+        s.assert_contains("/express  My custom Bedrock tier.");
+        s.keys("enter");
+        let writes = s.request_params("config/batchWrite");
+        assert!(writes.iter().any(|p| p.to_string().contains("ultrafast")), "{name}: {writes:?}");
+        let _ = bundled;
+    }
+}
+
 // ---- oracle: chatwidget/tests/collaboration_catalog_tests.rs (1 screen-level tests here; 1 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/collaboration_catalog_tests.rs:61 collaboration_catalog_unavailable_preserves_task_and_plan_input kind=ui owner=dialogs-pane
 #[test]
