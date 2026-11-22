@@ -153,6 +153,7 @@ pub struct Strings {
     pub note_session_only: &'static str,
     pub note_default_effort: &'static str,
     pub note_permissions_updated: Msg<1>,
+    pub note_permission_requested: Msg<1>,
     pub note_save_model_failed: Msg<1>,
     pub note_save_plan_failed: Msg<1>,
     pub note_save_profile_failed: Msg<1>,
@@ -260,6 +261,7 @@ pub const EN: Strings = Strings {
     note_session_only: " for this session only",
     note_default_effort: "default",
     note_permissions_updated: msg!("Permissions updated to {0}"),
+    note_permission_requested: msg!("Permission selection requested: {0}"),
     note_save_model_failed: msg!("Failed to save default model: {0}"),
     note_save_plan_failed: msg!("Failed to save Plan mode reasoning effort: {0}"),
     note_save_profile_failed: msg!("Failed to set permission profile: {0}"),
@@ -471,7 +473,7 @@ impl Strings {
                 &self.num,
             )
             .to_string(),
-            Note::PermissionsUpdated(label) => {
+            Note::PermissionsUpdated(label) | Note::PermissionSelectionRequested(label) => {
                 let name = match label {
                     Label::Mode {
                         preset: Preset::Auto,
@@ -491,7 +493,11 @@ impl Strings {
                     } => picker.mode_read.to_string(),
                     Label::Profile(id) => id.clone(),
                 };
-                text(self.note_permissions_updated, &name)
+                let message = match note {
+                    Note::PermissionSelectionRequested(_) => self.note_permission_requested,
+                    _ => self.note_permissions_updated,
+                };
+                text(message, &name)
             }
             Note::SaveFailed { setting, error } => text(
                 match setting {

@@ -117,6 +117,9 @@ pub enum Note {
     UltraConcurrency(usize),
     /// `Permissions updated to {label}`.
     PermissionsUpdated(permissions::Label),
+    /// `Permission selection requested: {label}`: the server took a profile
+    /// pick of a thread.
+    PermissionSelectionRequested(permissions::Label),
     /// `Failed to save default model: {error}`, or `Failed to set permission
     /// profile`: what was being stored and the server's text.
     SaveFailed { setting: Setting, error: String },
@@ -706,9 +709,11 @@ pub enum Ctx {
         found: Vec<permissions::Profile>,
         pages: u8,
     },
-    /// A pick's settings update: what to tell if it fails.
+    /// A pick's settings update: what to tell if it fails, and the line that
+    /// follows once the server took it.
     Settings {
         setting: Setting,
+        then: Option<Note>,
     },
     /// A pick's write: the pick whose line follows a saved write.
     Write {

@@ -411,6 +411,9 @@ pub enum Selection {
         approval: Option<Approval>,
         reviewer: Option<Reviewer>,
         label: Label,
+        /// The thread already has this profile, policy and reviewer
+        /// (`already_selected`): nothing is asked of the server.
+        unchanged: bool,
     },
 }
 
@@ -632,6 +635,7 @@ impl PermissionsMenu {
                     approval: Some(preset.approval()),
                     reviewer: Some(*reviewer),
                     label: Label::Mode { preset: *preset, reviewer: *reviewer },
+                    unchanged: false,
                 };
                 settle(current, pick)
             }
@@ -641,6 +645,7 @@ impl PermissionsMenu {
                     approval: None,
                     reviewer: None,
                     label: Label::Profile(row.id.clone()),
+                    unchanged: false,
                 };
                 settle(current, pick)
             }
@@ -656,7 +661,12 @@ impl PermissionsMenu {
 
 /// A pick of the full-access preset asks first (`requires_confirmation`);
 /// the rest apply.
-fn settle(current: &Current, pick: Selection) -> Step {
+fn settle(current: &Current, mut pick: Selection) -> Step {
+    if let Selection::Profile { id, approval, reviewer, unchanged, .. } = &mut pick {
+        *unchanged = current.profile.as_deref() == Some(id.as_str())
+            && approval.is_none_or(|approval| current.approval == Some(approval))
+            && reviewer.is_none_or(|reviewer| current.reviewer == reviewer);
+    }
     if pick.full_access() {
         Step::Replace(PermissionsMenu::FullAccess { current: current.clone(), pick })
     } else {

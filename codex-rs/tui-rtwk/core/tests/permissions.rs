@@ -506,6 +506,7 @@ fn a_builtin_mode_of_the_catalog_is_final_and_carries_its_policy() {
                 preset: Preset::Auto,
                 reviewer: Reviewer::AutoReview
             },
+            unchanged: false,
         }]
     );
     assert_eq!(depth(&sandbox), 0);
@@ -525,6 +526,7 @@ fn a_servers_profile_is_final_with_neither_policy_nor_reviewer() {
             approval: None,
             reviewer: None,
             label: Label::Profile("locked-down".into()),
+            unchanged: false,
         }]
     );
 }
@@ -546,6 +548,7 @@ fn full_access_of_the_catalog_asks_first_and_applies_as_a_profile() {
                 preset: Preset::FullAccess,
                 reviewer: Reviewer::User
             },
+            unchanged: false,
         }]
     );
     // declining reopens the catalog's menu, not the legacy list

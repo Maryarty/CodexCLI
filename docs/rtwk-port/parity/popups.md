@@ -198,3 +198,23 @@ fmt clean; `clippy -q --workspace --all-targets -D warnings` no error; whole nex
 oracle shards (`summary.py --run`): picker 63 (43 pass, 5 n/a, 15 pending), chat_popups_1 26 (0/5/21), chat_popups_2 46 (7 pass, 6 n/a, 33 pending),
 chat_popups_3 43 (0/2/41); core state tests `permissions::` 30 pass, `models::` 37 pass; sheet tests `select::` 63 pass. The binary walk of the /permissions
 menus waits for the opener (Needs): no mock-model scenario reaches them yet; to be walked through the debug entries before `task_done`.
+
+## Run of 2026-11-22 (late): /permissions from the config's real facts, the pickers' notes in the transcript
+
+- `StatusFacts.permissions` (core `select::permissions::Facts`: guardian, auto_required, auto_available, the managed `Limits`), read by `host/src/facts.rs::permissions`
+  from `config.features` / `config_layer_stack.requirements()` (the oracle's `guardian_disabled_reason`, `approval_policy.can_set`, `cyber_model_approval_reviewer`);
+  `Current::from_facts` carries them and the thread's model. Binary: the menu now lists `Approve for me` as the oracle's.
+- Cyber: `models::Preset.specialty` (`model/list`), `Catalog::is_cyber`; opening `/permissions` warms the catalog with one `model/list` (a request in flight serves
+  it; the answer is accepted silently), the full-access confirmation reads it.
+- The pickers' notes are drained from `select.notes` into the active thread's transcript (`NoteKey::Select(select::Note)`, `session_note`; no thread: a note of the
+  chat screen). Words in `pages/session/strings.rs` (`picker_note`). The two warnings (Ultra concurrency, `Saved .., but a higher-priority ..`) are
+  `add_warning_message` in the oracle (detailed transcript only) and are not told in the main transcript.
+- A catalog pick of a thread (the only case in the app) says `Permission selection requested: {label}` after the server took the settings update, and nothing when the
+  thread has that profile already (`already_selected`), as the oracle's `apply_permission_profile_selection`; the legacy `Preset` pick keeps `Permissions updated to ..`.
+- Binary walk (pty, beside the oracle, mock-model `multi-turn` home; `/permissions`, Enter, Enter): both show `Update Model Permissions`, `Loading permission profiles…`,
+  then 1. Ask for approval, 2. Approve for me, 3. Full Access, 4. Read Only; Enter closes and the transcript says `Permission selection requested: Ask for approval`.
+  Differing rows: the oracle's header line carries `GPT-6-Sol default fast` where rtwk has `gpt-6-sol default` (status-line facts, not this task); the hint after
+  `Apps are disabled.` is plain here, dark gray in the oracle.
+- Needs: `tests/pages/chat.rs` one more `mod permissions_live;` line (outside the area).
+- Flaky seen in the gate: `chat::commands::the_server_removing_the_thread_opens_the_command_center` timed out (30 s) once under the gate's load and once straight after
+  it, then passed 30 of 30 alone; memcap killed `ld` at 4 GB on 3 of 4 link attempts of codex-rtwk (retry passes).

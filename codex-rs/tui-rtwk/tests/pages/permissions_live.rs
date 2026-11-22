@@ -1,7 +1,7 @@
 //! `/permissions` in the chat: the typed command opens the menu behind
 //! "Loading permission profiles…" until the server's catalog is read, a
 //! pick asks the server to update the thread and says
-//! `Permissions updated to ..` in the transcript.
+//! `Permission selection requested: ..` in the transcript once the server took it.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
@@ -87,7 +87,7 @@ fn a_pick_updates_the_thread_and_the_transcript_says_so() {
     let update = ticket_of(&h, |c| matches!(c, select::Command::Settings { .. }));
     reply(&mut h, update, select::Reply::Updated);
     h.wait_for("the note", |s| {
-        s.contains("Permissions updated to Ask for approval")
+        s.contains("Permission selection requested: Ask for approval")
     });
     assert!(
         !h.t.screen().contains("Update Model Permissions"),

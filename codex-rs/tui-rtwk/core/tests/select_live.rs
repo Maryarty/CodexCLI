@@ -524,6 +524,49 @@ fn a_permission_pick_updates_the_thread_and_says_so() {
     ));
 }
 
+/// A catalog pick of a thread is asked of the server and said once it took
+/// it (`Permission selection requested: ..`); the profile the thread has is
+/// neither asked nor said.
+#[test]
+fn a_catalog_pick_is_said_after_the_server_took_it() {
+    use codex_tui_core::fixtures::script::build;
+    let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+    for (active, expected) in [(None, 1), (Some(":workspace"), 0)] {
+        let mut app = build(&format!("{script}\n")).expect("plays").app;
+        let fx = open(
+            &mut app,
+            SelectIntent::OpenPermissions(PermsCurrent {
+                discover: true,
+                profile: active.map(Into::into),
+                approval: active.map(|_| codex_app_server_protocol::AskForApproval::OnRequest),
+                ..PermsCurrent::default()
+            }),
+        );
+        let (ticket, _) = asked(&fx);
+        let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
+        let (ticket, _) = asked(&fx);
+        answer(
+            &mut app,
+            ticket,
+            select::Reply::Profiles {
+                profiles: vec![profile(":workspace")],
+                next: None,
+            },
+        );
+        let fx = open(&mut app, SelectIntent::Choose(":workspace".into()));
+        let asks = all(&fx);
+        assert_eq!(asks.len(), expected, "{asks:?}");
+        assert!(said(&app).is_empty(), "nothing before the answer");
+        if let Some((ticket, _)) = asks.first() {
+            answer(&mut app, *ticket, select::Reply::Updated);
+            assert!(matches!(
+                said(&app).as_slice(),
+                [select::Note::PermissionSelectionRequested(_)]
+            ));
+        }
+    }
+}
+
 fn app_of(id: &str, installed: bool, enabled: bool, url: bool) -> App {
     App {
         id: id.to_string(),
