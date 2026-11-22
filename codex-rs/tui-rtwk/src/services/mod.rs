@@ -13,6 +13,8 @@
 pub mod agents;
 pub mod backend;
 pub mod cli_help;
+pub mod clipboard;
+pub mod history;
 pub mod images;
 pub mod shell;
 pub mod startup;
