@@ -5,6 +5,7 @@
 
 mod analytics;
 mod cloud;
+mod effects;
 mod facts;
 mod gateway;
 mod import;
