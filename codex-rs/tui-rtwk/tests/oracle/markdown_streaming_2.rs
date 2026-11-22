@@ -651,9 +651,15 @@ fn blockquote_nested_two_levels() {
 fn blockquote_with_list_items() {
     kit::pending(
         Owner::ChatLive,
-        "screen feature (markdown theme): the kit seeds the syntax theme (`syntax_theme`, an empty name for the oracle's `Theme::default()`), but the chat's Markdown does not read it: the bullet is the app theme's teal, not the quote's green",
+        "G73: items 1 and 4, the chat's Markdown now reads the syntax theme (the empty name is the oracle's `Theme::default()`, no scope), but rtwk's `MarkdownTheme.marker` is one style for ordered numbers and bullets (the oracle: numbers light blue, bullets the theme's scope or the quote's green) and the quote is a `│` bar, not `> `: the bullet reads LightBlue and the rows `│ • item 1`",
     );
-    let s = chat(80, 24, "> - item 1\n> - item 2\n");
+    // the oracle sets `Theme::default()`: the empty name is a theme with no scope
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(80, 24)
+        .syntax_theme("")
+        .live()
+        .open();
+    s.feed(&answer("> - item 1\n> - item 2\n"));
     s.assert_in_order(&["> • item 1", "> • item 2"]);
     s.assert_text_style("> • item 1", "fg=Green");
 }

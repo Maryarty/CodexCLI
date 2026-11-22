@@ -610,13 +610,14 @@ fn the_lint_lists_name_the_rules_banned_paths() {
 }
 
 /// Item 11: colours come from the theme (`ThemeData` at the root), not from
-/// the code. The theme file alone holds colour values: the per-thread accents
-/// (`ThreadPalette`), which rtwk's `ThemeData` has no slot for.
+/// the code. The theme file and its `theme/` directory alone hold colour values: the
+/// per-thread accents (`ThreadPalette`) and the syntax theme's scopes (`SyntaxPalette`),
+/// which rtwk's `ThemeData` has no slot for.
 #[test]
 fn no_literal_colours_anywhere() {
     let found = violations(
         &["Color::", "Color::rgb", "rgb(", "Style::new().fg("],
-        |name| name == "src/app/theme.rs",
+        |name| name == "src/app/theme.rs" || name.starts_with("src/app/theme/"),
     );
     assert!(found.is_empty(), "literal colours: {found:#?}");
 }
