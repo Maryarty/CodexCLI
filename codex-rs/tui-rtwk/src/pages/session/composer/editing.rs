@@ -146,8 +146,9 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     if free && remote_key(data, c, key) {
         return true;
     }
-    // Ctrl+R opens the search (Vim's Normal mode keeps it for redo)
-    if free && !mode.normal && search::opens(data, key) {
+    // Ctrl+R opens the search (Vim's Normal mode took it for redo above, if
+    // redo is bound to it)
+    if free && search::opens(data, key) {
         search::begin(data, c);
         return true;
     }

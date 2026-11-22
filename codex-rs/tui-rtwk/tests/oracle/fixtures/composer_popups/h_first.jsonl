@@ -1,0 +1,3 @@
+# History first: the remapped Vim normal history walk (history_search.rs).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"history":["first"]}}

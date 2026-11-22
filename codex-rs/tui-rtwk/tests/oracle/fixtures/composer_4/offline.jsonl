@@ -1,0 +1,3 @@
+# A chat whose connection is lost: the composer is restricted (reconnect_tests.rs).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"agents","ev":{"reconnecting":null}}

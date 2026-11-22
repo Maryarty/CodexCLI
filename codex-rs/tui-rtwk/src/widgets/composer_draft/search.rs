@@ -4,7 +4,7 @@
 //! query is typed (`chat_composer/history_search.rs`,
 //! `history_search_draft.rs`).
 
-use rtwk::editing::{TextEditingController, TextSelection};
+use rtwk::editing::TextEditingController;
 
 use codex_tui_core::screens::composer::history::{Lookup, SearchResult, Store};
 use codex_tui_core::screens::composer::vim::History;
@@ -113,7 +113,7 @@ impl ComposerDraft {
             inner.search_rev += 1;
             inner.prompts.reset_search();
         }
-        c.set_selection(TextSelection::collapsed(c.text().len()));
+        self.rest_at_end(c);
         true
     }
 
