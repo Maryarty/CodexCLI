@@ -18,6 +18,7 @@ anyhow = "1"
 codex-app-server-client = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/app-server-client" }
 codex-app-server-daemon = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/app-server-daemon" }
 codex-app-server-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/app-server-protocol" }
+codex-backend-client = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/backend-client" }
 codex-arg0 = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/arg0" }
 codex-config = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/config" }
 codex-core = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/core" }
@@ -50,7 +51,15 @@ tracing = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [target.'cfg(windows)'.dependencies]
-# `device_login::has_http_handler`: whether a program is registered for `http`.
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_Shell"] }
+# `device_login::has_http_handler`: whether a program is registered for `http`;
+# `analytics::clock`: the short time pattern of the user's locale.
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_UI_Shell"] }
+
+# `analytics::clock`: the clock preference of the user's locale (the oracle's own features).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDateFormatter", "NSFormatter", "NSLocale", "NSString"] }
+
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
