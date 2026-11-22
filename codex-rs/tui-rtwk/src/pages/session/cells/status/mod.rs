@@ -122,6 +122,10 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "narrow_terminal",
             "the cell: custom permissions, one window"
         ),
+        cell_entry!(
+            "halfwidth_kana_narrow",
+            "the cell: half-width kana at 42 columns"
+        ),
         cell_entry!("missing_limits", "the cell: no limits read yet"),
         cell_entry!("default_reasoning", "the cell: the default reasoning"),
         cell_entry!("remote_server", "the cell: a remote server"),
