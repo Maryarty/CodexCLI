@@ -20,11 +20,36 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 64] = [
+    let entries: [(&'static str, &'static str, &'static str); 69] = [
         (
             "model_picker",
             "three models, the first in use",
             include_str!("fixtures/model_picker.jsonl"),
+        ),
+        (
+            "models_quick",
+            "the quick /model menu: an auto mode and All models",
+            include_str!("fixtures/models_quick.jsonl"),
+        ),
+        (
+            "model_reasoning",
+            "the reasoning menu of one model, More reasoning… last",
+            include_str!("fixtures/model_reasoning.jsonl"),
+        ),
+        (
+            "model_advanced",
+            "the advanced reasoning menu: Max and Ultra",
+            include_str!("fixtures/model_advanced.jsonl"),
+        ),
+        (
+            "model_plan_scope",
+            "where a reasoning change in Plan mode applies",
+            include_str!("fixtures/model_plan_scope.jsonl"),
+        ),
+        (
+            "model_loading",
+            "the /model menu while the catalog loads",
+            include_str!("fixtures/model_loading.jsonl"),
         ),
         (
             "permissions_menu",

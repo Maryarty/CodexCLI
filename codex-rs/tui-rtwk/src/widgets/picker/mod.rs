@@ -35,7 +35,7 @@ use codex_tui_core::keymap::actions::{
     LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::screens::select::list::{Browse, List, normalize_paste};
+use codex_tui_core::screens::select::list::{Browse, List, Role, Secondary, normalize_paste};
 
 use crate::app::theme;
 use crate::keymap::{keymap, label, pressed};
@@ -260,6 +260,25 @@ fn standard_hint(keys: &Keymap, s: &strings::Strings) -> String {
         .join(s.hint_join)
 }
 
+/// The footer of a row with a second accept key (`SelectionSecondaryAction`'s
+/// `footer_hint`): the written hint, or with an `accept` word the keys the
+/// keymap names around it, an unbound action left out.
+fn secondary_hint(keys: &Keymap, action: &Secondary, s: &strings::Strings) -> String {
+    let Some(accept) = &action.accept else {
+        return action.hint.clone();
+    };
+    [
+        label(keys, LIST_ACCEPT).map(|key| (key, accept.as_str())),
+        Some((action.key.to_string(), action.hint.as_str())),
+        label(keys, LIST_CANCEL).map(|key| (key, s.hint_back)),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|(key, word)| format!("{key} {word}"))
+    .collect::<Vec<_>>()
+    .join(s.hint_join)
+}
+
 impl State for PickerState {
     type Widget = Picker;
     type Msg = Msg;
@@ -315,9 +334,17 @@ impl State for PickerState {
                 self.scroll
                     .ensure_index_visible(browse.entry_of(&visible, pos));
             }
+        } else if let Some(item) = self.kept(&old.list, &browse) {
+            // The rows changed under the cursor (a refresh): the row with the
+            // id that was highlighted keeps it, wherever it now is.
+            let visible = browse.visible();
+            self.cursor.set_cursor(Some(item));
+            if let Some(pos) = visible.iter().position(|v| *v == item) {
+                self.scroll
+                    .ensure_index_visible(browse.entry_of(&visible, pos));
+            }
         } else if old.list.items_of(self.tab()).len() != w.list.items_of(self.tab()).len() {
-            // The rows changed under the cursor (a refresh): keep what is
-            // highlighted where it can be.
+            // What was highlighted is gone: keep the place where it can be.
             let before = self.cursor.cursor();
             self.settle(&w.list, before);
         }
@@ -408,6 +435,7 @@ impl State for PickerState {
                     key: Style::new().attrs(Attrs::UNDERLINE),
                     success: tokens.success().attrs(Attrs::ITALIC),
                     warning: tokens.warning().attrs(Attrs::ITALIC),
+                    info: tokens.info(),
                 },
                 single_line: list.single_line,
                 name_width: list.name_column_width,
@@ -432,12 +460,23 @@ impl State for PickerState {
         });
         let hint = selected
             .and_then(|item| item.footer_hint.clone())
+            .or_else(|| {
+                let action = selected?.secondary.as_ref()?;
+                Some(secondary_hint(&keys, action, s))
+            })
             .or_else(|| list.footer_hint.clone())
             .or_else(|| list.standard_hint.then(|| standard_hint(&keys, s)));
         let pane = Pane {
             surface: list.surface(),
             title: list.title.clone().map(|title| (title, tokens.bold())),
-            subtitle: list.subtitle.clone().map(|text| (text, tokens.dim())),
+            subtitle: list.subtitle.clone().map(|text| {
+                let style = if list.subtitle_role == Role::Info {
+                    tokens.info()
+                } else {
+                    tokens.dim()
+                };
+                (text, style)
+            }),
             tabs,
             search,
             rows,
@@ -473,6 +512,21 @@ impl PickerState {
             tab: self.tab(),
             query,
         }
+    }
+
+    /// The index in the new rows of the row highlighted in `old`, matched by
+    /// id (a keyed list in Flutter), when it moved.
+    fn kept(&self, old: &List, browse: &Browse<'_>) -> Option<usize> {
+        let at = self.cursor.cursor()?;
+        let before = old
+            .items_of(self.tab())
+            .get(at)
+            .filter(|item| !item.id.is_empty())?;
+        let found = browse
+            .items()
+            .iter()
+            .position(|item| item.id == before.id)?;
+        (found != at).then_some(found)
     }
 
     /// The highlight after the rows changed (a query, a tab), the rows

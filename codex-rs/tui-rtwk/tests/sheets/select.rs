@@ -25,6 +25,143 @@ fn snapshot_model_picker_width_80() {
     );
 }
 
+const CHATWIDGET: &str = "chatwidget/snapshots/codex_tui__chatwidget__tests__";
+
+fn snap(name: &str) -> String {
+    format!("{CHATWIDGET}{name}.snap")
+}
+
+/// The rows of the three menus of the `/model` family the oracle snapshots.
+#[test]
+fn the_quick_menu_is_the_oracle_s_refreshed_auto_menu() {
+    let h = open(80, "models_quick");
+    assert_rows(&h.t.screen(), &snap("model_picker_refreshes_auto_models"));
+}
+
+#[test]
+fn the_reasoning_menu_is_the_oracle_s() {
+    let h = open(80, "model_reasoning");
+    assert_rows(&h.t.screen(), &snap("model_reasoning_selection_popup"));
+}
+
+#[test]
+fn the_advanced_menu_is_the_oracle_s() {
+    let h = open(80, "model_advanced");
+    assert_rows(
+        &h.t.screen(),
+        &snap("model_advanced_reasoning_selection_popup"),
+    );
+}
+
+#[test]
+fn the_catalog_is_loading() {
+    let h = open(80, "model_loading");
+    let screen = h.t.screen();
+    assert!(screen.contains("Loading models…"), "{screen}");
+}
+
+#[test]
+fn the_plan_scope_prompt_names_the_reasoning_and_the_default_it_replaces() {
+    let h = open(100, "model_plan_scope");
+    let screen = h.t.screen();
+    for text in [
+        "Apply reasoning change",
+        "Choose where to apply high reasoning.",
+        "1. Apply to Plan mode override",
+        "Always use high reasoning in Plan mode",
+        "2. Apply to global default and Plan mode override",
+        "mode override, replacing the current built-in",
+        "Plan default (medium)",
+    ] {
+        assert!(screen.contains(text), "{text:?} not on\n{screen}");
+    }
+}
+
+#[test]
+fn enter_on_a_model_with_efforts_opens_its_reasoning_menu_and_esc_comes_back() {
+    let mut h = open(100, "model_picker");
+    h.press("enter");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Select Reasoning Level for gpt-5.1-codex"),
+        "{screen}"
+    );
+    h.press("esc");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(screen.contains("Select Model and Effort"), "{screen}");
+    assert!(!screen.contains("Select Reasoning Level"), "{screen}");
+    // The second Esc leaves the picker.
+    h.press("esc");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Select Model and Effort"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn the_high_effort_of_a_codex_model_warns_while_highlighted() {
+    let mut h = open(100, "model_picker");
+    h.press("enter");
+    h.t.pump_for(ms(300));
+    assert!(
+        !h.t.screen().contains("Plus plan rate limits"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.t.pump_for(ms(100));
+    assert!(
+        h.t.screen()
+            .contains("⚠ High reasoning effort can quickly consume Plus plan rate limits"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_model_row_with_the_session_key_says_so_in_the_footer() {
+    let mut h = open(100, "model_picker");
+    h.press("down");
+    h.t.pump_for(ms(100));
+    assert!(
+        h.t.screen()
+            .contains("enter default · s session · esc back"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_tap_on_a_model_with_efforts_opens_its_reasoning_menu() {
+    let mut h = open(100, "model_picker");
+    let (x, y) = cell_of(&h, "gpt-5.1-codex (current)");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Select Reasoning Level for gpt-5.1-codex"),
+        "{screen}"
+    );
+    // A tap on an effort picks it: the whole stack closes.
+    let (x, y) = cell_of(&h, "Medium (default)");
+    h.t.click(x, y);
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Select Reasoning Level"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(
+        !h.t.screen().contains("Select Model and Effort"),
+        "{}",
+        h.t.screen()
+    );
+}
+
 #[test]
 fn approvals_selection_popup_snapshot() {
     let h = open(80, "permissions_menu");

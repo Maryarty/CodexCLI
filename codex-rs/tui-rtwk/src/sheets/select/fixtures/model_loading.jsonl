@@ -1,0 +1,3 @@
+# The /model menu while the catalog is fetched.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"loading","current":{"model":"gpt-5.5"}}}

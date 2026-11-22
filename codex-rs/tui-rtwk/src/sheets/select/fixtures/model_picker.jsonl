@@ -1,4 +1,5 @@
-# The model picker: three models, the first in use.
+# The model picker: three models, the first in use (the all-models list).
 # Oracle data: bottom_pane/list_selection_view.rs:3206 snapshot_model_picker_width_80
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"select","ev":{"kind":"models","rows":[{"name":"gpt-5.1-codex","description":"Optimized for Codex. Balance of reasoning quality and coding ability.","current":true},{"name":"gpt-5.1-codex-mini","description":"Optimized for Codex. Cheaper, faster, but less capable."},{"name":"gpt-4.1-codex","description":"Legacy model. Use when you need compatibility with older automations."}]}}
+{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"gpt-5.1-codex","name":"gpt-5.1-codex","description":"Optimized for Codex. Balance of reasoning quality and coding ability.","default_effort":"medium","efforts":[{"effort":"medium","description":"Balances speed and reasoning depth"},{"effort":"high","description":"Greater reasoning depth for complex problems"}]},{"model":"gpt-5.1-codex-mini","name":"gpt-5.1-codex-mini","description":"Optimized for Codex. Cheaper, faster, but less capable."},{"model":"gpt-4.1-codex","name":"gpt-4.1-codex","description":"Legacy model. Use when you need compatibility with older automations."}]}}
+{"step":"screen","dir":"select","ev":{"kind":"all_models","current":{"model":"gpt-5.1-codex"}}}

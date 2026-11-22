@@ -28,6 +28,7 @@ mod directives;
 mod import;
 mod keymap;
 mod model;
+mod models;
 mod onboarding;
 mod pets;
 mod popovers;

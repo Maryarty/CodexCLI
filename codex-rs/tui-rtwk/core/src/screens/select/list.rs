@@ -16,7 +16,13 @@ pub const MAX_ROWS: usize = 8;
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Secondary {
     pub key: char,
+    /// The footer while the row is highlighted (`footer_hint` of
+    /// `SelectionSecondaryAction`); with `accept` it is the key's word.
     pub hint: String,
+    /// The word of the accept key: the footer is then built from the keymap
+    /// (`enter default · s session · esc back`), as the standard footer is.
+    #[serde(default)]
+    pub accept: Option<String>,
 }
 
 /// What a run of a row's text means. The view turns each into a style of its
@@ -37,6 +43,8 @@ pub enum Role {
     Dim,
     /// Emphasis: bold.
     Strong,
+    /// A note that points at something: the info colour (cyan).
+    Info,
 }
 
 /// A run of text and its role (`name_prefix_spans`).
@@ -180,6 +188,9 @@ impl Side {
 pub struct List {
     pub title: Option<String>,
     pub subtitle: Option<String>,
+    /// How the subtitle reads: dim unless this is `Info` (the advanced
+    /// reasoning menu's cost note is cyan).
+    pub subtitle_role: Role,
     pub footer_note: Option<String>,
     pub footer_hint: Option<String>,
     /// The footer says what the list's accept and cancel keys are, as the
@@ -224,6 +235,7 @@ impl Default for List {
         Self {
             title: None,
             subtitle: None,
+            subtitle_role: Role::Plain,
             footer_note: None,
             footer_hint: None,
             standard_hint: false,

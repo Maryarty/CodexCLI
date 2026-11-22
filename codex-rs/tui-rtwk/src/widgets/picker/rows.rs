@@ -42,6 +42,7 @@ pub struct RowStyles {
     pub key: Style,
     pub success: Style,
     pub warning: Style,
+    pub info: Style,
 }
 
 impl RowStyles {
@@ -54,6 +55,7 @@ impl RowStyles {
             Role::Warning => self.warning.clone(),
             Role::Dim => self.description.clone(),
             Role::Strong => Style::new().attrs(Attrs::BOLD),
+            Role::Info => self.info.clone(),
         }
     }
 }

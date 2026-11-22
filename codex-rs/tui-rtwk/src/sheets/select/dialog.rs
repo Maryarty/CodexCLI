@@ -14,6 +14,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::select::models::Page;
 use codex_tui_core::screens::select::{Intent, Menu};
 
 use super::lists;
@@ -23,6 +24,25 @@ use crate::widgets::picker::{Event, Picker};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MenuDialog;
+
+/// What the dialog reads of the model: the menu on top of the stack, its rows
+/// when it is one of the `/model` family and how deep it sits (a menu pushed
+/// above another is a new picker, a refresh of the head is the same one).
+#[derive(Clone, Debug, PartialEq)]
+struct Head {
+    menu: Menu,
+    page: Option<Page>,
+    depth: usize,
+}
+
+fn head(states: &ScreenStates) -> Option<Head> {
+    let select = &states.select;
+    Some(Head {
+        menu: select.menu()?.clone(),
+        page: select.page(),
+        depth: select.stack.len(),
+    })
+}
 
 pub struct MenuDialogState {
     shown: bool,
@@ -48,7 +68,7 @@ impl State for MenuDialogState {
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
-        let present = select::<ScreenStates, bool, _>(cx, |states| states.select.menu.is_some());
+        let present = select::<ScreenStates, bool, _>(cx, |states| states.select.menu().is_some());
         if !present && self.shown {
             close_dialog::<_, ()>(cx, None);
         }
@@ -58,11 +78,11 @@ impl State for MenuDialogState {
     fn update(&mut self, msg: Msg, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Picked(event) = msg;
         let hs = read::<Hs, _>(cx);
-        let is_list = select::<ScreenStates, bool, _>(cx, |states| {
-            matches!(states.select.menu, Some(Menu::List(_)))
+        let by_index = select::<ScreenStates, bool, _>(cx, |states| {
+            matches!(states.select.menu(), Some(Menu::Permissions { .. }))
         });
         let intent = match event {
-            Event::Choose(id) if is_list => Intent::Choose(id),
+            Event::Choose(id) if !by_index => Intent::Choose(id),
             Event::Choose(id) => match id.parse() {
                 Ok(index) => Intent::Pick(index),
                 Err(_) => return Rebuild::No,
@@ -71,10 +91,12 @@ impl State for MenuDialogState {
             Event::Toggle(id) => Intent::Toggle(id),
             Event::Reorder(id, down) => Intent::Reorder(id, down),
             Event::Confirm => Intent::Confirm,
+            // Esc leaves the menu on top; one below it (the quick menu under
+            // the reasoning menu) comes back, and the dialog closes when the
+            // model has none left.
             Event::Cancel => {
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::Close));
-                close_dialog::<_, ()>(cx, None);
-                return Rebuild::No;
+                return Rebuild::Yes;
             }
         };
         cx.emit(&hs.screen, ScreenIntent::Select(intent));
@@ -84,16 +106,17 @@ impl State for MenuDialogState {
     }
 
     fn build(&self, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let Some(menu) =
-            select::<ScreenStates, Option<Menu>, _>(cx, |states| states.select.menu.clone())
-        else {
+        let Some(head) = select::<ScreenStates, Option<Head>, _>(cx, head) else {
             return AnyWidget::default();
         };
-        let list = lists::of(&menu, strings::of(cx));
-        Picker {
+        let Some(list) = lists::of(&head.menu, head.page.as_ref(), strings::of(cx)) else {
+            return AnyWidget::default();
+        };
+        let picker: AnyWidget = Picker {
             list: Rc::new(list),
             on_event: cx.map(Msg::Picked),
         }
-        .into()
+        .into();
+        picker.with_key(u32::try_from(head.depth).unwrap_or(0))
     }
 }

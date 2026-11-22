@@ -9,32 +9,20 @@ use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::select::{Access, Intent as SelectIntent, Menu, Picked};
 use pretty_assertions::assert_eq;
 
-const MODELS: &str = r#"{"step":"screen","dir":"select","ev":{"kind":"models","rows":[{"name":"gpt-5.1-codex","description":"d1","current":true},{"name":"gpt-5.1-codex-mini","description":"d2"}]}}"#;
+const PERMISSIONS: &str =
+    r#"{"step":"screen","dir":"select","ev":{"kind":"permissions","current":"ask"}}"#;
 
 fn pick(sandbox: &mut Sandbox, intent: SelectIntent) {
     sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))));
 }
 
 #[test]
-fn a_models_menu_lists_its_rows_with_the_current_one() {
-    let sandbox = Sandbox::play(MODELS).expect("plays");
-    let Some(Menu::Models(rows)) = &sandbox.app().screens().select.menu else {
-        panic!("a models menu");
-    };
-    assert_eq!(rows.len(), 2);
-    assert!(rows[0].current && !rows[1].current);
-}
-
-#[test]
 fn a_pick_is_recorded_and_closes_the_menu() {
-    let mut sandbox = Sandbox::play(MODELS).expect("plays");
+    let mut sandbox = Sandbox::play(PERMISSIONS).expect("plays");
     pick(&mut sandbox, SelectIntent::Pick(1));
     let model = &sandbox.app().screens().select;
-    assert_eq!(
-        model.picked,
-        vec![Picked::Model("gpt-5.1-codex-mini".into())]
-    );
-    assert!(model.menu.is_none());
+    assert_eq!(model.picked, vec![Picked::Access(Access::Full)]);
+    assert!(model.menu().is_none());
 }
 
 #[test]
@@ -51,17 +39,17 @@ fn permissions_rows_pick_their_access() {
 
 #[test]
 fn a_pick_past_the_rows_changes_nothing() {
-    let mut sandbox = Sandbox::play(MODELS).expect("plays");
+    let mut sandbox = Sandbox::play(PERMISSIONS).expect("plays");
     pick(&mut sandbox, SelectIntent::Pick(9));
-    assert!(sandbox.app().screens().select.menu.is_some());
+    assert!(sandbox.app().screens().select.menu().is_some());
     assert!(sandbox.app().screens().select.picked.is_empty());
 }
 
 #[test]
 fn close_drops_the_menu_without_a_pick() {
-    let mut sandbox = Sandbox::play(MODELS).expect("plays");
+    let mut sandbox = Sandbox::play(PERMISSIONS).expect("plays");
     pick(&mut sandbox, SelectIntent::Close);
-    assert!(sandbox.app().screens().select.menu.is_none());
+    assert!(sandbox.app().screens().select.menu().is_none());
     assert!(sandbox.app().screens().select.picked.is_empty());
 }
 
@@ -78,7 +66,7 @@ fn a_multi_select_answers_the_toggled_on_ids_in_list_order_and_closes() {
         model.picked,
         vec![Picked::Items(vec!["b".into(), "c".into()])]
     );
-    assert!(model.menu.is_none());
+    assert!(model.menu().is_none());
 }
 
 #[test]
@@ -101,13 +89,13 @@ fn a_confirm_of_a_list_that_is_not_multi_does_nothing() {
     pick(&mut sandbox, SelectIntent::Confirm);
     let model = &sandbox.app().screens().select;
     assert!(model.picked.is_empty());
-    assert!(model.menu.is_some());
+    assert!(model.menu().is_some());
 }
 
 const ORDERABLE: &str = r#"{"step":"screen","dir":"select","ev":{"kind":"list","multi":true,"ordering":true,"items":[{"id":"theme","name":"theme-colors","toggle":true,"checkbox":true,"section_break_after":true},{"id":"model","name":"model","toggle":true,"checkbox":true,"orderable":true},{"id":"branch","name":"branch","toggle":false,"checkbox":true,"orderable":true}]}}"#;
 
 fn ids(sandbox: &Sandbox) -> Vec<String> {
-    let Some(Menu::List(list)) = &sandbox.app().screens().select.menu else {
+    let Some(Menu::List(list)) = sandbox.app().screens().select.menu() else {
         panic!("a list menu");
     };
     list.items.iter().map(|item| item.id.clone()).collect()
