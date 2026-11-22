@@ -16,6 +16,7 @@ mod agents_shared;
 mod app;
 mod approvals;
 mod backend_switch;
+mod backtrack;
 mod cells;
 mod citations;
 mod commands;
