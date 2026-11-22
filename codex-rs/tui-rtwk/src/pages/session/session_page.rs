@@ -27,8 +27,7 @@ use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
-use crate::pages::session::composer::footer::with_shell_mode;
-use crate::pages::session::composer::footer::{FooterLine, footer};
+use crate::pages::session::footer::{Footer, Line};
 use crate::pages::session::composer::{Composer, clear_sent, submission};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
@@ -586,16 +585,22 @@ impl State for ChatState {
             } else {
                 let line = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
-                    FooterLine::Close(close)
+                    Line::Close(close)
                 } else if self.esc_primed && !thread.transcript().is_empty() {
-                    FooterLine::Hint(strings.chat.backtrack_hint)
-                } else if running && !self.draft_empty {
-                    FooterLine::Hint(strings.chat.queue_hint)
+                    Line::EscPrimed
                 } else {
-                    FooterLine::Keys
+                    Line::Passive
                 };
-                let footer = footer(cx, line);
-                let footer = if line == FooterLine::Keys {
+                let footer: AnyWidget = Footer {
+                    line,
+                    agents: true,
+                    draft_empty: self.draft_empty,
+                    shell: self.draft_shell,
+                    on_queue: Some(cx.send(ChatMsg::QueueDraft)),
+                    on_warnings: Some(cx.send(ChatMsg::Action(Action::OpenWarnings))),
+                }
+                .into();
+                if line == Line::Passive {
                     transcript::follow::footer(
                         cx,
                         w.ui.follow.clone(),
@@ -604,18 +609,13 @@ impl State for ChatState {
                     )
                 } else {
                     footer
-                };
-                if self.draft_shell {
-                    with_shell_mode(cx, footer)
-                } else {
-                    footer
                 }
             };
             (composer.into(), footer)
         };
-        // `⚠ N warnings · f2 to view` at the footer's right (not while history
-        // search owns the footer).
-        let footer = if searching.is_none() {
+        // `⚠ N warnings · f2 to view` at the right of the read-only footer; the
+        // composer's footer holds its own.
+        let footer = if searching.is_none() && thread.read_only() {
             let data = Theme::of(cx);
             with_warning_notice(
                 footer,

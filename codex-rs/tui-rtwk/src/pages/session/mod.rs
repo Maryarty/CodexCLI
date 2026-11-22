@@ -12,6 +12,7 @@ pub(crate) mod blossom;
 pub mod cells;
 pub mod composer;
 mod external_writer;
+mod footer;
 mod keys;
 mod live;
 pub mod open;
@@ -43,7 +44,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: a screen per state worth
 /// opening, on the model a fixture script makes.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    vec![DebugEntry {
+    let mut entries = vec![DebugEntry {
         name: "streamed_answer",
         description: "a chat transcript with a streamed answer",
         script: include_str!("fixtures/streamed_answer.jsonl"),
@@ -53,7 +54,9 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }
             .into()
         }),
-    }]
+    }];
+    entries.extend(footer::entries::debug_entries());
+    entries
 }
 
 /// The chat of the active thread inside a seeded debug entry (the popovers

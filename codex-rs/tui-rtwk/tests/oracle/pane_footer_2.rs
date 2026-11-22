@@ -438,10 +438,6 @@ fn transition_events_reach_a_view_covered_by_a_modal() {
 // ORACLE bottom_pane/mod.rs:3129 ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint kind=ui owner=ui-pane
 #[test]
 fn ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint() {
-    kit::pending(
-        Owner::UiPane,
-        "no history search in the live chat: Ctrl+R opens the search over the draft `draft`; Ctrl+C must close it without clearing the draft or drawing the quit hint",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.type_text("draft");
     let typed = s.shot();

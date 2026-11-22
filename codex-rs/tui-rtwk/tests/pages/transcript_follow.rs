@@ -169,7 +169,7 @@ fn escape_returns_to_the_latest_and_keeps_the_draft() {
     s.assert_contains("row 39");
     s.assert_composer("draft preserved");
     // the Escape was the transcript's: no backtrack priming
-    s.assert_absent("edit the previous message");
+    s.assert_absent("edit previous message");
 }
 
 #[test]
@@ -251,7 +251,7 @@ fn escape_on_the_empty_composer_returns_and_primes_the_backtrack() {
     s.keys("esc");
     s.assert_absent("Back to bottom");
     s.assert_contains("row 39");
-    s.assert_contains("edit the previous message");
+    s.assert_contains("edit previous message");
 }
 
 #[test]

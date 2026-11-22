@@ -1,0 +1,6 @@
+# Tokens counted, the window unknown: the footer says how many were used.
+# Ported from codex-tui footer_context_tokens_used
+# (set_context_window(None, Some(123_456))).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"notify","message":{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":123456,"inputTokens":123456,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"last":{"totalTokens":123456,"inputTokens":123456,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"modelContextWindow":null}}}}
