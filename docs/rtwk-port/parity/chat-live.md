@@ -116,3 +116,11 @@ TOTAL 15 -> 32 pass, 0 red, 0 stale. `shards.py --check`: 0 files stale.
 
 ## Left (brief §6 numbering; each is its own piece of work, none started)
 5 backend banners / Luna Reserve / usage notice (the actionable banner replacing `Callout`) · 4 safety buffering and misalignment · 3 remainder (Worked-for line, startup warnings panel, warning/error wording through cells) · 7 remainder (goal/budget notices, Esc warning with review-queued steers, review steer notice) · 8 external writer · 9 plan mode · 10 replay C4 (`ReplayKind`, the 30 todo tests of chat_live_2) · 1 layout into `live/` (activity.rs / pending_input.rs are chat-status's).
+
+## Checks and binary run (C3)
+- fmt `--check` clean; clippy `--workspace --all-targets -D warnings` clean (the one warning is the backend pin's `bail!`); whole nextest 1722 passed, 15 skipped, 0 failed; `shards.py --check` 0 stale.
+- A core test shown biting once: `HEADER_SERVERS` 3 -> 2 fails `mcp_startup_header_cuts_a_long_list_after_three_servers`; reverted. The edit-queued page test fails with the key changed (see Built).
+- Binary (`check.py --bin rtwk --bin oracle`, capture /tmp/chunk-live-cap): `interrupted` PASS on both (a single Esc 4 s after the request, the stream disconnected in 0.42 s on rtwk, 0.46 s on the oracle, the next prompt answered); `mcp-tool` PASS on both (the rmcp server boots, two tool calls, sentinel on screen).
+  The scenarios cannot press Tab or the edit-queued key (those are covered by the pages/app tests above); the captures are raw ANSI streams, not rendered rows, so a row-by-row diff was not made.
+- Open delta seen in the captures (not investigated, not chat-live's file): during turn 1 of `mcp-tool` the oracle's footer reads `⚠ 1 warning · f2 to view`; the rtwk capture has no warning count at that checkpoint (footer = chat-status; the cause may be the oracle's model-metadata warning notification).
+- The claim for this task was reported "already claimed" by `task_start` (held by this worktree's own earlier run); I continued under it.
