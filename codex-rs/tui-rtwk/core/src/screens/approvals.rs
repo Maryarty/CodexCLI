@@ -21,6 +21,8 @@ pub mod input;
 pub mod order;
 
 pub use form::{Entered, Form};
+/// The projection `screens::project_thread` asks, as the other screens' `project`.
+pub use guardian::project;
 
 pub const NAME: &str = "approvals";
 pub const ID: &str = "S13";

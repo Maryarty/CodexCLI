@@ -4,12 +4,14 @@
 //! core's `codex_tui_core::screens::approvals`. Nothing outside these two
 //! directories (bar their test files) needs an edit when it grows.
 
+mod auto_review;
 mod banner;
 mod clip;
 mod decision_cell;
 mod dialog;
 mod dismiss;
 mod form;
+mod guardian;
 mod present;
 mod tips;
 mod user_input;
@@ -28,8 +30,10 @@ use crate::app::debug::seeded::Seeded;
 
 pub mod strings;
 
+pub use auto_review::{menu as auto_review_menu, open as open_auto_review};
 pub use banner::PendingThreadApprovals;
 pub use decision_cell::DecisionCell;
+pub use guardian::{ReviewStatus, review_status, summary as review_summary};
 
 /// What the debug menu lists for this directory: a screen per state worth
 /// opening, on the model a fixture script makes.

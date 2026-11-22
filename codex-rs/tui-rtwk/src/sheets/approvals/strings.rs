@@ -170,6 +170,46 @@ pub struct Strings {
     /// A command of several lines shows its first, and these dots; one over eighty graphemes ends in the others.
     pub cell_more_lines: &'static str,
     pub cell_cut: &'static str,
+    /// What the auto-reviewer judged that was not a command (`new_guardian_denied_*_request`,
+    /// `new_guardian_timed_out_*_request`, `on_guardian_assessment`).
+    pub cell_denied_for: &'static str,
+    pub cell_timed_out_before: &'static str,
+    pub cell_denied_apply: &'static str,
+    pub cell_timed_out_apply: &'static str,
+    pub cell_patch_touching: &'static str,
+    pub cell_files: &'static str,
+    pub codex_to: &'static str,
+    pub codex_could: &'static str,
+    pub act_send_input: Msg<2>,
+    pub act_call_mcp: Msg<2>,
+    pub act_access: Msg<1>,
+    pub act_request_permissions: &'static str,
+    pub with_reason: Msg<2>,
+    /// A review as the status line and the `/auto-review` rows say it (`action_summary`).
+    pub sum_patch_one: Msg<1>,
+    pub sum_patch_many: Msg<1>,
+    pub sum_network: Msg<1>,
+    pub sum_mcp: Msg<2>,
+    pub sum_permission: &'static str,
+    /// The status line while reviews run (`PendingGuardianReviewStatus`).
+    pub review_one: &'static str,
+    pub review_many: Msg<1>,
+    pub review_bullet: Msg<1>,
+    pub review_more: Msg<1>,
+    /// The `/auto-review` list (`open_auto_review_denials_popup`).
+    pub denials_title: &'static str,
+    pub denials_subtitle: &'static str,
+    pub denials_action: &'static str,
+    pub denials_rationale: &'static str,
+    pub denials_no_rationale: &'static str,
+    pub denials_hint: &'static str,
+    /// What the history says of the list and of a pick (`add_info_message`, `add_error_message`).
+    pub no_denials: &'static str,
+    pub no_denials_hint: &'static str,
+    pub retry_approved: &'static str,
+    pub retry_approved_hint: &'static str,
+    pub denial_gone: &'static str,
+    pub unlocalized: Msg<1>,
     /// What a permissions answer says (`handle_permissions_decision`).
     pub granted_nothing: &'static str,
     pub granted_turn: &'static str,
@@ -328,6 +368,41 @@ pub const EN: Strings = Strings {
     // A command of several lines shows its first, and these dots; one over eighty graphemes ends in the others.
     cell_more_lines: " ...",
     cell_cut: "...",
+    // What the auto-reviewer judged that was not a command.
+    cell_denied_for: " for ",
+    cell_timed_out_before: " before ",
+    cell_denied_apply: " for codex to apply ",
+    cell_timed_out_apply: " before codex could apply ",
+    cell_patch_touching: "a patch touching ",
+    cell_files: " files",
+    codex_to: "codex to ",
+    codex_could: "codex could ",
+    act_send_input: msg!("send input to terminal {0}: {1}"),
+    act_call_mcp: msg!("call MCP tool {0}.{1}"),
+    act_access: msg!("access {0}"),
+    act_request_permissions: "request permissions",
+    with_reason: msg!("{0}: {1}"),
+    sum_patch_one: msg!("apply_patch touching {0}"),
+    sum_patch_many: msg!("apply_patch touching {0} files"),
+    sum_network: msg!("network access to {0}"),
+    sum_mcp: msg!("MCP {0} on {1}"),
+    sum_permission: "permission request",
+    review_one: "Reviewing approval request",
+    review_many: msg!("Reviewing {0} approval requests"),
+    review_bullet: msg!("• {0}"),
+    review_more: msg!("+{0} more"),
+    denials_title: "Auto-review Denials",
+    denials_subtitle: "Select a denied action to approve.",
+    denials_action: "Action",
+    denials_rationale: "Rationale",
+    denials_no_rationale: "Auto-review did not include a rationale",
+    denials_hint: "enter select · esc back",
+    no_denials: "No recent auto-review denials in this thread.",
+    no_denials_hint: "Denials are recorded after auto-review rejects an action.",
+    retry_approved: "Approval recorded for one retry of the selected auto-review denial.",
+    retry_approved_hint: "The model will see the approval context; the retry still goes through auto-review.",
+    denial_gone: "That auto-review denial is no longer available.",
+    unlocalized: msg!("failed to localize guardian filesystem paths: {0}"),
     // What a permissions answer says (`handle_permissions_decision`).
     granted_nothing: "You did not grant additional permissions",
     granted_turn: "You granted additional permissions",
@@ -437,5 +512,68 @@ impl Strings {
     pub fn confirm_proceed_many(&self, count: usize) -> Fmt<'_, 1> {
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
         Fmt::new(self.confirm_proceed_many, [int(count)], &self.num)
+    }
+
+    pub fn act_send_input<'a>(&'a self, process: &'a str, input: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.act_send_input,
+            [Arg::Text(process), Arg::Text(input)],
+            &self.num,
+        )
+    }
+
+    pub fn act_call_mcp<'a>(&'a self, server: &'a str, tool: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.act_call_mcp,
+            [Arg::Text(server), Arg::Text(tool)],
+            &self.num,
+        )
+    }
+
+    pub fn act_access<'a>(&'a self, target: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.act_access, [Arg::Text(target)], &self.num)
+    }
+
+    pub fn with_reason<'a>(&'a self, subject: &'a str, reason: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.with_reason,
+            [Arg::Text(subject), Arg::Text(reason)],
+            &self.num,
+        )
+    }
+
+    pub fn sum_patch_one<'a>(&'a self, file: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.sum_patch_one, [Arg::Text(file)], &self.num)
+    }
+
+    pub fn sum_patch_many(&self, files: usize) -> Fmt<'_, 1> {
+        let count = Arg::Int(u64::try_from(files).unwrap_or(u64::MAX));
+        Fmt::new(self.sum_patch_many, [count], &self.num)
+    }
+
+    pub fn sum_network<'a>(&'a self, target: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.sum_network, [Arg::Text(target)], &self.num)
+    }
+
+    pub fn sum_mcp<'a>(&'a self, tool: &'a str, label: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(self.sum_mcp, [Arg::Text(tool), Arg::Text(label)], &self.num)
+    }
+
+    pub fn review_many(&self, reviews: usize) -> Fmt<'_, 1> {
+        let count = Arg::Int(u64::try_from(reviews).unwrap_or(u64::MAX));
+        Fmt::new(self.review_many, [count], &self.num)
+    }
+
+    pub fn review_bullet<'a>(&'a self, detail: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.review_bullet, [Arg::Text(detail)], &self.num)
+    }
+
+    pub fn review_more(&self, more: usize) -> Fmt<'_, 1> {
+        let count = Arg::Int(u64::try_from(more).unwrap_or(u64::MAX));
+        Fmt::new(self.review_more, [count], &self.num)
+    }
+
+    pub fn unlocalized<'a>(&'a self, error: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.unlocalized, [Arg::Text(error)], &self.num)
     }
 }

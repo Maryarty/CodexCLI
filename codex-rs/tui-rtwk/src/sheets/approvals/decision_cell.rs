@@ -12,8 +12,11 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 use rtwk_core::unicode::grapheme_boundaries;
 
-use codex_tui_core::screens::approvals::decided::{Actor, Decided, Grant, Outcome, Subject};
+use codex_tui_core::screens::approvals::decided::{
+    Actor, Decided, Grant, Outcome, Reviewed, Subject, Verdict,
+};
 
+use super::guardian::judged;
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 
@@ -41,6 +44,10 @@ impl StatelessWidget for DecisionCell {
                 subject,
                 outcome,
             } => (*actor, subject, outcome),
+            Decided::Reviewed { verdict, about } => {
+                let spans = reviewed(s, tokens.bold(), tokens.dim(), *verdict, about);
+                return cell(Span::styled(s.refused_mark, tokens.error()), spans);
+            }
         };
         let say = Say {
             s,
@@ -54,16 +61,78 @@ impl StatelessWidget for DecisionCell {
         } else {
             Span::styled(s.refused_mark, tokens.error())
         };
-        Row::new()
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(SizedBox::new(
-                Some(MARK_CELLS),
-                None,
-                Some(Text::rich(vec![mark]).into()),
-            ))
-            .child(Expanded::new(1, Text::rich(say.summary(outcome))))
-            .into()
+        cell(mark, say.summary(outcome))
     }
+}
+
+/// The mark and the words under its two-column hanging indent.
+fn cell(mark: Span, spans: Vec<Span>) -> AnyWidget {
+    Row::new()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .child(SizedBox::new(
+            Some(MARK_CELLS),
+            None,
+            Some(Text::rich(vec![mark]).into()),
+        ))
+        .child(Expanded::new(1, Text::rich(spans)))
+        .into()
+}
+
+/// What the auto-reviewer concluded of an action that is not a command: `Request denied for codex
+/// to ...` or `Review timed out before codex could ...`, a patch in a sentence of its own.
+fn reviewed(
+    s: &Strings,
+    bold: rtwk::style::Style,
+    dim: rtwk::style::Style,
+    verdict: Verdict,
+    about: &Reviewed,
+) -> Vec<Span> {
+    let denied = verdict == Verdict::Denied;
+    let mut spans = vec![
+        Span::new(if denied {
+            s.cell_request
+        } else {
+            s.cell_review
+        }),
+        Span::styled(
+            if denied {
+                s.verb_denied
+            } else {
+                s.verb_timed_out
+            },
+            bold,
+        ),
+    ];
+    match (about, judged(s, about)) {
+        (Reviewed::Patch(files), _) => {
+            spans.push(Span::new(if denied {
+                s.cell_denied_apply
+            } else {
+                s.cell_timed_out_apply
+            }));
+            spans.push(Span::new(s.cell_patch_touching));
+            match files.as_slice() {
+                [file] => spans.push(Span::styled(file.clone(), dim)),
+                _ => {
+                    spans.push(Span::styled(files.len().to_string(), dim));
+                    spans.push(Span::new(s.cell_files));
+                }
+            }
+        }
+        (_, judged) => {
+            spans.push(Span::new(if denied {
+                s.cell_denied_for
+            } else {
+                s.cell_timed_out_before
+            }));
+            let who = if denied { s.codex_to } else { s.codex_could };
+            spans.push(Span::styled(
+                format!("{who}{}", judged.unwrap_or_default()),
+                dim,
+            ));
+        }
+    }
+    spans
 }
 
 fn grant_line(s: &Strings, grant: Grant) -> &'static str {
@@ -229,7 +298,7 @@ impl Say<'_> {
 
 /// `exec_snippet`: the first line of a command with the dots after it when there are more, and
 /// at most eighty graphemes of it (seventy-seven and the dots when it is longer).
-fn snippet(s: &Strings, command: &str) -> String {
+pub(super) fn snippet(s: &Strings, command: &str) -> String {
     let line = match command.split_once('\n') {
         Some((first, _)) => format!("{first}{}", s.cell_more_lines),
         None => command.to_string(),

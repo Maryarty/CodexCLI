@@ -70,9 +70,14 @@ impl Action {
                 process: process_id.clone(),
                 input: stdin.clone(),
             },
-            A::ApplyPatch { files, .. } => Action::ApplyPatch {
-                files: files.iter().map(|file| file.render_for_ui()).collect(),
-            },
+            A::ApplyPatch { files, .. } => {
+                // The files as the UI spells them (`render_for_ui`).
+                let mut names = Vec::with_capacity(files.len());
+                for file in files {
+                    names.push(file.render_for_ui());
+                }
+                Action::ApplyPatch { files: names }
+            }
             A::NetworkAccess { target, .. } => Action::NetworkAccess { target: target.clone() },
             A::McpToolCall { server, tool_name, connector_name, .. } => Action::McpToolCall {
                 server: server.clone(),
@@ -186,10 +191,14 @@ pub enum History {
     Decided(Decided),
     /// The server's warning, verbatim.
     Warning(String),
-    /// An error line.
-    Error(String),
-    /// An info line with its dim details (`add_info_message`).
-    Info { message: String, details: Option<String> },
+    /// The server's file paths of a review could not be localized: the error text it gave.
+    Unlocalized(String),
+    /// `/auto-review` with no denial kept (an info line with a dim detail).
+    NoDenials,
+    /// One retry of a denial was approved (an info line with a dim detail).
+    RetryApproved,
+    /// The denial picked is no longer kept (an error line).
+    DenialGone,
 }
 
 /// What the part asks the server for; `apply_thread` makes the request.
@@ -328,31 +337,17 @@ impl ThreadPart {
                     self.outbox.push(History::Warning(message));
                 }
             }
-            ThreadEv::Unlocalized(error) => self.outbox.push(History::Error(format!(
-                "failed to localize guardian filesystem paths: {error}"
-            ))),
+            ThreadEv::Unlocalized(error) => self.outbox.push(History::Unlocalized(error)),
             ThreadEv::TurnEnded => self.reviews.clear(),
-            ThreadEv::NoDenials => self.outbox.push(History::Info {
-                message: "No recent auto-review denials in this thread.".into(),
-                details: Some("Denials are recorded after auto-review rejects an action.".into()),
-            }),
+            ThreadEv::NoDenials => self.outbox.push(History::NoDenials),
             ThreadEv::ApproveDenied { id } => {
                 return match self.recent_denials.take(&id) {
                     Some(denial) => {
-                        self.outbox.push(History::Info {
-                            message: "Approval recorded for one retry of the selected auto-review denial."
-                                .into(),
-                            details: Some(
-                                "The model will see the approval context; the retry still goes through auto-review."
-                                    .into(),
-                            ),
-                        });
+                        self.outbox.push(History::RetryApproved);
                         Some(Ask::ApproveDenied { id, event: denial.event })
                     }
                     None => {
-                        self.outbox.push(History::Error(
-                            "That auto-review denial is no longer available.".into(),
-                        ));
+                        self.outbox.push(History::DenialGone);
                         None
                     }
                 };

