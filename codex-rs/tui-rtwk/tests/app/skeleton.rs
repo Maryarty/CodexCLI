@@ -84,10 +84,13 @@ fn prompt_streams_the_answer_as_plain_text() {
 
 #[test]
 fn debug_menu_lists_the_directories() {
-    // 22 directories and every entry: more rows than the oracle's 24 lines,
+    // Every directory and entry, wide enough for the longest description: more rows than the oracle's 24 lines,
     // which this menu (not an oracle screen) need not fit. Tall, so that the
-    // entries a slice adds still show.
-    let mut h = start_sized(true, 80, 200);
+    // entries a slice adds still show: a heading and a blank row per
+    // directory, a row per entry, and room for the frame.
+    let entries: usize = debug::dirs().iter().map(|d| (d.debug_entries)().len()).sum();
+    let rows = u16::try_from(entries + 2 * debug::dirs().len() + 40).unwrap_or(u16::MAX);
+    let mut h = start_sized(true, 160, rows);
     h.t.pump_for(crate::common::ms(100));
     let screen = h.t.screen();
     for (name, id, _) in DIRS {
