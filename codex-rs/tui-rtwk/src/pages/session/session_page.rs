@@ -737,9 +737,7 @@ impl State for ChatState {
                 .as_ref()
                 .is_some_and(|items| !items.is_empty())
         {
-            titles.push(
-                TerminalTitle::new(title.text(None), super::window_title::empty()).into(),
-            );
+            titles.push(TerminalTitle::new(title.text(None), super::window_title::empty()).into());
         }
         // The Luna Reserve selector owns the bottom pane (`show_selection_view`): no composer,
         // no footer; the draft waits in `UiApp.ui`.
