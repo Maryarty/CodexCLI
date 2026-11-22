@@ -12,7 +12,6 @@ use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
-use rtwk::widgets::Text;
 use rtwk::{
     AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, StatelessWidget,
     impl_widget,

@@ -2341,6 +2341,7 @@ mod message_cells_at_tiny_widths {
                     chat: &CHAT,
                     cells: &CELLS,
                     markdown: &theme,
+                    highlighted: false,
                 },
                 false,
             ));
