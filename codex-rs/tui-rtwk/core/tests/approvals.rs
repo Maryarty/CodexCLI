@@ -884,6 +884,23 @@ mod inputs {
             } })
         );
     }
+
+    /// A request that ran out answers with no answer at all: an empty map on the wire (the
+    /// oracle's `submit_empty_auto_resolution`), not one empty list per question; the request
+    /// leaves the queue.
+    #[test]
+    fn a_request_that_ran_out_resolves_with_an_empty_map() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(1, two_questions()), &mut fx);
+        let ev = respond(&app, input::empty_answer());
+        apply_app(&mut app, ev, &mut fx);
+        assert!(app.requests().entries.is_empty());
+        let [Command::ResolveRequest { result, .. }] = fx.commands() else {
+            panic!("expected one answer: {:?}", fx.commands());
+        };
+        assert_eq!(*result, json!({ "answers": {} }));
+    }
 }
 
 /// `bottom_pane/user_verification.rs`: the request a server makes for a device verification.
@@ -975,5 +992,86 @@ mod user_verification {
             *result,
             json!({ "action": "cancel", "content": null, "_meta": null })
         );
+    }
+}
+
+mod auto_resolution {
+    use std::time::Duration;
+
+    use codex_tui_core::screens::approvals::input::{
+        AutoResolution, auto_resolution, remaining_text,
+    };
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    const SECS: fn(u64) -> Duration = Duration::from_secs;
+
+    // oracle request_user_input/mod.rs:1829 auto_resolution_absent_has_no_timer, :1849
+    // auto_resolution_uses_is_blocking_without_auto_resolution_ms
+    #[test]
+    fn a_blocking_request_has_no_timer() {
+        assert_eq!(auto_resolution(false, false, SECS(0)), AutoResolution::Disabled);
+        assert_eq!(auto_resolution(false, false, SECS(500)), AutoResolution::Disabled);
+    }
+
+    // :1881 auto_resolution_hides_timer_during_grace_period
+    #[test]
+    fn the_grace_period_hides_the_countdown() {
+        assert_eq!(
+            auto_resolution(true, false, SECS(0)),
+            AutoResolution::HiddenGrace { remaining: SECS(60) }
+        );
+        assert_eq!(
+            auto_resolution(true, false, SECS(59)),
+            AutoResolution::HiddenGrace { remaining: SECS(1) }
+        );
+    }
+
+    // :1912 auto_resolution_visible_countdown_snapshot, :1978 auto_resolution_expiry_emits_empty_answer
+    #[test]
+    fn the_countdown_shows_for_a_minute_then_the_request_is_due() {
+        assert_eq!(
+            auto_resolution(true, false, SECS(60)),
+            AutoResolution::VisibleCountdown { remaining: SECS(60) }
+        );
+        assert_eq!(
+            auto_resolution(true, false, SECS(119)),
+            AutoResolution::VisibleCountdown { remaining: SECS(1) }
+        );
+        assert_eq!(auto_resolution(true, false, SECS(120)), AutoResolution::Due);
+    }
+
+    // :2011 auto_resolution_key_interaction_snoozes_timer, :2038 ..._paste_...
+    #[test]
+    fn a_key_or_a_paste_stops_the_timer_for_good() {
+        assert_eq!(auto_resolution(true, true, SECS(0)), AutoResolution::Disabled);
+        assert_eq!(auto_resolution(true, true, SECS(200)), AutoResolution::Disabled);
+    }
+
+    #[test]
+    fn the_remaining_time_counts_a_started_second_whole() {
+        assert_eq!(remaining_text(SECS(60)), "1m 00s");
+        assert_eq!(remaining_text(SECS(61)), "1m 01s");
+        assert_eq!(remaining_text(Duration::from_millis(59_500)), "1m 00s");
+        assert_eq!(remaining_text(SECS(59)), "59s");
+        assert_eq!(remaining_text(Duration::from_millis(500)), "1s");
+        assert_eq!(remaining_text(SECS(0)), "0s");
+    }
+
+    #[test]
+    fn only_a_request_that_says_it_is_not_blocking_answers_itself() {
+        let request = |blocking: &str| {
+            format!(
+                r#"{{"method":"item/tool/requestUserInput","id":1,"params":{{"threadId":"thread-1","turnId":"turn-1","itemId":"call-1"{blocking},"questions":[{{"id":"q1","header":"H","question":"Q?","isOther":false,"isSecret":false,"options":null}}]}}}}"#
+            )
+        };
+        let can = |blocking: &str| match prompt(&play(&request(blocking))) {
+            Prompt::UserInput(input) => input.can_auto_resolve,
+            other => panic!("not a question: {other:?}"),
+        };
+        assert!(!can(""));
+        assert!(!can(r#","isBlocking":true"#));
+        assert!(can(r#","isBlocking":false"#));
     }
 }

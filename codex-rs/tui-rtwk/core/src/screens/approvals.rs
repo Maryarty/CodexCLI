@@ -111,6 +111,10 @@ pub struct UserVerificationPrompt {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserInputPrompt {
     pub questions: Vec<Question>,
+    /// The request is not blocking (`isBlocking: false`): it answers itself, empty, once the
+    /// grace and the countdown ran out (`input::auto_resolution`). A request that does not say
+    /// is blocking, as the protocol reads it.
+    pub can_auto_resolve: bool,
 }
 
 /// What the user can decide, the oracle's `ApprovalDecision` of every kind of
@@ -509,6 +513,8 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
             })
         }
         "item/tool/requestUserInput" => Prompt::UserInput(UserInputPrompt {
+            can_auto_resolve: params.get("isBlocking").and_then(serde_json::Value::as_bool)
+                == Some(false),
             questions: params
                 .get("questions")
                 .and_then(|q| q.as_array())

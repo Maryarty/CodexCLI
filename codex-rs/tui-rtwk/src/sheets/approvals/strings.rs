@@ -133,6 +133,9 @@ pub struct Strings {
     // bottom_pane/request_user_input: the options form.
     pub question_progress: Msg<2>,
     pub question_unanswered: Msg<1>,
+    /// Between the progress and the countdown of a request that answers itself.
+    pub countdown_separator: &'static str,
+    pub auto_resolves_in: Msg<1>,
     pub none_of_the_above: &'static str,
     pub none_description: &'static str,
     pub notes_placeholder: &'static str,
@@ -251,6 +254,8 @@ pub const EN: Strings = Strings {
     param_line: msg!("{0}: {1}"),
     question_progress: msg!("Question {0}/{1}"),
     question_unanswered: msg!(" ({0} unanswered)"),
+    countdown_separator: " \u{b7} ",
+    auto_resolves_in: msg!("auto-resolves in {0}"),
     none_of_the_above: "None of the above",
     none_description: "Optionally, add details in notes (tab)",
     notes_placeholder: "Add notes",
@@ -328,6 +333,10 @@ impl Strings {
     pub fn question_progress(&self, index: usize, total: usize) -> Fmt<'_, 2> {
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
         Fmt::new(self.question_progress, [int(index), int(total)], &self.num)
+    }
+
+    pub fn auto_resolves_in<'a>(&'a self, remaining: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.auto_resolves_in, [Arg::Text(remaining)], &self.num)
     }
 
     pub fn question_unanswered(&self, count: usize) -> Fmt<'_, 1> {

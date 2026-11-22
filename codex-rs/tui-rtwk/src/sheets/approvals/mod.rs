@@ -208,6 +208,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/user_input_url_question.jsonl"),
         ),
         (
+            "user_input_auto_resolution",
+            "a request that is not blocking: the countdown after a minute, then an empty answer",
+            include_str!("fixtures/user_input_auto_resolution.jsonl"),
+        ),
+        (
             "user_verification",
             "verify and approve, or cancel the request",
             include_str!("fixtures/user_verification.jsonl"),

@@ -418,6 +418,53 @@ fn user_input_backspace_on_empty_notes_closes_them() {
     assert!(!shows(&h, "clear notes"), "{}", h.t.screen());
 }
 
+/// A request that is not blocking hides its countdown for a minute, shows it in red for the next
+/// minute and then answers itself, empty (the oracle's `auto_resolution_*`: grace 60 s, countdown
+/// 60 s, `pre_draw_tick`).
+#[test]
+fn user_input_a_request_that_is_not_blocking_answers_itself_after_two_minutes() {
+    let mut h = open(120, 16, "user_input_auto_resolution");
+    h.t.pump_for(ms(59_000));
+    assert!(!shows(&h, "auto-resolves"), "{}", h.t.screen());
+    h.t.pump_for(ms(1_000));
+    assert!(shows(&h, "auto-resolves in 1m 00s"), "{}", h.t.screen());
+    h.t.pump_for(ms(31_000));
+    assert!(shows(&h, "auto-resolves in 29s"), "{}", h.t.screen());
+    assert!(shows(&h, "Choose an option."), "{}", h.t.screen());
+    h.t.pump_for(ms(30_000));
+    assert!(!shows(&h, "Choose an option."), "{}", h.t.screen());
+}
+
+/// The countdown is drawn in the error colour (the oracle's `.red()`), the progress it follows is
+/// not.
+#[test]
+fn user_input_the_countdown_is_red() {
+    let mut h = open(120, 16, "user_input_auto_resolution");
+    h.t.pump_for(ms(60_000));
+    let screen = h.t.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("auto-resolves"))
+        .expect("the countdown shows");
+    let column = |needle: &str| line[..line.find(needle).expect(needle)].chars().count();
+    let countdown = h.t.cell(column("auto-resolves"), y).fg;
+    let progress = h.t.cell(column("Question"), y).fg;
+    assert_ne!(countdown, progress, "{screen}");
+    assert_eq!(countdown, rtwk::style::Color::RED, "{screen}");
+}
+
+/// A key stops the countdown for good: nothing shows, nothing is answered.
+#[test]
+fn user_input_a_key_stops_the_countdown() {
+    let mut h = open(120, 16, "user_input_auto_resolution");
+    h.t.pump_for(ms(30_000));
+    h.press("down");
+    h.t.pump_for(ms(100_000));
+    assert!(!shows(&h, "auto-resolves"), "{}", h.t.screen());
+    assert!(shows(&h, "Choose an option."), "{}", h.t.screen());
+}
+
 /// A text field the user comes to from a list field takes the keys: what is typed shows.
 #[test]
 fn form_a_text_field_reached_from_a_list_takes_the_typed_text() {
