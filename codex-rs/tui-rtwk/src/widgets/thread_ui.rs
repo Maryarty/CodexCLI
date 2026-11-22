@@ -12,7 +12,7 @@ use rtwk::foundation::{Listenable, ValueNotifier};
 use rtwk::scroll::ListController;
 
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::backtrack::{Backtrack, Esc, Selection, Targets};
+use codex_tui_core::screens::backtrack::{Backtrack, EscStep, Selection, Targets};
 
 use crate::widgets::composer_draft::ComposerDraft;
 
@@ -74,11 +74,11 @@ impl Modes {
 
     /// Esc in the sheet: browsing starts (`begin_overlay_backtrack_preview`),
     /// and ends when it is under way.
-    pub fn esc(&self, thread: Option<&ThreadId>, targets: Targets) -> Esc {
+    pub fn esc(&self, thread: Option<&ThreadId>, targets: Targets) -> EscStep {
         self.moved(|machine| {
             if matches!(machine, Backtrack::Browsing { .. }) {
                 machine.reset();
-                Esc::Cancelled
+                EscStep::Cancelled
             } else {
                 machine.begin_from_detailed(thread, targets)
             }

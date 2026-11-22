@@ -12,11 +12,11 @@
 use std::rc::Rc;
 
 use rtwk::focus::{Focus, KeyPress};
-use rtwk::foundation::ListenableBuilder;
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize};
+use rtwk::foundation::{Listenable, ListenableBuilder};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
 use rtwk::prelude::KeyCode;
-use rtwk::provider::read;
+use rtwk::provider::{read, select};
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
@@ -27,7 +27,7 @@ use codex_tui_core::threads::ThreadModel;
 use super::pager;
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
-use crate::pages::session::transcript_pane::TranscriptPane;
+use crate::pages::session::transcript_pane::Pane;
 use crate::widgets::thread_ui::{Follow, Modes};
 
 /// The sheet over the transcript of the thread below it.
@@ -116,29 +116,66 @@ impl State for SheetState {
         let tokens = crate::app::theme::Tokens::of(cx);
         let (dim, bold, accent) = (tokens.dim(), tokens.bold(), tokens.accent());
         let (follow, modes) = (w.follow.clone(), w.modes.clone());
-        let bottom = ListenableBuilder::new(modes.listenable(), move |_, _| {
+        let marked = {
+            let (follow, modes) = (w.follow.clone(), w.modes.clone());
+            ListenableBuilder::new(modes.listenable(), move |_, _| {
+                Pane {
+                    follow: follow.clone(),
+                    detailed: true,
+                    mark: modes.selected(),
+                }
+                .into()
+            })
+        };
+        // older messages can still be loaded (`TranscriptHistoryState::Partial`)
+        let partial = select::<ThreadModel, _, _>(cx, ThreadModel::can_load_history);
+        // the reader and the mode both change what the rows below say
+        let listenable = <dyn Listenable>::merge([
+            Some(follow.listenable()),
+            Some(modes.listenable() as Rc<dyn Listenable>),
+        ]);
+        let bottom = ListenableBuilder::new(Rc::new(listenable), move |_, _| {
             let browsing = modes.browsing();
             let hints = second(modes.selected().is_some(), table);
-            Column::new()
+            let mut rows = Column::new()
                 .main_axis_size(MainAxisSize::Min)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(if browsing {
-                    browsing_footer(table, bold.clone(), accent.clone(), dim.clone())
-                } else {
-                    status(follow.clone(), table, dim.clone())
-                })
-                .child(pager::hint_row(
-                    &pager::navigation(table),
-                    table,
-                    dim.clone(),
-                ))
-                .child(pager::hint_row(&hints, table, dim.clone()))
-                .into()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch);
+            if browsing {
+                rows = rows
+                    .child(browsing_footer(
+                        table,
+                        bold.clone(),
+                        accent.clone(),
+                        dim.clone(),
+                    ))
+                    .child(pager::hint_row(
+                        &pager::navigation(table),
+                        table,
+                        dim.clone(),
+                    ))
+                    .child(pager::hint_row(&hints, table, dim.clone()));
+            } else if follow.away() {
+                // the reader is away: one status row, the hints give way to it
+                // (`footer_with_navigation`)
+                rows = rows
+                    .child(status(true, follow.unseen(), partial, table, &bold, &dim))
+                    .child(SizedBox::new(None, Some(2), None));
+            } else {
+                rows = rows
+                    .child(status(false, false, partial, table, &bold, &dim))
+                    .child(pager::hint_row(
+                        &pager::navigation(table),
+                        table,
+                        dim.clone(),
+                    ))
+                    .child(pager::hint_row(&hints, table, dim.clone()));
+            }
+            rows.into()
         });
         let column = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(pager::header(table.sheet_title, table, tokens.dim()))
-            .child(Expanded::new(1, TranscriptPane(w.follow.clone(), true)))
+            .child(Expanded::new(1, marked))
             .child(bottom);
         let mut focus = Focus::new(column).autofocus();
         for (key, msg) in pager::bindings(false) {
@@ -174,20 +211,67 @@ fn second(highlight: bool, table: &'static Strings) -> Vec<pager::Pair> {
     pairs
 }
 
-/// The status row (`status_line_with_navigation`): the news the reader has
-/// not seen, then the select key.
-fn status(follow: Follow, table: &'static Strings, style: Style) -> AnyWidget {
-    let listenable = follow.listenable();
-    ListenableBuilder::new(Rc::new(listenable), move |_, _| {
-        let news = if follow.unseen() {
-            table.status_news
+/// The status row (`status_line_with_navigation`): the news the reader has not
+/// seen, that older messages can be loaded, then the key that goes on from
+/// here: the way back to the latest while the reader is away (`away`, the
+/// passive row of `footer_with_navigation`), the select key otherwise. When
+/// the row is too wide the news shortens, then goes, then the history text
+/// (the oracle's fallbacks and `first_fitting_line`).
+fn status(
+    away: bool,
+    news: bool,
+    partial: bool,
+    table: &'static Strings,
+    key: &Style,
+    dim: &Style,
+) -> AnyWidget {
+    let (key, dim) = (key.clone(), dim.clone());
+    LayoutBuilder::new(move |cx, constraints| {
+        let segmenter = segmenter_of(cx);
+        let (keys, action) = if away {
+            (table.key_end, table.latest_action)
         } else {
-            ""
+            (table.status_select_key, table.status_select_action)
         };
-        Text::line(format!("{news}{}", table.status_select))
-            .style(style.clone())
-            .overflow(TextOverflow::Clip)
-            .into()
+        let navigation = |lead: Vec<Span>| -> Vec<Span> {
+            let mut spans = lead;
+            spans.push(Span::styled(keys, key.clone()));
+            spans.push(Span::styled(action, dim.clone()));
+            spans
+        };
+        let news_lead = |text: &'static str| {
+            vec![
+                Span::styled(text, dim.clone()),
+                Span::styled(table.footer_joiner, dim.clone()),
+            ]
+        };
+        let mut whole = Vec::new();
+        if news {
+            whole.extend(news_lead(table.new_activity));
+        }
+        if partial {
+            whole.push(Span::styled(table.history_partial, dim.clone()));
+        }
+        let fits = |spans: &Vec<Span>| {
+            let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
+            i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
+        };
+        let mut candidates = vec![navigation(whole)];
+        if away {
+            // too wide: the news in short, else the keys alone
+            candidates.push(navigation(if news {
+                news_lead(table.new_short)
+            } else {
+                Vec::new()
+            }));
+            candidates.push(navigation(Vec::new()));
+        }
+        let chosen = candidates
+            .iter()
+            .find(|spans| fits(spans))
+            .cloned()
+            .unwrap_or_default();
+        Text::rich_line(chosen).overflow(TextOverflow::Clip).into()
     })
     .into()
 }

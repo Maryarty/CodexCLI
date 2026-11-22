@@ -64,6 +64,18 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(sheet::seeded),
         },
         DebugEntry {
+            name: "sheet_reveal",
+            description: "the transcript sheet over a prompt and a four-line answer",
+            script: include_str!("fixtures/sheet_reveal.jsonl"),
+            open: EntryOpen::Route(sheet::seeded),
+        },
+        DebugEntry {
+            name: "sheet_link",
+            description: "the transcript sheet over an answer that is a web link",
+            script: include_str!("fixtures/sheet_link.jsonl"),
+            open: EntryOpen::Route(sheet::seeded),
+        },
+        DebugEntry {
             name: "sheet_prompts",
             description: "the transcript sheet over three prompts and their answers",
             script: include_str!("fixtures/sheet_prompts.jsonl"),

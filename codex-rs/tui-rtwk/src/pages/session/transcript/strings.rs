@@ -62,11 +62,13 @@ pub struct Strings {
     pub hint_close: &'static str,
     pub action_edit_configuration: &'static str,
     /// The transcript sheet (`pager_overlay/transcript.rs`): its title, the
-    /// select key shown in the status row, the keys and hints of the second
-    /// row, and the news the status row names.
+    /// status row's select key and its action, what it says while older
+    /// messages can still be loaded (`status_line_with_navigation`), and the
+    /// keys and hints of the second row.
     pub sheet_title: &'static str,
-    pub status_select: &'static str,
-    pub status_news: &'static str,
+    pub status_select_key: &'static str,
+    pub status_select_action: &'static str,
+    pub history_partial: &'static str,
     pub key_find: &'static str,
     pub key_esc: &'static str,
     pub key_right: &'static str,
@@ -137,8 +139,9 @@ pub const EN: Strings = Strings {
     hint_close: "close",
     action_edit_configuration: "Edit configuration",
     sheet_title: "T R A N S C R I P T",
-    status_select: "⌃space select",
-    status_news: "New activity · ",
+    status_select_key: "⌃space",
+    status_select_action: " select",
+    history_partial: "Earlier messages available.  ",
     key_find: "f3",
     key_esc: "esc",
     key_right: "→",

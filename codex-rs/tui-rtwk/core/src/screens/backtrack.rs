@@ -145,7 +145,7 @@ pub enum Backtrack {
 
 /// What an Esc did; the view acts on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Esc {
+pub enum EscStep {
     /// Not the machine's key now (the composer has a draft).
     Ignored,
     /// Primed; `hint` = show the composer hint (only when a prompt exists).
@@ -184,16 +184,16 @@ impl Backtrack {
 
     /// Esc in the main view (oracle `handle_backtrack_esc_key`,
     /// `open_backtrack_preview`) and while browsing (`cancel_transcript_browsing`).
-    pub fn esc(&mut self, thread: Option<&ThreadId>, composer_empty: bool, targets: Targets) -> Esc {
+    pub fn esc(&mut self, thread: Option<&ThreadId>, composer_empty: bool, targets: Targets) -> EscStep {
         match self {
             Self::Browsing { .. } => {
                 self.reset();
-                Esc::Cancelled
+                EscStep::Cancelled
             }
-            _ if !composer_empty => Esc::Ignored,
+            _ if !composer_empty => EscStep::Ignored,
             Self::Idle => {
                 *self = Self::Primed { base: thread.cloned() };
-                Esc::Primed { hint: targets.count > 0 }
+                EscStep::Primed { hint: targets.count > 0 }
             }
             Self::Primed { .. } => self.begin(thread, targets),
         }
@@ -201,18 +201,18 @@ impl Backtrack {
 
     /// Esc in the detailed transcript, where one Esc starts browsing (oracle
     /// `begin_overlay_backtrack_preview`).
-    pub fn begin_from_detailed(&mut self, thread: Option<&ThreadId>, targets: Targets) -> Esc {
+    pub fn begin_from_detailed(&mut self, thread: Option<&ThreadId>, targets: Targets) -> EscStep {
         self.begin(thread, targets)
     }
 
-    fn begin(&mut self, thread: Option<&ThreadId>, targets: Targets) -> Esc {
+    fn begin(&mut self, thread: Option<&ThreadId>, targets: Targets) -> EscStep {
         if !targets.any() {
             self.reset();
-            return Esc::NoPrevious;
+            return EscStep::NoPrevious;
         }
         *self = Self::Browsing { base: thread.cloned(), nth: None };
         let select = self.older(targets.count);
-        Esc::Browse { select }
+        EscStep::Browse { select }
     }
 
     /// Left: the next older prompt, the newest first (oracle
@@ -409,7 +409,7 @@ pub enum Draft {
 
 /// A draft for the composer, once per `seq` (the page applies each once).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Restore {
+pub struct DraftRestore {
     pub seq: u64,
     pub draft: Draft,
 }
@@ -429,7 +429,7 @@ enum Stage {
 pub struct ThreadPart {
     edit: Option<(Edit, Stage)>,
     /// The draft to put back into the composer.
-    pub restore: Option<Restore>,
+    pub restore: Option<DraftRestore>,
     /// The error line to show.
     pub error: Option<EditError>,
     seq: u64,
@@ -443,7 +443,7 @@ impl ThreadPart {
 
     fn give(&mut self, draft: Draft) {
         self.seq += 1;
-        self.restore = Some(Restore { seq: self.seq, draft });
+        self.restore = Some(DraftRestore { seq: self.seq, draft });
     }
 
     /// The edit failed before the server changed anything: the prompt goes back

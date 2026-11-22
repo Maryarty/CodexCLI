@@ -47,6 +47,26 @@ fn the_status_row_names_the_select_key_and_the_hints_follow() {
 }
 
 #[test]
+fn away_from_the_last_row_the_status_row_names_the_way_back_and_the_hints_give_way() {
+    let mut s = sheet();
+    s.keys("home");
+    let rows = s.rows();
+    assert_eq!(rows[9].trim(), "end latest", "{}", s.text());
+    assert_eq!(rows[10].trim(), "", "{}", s.text());
+    assert_eq!(rows[11].trim(), "", "{}", s.text());
+    // the key is bold, what it does is dim (`navigation_line`)
+    s.assert_text_style("end", "bold");
+    // back at the last row the select key and the hints return
+    s.keys("end");
+    let rows = s.rows();
+    assert!(rows[9].starts_with("⌃space select"), "{}", s.text());
+    assert_eq!(
+        rows[10].trim(),
+        "↑/↓ to scroll · pgup/pgdn to page · home/end to jump"
+    );
+}
+
+#[test]
 fn up_down_and_the_page_keys_scroll_the_transcript() {
     let mut s = sheet();
     // the chat's list starts at its last row: the sheet shares its reader
@@ -161,4 +181,54 @@ fn q_closes_the_sheet_while_browsing_and_forgets_the_mode() {
     let mut s = prompts(100);
     s.keys("esc q");
     s.assert_absent("T R A N S C R I P T");
+}
+
+// ---- the marked prompt (oracle `transcript_view.rs` `set_highlight`, `transcript_tests.rs`
+// `highlighting_reveals_prompt_body_when_only_padding_is_visible`)
+
+/// All three prompts in view at once.
+fn tall() -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(100, 30)
+        .entry("transcript", "sheet_prompts")
+        .open()
+}
+
+#[test]
+fn browsing_reverses_the_body_of_the_marked_prompt_only() {
+    let mut s = tall();
+    s.assert_text_style("third prompt", "!reversed");
+    s.keys("esc");
+    // the newest prompt is marked first
+    s.assert_text_style("third prompt", "reversed");
+    s.assert_text_style("second prompt", "!reversed");
+    s.assert_text_style("first prompt", "!reversed");
+    s.keys("left");
+    s.assert_text_style("second prompt", "reversed");
+    s.assert_text_style("third prompt", "!reversed");
+}
+
+#[test]
+fn the_mark_goes_when_browsing_ends() {
+    let mut s = tall();
+    s.keys("esc");
+    s.assert_text_style("third prompt", "reversed");
+    s.keys("esc");
+    s.assert_text_style("third prompt", "!reversed");
+}
+
+#[test]
+fn a_marked_prompt_out_of_view_is_scrolled_into_view() {
+    let mut s = sheet();
+    // the sheet starts at the end of a long answer: the prompt is far above
+    s.assert_absent("hello");
+    s.keys("esc");
+    s.assert_contains("hello");
+    s.assert_text_style("hello", "reversed");
+    // the least that shows it: the reader does not jump to the top of the list
+    s.keys("esc");
+    s.keys("end");
+    s.assert_absent("hello");
+    s.keys("esc");
+    s.assert_contains("hello");
 }

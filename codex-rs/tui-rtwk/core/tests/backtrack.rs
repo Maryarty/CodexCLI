@@ -17,7 +17,7 @@ use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use codex_tui_core::ids::{ItemId, ThreadId, TurnId};
 use codex_tui_core::screens::backtrack::{
-    Backtrack, Element, Esc, Mention, Prompt, RevertError, Selection, Targets,
+    Backtrack, Element, EscStep, Mention, Prompt, RevertError, Selection, Targets,
     has_backtrack_target, is_visible, nth_user, nth_user_position, revert_before_turn, user_count,
 };
 use codex_tui_core::threads::{Item, ItemKey, Notice, Transcript, UserPrompt};
@@ -77,14 +77,14 @@ fn the_first_escape_primes_with_a_hint_only_when_a_prompt_exists() {
     let mut machine = Backtrack::default();
     assert_eq!(
         machine.esc(Some(&id), true, targets(2)),
-        Esc::Primed { hint: true }
+        EscStep::Primed { hint: true }
     );
     assert!(machine.is_primed());
 
     let mut empty = Backtrack::default();
     assert_eq!(
         empty.esc(Some(&id), true, targets(0)),
-        Esc::Primed { hint: false }
+        EscStep::Primed { hint: false }
     );
 }
 
@@ -92,7 +92,7 @@ fn the_first_escape_primes_with_a_hint_only_when_a_prompt_exists() {
 fn a_composer_with_a_draft_keeps_the_escape() {
     let id = thread("th");
     let mut machine = Backtrack::default();
-    assert_eq!(machine.esc(Some(&id), false, targets(2)), Esc::Ignored);
+    assert_eq!(machine.esc(Some(&id), false, targets(2)), EscStep::Ignored);
     assert_eq!(machine, Backtrack::Idle);
 }
 
@@ -103,7 +103,7 @@ fn the_second_escape_browses_from_the_newest_prompt() {
     machine.esc(Some(&id), true, targets(3));
     assert_eq!(
         machine.esc(Some(&id), true, targets(3)),
-        Esc::Browse { select: Some(2) }
+        EscStep::Browse { select: Some(2) }
     );
     assert_eq!(machine.selected(), Some(2));
 }
@@ -113,7 +113,10 @@ fn nothing_to_edit_says_so_and_goes_idle_unless_older_history_exists() {
     let id = thread("th");
     let mut machine = Backtrack::default();
     machine.esc(Some(&id), true, targets(0));
-    assert_eq!(machine.esc(Some(&id), true, targets(0)), Esc::NoPrevious);
+    assert_eq!(
+        machine.esc(Some(&id), true, targets(0)),
+        EscStep::NoPrevious
+    );
     assert_eq!(machine, Backtrack::Idle);
 
     // Older pages may hold a prompt: browsing begins with nothing highlighted
@@ -125,7 +128,7 @@ fn nothing_to_edit_says_so_and_goes_idle_unless_older_history_exists() {
     machine.esc(Some(&id), true, more);
     assert_eq!(
         machine.esc(Some(&id), true, more),
-        Esc::Browse { select: None }
+        EscStep::Browse { select: None }
     );
     assert!(machine.needs_history());
 }
@@ -194,7 +197,7 @@ fn escape_while_browsing_cancels_and_any_other_input_ends_a_primed_pair() {
         machine.is_browsing(),
         "input while browsing is the browser's"
     );
-    assert_eq!(machine.esc(Some(&id), true, targets(2)), Esc::Cancelled);
+    assert_eq!(machine.esc(Some(&id), true, targets(2)), EscStep::Cancelled);
     assert_eq!(machine, Backtrack::Idle);
 }
 
@@ -204,11 +207,11 @@ fn escape_in_the_detailed_transcript_browses_at_once() {
     let mut machine = Backtrack::default();
     assert_eq!(
         machine.begin_from_detailed(Some(&id), targets(2)),
-        Esc::Browse { select: Some(1) }
+        EscStep::Browse { select: Some(1) }
     );
     assert_eq!(
         machine.begin_from_detailed(Some(&id), targets(0)),
-        Esc::NoPrevious
+        EscStep::NoPrevious
     );
 }
 
