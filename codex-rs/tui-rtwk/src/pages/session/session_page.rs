@@ -44,7 +44,7 @@ use super::activity::{Run, StatusSlot};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::browse::{self, Browse};
 use super::live::put_back;
-use super::pending_input::PendingInput;
+use super::status::PendingInput;
 use super::status_surfaces::{StatusContext, TitleInputs};
 use super::transcript;
 use super::transcript_pane::Pane;

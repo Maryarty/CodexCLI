@@ -1,0 +1,3 @@
+# Ported from codex-tui bottom_pane/pending_input_preview.rs render_pending_steers_above_queued_messages.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"pending":{"thread":"thread-1","steers":["Please continue.","Check the last command output."],"rejected":["Rejected steer that will be retried."],"queued":["Queued follow-up question"]}}}

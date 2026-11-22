@@ -266,6 +266,21 @@ pub enum Ev {
     Status(Box<StatusFacts>),
     /// An app-wide fact of the footer or the status line (`facts`).
     Facts(FactEv),
+    /// The details under `thread`'s status row, set as a fixture does (the
+    /// app routes it to the thread, which owns the fact).
+    Details { thread: String, details: Option<StatusDetails> },
+    /// What `thread` holds of the user's input during a turn, set as a fixture
+    /// does (the app routes it to the thread, which owns the lists).
+    Pending { thread: String, pending: PendingTexts },
+}
+
+/// The three lists the pending-input preview shows, as texts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct PendingTexts {
+    pub steers: Vec<String>,
+    pub rejected: Vec<String>,
+    pub queued: Vec<String>,
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -300,6 +315,8 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::SignedIn(on) => model.signed_in = on,
         Ev::Status(facts) => model.status = Rc::from(facts),
         Ev::Facts(ev) => model.facts.apply(ev),
+        // the thread owns it (`apply_app` routes it)
+        Ev::Details { .. } | Ev::Pending { .. } => {}
     }
     // what the configured items need is asked for after every change that may alter it
     model.facts.sync(&model.status, model.signed_in);
@@ -345,6 +362,8 @@ pub struct ThreadPart {
     live_compaction: bool,
     pub progress: Option<(usize, usize)>,
     pub step: Option<String>,
+    /// The lines under the status row's header; read through `details()`.
+    details: Option<StatusDetails>,
     /// MCP startup of this thread (oracle `mcp_startup_status`).
     pub mcp: McpStartup,
     /// A retrying error's header, until the thread's next notification
@@ -355,6 +374,36 @@ pub struct ThreadPart {
     /// Turns the goal's budget stopped, until their interrupted completion
     /// is seen (oracle `budget_limited_turn_ids`).
     budget_limited: Vec<TurnId>,
+}
+
+/// The default of `STATUS_DETAILS_DEFAULT_MAX_LINES`.
+pub const STATUS_DETAILS_MAX_LINES: usize = 3;
+
+/// The lines under the status row's header (oracle `StatusIndicatorState`):
+/// the text trimmed at the start and capitalized unless the source says its
+/// case is its own, the lines it may take at most.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatusDetails {
+    pub text: String,
+    pub max_lines: usize,
+}
+
+impl StatusDetails {
+    /// Capitalizes the first letter (oracle `StatusDetailsCapitalization::CapitalizeFirst`).
+    pub fn new(text: String, max_lines: usize) -> Self {
+        let trimmed = text.trim_start();
+        let mut chars = trimmed.chars();
+        let text = match chars.next() {
+            Some(first) => first.to_uppercase().chain(chars).collect(),
+            None => String::new(),
+        };
+        Self { text, max_lines: max_lines.max(1) }
+    }
+
+    /// Keeps the case as given (`Preserve`).
+    pub fn preserved(text: &str, max_lines: usize) -> Self {
+        Self { text: text.trim_start().to_string(), max_lines: max_lines.max(1) }
+    }
 }
 
 /// What owns the status row's header besides the activity phase; the UI's
@@ -383,6 +432,7 @@ pub enum ActivityPhase {
 
 impl ThreadPart {
     pub(crate) fn begin_turn(&mut self) {
+        self.details = None;
         self.progress = None;
         self.activity = ActivityPhase::Working;
         self.live_compaction = false;
@@ -390,6 +440,7 @@ impl ThreadPart {
     }
 
     pub(crate) fn end_turn(&mut self) {
+        self.details = None;
         self.live_compaction = false;
         self.retry_header = None;
     }
@@ -401,6 +452,11 @@ impl ThreadPart {
             .clone()
             .map(StatusHeader::Retry)
             .or_else(|| self.mcp.header().map(StatusHeader::Mcp))
+    }
+
+    /// The lines under the status row's header, if the thread sets any.
+    pub fn details(&self) -> Option<&StatusDetails> {
+        self.details.as_ref()
     }
 
     /// A code review runs in this thread (oracle `review.is_review_mode`).
@@ -492,8 +548,12 @@ pub enum ThreadEv {
     Compaction { turn: TurnId, running: bool },
     Name(Option<String>),
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
-    /// The server retries the turn's request: the header says so.
-    Retry { turn: TurnId, retry: Retry },
+    /// The server retries the turn's request: the header says so, and the
+    /// error's own details sit under it.
+    Retry { turn: TurnId, retry: Retry, details: Option<String> },
+    /// What the status row says under its header (oracle `set_status`'s
+    /// `details`); `None` clears it.
+    Details(Option<StatusDetails>),
     /// The thread's goal reached its token budget during `turn`
     /// (`on_thread_goal_updated` with `BudgetLimited`).
     BudgetLimited { turn: TurnId },
@@ -586,7 +646,8 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
                 Some(attempt) if busy => Retry::Busy { attempt: attempt.to_string() },
                 _ => Retry::Server(note.error.message.clone()),
             };
-            (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), retry })
+            let details = note.error.additional_details.clone();
+            (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), retry, details })
         }
         ServerNotification::ThreadGoalUpdated(note)
             if note.goal.status == codex_app_server_protocol::ThreadGoalStatus::BudgetLimited =>
@@ -707,7 +768,11 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         ThreadEv::Phase { phase, .. } => part.activity = phase,
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
         ThreadEv::Name(name) => part.name = name,
-        ThreadEv::Retry { retry, .. } => part.retry_header = Some(retry),
+        ThreadEv::Retry { retry, details, .. } => {
+            part.retry_header = Some(retry);
+            part.details = details.map(|text| StatusDetails::new(text, STATUS_DETAILS_MAX_LINES));
+        }
+        ThreadEv::Details(details) => part.details = details,
         ThreadEv::BudgetLimited { turn } => {
             if !part.budget_limited.contains(&turn) {
                 part.budget_limited.push(turn);
@@ -787,6 +852,18 @@ enum SeedEv {
     SignedIn(bool),
     Status(Box<StatusFacts>),
     Facts(FactEv),
+    Details(SeedDetails),
+    Pending { thread: String, #[serde(flatten)] pending: PendingTexts },
+}
+
+/// `{"details":{"thread":"thread-1","text":"a\nb","max_lines":3,"preserve":true}}`
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedDetails {
+    thread: String,
+    text: String,
+    max_lines: Option<usize>,
+    #[serde(default)]
+    preserve: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]
@@ -858,5 +935,17 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         SeedEv::SignedIn(on) => Ev::SignedIn(on),
         SeedEv::Status(facts) => Ev::Status(facts),
         SeedEv::Facts(ev) => Ev::Facts(ev),
+        SeedEv::Pending { thread, pending } => Ev::Pending { thread, pending },
+        SeedEv::Details(d) => {
+            let max = d.max_lines.unwrap_or(STATUS_DETAILS_MAX_LINES);
+            Ev::Details {
+                thread: d.thread,
+                details: Some(if d.preserve {
+                    StatusDetails::preserved(&d.text, max)
+                } else {
+                    StatusDetails::new(d.text, max)
+                }),
+            }
+        }
     })
 }

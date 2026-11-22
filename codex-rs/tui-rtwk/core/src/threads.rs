@@ -689,6 +689,21 @@ pub enum TurnEnd {
     Failed,
 }
 
+/// One unified-exec session that runs in the background (oracle
+/// `UnifiedExecProcessSummary`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Terminal {
+    /// The server's process id, else the item's id.
+    pub key: String,
+    pub command: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RunningHook {
+    id: String,
+    message: Option<String>,
+}
+
 /// A message sent to the running turn (`turn/steer`) that the server has not
 /// yet echoed as the user's item (the oracle's `PendingSteer`): the pending-
 /// input preview lists it until then.
@@ -771,6 +786,10 @@ pub enum ThreadEv {
         message: UserMessage,
     },
     Interrupt,
+    /// What the user sent during a turn, set as a fixture does: the pending
+    /// steers, the refused ones and the queue (the real ones come from
+    /// `Submit`, the steer replies and `Queue`).
+    Preview(screens::chat::PendingTexts),
     /// `thread/reverted`: the server's history is now the prefix before a
     /// turn (the edit of a past prompt). Nothing held of the old history is
     /// trusted: the transcript is cleared and the app reads the retained
@@ -816,6 +835,19 @@ pub enum ThreadEv {
     Appended {
         turn: Option<TurnId>,
         item: Item,
+    },
+    /// A hook run started (`hook/started`): the status row names it while it
+    /// runs (oracle `HookCell::running_status_summary`).
+    HookStarted {
+        id: String,
+        message: Option<String>,
+    },
+    /// A hook run ended (`hook/completed`): it leaves the status row, and a
+    /// run that has something to say leaves its row in the transcript.
+    HookEnded {
+        id: String,
+        turn: Option<TurnId>,
+        item: Option<Item>,
     },
     AgentDelta {
         key: ItemKey,
@@ -881,6 +913,8 @@ impl ThreadEv {
             | Self::ItemUpsert { .. }
             | Self::PlanUpdated { .. }
             | Self::Appended { .. }
+            | Self::HookStarted { .. }
+            | Self::HookEnded { .. }
             | Self::AgentDelta { .. }
             | Self::PlanDelta { .. }
             | Self::CommandOutputDelta { .. }
@@ -958,6 +992,11 @@ pub struct ThreadModel {
     steers_after_interrupt: bool,
     /// The last messages given back to the composer.
     restore: Option<Restore>,
+    /// The unified-exec sessions that run in the background (oracle
+    /// `unified_exec_processes`), oldest first.
+    terminals: Vec<Terminal>,
+    /// The hook runs the server reported started and not yet completed.
+    hooks: Vec<RunningHook>,
     /// The per-thread parts of the screen slots.
     slots: ThreadSlots,
     last_error: Option<Failure>,
@@ -1113,6 +1152,8 @@ impl ThreadModel {
             rejected_steers: Vec::new(),
             steers_after_interrupt: false,
             restore: None,
+            terminals: Vec::new(),
+            hooks: Vec::new(),
             slots: ThreadSlots::default(),
             last_error: None,
             goal: None,
@@ -1187,6 +1228,29 @@ impl ThreadModel {
 
     pub fn restore(&self) -> Option<&Restore> {
         self.restore.as_ref()
+    }
+
+    /// The background terminals (unified-exec sessions still running), oldest first.
+    pub fn terminals(&self) -> &[Terminal] {
+        &self.terminals
+    }
+
+    /// What the status row says of the running hooks (oracle
+    /// `HookCell::running_status_summary`): their shared message, else
+    /// `Running hooks` for several and `Running hook` for one.
+    pub fn hook_status(&self) -> Option<String> {
+        let mut messages = self
+            .hooks
+            .iter()
+            .map(|hook| hook.message.as_deref().map(str::trim).filter(|m| !m.is_empty()))
+            .peekable();
+        let first = messages.next()?;
+        let multiple = messages.peek().is_some();
+        Some(match first {
+            Some(message) if messages.all(|other| other == Some(message)) => message.to_string(),
+            _ if multiple => "Running hooks".to_string(),
+            _ => "Running hook".to_string(),
+        })
     }
 
     pub fn screen_slots(&self) -> &ThreadSlots {
@@ -1738,15 +1802,21 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 update: Arc::new(PlanUpdate::from_notification(n)),
             },
         )),
-        ServerNotification::HookCompleted(n) => HookRun::from_summary(&n.run).map(|run| {
-            (
-                ThreadId::new(&n.thread_id),
-                ThreadEv::Appended {
-                    turn: n.turn_id.as_deref().map(TurnId::new),
-                    item: Item::Hook(Arc::new(run)),
-                },
-            )
-        }),
+        ServerNotification::HookStarted(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::HookStarted {
+                id: n.run.id.clone(),
+                message: n.run.status_message.clone(),
+            },
+        )),
+        ServerNotification::HookCompleted(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::HookEnded {
+                id: n.run.id.clone(),
+                turn: n.turn_id.as_deref().map(TurnId::new),
+                item: HookRun::from_summary(&n.run).map(|run| Item::Hook(Arc::new(run))),
+            },
+        )),
         ServerNotification::AgentMessageDelta(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::AgentDelta {
@@ -2234,11 +2304,35 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 give_back(model, vec![message], true);
             }
         }
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::CleanTerminals,
+        )) if model.has_writer() => {
+            model.terminals.clear();
+            let busy = model.is_running() || model.outgoing.any(is_start_turn);
+            screens::apply_thread_intent(
+                &mut model.slots,
+                ScreenThreadIntent::Chat(screens::chat::ThreadIntent::CleanTerminals),
+                busy,
+                fx,
+            );
+        }
         ThreadEv::ScreenIntent(intent) if model.has_writer() => {
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
         }
         ThreadEv::ScreenIntent(_) => {}
+        ThreadEv::Preview(texts) => {
+            model.pending_steers = texts
+                .steers
+                .into_iter()
+                .map(|text| PendingSteer {
+                    message: UserMessage::text(text),
+                    admitted: None,
+                })
+                .collect();
+            model.rejected_steers = texts.rejected.into_iter().map(UserMessage::text).collect();
+            model.queue = texts.queued.into_iter().map(UserMessage::text).collect();
+        }
         ThreadEv::Screen(ev) => {
             if let ScreenThreadEv::Chat(ref ev) = ev
                 && let Some(turn) = ev.turn()
@@ -2270,7 +2364,18 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 apply_ev(model, ThreadEv::Interrupt, fx);
             }
         }
+        ThreadEv::HookStarted { id, message } => {
+            model.hooks.retain(|hook| hook.id != id);
+            model.hooks.push(RunningHook { id, message });
+        }
+        ThreadEv::HookEnded { id, turn, item } => {
+            model.hooks.retain(|hook| hook.id != id);
+            if let Some(item) = item {
+                apply_appended(model, turn, item);
+            }
+        }
         ThreadEv::ItemStarted { key, item } => {
+            track_terminal(model, &key, &item);
             note_review(model, &item);
             if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
                 let echo = steer_echoed(model, &item);
@@ -2280,6 +2385,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::ItemUpsert { key, item } => {
+            track_terminal(model, &key, &item);
             note_review(model, &item);
             if !model.authoritative_turns.contains(&key.turn) {
                 let echo = model.transcript.item(&key).is_none() && steer_echoed(model, &item);
@@ -2326,6 +2432,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             match snapshot {
                 Some(TurnSnapshot::Full(items)) => {
                     Rc::make_mut(&mut model.authoritative_turns).insert(turn.clone());
+                    for (id, item) in &items {
+                        let key = ItemKey {
+                            turn: turn.clone(),
+                            item: id.clone(),
+                        };
+                        track_terminal(model, &key, item);
+                    }
                     model.transcript.replace_turn(&turn, items);
                 }
                 Some(TurnSnapshot::Summary(items))
@@ -2349,6 +2462,35 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             end_turn(model, turn, end, fx);
         }
+    }
+}
+
+/// A unified-exec command that runs is a background terminal until its item
+/// completes (oracle `track_unified_exec_process_begin` / `_end`).
+fn track_terminal(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
+    let Item::Tool(tool) = item else {
+        return;
+    };
+    let ToolKind::Shell {
+        command,
+        process_id,
+        unified_exec: true,
+        ..
+    } = &tool.kind
+    else {
+        return;
+    };
+    let key = process_id.clone().unwrap_or_else(|| key.item.as_str().to_string());
+    if tool.status == ToolStatus::Running {
+        match model.terminals.iter_mut().find(|terminal| terminal.key == key) {
+            Some(terminal) => terminal.command.clone_from(command),
+            None => model.terminals.push(Terminal {
+                key,
+                command: command.clone(),
+            }),
+        }
+    } else {
+        model.terminals.retain(|terminal| terminal.key != key);
     }
 }
 

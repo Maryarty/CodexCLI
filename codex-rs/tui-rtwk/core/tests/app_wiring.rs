@@ -1179,6 +1179,8 @@ mod calls {
                 exit_code,
                 duration_ms: None,
                 user_shell,
+                process_id: None,
+                unified_exec: false,
             },
             status,
             output: None,
