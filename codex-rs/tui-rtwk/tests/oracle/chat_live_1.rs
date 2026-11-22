@@ -12,9 +12,9 @@ const SAFETY_HEADER: &str = "Giving this request a little extra thought";
 // Reasons shared by several tests (what the chat screen does not have yet).
 const SAFETY_PENDING: &str = "no safety-buffering state on the chat screen: model/safetyBuffering/updated is not applied, so no retry prompt, learn-more link or retry confirmation is drawn";
 const COLLAB_PENDING: &str = "no collab-agent item on the chat screen: the chat model keeps only user and agent message items (core/src/threads.rs item_upsert), and the agent names come from set_collab_agent_metadata, which has no feed step";
-const WARN_PENDING: &str = "no warning cell on the chat screen: the chat model keeps only user and agent message items (core/src/threads.rs item_upsert), so warning, config-warning and notice notifications draw nothing";
-const ERR_PENDING: &str = "no error cell on the chat screen: the error notification draws no cell from the view yet, only the streamed answer is drawn";
-const STATUS_PENDING: &str = "no status header on the chat screen: the working and retry header of the status row is not drawn from turn and error notifications yet";
+const WARN_PENDING: &str = "the notification has no main-screen row: a warning with a thread is a detailed-only row (core/src/threads.rs Item::Warning, Ctrl+T) while the oracle's test reads the cell, and the auth-recovery, guardian-warning, model-verification and config-warning notifications are not projected into a thread item (core/src/app.rs makes a config warning a one-line backend notice), nor is the startup warnings panel built";
+const ERR_PENDING: &str = "the error row draws (a red `■ message`, once per turn) but the oracle's wording is not: the thread's TurnError event carries only the message, so the high-load text for an empty serverOverloaded message, the cyber-policy and safety-access notices and the upstream-message variants need `codex_error_info` in core/src/threads.rs";
+const STATUS_PENDING: &str = "a retrying `error` notification (will_retry) has no state on the chat screen: the retry header would be set by it and restored by the next notification of the thread, which only core/src/threads.rs apply sees (agent deltas never reach the chat screen's projection), so showing it without the restore would leave it up for the whole answer";
 
 /// Frame size of an oracle snapshot: its width as the oracle test sets it, its rows as stored.
 fn oracle_size(name: &str, width: u16) -> (u16, u16) {
@@ -115,7 +115,7 @@ fn thread_settings_updated(model: &str, provider: &str) -> String {
     notify(
         "thread/settings/updated",
         &format!(
-            r#"{{"threadId":"thread-1","threadSettings":{{"model":"{model}","modelProvider":"{provider}"}}}}"#
+            r#"{{"threadId":"thread-1","threadSettings":{{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{{"type":"dangerFullAccess"}},"activePermissionProfile":null,"model":"{model}","modelProvider":"{provider}","serviceTier":null,"effort":null,"summary":null,"collaborationMode":{{"mode":"default","settings":{{"model":"{model}","reasoning_effort":null,"developer_instructions":null}}}},"personality":null}}}}"#
         ),
     )
 }
@@ -322,7 +322,7 @@ fn active_transcript_preserves_clipped_markdown_hyperlinks() {
 fn initial_session_header_starts_at_the_top_of_the_viewport() {
     kit::pending(
         Owner::ChatLive,
-        "no session header on the chat screen: the placeholder header is not fed by a thread session, and the view draws no header at the top of the viewport yet",
+        "no thread session is fed: the transcript draws its header (transcript_header.rs) once the chat knows the thread's cwd, and no kit step supplies one, so row 0 is empty",
     );
     let s = Screen::build(Owner::ChatLive).size(48, 24).live().open();
     // oracle: the header's first rows start at the top of the viewport; the version and the cwd are placeholders in the oracle.
@@ -661,7 +661,7 @@ fn tool_suggestion_install_url_is_validated_before_opening() {
 fn thread_settings_updated_updates_visible_state_without_transcript() {
     kit::pending(
         Owner::ChatLive,
-        "no thread-settings update on the chat screen: thread/settings/updated is not applied to the visible state, so the change to the model, effort and tier is not drawn",
+        "a settings update on a chat that has no session draws the session header: the transcript shows its header as soon as ThreadPart.cwd is known (transcript_header.rs), and the settings carry the cwd; the oracle draws the header from the session configuration only",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     let before = s.shot();
@@ -734,7 +734,7 @@ fn live_app_server_user_message_omits_unsupported_media() {
 fn live_app_server_turn_completed_clears_working_status_after_answer_item() {
     kit::pending(
         Owner::ChatLive,
-        "no working status indicator or completion line on the chat screen: the view draws only the streamed answer, so the Working header and the Worked for line are not drawn",
+        "no `Worked for` line: the completion line takes its time from the turn's durationMs (core/src/threads.rs TurnTiming) and the oracle falls back to its own status timer when the turn has none (FinalMessageSeparator::from_turn_once); the Working row and its clearing draw",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
@@ -1192,7 +1192,7 @@ fn live_app_server_model_verification_renders_warning() {
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&notify(
         "model/verification",
-        r#"{"turnId":"turn-1","verifications":["trustedAccessForCyber"]}"#,
+        r#"{"threadId":"thread-1","turnId":"turn-1","verifications":["trustedAccessForCyber"]}"#,
     ));
     s.assert_contains("multiple flags for possible cybersecurity risk");
     s.assert_contains("extra safety checks are on");
@@ -1205,7 +1205,7 @@ fn live_app_server_model_verification_renders_warning() {
 fn live_app_server_manual_thread_name_updates_status_surfaces() {
     kit::pending(
         Owner::ChatLive,
-        "no thread name on the chat screen: thread/name/updated is not applied, so the transcript line, the footer and the terminal title are not drawn",
+        "the name is applied (ThreadPart.name, read by status_surfaces.rs) but the oracle's snapshot has the sections `transcript:` and `footer:` and a `title:` line, which the kit's frame parser does not read (no frame `transcript`); the footer and the title are the chat-status chunk's",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&notify(
@@ -1223,7 +1223,7 @@ fn live_app_server_manual_thread_name_updates_status_surfaces() {
 fn live_app_server_automatic_thread_name_update_is_silent() {
     kit::pending(
         Owner::ChatLive,
-        "no thread session and no thread-name update on the chat screen: the generated name is not applied, so the silence it must keep cannot be drawn yet",
+        "the generated name is applied and drawn by the status surfaces (status_surfaces.rs reads ThreadPart.name), so the whole-screen comparison differs; the oracle's test compares the transcript only, and the replay kinds have no feed step",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     let before = s.shot();
