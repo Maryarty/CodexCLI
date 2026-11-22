@@ -19,12 +19,13 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::screens::usage::chats::Pos as ChatPos;
 use codex_tui_core::screens::usage::dashboard::{CARD_GAP, Geometry};
 use codex_tui_core::screens::usage::plan::Pos as PlanPos;
 use codex_tui_core::screens::usage::{Model, Section};
 
 use super::strings::Strings;
-use super::{Look, SECTIONS, Taps, gap, line, overview, plan, report};
+use super::{Look, SECTIONS, Taps, chats, gap, line, overview, plan, report};
 use crate::widgets::measure::{self, Measure};
 
 /// A piece of a card's content and the rows it takes.
@@ -76,6 +77,8 @@ pub struct Deck {
     pub list: ListController,
     /// The Plan report's rows (core's), shown on its card.
     pub plan: PlanPos,
+    /// The chats report's rows (core's), shown on its card.
+    pub chat: ChatPos,
     pub taps: Taps,
 }
 
@@ -234,6 +237,7 @@ impl Deck {
         items.extend(match section {
             Section::Summary => overview::card(model, strings, num, look, fit),
             Section::Plan => plan::card(model, &self.plan, strings, num, look, fit),
+            Section::Chats => chats::card(model, &self.chat, strings, num, look, fit),
             section => report::card(model, section, strings, num, look, shown, fit),
         });
         let inner = geometry.inner_height();

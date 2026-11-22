@@ -98,7 +98,7 @@ pub(super) fn rows(facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2] {
             _ => actions.push((pair(keys::LEFT, keys::RIGHT), word(strings.hint_day))),
         }
         let details = match section {
-            Section::Plan => *row_details,
+            Section::Plan | Section::Chats => *row_details,
             section => report::is_chart(section) && model.day_has_details(section, shown.cursor),
         };
         if details {

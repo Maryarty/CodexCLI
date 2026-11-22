@@ -223,6 +223,58 @@ pub struct Strings {
     pub plan_window_slash: &'static str,
     /// Between the two keys that move to the other table.
     pub plan_key_join: &'static str,
+    /// Oracle: `chat_panel.rs`: the business account's chats.
+    pub chat_blurb: &'static str,
+    pub chat_none: &'static str,
+    chat_missing_one: Msg<1>,
+    chat_missing_many: Msg<1>,
+    pub chat_unavailable: &'static str,
+    pub chat_head_chat: &'static str,
+    pub chat_head_stacked: &'static str,
+    pub chat_head_usd: &'static str,
+    pub chat_head_credits: &'static str,
+    pub chat_mark_on: &'static str,
+    pub chat_mark_off: &'static str,
+    pub chat_dash: &'static str,
+    pub chat_indent_blank: &'static str,
+    pub chat_not_reported: &'static str,
+    pub chat_group_model: &'static str,
+    pub chat_group_effort: &'static str,
+    pub chat_group_speed: &'static str,
+    pub chat_group_credits: &'static str,
+    pub chat_group_narrow: &'static str,
+    pub chat_no_breakdown: &'static str,
+    chat_zero: Msg<4>,
+    chat_zero_group: &'static str,
+    chat_zero_groups: &'static str,
+    chat_zero_hidden: &'static str,
+    chat_zero_hide: &'static str,
+    chat_zero_show: &'static str,
+    chat_showing: Msg<3>,
+    pub chat_coverage: &'static str,
+    pub chat_card_blurb: &'static str,
+    pub chat_card_coverage: &'static str,
+    pub chat_card_missing: &'static str,
+    chat_effort_speed: Msg<2>,
+    chat_indent: Msg<1>,
+    /// Oracle: `task_panel.rs`: the consumer account's chats.
+    pub task_weekly: &'static str,
+    pub task_five_hour: &'static str,
+    pub task_balance: &'static str,
+    task_blurb: Msg<1>,
+    pub task_basis_balance: &'static str,
+    pub task_basis_limit: &'static str,
+    pub task_no_report: &'static str,
+    task_partial_ranking: Msg<2>,
+    pub task_partial_mark: &'static str,
+    pub task_unavailable: &'static str,
+    task_showing_top: Msg<2>,
+    pub task_coverage: &'static str,
+    pub task_truncated: &'static str,
+    task_updated: Msg<1>,
+    pub task_sort: &'static str,
+    pub sort_key: &'static str,
+    task_group_tags: Msg<3>,
 }
 
 /// English: the oracle's text.
@@ -399,6 +451,56 @@ pub const EN: Strings = Strings {
     plan_window_week: "Weekly",
     plan_window_slash: " / ",
     plan_key_join: "/",
+    chat_blurb: "Active in past 30 days \u{b7} sorted by lifetime credits",
+    chat_none: "No recent local chats.",
+    chat_missing_one: msg!("{0} chat estimate unavailable"),
+    chat_missing_many: msg!("{0} chat estimates unavailable"),
+    chat_unavailable: "Chat usage unavailable",
+    chat_head_chat: "  Chat",
+    chat_head_stacked: "Est. $ / credits",
+    chat_head_usd: "Est. $ spent",
+    chat_head_credits: "Lifetime credits",
+    chat_mark_on: "\u{203a}",
+    chat_mark_off: " ",
+    chat_indent_blank: "  ",
+    chat_dash: "\u{2014}",
+    chat_not_reported: "Not reported",
+    chat_group_model: "Model",
+    chat_group_effort: "Effort",
+    chat_group_speed: "Speed",
+    chat_group_credits: "Credits",
+    chat_group_narrow: "  Model / effort / speed",
+    chat_no_breakdown: "  Breakdown unavailable",
+    chat_zero: msg!("  {0} zero-credit {1}{2} \u{b7} a {3}"),
+    chat_zero_group: "group",
+    chat_zero_groups: "groups",
+    chat_zero_hidden: " hidden",
+    chat_zero_hide: "hide zeros",
+    chat_zero_show: "show all",
+    chat_showing: msg!("Showing {0}\u{2013}{1} of {2} chats"),
+    chat_card_blurb: "30d active \u{b7} lifetime credits",
+    chat_card_coverage: "Local chats \u{b7} excludes subagents",
+    chat_card_missing: "Some estimates unavailable",
+    chat_coverage: "Local chats \u{b7} excludes archived chats and subagent usage",
+    chat_effort_speed: msg!("    {0} \u{b7} {1}"),
+    chat_indent: msg!("  {0}"),
+    task_weekly: "Weekly %",
+    task_five_hour: "5-hour %",
+    task_balance: "Balance credits",
+    task_blurb: msg!("Usage estimates \u{b7} active in past 30 days \u{b7} sorted by {0}"),
+    task_basis_balance: "Credits debited from balance \u{b7} includes adjustments",
+    task_basis_limit: "Recorded usage / current full limit \u{b7} may exceed 100%",
+    task_no_report: "No task usage reported.",
+    task_partial_ranking: msg!("Partial ranking \u{b7} {0} partial \u{b7} {1} unavailable"),
+    task_partial_mark: " \u{b7} partial",
+    task_unavailable: "  Task usage unavailable.",
+    task_showing_top: msg!("Showing top {0} of {1} chats"),
+    task_coverage: "Local chats \u{b7} includes discovered descendants \u{b7} excludes archived roots",
+    task_truncated: "Partial ranking \u{b7} 100 most recently active chats",
+    task_updated: msg!("Updated {0} UTC \u{b7} recent activity may be delayed"),
+    task_sort: " sort: ",
+    sort_key: "s",
+    task_group_tags: msg!("    {0} \u{b7} {1} \u{b7} {2}"),
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -602,6 +704,119 @@ impl Strings {
                 Arg::Text(&end),
                 Arg::Text(if current { self.plan_current } else { "" }),
             ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `3 chat estimates unavailable`.
+    pub fn chat_missing(&self, count: usize, num: &NumSyms) -> String {
+        let msg = if count == 1 {
+            self.chat_missing_one
+        } else {
+            self.chat_missing_many
+        };
+        Fmt::new(msg, [Arg::Int(count as u64)], num).to_string()
+    }
+
+    /// `  1 zero-credit group hidden \u{b7} a show all`.
+    pub fn chat_zero(&self, count: usize, shown: bool, num: &NumSyms) -> String {
+        Fmt::new(
+            self.chat_zero,
+            [
+                Arg::Int(count as u64),
+                Arg::Text(if count == 1 {
+                    self.chat_zero_group
+                } else {
+                    self.chat_zero_groups
+                }),
+                Arg::Text(if shown { "" } else { self.chat_zero_hidden }),
+                Arg::Text(if shown {
+                    self.chat_zero_hide
+                } else {
+                    self.chat_zero_show
+                }),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `Showing 1\u{2013}5 of 5 chats`.
+    pub fn chat_showing(&self, first: usize, last: usize, count: usize, num: &NumSyms) -> String {
+        Fmt::new(
+            self.chat_showing,
+            [
+                Arg::Int(first as u64),
+                Arg::Int(last as u64),
+                Arg::Int(count as u64),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `    high \u{b7} standard`.
+    pub fn chat_effort_speed(&self, effort: &str, speed: &str, num: &NumSyms) -> String {
+        Fmt::new(
+            self.chat_effort_speed,
+            [Arg::Text(effort), Arg::Text(speed)],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `  <title>` (a breakdown row's model).
+    pub fn chat_indent(&self, text: &str, num: &NumSyms) -> String {
+        Fmt::new(self.chat_indent, [Arg::Text(text)], num).to_string()
+    }
+
+    /// The name of a sort metric (0 weekly, 1 five-hour, else balance).
+    pub fn task_metric(&self, index: usize) -> &'static str {
+        match index {
+            0 => self.task_weekly,
+            1 => self.task_five_hour,
+            _ => self.task_balance,
+        }
+    }
+
+    pub fn task_blurb(&self, metric: &str, num: &NumSyms) -> String {
+        Fmt::new(self.task_blurb, [Arg::Text(metric)], num).to_string()
+    }
+
+    pub fn task_partial_ranking(&self, partial: usize, missing: usize, num: &NumSyms) -> String {
+        Fmt::new(
+            self.task_partial_ranking,
+            [Arg::Int(partial as u64), Arg::Int(missing as u64)],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn task_showing_top(&self, shown: usize, count: usize, num: &NumSyms) -> String {
+        Fmt::new(
+            self.task_showing_top,
+            [Arg::Int(shown as u64), Arg::Int(count as u64)],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn task_updated(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.task_updated, [Arg::Text(&time)], num).to_string()
+    }
+
+    pub fn task_group_tags(
+        &self,
+        effort: &str,
+        speed: &str,
+        product: &str,
+        num: &NumSyms,
+    ) -> String {
+        Fmt::new(
+            self.task_group_tags,
+            [Arg::Text(effort), Arg::Text(speed), Arg::Text(product)],
             num,
         )
         .to_string()

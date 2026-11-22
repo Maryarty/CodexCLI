@@ -638,3 +638,195 @@ fn the_plan_card_shows_the_first_period_of_each_table() {
     );
     assert!(screen.contains("Usage as of Sep 2 12:00 UTC"), "{screen}");
 }
+
+const CHATS_BREAKDOWN: &str = "analytics/snapshots/codex_tui__analytics__tests__chats_table__chats_breakdown_ranks_nonzero_groups_and_reflows.snap";
+const CHATS_LONG: &str = "analytics/snapshots/codex_tui__analytics__tests__chats_table__chats_long_title_keeps_detail_indent_and_counts_missing_estimates.snap";
+const CONSUMER_CHATS: &str = "analytics/snapshots/codex_tui__analytics__tests__consumer_refresh__consumer_chat_all_metrics.snap";
+
+/// The oracle's snapshot of several screens `height` rows tall, each
+/// followed by a blank row.
+fn screens_of(path: &str, height: usize) -> Vec<Vec<String>> {
+    oracle_snap::rows(path)
+        .chunks(height + 1)
+        .map(|screen| screen.iter().take(height).cloned().collect())
+        .collect()
+}
+
+/// An Enterprise account's Chats report with the first chat open: its groups
+/// by credits (the zero one hidden, the one without a speed `Not reported`,
+/// the refund exact), as a table at 110 cells and two rows a group at 58,
+/// then with the zero-credit group shown by `a` (oracle:
+/// `chats_breakdown_ranks_nonzero_groups_and_reflows`).
+#[test]
+fn chat_breakdown_ranks_groups_and_reflows() {
+    let mut h = open("chats", 110, 32);
+    h.press("enter");
+    let screens = screens_of(CHATS_BREAKDOWN, 32);
+    let [wide, narrow, expanded, ..] = &screens[..] else {
+        panic!("three screens");
+    };
+    oracle_snap::assert_same("chats_wide", &oracle_snap::screen(&h.t), wide);
+    h.t.resize(58, 32);
+    oracle_snap::assert_same("chats_narrow", &oracle_snap::screen(&h.t), narrow);
+    h.t.resize(110, 32);
+    h.press("a");
+    oracle_snap::assert_same("chats_zero_groups", &oracle_snap::screen(&h.t), expanded);
+    h.press("a");
+    assert!(h.t.screen().contains("a show all"), "{}", h.t.screen());
+}
+
+/// A title the row cuts is written whole under the rule, and chats without
+/// an estimate are counted (oracle: `chats_long_title_keeps_detail_indent_
+/// and_counts_missing_estimates`).
+#[test]
+fn chat_long_title_is_written_whole_under_the_rule() {
+    let mut h = open("chats_long", 110, 30);
+    h.press("enter");
+    oracle_snap::assert_same(
+        "chats_long_title",
+        &oracle_snap::screen(&h.t),
+        &screens_of(CHATS_LONG, 30)[0],
+    );
+}
+
+/// A Plus account's Chats report: the three metrics beside the title, the
+/// open row's details by metric, the rows without usage last (oracle:
+/// `consumer_chat_all_metrics`).
+#[test]
+fn consumer_chats_show_all_metrics_and_the_open_row() {
+    let mut h = open("tasks", 110, 30);
+    h.press("enter");
+    oracle_snap::assert_same(
+        "consumer_chat_all_metrics",
+        &oracle_snap::screen(&h.t),
+        &screens_of(CONSUMER_CHATS, 30)[0],
+    );
+    h.press("s");
+    assert!(
+        h.t.screen().contains("s sort: 5-hour %"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// A click on a chat moves the cursor to it, the next one opens it, the one
+/// after closes it (oracle: `mouse.rs`, a click on a chat row).
+#[test]
+fn clicking_a_chat_picks_then_opens_then_closes_it() {
+    let mut h = open("chats", 110, 32);
+    tap(&mut h, "Refactor billing usage");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("\u{203a} Refactor billing usage"),
+        "{screen}"
+    );
+    assert!(!screen.contains("Top model"), "{screen}");
+    tap(&mut h, "Refactor billing usage");
+    let screen = h.t.screen();
+    assert!(screen.contains("GPT-5.6-Sol"), "{screen}");
+    tap(&mut h, "Refactor billing usage");
+    assert!(!h.t.screen().contains("GPT-5.6-Sol"), "{}", h.t.screen());
+}
+
+/// The chats of an account with dollars: the two columns beside the title at
+/// 110 cells, stacked under it below 70, the credits under the title.
+#[test]
+fn dollars_sit_beside_the_credits_and_stack_below_seventy_cells() {
+    let mut h = open("chats_usd", 110, 24);
+    let wide = h.t.screen();
+    assert!(wide.contains("Est. $ spent  Lifetime credits"), "{wide}");
+    assert!(wide.contains("$48.38"), "{wide}");
+    h.t.resize(58, 24);
+    let narrow = h.t.screen();
+    assert!(narrow.contains("Est. $ / credits"), "{narrow}");
+    let at = narrow
+        .lines()
+        .position(|row| row.contains("\u{203a} Q3 planning analysis"))
+        .unwrap();
+    let under = narrow.lines().nth(at + 1).unwrap();
+    assert!(under.trim_start().starts_with("$48.38"), "{narrow}");
+}
+
+/// `enter details` is hinted only while the row under the cursor has an
+/// estimate to open (oracle: `hints.rs`, `chat_has_details`).
+#[test]
+fn the_details_hint_follows_the_row_under_the_cursor() {
+    let mut h = open("chats_long", 110, 30);
+    assert!(h.t.screen().contains("enter details"), "{}", h.t.screen());
+    h.press("down");
+    assert!(!h.t.screen().contains("enter details"), "{}", h.t.screen());
+    h.press("enter");
+    assert!(
+        !h.t.screen().contains("Chat usage unavailable\n"),
+        "no details"
+    );
+}
+
+/// A click on the sort control puts the next metric in front, as `s` does.
+#[test]
+fn clicking_the_sort_control_changes_the_metric() {
+    let mut h = open("tasks", 110, 30);
+    assert!(
+        h.t.screen().contains("s sort: Weekly %"),
+        "{}",
+        h.t.screen()
+    );
+    tap(&mut h, "s sort: Weekly %");
+    assert!(
+        h.t.screen().contains("s sort: 5-hour %"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("s");
+    assert!(
+        h.t.screen().contains("s sort: Balance credits"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// The dashboard's Chats card: the first rows of the account's kind.
+#[test]
+fn the_chats_cards_show_the_first_rows() {
+    let mut h = open("tasks", 110, 60);
+    h.press("z");
+    // The card is as tall as the others: its end says so (oracle: `… z to
+    // maximize`).
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("\u{203a} Refunded task \u{b7} partial"),
+        "{screen}"
+    );
+    assert!(screen.contains("\u{2026} z to maximize"), "{screen}");
+    let mut h = open("chats", 110, 60);
+    h.press("z");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("30d active \u{b7} lifetime credits"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("Local chats \u{b7} excludes subagents"),
+        "{screen}"
+    );
+}
+
+/// The oracle windows the rows to the viewport and says which it shows:
+/// `Showing 14–22 of 30 chats`. Flutter: a `ListView` told its visible
+/// range. rtwk-gaps G-new-usage-2.
+#[test]
+#[ignore = "pending(G-new-usage-2): no visible index range of a scrolled list; the report shows every row and always says 1-N"]
+fn the_chats_report_says_which_rows_the_window_shows() {
+    let mut h = open("chats_many", 110, 24);
+    h.press("end");
+    let screen = h.t.screen();
+    let visible: Vec<usize> = (1..=30)
+        .filter(|index| screen.contains(&format!("Chat {index:02}")))
+        .collect();
+    let said = format!(
+        "Showing {}\u{2013}{} of 30 chats",
+        visible.first().unwrap(),
+        visible.last().unwrap()
+    );
+    assert!(screen.contains(&said), "{screen}");
+}

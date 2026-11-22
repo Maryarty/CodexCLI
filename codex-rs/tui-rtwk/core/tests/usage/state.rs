@@ -56,6 +56,32 @@ fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
 }
 
 fn answer(model: &mut Model, ask: &Ask) {
+    let (session, stamp) = (ask.session, ask.stamp);
+    match ask.what {
+        AskKind::Tasks => {
+            settle(
+                model,
+                Ev::Tasks {
+                    session,
+                    stamp,
+                    result: Ok(Some(Default::default())),
+                },
+            );
+            return;
+        }
+        AskKind::Chats => {
+            settle(
+                model,
+                Ev::Chats {
+                    session,
+                    stamp,
+                    result: Ok(Some(Default::default())),
+                },
+            );
+            return;
+        }
+        _ => {}
+    }
     let AskKind::Report { section, .. } = ask.what else {
         panic!("{ask:?}")
     };
@@ -501,13 +527,35 @@ fn the_date_range_of_a_section_ends_on_the_session_day() {
 
 #[test]
 fn zero_credit_groups_and_task_metric_toggle_in_the_model() {
-    let (mut model, _) = opened(PlanType::Business);
+    use codex_tui_core::screens::usage::chats::{
+        Amounts, Decimal, Metric, Status, Task, TaskList, TaskRow,
+    };
+    let (mut model, _) = opened(PlanType::Plus);
     step(&mut model, Intent::ZeroCreditGroups);
     assert!(model.show_zero_credit_groups);
-    step(&mut model, Intent::TaskMetric { count: 3 });
-    step(&mut model, Intent::TaskMetric { count: 3 });
+    // The metrics offered are the ones some row reports: the balance, then
+    // the percentages the rows have.
+    model.section = Section::Chats;
+    model.tasks = codex_tui_core::screens::usage::Load::Ready(std::rc::Rc::new(TaskList {
+        rows: vec![TaskRow {
+            title: "A task".into(),
+            task: Some(Task {
+                status: Status::Available,
+                amounts: Amounts {
+                    weekly_percent: Some(1.0),
+                    five_hour_percent: Some(2.0),
+                    balance: Some(Decimal::new("3")),
+                },
+                groups: Vec::new(),
+            }),
+        }],
+        ..TaskList::default()
+    }));
+    assert_eq!(model.task_metrics(), Metric::ALL.to_vec());
+    step(&mut model, Intent::TaskMetric);
+    step(&mut model, Intent::TaskMetric);
     assert_eq!(model.chat_metric, 2);
-    step(&mut model, Intent::TaskMetric { count: 3 });
+    step(&mut model, Intent::TaskMetric);
     assert_eq!(model.chat_metric, 0);
 }
 

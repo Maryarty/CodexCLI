@@ -4,6 +4,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+mod chats;
 mod dashboard;
 mod normalize;
 mod plan;

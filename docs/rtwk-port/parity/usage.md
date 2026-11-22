@@ -182,3 +182,30 @@ click picks, card vs report rows, notes, side-by-side width. Shown biting: Esc a
 Gap filed: **G-new-usage-1** (the Plan report and the chart reports do not follow the cursor: `Scrollable.ensureVisible`
 of a row is not reachable from a State), `the_plan_report_follows_the_cursor_row` pending; the oracle's
 `resize_keeps_visible_weekly_selection_and_respects_manual_scroll` rests on it and is not ported.
+
+## chunk-usage, step 2b: the Chats report (card and focused)
+Core: `core/src/screens/usage/chats.rs` (the listings as the host hands them: `ChatList`/`ChatRow`/`Estimate` for a
+business account, `TaskList`/`TaskRow`/`Amounts` for a consumer one; `balance_text` (the oracle's `task_panel::amount`
+balance rounding), `Metric` and the sort `compare`; `ChatPos`/`ChatStep` for the cursor and the open row;
+`Model::chat_view`, `task_view` (card or report), `chat_card` as `ChatLine`/`TaskLine` values; the constants of the
+oracle's widths), `Model.chats`/`tasks: Load<Rc<..>>`, `AskKind::Chats`/`Tasks`, `Ev::Chats`/`Tasks`, `Seed.chats`/`tasks`,
+`Intent::TaskMetric` (cycles the metrics offered). Asked when `Section::Chats` is shown, by account kind; refresh/close drop.
+Page: `src/pages/usage/chats.rs` (a row is a `Row` of an `Expanded` title cut with an ellipsis and its amounts in
+fixed-width right-aligned `SizedBox` cells; the row under the cursor a `BoxWidget` filled to the report's width; the
+dollar column stacks under the title below 70 cells, the metrics all show when `widest + gaps + 24` fits, the breakdown
+is a table from 70 cells: each a decision made from the measured width through `segmenter_of(cx)`, no string cutting;
+rules by `Divider`), `strings.rs` (Chats/Tasks words), `list.rs` (`ChatStep` keys, PgUp/PgDn scroll), `hints.rs`
+(`enter details` through `chat_has_details`), `cards.rs` (business card: first five rows; consumer card: `task_view`
+without details), controls row `s sort: <metric>` (click = `s`), keys `a` (zero-credit groups, when a row is open)
+and `s`. Mouse (ADR-011): a tap on a row picks it, a second opens it, a third closes it.
+Fixtures (core `apply`): `chats`, `chats_long`, `chats_usd`, `chats_many`, `tasks`; debug entries of the same names.
+Tests: oracle snapshots equal row for row: `chats_breakdown_ranks_nonzero_groups_and_reflows` (110 and 58 wide, then
+`a` shown), `chats_long_title_keeps_detail_indent_and_counts_missing_estimates`, `consumer_chat_all_metrics`; the
+dollar column wide and stacked, the details hint following the row, the sort control click, both cards, row taps;
+core: the balance table, missing rows last and metrics offered, sort order, `ChatPos` steps and taps, groups ranked
+and zero ones hidden, the dollar column, the card's five rows, asks by account kind and stale stamps dropped.
+Gap filed: **G-new-usage-2** (the oracle's `Showing a-b of N chats` is the window the viewport shows; rtwk cannot say
+which rows a scrolled list shows), `the_chats_report_says_which_rows_the_window_shows` pending. The report shows every
+row under one scroll and says `Showing 1-N of N`; **G-new-usage-1** also keeps the cursor row from being followed.
+Needs (core-wiring/keymap): none new; the host side of `AskKind::Chats`/`Tasks` (`thread/list` roots + estimates,
+`task usage`) is step 3.

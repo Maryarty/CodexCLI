@@ -26,6 +26,7 @@ use crate::threads::ThreadFx;
 
 pub mod activity;
 pub mod dashboard;
+pub mod chats;
 pub mod data;
 pub mod date;
 pub mod models;
@@ -82,6 +83,10 @@ pub struct Model {
     pub histories: [Load<Rc<History>>; Section::COUNT],
     /// The Plan section's allowance history (oracle: `plan::State::report`).
     pub plan: Load<Rc<plan::Report>>,
+    /// The Chats section's listing of a business account (oracle: `chats`).
+    pub chats: Load<Rc<chats::ChatList>>,
+    /// The Chats section's listing of a consumer account (oracle: `tasks`).
+    pub tasks: Load<Rc<chats::TaskList>>,
     pub profile: Load<Rc<profile::Profile>>,
     reports_started: bool,
 }
@@ -113,6 +118,8 @@ impl Default for Model {
             chat_metric: 0,
             histories: std::array::from_fn(|_| Load::Unavailable),
             plan: Load::Unavailable,
+            chats: Load::Unavailable,
+            tasks: Load::Unavailable,
             profile: Load::Unavailable,
             reports_started: false,
         }
@@ -147,6 +154,10 @@ pub enum AskKind {
     Profile,
     /// The Plan section's allowance history (oracle: `Live::plan_history`).
     Plan,
+    /// The recent root chats with their estimates (a business account).
+    Chats,
+    /// The recent root chats with their task usage (a consumer account).
+    Tasks,
 }
 
 /// The settled account: the plan, and what the host knows of the session.
@@ -208,6 +219,16 @@ pub enum Ev {
         stamp: Stamp,
         result: Result<Option<plan::Data>, String>,
     },
+    Chats {
+        session: u32,
+        stamp: Stamp,
+        result: Result<Option<chats::ChatList>, String>,
+    },
+    Tasks {
+        session: u32,
+        stamp: Stamp,
+        result: Result<Option<chats::TaskList>, String>,
+    },
     /// The signed-in identity changed under the session: everything again
     /// (oracle: `identity_invalidated` -> `refresh`).
     Invalidated { session: u32 },
@@ -244,6 +265,10 @@ pub struct Seed {
     /// reply is.
     #[serde(default)]
     pub plan: Option<SeedLoad<plan::Data>>,
+    #[serde(default)]
+    pub chats: Option<SeedLoad<chats::ChatList>>,
+    #[serde(default)]
+    pub tasks: Option<SeedLoad<chats::TaskList>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
@@ -301,7 +326,7 @@ pub enum Intent {
     /// `a`: zero-credit groups in the expanded details.
     ZeroCreditGroups,
     /// `s`: the next chat sort metric of the `count` the page offers.
-    TaskMetric { count: usize },
+    TaskMetric,
 }
 
 impl Model {
@@ -326,6 +351,8 @@ impl Model {
         self.histories = std::array::from_fn(|_| Load::Unavailable);
         self.profile = Load::Unavailable;
         self.plan = Load::Unavailable;
+        self.chats = Load::Unavailable;
+        self.tasks = Load::Unavailable;
         self.reports_started = false;
         self.token_model = None;
         self.token_models.clear();
@@ -380,6 +407,16 @@ impl Model {
             let stamp = self.next_stamp();
             self.plan = Load::Loading(stamp);
             asks.push(self.ask(stamp, AskKind::Plan));
+        }
+        if visible.contains(&Section::Chats) {
+            let stamp = self.next_stamp();
+            if self.business() {
+                self.chats = Load::Loading(stamp);
+                asks.push(self.ask(stamp, AskKind::Chats));
+            } else {
+                self.tasks = Load::Loading(stamp);
+                asks.push(self.ask(stamp, AskKind::Tasks));
+            }
         }
         asks
     }
@@ -467,6 +504,12 @@ impl Model {
         if let Some(profile) = seed.profile {
             self.profile = profile.into_load(Rc::new);
         }
+        if let Some(chats) = seed.chats {
+            self.chats = chats.into_load(Rc::new);
+        }
+        if let Some(tasks) = seed.tasks {
+            self.tasks = tasks.into_load(Rc::new);
+        }
         if let Some(history) = seed.plan {
             self.plan = match history {
                 SeedLoad::Ready(data) => match plan::Report::parse(data) {
@@ -497,6 +540,8 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             model.histories = std::array::from_fn(|_| Load::Unavailable);
             model.profile = Load::Unavailable;
             model.plan = Load::Unavailable;
+            model.chats = Load::Unavailable;
+            model.tasks = Load::Unavailable;
             model.account = Load::Unavailable;
             Vec::new()
         }
@@ -554,8 +599,15 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             model.show_zero_credit_groups = !model.show_zero_credit_groups;
             Vec::new()
         }
-        Intent::TaskMetric { count } => {
-            model.chat_metric = (model.chat_metric + 1) % count.max(1);
+        Intent::TaskMetric => {
+            if model.control_available(Control::TaskMetric, false) {
+                let metrics = model.task_metrics();
+                let at = metrics
+                    .iter()
+                    .position(|metric| *metric == model.task_metric())
+                    .unwrap_or_default();
+                model.chat_metric = metrics[(at + 1) % metrics.len()].index();
+            }
             Vec::new()
         }
     }
@@ -633,9 +685,32 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
             model.plan.settle(stamp, result.map(|report| report.map(Rc::new)));
             Vec::new()
         }
-        Ev::Account { .. } | Ev::Report { .. } | Ev::Profile { .. } | Ev::Plan { .. } => {
+        Ev::Chats {
+            session,
+            stamp,
+            result,
+        } if session == model.session => {
+            model
+                .chats
+                .settle(stamp, result.map(|list| list.map(Rc::new)));
             Vec::new()
         }
+        Ev::Tasks {
+            session,
+            stamp,
+            result,
+        } if session == model.session => {
+            model
+                .tasks
+                .settle(stamp, result.map(|list| list.map(Rc::new)));
+            Vec::new()
+        }
+        Ev::Account { .. }
+        | Ev::Report { .. }
+        | Ev::Profile { .. }
+        | Ev::Plan { .. }
+        | Ev::Chats { .. }
+        | Ev::Tasks { .. } => Vec::new(),
     }
 }
 

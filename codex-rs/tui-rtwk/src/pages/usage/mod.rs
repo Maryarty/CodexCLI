@@ -24,6 +24,7 @@ use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::keymap::Keymap;
+use codex_tui_core::screens::usage::chats::Pos as ChatPos;
 use codex_tui_core::screens::usage::models::plan_label;
 use codex_tui_core::screens::usage::plan::{PlanStep, Pos as PlanPos};
 use codex_tui_core::screens::usage::{
@@ -40,6 +41,7 @@ use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 
 mod cards;
+mod chats;
 mod help;
 mod hints;
 mod keys;
@@ -103,6 +105,36 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "plan_unavailable",
             description: "the plan history was never loaded",
             script: include_str!("fixtures/plan_unavailable.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "chats",
+            description: "an Enterprise account's Chats report, the first chat with a breakdown of four groups",
+            script: include_str!("fixtures/chats.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "chats_long",
+            description: "a long first chat title and two chats without an estimate",
+            script: include_str!("fixtures/chats_long.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "chats_usd",
+            description: "chats whose estimates carry dollars",
+            script: include_str!("fixtures/chats_usd.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "tasks",
+            description: "a Plus account's Chats report with all three metrics",
+            script: include_str!("fixtures/tasks.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "chats_many",
+            description: "thirty chats, more than the window shows",
+            script: include_str!("fixtures/chats_many.jsonl"),
             open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
         },
         DebugEntry {
@@ -187,6 +219,7 @@ struct Taps {
     group: Option<Handler<PointerEvent>>,
     model: Option<Handler<PointerEvent>>,
     plan_window: Option<Handler<PointerEvent>>,
+    sort: Option<Handler<PointerEvent>>,
 }
 
 /// The reports of an account (the model's `Section`s).
@@ -207,6 +240,10 @@ pub struct ScreenState {
     /// A click on each period of the plan report, remade when the history
     /// has other counts.
     plan_taps: Option<([usize; 2], plan::RowTaps)>,
+    /// The chats report's cursor and open row (core's), and a click on
+    /// each row, remade when the report has another count.
+    chat: ChatPos,
+    chat_taps: Option<(usize, chats::RowTaps)>,
     zoomed: bool,
     /// `?` is open: the help replaces the report.
     help: bool,
@@ -239,6 +276,8 @@ impl Default for ScreenState {
             details: [None; SECTIONS],
             plan: PlanPos::default(),
             plan_taps: None,
+            chat: ChatPos::default(),
+            chat_taps: None,
             zoomed: true,
             help: false,
             scrolls,
@@ -260,6 +299,12 @@ pub enum Msg {
     PlanWindow,
     /// A click on the `index`-th period of table `window`.
     PlanRow(usize, usize),
+    /// A click on the `index`-th chat.
+    ChatRow(usize),
+    /// `a`: the zero-credit groups of the open chat.
+    ZeroGroups,
+    /// `s`: the next sort metric of the chats.
+    SortMetric,
     Refresh,
     Close,
     /// What the list keys ask of the surface in front (`keys::ListAct`).
@@ -409,6 +454,8 @@ struct Page<'a> {
     list: &'a ListController,
     plan: &'a PlanPos,
     plan_taps: Option<plan::RowTaps>,
+    chat: &'a ChatPos,
+    chat_taps: Option<chats::RowTaps>,
 }
 
 impl Page<'_> {
@@ -452,6 +499,7 @@ impl Page<'_> {
                 cursors: *self.cursors,
                 list: self.list.clone(),
                 plan: self.plan.clone(),
+                chat: *self.chat,
                 taps: self.taps.clone(),
             });
         }
@@ -480,6 +528,15 @@ impl Page<'_> {
                 num,
                 look,
                 self.plan_taps.clone(),
+                self.scroll().clone(),
+            ),
+            Section::Chats => chats::body(
+                model,
+                self.chat,
+                strings,
+                num,
+                look,
+                self.chat_taps.clone(),
                 self.scroll().clone(),
             ),
             section => report::body(
@@ -578,6 +635,19 @@ impl Page<'_> {
                 &taps.model,
             ));
         }
+        if model.control_available(Control::TaskMetric, false) {
+            rows[0].push(control(
+                vec![
+                    key(strings.sort_key),
+                    Span::styled(strings.task_sort, look.dim.clone()),
+                    Span::styled(
+                        strings.task_metric(model.task_metric().index()),
+                        Style::default(),
+                    ),
+                ],
+                &taps.sort,
+            ));
+        }
         if model.control_available(Control::PlanWindow, false) {
             let hints = [keys::LEFT, keys::RIGHT]
                 .into_iter()
@@ -673,7 +743,10 @@ impl Page<'_> {
                 keymap: self.keymap.clone(),
                 shown: self.shown,
                 help: self.help,
-                row_details: self.plan.has_row(model.plan.ready().map(|r| &**r)),
+                row_details: match model.section {
+                    Section::Chats => model.chat_has_details(self.chat),
+                    _ => self.plan.has_row(model.plan.ready().map(|r| &**r)),
+                },
                 controller: self.scroll().clone(),
                 key: look.dim.clone(),
                 hint: look.dim.clone(),
@@ -723,6 +796,13 @@ impl ScreenState {
                 .collect::<Vec<_>>()
         });
         self.plan_taps = Some((counts, Rc::new(taps)));
+        let rows = model.chat_row_count();
+        if self.chat_taps.as_ref().is_none_or(|(was, _)| *was != rows) {
+            let taps = (0..rows)
+                .map(|index| cx.map(move |_: PointerEvent| Msg::ChatRow(index)))
+                .collect::<Vec<_>>();
+            self.chat_taps = Some((rows, Rc::new(taps)));
+        }
     }
 }
 
@@ -743,6 +823,7 @@ impl State for ScreenState {
             group: Some(cx.map(|_: PointerEvent| Msg::Group)),
             model: Some(cx.map(|_: PointerEvent| Msg::Model)),
             plan_window: Some(cx.map(|_: PointerEvent| Msg::PlanWindow)),
+            sort: Some(cx.map(|_: PointerEvent| Msg::SortMetric)),
         };
         self.retap(cx);
         if let Some(view) = w.open {
@@ -843,6 +924,32 @@ impl State for ScreenState {
                 rebuild = Rebuild::Yes;
                 None
             }
+            Msg::ChatRow(index) => {
+                let rows = model.chat_row_count();
+                let probe = ChatPos {
+                    cursor: index,
+                    detail: None,
+                };
+                self.chat.pick(index, rows, model.chat_has_details(&probe));
+                rebuild = Rebuild::Yes;
+                None
+            }
+            Msg::ZeroGroups => {
+                if model.control_available(Control::ZeroCreditGroups, self.chat.detail.is_some()) {
+                    Some(UsageIntent::ZeroCreditGroups)
+                } else {
+                    None
+                }
+            }
+            Msg::SortMetric => {
+                if model.control_available(Control::TaskMetric, false) {
+                    self.chat.detail = None;
+                    rebuild = Rebuild::Yes;
+                    Some(UsageIntent::TaskMetric)
+                } else {
+                    None
+                }
+            }
             Msg::Refresh => Some(UsageIntent::Refresh),
             Msg::Close => {
                 cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
@@ -874,6 +981,8 @@ impl State for ScreenState {
         let (cursors, list) = (self.cursors, self.dashboard.clone());
         let plan = self.plan.clone();
         let plan_taps = self.plan_taps.as_ref().map(|(_, taps)| taps.clone());
+        let chat = self.chat;
+        let chat_taps = self.chat_taps.as_ref().map(|(_, taps)| taps.clone());
         let look = Look {
             dim: tokens.dim(),
             secondary: tokens.dim(),
@@ -908,6 +1017,8 @@ impl State for ScreenState {
                     list: &list,
                     plan: &plan,
                     plan_taps: plan_taps.clone(),
+                    chat: &chat,
+                    chat_taps: chat_taps.clone(),
                 }
                 .dashboard(constraints.max_width)
             }
@@ -923,6 +1034,8 @@ impl State for ScreenState {
             ("shift+r", 'R'.into(), Msg::Refresh),
             ("z", 'z'.into(), Msg::Zoom),
             ("q", 'q'.into(), Msg::Close),
+            ("a", 'a'.into(), Msg::ZeroGroups),
+            ("s", 's'.into(), Msg::SortMetric),
         ];
         for (index, name) in ["1", "2", "3", "4", "5", "6", "7"].into_iter().enumerate() {
             let digit = char::from_digit(index as u32 + 1, 10).unwrap_or('1');
