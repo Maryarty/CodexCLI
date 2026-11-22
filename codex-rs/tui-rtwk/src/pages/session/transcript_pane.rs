@@ -2,6 +2,8 @@
 //! position and preserves the parser for a row while its item key is mounted.
 
 use std::cell::RefCell;
+use std::fmt::Write as _;
+use std::hash::{DefaultHasher, Hasher};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -30,8 +32,10 @@ pub(super) struct TranscriptPane(pub Follow, pub bool);
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
-    /// The last visible row the reader's thread had, to see it change.
-    tail: Option<(ThreadId, usize, Item)>,
+    /// The last visible row the reader's thread had (a fingerprint of it, not
+    /// a copy: the thread model is the one place the row lives), to see it
+    /// change.
+    tail: Option<(ThreadId, usize, u64)>,
 }
 
 struct RowLayout {
@@ -84,6 +88,21 @@ impl ViewportState {
     }
 }
 
+/// A hash of what the row shows, to tell that it changed (`Item` has no
+/// `Hash`; its `Debug` text is written into the hasher, not collected).
+fn fingerprint(item: &Item) -> u64 {
+    struct Sink(DefaultHasher);
+    impl std::fmt::Write for Sink {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.0.write(text.as_bytes());
+            Ok(())
+        }
+    }
+    let mut sink = Sink(DefaultHasher::new());
+    let _ = write!(sink, "{item:?}");
+    sink.0.finish()
+}
+
 impl StatefulWidget for TranscriptPane {
     type State = ViewportState;
 
@@ -109,7 +128,7 @@ impl State for ViewportState {
         let tail = rows
             .last()
             .and_then(|range| transcript.get(range.end - 1))
-            .map(|(_, item)| (thread.id().clone(), rows.len(), item.clone()));
+            .map(|(_, item)| (thread.id().clone(), rows.len(), fingerprint(item)));
         if let (Some(before), Some(now)) = (&self.tail, &tail)
             && before.0 == now.0
             && before != now
