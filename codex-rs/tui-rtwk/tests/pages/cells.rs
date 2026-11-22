@@ -3,6 +3,9 @@
 
 use crate::common::slot;
 
+#[path = "../oracle_snap/mod.rs"]
+mod oracle_snap;
+
 #[test]
 fn cells_slot_is_registered_and_empty() {
     slot("cells");
@@ -1687,6 +1690,211 @@ files."
     }
 }
 
+/// The notices that are a card or a refusal (oracle history_cell/tests.rs:
+/// cyber policy, safety access block, update available, server version),
+/// mounted at the oracle's widths and compared with its snapshots.
+mod notice_cells {
+    use codex_tui_core::screens::cells::Daybreak;
+    use codex_tui_core::threads::Notice;
+    use codex_tui_rtwk::pages::session::cells::notice::NoticeCell;
+    use rtwk::style::{Attrs, Color};
+
+    use super::oracle_snap;
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        oracle_snap::screen(t)
+    }
+
+    fn show(notice: Notice, width: u16) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 14));
+        t.pump_widget(NoticeCell { notice });
+        t
+    }
+
+    fn snap(name: &str) -> Vec<String> {
+        oracle_snap::rows(&oracle_snap::find(name))
+    }
+
+    #[test]
+    fn the_cyber_policy_apply_form_at_80() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 80);
+        let expected = snap("cyber_policy_error_event_snapshot");
+        // The oracle breaks the apply address after its last slash
+        // (`...-for-` / `cyber/`); rtwk's Word wrap moves the whole token (G49).
+        oracle_snap::assert_fragment("cyber apply", &rows(&t), 0, &expected[..3]);
+    }
+
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word never breaks after a slash or a hyphen, so an address that does not fit moves whole to the next row"]
+    fn the_cyber_policy_apply_form_at_80_whole() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 80);
+        oracle_snap::assert_same(
+            "cyber apply",
+            &rows(&t),
+            &snap("cyber_policy_error_event_snapshot"),
+        );
+    }
+
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word never breaks after a slash or a hyphen, so an address that does not fit moves whole to the next row"]
+    fn the_cyber_policy_apply_form_at_36() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 36);
+        oracle_snap::assert_same(
+            "cyber narrow",
+            &rows(&t),
+            &snap("cyber_policy_error_event_narrow_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_cyber_policy_narrow_message_wraps_like_the_oracle() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 36);
+        let expected = snap("cyber_policy_error_event_narrow_snapshot");
+        oracle_snap::assert_fragment("cyber narrow message", &rows(&t), 0, &expected[..6]);
+    }
+
+    #[test]
+    fn the_disabled_and_enabled_forms_are_the_body_and_learn_more() {
+        let expected = snap("cyber_policy_error_event_available_snapshot");
+        let first = show(Notice::CyberPolicy(Daybreak::Disabled), 80);
+        oracle_snap::assert_same("disabled", &rows(&first), &expected[..4]);
+        let second = show(Notice::CyberPolicy(Daybreak::Enabled), 80);
+        oracle_snap::assert_same("enabled", &rows(&second), &expected[5..]);
+    }
+
+    #[test]
+    fn the_astra_form_names_astra() {
+        let t = show(Notice::CyberPolicy(Daybreak::Astra), 80);
+        oracle_snap::assert_same(
+            "astra",
+            &rows(&t),
+            &snap("cyber_policy_error_event_astra_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_safety_block_is_its_explanation_the_body_and_two_actions() {
+        let t = show(Notice::SafetyAccessBlock, 80);
+        oracle_snap::assert_same(
+            "safety",
+            &rows(&t),
+            &snap("safety_access_block_event_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_mark_is_accent_the_title_bold_the_message_dim_the_address_underlined() {
+        let t = show(Notice::SafetyAccessBlock, 80);
+        let mark = t.cell(0, 0);
+        assert_ne!(mark.fg, Color::default(), "{mark:?}");
+        let title = t.cell(3, 0);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+        let message = t.cell(2, 1);
+        assert!(message.attrs.intersects(Attrs::DIM), "{message:?}");
+        let label = t.cell(2, 4);
+        assert!(label.attrs.intersects(Attrs::DIM), "{label:?}");
+        let address = t.cell(20, 4);
+        assert!(address.attrs.intersects(Attrs::UNDERLINE), "{address:?}");
+    }
+
+    fn update(command: Option<&str>) -> Notice {
+        Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: command.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn the_update_card_is_a_box_as_wide_as_its_words() {
+        let t = show(update(Some("pnpm add -g @openai/codex")), 110);
+        oracle_snap::assert_same(
+            "pnpm",
+            &rows(&t),
+            &snap("pnpm_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn a_long_command_wraps_inside_the_box_to_the_width() {
+        let t = show(
+            update(Some(
+                "sh -c 's=$(curl -fsSL https://chatgpt.com/codex/install.sh) && CODEX_NON_INTERACTIVE=1 eval \"$s\"'",
+            )),
+            110,
+        );
+        oracle_snap::assert_same(
+            "standalone unix",
+            &rows(&t),
+            &snap("standalone_unix_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_windows_command_wraps_after_its_words() {
+        let t = show(
+            update(Some(
+                "powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex'",
+            )),
+            110,
+        );
+        oracle_snap::assert_same(
+            "standalone windows",
+            &rows(&t),
+            &snap("standalone_windows_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn without_a_command_it_points_at_the_install_options() {
+        let t = show(update(None), 110);
+        let rows = rows(&t);
+        assert!(
+            rows[2].contains("See https://github.com/openai/codex for installation options."),
+            "{rows:?}"
+        );
+    }
+
+    fn version(message: &str, offer_update: bool) -> Notice {
+        Notice::ServerVersion {
+            message: message.into(),
+            offer_update,
+        }
+    }
+
+    #[test]
+    fn a_connected_server_notice_is_one_warning_row() {
+        let t = show(
+            version(
+                "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+                false,
+            ),
+            100,
+        );
+        oracle_snap::assert_same(
+            "connected",
+            &rows(&t),
+            &snap("connected_server_version_notice_snapshot"),
+        );
+    }
+
+    #[test]
+    fn a_local_daemon_notice_adds_the_daemon_hint_and_the_interruption_warning() {
+        let t = show(
+            version(
+                "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+                true,
+            ),
+            100,
+        );
+        oracle_snap::assert_same(
+            "local daemon",
+            &rows(&t),
+            &snap("local_daemon_version_notice_snapshot"),
+        );
+    }
+}
+
 mod errors_and_warnings_in_the_chat {
     use codex_app_server_protocol::{ServerNotification, WarningNotification};
     use codex_tui_core::app::BackendEv;
@@ -2361,6 +2569,7 @@ mod text_contract {
     use std::rc::Rc;
     use std::sync::Arc;
 
+    use codex_tui_core::screens::cells::Daybreak;
     use codex_tui_core::screens::chat::{McpWarning, Nudge, NudgeOutcome};
     use codex_tui_core::threads::{
         GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Item, Notice, UserPrompt,
@@ -2568,6 +2777,35 @@ mod text_contract {
             for nudge in [Nudge::Credits, Nudge::UsageLimit] {
                 agrees(Item::Notice(Notice::AddCreditsNudge { nudge, outcome }));
             }
+        }
+    }
+
+    #[test]
+    fn a_refusal_a_card_and_a_version_notice_agree_with_their_widget() {
+        agrees(Item::Notice(Notice::SafetyAccessBlock));
+        for kind in [
+            Daybreak::Apply,
+            Daybreak::Disabled,
+            Daybreak::Astra,
+            Daybreak::Enabled,
+        ] {
+            agrees(Item::Notice(Notice::CyberPolicy(kind)));
+        }
+        agrees(Item::Notice(Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: Some("pnpm add -g @openai/codex".into()),
+        }));
+        agrees(Item::Notice(Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: None,
+        }));
+        for offer_update in [false, true] {
+            agrees(Item::Notice(Notice::ServerVersion {
+                message: "A background Codex service is running v1.".into(),
+                offer_update,
+            }));
         }
     }
 

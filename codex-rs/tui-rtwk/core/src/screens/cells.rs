@@ -26,6 +26,20 @@ pub const NAME: &str = "cells";
 pub const ID: &str = "S11";
 pub const KIND: Kind = Kind::Part;
 
+/// What the Daybreak setting said when a cybersecurity request was refused
+/// (oracle `daybreak::Notice`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Daybreak {
+    /// Not enrolled: apply for broader access.
+    Apply,
+    /// Enrolled and switched off.
+    Disabled,
+    /// The Astra model has no Daybreak.
+    Astra,
+    /// Switched on, and the request was limited anyway.
+    Enabled,
+}
+
 /// How a web link's destination is written in a message (oracle `markdown_render/web_links.rs`
 /// `WebLinkDisplay`): after the label, or not at all because the terminal shows the label as a
 /// hyperlink. The oracle reads this once from the terminal (identity, multiplexer, `TERM`, a

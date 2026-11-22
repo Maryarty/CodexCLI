@@ -21,7 +21,7 @@ fn row_of(s: &Screen, text: &str) -> usize {
 fn connected_server_version_notice_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no server-version notice on S11: it comes from a remote app-server target and the show_server_version_notice setting, neither seedable through the kit; the cells screen draws no warning cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: app.rs appends Notice::ServerVersion from the remote-connection check (show_server_version_notice), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
     s.assert_snap_region("connected_server_version_notice_snapshot", 0, 0);
@@ -32,7 +32,7 @@ fn connected_server_version_notice_snapshot() {
 fn local_daemon_version_notice_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no local-daemon version notice on S11: the client/server version pair and the local daemon target are not seedable through the kit; the cells screen draws no warning cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: app.rs appends Notice::ServerVersion from the remote-connection check (show_server_version_notice), which the kit cannot seed",
     );
     // One screen per (client, server) pair of the oracle loop.
     let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
@@ -464,7 +464,7 @@ fn ps_output_multiline_long_command_snapshot() {
 fn cyber_policy_error_event_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notice (Apply) is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
     s.assert_snap_region("cyber_policy_error_event_snapshot", 0, 0);
@@ -475,7 +475,7 @@ fn cyber_policy_error_event_snapshot() {
 fn cyber_policy_error_event_astra_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notice (Astra) is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
     s.assert_snap_region("cyber_policy_error_event_astra_snapshot", 0, 0);
@@ -486,7 +486,7 @@ fn cyber_policy_error_event_astra_snapshot() {
 fn cyber_policy_error_event_available_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notices (Disabled, Enabled) are not carried by the app-server events the kit feeds; the oracle joins both cells in one snapshot",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_snap_region("cyber_policy_error_event_available_snapshot", 0, 0);
@@ -497,7 +497,7 @@ fn cyber_policy_error_event_available_snapshot() {
 fn safety_access_block_event_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no safety-access block cell on S11: the block notice is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: a `Fault` arm of core threads.rs appends Notice::SafetyAccessBlock for a biology-policy error, and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
     s.assert_snap_region("safety_access_block_event_snapshot", 0, 0);
@@ -510,7 +510,7 @@ fn safety_access_block_event_snapshot() {
 fn cyber_policy_error_event_narrow_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notice (Apply) at width 36 is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error; G49 breaks the narrow rows at a slash",
     );
     let s = Screen::build(Owner::ChatLive).size(36, 12).live().open();
     s.assert_snap_region("cyber_policy_error_event_narrow_snapshot", 0, 0);

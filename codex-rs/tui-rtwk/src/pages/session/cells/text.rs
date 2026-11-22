@@ -142,7 +142,7 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
                 .map(Part::text)
                 .collect(),
         ),
-        Item::Notice(notice) => one(notice::text(notice, cells)),
+        Item::Notice(notice) => Texts::Exact(notice::texts(notice, cells)),
         Item::Hook(run) => Texts::Exact(
             hook::texts(run, cells)
                 .into_iter()

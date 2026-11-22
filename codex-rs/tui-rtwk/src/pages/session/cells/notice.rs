@@ -1,7 +1,8 @@
 //! Session notices (oracle thread_transcript/other_items.rs `new_info_event`
 //! and `new_review_status_line`).
 
-use rtwk::style::{Span, Style};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
@@ -10,20 +11,47 @@ use codex_tui_core::threads::Notice;
 
 use crate::app::theme::Tokens;
 
+use super::safety;
 use super::strings::Strings;
+use super::text::Part;
+use super::update_available;
 
-/// The row's text, the mark of a row that has one included.
-pub fn text(notice: &Notice, strings: &Strings) -> String {
+/// The mark and its blank (oracle `"⚠ "` and `"  "`).
+const MARK_COLUMNS: i32 = 2;
+
+/// The notice's texts, the mark of a row that has one included.
+pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
+    let row = |text: String| vec![Part::text(text)];
     match notice {
-        Notice::ContextCompacted => [strings.bullet, strings.context_compacted].concat(),
+        Notice::ContextCompacted => row([strings.bullet, strings.context_compacted].concat()),
         Notice::EnteredReview(review) => {
-            [strings.review_started.0, review, strings.review_started.1].concat()
+            row([strings.review_started.0, review, strings.review_started.1].concat())
         }
         Notice::ExitedReview(review) => {
-            [strings.review_finished.0, review, strings.review_finished.1].concat()
+            row([strings.review_finished.0, review, strings.review_finished.1].concat())
         }
         Notice::AddCreditsNudge { nudge, outcome } => {
-            [strings.bullet, nudge_words(*nudge, *outcome, strings)].concat()
+            row([strings.bullet, nudge_words(*nudge, *outcome, strings)].concat())
+        }
+        Notice::SafetyAccessBlock | Notice::CyberPolicy(_) => {
+            let words = safety::words(notice, strings).unwrap_or_else(|| unreachable!());
+            safety::texts(&words, strings)
+        }
+        Notice::UpdateAvailable {
+            current,
+            latest,
+            command,
+        } => update_available::texts(current, latest, command.as_deref(), strings),
+        Notice::ServerVersion {
+            message,
+            offer_update,
+        } => {
+            let mut parts = vec![Part::gutter(strings.warning_mark), Part::text(message)];
+            if *offer_update {
+                parts.push(Part::text(strings.daemon_hint));
+                parts.push(Part::text(strings.daemon_warning));
+            }
+            parts
         }
     }
 }
@@ -76,6 +104,43 @@ impl StatelessWidget for NoticeCell {
                     Span::styled(message, Style::new()),
                 ])
                 .into()
+            }
+            Notice::SafetyAccessBlock | Notice::CyberPolicy(_) => {
+                match safety::words(&self.notice, strings) {
+                    Some(words) => safety::cell(&words, &tokens, strings),
+                    None => unreachable!("a refusal notice has words"),
+                }
+            }
+            Notice::UpdateAvailable {
+                current,
+                latest,
+                command,
+            } => update_available::cell(current, latest, command.as_deref(), &tokens, strings),
+            // `new_server_version_warning`: a warning whose body has up to
+            // three rows, the attention tone except the `/daemon` hint
+            Notice::ServerVersion {
+                message,
+                offer_update,
+            } => {
+                let attention = tokens.warning().attrs(Attrs::BOLD);
+                let mut body = Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .child(Text::new(message.clone()).style(attention.clone()));
+                if *offer_update {
+                    body = body
+                        .child(Text::new(strings.daemon_hint).style(tokens.accent()))
+                        .child(Text::new(strings.daemon_warning).style(attention.clone()));
+                }
+                Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .child(SizedBox::new(
+                        Some(MARK_COLUMNS),
+                        None,
+                        Some(Text::new(strings.warning_mark).style(attention).into()),
+                    ))
+                    .child(Expanded::new(1, body))
+                    .into()
             }
         }
     }

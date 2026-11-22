@@ -216,6 +216,26 @@ pub enum Notice {
         nudge: crate::screens::chat::Nudge,
         outcome: crate::screens::chat::NudgeOutcome,
     },
+    /// A request refused for biology safety (oracle `new_safety_access_block_event`).
+    SafetyAccessBlock,
+    /// A refused cybersecurity request, worded by the Daybreak setting at the
+    /// moment it was refused (oracle `new_cyber_policy_error_event`).
+    CyberPolicy(crate::screens::cells::Daybreak),
+    /// A newer release exists (oracle `UpdateAvailableHistoryCell`): the
+    /// running version, the latest, and the command that updates this
+    /// install (`None` when the install is not one the CLI knows).
+    UpdateAvailable {
+        current: String,
+        latest: String,
+        command: Option<String>,
+    },
+    /// The server runs another version than the client (oracle
+    /// `new_server_version_warning`): its message, and whether the local
+    /// background server can be updated (two more lines).
+    ServerVersion {
+        message: String,
+        offer_update: bool,
+    },
 }
 
 /// A message another task delegated to this thread (oracle
