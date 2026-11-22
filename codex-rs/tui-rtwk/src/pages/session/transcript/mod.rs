@@ -57,22 +57,20 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         script,
         open: EntryOpen::Route(|_| pager::StaticPager.into()),
     })
-    .chain([DebugEntry {
-        name: "sheet_basic",
-        description: "the transcript sheet over a prompt, a reasoning summary and a long answer",
-        script: include_str!("fixtures/sheet_basic.jsonl"),
-        open: EntryOpen::Route(|seeded: &Seeded| {
-            sheet::TranscriptSheet {
-                follow: seeded
-                    .thread_ui
-                    .get(seeded.core.session().active.as_ref())
-                    .follow
-                    .clone(),
-                highlight: false,
-            }
-            .into()
-        }),
-    }])
+    .chain([
+        DebugEntry {
+            name: "sheet_basic",
+            description: "the transcript sheet over a prompt, a reasoning summary and a long answer",
+            script: include_str!("fixtures/sheet_basic.jsonl"),
+            open: EntryOpen::Route(sheet::seeded),
+        },
+        DebugEntry {
+            name: "sheet_prompts",
+            description: "the transcript sheet over three prompts and their answers",
+            script: include_str!("fixtures/sheet_prompts.jsonl"),
+            open: EntryOpen::Route(sheet::seeded),
+        },
+    ])
     .collect()
 }
 

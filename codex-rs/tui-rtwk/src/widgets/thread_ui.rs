@@ -3,6 +3,7 @@
 //! reader of its transcript (`Follow`). They are UI state, never seen by
 //! `apply`; `ingest` creates a thread's controllers after the thread appears.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -11,6 +12,7 @@ use rtwk::foundation::{Listenable, ValueNotifier};
 use rtwk::scroll::ListController;
 
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::screens::backtrack::{Backtrack, Esc, Selection, Targets};
 
 use crate::widgets::composer_draft::ComposerDraft;
 
@@ -23,6 +25,90 @@ pub struct ThreadUi {
     pub draft: ComposerDraft,
     /// Where the reader of the transcript is, and what it has not seen.
     pub follow: Follow,
+    /// The modes of the transcript sheet (browsing prompts).
+    pub modes: Modes,
+}
+
+/// The mode of one thread's transcript sheet, as Flutter's
+/// `ValueNotifier<Mode>` a controller owns: the backtrack machine of core
+/// (which prompt is highlighted, never thread data) and a notifier that
+/// ticks when it moves. Whoever draws what depends on the mode listens to
+/// `listenable()`; the keys that move it call the methods.
+#[derive(Clone)]
+pub struct Modes {
+    machine: Rc<RefCell<Backtrack>>,
+    ticks: Rc<ValueNotifier<u32>>,
+}
+
+impl Default for Modes {
+    fn default() -> Self {
+        Modes {
+            machine: Rc::default(),
+            ticks: Rc::new(ValueNotifier::new(0)),
+        }
+    }
+}
+
+impl PartialEq for Modes {
+    fn eq(&self, other: &Modes) -> bool {
+        Rc::ptr_eq(&self.machine, &other.machine)
+    }
+}
+
+impl Modes {
+    fn moved<R>(&self, f: impl FnOnce(&mut Backtrack) -> R) -> R {
+        let result = f(&mut self.machine.borrow_mut());
+        self.ticks.set_value(self.ticks.value().wrapping_add(1));
+        result
+    }
+
+    /// Prompts are being browsed.
+    pub fn browsing(&self) -> bool {
+        matches!(*self.machine.borrow(), Backtrack::Browsing { .. })
+    }
+
+    /// The prompt highlighted, the nth from the oldest.
+    pub fn selected(&self) -> Option<usize> {
+        self.machine.borrow().selected()
+    }
+
+    /// Esc in the sheet: browsing starts (`begin_overlay_backtrack_preview`),
+    /// and ends when it is under way.
+    pub fn esc(&self, thread: Option<&ThreadId>, targets: Targets) -> Esc {
+        self.moved(|machine| {
+            if matches!(machine, Backtrack::Browsing { .. }) {
+                machine.reset();
+                Esc::Cancelled
+            } else {
+                machine.begin_from_detailed(thread, targets)
+            }
+        })
+    }
+
+    /// Left: the next older prompt.
+    pub fn older(&self, count: usize) -> Option<usize> {
+        self.moved(|machine| machine.older(count))
+    }
+
+    /// Right: the next newer prompt.
+    pub fn newer(&self, count: usize) -> Option<usize> {
+        self.moved(|machine| machine.newer(count))
+    }
+
+    /// Enter: the prompt chosen, when there is one.
+    pub fn confirm(&self, thread: Option<&ThreadId>, count: usize) -> Option<Selection> {
+        self.moved(|machine| machine.confirm(thread, count))
+    }
+
+    /// Back to no mode (the sheet closed).
+    pub fn reset(&self) {
+        self.moved(Backtrack::reset);
+    }
+
+    /// Notifies when the mode moves.
+    pub fn listenable(&self) -> Rc<ValueNotifier<u32>> {
+        self.ticks.clone()
+    }
 }
 
 /// The reader of one thread's transcript (oracle `transcript_view`'s

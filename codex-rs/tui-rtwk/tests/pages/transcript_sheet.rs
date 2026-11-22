@@ -82,3 +82,83 @@ fn q_and_ctrl_c_close_the_sheet() {
         s.assert_contains("debug screens");
     }
 }
+
+// ---- browsing prompts (oracle `app_backtrack.rs`, `prompt_navigation.rs`)
+
+fn prompts(width: u16) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(width, 12)
+        .entry("transcript", "sheet_prompts")
+        .open()
+}
+
+#[test]
+fn esc_starts_browsing_and_names_the_keys_in_the_status_row() {
+    let mut s = prompts(100);
+    s.assert_row(9, "⌃space select");
+    s.keys("esc");
+    s.assert_row(
+        9,
+        "Browsing transcript · ↑↓/jk scroll · ←→/hl prompts · ⌃t details · ↵ rewind · esc back",
+    );
+    // a prompt is marked: the hints add the keys that edit it
+    s.assert_row(
+        11,
+        " q close · f3 find · esc browse prompts · → to edit next · enter to edit message",
+    );
+}
+
+#[test]
+fn a_second_esc_ends_browsing() {
+    let mut s = prompts(100);
+    s.keys("esc esc");
+    s.assert_row(9, "⌃space select");
+    s.assert_row(11, " q close · f3 find · esc browse prompts");
+}
+
+#[test]
+fn the_browsing_status_row_takes_the_first_spelling_that_fits() {
+    let spellings = [
+        (
+            100,
+            "Browsing transcript · ↑↓/jk scroll · ←→/hl prompts · ⌃t details · ↵ rewind · esc back",
+        ),
+        (
+            80,
+            "Browsing · ↑↓/jk scroll · ←→/hl prompts · ⌃t details · ↵ rewind · esc back",
+        ),
+        (
+            60,
+            "Browsing · ↑↓/jk ←→/hl · ⌃t details · ↵ rewind · esc back",
+        ),
+        (45, "Browsing · ↑↓/jk ←→/hl · ↵ rewind · esc"),
+        (30, "Browsing · ↵ rewind · esc back"),
+        (20, "Browsing · esc back"),
+        (14, "Browsing · esc"),
+        (13, "Browsing"),
+        (8, "Browsing"),
+    ];
+    for (width, row) in spellings {
+        let mut s = prompts(width);
+        s.keys("esc");
+        s.assert_row(9, row);
+    }
+}
+
+#[test]
+fn enter_chooses_the_prompt_and_closes_the_sheet() {
+    let mut s = prompts(100);
+    // no prompt is chosen outside browsing: Enter does nothing
+    s.keys("enter");
+    s.assert_contains("T R A N S C R I P T");
+    s.keys("esc left left left enter");
+    s.assert_absent("T R A N S C R I P T");
+    s.assert_contains("debug screens");
+}
+
+#[test]
+fn q_closes_the_sheet_while_browsing_and_forgets_the_mode() {
+    let mut s = prompts(100);
+    s.keys("esc q");
+    s.assert_absent("T R A N S C R I P T");
+}

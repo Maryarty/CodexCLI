@@ -73,6 +73,19 @@ pub struct Strings {
     pub hint_browse: &'static str,
     pub hint_edit_next: &'static str,
     pub hint_edit_message: &'static str,
+    /// The status row while prompts are browsed (`prompt_navigation_footer`):
+    /// the label, whole and short, then the keys and what each does.
+    pub browsing_label: [&'static str; 2],
+    pub browsing_scroll_keys: &'static str,
+    pub browsing_prompt_keys: &'static str,
+    pub browsing_both_keys: &'static str,
+    pub browsing_details_key: &'static str,
+    pub browsing_rewind_key: &'static str,
+    pub browsing_scroll: &'static str,
+    pub browsing_prompts: &'static str,
+    pub browsing_details: &'static str,
+    pub browsing_rewind: &'static str,
+    pub browsing_back: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -130,6 +143,17 @@ pub const EN: Strings = Strings {
     hint_browse: "browse prompts",
     hint_edit_next: "to edit next",
     hint_edit_message: "to edit message",
+    browsing_label: ["Browsing transcript", "Browsing"],
+    browsing_scroll_keys: "↑↓/jk",
+    browsing_prompt_keys: "←→/hl",
+    browsing_both_keys: "↑↓/jk ←→/hl",
+    browsing_details_key: "⌃t",
+    browsing_rewind_key: "↵",
+    browsing_scroll: "scroll",
+    browsing_prompts: "prompts",
+    browsing_details: "details",
+    browsing_rewind: "rewind",
+    browsing_back: "back",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
