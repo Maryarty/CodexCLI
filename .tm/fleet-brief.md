@@ -107,8 +107,7 @@ pass it as `RTWK_BIN` to the scenarios.
   changed — then commit and checkpoint. NO clippy `--workspace`, whole
   nextest or oracle run per step or per partial: the landing's
   `land-check.sh` is the partial's full gate, and a red there comes back to
-  you. A brief that asks for the full gate after each step is outdated —
-  follow this rule (measured 2026-11-22: 31 % of porter time).
+  you.
 - Once, before `task_done`: rebase onto the integration tip (the orchestrator
   names it in tm notes), then `acargo fmt -- --check`, clippy `--workspace`,
   the whole nextest, your oracle shard(s) with `--profile oracle`,
@@ -119,7 +118,7 @@ pass it as `RTWK_BIN` to the scenarios.
   change shows it red: name it in the handover.
 
 
-## macOS here (measured friction, 2026-11-22)
+## macOS here
 - No `timeout` binary: use `bgrun.sh run|wait` or the Bash tool's `timeout`.
 - `sed -i` is BSD (`sed -i ''`): prefer Edit, or `python3 -I` with str.replace.
 - nextest takes `--cargo-quiet`, not `-q`.

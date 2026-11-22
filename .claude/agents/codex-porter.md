@@ -29,8 +29,7 @@ Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk
 Flutter's model on cells). Never translate the oracle's ratatui code line by line.
 Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
 
-FIRST EDIT WITHIN ~10 CALLS (the person, 2026-11-22: 54 calls before the first
-edit was measured; 6–10 is normal). Reading is for the change at hand, not a tour.
+FIRST EDIT WITHIN ~10 CALLS. Reading is for the change at hand, not a tour.
 1. `task_start` on your task (no `memory_task_start` first). It returns the
    description (your brief), the checkpoint and the fleet brief — those ARE your
    rules; do not Read `.tm/fleet-brief.md`, process.md or the agent file again.
@@ -115,7 +114,7 @@ edit was measured; 6–10 is normal). Reading is for the change at hand, not a t
 - Look-ups that do not depend on each other go out as parallel calls in ONE
   response: every response re-sends your whole context. A look-up turn carries
   up to 4 independent Read/Bash calls, or one Bash with several `sed -n`
-  ranges (measured 2026-11-22: 1.05 calls per turn, 7 s per turn).
+  ranges.
 - Symbol look-ups: `~/.cache/codexcli/sym A B C` (definitions with file:line,
   signature and body, several names in one call; `--oracle` for codex-rs/tui),
   not `rg` then `sed -n` per name.
@@ -158,7 +157,7 @@ write a `task_checkpoint` (done / left / files / next step, and `read:` up to 8
 `file:line-line` ranges — own and oracle — the next step starts from, the types
 it touches, the reds open) and finish with a final reply starting `HANDOFF:`.
 Write that checkpoint at every step, not only at hand-off: a compaction or a
-relaunch then costs one read, not ~50 calls (measured 2026-11-22).
+relaunch then costs one read, not ~50 calls.
 A relaunch (checkpoint present): read the checkpoint, the pack section and its
 `read:` ranges in ONE batched turn; fleet brief and process §2–4 only if not
 read in this context; no SKILL re-read unless the step needs a new widget.
