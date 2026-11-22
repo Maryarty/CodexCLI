@@ -911,15 +911,15 @@ fn recomputing_after_resize_or_mode_change_drops_fence_state() {
     let first = "```rust\nfn first() {}\n";
     let mut s = streamed(80, 24, &[first], false);
     // The resize recomputes the answer at width 20: the same rows as the message at 20. The
-    // rows above the `Working (Ns` row are the answer; that row and the composer tick with the
-    // clock, which the two screens do not share.
+    // rows above the `Working (Ns` row (row 18 since the transcript landing) are the answer;
+    // that row and the composer tick with the clock, which the two screens do not share.
     s.resize(20, 24);
     settle(&mut s);
-    s.assert_same_rows_in(&streamed(20, 24, &[first], false).shot(), 0..19);
+    s.assert_same_rows_in(&streamed(20, 24, &[first], false).shot(), 0..18);
     // The next delta extends the answer as the whole message at 20 does.
     s.feed(&delta("fn second() {}\n"));
     settle(&mut s);
     let whole = format!("{first}fn second() {{}}\n");
-    s.assert_same_rows_in(&streamed(20, 24, &[whole.as_str()], false).shot(), 0..19);
+    s.assert_same_rows_in(&streamed(20, 24, &[whole.as_str()], false).shot(), 0..18);
     // The oracle's open_code_fence and render.clear() checks are internal state, not drawn.
 }

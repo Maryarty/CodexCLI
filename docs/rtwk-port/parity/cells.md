@@ -217,3 +217,34 @@ of this worktree's own target artifacts.
   workspace manifest), so it is port debt: grapheme cut in collab previews (needs the dependency allowed in core, or a segmentation fn from the host).
   PLAN_URL_TOKENS stays pending, not an rtwk gap: the oracle keeps a URL whole on one row wider than the screen (the terminal wraps it); a cell grid cannot
   hold a 70-char token on a 30-column row, so this is a by-design difference of an alt-screen grid, not something rtwk could add. Reason text unchanged.
+
+## chunk-cells (2026-11-22; branch worktree-agent-a8682e0c73542ba47; brief research/briefs/cells-markdown.md §6)
+PARTIAL LANDING 1: step 2 (markdown transforms and tracing). Steps 12, 5, 6-11, 1, 13 follow in later commits; 3 and 4 wait for D1/D3/D4/D6.
+Shard counts (summary.py, oracle profile; pass / n-a / pending, 0 red, 0 stale), rebased on 2614ef5ff: baseline of the brief 138 / 12 / 340 of 490 -> 174 / 12 / 304.
+cells_1 16/0/44 · cells_2 10/1/22 · cells_3 4/0/35 · cells_4 7/0/32 · cells_5 19/1/21 · markdown_streaming_1 23/4/31 · _2 18/1/41 · _3 35/0/5 · _4 14/0/29 · _5 18/3/37 ·
+renderer_internals 10/2/7. Checks on the rebased tip: fmt clean, clippy `--workspace --all-targets -D warnings` clean, whole nextest 1611 pass / 16 skipped,
+`shards.py --check` 55 shards, 0 files stale. The rebase kept the four transcript `.size` +1-row bumps (cells_1 apply_multiple_files_block 80x15, cells_2 plan file citation
+80x13, viewed_image 32x9 and 80x9); one test needed the same row shift, `markdown_streaming_4::recomputing_after_resize_or_mode_change_drops_fence_state` (the
+`Working` row is row 18 of 24 now: its compared range is 0..18).
+Built in step 2 (commits edf0875cb, a04e7cf90, 811e6d012 after the rebase):
+- Local file links (oracle `markdown_render/local_links.rs`): core `threads/local_links.rs` (pure path/URL logic, cwd as a fact), `Open::cwd` on the 21 tests that open a page
+  with markdown links (it takes only platform-absolute cwds).
+- Soft break -> line break (D2, G63 closed by a widget transform: `MdInline` rewrite in `src/widgets/markdown/inlines.rs`; the 3 soft-break tests un-pended).
+- Web link display by terminal kind: core `cells::Ev::LinkDisplay(WebLinkDisplay)` (default `WithDestination`, the oracle's non-detecting terminals).
+- Ordered markers use `.`, URL entity decoding, `Screen::assert_markdown_snap` (tests/kit/markdown_gutter.rs: the markdown region without the 2-column gutter).
+- The 59 untraced markdown tests were traced: each pending has its cause in its reason (G73, G64 or one of the rows below). Shard guard: bare asserts of cells_3 bedrock
+  and cells_4 coalesce replaced by kit assertions.
+Gap rows for the lander (one line each: Flutter way / rtwk widget tried / what differs; no workaround built, each is a `pending` reason in the markdown shards):
+- G-new bare URL style: Flutter `MarkdownStyleSheet.a`+`onTapLink` on an autolinked URL / `MarkdownView` / the oracle underlines a bare URL in the text colour, rtwk paints the link colour.
+- G-new HTML block: Flutter `flutter_markdown` `MarkdownBody` / `MarkdownView` / an HTML block is parsed as a paragraph and its indent is lost (oracle keeps it verbatim).
+- G-new GFM table end: Flutter `MarkdownBody` / `MarkdownView` / the oracle ends a GFM table at a line with no pipe and draws that line as a paragraph; rtwk-rich reads it as a table row.
+- G-new autolink `<url>`: Flutter `MarkdownBody` / `MarkdownView` / the oracle repeats the destination after the label (its Suffix mode skips only an identical label); rtwk draws the label once.
+- G-new empty list item with a nested list: Flutter `MarkdownBody` / `MarkdownView` / rtwk puts the nested marker on the parent row (`• ◦`), the oracle draws the empty item's marker on its own row and the nested one below it, four cells in.
+- G64 (existing, now traced): the nested list indent is the parent marker width (2 or 3 cells) in rtwk, 4 cells per level in the oracle.
+- G73 additions (open row; each shows in the pendings): one `•` at every unordered depth (rtwk `•` then `◦`), task glyphs `☐` / `☑` in place of the bullet (rtwk `[ ]` / `[x]`, and the next ordinary bullet padded to the checkbox width),
+  the table (oracle: columns two spaces apart, `━` rule under the header, `─` between logical rows; rtwk: `│` grid), the quote `> ` marker (rtwk `│` bar), no fence rows and unpadded code (rtwk pads one cell), the rule `———` (rtwk `─`).
+- Candidate D5-class: `growing_code_fences_preserve_styles_unicode_links_and_blank_lines`: a grid row cannot hold the oracle's token wider than the screen (same by-design cause as the 5 URL n/a tests).
+Needs for other owners (not built here):
+- host: send `cells::Ev::LinkDisplay` from terminal detection (`WebLinkDisplay::for_terminal`); until then every terminal gets the destination suffix.
+- chat-transcript / chat-live: the dispatcher move (`transcript_pane.rs` -> `cells::cell(item, &CellEnv)`) and the `Item` variants for the cells that still draw from `transcript_activity.rs`.
+- kit / seed owner: `Open::cwd` accepts only platform-absolute cwds.
