@@ -366,7 +366,7 @@ fn enter_sets_last_selected_index_without_dismissing() {
 fn clipped_exec_approval_opens_the_complete_command() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed for open_fullscreen (ctrl+g, then unbound) and no entry with the clipped sh -c command and reason; the snapshot frames are labelled `bound=true 80x14` (not a header the kit reads yet: oracle_snap header())",
+        "no keymap seed for open_fullscreen (ctrl+g, then unbound): the hint shows the default `⌃a` (entry approvals/exec_clipped; sheet tests `a_header_taller_than_the_pane_is_cut_with_its_line_count` and `a_cut_header_gives_up_its_rows_to_the_options_and_the_hint_last` hold the oracle's four bound frames with ⌃a), and ctrl+g opens no pager yet (the transcript chunk's static pager hook)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 14)

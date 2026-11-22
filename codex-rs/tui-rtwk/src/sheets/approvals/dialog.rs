@@ -22,6 +22,7 @@ use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
 
 use super::dismiss::DismissDialog;
+use super::clip::{Block, Pane};
 use super::form::FormView;
 use super::present::{self, Body, Line, Piece, Tone};
 use super::strings;
@@ -182,23 +183,26 @@ impl State for RequestDialogState {
         // `›`), a blank row and the hint, all two cells in.
         let flat = body.flat;
         let inset = |child: AnyWidget| if flat { child } else { inset(child) };
-        let mut pane = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        if !flat {
-            pane = pane.child(Text::new(String::new()));
-        }
+        // The header's row groups: the title, a blank row, then the lines the request has.
+        let mut header: Vec<Block> = Vec::new();
+        let blank = || Block {
+            widget: Text::new(String::new()).into(),
+            text: String::new(),
+        };
         if let Some(title) = &body.title {
-            pane = pane
-                .child(inset(Text::new(title.clone()).style(tokens.bold()).into()))
-                .child(Text::new(String::new()));
+            header.push(Block {
+                widget: inset(Text::new(title.clone()).style(tokens.bold()).into()),
+                text: title.clone(),
+            });
+            header.push(blank());
         }
         for line in &body.header {
-            pane = match line {
-                Line::Blank => pane.child(Text::new(String::new())),
-                Line::Pieces(pieces) => {
-                    pane.child(inset(Text::rich(spans(pieces)).wrap(TextWrap::Word).into()))
-                }
+            header.push(match line {
+                Line::Blank => blank(),
+                Line::Pieces(pieces) => Block {
+                    widget: inset(Text::rich(spans(pieces)).wrap(TextWrap::Word).into()),
+                    text: pieces.iter().map(|piece| piece.text.as_str()).collect(),
+                },
                 Line::Command(command) => {
                     let code = Highlighter::new(language_named("bash"), command);
                     let mut lines = Column::new()
@@ -217,12 +221,21 @@ impl State for RequestDialogState {
                         );
                         lines = lines.child(Text::rich(row).wrap(TextWrap::Word));
                     }
-                    pane.child(inset(lines.into()))
+                    Block {
+                        widget: inset(lines.into()),
+                        text: format!("{}{command}", s.shell_prompt),
+                    }
                 }
-            };
+            });
         }
         // The waiting view of a user verification has no list: Esc and the cancel key only.
         if flat {
+            let mut pane = Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch);
+            for block in header {
+                pane = pane.child(block.widget);
+            }
             let mut focus = Focus::new(Dialog::bare(
                 BoxWidget::new().style(Style::new()).child(pane),
             ))
@@ -241,12 +254,35 @@ impl State for RequestDialogState {
         // A tap moves the cursor, a tap on the cursor's row answers (ADR-011).
         let rows = self.options.on_accept(cx.map(Msg::Answer));
         let options = rows.view_rich(Rc::new(approval_rows(&body, s, &tokens)), styles, 0);
-        pane = pane
-            .child(options)
-            .child(Text::new(String::new()))
-            .child(inset(Text::rich(spans(&body.hint)).into()));
+        let option_texts = body
+            .options
+            .iter()
+            .enumerate()
+            .map(|(index, option)| match &option.key_label {
+                Some(key) => format!(
+                    "{}. {}{}{key}{}",
+                    index + 1,
+                    option.label,
+                    s.key_open_paren,
+                    s.key_close_paren
+                ),
+                None => format!("{}. {}", index + 1, option.label),
+            })
+            .collect();
+        // The gap rows are the pane's, they yield to the header (`clip.rs`).
+        header.truncate(header.len().saturating_sub(present::GAP));
+        let pane = Pane {
+            header,
+            gap: present::GAP,
+            options,
+            option_texts,
+            hint: inset(Text::rich(spans(&body.hint)).into()),
+            hint_text: body.hint.iter().map(|piece| piece.text.as_str()).collect(),
+            dim: tokens.dim(),
+            strings: s,
+        };
         let mut focus = Focus::new(Dialog::bare(
-            BoxWidget::new().style(Style::new()).child(pane),
+            BoxWidget::new().style(Style::new()).child(pane.view()),
         ))
         .can_request_focus(false)
         .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Cancel))

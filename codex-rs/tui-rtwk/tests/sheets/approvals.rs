@@ -218,6 +218,100 @@ fn a_digit_answers_its_row() {
     assert!(!h.t.screen().contains("Yes, proceed"), "{}", h.t.screen());
 }
 
+/// The screen's rows without their trailing blanks.
+fn rows_of(h: &Harness) -> Vec<String> {
+    h.t.screen().lines().map(|line| line.trim_end().to_owned()).collect()
+}
+
+/// A header that does not fit is cut to the room the options and the hint leave, a dim
+/// `[… N lines] ⌃a view all` in place of its last row. The frames are the oracle's
+/// (`clipping_tests.rs`, bound=true; its binding is ctrl+g, ours the default ctrl+a); the
+/// blank rows give way before the header is cut.
+#[test]
+fn a_header_taller_than_the_pane_is_cut_with_its_line_count() {
+    let h = open(80, 14, "exec_clipped");
+    assert_eq!(
+        rows_of(&h),
+        [
+            "",
+            "  Would you like to run the following command?",
+            "",
+            "  Environment: local",
+            "",
+            "  Reason: A reason requiring review.A reason requiring review.A reason",
+            "  requiring review.A reason requiring review.A reason requiring review.A",
+            "  reason requiring review.A reason requiring review.A reason requiring",
+            "  review.A reason requiring review.A reason requiring review.A reason",
+            "  requiring review.A reason requiring review.A reason requiring review.A",
+            "  [\u{2026} 34 lines] \u{2303}a view all",
+            "\u{203a} 1. Yes, proceed (y)",
+            "  2. No, and tell Codex what to do differently (esc)",
+            "  Press enter to confirm or esc to cancel",
+        ]
+    );
+}
+
+#[test]
+fn a_cut_header_gives_up_its_rows_to_the_options_and_the_hint_last() {
+    let frames: [(u16, u16, &[&str]); 3] = [
+        (
+            40,
+            10,
+            &[
+                "",
+                "  Would you like to run the following",
+                "  command?",
+                "",
+                "  [\u{2026} 43 lines] \u{2303}a view all",
+                "\u{203a} 1. Yes, proceed (y)",
+                "  2. No, and tell Codex what to do",
+                "     differently (esc)",
+                "  Press enter to confirm or esc to",
+                "  cancel",
+            ],
+        ),
+        (
+            40,
+            8,
+            &[
+                "",
+                "  Would you like to run the following",
+                "  [\u{2026} 43 lines] \u{2303}a view all",
+                "\u{203a} 1. Yes, proceed (y)",
+                "  2. No, and tell Codex what to do",
+                "     differently (esc)",
+                "  Press enter to confirm or esc to",
+                "  cancel",
+            ],
+        ),
+        (
+            40,
+            7,
+            &[
+                "",
+                "  [\u{2026} 43 lines] \u{2303}a view all",
+                "\u{203a} 1. Yes, proceed (y)",
+                "  2. No, and tell Codex what to do",
+                "     differently (esc)",
+                "  Press enter to confirm or esc to",
+                "  cancel",
+            ],
+        ),
+    ];
+    for (width, height, want) in frames {
+        let h = open(width, height, "exec_clipped");
+        assert_eq!(rows_of(&h), want, "{width}x{height}");
+    }
+}
+
+/// A header that fits shows no elision and keeps its blank rows.
+#[test]
+fn a_header_that_fits_is_shown_whole() {
+    let h = open(100, 24, "exec_command");
+    assert!(!shows(&h, "[\u{2026}"), "{}", h.t.screen());
+    assert!(!shows(&h, "view all"), "{}", h.t.screen());
+}
+
 /// The cell of the first row holding `needle`, clicked.
 fn tap(h: &mut Harness, needle: &str) {
     let screen = h.t.screen();

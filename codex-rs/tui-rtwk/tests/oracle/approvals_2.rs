@@ -794,10 +794,6 @@ fn prompt_snapshot() {
 // ORACLE bottom_pane/user_verification_tests.rs:67 clipped_prompt_exposes_fullscreen_hint kind=snap owner=dialogs-pane snap=user_verification_narrow
 #[test]
 fn clipped_prompt_exposes_fullscreen_hint() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the clipped header: a header taller than the pane is cut to `[… N lines]` with the `⌃a view all` hint, and nothing in the dialog clips its header yet",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(40, 8)
         .entry("approvals", "user_verification")

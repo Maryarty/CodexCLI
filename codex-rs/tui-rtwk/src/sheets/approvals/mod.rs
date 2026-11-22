@@ -5,6 +5,7 @@
 //! directories (bar their test files) needs an edit when it grows.
 
 mod banner;
+mod clip;
 mod dialog;
 mod dismiss;
 mod form;
@@ -46,6 +47,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "exec_request",
             "make_exec_request: echo hi, a reason, Accept and Cancel",
             include_str!("fixtures/exec_request.jsonl"),
+        ),
+        (
+            "exec_clipped",
+            "a header cut to the pane: `[… N lines] ⌃a view all`",
+            include_str!("fixtures/exec_clipped.jsonl"),
         ),
         (
             "exec_url_reason",
@@ -209,7 +215,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "user_input_auto_resolution",
-            "a request that is not blocking: the countdown after a minute, then an empty answer",
+            "not blocking: a countdown, then an empty answer",
             include_str!("fixtures/user_input_auto_resolution.jsonl"),
         ),
         (

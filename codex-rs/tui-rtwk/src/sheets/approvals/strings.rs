@@ -136,6 +136,10 @@ pub struct Strings {
     /// Between the progress and the countdown of a request that answers itself.
     pub countdown_separator: &'static str,
     pub auto_resolves_in: Msg<1>,
+    /// The row that stands for the header rows that did not fit (`[… 7 lines] ⌃a view all`).
+    pub clipped_lines: Msg<1>,
+    pub view_all_key: &'static str,
+    pub view_all: &'static str,
     pub none_of_the_above: &'static str,
     pub none_description: &'static str,
     pub notes_placeholder: &'static str,
@@ -256,6 +260,9 @@ pub const EN: Strings = Strings {
     question_unanswered: msg!(" ({0} unanswered)"),
     countdown_separator: " \u{b7} ",
     auto_resolves_in: msg!("auto-resolves in {0}"),
+    clipped_lines: msg!("[\u{2026} {0} lines]"),
+    view_all_key: "\u{2303}a",
+    view_all: " view all",
     none_of_the_above: "None of the above",
     none_description: "Optionally, add details in notes (tab)",
     notes_placeholder: "Add notes",
@@ -337,6 +344,14 @@ impl Strings {
 
     pub fn auto_resolves_in<'a>(&'a self, remaining: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.auto_resolves_in, [Arg::Text(remaining)], &self.num)
+    }
+
+    pub fn header_cut(&self, rows: usize) -> Fmt<'_, 1> {
+        Fmt::new(
+            self.clipped_lines,
+            [Arg::Int(u64::try_from(rows).unwrap_or(u64::MAX))],
+            &self.num,
+        )
     }
 
     pub fn question_unanswered(&self, count: usize) -> Fmt<'_, 1> {
