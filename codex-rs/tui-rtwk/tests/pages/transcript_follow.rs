@@ -169,7 +169,7 @@ fn escape_returns_to_the_latest_and_keeps_the_draft() {
     s.assert_contains("row 39");
     s.assert_composer("draft preserved");
     // the Escape was the transcript's: no backtrack priming
-    s.assert_absent("edit the previous message");
+    s.assert_absent("edit previous message");
 }
 
 #[test]
@@ -253,7 +253,7 @@ fn escape_on_the_empty_composer_returns_and_primes_the_backtrack() {
     s.assert_contains("row 39");
     // primed, but the hint is only for a chat with a prompt to edit
     // (`prime_backtrack`: `has_backtrack_target`); this one has no prompt
-    s.assert_absent("edit the previous message");
+    s.assert_absent("edit previous message");
 }
 
 #[test]
@@ -266,6 +266,7 @@ fn the_page_keys_are_the_transcripts_with_a_multiline_draft() {
     s.assert_contains("↓ Back to bottom");
     // the caret stays where it was: the keys were not the field's
     s.assert_contains("› second");
+    s.keys("pagedown");
     s.keys("pagedown");
     s.assert_absent("Back to bottom");
 }

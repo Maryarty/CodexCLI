@@ -10,11 +10,12 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use super::candidate::Selection;
-use super::catalog::{Mention, build_search_catalog};
+use super::catalog::{Mention, MentionKind, build_search_catalog};
 use super::codec::is_mention_name_char;
 use super::dollar::{self, MentionItem, mention_items};
 use super::files::{FileMatches, FileSearchAsk};
 use super::popup::Popup;
+use super::search_mode::SearchMode;
 use super::target::{
     Doc, DollarQueryKind, current_prefixed_token_range,
     current_prefixed_token_range_with_dollar_predicate, dollar_query_kind,
@@ -30,6 +31,16 @@ pub struct Sources<'a> {
     pub tasks: &'a [TaskMention],
     pub usage: &'a MentionUsage,
     pub file_matches: &'a FileMatches,
+}
+
+impl Sources<'_> {
+    /// Whether `path` is a skill's (its separator may give way to punctuation:
+    /// `skill_completion_space`).
+    pub fn is_skill(&self, path: &str) -> bool {
+        self.mentions
+            .iter()
+            .any(|m| m.kind == MentionKind::Skill && m.path.as_deref() == Some(path))
+    }
 }
 
 /// One token occurrence whose popup stays hidden (`DismissedToken`).
@@ -297,6 +308,13 @@ impl Session {
     pub fn previous_search_mode(&mut self) {
         if let Active::At(popup) = &mut self.active {
             popup.previous_search_mode();
+        }
+    }
+
+    /// The `@` popup's tab `mode` (a tap on a tab).
+    pub fn set_search_mode(&mut self, mode: SearchMode) {
+        if let Active::At(popup) = &mut self.active {
+            popup.set_search_mode(mode);
         }
     }
 

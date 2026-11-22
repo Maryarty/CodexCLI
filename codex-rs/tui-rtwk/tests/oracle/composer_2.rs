@@ -433,7 +433,7 @@ fn image_placeholder_snapshots() {
 fn remote_image_rows_snapshots() {
     kit::pending(
         Owner::ChatLive,
-        "no remote image URLs on the chat composer (set_remote_image_urls has no seed): the remote image rows above the draft are not drawn",
+        "the port draws the remote image rows and their keys (tests/pages/composer_images.rs holds the rows of both snapshots), but the kit has no seed for set_remote_image_urls, and the oracle's snapshot is the composer alone with its own `100% context left` footer (pane-footer)",
     );
     let mut s = ready(100, 9);
     s.type_text("describe these");

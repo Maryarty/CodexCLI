@@ -17,6 +17,7 @@ pub mod followups;
 pub mod goal;
 pub mod inline_vis;
 mod message;
+mod note;
 pub mod stream_preview;
 mod user_prompt;
 
@@ -35,6 +36,7 @@ pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, UserMessage};
+pub use note::{CdRefusal, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use user_prompt::{Shown, UserPrompt};
 
 use std::collections::BTreeMap;
@@ -122,6 +124,9 @@ pub enum Item {
         name: String,
     },
     Notice(Notice),
+    /// What a command line answered with (oracle `new_info_event` /
+    /// `new_error_event`): a local entry the session leaves in the thread.
+    Note(Note),
     /// An `update_plan` report: the server has no item for it, so the
     /// transcript mints its key (`Transcript::mint`).
     PlanUpdate(Arc<PlanUpdate>),
@@ -1015,6 +1020,12 @@ impl ThreadSet {
             .map(|(id, _)| id.clone())
     }
 
+    /// The thread is gone (archived or deleted): the app holds no model of it
+    /// any more (`discard_thread_local_state`).
+    pub(crate) fn forget(&mut self, id: &ThreadId) {
+        self.held.remove(id);
+    }
+
     /// The projection of "no thread yet".
     pub fn blank(&self) -> &Rc<ThreadModel> {
         &self.blank
@@ -1214,6 +1225,11 @@ pub enum ThreadAsk {
     Compact {
         thread: String,
     },
+    /// `thread/backgroundTerminals/clean`: stop the thread's background
+    /// terminals (`/stop`).
+    CleanTerminals {
+        thread: String,
+    },
     /// `thread/shellCommand`: a user shell command (`!cmd` in the composer),
     /// run by the thread's shell and shown as its own transcript item.
     Shell {
@@ -1249,10 +1265,6 @@ pub enum ThreadAsk {
     GoalClear {
         thread: String,
     },
-    /// `thread/backgroundTerminals/clean` (`/stop`).
-    CleanTerminals {
-        thread: String,
-    },
     /// `thread/settings/update`: the settings the picks of the model, effort, permissions and
     /// collaboration-mode popups change for the turns after them.
     SettingsUpdate {
@@ -1281,13 +1293,13 @@ impl ThreadAsk {
             | ThreadAsk::Interrupt { thread, .. }
             | ThreadAsk::Steer { thread, .. }
             | ThreadAsk::Compact { thread }
+            | ThreadAsk::CleanTerminals { thread }
             | ThreadAsk::Shell { thread, .. }
             | ThreadAsk::Rename { thread, .. }
             | ThreadAsk::Review { thread, .. }
             | ThreadAsk::GoalGet { thread }
             | ThreadAsk::GoalSet { thread, .. }
             | ThreadAsk::GoalClear { thread }
-            | ThreadAsk::CleanTerminals { thread }
             | ThreadAsk::SettingsUpdate { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
@@ -1416,6 +1428,12 @@ impl ThreadAsk {
                     thread_id: thread.clone(),
                 },
             },
+            ThreadAsk::CleanTerminals { thread } => ClientRequest::ThreadBackgroundTerminalsClean {
+                request_id,
+                params: ThreadBackgroundTerminalsCleanParams {
+                    thread_id: thread.clone(),
+                },
+            },
             ThreadAsk::Shell { thread, command } => ClientRequest::ThreadShellCommand {
                 request_id,
                 params: ThreadShellCommandParams {
@@ -1470,12 +1488,6 @@ impl ThreadAsk {
                 request_id,
                 params: ThreadGoalClearParams {
                     origin: Some(ThreadGoalMutationOrigin::User),
-                    thread_id: thread.clone(),
-                },
-            },
-            ThreadAsk::CleanTerminals { thread } => ClientRequest::ThreadBackgroundTerminalsClean {
-                request_id,
-                params: ThreadBackgroundTerminalsCleanParams {
                     thread_id: thread.clone(),
                 },
             },
@@ -1937,6 +1949,21 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.history_ask = HistoryAsk::Failed;
         }
         ThreadEv::HistoryFailed => model.history_ask = HistoryAsk::Idle,
+        // `submit_op`: a thread its parent controls takes no turn and no
+        // compaction; the line stays where it was typed (no `last_submit`).
+        ThreadEv::Submit { .. }
+        | ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Compact))
+            if model.slots.chat.parent_owned =>
+        {
+            apply_ev(
+                model,
+                ThreadEv::Appended {
+                    turn: None,
+                    item: Item::Note(Note::from(NoteKey::ParentOwned)),
+                },
+                fx,
+            )
+        }
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id

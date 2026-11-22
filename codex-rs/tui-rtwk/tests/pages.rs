@@ -12,6 +12,8 @@ mod kit;
 
 #[path = "pages/agents_mouse.rs"]
 mod agents_mouse;
+#[path = "pages/chat_status.rs"]
+mod chat_status;
 #[path = "pages/composer_burst.rs"]
 mod composer_burst;
 #[path = "pages/composer_draft.rs"]
@@ -20,6 +22,8 @@ mod composer_draft;
 mod composer_history;
 #[path = "pages/composer_images.rs"]
 mod composer_images;
+#[path = "pages/composer_mentions.rs"]
+mod composer_mentions;
 #[path = "pages/composer_mouse.rs"]
 mod composer_mouse;
 #[path = "pages/composer_startup.rs"]

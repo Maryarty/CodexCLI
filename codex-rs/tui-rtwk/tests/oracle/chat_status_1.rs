@@ -275,7 +275,7 @@ fn app_server_model_verification_renders_warning() {
 fn status_line_git_summary_items_render_values() {
     kit::pending(
         Owner::UiPane,
-        "no status-line git items (PR number, branch changes) on the chat screen",
+        "no git summary fact: StatusFacts.git (PR number + url, additions/deletions; chunk-live's) and the host's probe (`branch_summary`, host/src/facts.rs) are needs; the items `pull-request-number` (a link) and `branch-changes` (`+3 -1` / `No changes`) are written once they exist",
     );
     // oracle: git summary PR 20252 and +143 -22 render as the PR number and branch-changes status values.
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -289,7 +289,7 @@ fn status_line_git_summary_items_render_values() {
 fn status_line_branch_changes_render_no_changes() {
     kit::pending(
         Owner::UiPane,
-        "no status-line branch-changes item on the chat screen",
+        "no git summary fact: StatusFacts.git (chunk-live's); the item `branch-changes` reads `No changes` for 0/0 once it exists",
     );
     // oracle: a zero diff renders "No changes" in the branch-changes item.
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -302,7 +302,7 @@ fn status_line_branch_changes_render_no_changes() {
 fn raw_output_mode_can_change_without_inserting_notice() {
     kit::pending(
         Owner::UiPane,
-        "no raw output mode (its status item and its notice) on the chat screen",
+        "no raw-output fact: StatusFacts.raw_output (chunk-live's) and the `/raw` toggle; the item `raw-output` (`raw output`) follows",
     );
     // oracle: enabling raw output inserts no history; disabling it inserts the notice.
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();

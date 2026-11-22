@@ -11,6 +11,130 @@ mod fuzzy;
 pub use dispatch::*;
 pub use fuzzy::fuzzy_match;
 
+impl Notice {
+    /// The composer keeps the line that ended in this notice, as the oracle
+    /// does (`chat_composer.rs`, `try_dispatch_*slash_command*`): a command it
+    /// does not know, a command refused while a task runs, and a command
+    /// dispatch validates before it takes the draft (`/fork`, `/review`). Every
+    /// other answer comes after the line was taken.
+    pub fn keeps_draft(&self) -> bool {
+        match self {
+            Notice::Unrecognized(_) | Notice::InputTooLarge { .. } => true,
+            Notice::DisabledDuringTask(command) => {
+                command.requires_dispatch_validation() || !command.available_during_task()
+            }
+            Notice::UnavailableInSide(command)
+            | Notice::UnavailableInReview(command)
+            | Notice::SessionStarting(command)
+            | Notice::NotAvailable(command) => command.requires_dispatch_validation(),
+            _ => false,
+        }
+    }
+
+    /// The line is in the composer's local recall: an unknown command and a
+    /// message over the limit are not
+    /// (`unrecognized_slash_command_is_not_added_to_local_recall`).
+    pub fn is_recalled(&self) -> bool {
+        !matches!(self, Notice::Unrecognized(_) | Notice::InputTooLarge { .. })
+    }
+}
+
+impl SlashCommand {
+    /// `parent_owned_command_is_allowed` (`chat_composer.rs`): what a thread
+    /// its parent controls still runs. `/export`, `/title` and `/statusline`
+    /// with any arguments; the others bare only.
+    pub fn allowed_when_parent_owned(self, args: &str) -> bool {
+        use SlashCommand::*;
+        if matches!(self, Export | Title | Statusline) {
+            return true;
+        }
+        args.is_empty()
+            && matches!(
+                self,
+                Feedback
+                    | New
+                    | Clear
+                    | Resume
+                    | App
+                    | Side
+                    | Btw
+                    | Agents
+                    | MultiAgents
+                    | Vim
+                    | Keymap
+                    | Config
+                    | ElevateSandbox
+                    | Experimental
+                    | Memories
+                    | Quit
+                    | Exit
+                    | Logout
+                    | Copy
+                    | Raw
+                    | Diff
+                    | Mention
+                    | Skills
+                    | Import
+                    | Hooks
+                    | Status
+                    | Warnings
+                    | Daemon
+                    | Usage
+                    | Ide
+                    | DebugConfig
+                    | Theme
+                    | Pets
+                    | Ps
+                    | Stop
+                    | MemoryDrop
+                    | MemoryUpdate
+                    | Mcp
+                    | Apps
+                    | Plugins
+                    | Rollout
+            )
+    }
+}
+
+/// `AbsolutePathBuf::resolve_path_against_base`: the directory `/cd` names,
+/// `~` expanded to `home`, a relative path joined to `base`, `.` and `..`
+/// folded away (no file system is read).
+pub fn resolve_directory(requested: &str, base: &str, home: Option<&str>) -> String {
+    use std::path::{Component, Path, PathBuf};
+    let expanded = match home {
+        Some(home) if requested == "~" => PathBuf::from(home),
+        Some(home) => match requested.strip_prefix("~/") {
+            Some(rest) => Path::new(home).join(rest),
+            None => PathBuf::from(requested),
+        },
+        None => PathBuf::from(requested),
+    };
+    let mut folded = PathBuf::new();
+    for part in Path::new(base).join(expanded).components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                folded.pop();
+            }
+            part => folded.push(part.as_os_str()),
+        }
+    }
+    folded.display().to_string()
+}
+
+/// `handle_parent_owned_submission`: whether a thread its parent controls
+/// takes this composer line: a built-in command by its own name (not an
+/// alias) that `allowed_when_parent_owned`. Text, `!cmd` and every other
+/// command are refused.
+pub fn parent_owned_takes(line: &str, flags: CommandFlags) -> bool {
+    line.starts_with('/')
+        && parse_slash_name(line).is_some_and(|(name, args, _)| {
+            find_builtin_command(name, flags).is_some_and(|command| {
+                name == command.command() && command.allowed_when_parent_owned(args)
+            })
+        })
+}
+
 /// Commands that can be invoked by starting a message with a leading slash.
 /// Enum order is presentation order in the popup (not alphabetical: the more
 /// frequently used first), as in `slash_command.rs`.

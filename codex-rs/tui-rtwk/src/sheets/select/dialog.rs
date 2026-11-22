@@ -8,7 +8,8 @@
 
 use std::rc::Rc;
 
-use rtwk::overlay::close_dialog;
+use rtwk::layout::{EdgeInsets, Padding};
+use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -90,10 +91,19 @@ impl State for MenuDialogState {
             return AnyWidget::default();
         };
         let list = lists::of(&menu, strings::of(cx));
-        Picker {
+        let picker = Picker {
             list: Rc::new(list),
             on_event: cx.map(Msg::Picked),
+        };
+        match menu {
+            // A confirmation floats: 72 cells wide at most and two cells in
+            // from the screen (`dialog_area` of the oracle's view stack).
+            Menu::Confirm(_) => Padding::new(
+                EdgeInsets::symmetric(2, 0),
+                Dialog::bare(picker).max_width(72),
+            )
+            .into(),
+            _ => picker.into(),
         }
-        .into()
     }
 }

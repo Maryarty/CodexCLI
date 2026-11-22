@@ -146,6 +146,15 @@ fn file_match(result: &FuzzyFileSearchResult) -> FileMatch {
     }
 }
 
+/// What an empty list of the popup says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Empty {
+    /// The search is still running.
+    Loading,
+    /// It answered and found nothing.
+    NoMatches,
+}
+
 /// What the popup shows of the search (`mentions_v2/popup.rs` `FileSearch`):
 /// the query it waits for and the matches that answered it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -191,8 +200,9 @@ impl FileSearch {
         !self.matches.is_empty()
     }
 
-    pub fn empty_message(&self) -> &'static str {
-        if self.waiting { "loading..." } else { "no matches" }
+    /// What an empty list says: the search is still running, or found nothing.
+    pub fn empty(&self) -> Empty {
+        if self.waiting { Empty::Loading } else { Empty::NoMatches }
     }
 }
 
@@ -269,12 +279,12 @@ mod tests {
     fn a_stale_answer_is_dropped_and_the_pending_query_shows_loading() {
         let mut search = FileSearch::default();
         search.set_query("foo");
-        assert_eq!(search.empty_message(), "loading...");
+        assert_eq!(search.empty(), Empty::Loading);
         search.set_matches("fo", vec![found("a")]);
         assert!(!search.should_show_matches());
         search.set_matches("foo", vec![found("a")]);
         assert!(search.should_show_matches());
-        assert_eq!(search.empty_message(), "no matches");
+        assert_eq!(search.empty(), Empty::NoMatches);
         search.set_query("");
         assert!(!search.should_show_matches());
     }

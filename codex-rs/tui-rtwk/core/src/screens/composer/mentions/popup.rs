@@ -5,7 +5,7 @@
 //! the view keep a highlight on the same pick when rows change.
 
 use super::candidate::{Candidate, Row, Selection};
-use super::files::{FileMatch, FileSearch};
+use super::files::{Empty, FileMatch, FileSearch};
 use super::filter::filtered_candidates;
 use super::search_mode::SearchMode;
 
@@ -46,8 +46,8 @@ impl Popup {
     }
 
     /// What an empty list says: waiting for the search or no match.
-    pub fn empty_message(&self) -> &'static str {
-        self.file_search.empty_message()
+    pub fn empty(&self) -> Empty {
+        self.file_search.empty()
     }
 
     pub fn set_candidates(&mut self, candidates: Vec<Candidate>) {
@@ -138,7 +138,7 @@ mod tests {
         // answer replaces them, an empty query drops them
         popup.set_query("fo");
         assert_eq!(popup.rows().len(), 1);
-        assert_eq!(popup.empty_message(), "loading...");
+        assert_eq!(popup.empty(), Empty::Loading);
         popup.set_file_matches("fo", Vec::new());
         assert!(popup.rows().iter().all(|row| !row.mention_type.is_filesystem()));
         popup.set_file_matches("fo", vec![found("b/fo.rs")]);
