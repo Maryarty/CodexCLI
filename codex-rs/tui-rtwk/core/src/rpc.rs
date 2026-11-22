@@ -91,6 +91,11 @@ impl Reply {
         })
     }
 
+    /// `account/sendAddCreditsNudgeEmail` answered.
+    pub(crate) fn add_credits_nudge(outcome: crate::screens::chat::NudgeOutcome) -> Self {
+        Self(Answer::AddCreditsNudge(outcome))
+    }
+
     pub(crate) fn interrupt_turn_changed(actual: TurnId) -> Self {
         Self(Answer::InterruptTurnChanged(actual))
     }
@@ -136,6 +141,7 @@ pub enum Answer {
         limits: crate::screens::status::RateLimits,
         banner: Option<Box<crate::screens::chat::Banner>>,
     },
+    AddCreditsNudge(crate::screens::chat::NudgeOutcome),
     Screen(ScreenReply),
     WorktreeCreated(Result<Checkout, String>),
     WorktreeBound(Result<(), BindFailure>),

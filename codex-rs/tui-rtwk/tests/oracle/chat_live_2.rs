@@ -57,7 +57,7 @@ fn banner_chat(width: u16, model: &str, response: &serde_json::Value) -> Screen 
 fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
     kit::pending(
         Owner::ChatLive,
-        "the notify-owner cta (key 1) sends no e-mail request: the add-credits nudge (start, in flight, finish, the notification cell) is not built; the presentation rows and the Esc/model rules are page and core tests",
+        "the inline case sets the banner copy `Your usage resets at {time}` (5:30 PM, the local zone and the clock-format setting): `{time}` is not formatted and there is no clock-format setting on the chat screen; the nudge itself (start, one in flight, the notice) is on in owner_notification_completion_cannot_cross_account_change and the core tests",
     );
     // The oracle, per presentation: the banner shows its title; `esc to dismiss` only when
     // dismissible; key 1 queues the notify-owner email and the popup does not change.
@@ -194,16 +194,47 @@ fn backend_banner_restores_only_programmatically_displaced_switch_prompt() {
     s.assert_contains("Selected model usage exhausted");
 }
 
-// ORACLE chatwidget/tests/backend_banners_tests.rs:234 owner_notification_completion_cannot_cross_account_change kind=snap owner=chat-live
+// ORACLE chatwidget/tests/backend_banners_tests.rs:234 owner_notification_completion_cannot_cross_account_change kind=snap owner=chat-live snap=owner_notification_after_account_change
 #[test]
 fn owner_notification_completion_cannot_cross_account_change() {
-    kit::pending(
-        Owner::ChatLive,
-        "no add-credits nudge email request on the chat screen (start, account change, finish with Sent): the notification history cell is not built",
+    // The oracle starts a request for the previous account directly; here the banner's action
+    // starts it, then `account/updated` is the identity boundary and the new account's read
+    // brings its banner back for the second request.
+    let credits = serde_json::json!([{"action": "notify_owner", "label": "Notify owner"}]);
+    let increase = serde_json::json!([{"action": "request_increase", "label": "Request increase"}]);
+    let mut s = banner_chat(
+        80,
+        "test-model-a",
+        &banner_response(Some("inline"), credits, |_| {}),
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // The oracle's history after the current request finishes: one notification, none from the previous account.
-    s.assert_snap("owner_notification_after_account_change");
+    s.keys("1");
+    s.feed(&format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": "account/updated", "params": {"authMode": "chatgpt", "planType": null}}})
+    ));
+    s.assert_absent("Selected model usage exhausted");
+    s.feed(
+        &(answer(&banner_response(Some("inline"), increase, |_| {}))
+            + &model_step("test-model-a", true)),
+    );
+    s.wait_for("Request increase");
+    s.keys("1");
+    let nudges = s.nudges();
+    assert_eq!(nudges.len(), 2, "{nudges:?}");
+    s.answer_request(&nudges[0], serde_json::json!({"status": "sent"}));
+    s.assert_absent("Workspace owner notified.");
+    s.assert_absent("Limit increase requested.");
+    // the current request is still in flight: no third
+    s.keys("1");
+    assert_eq!(s.nudges().len(), 2);
+    s.answer_request(&nudges[1], serde_json::json!({"status": "sent"}));
+    s.wait_for("Limit increase requested.");
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("Limit increase requested."))
+        .expect("the notice");
+    s.assert_snap_region("owner_notification_after_account_change", row, 0);
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:262 backend_banner_new_turn_dismisses_only_shown_dismissible_content kind=ui owner=chat-live
@@ -667,18 +698,55 @@ fn list_spacing_streams_compact_then_reflows_on_completion_or_interruption() {
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:30 luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft kind=snap owner=chat-live snap=luna_reserve_selector_second_choice
 #[test]
 fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Luna Reserve banner (dismissible, two ctas, `esc to continue working`) with its selector and key routing; the selector owns focus over the composer draft",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
-    s.type_text("saved draft");
-    s.assert_contains("esc to continue working");
-    s.assert_absent("saved draft");
-    s.keys("down");
-    s.assert_snap("luna_reserve_selector_second_choice");
-    // The oracle repeats this for the other key paths (down enter, down up enter, 1, 2, down esc),
-    // each opening one URL (or none on esc), and then keeps the draft `saved draft`.
+    let credits = "https://chatgpt.com/settings/usage?credits_modal=true";
+    let pricing = "https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing";
+    for (keys, destination) in [
+        (vec!["down", "enter"], Some(pricing)),
+        (vec!["down", "up", "enter"], Some(credits)),
+        (vec!["1"], Some(credits)),
+        (vec!["2"], Some(pricing)),
+        (vec!["down", "esc"], None),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+        s.type_text("saved draft");
+        let response = serde_json::json!({
+            "accountId": "account-preview", "rateLimits": {},
+            "rateLimitUpsell": {
+                "banner_type": "luna_reserve", "presentation": "dismissible",
+                "title": "You\u{2019}re now using Luna, a faster model for simpler tasks.",
+                "description": "Add credits or upgrade to continue using the most advanced models.",
+                "ctas": [{"action": "add_credits", "label": "Add credits"},
+                    {"action": "open_pricing_dialog", "label": "Upgrade"}]
+            }
+        });
+        s.feed(&(answer(&response) + &model_step("gpt-reserve", true)));
+        s.wait_for("esc to continue working");
+        s.assert_absent("saved draft");
+        let title = s
+            .rows()
+            .iter()
+            .position(|row| row.contains("You\u{2019}re now using Luna"))
+            .expect("the selector's title");
+        for key in &keys {
+            s.keys(key);
+            if *key == "down" {
+                s.assert_snap_region("luna_reserve_selector_second_choice", title, 0);
+            }
+        }
+        assert_eq!(
+            s.opened_urls(),
+            destination
+                .map(str::to_owned)
+                .into_iter()
+                .collect::<Vec<_>>()
+        );
+        assert!(s.turns().is_empty());
+        s.assert_composer("saved draft");
+        // A periodic usage reply must not reopen a selector the user just closed.
+        s.feed(&(answer(&response) + &model_step("gpt-reserve", true)));
+        s.assert_absent("You\u{2019}re now using Luna");
+        s.assert_contains("saved draft");
+    }
 }
 
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:109 luna_reserve_status_tracks_the_active_model kind=snap owner=chat-live snap=luna_reserve_usage_wide snap=luna_reserve_usage_narrow
@@ -686,7 +754,7 @@ fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losi
 fn luna_reserve_status_tracks_the_active_model() {
     kit::pending(
         Owner::ChatLive,
-        "no Luna Reserve status on the chat screen: `Luna Reserve default` shows only while the active model is gpt-reserve, and set_model is not a kit step",
+        "`Luna Reserve default` is the status line the footer shows while the active model is gpt-reserve (chat-status's footer); the selector half is on in luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_absent("Luna Reserve");
@@ -700,7 +768,7 @@ fn luna_reserve_status_tracks_the_active_model() {
 fn luna_reserve_usage_survives_banner_dismissal_and_typing_during_a_turn() {
     kit::pending(
         Owner::ChatLive,
-        "no Luna Reserve upsell (ordinary usage not allowed, `You’re now using Luna`) on the chat screen, nor a running task seed; the status rows of the reserve are not built",
+        "the snapshot holds the selector over the status rows (`Luna Reserve default`, chat-status's footer) and a typed `x` under a running task; the selector rows are the page tests' and the selector oracle test's",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_snap("luna_reserve_usage_with_upsell");

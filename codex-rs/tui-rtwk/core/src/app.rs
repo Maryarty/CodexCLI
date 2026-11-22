@@ -251,6 +251,14 @@ pub enum Command {
     },
     #[non_exhaustive]
     ReadRateLimits { ticket: Ticket, backend: BackendId },
+    /// The backend e-mails the owner of the workspace (`account/sendAddCreditsNudgeEmail`; the
+    /// banner's notify-owner action).
+    #[non_exhaustive]
+    SendAddCreditsNudge {
+        ticket: Ticket,
+        backend: BackendId,
+        nudge: chat::Nudge,
+    },
     #[non_exhaustive]
     StartTurn {
         ticket: Ticket,
@@ -361,6 +369,13 @@ enum AppCtx {
     Agents(agents::Ctx),
     RateLimits {
         backend: BackendId,
+    },
+    /// The e-mail to the workspace owner a banner action asked for; the notice goes to the
+    /// thread that was open (`add_credits_nudge_email_in_flight`).
+    Nudge {
+        backend: BackendId,
+        nudge: chat::Nudge,
+        thread: Option<ThreadId>,
     },
     NewConversation {
         source: Option<ThreadId>,
@@ -616,9 +631,9 @@ impl CodexApp {
                 agents.owner_of(thread.as_str())
             }
             Command::RejectRequest { key } | Command::ResolveRequest { key, .. } => key.backend,
-            Command::StartThread { backend, .. } | Command::ReadRateLimits { backend, .. } => {
-                *backend
-            }
+            Command::StartThread { backend, .. }
+            | Command::ReadRateLimits { backend, .. }
+            | Command::SendAddCreditsNudge { backend, .. } => *backend,
             // The startup page reads and writes this machine's first backend.
             Command::Startup { .. } | Command::Import { .. } => BackendId::default(),
             Command::Screen { thread, .. } if !thread.as_str().is_empty() => {
@@ -828,6 +843,16 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         refresh_rates(app, origin, fx);
                     }
                     return;
+                }
+                // The identity boundary (`update_account_state`): what was asked of, and shown
+                // for, the previous account is not the new one's.
+                ServerNotification::AccountUpdated(_) => {
+                    Rc::make_mut(&mut app.session)
+                        .backend_banners
+                        .remove(&origin);
+                    app.outgoing.retain(
+                        |ctx| !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin),
+                    );
                 }
                 // With no thread open there is no transcript to show a thread-less
                 // warning or deprecation notice in: the banner line keeps it. With a
@@ -1085,6 +1110,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             AppCtx::Worktree { backend, .. }
                             | AppCtx::OpenThread { backend, .. }
                             | AppCtx::NewConversation { backend, .. }
+                            | AppCtx::Nudge { backend, .. }
                             | AppCtx::RateLimits { backend } => *backend != origin,
                             AppCtx::SessionRead => origin != BackendId::default(),
                             AppCtx::Agents(agents::Ctx::History { thread }) => {
@@ -1292,6 +1318,28 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     install_banner(app, backend, banner.map(|banner| *banner));
                 }
             }
+            AppCtx::Nudge { nudge, thread, .. } => {
+                let outcome = match answer {
+                    Answer::AddCreditsNudge(outcome) => outcome,
+                    _ => chat::NudgeOutcome::Failed,
+                };
+                if let Some(thread) = thread {
+                    let notice =
+                        crate::threads::Item::Notice(crate::threads::Notice::AddCreditsNudge {
+                            nudge,
+                            outcome,
+                        });
+                    apply_thread(
+                        app,
+                        &thread,
+                        ThreadEv::Appended {
+                            turn: None,
+                            item: notice,
+                        },
+                        fx,
+                    );
+                }
+            }
             AppCtx::NewConversation {
                 source,
                 backend,
@@ -1425,9 +1473,40 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 .map(|cta| cta.action);
             // The e-mail to the owner and the reset-credit flow are the
             // usage chunk's; a url opens in the browser, and the banner stays
-            // (oracle: `dismiss_on_select: false`).
-            if let Some(chat::BannerAction::OpenUrl(url)) = action {
-                fx.commands.push(Command::OpenUrl { url });
+            // (oracle: `dismiss_on_select: false`), but the Luna selector
+            // closes on every pick (`picker_dismissed`).
+            match action {
+                Some(chat::BannerAction::OpenUrl(url)) => {
+                    fx.commands.push(Command::OpenUrl { url })
+                }
+                // one e-mail at a time, as the oracle keeps one request in flight
+                Some(chat::BannerAction::NotifyOwner(nudge))
+                    if !app.outgoing.any(|ctx| matches!(ctx, AppCtx::Nudge { .. })) =>
+                {
+                    let ticket = app.mint.next();
+                    let thread = app.session.active.clone();
+                    app.outgoing.insert(
+                        ticket,
+                        AppCtx::Nudge {
+                            backend,
+                            nudge,
+                            thread,
+                        },
+                    );
+                    fx.commands.push(Command::SendAddCreditsNudge {
+                        ticket,
+                        backend,
+                        nudge,
+                    });
+                }
+                _ => {}
+            }
+            if let Some(occurrence) = Rc::make_mut(&mut app.session)
+                .backend_banners
+                .get_mut(&backend)
+                && occurrence.banner.is_reserve()
+            {
+                occurrence.dismiss(ticket);
             }
         }
         Intent::Submit { thread, message } => {

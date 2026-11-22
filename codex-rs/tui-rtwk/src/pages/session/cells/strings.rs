@@ -125,6 +125,10 @@ pub struct Strings {
     pub context_compacted: &'static str,
     pub review_started: (&'static str, &'static str),
     pub review_finished: (&'static str, &'static str),
+    // chatwidget/rate_limits.rs: `finish_add_credits_nudge_email_request`; per kind of nudge
+    // (credits, usage limit): the e-mail went out, the owner was told recently, the request failed.
+    pub nudge_credits: [&'static str; 3],
+    pub nudge_usage_limit: [&'static str; 3],
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -222,6 +226,16 @@ pub const EN: Strings = Strings {
     context_compacted: "Context compacted",
     review_started: (">> Code review started: ", " <<"),
     review_finished: ("<< Code review finished: ", " >>"),
+    nudge_credits: [
+        "Workspace owner notified.",
+        "Workspace owner was already notified recently.",
+        "Could not notify your workspace owner. Please try again.",
+    ],
+    nudge_usage_limit: [
+        "Limit increase requested.",
+        "A limit increase was already requested recently.",
+        "Could not request a limit increase. Please try again.",
+    ],
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

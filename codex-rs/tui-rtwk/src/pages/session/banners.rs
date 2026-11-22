@@ -21,15 +21,19 @@ use rtwk::{
 
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::ids::{BackendId, Ticket};
+use codex_tui_core::keymap::actions::{LIST_ACCEPT, LIST_CANCEL};
+use codex_tui_core::screens::select::list::{Columns, Item, List};
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
 use crate::app::view::Hs;
+use crate::keymap::{keymap, label};
 use crate::l10n::strings as l10n;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::measure;
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::widgets::picker::{Event, Picker};
 
 /// The chat screen's notice (a command's answer, or why a command is not
 /// available): `add_info_message` is plain text, `add_error_message` is red.
@@ -181,7 +185,10 @@ impl State for BackendBannersState {
         if let Some(occurrence) = session
             .backend_banners
             .get(&backend)
-            .filter(|occurrence| occurrence.is_visible(active_model))
+            // the Luna Reserve banner is the focused selector's (`ReserveSelector`)
+            .filter(|occurrence| {
+                occurrence.is_visible(active_model) && !occurrence.banner.is_reserve()
+            })
         {
             let banner = &occurrence.banner;
             let (title, description) = if banner.reserve_pending(active_model) {
@@ -268,6 +275,150 @@ impl State for BackendBannersState {
             column = column.child(Text::new(notice.clone()).style(tokens.dim()));
         }
         column.into()
+    }
+}
+
+/// The Luna Reserve banner the selector shows now: the backend of the thread, and its occurrence
+/// (visible for the model in use). The oracle shows it as a focused list in place of the composer
+/// (`show_selection_view`), not as the inline banner.
+pub(super) fn reserve_of<'a>(
+    session: &'a SessionSlice,
+    states: &ScreenStates,
+    thread: &ThreadModel,
+) -> Option<(BackendId, &'a chat::BannerOccurrence)> {
+    let backend = states.agents.owner_of(thread.id().as_str());
+    let model = thread.screen_slots().chat.model.clone();
+    let active = model.as_deref().or(states.chat.status.model.as_deref());
+    session
+        .backend_banners
+        .get(&backend)
+        .filter(|occurrence| occurrence.banner.is_reserve() && occurrence.is_visible(active))
+        .map(|occurrence| (backend, occurrence))
+}
+
+/// The Luna Reserve selector: `showModalBottomSheet`'s content (`Picker`) put in the bottom pane
+/// where the composer was; the composer's draft is in `UiApp.ui`, so it is back untouched when
+/// the selector closes (Esc, a pick: `picker_dismissed`).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct ReserveSelector;
+
+impl_widget!(stateful eq ReserveSelector);
+
+impl StatefulWidget for ReserveSelector {
+    type State = ReserveSelectorState;
+
+    fn create_state(&self) -> ReserveSelectorState {
+        ReserveSelectorState
+    }
+}
+
+pub(super) struct ReserveSelectorState;
+
+/// The row of the selector that closes it with no action (`Continue with Luna Reserve`).
+const CONTINUE: &str = "continue";
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum ReserveMsg {
+    Event(Event),
+}
+
+impl State for ReserveSelectorState {
+    type Widget = ReserveSelector;
+    type Msg = ReserveMsg;
+
+    fn update(&mut self, msg: ReserveMsg, _: &ReserveSelector, cx: &mut Cx<'_, Self>) -> Rebuild {
+        let ReserveMsg::Event(event) = msg;
+        let hs = read::<Hs, _>(cx);
+        let session = read::<SessionSlice, _>(cx);
+        let states = read::<ScreenStates, _>(cx);
+        let thread = read::<ThreadModel, _>(cx);
+        let Some((backend, occurrence)) = reserve_of(&session, &states, &thread) else {
+            return Rebuild::No;
+        };
+        let ticket = occurrence.ticket;
+        match event {
+            // a purchase row opens its page and closes the selector
+            Event::Choose(id) => match id.parse::<usize>() {
+                Ok(row) => cx.emit(&hs.pick_banner, (backend, ticket, row)),
+                Err(_) => cx.emit(&hs.dismiss_banner, (backend, ticket)),
+            },
+            Event::Cancel => cx.emit(&hs.dismiss_banner, (backend, ticket)),
+            _ => {}
+        }
+        Rebuild::No
+    }
+
+    fn build(&self, _: &ReserveSelector, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let strings = l10n::of(cx);
+        let words = chat_strings::of(cx);
+        let keys = keymap(cx);
+        let session = watch::<SessionSlice, _>(cx);
+        let states = watch::<ScreenStates, _>(cx);
+        let (id, model) = select::<ThreadModel, _, _>(cx, |thread| {
+            (
+                thread.id().clone(),
+                thread.screen_slots().chat.model.clone(),
+            )
+        });
+        let backend = states.agents.owner_of(id.as_str());
+        let active = model.as_deref().or(states.chat.status.model.as_deref());
+        let Some(banner) = session
+            .backend_banners
+            .get(&backend)
+            .filter(|occurrence| occurrence.banner.is_reserve() && occurrence.is_visible(active))
+            .map(|occurrence| &occurrence.banner)
+        else {
+            return SizedBox::shrink().into();
+        };
+        let pending = banner.reserve_pending(active);
+        let (title, description) = if pending {
+            (
+                strings.chat.usage_limit_title,
+                strings.chat.usage_limit_detail,
+            )
+        } else {
+            (banner.title(), banner.description())
+        };
+        let mut items: Vec<Item> = banner
+            .ctas()
+            .into_iter()
+            .enumerate()
+            .map(|(row, cta)| Item {
+                id: row.to_string(),
+                name: cta.label,
+                ..Item::default()
+            })
+            .collect();
+        // Reserve in use: continuing is a local dismissal next to the purchase rows, and the
+        // footer says esc continues working; otherwise the list's standard footer.
+        let mut list = List {
+            title: Some(title.to_owned()),
+            subtitle: Some(description.to_owned()),
+            numbered: true,
+            panel: true,
+            columns: Columns::AutoAllRows,
+            hide_description_below: Some(24),
+            standard_hint: true,
+            ..List::default()
+        };
+        if !pending {
+            items.push(Item {
+                id: CONTINUE.to_owned(),
+                name: words.reserve_continue.to_owned(),
+                ..Item::default()
+            });
+            if let (Some(accept), Some(cancel)) =
+                (label(&keys, LIST_ACCEPT), label(&keys, LIST_CANCEL))
+            {
+                list.footer_hint = Some(words.reserve_hint(&accept, &cancel));
+            }
+        }
+        list.items = items;
+        Picker {
+            list: Rc::new(list),
+            on_event: cx.map(ReserveMsg::Event),
+        }
+        .into()
     }
 }
 

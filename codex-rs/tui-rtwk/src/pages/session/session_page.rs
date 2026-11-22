@@ -40,7 +40,7 @@ use crate::widgets::thread_ui::ThreadUi;
 
 use super::actions::*;
 use super::activity::{Run, StatusSlot};
-use super::banners::{BackendBanners, BannerGate, NoticeLine};
+use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::put_back;
 use super::pending_input::PendingInput;
 use super::status_surfaces::StatusContext;
@@ -716,7 +716,9 @@ impl State for ChatState {
                     .child(Expanded::new(1, line)),
             );
         }
-        let mut body = body.child(footer);
+        let body = body.child(footer);
+        // the terminal title keeps being told while the selector takes the bottom pane
+        let mut titles: Vec<AnyWidget> = Vec::new();
         let action_required =
             select::<RequestQueue, bool, _>(cx, |queue| !queue.entries.is_empty());
         let action = action_required.then_some(strings.chat.action_required);
@@ -730,10 +732,13 @@ impl State for ChatState {
             if let Some(index) = parts.iter().position(String::is_empty) {
                 let after = parts.split_off(index + 1);
                 parts.pop();
-                body = body.child(super::window_title::WindowTitle {
-                    before: parts,
-                    after,
-                });
+                titles.push(
+                    super::window_title::WindowTitle {
+                        before: parts,
+                        after,
+                    }
+                    .into(),
+                );
             }
         } else {
             let parts = context.title_parts(facts, action);
@@ -743,11 +748,23 @@ impl State for ChatState {
                     .as_ref()
                     .is_some_and(|items| !items.is_empty())
             {
-                body = body.child(TerminalTitle::new(
-                    parts.join(" · "),
-                    super::window_title::empty(),
-                ));
+                titles.push(
+                    TerminalTitle::new(parts.join(" · "), super::window_title::empty()).into(),
+                );
             }
+        }
+        // The Luna Reserve selector owns the bottom pane (`show_selection_view`): no composer,
+        // no footer; the draft waits in `UiApp.ui`.
+        let mut body = if reserve_of(&session, &states, &thread).is_some() {
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .main_axis_size(MainAxisSize::Min)
+                .child(ReserveSelector)
+        } else {
+            body
+        };
+        for title in titles {
+            body = body.child(title);
         }
         let body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)

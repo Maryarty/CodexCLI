@@ -1598,11 +1598,14 @@ fn read_banner(app: &mut CodexApp, banner: serde_json::Value) -> codex_tui_core:
         panic!("expected the account read: {:?}", fx.commands());
     };
     let backend = *backend;
-    let (ticket, reply) = protocol::reply(
+    let Some((ticket, reply)) = protocol::reply(
         read,
-        Ok(serde_json::json!({"accountId": "workspace-a", "rateLimits": {}, "rateLimitUpsell": banner})),
-    )
-    .expect("a reply");
+        Ok(
+            serde_json::json!({"accountId": "workspace-a", "rateLimits": {}, "rateLimitUpsell": banner}),
+        ),
+    ) else {
+        panic!("the read has a reply");
+    };
     run(app, AppEv::Reply(ticket, reply));
     backend
 }
@@ -1685,4 +1688,219 @@ fn an_unusable_or_absent_banner_replaces_the_shown_occurrence() {
             app.session().backend_banners
         );
     }
+}
+
+fn reserve_banner(presentation: &str) -> serde_json::Value {
+    serde_json::json!({
+        "banner_type": "luna_reserve", "presentation": presentation,
+        "title": "You’re now using Luna, a faster model for simpler tasks.",
+        "description": "Add credits or upgrade to continue using the most advanced models.",
+        "ctas": [{"action": "add_credits", "label": "Add credits"},
+                 {"action": "open_pricing_dialog", "label": "Upgrade"}],
+    })
+}
+
+/// Oracle `luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft`,
+/// state half: the selector's Esc and every pick are a local dismissal (`picker_dismissed`) whatever
+/// the presentation says; a pick of a purchase action also opens its page, and a periodic read of the
+/// same occurrence does not bring the selector back.
+#[test]
+fn a_reserve_selector_closes_on_a_pick_or_on_escape_and_stays_closed() {
+    for (action, presentation) in [
+        (Some(1), "dismissible"),
+        (Some(0), "inline"),
+        (None, "inline"),
+    ] {
+        let mut app = ready();
+        model_is(&mut app, "gpt-reserve");
+        let backend = read_banner(&mut app, reserve_banner(presentation));
+        let ticket = app.session().backend_banners[&backend].ticket;
+        assert!(app.session().backend_banners[&backend].is_visible(Some("gpt-reserve")));
+        let fx = match action {
+            Some(row) => run(
+                &mut app,
+                AppEv::Intent(Intent::PickBannerCta {
+                    backend,
+                    ticket,
+                    row,
+                }),
+            ),
+            None => run(
+                &mut app,
+                AppEv::Intent(Intent::DismissBackendBanner { backend, ticket }),
+            ),
+        };
+        match action {
+            Some(row) => {
+                let urls = [
+                    "https://chatgpt.com/settings/usage?credits_modal=true",
+                    "https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing",
+                ];
+                assert!(
+                    matches!(fx.commands(), [Command::OpenUrl { url, .. }] if url == urls[row]),
+                    "{:?}",
+                    fx.commands()
+                );
+            }
+            None => assert!(fx.commands().is_empty()),
+        }
+        assert!(
+            !app.session().backend_banners[&backend].is_visible(Some("gpt-reserve")),
+            "{action:?} {presentation}: the selector is closed"
+        );
+        read_banner(&mut app, reserve_banner(presentation));
+        assert!(
+            !app.session().backend_banners[&backend].is_visible(Some("gpt-reserve")),
+            "{action:?} {presentation}: a read of the same occurrence keeps it closed"
+        );
+    }
+}
+
+fn notices(app: &CodexApp) -> Vec<codex_tui_core::threads::Notice> {
+    thread(app)
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Notice(notice) => Some(notice.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Oracle `backend_banner_presentation_and_cta_do_not_imply_recovery` and
+/// `finish_add_credits_nudge_email_request`: the notify-owner action asks the backend to send the
+/// e-mail, one at a time; the reply (or its failure) leaves one notice in the transcript and frees
+/// the action, and the banner stays.
+#[test]
+fn the_notify_owner_action_sends_one_nudge_at_a_time_and_tells_the_outcome() {
+    use codex_tui_core::protocol;
+    use codex_tui_core::screens::chat::{Nudge, NudgeOutcome};
+    use codex_tui_core::threads::Notice;
+
+    for (action, nudge) in [
+        ("notify_owner", Nudge::Credits),
+        ("request_increase", Nudge::UsageLimit),
+    ] {
+        let mut app = ready();
+        model_is(&mut app, "test-model-a");
+        let mut banner = model_banner("inline");
+        banner["ctas"] = serde_json::json!([{"action": action, "label": "Notify"}]);
+        let backend = read_banner(&mut app, banner);
+        let ticket = app.session().backend_banners[&backend].ticket;
+        let pick = |app: &mut CodexApp| {
+            run(
+                app,
+                AppEv::Intent(Intent::PickBannerCta {
+                    backend,
+                    ticket,
+                    row: 0,
+                }),
+            )
+        };
+        let fx = pick(&mut app);
+        let [send @ Command::SendAddCreditsNudge { nudge: asked, .. }] = fx.commands() else {
+            panic!("{action}: expected the nudge: {:?}", fx.commands());
+        };
+        assert_eq!(*asked, nudge);
+        assert!(
+            pick(&mut app).commands().is_empty(),
+            "{action}: one nudge at a time"
+        );
+        let wire =
+            protocol::client_request(send, codex_app_server_protocol::RequestId::Integer(1), None)
+                .expect("a request");
+        assert!(
+            format!("{wire:?}").contains("SendAddCreditsNudgeEmail"),
+            "{action}: {wire:?}"
+        );
+        let (reply_ticket, reply) =
+            protocol::reply(send, Ok(serde_json::json!({"status": "cooldown_active"})))
+                .expect("a reply");
+        run(&mut app, AppEv::Reply(reply_ticket, reply));
+        assert_eq!(
+            notices(&app),
+            [Notice::AddCreditsNudge {
+                nudge,
+                outcome: NudgeOutcome::Cooldown
+            }]
+        );
+        assert!(app.session().backend_banners[&backend].is_visible(Some("test-model-a")));
+        // freed: the next pick asks again, and a failed request says so
+        let fx = pick(&mut app);
+        let [again] = fx.commands() else {
+            panic!("{action}: asks again: {:?}", fx.commands());
+        };
+        let (reply_ticket, reply) =
+            protocol::reply(again, Err("offline".to_owned())).expect("a reply");
+        run(&mut app, AppEv::Reply(reply_ticket, reply));
+        assert_eq!(
+            notices(&app).last(),
+            Some(&Notice::AddCreditsNudge {
+                nudge,
+                outcome: NudgeOutcome::Failed
+            })
+        );
+    }
+}
+
+/// Oracle `owner_notification_completion_cannot_cross_account_change`, state half: an account
+/// update drops the banner and the request in flight, so the old account's reply tells nothing and
+/// the new account may ask again.
+#[test]
+fn an_account_update_drops_the_banner_and_the_nudge_in_flight() {
+    use codex_app_server_protocol::{AccountUpdatedNotification, ServerNotification};
+    use codex_tui_core::app::BackendEv;
+    use codex_tui_core::protocol;
+
+    let mut app = ready();
+    model_is(&mut app, "test-model-a");
+    let mut banner = model_banner("inline");
+    banner["ctas"] = serde_json::json!([{"action": "notify_owner", "label": "Notify"}]);
+    let backend = read_banner(&mut app, banner.clone());
+    let ticket = app.session().backend_banners[&backend].ticket;
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::PickBannerCta {
+            backend,
+            ticket,
+            row: 0,
+        }),
+    );
+    let [previous] = fx.commands() else {
+        panic!("expected the nudge: {:?}", fx.commands());
+    };
+    let previous = previous.clone();
+    run(
+        &mut app,
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::AccountUpdated(AccountUpdatedNotification {
+                auth_mode: None,
+                plan_type: None,
+            }),
+        ))),
+    );
+    assert!(!app.session().backend_banners.contains_key(&backend));
+    let (stale_ticket, reply) =
+        protocol::reply(&previous, Ok(serde_json::json!({"status": "sent"}))).expect("a reply");
+    run(&mut app, AppEv::Reply(stale_ticket, reply));
+    assert!(
+        notices(&app).is_empty(),
+        "the old account's reply tells nothing"
+    );
+    // the new account's read brings its banner back, and its pick is not held by the old request
+    let backend = read_banner(&mut app, banner);
+    let ticket = app.session().backend_banners[&backend].ticket;
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::PickBannerCta {
+            backend,
+            ticket,
+            row: 0,
+        }),
+    );
+    assert!(
+        matches!(fx.commands(), [Command::SendAddCreditsNudge { .. }]),
+        "{:?}",
+        fx.commands()
+    );
 }

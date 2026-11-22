@@ -5,6 +5,7 @@ use rtwk::style::{Span, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
+use codex_tui_core::screens::chat::{Nudge, NudgeOutcome};
 use codex_tui_core::threads::Notice;
 
 use crate::app::theme::Tokens;
@@ -37,6 +38,23 @@ impl StatelessWidget for NoticeCell {
             .into(),
             Notice::EnteredReview(text) => review(strings.review_started, text),
             Notice::ExitedReview(text) => review(strings.review_finished, text),
+            // `new_info_event`: the bullet, then the message
+            Notice::AddCreditsNudge { nudge, outcome } => {
+                let words = match nudge {
+                    Nudge::Credits => &strings.nudge_credits,
+                    Nudge::UsageLimit => &strings.nudge_usage_limit,
+                };
+                let message = match outcome {
+                    NudgeOutcome::Sent => words[0],
+                    NudgeOutcome::Cooldown => words[1],
+                    NudgeOutcome::Failed => words[2],
+                };
+                Text::rich(vec![
+                    Span::styled(strings.bullet, tokens.dim()),
+                    Span::styled(message, Style::new()),
+                ])
+                .into()
+            }
         }
     }
 }

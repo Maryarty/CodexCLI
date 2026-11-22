@@ -506,7 +506,9 @@ async fn run_as(
                     let _ = ingress.send(Ingress::of(backend, epoch, ev));
                 });
             }
-            other @ (Command::Screen { .. } | Command::ReadRateLimits { .. }) => {
+            other @ (Command::Screen { .. }
+            | Command::ReadRateLimits { .. }
+            | Command::SendAddCreditsNudge { .. }) => {
                 let (responder, facts) = shared
                     .lock()
                     .map(|guard| (guard.responder.clone(), guard.facts))
