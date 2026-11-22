@@ -16,6 +16,20 @@ pub(super) fn announce(app: &mut CodexApp, notice: Notice, fx: &mut AppFx) {
     }
 }
 
+/// The browser did not open a page: the shown conversation says so as an error line (oracle
+/// `add_error_message("Failed to open browser for {url}: {err}")`, worded by the host); with
+/// none shown there is no line to add it to.
+pub(super) fn open_failed(app: &mut CodexApp, message: String, fx: &mut AppFx) {
+    let Some(thread) = app.session.active.clone() else {
+        return;
+    };
+    let ev = ThreadEv::Appended {
+        turn: None,
+        item: Item::Error { message },
+    };
+    apply_thread(app, &thread, ev, fx);
+}
+
 /// The notices that waited for a conversation go into `thread`, the first one attached.
 pub(super) fn flush(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
     for notice in std::mem::take(&mut app.pending_notices) {

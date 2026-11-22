@@ -393,25 +393,25 @@ mod effects {
             &mut app,
             AppEv::Effect {
                 request: 5,
-                done: Done::Copy(CopyStatus::Pending(1)),
+                done: Done::Copy(Ok(CopyStatus::Pending(1))),
             },
         );
-        assert_eq!(app.effect(5), Some(&Done::Copy(CopyStatus::Pending(1))));
+        assert_eq!(app.effect(5), Some(&Done::Copy(Ok(CopyStatus::Pending(1)))));
         run(
             &mut app,
             AppEv::Effect {
                 request: 5,
-                done: Done::Copy(CopyStatus::Confirmed),
+                done: Done::Copy(Ok(CopyStatus::Confirmed)),
             },
         );
         assert_eq!(
             app.effect(5),
-            Some(&Done::Copy(CopyStatus::Confirmed)),
+            Some(&Done::Copy(Ok(CopyStatus::Confirmed))),
             "a later answer of the same request replaces the earlier"
         );
         assert_eq!(
             app.latest_effect(),
-            Some((5, &Done::Copy(CopyStatus::Confirmed)))
+            Some((5, &Done::Copy(Ok(CopyStatus::Confirmed))))
         );
     }
 
@@ -1637,6 +1637,32 @@ mod notices {
         );
     }
 
+    // Oracle `OpenUrlInBrowser`: a browser that did not open the page is an error line.
+    #[test]
+    fn a_browser_that_did_not_open_is_an_error_line_of_the_shown_conversation() {
+        let mut app = CodexApp::new();
+        run(
+            &mut app,
+            AppEv::OpenFailed {
+                message: "Failed to open browser for https://x.test: no display".into(),
+            },
+        );
+        start(&mut app);
+        assert_eq!(items(&app), vec![], "no conversation, no line");
+        run(
+            &mut app,
+            AppEv::OpenFailed {
+                message: "Failed to open browser for https://x.test: no display".into(),
+            },
+        );
+        assert_eq!(
+            items(&app),
+            vec![Item::Error {
+                message: "Failed to open browser for https://x.test: no display".into()
+            }]
+        );
+    }
+
     fn update() -> Notice {
         Notice::UpdateAvailable {
             current: "0.1.0".into(),
@@ -1666,6 +1692,113 @@ mod notices {
         assert_eq!(
             items(&app),
             vec![Item::Notice(version), Item::Notice(update())]
+        );
+    }
+}
+
+mod tui_settings {
+    use codex_tui_core::app::facts::TuiSettings;
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, apply_app};
+    use pretty_assertions::assert_eq;
+
+    // `tui.collapse_turn_details` is false until the host reports the config's value, and the
+    // last report holds.
+    #[test]
+    fn the_collapse_setting_is_what_the_host_last_reported() {
+        let mut app = CodexApp::new();
+        assert_eq!(app.tui(), TuiSettings::default());
+        assert!(!app.tui().collapse_turn_details);
+        let mut fx = AppFx::default();
+        let on = TuiSettings {
+            collapse_turn_details: true,
+        };
+        apply_app(&mut app, AppEv::Tui(on), &mut fx);
+        assert_eq!(app.tui(), on);
+        apply_app(&mut app, AppEv::Tui(TuiSettings::default()), &mut fx);
+        assert!(!app.tui().collapse_turn_details);
+    }
+}
+
+mod host_asks {
+    use codex_tui_core::app::effects::{Ask, Done, ImageFormat, PastedImage};
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::ids::ThreadId;
+    use pretty_assertions::assert_eq;
+
+    fn ask(app: &mut CodexApp, request: u64, ask: Ask) -> Vec<(u64, Ask)> {
+        let mut fx = AppFx::default();
+        apply_app(app, AppEv::Intent(Intent::Effect { request, ask }), &mut fx);
+        fx.commands()
+            .iter()
+            .filter_map(|command| match command {
+                Command::Effect { request, ask, .. } => Some((*request, ask.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // The clipboard reads, the export file and the Desktop link are asks like the copy: one
+    // command under the request the UI chose, the answer kept under it.
+    #[test]
+    fn the_reads_the_export_and_the_desktop_link_are_asks() {
+        let mut app = CodexApp::new();
+        let export = Ask::Export {
+            thread: ThreadId::new("thread-1"),
+            path: "~/talk.md".into(),
+            cwd: "/work".into(),
+            markdown: "# Codex conversation\n".into(),
+        };
+        for (request, kind) in [
+            (1, Ask::ClipboardText),
+            (2, Ask::ClipboardImage),
+            (
+                3,
+                Ask::OpenDesktop {
+                    thread: ThreadId::new("thread-1"),
+                },
+            ),
+            (4, export),
+        ] {
+            assert_eq!(ask(&mut app, request, kind.clone()), vec![(request, kind)]);
+        }
+        let mut fx = AppFx::default();
+        let image = PastedImage {
+            path: "/tmp/p.png".into(),
+            width: 4,
+            height: 2,
+            format: ImageFormat::Png,
+        };
+        for (request, done) in [
+            (1, Done::ClipboardText(Ok("pasted".into()))),
+            (2, Done::ClipboardImage(Ok(image.clone()))),
+            (3, Done::Desktop(Err("not installed".into()))),
+            (4, Done::Export(Ok("/work/talk.md".into()))),
+        ] {
+            apply_app(&mut app, AppEv::Effect { request, done }, &mut fx);
+        }
+        assert_eq!(
+            app.effect(2),
+            Some(&Done::ClipboardImage(Ok(image))),
+        );
+        assert_eq!(app.effect(3), Some(&Done::Desktop(Err("not installed".into()))));
+    }
+
+    // A failed copy keeps the host's text for the "failed to copy" line.
+    #[test]
+    fn a_failed_copy_keeps_the_hosts_text() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(
+            &mut app,
+            AppEv::Effect {
+                request: 9,
+                done: Done::Copy(Err("clipboard unavailable".into())),
+            },
+            &mut fx,
+        );
+        assert_eq!(
+            app.effect(9),
+            Some(&Done::Copy(Err("clipboard unavailable".into())))
         );
     }
 }

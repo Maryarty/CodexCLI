@@ -196,3 +196,99 @@ fn a_script_error_in_play_names_the_line() {
     };
     assert_eq!(err.line, 2);
 }
+
+mod replies {
+    use super::{SESSION, items};
+    use codex_tui_core::fixtures::builders::{history_turn, turns_page};
+    use codex_tui_core::fixtures::script::{Answer, Replies, build, parse};
+    use codex_tui_core::threads::Item;
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    fn line(method: &str, result: &serde_json::Value) -> String {
+        json!({"step": "reply", "method": method, "result": result}).to_string()
+    }
+
+    // The n-th request of a method gets the n-th reply of it; other methods have their own queue.
+    #[test]
+    fn replies_queue_by_method_in_script_order() {
+        let text = format!(
+            "{SESSION}\n{}\n{}\n{}\n",
+            line("thread/turns/list", &json!({"page": 1})),
+            line("mcpServerStatus/list", &json!({"data": []})),
+            line("thread/turns/list", &json!({"page": 2})),
+        );
+        let mut replies = parse(&text).expect("parses").replies;
+        assert_eq!(replies.waiting("thread/turns/list"), 2);
+        assert_eq!(
+            replies.next("thread/turns/list"),
+            Some(Answer::Result(json!({"page": 1})))
+        );
+        assert_eq!(
+            replies.next("thread/turns/list"),
+            Some(Answer::Result(json!({"page": 2})))
+        );
+        assert_eq!(replies.next("thread/turns/list"), None, "none left");
+        assert_eq!(replies.waiting("mcpServerStatus/list"), 1);
+        assert_eq!(replies.next("account/read"), None, "unknown method");
+    }
+
+    // A reply is not an event of the timeline: it is not a step and play ignores it.
+    #[test]
+    fn a_reply_is_not_a_step_and_changes_no_model_state() {
+        let text = format!("{SESSION}\n{}\n", line("thread/turns/list", &json!({})));
+        let script = parse(&text).expect("parses");
+        assert_eq!(script.steps.len(), 1);
+        let played = build(&text).expect("plays");
+        assert_eq!(items(&played.app), Vec::<Item>::new());
+    }
+
+    #[test]
+    fn a_reply_may_refuse() {
+        let text = r#"{"step":"reply","method":"thread/turns/list","error":{"code":-32600,"message":"gone"}}"#;
+        let mut replies = parse(text).expect("parses").replies;
+        assert_eq!(
+            replies.next("thread/turns/list"),
+            Some(Answer::Error {
+                code: Some(-32600),
+                message: "gone".into()
+            })
+        );
+        let bare = r#"{"step":"reply","method":"m","error":{"message":"x"}}"#;
+        assert_eq!(
+            parse(bare).expect("parses").replies.next("m"),
+            Some(Answer::Error {
+                code: None,
+                message: "x".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_reply_has_exactly_one_of_result_and_error() {
+        let neither = r#"{"step":"reply","method":"m"}"#;
+        assert_eq!(parse(neither).expect_err("fails").line, 1);
+        let both = r#"{"step":"reply","method":"m","result":{},"error":{"message":"x"}}"#;
+        let err = parse(both).expect_err("fails");
+        assert!(err.message.contains("exactly one"), "{}", err.message);
+        let no_method = r#"{"step":"reply","result":{}}"#;
+        assert_eq!(parse(no_method).expect_err("fails").line, 1);
+    }
+
+    #[test]
+    fn the_builders_make_a_page_the_protocol_reads_back() {
+        let page = turns_page(
+            vec![history_turn("t1", "hello", "hi"), history_turn("t2", "more", "ok")],
+            Some("older"),
+            Some("newer"),
+        );
+        let read: codex_app_server_protocol::ThreadTurnsListResponse =
+            serde_json::from_value(page.clone()).expect("a response");
+        assert_eq!(read.data.len(), 2);
+        assert_eq!(read.data[0].items.len(), 2);
+        assert_eq!(read.next_cursor.as_deref(), Some("older"));
+        let mut replies = Replies::default();
+        replies.push("thread/turns/list", Answer::Result(page));
+        assert!(!replies.is_empty());
+    }
+}
