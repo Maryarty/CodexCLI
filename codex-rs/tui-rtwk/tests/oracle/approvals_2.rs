@@ -48,7 +48,7 @@ fn render_multiple_threads_snapshot() {
 fn questions_flush_buffered_typing_and_record_activity() {
     kit::pending(
         Owner::DialogsPane,
-        "no async-questions pane in the port: a message's questions without options (push_async_questions) have no seed; the collapsed countdown summary is the visible half",
+        "no async-questions pane in the port: a message's questions without options (push_async_questions) have no seed; the collapsed countdown summary is the visible half; flushing what was typed ahead when a question arrives is G8 (rtwk has no input discard)",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(21, 2).live().open();
     s.paste("pasted ");
@@ -82,7 +82,7 @@ fn auto_resolution_hides_timer_during_grace_period() {
 fn auto_resolution_visible_countdown_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no auto-resolution countdown in the port: the three-question request shows no `auto-resolves in` progress text after the 60 s grace",
+        "no auto-resolution countdown in the port: the request's autoResolutionMs is read by nothing (a Timer in the sheet state after the grace period is not built; the server's own serverRequest/resolved is what closes it), so no `auto-resolves in` progress text after the 60 s grace",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -97,7 +97,7 @@ fn auto_resolution_visible_countdown_snapshot() {
 fn auto_resolution_visible_countdown_is_red() {
     kit::pending(
         Owner::DialogsPane,
-        "no auto-resolution countdown in the port: the progress line's `auto-resolves in 1m 00s` is not drawn, so it cannot be red",
+        "no auto-resolution countdown in the port (autoResolutionMs is read by nothing): the progress line's `auto-resolves in 1m 00s` is not drawn, so it cannot be red",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)

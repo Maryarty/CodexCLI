@@ -420,7 +420,7 @@ fn replay_preserves_drafts_and_does_not_reopen_handled_questions() {
 fn arrival_preserves_vim_undo_and_navigation_flushes_buffered_input() {
     kit::pending(
         Owner::DialogsPane,
-        "no vim mode in the question prompt, and the arrival of a question while a draft is typed needs a live feed (Screen::feed does not reach an entry screen); the paste burst is internal",
+        "no vim mode in the question prompt, and the arrival of a question while a draft is typed needs a live feed (Screen::feed does not reach an entry screen); the paste burst is internal; the discard of typed-ahead keys when a request arrives is G8 (rtwk has no input discard)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
