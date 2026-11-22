@@ -6,26 +6,22 @@
 //! first that fits, `ui::page_keys::footer_fit`). Oracle: `resume_picker.rs`
 //! (`toolbar_for_width`, `hint_line_for_row`, `picker_footer_progress_label`).
 
-use rtwk_core::unicode::{TextMode, string_width};
+use crate::widgets::measure::Measure;
 
 use crate::widgets::page_keys::Variant;
 
 use super::strings::Strings;
 
-fn width(text: &str) -> usize {
-    string_width(text, TextMode::Graphemes, 1)
-}
-
 /// The three spellings of the footer's progress, widest first, the first
 /// that is narrower than `w` (oracle: `picker_footer_progress_label`).
-pub fn progress_label(position: usize, total: &str, percent: u8, w: usize) -> String {
+pub fn progress_label(seg: Measure, position: usize, total: &str, percent: u8, w: usize) -> String {
     [
         format!(" {position} / {total} · {percent}% "),
         format!(" {position}/{total} · {percent}% "),
         format!(" {percent}% "),
     ]
     .into_iter()
-    .find(|label| width(label) < w)
+    .find(|label| seg.width(label) < w)
     .unwrap_or_default()
 }
 
@@ -34,7 +30,7 @@ pub type Run = (String, bool);
 
 /// The toolbar (oracle: `toolbar_for_width`): the full strip, else the
 /// compact one.
-pub fn toolbar(strings: &super::strings::Strings, w: usize) -> Vec<Run> {
+pub fn toolbar(seg: Measure, strings: &super::strings::Strings, w: usize) -> Vec<Run> {
     let full = |compact: bool| -> Vec<Run> {
         let value = |text: &str, active: bool| (format!(" {text} "), active);
         let label = |text: &str, gap: &str| (format!("{text}{gap}"), false);
@@ -59,7 +55,7 @@ pub fn toolbar(strings: &super::strings::Strings, w: usize) -> Vec<Run> {
         line
     };
     let wide = full(false);
-    if wide.iter().map(|(text, _)| width(text)).sum::<usize>() <= w {
+    if wide.iter().map(|(text, _)| seg.width(text)).sum::<usize>() <= w {
         return wide;
     }
     full(true)
@@ -167,4 +163,36 @@ pub fn hint_rows(strings: &Strings) -> [Vec<Variant>; 2] {
         hint(strings.key_browse, strings.browse, strings.browse, 5),
     ];
     [hint_variants(&first), hint_variants(&second)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pages::resume::strings::EN;
+    use rtwk_core::unicode::TextSegmenter;
+
+    /// A halfwidth katakana and its sound mark: one cell clustered, two in legacy.
+    const MARKED: &str = "\u{ff76}\u{ff9e}";
+
+    #[test]
+    fn the_progress_label_counts_the_terminals_cells() {
+        // ` 1 / ｶﾞ · 5% ` takes 12 cells clustered, 13 in legacy; it must be narrower than 13
+        let graphemes = progress_label(TextSegmenter::default(), 1, MARKED, 5, 13);
+        let legacy = progress_label(TextSegmenter::legacy(), 1, MARKED, 5, 13);
+        assert_eq!(graphemes, format!(" 1 / {MARKED} \u{b7} 5% "));
+        assert_eq!(legacy, format!(" 1/{MARKED} \u{b7} 5% "));
+    }
+
+    #[test]
+    fn the_toolbar_counts_the_terminals_cells() {
+        let mut strings = EN;
+        strings.filter = MARKED;
+        let graphemes = TextSegmenter::default();
+        let wide = toolbar(graphemes, &strings, 1000);
+        let cells: usize = wide.iter().map(|(text, _)| graphemes.width(text)).sum();
+        assert_eq!(toolbar(graphemes, &strings, cells), wide);
+        // one cell more in legacy: the full strip no longer fits, the compact one does
+        let legacy = toolbar(TextSegmenter::legacy(), &strings, cells);
+        assert!(legacy.len() < wide.len(), "{legacy:?}");
+    }
 }

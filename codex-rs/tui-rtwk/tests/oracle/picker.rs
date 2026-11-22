@@ -406,11 +406,12 @@ fn snapshot_narrow_width_preserves_third_option() {
 fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
     kit::pending(
         Owner::UiPane,
-        "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark into one cell (TextMode::Graphemes), the oracle counts the mark as its own cell, so the label column is one cell narrower and the description wraps one cell later; and the kit cannot address the `width 20:` and `width 24:` frames (oracle_snap::frames reads only `width=`)",
+        "G56 (G44 closed by TextMode::Legacy, `Open::legacy_text`): the oracle wraps a row's name and description as one line (`word_wrap_line`), so a description word too long for what is left beside the name (`handakuten`, 8 cells) starts on the next line and the name line stands alone; the Grid's description cell breaks the word at its width on the name line",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(20, 12)
         .entry("select", "halfwidth_marks")
+        .legacy_text()
         .open();
     s.assert_snap_section("list_selection_halfwidth_sound_marks_narrow", "width 20:");
     s.resize(24, 10);

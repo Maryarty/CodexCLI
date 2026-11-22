@@ -247,6 +247,16 @@ fn header(
     {
         return Some((name.to_string(), Some("Buffer {".to_string())));
     }
+    // `width 20:`: the label of a frame drawn at that width.
+    if let Some(n) = line
+        .strip_prefix("width ")
+        .and_then(|r| r.strip_suffix(':'))
+        && !n.is_empty()
+        && n.chars().all(|c| c.is_ascii_digit())
+        && next.is_some()
+    {
+        return Some((line.to_string(), None));
+    }
     // `before scroll:`: a bare label of lowercase words, first in the
     // snapshot or under a blank row, over the rows of a render.
     if let Some(name) = line.strip_suffix(':')
