@@ -7,6 +7,7 @@
 //! the network, the clock or the file system (R12).
 
 pub mod effects;
+mod notices;
 mod session;
 pub mod worktree;
 
@@ -259,6 +260,12 @@ pub enum AppEv {
     /// The keymap the config makes (`tui.keymap.*`), sent by the host once
     /// the config is read; until then the built-in defaults hold.
     Keymap(Box<Keymap>),
+    /// A notice for the open conversation (a newer release, the server's other version): it
+    /// goes into the history of the shown thread, or of the first one when none is open yet.
+    Announce(threads::Notice),
+    /// What the host knows about Daybreak (the account, the model catalog): it words the
+    /// notice of a cyber refusal.
+    Daybreak(threads::daybreak::Access),
 }
 
 /// An event with the connection epoch it was attached under, and the
@@ -508,6 +515,10 @@ pub struct CodexApp {
     keymap: Rc<Keymap>,
     /// The answers of the host's asks and the user-verification controller.
     effects: effects::Effects,
+    /// Notices announced before any conversation exists.
+    pending_notices: Vec<threads::Notice>,
+    /// The Daybreak facts (`AppEv::Daybreak`).
+    daybreak: threads::daybreak::Access,
 }
 
 /// When the process's first thread starts.
@@ -564,6 +575,8 @@ impl CodexApp {
             start_held: false,
             keymap: Rc::new(Keymap::defaults()),
             effects: effects::Effects::default(),
+            pending_notices: Vec::new(),
+            daybreak: threads::daybreak::Access::default(),
         }
     }
 
@@ -1177,6 +1190,8 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             release_held_start(app, fx);
         }
         AppEv::Keymap(keymap) => app.keymap = Rc::new(*keymap),
+        AppEv::Announce(notice) => notices::announce(app, notice, fx),
+        AppEv::Daybreak(access) => app.daybreak = access,
         AppEv::Effect { request, done } => app.effects.settle(request, done),
         AppEv::Verified {
             key,
@@ -2353,6 +2368,7 @@ fn attach_thread_with_metadata(
             app.attaching_events.push_back((source, id, ev));
         }
     }
+    notices::flush(app, thread, fx);
 }
 
 fn show_held_thread(app: &mut CodexApp, id: ThreadId) {
@@ -2393,7 +2409,17 @@ fn dismiss_banner_for_new_turn(app: &mut CodexApp, thread: &ThreadId) {
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
 pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mut AppFx) {
+    // A cyber refusal is worded by the setting of the moment (a delta carries none).
+    let daybreak = if ev.may_fail_a_turn() {
+        notices::daybreak_of(app, thread)
+    } else {
+        crate::screens::cells::Daybreak::Apply
+    };
     if let Some(model) = app.threads.get_mut(thread) {
-        threads::apply(model, ev, &mut ThreadFx::new(thread, fx, &mut app.mint));
+        threads::apply(
+            model,
+            ev,
+            &mut ThreadFx::new(thread, fx, &mut app.mint).stamped(daybreak),
+        );
     }
 }

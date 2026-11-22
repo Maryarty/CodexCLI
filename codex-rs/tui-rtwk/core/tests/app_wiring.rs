@@ -1410,3 +1410,262 @@ mod history_state {
         assert_eq!(state(&app), HistoryState::Complete);
     }
 }
+
+/// The refusal notices a failed turn leaves, the streamed plan, and the notices the host
+/// announces (oracle `chatwidget/turn_runtime.rs`, `plan_stream`, `app/startup.rs`).
+mod notices {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
+    use codex_tui_core::fixtures::builders::{turn_error, turn_started};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::cells::Daybreak;
+    use codex_tui_core::screens::chat::ThreadEv as ChatThreadEv;
+    use codex_tui_core::screens::ScreenThreadEv;
+    use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
+    use codex_tui_core::threads::{Item, Notice, ThreadEv};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    const T: &str = "thread-1";
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    fn start(app: &mut CodexApp) {
+        let fx = run(app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+    }
+
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        start(&mut app);
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        app
+    }
+
+    fn notify(app: &mut CodexApp, method: &str, params: serde_json::Value) {
+        let notification: ServerNotification =
+            serde_json::from_value(json!({ "method": method, "params": params }))
+                .expect("notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        );
+    }
+
+    fn items(app: &CodexApp) -> Vec<Item> {
+        let thread = app.active_thread();
+        let transcript = thread.transcript();
+        (0..transcript.len())
+            .filter_map(|index| transcript.get(index).map(|(_, item)| item.clone()))
+            .collect()
+    }
+
+    fn error(app: &mut CodexApp, message: &str, info: Option<&str>) {
+        notify(
+            app,
+            "error",
+            json!({
+                "error": {"message": message, "codexErrorInfo": info, "additionalDetails": null},
+                "willRetry": false, "threadId": T, "turnId": "turn-1"
+            }),
+        );
+    }
+
+    fn eligible(model: &str, standard: bool, daybreak: bool) -> Access {
+        Access {
+            eligible: true,
+            models: vec![ModelAccess {
+                model: model.to_owned(),
+                programs: Some(Programs { standard, daybreak }),
+            }],
+        }
+    }
+
+    #[test]
+    fn a_cyber_refusal_is_a_notice_worded_apply_until_the_host_knows_better() {
+        let mut app = ready();
+        error(&mut app, "refused", Some("cyberPolicy"));
+        assert_eq!(
+            items(&app),
+            vec![Item::Notice(Notice::CyberPolicy(Daybreak::Apply))]
+        );
+    }
+
+    #[test]
+    fn the_wording_follows_the_catalog_and_the_threads_setting() {
+        let mut app = CodexApp::new();
+        start(&mut app);
+        run(
+            &mut app,
+            AppEv::Screen(codex_tui_core::screens::ScreenEv::Chat(
+                codex_tui_core::screens::chat::Ev::Status(Box::new(
+                    codex_tui_core::screens::chat::StatusFacts {
+                        model: Some("gpt-5.6".into()),
+                        ..Default::default()
+                    },
+                )),
+            )),
+        );
+        run(&mut app, AppEv::Daybreak(eligible("gpt-5.6", true, true)));
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        error(&mut app, "refused", Some("cyberPolicy"));
+        assert_eq!(
+            items(&app),
+            vec![Item::Notice(Notice::CyberPolicy(Daybreak::Disabled))]
+        );
+        // switched on for the thread: the next refusal words as Enabled
+        codex_tui_core::app::apply_thread(
+            &mut app,
+            &ThreadId::new(T),
+            ThreadEv::Screen(ScreenThreadEv::Chat(ChatThreadEv::Metadata {
+                name: None,
+                cwd: "/tmp".into(),
+                model: Some("gpt-5.6".into()),
+                effort: None,
+                provider: "openai".into(),
+                daybreak: Some(true),
+            })),
+            &mut AppFx::default(),
+        );
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-2")));
+        notify(
+            &mut app,
+            "error",
+            json!({
+                "error": {"message": "refused", "codexErrorInfo": "cyberPolicy", "additionalDetails": null},
+                "willRetry": false, "threadId": T, "turnId": "turn-2"
+            }),
+        );
+        assert_eq!(
+            items(&app).last(),
+            Some(&Item::Notice(Notice::CyberPolicy(Daybreak::Enabled)))
+        );
+    }
+
+    // Oracle `is_bio_policy_error`: the message itself, or the JSON error object around it.
+    #[test]
+    fn a_biology_refusal_is_the_safety_block_in_either_form() {
+        let mut app = ready();
+        error(
+            &mut app,
+            "This content was flagged for possible biological risk. More words.",
+            None,
+        );
+        assert_eq!(items(&app), vec![Item::Notice(Notice::SafetyAccessBlock)]);
+        let mut app = ready();
+        error(&mut app, r#"{"error":{"code":"bio_policy","message":"x"}}"#, None);
+        assert_eq!(items(&app), vec![Item::Notice(Notice::SafetyAccessBlock)]);
+        let mut app = ready();
+        error(&mut app, "something else", None);
+        assert_eq!(
+            items(&app),
+            vec![Item::Error {
+                message: "something else".into()
+            }]
+        );
+    }
+
+    // The turn's own report of an error the `error` notification already gave ends quietly.
+    #[test]
+    fn the_failed_turn_does_not_repeat_its_refusal() {
+        let mut app = ready();
+        error(&mut app, "refused", Some("cyberPolicy"));
+        run(
+            &mut app,
+            AppEv::Backend(turn_error(T, "turn-1", "unused", true)),
+        );
+        notify(
+            &mut app,
+            "turn/completed",
+            json!({
+                "threadId": T,
+                "turn": {
+                    "id": "turn-1", "items": [], "status": "failed",
+                    "error": {"message": "refused", "codexErrorInfo": "cyberPolicy", "additionalDetails": null},
+                    "startedAt": null, "completedAt": null, "durationMs": null
+                }
+            }),
+        );
+        assert_eq!(items(&app).len(), 1);
+    }
+
+    #[test]
+    fn the_plan_streams_in_deltas_and_the_completed_item_replaces_it() {
+        let mut app = ready();
+        for delta in ["# Pl", "an\n- one"] {
+            notify(
+                &mut app,
+                "item/plan/delta",
+                json!({"threadId": T, "turnId": "turn-1", "itemId": "plan-1", "delta": delta}),
+            );
+        }
+        assert_eq!(
+            items(&app),
+            vec![Item::Plan {
+                text: "# Plan\n- one".into()
+            }]
+        );
+        notify(
+            &mut app,
+            "item/completed",
+            json!({
+                "threadId": T, "turnId": "turn-1", "completedAtMs": 0, "contentTokenCount": null,
+                "item": {"type": "plan", "id": "plan-1", "text": "# Plan\n- one\n- two"}
+            }),
+        );
+        assert_eq!(
+            items(&app),
+            vec![Item::Plan {
+                text: "# Plan\n- one\n- two".into()
+            }]
+        );
+    }
+
+    fn update() -> Notice {
+        Notice::UpdateAvailable {
+            current: "0.1.0".into(),
+            latest: "0.2.0".into(),
+            command: Some("npm install -g @openai/codex".into()),
+        }
+    }
+
+    #[test]
+    fn an_announcement_goes_into_the_shown_conversation() {
+        let mut app = CodexApp::new();
+        start(&mut app);
+        run(&mut app, AppEv::Announce(update()));
+        assert_eq!(items(&app), vec![Item::Notice(update())]);
+    }
+
+    #[test]
+    fn an_announcement_before_any_conversation_waits_for_the_first() {
+        let mut app = CodexApp::new();
+        let version = Notice::ServerVersion {
+            message: "The server runs 0.3.0".into(),
+            offer_update: true,
+        };
+        run(&mut app, AppEv::Announce(version.clone()));
+        run(&mut app, AppEv::Announce(update()));
+        start(&mut app);
+        assert_eq!(
+            items(&app),
+            vec![Item::Notice(version), Item::Notice(update())]
+        );
+    }
+}
