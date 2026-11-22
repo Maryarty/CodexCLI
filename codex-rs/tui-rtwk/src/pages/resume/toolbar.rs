@@ -6,9 +6,9 @@
 
 use rtwk::style::Span;
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
-use rtwk::{AnyWidget, LayoutBuilder};
+use rtwk::{AnyWidget, Handler, LayoutBuilder};
 
-use codex_tui_core::screens::resume::{Action, Control, Filter, Model, Sort, Status};
+use codex_tui_core::screens::resume::{Action, Control, Dir, Filter, Model, Pick, Sort, Status};
 
 use super::look::Look;
 use super::strings::Strings;
@@ -39,10 +39,51 @@ impl Facts {
     }
 }
 
+/// The handler of a tap on each value: the picked value goes to the page
+/// (Flutter's `SegmentedButton.onSelectionChanged`).
+#[derive(Clone)]
+pub struct Taps {
+    cwd: Handler<()>,
+    repo: Handler<()>,
+    all: Handler<()>,
+    active: Handler<()>,
+    archived: Handler<()>,
+    updated: Handler<()>,
+    created: Handler<()>,
+}
+
+impl Taps {
+    /// Every value of the toolbar with the handler `make` gives it.
+    pub fn new(mut make: impl FnMut(Pick) -> Handler<()>) -> Taps {
+        Taps {
+            cwd: make(Pick::Filter(Filter::Cwd)),
+            repo: make(Pick::Filter(Filter::Repo)),
+            all: make(Pick::Filter(Filter::All)),
+            active: make(Pick::Status(Status::Active)),
+            archived: make(Pick::Status(Status::Archived)),
+            updated: make(Pick::Sort(Sort::Updated)),
+            created: make(Pick::Sort(Sort::Created)),
+        }
+    }
+
+    fn of(&self, pick: Pick) -> Handler<()> {
+        match pick {
+            Pick::Filter(Filter::Cwd) => self.cwd.clone(),
+            Pick::Filter(Filter::Repo) => self.repo.clone(),
+            Pick::Filter(Filter::All) => self.all.clone(),
+            Pick::Status(Status::Active) => self.active.clone(),
+            Pick::Status(Status::Archived) => self.archived.clone(),
+            Pick::Sort(Sort::Updated) => self.updated.clone(),
+            Pick::Sort(Sort::Created) => self.created.clone(),
+        }
+    }
+}
+
 struct Bar<'a> {
     look: &'a Look,
     strings: &'a Strings,
     facts: Facts,
+    taps: &'a Taps,
 }
 
 impl Bar<'_> {
@@ -51,14 +92,14 @@ impl Bar<'_> {
     }
 
     /// One value of a control: ` text `, the active one styled, in the tab
-    /// style while its control has the focus.
-    fn value(&self, text: &str, active: bool, focused: bool) -> Span {
+    /// style while its control has the focus; a tap picks `pick`.
+    fn value(&self, text: &str, pick: Pick, active: bool, focused: bool) -> Span {
         let style = match (active, focused) {
             (true, true) => self.look.tab.clone(),
             (true, false) => self.look.current.clone(),
             (false, _) => self.look.dim.clone(),
         };
-        Span::styled(self.strings.value(text), style)
+        Span::styled(self.strings.value(text), style).tap(self.taps.of(pick))
     }
 
     fn filter_name(&self, filter: Filter) -> &str {
@@ -73,14 +114,28 @@ impl Bar<'_> {
         let focused = self.facts.focus == Control::Filter;
         let facts = self.facts;
         if compact || !facts.has_cwd {
+            // The lone value stands for the control: a tap moves to the next one.
+            let next = facts
+                .filter
+                .change(Dir::Next, facts.has_cwd, facts.repo_available);
             return vec![
                 self.label(self.strings.filter),
-                self.value(self.filter_name(facts.filter), true, focused),
+                self.value(
+                    self.filter_name(facts.filter),
+                    Pick::Filter(next),
+                    true,
+                    focused,
+                ),
             ];
         }
         let mut line = vec![self.label(&format!("{} ", self.strings.filter))];
         let mut value = |filter: Filter| {
-            line.push(self.value(self.filter_name(filter), facts.filter == filter, focused));
+            line.push(self.value(
+                self.filter_name(filter),
+                Pick::Filter(filter),
+                facts.filter == filter,
+                focused,
+            ));
         };
         value(Filter::Cwd);
         if facts.repo_available {
@@ -100,17 +155,19 @@ impl Bar<'_> {
             };
             // The compact strip names only the status in force; the label comes back when the
             // focused control stands alone (`focused`).
-            return vec![self.value(name, true, focused)];
+            return vec![self.value(name, Pick::Status(facts.status.toggled()), true, focused)];
         }
         vec![
             self.label(&format!("{} ", strings.status)),
             self.value(
                 strings.status_active,
+                Pick::Status(Status::Active),
                 facts.status == Status::Active,
                 focused,
             ),
             self.value(
                 strings.status_archived,
+                Pick::Status(Status::Archived),
                 facts.status == Status::Archived,
                 focused,
             ),
@@ -125,12 +182,26 @@ impl Bar<'_> {
                 Sort::Updated => strings.sort_updated,
                 Sort::Created => strings.sort_created,
             };
-            return vec![self.label(strings.sort), self.value(name, true, focused)];
+            let next = Pick::Sort(facts.sort.toggled());
+            return vec![
+                self.label(strings.sort),
+                self.value(name, next, true, focused),
+            ];
         }
         vec![
             self.label(&format!("{} ", strings.sort)),
-            self.value(strings.sort_updated, facts.sort == Sort::Updated, focused),
-            self.value(strings.sort_created, facts.sort == Sort::Created, focused),
+            self.value(
+                strings.sort_updated,
+                Pick::Sort(Sort::Updated),
+                facts.sort == Sort::Updated,
+                focused,
+            ),
+            self.value(
+                strings.sort_created,
+                Pick::Sort(Sort::Created),
+                facts.sort == Sort::Created,
+                focused,
+            ),
         ]
     }
 
@@ -165,7 +236,7 @@ impl Bar<'_> {
 }
 
 /// The toolbar line of the picker's controls.
-pub fn toolbar(look: &Look, strings: &'static Strings, facts: Facts) -> AnyWidget {
+pub fn toolbar(look: &Look, strings: &'static Strings, facts: Facts, taps: Taps) -> AnyWidget {
     let look = look.clone();
     LayoutBuilder::new(move |cx, constraints| {
         let seg = segmenter_of(cx);
@@ -174,6 +245,7 @@ pub fn toolbar(look: &Look, strings: &'static Strings, facts: Facts) -> AnyWidge
             look: &look,
             strings,
             facts,
+            taps: &taps,
         };
         let width =
             |line: &[Span]| -> usize { line.iter().map(|span| seg.width(&span.text)).sum() };

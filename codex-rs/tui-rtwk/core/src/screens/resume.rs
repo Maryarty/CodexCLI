@@ -29,7 +29,7 @@ use crate::threads::ThreadFx;
 
 pub use listing::{Listing, PageMode, Request, Source};
 pub use proto::{PAGE_SIZE, PREVIEW_LINES, preview_lines, row_of};
-pub use toolbar::{Action, Control, Density, Dir, Filter, Sort, Status};
+pub use toolbar::{Action, Control, Density, Dir, Filter, Pick, Sort, Status};
 
 pub const NAME: &str = "resume";
 pub const ID: &str = "S18";
@@ -314,6 +314,8 @@ pub enum Intent {
     /// Left and right change the value of the toolbar control with the
     /// keyboard focus (which one has it is the page's: UI state).
     Change(Control, Dir),
+    /// A tap on a value of the toolbar: that value is picked.
+    Pick(Pick),
     /// Ctrl+O.
     ToggleDensity,
     /// Ctrl+E on this row.
@@ -709,6 +711,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             Vec::new()
         }
         Intent::Change(control, dir) => change(model, control, dir),
+        Intent::Pick(pick) => pick_value(model, pick),
         Intent::ToggleDensity => {
             model.density = model.density.toggled();
             Vec::new()
@@ -780,6 +783,29 @@ fn change(model: &mut Model, control: Control, dir: Dir) -> Vec<Out> {
             }
             model.filter = next;
         }
+    }
+    model.restart()
+}
+
+/// A tapped value of the toolbar: the list restarts under it unless it is
+/// the one already in force (or a filter the picker does not offer).
+fn pick_value(model: &mut Model, pick: Pick) -> Vec<Out> {
+    match pick {
+        Pick::Sort(sort) if sort != model.sort => model.sort = sort,
+        Pick::Status(status) if status != model.status => model.status = status,
+        Pick::Filter(filter) if filter != model.filter => {
+            let has_cwd = model.scope.cwd.is_some();
+            let offered = match filter {
+                Filter::All => true,
+                Filter::Cwd => has_cwd,
+                Filter::Repo => has_cwd && model.scope.repo_available(),
+            };
+            if !offered {
+                return Vec::new();
+            }
+            model.filter = filter;
+        }
+        _ => return Vec::new(),
     }
     model.restart()
 }

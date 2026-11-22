@@ -22,6 +22,27 @@ pub enum Dir {
     Next,
 }
 
+/// A value picked by a tap on the toolbar: the control and the value itself
+/// (Flutter's `SegmentedButton.onSelectionChanged`), where the arrow keys only
+/// step to the neighbour (`Intent::Change`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    Filter(Filter),
+    Status(Status),
+    Sort(Sort),
+}
+
+impl Pick {
+    /// The control this value belongs to.
+    pub fn control(self) -> Control {
+        match self {
+            Self::Filter(_) => Control::Filter,
+            Self::Status(_) => Control::Status,
+            Self::Sort(_) => Control::Sort,
+        }
+    }
+}
+
 impl Filter {
     /// The filter a launch starts with (oracle: `from_show_all`).
     pub fn initial(show_all: bool, cwd: Option<&str>) -> Self {

@@ -318,3 +318,45 @@ fn the_meta_line_leads_with_the_created_time_once_the_sort_is_created() {
     assert!(meta.trim_start().starts_with("5h ago"), "{screen:?}");
     assert!(!meta.contains("3h ago"), "{screen:?}");
 }
+
+// ---- a tap on a toolbar value (ADR-011): the value is picked, as the arrows would.
+
+/// The screen's rows and where `word` stands on the toolbar row (the one with "Sort"): the
+/// row and the column of its middle.
+fn on_toolbar(h: &Harness, word: &str) -> (u16, u16) {
+    let rows = oracle_snap::screen(&h.t);
+    let y = rows
+        .iter()
+        .position(|row| row.contains("Sort"))
+        .unwrap_or_else(|| panic!("no toolbar row: {rows:?}"));
+    let x = rows[y]
+        .find(word)
+        .unwrap_or_else(|| panic!("no {word:?} on the toolbar: {}", rows[y]));
+    (
+        u16::try_from(x + word.len() / 2).unwrap(),
+        u16::try_from(y).unwrap(),
+    )
+}
+
+#[test]
+fn a_tap_on_a_status_value_picks_it() {
+    let mut h = open("toolbar_repo_cwd", 102, 24);
+    let rows = oracle_snap::screen(&h.t);
+    assert!(
+        rows.iter().any(|row| row.contains("enter resume")),
+        "{rows:?}"
+    );
+    let (x, y) = on_toolbar(&h, "Archived");
+    h.t.click(x, y);
+    h.settle();
+    let rows = oracle_snap::screen(&h.t);
+    // As the right arrow on the status control: archived sessions, the footer offers restore.
+    assert!(
+        rows.iter().any(|row| row.contains("enter restore")),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().any(|row| row.contains("Loading sessions")),
+        "{rows:?}"
+    );
+}

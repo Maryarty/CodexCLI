@@ -29,8 +29,8 @@ use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::resume::{
-    Action, Control, Density, Dir, Intent as ResumeIntent, Launch, Load, Row as Saved, Status,
-    TranscriptState,
+    Action, Control, Density, Dir, Intent as ResumeIntent, Launch, Load, Pick, Row as Saved,
+    Status, TranscriptState,
 };
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
@@ -223,8 +223,8 @@ pub enum Msg {
     Focus(bool),
     /// Left and right: the focused control's value moves.
     Change(Dir),
-    /// A tap on a toolbar control's value.
-    Pick(Control, Dir),
+    /// A tap on a toolbar value: that value is picked.
+    Pick(Pick),
     /// The search field's text changed.
     Query,
     Backspace,
@@ -277,6 +277,7 @@ struct Frame {
     focus: Control,
     field: AnyWidget,
     controls: Controls,
+    taps: toolbar::Taps,
     query_empty: bool,
 }
 
@@ -317,6 +318,7 @@ fn screen(frame: Rc<Frame>) -> AnyWidget {
                 look,
                 strings,
                 toolbar::Facts::of(model, frame.focus),
+                frame.taps.clone(),
             )))
             .child(gap(areas.search - areas.toolbar - 1))
             .child(chrome(
@@ -817,9 +819,9 @@ impl State for ScreenState {
                 self.tell(cx, ResumeIntent::Change(control, dir));
                 self.top();
             }
-            Msg::Pick(control, dir) => {
-                self.focus_on(model.action, control);
-                self.tell(cx, ResumeIntent::Change(control, dir));
+            Msg::Pick(pick) => {
+                self.focus_on(model.action, pick.control());
+                self.tell(cx, ResumeIntent::Pick(pick));
                 self.top();
             }
             Msg::Query => {
@@ -915,6 +917,7 @@ impl State for ScreenState {
                 .map(|index| cx.map(move |_: PointerEvent| Msg::Row(index)))
                 .collect::<Vec<_>>(),
         );
+        let toolbar_taps = toolbar::Taps::new(|pick| cx.map(move |()| Msg::Pick(pick)));
         let loading = matches!(
             &model.transcript,
             Some(codex_tui_core::screens::resume::Transcript {
@@ -975,6 +978,7 @@ impl State for ScreenState {
                 region: self.region.clone(),
                 taps,
             },
+            taps: toolbar_taps,
             query_empty: self.query.text().is_empty(),
         };
         Theme::new(data, screen(Rc::new(frame))).into()
