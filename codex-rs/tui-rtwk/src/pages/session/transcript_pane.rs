@@ -330,10 +330,24 @@ impl State for ViewportState {
                     }
                     .into(),
                 ),
-                Item::Warning { message } | Item::StartupWarning { message } => cell(
+                Item::Warning { message } => cell(
                     separator,
                     super::cells::warning::WarningCell {
                         message: message.clone(),
+                    }
+                    .into(),
+                ),
+                Item::StartupWarning(warning) => cell(
+                    separator,
+                    super::cells::warning::WarningCell {
+                        message: table.mcp_warning(warning),
+                    }
+                    .into(),
+                ),
+                Item::HighLoad => cell(
+                    separator,
+                    super::cells::error::ErrorCell {
+                        message: table.high_load.to_string(),
                     }
                     .into(),
                 ),

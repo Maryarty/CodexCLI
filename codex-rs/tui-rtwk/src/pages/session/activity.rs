@@ -99,6 +99,7 @@ impl StatelessWidget for StatusSlot {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
         let strings = l10n::of(cx);
+        let session_strings = super::strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
         let states = watch::<ScreenStates, _>(cx);
         let run = select::<ThreadModel, Run, _>(cx, Run::of);
@@ -136,16 +137,20 @@ impl StatelessWidget for StatusSlot {
                 show_interrupt: run.can_interrupt,
                 spinner: facts.animations && facts.progress_effect,
                 shimmer: facts.animations && facts.shimmer_effect,
-                header: run.chat.header().unwrap_or_else(|| {
-                    if compacting {
-                        strings.chat.compacting
-                    } else if run.chat.activity == chat::ActivityPhase::Thinking {
-                        strings.chat.thinking
-                    } else {
-                        strings.chat.working
-                    }
-                    .to_string()
-                }),
+                header: run
+                    .chat
+                    .header()
+                    .map(|header| session_strings.status_header(&header))
+                    .unwrap_or_else(|| {
+                        if compacting {
+                            strings.chat.compacting
+                        } else if run.chat.activity == chat::ActivityPhase::Thinking {
+                            strings.chat.thinking
+                        } else {
+                            strings.chat.working
+                        }
+                        .to_string()
+                    }),
                 step: run.chat.step.clone(),
                 offset_seconds,
             })

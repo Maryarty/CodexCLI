@@ -16,6 +16,9 @@ use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
 };
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::chat::{
+    McpHeader, McpStartup, McpStatus, McpWarning, Retry, StatusHeader,
+};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, ScreenThreadIntent, chat};
 use codex_tui_core::threads::UserMessage;
 use codex_tui_core::threads::{self, Failure, Item, ItemKey, TurnEnd, TurnState};
@@ -649,6 +652,39 @@ fn a_failed_turn_keeps_the_servers_error_message() {
     assert_eq!(thread(&app).turn(), &TurnState::Idle);
 }
 
+/// Oracle `on_server_overloaded_error`: an overloaded server that said
+/// nothing is a typed high-load row (the UI words it), once per turn.
+#[test]
+fn an_overloaded_server_that_said_nothing_is_a_high_load_row() {
+    use codex_app_server_protocol::{
+        CodexErrorInfo, ErrorNotification, ServerNotification, TurnError,
+    };
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    notification(
+        &mut app,
+        BackendEv::Notification(Box::new(ServerNotification::Error(ErrorNotification {
+            thread_id: T.to_string(),
+            turn_id: "turn-1".to_string(),
+            will_retry: false,
+            error: TurnError {
+                message: String::new(),
+                codex_error_info: Some(CodexErrorInfo::ServerOverloaded),
+                additional_details: None,
+                misalignment: None,
+            },
+        }))),
+    );
+    notification(&mut app, turn_failed(T, "turn-1"));
+    let rows = thread(&app)
+        .transcript()
+        .iter()
+        .filter(|(_, item)| matches!(item, Item::HighLoad | Item::Error { .. }))
+        .map(|(_, item)| matches!(item, Item::HighLoad))
+        .collect::<Vec<_>>();
+    assert_eq!(rows, [true]);
+}
+
 /// Oracle `on_error`: a non-retried error notification ends the turn (finalize, the
 /// error row, the next queued input); the failed turn's completion after it is a
 /// no-op: no second error row, the queue is not sent twice.
@@ -1225,39 +1261,75 @@ fn mcp(name: &str, status: &str, error: Option<&str>) -> BackendEv {
     )))
 }
 
-fn startup_warnings(app: &CodexApp) -> Vec<String> {
+fn startup_warnings(app: &CodexApp) -> Vec<McpWarning> {
     thread(app)
         .transcript()
         .iter()
         .filter_map(|(_, item)| match item {
-            Item::StartupWarning { message } => Some(message.clone()),
+            Item::StartupWarning(warning) => Some(warning.clone()),
             _ => None,
         })
         .collect()
 }
 
-fn header(app: &CodexApp) -> Option<String> {
+fn header(app: &CodexApp) -> Option<StatusHeader> {
     thread(app).screen_slots().chat.header()
+}
+
+fn servers(names: &[&str]) -> Vec<String> {
+    names.iter().map(ToString::to_string).collect()
+}
+
+fn failed(server: &str, error: &str) -> McpWarning {
+    McpWarning::Failed {
+        server: server.to_string(),
+        error: Some(error.to_string()),
+    }
+}
+
+fn starting(completed: usize, total: usize, names: &[&str]) -> Option<StatusHeader> {
+    Some(StatusHeader::Mcp(McpHeader::Starting {
+        completed,
+        total,
+        servers: servers(names),
+        more: false,
+    }))
 }
 
 #[test]
 fn mcp_startup_header_names_the_servers_still_starting() {
     let mut app = ready();
     notification(&mut app, mcp("beta", "starting", None));
-    assert_eq!(header(&app).as_deref(), Some("Booting MCP server: beta"));
+    assert_eq!(
+        header(&app),
+        Some(StatusHeader::Mcp(McpHeader::Booting {
+            server: "beta".to_string()
+        }))
+    );
     notification(&mut app, mcp("alpha", "starting", None));
-    assert_eq!(
-        header(&app).as_deref(),
-        Some("Starting MCP servers (0/2): alpha, beta")
-    );
+    assert_eq!(header(&app), starting(0, 2, &["alpha", "beta"]));
     notification(&mut app, mcp("alpha", "ready", None));
-    assert_eq!(
-        header(&app).as_deref(),
-        Some("Starting MCP servers (1/2): beta")
-    );
+    assert_eq!(header(&app), starting(1, 2, &["beta"]));
     notification(&mut app, mcp("beta", "ready", None));
     assert_eq!(header(&app), None);
     assert!(startup_warnings(&app).is_empty());
+}
+
+#[test]
+fn mcp_startup_header_cuts_a_long_list_after_three_servers() {
+    let mut app = ready();
+    for name in ["a", "b", "c", "d"] {
+        notification(&mut app, mcp(name, "starting", None));
+    }
+    assert_eq!(
+        header(&app),
+        Some(StatusHeader::Mcp(McpHeader::Starting {
+            completed: 0,
+            total: 4,
+            servers: servers(&["a", "b", "c"]),
+            more: true,
+        }))
+    );
 }
 
 #[test]
@@ -1271,13 +1343,18 @@ fn mcp_startup_reports_a_failure_once_and_the_round_incomplete() {
     ] {
         notification(&mut app, ev);
     }
-    assert_eq!(startup_warnings(&app), vec!["handshake failed".to_string()]);
+    assert_eq!(
+        startup_warnings(&app),
+        vec![failed("alpha", "handshake failed")]
+    );
     notification(&mut app, mcp("beta", "ready", None));
     assert_eq!(
         startup_warnings(&app),
         vec![
-            "handshake failed".to_string(),
-            "MCP startup incomplete (failed: alpha)".to_string()
+            failed("alpha", "handshake failed"),
+            McpWarning::Incomplete {
+                servers: servers(&["alpha"])
+            }
         ]
     );
 }
@@ -1295,7 +1372,9 @@ fn mcp_cancelled_servers_are_summarised_before_failed_ones() {
     }
     assert_eq!(
         startup_warnings(&app),
-        vec!["MCP startup interrupted. The following servers were not initialized: a".to_string()]
+        vec![McpWarning::Interrupted {
+            servers: servers(&["a"])
+        }]
     );
 }
 
@@ -1306,8 +1385,10 @@ fn an_outcome_without_a_start_is_reported_at_once() {
     assert_eq!(
         startup_warnings(&app),
         vec![
-            "late".to_string(),
-            "MCP startup incomplete (failed: alpha)".to_string()
+            failed("alpha", "late"),
+            McpWarning::Incomplete {
+                servers: servers(&["alpha"])
+            }
         ]
     );
     assert_eq!(header(&app), None);
@@ -1332,25 +1413,38 @@ fn a_message_sent_while_mcp_servers_start_waits_and_goes_out_when_they_settle() 
 
 #[test]
 fn a_lag_settles_the_round_and_forgets_the_reported_failures() {
-    use codex_tui_core::screens::chat::{McpStartup, McpStatus};
-    let failed = || McpStatus::Failed {
-        error: "handshake failed".to_string(),
+    let broke = || McpStatus::Failed {
+        error: Some("handshake failed".to_string()),
     };
     let mut round = McpStartup::default();
     round.update("beta".to_string(), McpStatus::Starting);
     round.update("alpha".to_string(), McpStatus::Starting);
     assert_eq!(
-        round.update("alpha".to_string(), failed()),
-        vec!["handshake failed".to_string()]
+        round.update("alpha".to_string(), broke()),
+        vec![failed("alpha", "handshake failed")]
     );
     // the lag settles the round: the summary
     assert_eq!(
         round.finish_after_lag(),
-        vec!["MCP startup incomplete (failed: alpha)".to_string()]
+        vec![McpWarning::Incomplete {
+            servers: servers(&["alpha"])
+        }]
     );
     assert!(!round.is_starting());
     // a failure the lag made us forget is a new one
-    assert_eq!(round.update("alpha".to_string(), failed()).len(), 2);
+    assert_eq!(round.update("alpha".to_string(), broke()).len(), 2);
+}
+
+#[test]
+fn a_server_that_failed_without_words_reports_itself_by_name() {
+    let mut round = McpStartup::default();
+    assert_eq!(
+        round.update("alpha".to_string(), McpStatus::Failed { error: None })[0],
+        McpWarning::Failed {
+            server: "alpha".to_string(),
+            error: None
+        }
+    );
 }
 
 #[test]
@@ -1377,8 +1471,10 @@ fn a_retrying_error_sets_the_header_until_the_next_notification() {
         }))),
     );
     assert_eq!(
-        header(&app).as_deref(),
-        Some("Server is busy, reconnecting 2/5")
+        header(&app),
+        Some(StatusHeader::Retry(Retry::Busy {
+            attempt: "2/5".to_string()
+        }))
     );
     notification(&mut app, agent_delta(T, "turn-1", "msg", "hello"));
     assert_eq!(header(&app), None);

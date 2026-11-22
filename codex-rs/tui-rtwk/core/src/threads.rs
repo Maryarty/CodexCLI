@@ -117,11 +117,12 @@ pub enum Item {
     Warning {
         message: String,
     },
+    /// An overloaded server that said nothing (oracle `on_server_overloaded_error`):
+    /// the error row the UI words as high load.
+    HighLoad,
     /// A startup warning (an MCP server failed, a round settled incomplete):
     /// a `⚠` row of the main transcript (oracle `StartupWarningsCell`).
-    StartupWarning {
-        message: String,
-    },
+    StartupWarning(screens::chat::McpWarning),
     /// A deprecation notice; shown only in the detailed transcript (oracle
     /// `DeprecationNoticeCell`: no display lines, a `⚠ ` summary and details).
     Deprecation {
@@ -320,23 +321,17 @@ impl Transcript {
 
     /// Whether `turn` already shows this error (oracle `last_non_retry_error`: the
     /// turn's own report of an error the `error` notification gave ends quietly).
-    fn holds_error(&self, turn: &TurnId, message: &str) -> bool {
-        self.order.iter().any(|key| {
-            &key.turn == turn
-                && matches!(self.item(key), Some(Item::Error { message: held }) if held == message)
-        })
+    fn holds_error(&self, turn: &TurnId, fault: &Fault) -> bool {
+        self.order
+            .iter()
+            .any(|key| &key.turn == turn && self.item(key).is_some_and(|held| fault.is(held)))
     }
 
     /// The error row of a turn, once per message.
-    fn report_error(&mut self, turn: &TurnId, message: &str) {
-        if !self.holds_error(turn, message) {
+    fn report_error(&mut self, turn: &TurnId, fault: &Fault) {
+        if !self.holds_error(turn, fault) {
             let key = self.mint(turn.clone());
-            self.upsert(
-                key,
-                Item::Error {
-                    message: message.to_owned(),
-                },
-            );
+            self.upsert(key, fault.item());
         }
     }
 
@@ -478,11 +473,9 @@ impl Transcript {
                 }
             }
             // The turn's own error follows its items (oracle `thread_transcript`).
-            if let Some(message) = error
+            if let Some(fault) = error
                 && !order.iter().chain(older.iter()).any(|key| {
-                    key.turn == turn
-                        && matches!(stored.get(key).map(Rc::as_ref),
-                            Some(Item::Error { message: held }) if *held == message)
+                    key.turn == turn && stored.get(key).is_some_and(|held| fault.is(held))
                 })
             {
                 self.minted += 1;
@@ -490,7 +483,7 @@ impl Transcript {
                     turn: turn.clone(),
                     item: ItemId::new(format!("#{}", self.minted)),
                 };
-                stored.insert(key.clone(), Rc::new(Item::Error { message }));
+                stored.insert(key.clone(), Rc::new(fault.item()));
                 older.push(key);
             }
         }
@@ -692,13 +685,13 @@ pub enum ThreadEv {
         end: TurnEnd,
         snapshot: Option<TurnSnapshot>,
         timing: Option<TurnTiming>,
-        error: Option<String>,
+        error: Option<Fault>,
     },
     /// The server's `error` notification (not one it will retry): why a
     /// turn goes wrong, a row of the turn.
     TurnError {
         turn: TurnId,
-        message: String,
+        fault: Fault,
     },
     /// An MCP server's start or outcome (`mcpServer/startupStatus/updated`).
     Mcp {
@@ -745,7 +738,7 @@ pub struct HistoryTurn {
     end: Option<TurnEnd>,
     started_at: Option<i64>,
     timing: Option<TurnTiming>,
-    error: Option<String>,
+    error: Option<Fault>,
     items: TurnSnapshot,
 }
 
@@ -1349,14 +1342,14 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 },
                 snapshot: turn_snapshot(&n.turn),
                 timing: TurnTiming::from_turn(&n.turn),
-                error: n.turn.error.as_ref().map(error_text),
+                error: n.turn.error.as_ref().map(Fault::of),
             },
         )),
         ServerNotification::Error(n) if !n.will_retry => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::TurnError {
                 turn: TurnId::new(&n.turn_id),
-                message: error_text(&n.error),
+                fault: Fault::of(&n.error),
             },
         )),
         ServerNotification::McpServerStatusUpdated(n) => n.thread_id.as_deref().map(|thread| {
@@ -1454,18 +1447,45 @@ pub fn project_unrouted(notification: &ServerNotification) -> Option<ThreadEv> {
     Some(ThreadEv::Appended { turn: None, item })
 }
 
-/// The row's wording (oracle `on_server_overloaded_error`): an overloaded
-/// server that said nothing is high load.
-fn error_text(error: &codex_app_server_protocol::TurnError) -> String {
-    use codex_app_server_protocol::CodexErrorInfo;
-    if matches!(
-        error.codex_error_info,
-        Some(CodexErrorInfo::ServerOverloaded | CodexErrorInfo::PolicyCapacityUnavailable)
-    ) && error.message.trim().is_empty()
-    {
-        "Codex is currently experiencing high load.".to_string()
-    } else {
-        error.message.clone()
+/// Why a turn went wrong, before the UI words it (oracle `new_error_event`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// The server's own words.
+    Message(String),
+    /// An overloaded server that said nothing (oracle `on_server_overloaded_error`).
+    HighLoad,
+}
+
+impl Fault {
+    fn of(error: &codex_app_server_protocol::TurnError) -> Fault {
+        use codex_app_server_protocol::CodexErrorInfo;
+        if matches!(
+            error.codex_error_info,
+            Some(CodexErrorInfo::ServerOverloaded | CodexErrorInfo::PolicyCapacityUnavailable)
+        ) && error.message.trim().is_empty()
+        {
+            Fault::HighLoad
+        } else {
+            Fault::Message(error.message.clone())
+        }
+    }
+
+    fn item(&self) -> Item {
+        match self {
+            Fault::Message(message) => Item::Error {
+                message: message.clone(),
+            },
+            Fault::HighLoad => Item::HighLoad,
+        }
+    }
+
+    /// Whether `item` is this fault's row.
+    fn is(&self, item: &Item) -> bool {
+        match (self, item) {
+            (Fault::Message(message), Item::Error { message: held }) => message == held,
+            (Fault::HighLoad, Item::HighLoad) => true,
+            _ => false,
+        }
     }
 }
 
@@ -1502,7 +1522,10 @@ pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<Stri
                 end: turn_end(&turn.status),
                 started_at: turn.started_at,
                 timing: TurnTiming::from_turn(turn),
-                error: turn.error.as_ref().map(|error| error.message.clone()),
+                error: turn
+                    .error
+                    .as_ref()
+                    .map(|error| Fault::Message(error.message.clone())),
                 items: turn_snapshot(turn)?,
             })
         })
@@ -1780,11 +1803,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             screens::apply_thread_ev(&mut model.slots, ev, fx);
         }
-        ThreadEv::TurnError { turn, message } => {
+        ThreadEv::TurnError { turn, fault } => {
             // Oracle `on_error`: the turn is finalized, then the error row, then
             // the next queued input; the failed turn's own completion is a no-op.
             end_turn(model, turn.clone(), TurnEnd::Failed, fx);
-            model.transcript.report_error(&turn, &message);
+            model.transcript.report_error(&turn, &fault);
         }
         ThreadEv::TurnStarted { turn, started_at } => {
             start_turn(model, turn.clone());
@@ -1867,8 +1890,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 _ => {}
             }
             model.transcript.remember_timings([(turn.clone(), timing)]);
-            if let Some(message) = &error {
-                model.transcript.report_error(&turn, message);
+            if let Some(fault) = &error {
+                model.transcript.report_error(&turn, fault);
             }
             end_turn(model, turn, end, fx);
         }
@@ -2150,9 +2173,13 @@ fn note_review(model: &mut ThreadModel, item: &Item) {
 }
 
 /// The warnings a startup update made, then what the settled round held back.
-fn add_startup_warnings(model: &mut ThreadModel, warnings: Vec<String>, fx: &mut ThreadFx<'_>) {
-    for message in warnings {
-        apply_appended(model, None, Item::StartupWarning { message });
+fn add_startup_warnings(
+    model: &mut ThreadModel,
+    warnings: Vec<screens::chat::McpWarning>,
+    fx: &mut ThreadFx<'_>,
+) {
+    for warning in warnings {
+        apply_appended(model, None, Item::StartupWarning(warning));
     }
     if !model.slots.chat.mcp.is_starting()
         && !model.is_running()

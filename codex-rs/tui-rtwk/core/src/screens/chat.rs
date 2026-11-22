@@ -10,7 +10,7 @@ mod mcp;
 use std::rc::Rc;
 
 pub use banner::{Banner, BannerOccurrence};
-pub use mcp::{McpStartup, McpStatus};
+pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
@@ -327,9 +327,26 @@ pub struct ThreadPart {
     pub mcp: McpStartup,
     /// A retrying error's header, until the thread's next notification
     /// (oracle `retry_status_header`).
-    retry_header: Option<String>,
+    retry_header: Option<Retry>,
     /// A code review runs in this thread (oracle `review.is_review_mode`).
     review_mode: bool,
+}
+
+/// What owns the status row's header besides the activity phase; the UI's
+/// string tables hold the words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StatusHeader {
+    Retry(Retry),
+    Mcp(McpHeader),
+}
+
+/// A retrying error (oracle `on_error` with `will_retry`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Retry {
+    /// The server's own words (`Reconnecting... 2/5`).
+    Server(String),
+    /// A 429 reconnect: the attempt (`2/5`) of a busy server.
+    Busy { attempt: String },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -354,8 +371,11 @@ impl ThreadPart {
 
     /// The status row's header when something other than the phase owns it:
     /// a retry, else MCP startup (oracle `set_status_header`).
-    pub fn header(&self) -> Option<String> {
-        self.retry_header.clone().or_else(|| self.mcp.header())
+    pub fn header(&self) -> Option<StatusHeader> {
+        self.retry_header
+            .clone()
+            .map(StatusHeader::Retry)
+            .or_else(|| self.mcp.header().map(StatusHeader::Mcp))
     }
 
     /// A code review runs in this thread (oracle `review.is_review_mode`).
@@ -422,7 +442,7 @@ pub enum ThreadEv {
     Name(Option<String>),
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
     /// The server retries the turn's request: the header says so.
-    Retry { turn: TurnId, message: String },
+    Retry { turn: TurnId, retry: Retry },
 }
 
 impl ThreadEv {
@@ -486,11 +506,11 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
                     http_status_code: Some(429)
                 })
             );
-            let message = match note.error.message.strip_prefix("Reconnecting... ") {
-                Some(attempt) if busy => format!("Server is busy, reconnecting {attempt}"),
-                _ => note.error.message.clone(),
+            let retry = match note.error.message.strip_prefix("Reconnecting... ") {
+                Some(attempt) if busy => Retry::Busy { attempt: attempt.to_string() },
+                _ => Retry::Server(note.error.message.clone()),
             };
-            (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), message })
+            (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), retry })
         }
         ServerNotification::ReasoningSummaryPartAdded(note) => (&note.thread_id, ThreadEv::Phase {
             turn: TurnId::new(&note.turn_id),
@@ -593,7 +613,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         ThreadEv::Phase { phase, .. } => part.activity = phase,
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
         ThreadEv::Name(name) => part.name = name,
-        ThreadEv::Retry { message, .. } => part.retry_header = Some(message),
+        ThreadEv::Retry { retry, .. } => part.retry_header = Some(retry),
         ThreadEv::Plan { completed, total, step, .. } => {
             part.progress = (total > 0).then_some((completed, total));
             part.step = step;

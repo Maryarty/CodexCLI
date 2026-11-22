@@ -14,6 +14,7 @@ use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
 use codex_tui_core::commands::{Notice, SlashCommand, UsageKey};
+use codex_tui_core::screens::chat::{McpHeader, McpWarning, Retry, StatusHeader};
 use codex_tui_core::screens::composer;
 
 use crate::l10n::Lang;
@@ -23,6 +24,8 @@ use crate::l10n::lang;
 pub(super) const INLINE_GAP: &str = " ";
 pub(super) const MORE: &str = " …";
 pub(super) const LINE_BREAK: &str = "\n";
+const LIST_SEPARATOR: &str = ", ";
+const ELLIPSIS: &str = "…";
 
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug)]
@@ -119,6 +122,17 @@ pub struct Strings {
     pub warning_plural: &'static str,
     pub warning_key: &'static str,
     pub warning_view: &'static str,
+    /// `mcp_startup.rs`: the status header of one server, of several (the
+    /// answered, the total, the servers still starting), and the warnings.
+    pub mcp_booting: Msg<1>,
+    pub mcp_starting: Msg<3>,
+    pub mcp_failed: Msg<1>,
+    pub mcp_interrupted: Msg<1>,
+    pub mcp_incomplete: Msg<1>,
+    /// `protocol.rs`: a 429 reconnect reads as the server being busy.
+    pub retry_busy: Msg<1>,
+    /// `on_server_overloaded_error`: an overloaded server that said nothing.
+    pub high_load: &'static str,
     /// The hint of the `/` popup is the framework's; this is the empty one.
     pub num: NumSyms,
 }
@@ -203,6 +217,15 @@ pub const EN: Strings = Strings {
     warning_plural: "warnings",
     warning_key: "f2",
     warning_view: " to view",
+    mcp_booting: msg!("Booting MCP server: {0}"),
+    mcp_starting: msg!("Starting MCP servers ({0}/{1}): {2}"),
+    mcp_failed: msg!("MCP client for `{0}` failed to start"),
+    mcp_interrupted: msg!(
+        "MCP startup interrupted. The following servers were not initialized: {0}"
+    ),
+    mcp_incomplete: msg!("MCP startup incomplete (failed: {0})"),
+    retry_busy: msg!("Server is busy, reconnecting {0}"),
+    high_load: "Codex is currently experiencing high load.",
     num: NumSyms::ENGLISH,
 };
 
@@ -240,6 +263,57 @@ impl Strings {
 
     pub(super) fn worked_for<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.worked_for, [Arg::Text(elapsed)], &self.num)
+    }
+
+    fn one(&self, message: Msg<1>, arg: &str) -> String {
+        Fmt::new(message, [Arg::Text(arg)], &self.num).to_string()
+    }
+
+    /// The status row's header when a retry or MCP startup owns it.
+    pub fn status_header(&self, header: &StatusHeader) -> String {
+        match header {
+            StatusHeader::Retry(Retry::Server(message)) => message.clone(),
+            StatusHeader::Retry(Retry::Busy { attempt }) => self.one(self.retry_busy, attempt),
+            StatusHeader::Mcp(McpHeader::Booting { server }) => self.one(self.mcp_booting, server),
+            StatusHeader::Mcp(McpHeader::Starting {
+                completed,
+                total,
+                servers,
+                more,
+            }) => {
+                let mut named = servers.join(LIST_SEPARATOR);
+                if *more {
+                    named.push_str(LIST_SEPARATOR);
+                    named.push_str(ELLIPSIS);
+                }
+                Fmt::new(
+                    self.mcp_starting,
+                    [
+                        Arg::Text(&completed.to_string()),
+                        Arg::Text(&total.to_string()),
+                        Arg::Text(&named),
+                    ],
+                    &self.num,
+                )
+                .to_string()
+            }
+        }
+    }
+
+    /// The words of a warning MCP startup added to the history.
+    pub fn mcp_warning(&self, warning: &McpWarning) -> String {
+        match warning {
+            McpWarning::Failed { server, error } => match error {
+                Some(error) => error.clone(),
+                None => self.one(self.mcp_failed, server),
+            },
+            McpWarning::Interrupted { servers } => {
+                self.one(self.mcp_interrupted, &servers.join(LIST_SEPARATOR))
+            }
+            McpWarning::Incomplete { servers } => {
+                self.one(self.mcp_incomplete, &servers.join(LIST_SEPARATOR))
+            }
+        }
     }
 
     /// The name of a backend on the control.
