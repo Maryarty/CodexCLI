@@ -1067,3 +1067,37 @@ fn a_notification_with_a_thread_is_the_threads_not_the_actives() {
         })
     ));
 }
+
+// ---- host fact: how a web link's destination is written (oracle markdown_render/web_links.rs
+// `WebLinkDisplay`). The oracle's default is the destination after the label, for a terminal
+// not known to show hyperlinks (and for any run that is not a terminal); the host says
+// otherwise once it has detected one.
+
+mod link_display {
+    use codex_tui_core::fixtures::sandbox::Sandbox;
+    use codex_tui_core::screens::cells::LinkDisplay;
+    use pretty_assertions::assert_eq;
+
+    const LABEL_ONLY: &str =
+        r#"{"step":"screen","dir":"cells","ev":{"kind":"link_display","display":"label_only"}}"#;
+    const WITH_DESTINATION: &str = r#"{"step":"screen","dir":"cells","ev":{"kind":"link_display","display":"with_destination"}}"#;
+
+    fn display(script: &str) -> LinkDisplay {
+        Sandbox::play(script)
+            .expect("plays")
+            .app()
+            .screens()
+            .cells
+            .link_display
+    }
+
+    #[test]
+    fn a_web_link_writes_its_destination_until_the_host_says_the_terminal_shows_hyperlinks() {
+        assert_eq!(display(""), LinkDisplay::WithDestination);
+        assert_eq!(display(LABEL_ONLY), LinkDisplay::LabelOnly);
+        assert_eq!(
+            display(&format!("{LABEL_ONLY}\n{WITH_DESTINATION}")),
+            LinkDisplay::WithDestination
+        );
+    }
+}

@@ -465,10 +465,6 @@ fn html_block_is_verbatim_multiline() {
 // ORACLE markdown_render_tests.rs:1831 html_in_tight_ordered_item_soft_breaks_with_space kind=ui owner=chat-live
 #[test]
 fn html_in_tight_ordered_item_soft_breaks_with_space() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `1. Foo`:",
-    );
     let s = chat(80, 24, "1. Foo\n   <i>Bar</i>\n");
     rows_in_order(&s, &["1. Foo", "   <i>Bar</i>"]);
     s.assert_text_style("1.", "fg=LightBlue");
@@ -484,10 +480,6 @@ fn html_continuation_paragraph_in_unordered_item_indented() {
 // ORACLE markdown_render_tests.rs:1855 unordered_item_continuation_paragraph_is_indented kind=ui owner=chat-live
 #[test]
 fn unordered_item_continuation_paragraph_is_indented() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` Continuation paragraph line 1`:",
-    );
     let s = chat(
         80,
         24,
@@ -605,7 +597,7 @@ fn table_separates_logical_rows_after_wrapped_content() {
 fn table_wraps_file_paths_before_collapsing_narrative_columns_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "the kit cannot set the session cwd that the oracle shows local file links relative to (no cwd seed); first difference at the chat-cells-2 probe: assertion failed: `(left == right)`: table_wraps_file_paths_before_collapsing_narrative_columns_snapshot: ours (right) differs from the oracle (left)",
+        "G73: item 3, the snapshot is the oracle's table (columns two spaces apart, `━` and `─` rules, a cell wrapped inside its column) with its local file links shown relative to the session cwd; rtwk's MarkdownView draws the `│` grid with one line per row, so the rows differ whatever the cwd",
     );
     let md = r#"| Unit | Files | Adds | Removes | What It Adds |
 |---|---:|---:|---:|---|

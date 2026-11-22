@@ -152,3 +152,92 @@ fn a_file_url_reads_as_its_path_and_the_cwd_strips_it() {
         "//server/share/a.txt"
     );
 }
+
+// ---- local file links (oracle markdown_render/local_links.rs, markdown_render_tests.rs
+// `file_link_*`): what a Markdown link to a local file shows after its label.
+
+use codex_tui_core::screens::cells::local_links::{display, is_local_path_like};
+
+const CWD: Option<&str> = Some("/Users/example/code/codex");
+
+#[test]
+fn only_path_like_destinations_are_local_links() {
+    for local in [
+        "/tmp/a.rs",
+        "~/notes",
+        "./a.rs",
+        "../a.rs",
+        "file:///repo/a.rs",
+        r"C:\repo\a.rs",
+        r"\\server\share\a.rs",
+    ] {
+        assert!(is_local_path_like(local), "{local}");
+    }
+    for web in [
+        "https://example.com",
+        "mailto:a@b.c",
+        "#anchor",
+        "a.rs",
+        "docs/a.rs",
+    ] {
+        assert!(!is_local_path_like(web), "{web}");
+    }
+}
+
+#[test]
+fn a_path_under_the_cwd_shows_relative_and_a_hash_location_reads_as_colons() {
+    let base = "/Users/example/code/codex/codex-rs/tui/src/markdown_render.rs";
+    let shown = "codex-rs/tui/src/markdown_render.rs";
+    for (destination, want) in [
+        (base.to_owned(), shown.to_owned()),
+        (format!("{base}#L74"), format!("{shown}:74")),
+        (format!("{base}#L74C3"), format!("{shown}:74:3")),
+        (format!("{base}#L74C3-L76C9"), format!("{shown}:74:3-76:9")),
+        (format!("{base}:74:3-76:9"), format!("{shown}:74:3-76:9")),
+        (format!("file://{base}#L74C3"), format!("{shown}:74:3")),
+    ] {
+        assert_eq!(display(&destination, CWD), want, "{destination}");
+    }
+}
+
+#[test]
+fn relative_tilde_and_foreign_paths_keep_their_text_and_percent_escapes_decode() {
+    assert_eq!(display("~/notes", CWD), "~/notes");
+    assert_eq!(display("./src/lib.rs", CWD), "./src/lib.rs");
+    assert_eq!(display("/home/alice/notes", CWD), "/home/alice/notes");
+    assert_eq!(
+        display(
+            "/Users/example/code/codex/Example%20Folder/R%C3%A9sum%C3%A9/report.md",
+            CWD
+        ),
+        "Example Folder/Résumé/report.md"
+    );
+    // A `#anchor` that is no location stays part of the path text.
+    assert_eq!(display("/tmp/a.md#section", CWD), "/tmp/a.md#section");
+    // The cwd itself is not "under" the cwd.
+    assert_eq!(
+        display("/Users/example/code/codex", CWD),
+        "/Users/example/code/codex"
+    );
+}
+
+#[test]
+fn a_windows_or_unc_cwd_strips_its_own_file_urls_and_the_anchor_reads_as_a_location() {
+    // The oracle's `file_links_preserve_foreign_windows_paths_and_anchors_snapshot`: a thread
+    // cwd is an absolute path of the host, so the screen test cannot open a session in
+    // `C:/repo`; the display is held here with the cwd as text.
+    assert_eq!(
+        display(
+            "file:///C:/repo/Quarterly%20Report.xlsx#L4C2",
+            Some("C:/repo")
+        ),
+        "Quarterly Report.xlsx:4:2"
+    );
+    assert_eq!(
+        display(
+            "file://server/share/Quarterly%20Report.xlsx#L4C2",
+            Some("//server/share")
+        ),
+        "Quarterly Report.xlsx:4:2"
+    );
+}

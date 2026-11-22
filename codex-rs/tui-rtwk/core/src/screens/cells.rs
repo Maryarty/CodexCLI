@@ -4,6 +4,8 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+pub mod local_links;
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
@@ -17,22 +19,44 @@ pub const NAME: &str = "cells";
 pub const ID: &str = "S11";
 pub const KIND: Kind = Kind::Part;
 
+/// How a web link's destination is written in a message (oracle `markdown_render/web_links.rs`
+/// `WebLinkDisplay`): after the label, or not at all because the terminal shows the label as a
+/// hyperlink. The oracle reads this once from the terminal (identity, multiplexer, `TERM`, a
+/// stdout that is no terminal); the host does the same and sends it as `Ev::LinkDisplay`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LinkDisplay {
+    /// `label (https://example.com)`: the unknown terminal's, so a label never hides the only
+    /// usable URL.
+    #[default]
+    WithDestination,
+    /// The styled label alone, a hyperlink to its destination.
+    LabelOnly,
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {}
+pub struct Model {
+    /// How web links of a message are written; the oracle's default until the host knows.
+    pub link_display: LinkDisplay,
+}
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+pub enum Ev {
+    /// What the host found out about the terminal's hyperlinks.
+    LinkDisplay(LinkDisplay),
+}
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match ev {}
+    let _ = fx;
+    match ev {
+        Ev::LinkDisplay(display) => model.link_display = display,
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
@@ -92,7 +116,27 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// A script's `screen` step for this directory: the event `value` stands for
 /// (`fixtures::script`). None is seedable yet; the slice gives its events a
 /// serde form here and reads it, so the shared loader never changes.
+/// `{"kind": "link_display", "display": "label_only" | "with_destination"}`.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    let seed: SeedEv = serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+    Ok(match seed {
+        SeedEv::LinkDisplay { display } => Ev::LinkDisplay(match display {
+            SeedLinkDisplay::LabelOnly => LinkDisplay::LabelOnly,
+            SeedLinkDisplay::WithDestination => LinkDisplay::WithDestination,
+        }),
+    })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SeedEv {
+    LinkDisplay { display: SeedLinkDisplay },
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SeedLinkDisplay {
+    LabelOnly,
+    WithDestination,
 }

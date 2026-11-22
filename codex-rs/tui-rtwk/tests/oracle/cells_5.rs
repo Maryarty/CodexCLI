@@ -646,10 +646,6 @@ fn render_clears_area_when_cell_content_shrinks() {
 // ORACLE history_cell/tests.rs:3157 agent_markdown_cell_survives_insert_history_rewrap kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_survives_insert_history_rewrap() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `analytics lagged temporarily.`:",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(

@@ -20,7 +20,7 @@ use rtwk_rich::markdown::{
 
 use codex_tui_core::threads::citations::{Citation, citations, label};
 
-use crate::widgets::markdown::with_heading_markers;
+use crate::widgets::markdown::prepared;
 
 use super::markdown::lift_markdown_fences;
 
@@ -36,7 +36,7 @@ pub fn view(source: &str, cwd: Option<&str>) -> MarkdownView {
     let found = citations(&lifted);
     // The marker characters are the app's: text that holds them is shown as it is.
     if found.is_empty() || lifted.contains([OPEN, CLOSE]) {
-        return crate::widgets::markdown::view(lifted.as_ref());
+        return crate::widgets::markdown::view_in(lifted.as_ref(), cwd);
     }
     let found: Vec<Citation> = found
         .into_iter()
@@ -73,7 +73,7 @@ pub fn view(source: &str, cwd: Option<&str>) -> MarkdownView {
             (key.clone(), definition)
         })
         .collect();
-    MarkdownView::blocks(with_heading_markers(&blocks), definitions)
+    MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions)
 }
 
 /// Whether the text before a directive leaves an HTML tag or comment open

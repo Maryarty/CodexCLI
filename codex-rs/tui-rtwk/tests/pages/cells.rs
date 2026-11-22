@@ -1766,3 +1766,109 @@ mod plan_in_transcript {
         assert!(h.t.screen().contains("− Hide details"));
     }
 }
+
+// ---- local file links and soft breaks (oracle markdown_render.rs `soft_break`,
+// `pop_link`, `pending_local_link_soft_break`; markdown_render/local_links.rs): a link to a
+// local file reads its label and then the path in code style; a line break of the source
+// is a line break of the screen, except before a `:` that follows such a link ----
+
+mod local_links {
+    use codex_tui_rtwk::pages::session::cells::citation;
+
+    const CWD: Option<&str> = Some("/work/repo");
+
+    fn show(source: &str) -> (rtwk_test::Tester, Vec<String>) {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(60, 12));
+        t.pump_widget(citation::view(source, CWD));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        (t, rows)
+    }
+
+    #[test]
+    fn a_local_link_reads_its_label_then_the_path_below_the_cwd_in_code_style() {
+        let (t, rows) = show("see [the lib](/work/repo/src/lib.rs#L12C3) now");
+        assert_eq!(rows, ["see the lib (src/lib.rs:12:3) now"]);
+        let style = |x| {
+            let cell = t.cell(x, 0);
+            (cell.fg, cell.bg, cell.attrs)
+        };
+        assert_eq!(
+            style(4),
+            style(0),
+            "the label is plain text, not link style"
+        );
+        assert_ne!(style(13), style(0), "the path is drawn as code");
+        assert_eq!(style(13), style(25), "one style over the whole path");
+    }
+
+    #[test]
+    fn a_local_link_with_no_label_text_reads_the_path_alone() {
+        let (_, rows) = show("open [](/work/repo/a.rs:3) and [ ](~/notes)");
+        assert_eq!(rows, ["open a.rs:3 and ~/notes"]);
+    }
+
+    #[test]
+    fn a_local_link_is_found_through_a_reference_definition() {
+        let (_, rows) = show("see [lib][l]\n\n[l]: /work/repo/src/lib.rs:7");
+        assert_eq!(rows, ["see lib (src/lib.rs:7)"]);
+    }
+
+    #[test]
+    fn a_web_link_and_a_relative_name_are_not_local_links() {
+        let (_, rows) = show("[docs](https://example.com/docs) and [a](a.rs)");
+        let text = rows.join(" ");
+        assert!(text.contains("docs"), "{text}");
+        assert!(!text.contains("(a.rs:"), "{text}");
+    }
+
+    #[test]
+    fn a_line_break_of_the_source_is_a_line_break_of_the_screen() {
+        let (_, rows) = show("first\nsecond\nthird");
+        assert_eq!(rows, ["first", "second", "third"]);
+        // In a quote and a list item as in a paragraph (the quote's prefix is G73's).
+        let (_, rows) = show("> quoted\n> again");
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert!(
+            rows[0].ends_with("quoted") && rows[1].ends_with("again"),
+            "{rows:?}"
+        );
+        let (_, rows) = show("- item\n  more");
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert!(
+            rows[0].ends_with("item") && rows[1].ends_with("more"),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_line_break_after_a_local_link_stays_inline_before_a_colon_only() {
+        let (_, rows) = show("[x](/work/repo/a.rs:3)\n: why");
+        assert_eq!(rows, ["x (a.rs:3): why"]);
+        let (_, rows) = show("[x](/work/repo/a.rs:3)\n  : why");
+        assert_eq!(rows, ["x (a.rs:3): why"]);
+        let (_, rows) = show("[x](/work/repo/a.rs:3)\nwhy");
+        assert_eq!(rows, ["x (a.rs:3)", "why"]);
+        let (_, rows) = show("[x](https://example.com)\n: why");
+        assert_eq!(rows.len(), 2, "{rows:?}");
+    }
+
+    #[test]
+    fn a_line_break_inside_a_local_link_label_is_a_space() {
+        let (_, rows) = show("[two\nlines](/work/repo/a.rs)");
+        assert_eq!(rows, ["two lines (a.rs)"]);
+    }
+
+    #[test]
+    fn a_table_cell_keeps_a_line_break_as_a_space_and_reads_its_local_link() {
+        let (_, rows) = show("| f |\n|---|\n| [x](/work/repo/a.rs:1) |\n");
+        let text = rows.join("\n");
+        assert!(text.contains("x (a.rs:1)"), "{text}");
+    }
+}

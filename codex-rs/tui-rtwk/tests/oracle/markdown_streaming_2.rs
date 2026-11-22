@@ -12,8 +12,6 @@ const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat d
 /// A mermaid fence draws as its source: no native mermaid renderer yet.
 /// The rendering preferences (`tui.rendering`) cannot be seeded on the live chat.
 const CONFIG: &str = "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them";
-/// Web links: the label-only presentation depends on the terminal kind, and the chat has no terminal seed.
-const TERM: &str = "no seed for the terminal kind (WebLinkDisplay::for_terminal): supporting terminals keep only the styled label, the others show the destination, and the chat reads no terminal detection yet";
 
 /// `text` as the body of a JSON string.
 fn json_string(text: &str) -> String {
@@ -37,12 +35,30 @@ fn answer(markdown: &str) -> String {
         .replace("{MARKDOWN}", &json_string(markdown))
 }
 
-/// The live chat at `width` x `height` after the answer `markdown` has streamed in.
+/// The live chat at `width` x `height` after the answer `markdown` has streamed in. The
+/// oracle's own display of a web link is the one for a terminal not known to show hyperlinks
+/// (its tests are no terminal): `label (https://…)`.
 fn chat(width: u16, height: u16, markdown: &str) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .markdown(width, height)
         .live()
         .open();
+    s.feed(&answer(markdown));
+    s
+}
+
+/// The host's fact for a terminal that shows hyperlinks (`WebLinkDisplay::LabelOnly`): a
+/// `screen` step of the `cells` directory.
+const HYPERLINKS: &str =
+    r#"{"step":"screen","dir":"cells","ev":{"kind":"link_display","display":"label_only"}}"#;
+
+/// `chat` on a terminal that shows hyperlinks: a web link is its label alone.
+fn hyperlink_chat(width: u16, height: u16, markdown: &str) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(width, height)
+        .live()
+        .open();
+    s.feed(HYPERLINKS);
     s.feed(&answer(markdown));
     s
 }
@@ -342,7 +358,7 @@ fn bare_urls_keep_link_style_when_wrapped_in_tables() {
 #[test]
 fn supporting_terminals_render_only_the_styled_label_and_keep_its_target() {
     // On a supporting terminal the label is the only text; the target is the link.
-    let s = chat(80, 24, "[label](https://example.com)");
+    let s = hyperlink_chat(80, 24, "[label](https://example.com)");
     s.assert_link("label", "https://example.com");
     s.assert_absent("(https://example.com)");
 }
@@ -350,7 +366,6 @@ fn supporting_terminals_render_only_the_styled_label_and_keep_its_target() {
 // ORACLE markdown_render/web_links_tests.rs:148 unknown_terminals_and_multiplexers_keep_visible_destinations kind=ui owner=chat-live
 #[test]
 fn unknown_terminals_and_multiplexers_keep_visible_destinations() {
-    kit::pending(Owner::ChatLive, TERM);
     // On an unknown terminal or a multiplexer the destination stays visible next to the label.
     let s = chat(80, 24, "[label](https://example.com)");
     s.assert_in_order(&["label", "https://example.com"]);
@@ -378,7 +393,6 @@ fn label_only_policy_keeps_non_web_links_and_literal_urls_unchanged() {
 // ORACLE markdown_render/web_links_tests.rs:186 empty_web_link_labels_keep_a_visible_destination kind=ui owner=chat-live
 #[test]
 fn empty_web_link_labels_keep_a_visible_destination() {
-    kit::pending(Owner::ChatLive, TERM);
     for markdown in [
         "[](https://example.com)",
         "[ ](https://example.com)",
@@ -392,17 +406,34 @@ fn empty_web_link_labels_keep_a_visible_destination() {
 // ORACLE markdown_render/web_links_tests.rs:200 label_only_web_links_keep_targets_after_prose_and_table_wrapping kind=ui owner=chat-live
 #[test]
 fn label_only_web_links_keep_targets_after_prose_and_table_wrapping() {
-    kit::pending(Owner::ChatLive, TERM);
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, a table cell wider than the width: the oracle wraps it (width 12: the labels on several rows, every row linked), rtwk's table cuts the cell with `…` (`plain label…`) and the other two targets are gone; prose at both widths and the table at 40 match",
+    );
     let links = "[plain label](https://example.com/plain) [`code label`](https://example.com/code) [<b>](https://example.com/html)";
     for width in [12, 40] {
         for markdown in [
             links.to_string(),
             format!("| Links |\n| --- |\n| {links} |"),
         ] {
-            let s = chat(width, 24, &markdown);
-            s.assert_link("plain label", "https://example.com/plain");
-            s.assert_link("code label", "https://example.com/code");
-            s.assert_link("<b>", "https://example.com/html");
+            // The oracle collects the targets of the rendered lines: a label that wraps
+            // (width 12) still carries its target on every row.
+            let s = hyperlink_chat(width, 24, &markdown);
+            let grid = s.grid();
+            let targets: std::collections::BTreeSet<String> = (0..grid.height)
+                .flat_map(|y| (0..grid.width).map(move |x| (x, y)))
+                .filter_map(|(x, y)| grid.cell(x, y).link.as_deref().map(str::to_string))
+                .collect();
+            assert_eq!(
+                targets.iter().map(String::as_str).collect::<Vec<_>>(),
+                [
+                    "https://example.com/code",
+                    "https://example.com/html",
+                    "https://example.com/plain"
+                ],
+                "width {width}, {markdown}:\n{}",
+                s.text()
+            );
             s.assert_absent("https://");
         }
     }
@@ -411,14 +442,10 @@ fn label_only_web_links_keep_targets_after_prose_and_table_wrapping() {
 // ORACLE markdown_render/web_links_tests.rs:231 streaming_and_full_render_agree_with_label_only_links kind=ui owner=chat-live
 #[test]
 fn streaming_and_full_render_agree_with_label_only_links() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for the terminal kind (WebLinkDisplay::for_terminal): supporting terminals keep only the styled label, the others show the destination, and the chat reads no terminal detection yet; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     // The oracle compares the streamed render of every prefix with the full render; this
     // ports the finished frame (the visible result). The per-prefix frames need a feed per
     // prefix and are not written yet.
-    let s = chat(
+    let s = hyperlink_chat(
         40,
         24,
         "See [**label**](https://example.com).\n\n| Resource |\n| --- |\n| [`code`](https://example.com/code) |\n\nTrailing text.",
@@ -431,15 +458,26 @@ fn streaming_and_full_render_agree_with_label_only_links() {
 // ORACLE markdown_render/web_links_tests.rs:250 label_only_and_fallback_presentations_snapshot kind=snap owner=chat-live snap=label_only_and_fallback_presentations_snapshot
 #[test]
 fn label_only_and_fallback_presentations_snapshot() {
-    kit::pending(Owner::ChatLive, TERM);
     // The oracle's snapshot holds both presentations as Debug text; the label-only one is
     // the chat's, asserted here as its links (the destination presentation is the other).
-    let s = chat(
+    let s = hyperlink_chat(
         40,
         24,
         "plain [plain](https://example.com) `code` [`code`](https://example.com)\n\n| Resource |\n| --- |\n| [docs](https://example.com/docs) |",
     );
-    s.assert_link("plain", "https://example.com");
+    // Row 0 reads `plain plain code code`: the first word is prose, the second the label, and
+    // likewise the code words (the oracle's snapshot has the link on the labelled ones).
+    let grid = s.grid();
+    let (x, _, y) = grid
+        .locate("plain plain code code")
+        .unwrap_or_else(|| panic!("no label-only row:\n{}", s.text()));
+    let linked = |from: usize, len: usize| {
+        (from..from + len).all(|c| grid.cell(c, y).link.as_deref() == Some("https://example.com"))
+    };
+    assert!(!linked(x, 5), "the prose `plain` links");
+    assert!(linked(x + 6, 5), "the label `plain` has no link");
+    assert!(!linked(x + 12, 4), "the prose `code` links");
+    assert!(linked(x + 17, 4), "the code label has no link");
     s.assert_link("docs", "https://example.com/docs");
 }
 
@@ -470,7 +508,8 @@ fn table_url_with_tilde_keeps_complete_hyperlink() {
 // ORACLE markdown_render_tests.rs:84 links_keep_their_columns_after_styled_fragments kind=ui owner=chat-live
 #[test]
 fn links_keep_their_columns_after_styled_fragments() {
-    let s = chat(
+    // The oracle hides every destination here (`&|_| true`): the labels only.
+    let s = hyperlink_chat(
         80,
         24,
         "**界** [a](https://example.com/a) _b_ [`c`](https://example.com/c) [d](https://example.com/d)\n\n[e](https://example.com/e)",
