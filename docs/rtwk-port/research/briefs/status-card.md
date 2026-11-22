@@ -1,77 +1,129 @@
 # Brief: /status card (screen map C10, tm alias `status-card`, S19)
 
-Recon 2026-11-22, read-only, cut short by the orchestrator: sections marked `TODO (recon cut short)` were not read.
-Paths are relative to `codex-rs/tui-rtwk` (ours) and `codex-rs/tui/src` (oracle).
+Recon 2026-11-22 (finished by recon-usage-status, read-only). Paths: `codex-rs/tui-rtwk` (ours), `codex-rs/tui/src` (oracle),
+`app-server-protocol/src/protocol/v2` (protocol). Porter worktree: `.claude/worktrees/agent-a20166eef4c65167b` (branch base 21d470500).
+
+## 0. First step for the porter
+- Chunk 1 is mostly done in the running porter's worktree (below). Commit the uncommitted work, rebase onto the integration
+  tip (b7e2a0aef or later), then run the `status` shard with `KIT_PROBE_PENDING=1` and `tests/oracle/tools/summary.py --list stale`.
+- What the worktree holds at recon time:
+  - committed `981ba47ae`: core `core/src/screens/status/{card.rs 311, helpers.rs 175, limits.rs 335}` (typed `StatusCard`, `Limits`/`LimitData`,
+    `Credits`, `SpendLimit`, window names, plan labels, agents summary, permissions label, reset times) + `core/tests/status.rs` (33 tests incl. the 7 n/a helpers).
+  - uncommitted: `src/pages/session/cells/status/cell.rs` (469, `StatusCell` stateless widget: `LayoutBuilder` + `Grid` content|fr, usage link via
+    `Span::link`, window bar), `strings.rs` (+453), `mod.rs` (32 `cell_entry!` debug entries, `EntryOpen::Route(cell)`; `card_dialog` entry keeps the old dialog),
+    33 fixtures in `cells/status/fixtures/`, `tests/oracle/status.rs` (25 tests unpended).
+- Stale pendings to probe in other shards once the live cell lands (reasons are out of date: "/status is not dispatched"; ours dispatches, as a dialog):
+  `chat_status_2.rs:626-795` (11 pending), `chat_live_6.rs:401,418,433` (3 pending).
+- The debt task the porter's code names, `status-card-adr003`, does NOT exist in tm (get_task: not found): the orchestrator files it (ADR-003 departure:
+  `ScreenStates.status.card` and `.cell` are copies of thread facts outside the thread) before chunk 1 lands, or chunk 1 lands with step 3 below.
+- Missing core test: `format_directory_display_truncates_halfwidth_sound_marks` (n/a in the shard, not yet in `core/tests/status.rs`); add it with the 3
+  `status/thread_usage_tests.rs` tests in step 5.
 
 ## 1. Scope
-Oracle: `/status` appends a transcript cell (`CompositeHistoryCell`: a magenta `/status` line + the card) to history.
-- `status/card.rs:150-275` constructors; `:279-430` `StatusHistoryCell::new` (derives every shown value from Config); `:757-972` `content_lines(width)`
-  (label column via `FieldFormatter`, wrapping, title, usage link, rows); `:79-146` `StatusHistoryHandle` (the card is LIVE after commit:
-  `finish_rate_limit_refresh`, `set_thread_usage`, `reserve_thread_usage_label_width`, `copy_text`).
-- `status/rate_limits.rs` (550): `compose_rate_limit_data(_many)`, rows 5h/Weekly/Monthly/generic labels, credits row, spend-limit row, Stale / Unavailable / Missing / Refreshing notices, `render_status_limit_progress_bar` (20 cells).
-- `status/helpers.rs` (351) plan display names, `format_directory_display`, `compose_agents_summary`, `format_reset_timestamp`; `status/format.rs` `FieldFormatter`;
-  `status/thread_usage.rs` (356) Thread usage / Models / Reasoning / Speed / Billed tokens rows; `status/remote_connection.rs` (340) `Server:` row ("Local background server" or `address (version)`, Cloud);
-  `status/account.rs`. Dispatch + refresh: `chatwidget/status_controls.rs:212-300` `add_status_output(refreshing, request_id)`, `:300+` `finish_status_rate_limit_refresh` (only cells with that request id update: overlapping refreshes), `chatwidget/slash_dispatch.rs:547-553`, `chatwidget/thread_usage.rs:146`.
-- User sees: `/status` line, blank, `>_ OpenAI Codex (vX)`, usage link (only when the provider needs OpenAI auth), then rows: [Server], Model (reasoning, summaries), [Model provider], Directory, Permissions, Agents.md, [Account, ChatGPT workspace, Thread name, Collaboration mode, Session, Forked from], blank, Token usage (hidden for ChatGPT accounts), Context window, rate-limit rows (bars), [Thread usage block]. Wraps at any width (80, 70, 42 tested) with continuation under the value column. Snapshots: `status/snapshots/` 24 files + `chatwidget/snapshots/*status_command_*`.
-- Input: none. The card is a cell, not a dialog; later `/status` cells keep their own snapshot; a refresh finishing updates only its request's cell; thread-usage estimate arrives later and fills rows.
+Oracle: `status/card.rs` (79-146 `StatusHistoryHandle`: `copy_text`, `finish_rate_limit_refresh`, `set_thread_usage`; 150-430 constructors from Config;
+757-972 `content_lines(width)`; 982-1000 `display_hyperlink_lines` (the usage URL as OSC 8)), `status/rate_limits.rs` (550), `status/helpers.rs` (351),
+`status/format.rs`, `status/account.rs`, `status/thread_usage.rs` (356), `status/remote_connection.rs` (1-60 `remote_connection_status_value`),
+`chatwidget/status_controls.rs:212-330` (`add_status_output(refreshing, request_id)`, copy targets 279-296, `finish_status_rate_limit_refresh`),
+`chatwidget/thread_usage.rs` (146 `request_thread_usage_for_status`, 181 `finish_thread_usage_refresh`, 331 `request_thread_usage`), `chatwidget/copy_picker.rs:22-35`.
+User sees: `/status` appends a transcript cell (magenta `/status`, blank, `>_ OpenAI Codex (vX)`, usage link, label|value rows, limit bars, thread usage
+block); it is live after commit: a rate-limit refresh and the thread-usage estimate fill only that cell; `/copy` offers "Whole status" + fields.
 
-## 2. Tests
-Shard `tests/oracle/status.rs` (34 tests: 27 pending, 7 n/a, 0 live), owner dialogs-pane. All use `.entry("status", NAME).open().assert_snap(..)` at 80x24 (some 120/70/42):
-the kit compares the WHOLE screen to the snap (trailing blank rows trimmed, `tests/kit/compare.rs:10`), and the snaps start at the `/status` row, so the entry must paint the cell at (0,0) with no dialog frame (a `EntryOpen::Route`, `src/app/debug/mod.rs:36`).
-Groups (pending reason: "no entry for status/X" except the first):
-- G1 shape of the cell, 1: `status_snapshot_includes_reasoning_details` (the only existing entry `reasoning_details`; pending: "history cell in the oracle, ours a card dialog").
-- G2 account / identity, 4: `chatgpt_plan_without_email`, `active_user_defined_profile`, `server_provider_id_and_auth_requirement` (2 snaps, 120 cols), `auto_review_permissions`, `forked_from` (5 names with forked_from).
-- G3 limit windows and notices, 9: `monthly_limit`, `enterprise_monthly_credit_limit`, `generic_limit_labels_for_unsupported_windows`, `missing_limits_message`, `refreshing_limits_notice`, `unavailable_limits_message`, `refreshing_empty_limits_as_unavailable`, `stale_limits_message`, `credits_and_limits`.
-- G4 credits rows, 5: `unlimited_credits`, `positive_credits`, `available_credits_without_display_balance` (5 variants), `respects_unlimited_without_has_credits_flag`, `cached_limits_hide_credits_without_flag`.
-- G5 tokens/context, 2: `token_usage_excludes_cached_tokens`, `context_window_uses_last_usage`.
-- G6 wrapping, 3: `wraps_long_paths_and_session_ids_without_losing_text` (copy_text half has no kit counterpart), `wraps_in_narrow_terminal` (70), `wraps_halfwidth_kana_in_narrow_terminal` (42; likely blocked by gap G44 halfwidth katakana clustering, see `tests/oracle/cells_4.rs` HALFWIDTH_HEADER).
-- G7 default reasoning / remote, 1 name: `uses_default_reasoning_when_config_empty` (entries default_reasoning, remote_server, local_background_server).
-- G8 transcript overlay, 1: `transcript_overlay_remeasures_status_after_rate_limit_refresh` (needs pager S16 / chat-transcript).
-- n/a (state tests of helpers): `plan_type_display_name_remaps_display_labels`, `format_directory_display_truncates_halfwidth_sound_marks`, `compose_agents_summary_*` (2), `non_codex_single_limit_renders_combined_row`, `status_permissions_include_executor_profile_root`, `reset_timestamps_follow_clock_preference` -> these need core unit tests carried from `status/tests.rs`, `status/helpers.rs`, `status/rate_limits.rs` (pure fns; add them to `core/tests/`, named as the oracle's).
-Other shards that need the live card (chat `/status` through the composer):
-- `tests/oracle/chat_status_2.rs:620-790` `status_command_*`: 11 (1 n/a `renders_immediately_without_rate_limit_refresh`, 10 pending: stale reason "/status is not dispatched" is OUT OF DATE, ours dispatches via `src/pages/session/actions.rs:136-150` + `open.rs:51`, but as a dialog; asserts: no "refreshing limits" after the answer, `8% left`, `GPT-5.5 (reasoning medium, summaries auto)`, AGENTS.md sources, overlapping refreshes, Thread usage rows `50 credits · ~$1.82`, snaps `status_command_estimated_thread_usage(_without_usd)`).
-- `tests/oracle/chat_live_6.rs:396-450` thread-usage status tests (`status_history_survives_exhausted_billing_retries`, `status_history_updates_again_after_billing_settles` x3, `billing_surfaces_render_for_every_supported_enterprise_plan` x4: the `/status` Thread usage row), owner chat-live: count with the usage-block chunk only.
-- `tests/oracle/chat_commands_2.rs:529-620` use `/status` with copy picker (`slash_copy_picker_*status_fields`).
-Own tests exist: `tests/pages/status.rs`, `tests/pages/status_data.rs` (status-line data, not the card), `tests/kit_proof.rs:76,100` use the `status` entries.
+## 2. Tests (in-chunk total 34 + 12 + 3 = 49 screen tests, + core tests)
+- `tests/oracle/status.rs` 34: worktree state 25 unpended (porter's run decides pass), 2 pending, 7 n/a (ported as core tests).
+  - pending `status_snapshot_wraps_halfwidth_kana_in_narrow_terminal` (42 cols): build the entry `halfwidth_kana_narrow`; expect G44
+    (halfwidth sound mark is one grapheme in rtwk) -> `pending(G44)` with the probe's diff, not "no entry".
+  - pending `transcript_overlay_remeasures_status_after_rate_limit_refresh` (80x30, frames before/after): needs the pager / transcript overlay
+    (transcript chunk, tm `pager`): stays pending, reason names the pager task.
+- `tests/oracle/chat_status_2.rs:620-795` `status_command_*` 12 (1 n/a, 11 pending): in this chunk (live cell, refresh with request id, overlapping
+  refreshes, catalog default reasoning, instruction sources, thread usage rows, snaps `status_command_estimated_thread_usage(_without_usd)`).
+  File owned by chat-status: these 12 functions only (orchestrator gives the porter those functions, or the chat-status porter leaves them alone).
+- `tests/oracle/chat_live_6.rs:395-450` 3 pending (`status_history_survives_exhausted_billing_retries`, `..._updates_again_after_billing_settles`,
+  `billing_surfaces_render_for_every_supported_enterprise_plan`) + 2 n/a (frame scheduling): in this chunk (thread usage). File owned by chat-live.
+- Not this chunk: `chat_commands_2.rs:522-620` `slash_copy_*status*` 4 (the `/copy` picker: chat-commands / transcript chunk); this chunk supplies the
+  copy data (step 4). `chat_status_3.rs:145,223` thread-usage items in status-line/title setup: chat-status.
+- Own tests: `tests/pages/status.rs` (cell), `core/tests/status.rs` (33 now), `tests/kit_proof.rs:76,100` use `status` entries (keep names).
 
 ## 3. What exists in ours
-- Core `core/src/screens/status.rs` (271): `Card` (version, model, effort, summary, directory, profile, approval, auto_review, agents, tokens, context, `limits: Vec<Limit{window_minutes, used_percent, reset: Option<{hour,minute}>}>`), `Model.card: Option<Card>`, `Ev::Shown`, `Intent::{Open,Close}`, `ThreadPart{tokens, context}` fed by `project()` from `ThreadTokenUsageUpdated`, `RateLimits{primary,secondary}` (codex bucket only), `Command/Reply/Ctx` EMPTY. `seed()` = `{"kind":"card",..}` (fixture `src/pages/session/cells/status/fixtures/reasoning_details.jsonl`).
-- `core/src/app/session.rs:34-67` `open_status`: builds the Card from `StatusFacts` (screens/chat.rs:64) + ThreadPart + cached `session.rate_limits`, applies `Ev::Shown`, `refresh_rates(app, backend)` (dedup by outgoing ctx `AppCtx::RateLimits`).
-  Missing in the Card: account/email/plan/workspace, thread name, session id, forked_from, collaboration mode, provider id, remote connection, credits, spend limit, per-limit names, capture time (stale), refreshing flag, thread usage, reasoning default from the model catalog, agents (always `Vec::new()`), reset dates (`reset` is a raw hour/minute, never filled by `RateLimits::card_limits`).
-- View `src/pages/session/cells/status/` (card.rs 242: `CardDialog` as a `Dialog` titled `/status`, `Grid` of label|value, `CustomPaint`+`CellPainter` bar `[███░]` (rule: G40 not a gap), strings.rs EN table, format.rs 12-hour). `open()` = `show_dialog` (mod.rs:34). Never wrapped or word-wrapped by the oracle's rules; no Server/Account/Thread rows; limits only Weekly (>=10080 min) or `N h`.
-- Transcript: `core/src/threads.rs:73-130` `enum Item` has no Status variant; the transcript upserts by `ItemKey`, can `mint` keys for server-less items (PlanUpdate, `:303`); view `src/pages/session/transcript_pane.rs:215-290` maps `Item` -> `cells::*` widget. Architecture says `/status` is a cell (architecture.md:341, §1 Amendment 2026-11-19b "Widgets of SessionPage: transcript cells (/status is a cell)").
-- Host data: `core/src/protocol/agents.rs:415-445` `account_request/account_ev` keeps only plan + backend_auth (email, workspace dropped); `core/src/protocol/mod.rs:90-115` rate-limit reply keeps only the codex bucket's primary/secondary (credits, `individual_limit`, other buckets, `plan_type` dropped); app-server protocol HAS them: `RateLimitSnapshot{limit_id,limit_name,primary,secondary,credits{has_credits,unlimited,balance},individual_limit,plan_type,..}` (`app-server-protocol/src/protocol/v2/account.rs:749`), `ThreadUsage{estimated_usage_credits_micros,estimated_usage_usd_micros,native_usage_usd_micros,groups}` (`v2/thread_usage.rs:11`); `core/src/protocol/agents.rs:90` already has `Command::Usage` -> `GetAccountTokenUsage` for the agents page (not the thread-usage call; TODO (recon cut short): find the thread usage RPC the oracle calls at `chatwidget/thread_usage.rs`).
-- Remote connection: host knows (`host/src/in_process.rs:175,454,504,521` embedded / local daemon / remote); no value reaches core. TODO (recon cut short): where `ServerVersion` could come from.
+- Main tip: `core/src/screens/status.rs` (271) dialog `Card` + `Model.card`; `core/src/app/session.rs:31-67` `open_status` builds `Card` from
+  `StatusFacts` (`core/src/screens/chat.rs:55-90`), `ThreadPart` (tokens, context), `session.rate_limits` (`core/src/app.rs:82`, codex bucket only);
+  `refresh_rates` (`session.rs:20-29`, `AppCtx::RateLimits{backend}`, no request id). View `src/pages/session/cells/status/card.rs` `CardDialog`
+  via `show_dialog` (`mod.rs` `open`, `src/pages/session/open.rs:51`).
+- Dispatch: `core/src/commands/dispatch.rs:355` `Status => open(Target::Status, ..)` (a route/sheet open, oracle: a history cell);
+  `src/pages/session/actions.rs:136-142` emits `ScreenIntent::Status(Intent::Open)`.
+- Transcript: `core/src/threads.rs:78-130` `enum Item` (no Status); `src/pages/session/transcript_pane.rs:149-300` maps Item -> cell widget.
+- Protocol data, missing pieces and where they enter:
+  - Rate limits: `core/src/protocol/mod.rs:95-110` keeps the `codex` bucket's primary/secondary; drop of `limit_name`, `credits{has_credits,unlimited,balance}`,
+    `individual_limit` (spend), other buckets, `plan_type`, `rate_limit_reset_credits` (`GetAccountRateLimitsResponse`, v2/account.rs:369, 749). Also the
+    notification path `core/src/app.rs:798 install_rates`. Enter: `status::RateLimits` -> `status::Snapshot` (worktree `limits.rs:48`) for all buckets.
+  - Account: `core/src/protocol/agents.rs:425-445` `account_ev` keeps plan + backend auth (drops email, workspace name/id): extend to `status::Account`.
+  - Thread facts: name + `forked_from_id` (`Thread`, v2/thread_data.rs:205,220), `instruction_sources` (`ThreadStartResponse`, v2/thread.rs:190-206) and the
+    collaboration mode: on the ThreadModel (`core/src/threads.rs`), read when the card is built.
+  - Thread usage: `ClientRequest::GetAccountTokenUsage` = `account/usage/read {threadId}` (common.rs:1449; the oracle's `RefreshThreadUsage`,
+    `app/event_dispatch.rs:2074`) -> `GetAccountTokenUsageResponse.thread_usage: Option<ThreadUsage>` (v2/account.rs:478-484). Ours already wires it for
+    the agents page: `core/src/protocol/agents.rs:90-95,187-193` (`Command::Usage{thread}` -> `UsageOutcome::{Available,Disabled}`,
+    `core/src/screens/agents/usage.rs:21`). The chat has no call (chat-status brief 3: "no thread-usage RPC").
+  - Server row: host knows the target (`host/src/in_process.rs` embedded / local daemon / remote / Cloud) and `remote.server_version()` (`in_process.rs:561-571`
+    `emit_version`, sent only as the agents page's `Ev::ServerVersion` notice text). Core gets no connection fact: the card's `Remote{address, version,
+    local_daemon}` (worktree `card.rs:17`) has no live source. Oracle value: `remote_connection_status_value(target, server_version)`
+    (`status/remote_connection.rs:22-58`: Embedded -> none; Cloud -> `Cloud` + raw version; daemon/remote -> sanitized ws URL or `unix://path`, `v{version}` or `unknown`).
 
 ## 4. Flutter -> rtwk
-- The card in a chat = a `ListTile`-like item of the message list: a StatelessWidget `StatusCell` given an immutable `Arc<StatusCard>` (like `NoticeCell`, `src/pages/session/cells/notice.rs`), registered in `transcript_pane.rs`'s Item match. In Flutter you would not keep a mutable handle in the widget: the cell reads its data from the model, and a later refresh REPLACES the item (upsert by key), the list rebuilds the one row.
-- Label | value table: Flutter `Table`/`Row`+`Expanded` with an `IntrinsicColumnWidth` label column = rtwk `Grid` with `GridTrack::content()` + `GridTrack::fr(1)` (already used, card.rs `fields`). Value wrapping under the value column comes free from `Text` wrap in the fr track (check width cases 70 / 42).
-- Bar: `CustomPaint` + `CellPainter` (exists, `Bar`).
-- Usage link: `Text::rich` with underline + a tappable `GestureDetector`/link (ADR-011 mouse); hyperlink API: TODO (recon cut short): grep `hyperlink` in rtwk and `src/pages/session/cells/web.rs`.
-- Debug entry with no dialog frame: `EntryOpen::Route(|seeded| widget)` showing the cell at (0,0) (`src/app/debug/mod.rs:36`), not `Dialog`.
-- Copy of status fields (`/copy` picker) = the oracle's `copy_text`; derive a plain-text rendering from the same model fn (`StatusCard::rows()` in core, pure), not from painted cells.
+- Cell in a chat list = a stateless `ListTile`-like item fed an immutable value: `StatusCell { card: Arc<StatusCard> }` (worktree `cell.rs`), registered in
+  `transcript_pane.rs` like `Item::Notice` -> `cells::notice`. A refresh REPLACES the item (upsert by key) and the list rebuilds one row: no mutable handle.
+- Label | value table: `Table` with `IntrinsicColumnWidth` = rtwk `Grid` `GridTrack::content()` + `GridTrack::fr(1)` (rtwk-widgets/src/layout/grid.rs), in a
+  `LayoutBuilder` that picks the spelling (bar vs percent only, inline vs wrapped reset) from the measured width: the composition rule, not a workaround.
+- Limit bar: `CustomPaint` + `CellPainter::fill_char` (G40 "not a gap", rtwk-widgets/src/layout/custom_paint.rs).
+- Usage link: `Span::link(url)` (rtwk-widgets/src/style/style.rs:413; OSC 8 written by rtwk-core/src/line_encoder.rs:203), as the sign-in page does
+  (`src/pages/startup/onboarding/signin/mod.rs:878`). Already in worktree `cell.rs:136`.
+- Copy: `Clipboard.setData` with a model-derived string = a pure core fn over `StatusCard` (not painted cells): see step 4.
+- Debug entry without a frame: `EntryOpen::Route` (`src/app/debug/mod.rs:36`), as the worktree does.
 
-## 5. Dependencies and conflicts (tm active claims 2026-11-22)
-- `src/pages/session/transcript_pane.rs` (+ `transcript*`) and `core/src/screens/transcript*`: chat-transcript. The Item match arm for the cell is ONE additive line there: ask for an area widening via `task_update`, or land the arm last.
-- `core/src/threads.rs`, `core/src/protocol/mod.rs`, `core/src/app/session.rs`, `core/src/app.rs`, `host/src`: startup-rest (core/src/app/session.rs holds `open_status`). Adding `Item::Status`, an account/rate-limit reply with credits, the remote-connection fact are all in files startup-rest holds. Plan: chunk 1 and 2 stay in the unclaimed area (below); chunk 3-4 wait for startup-rest to land or take an area widening.
-- `src/pages/session/actions.rs` + `src/sheets/settings`: settings (the `/status` open at `actions.rs:136-150` is touched only if the dialog is removed: that `if matches!(opened.target, Target::Status ..)` stays; `open.rs:51` is free).
-- Waits on: chat-transcript for the pager overlay test (G8), host account facts (startup-rest).
-- App-level changes needed (core/src/app.rs / threads): (a) `Item::Status(Arc<StatusCard>)` + a `ThreadEv::StatusShown/StatusRefreshed{request, ..}` upsert; (b) `open_status` appends the item to the ACTIVE thread's transcript through `apply` (ADR-003: one writer; the card must not live in `ScreenStates.status.card` as a second copy: today it does, and the dialog closes itself when it empties, `card.rs:63-69`); (c) the in-flight refresh keeps a request id in `AppCtx::RateLimits` so only its cell updates (R: stale/late reply tests).
+## 5. Area and conflicts (tm active claims 2026-11-22)
+- Own (claimed): `core/src/screens/status.rs`, `core/src/screens/status/`, `core/tests/status.rs`, `src/pages/session/cells/status/`, `tests/oracle/status.rs`,
+  `tests/pages/status.rs`, `docs/rtwk-port/parity/status-card.md`.
+- Widen for steps 3-5 (free now): `core/src/threads.rs` (Item::Status, thread name/fork/instruction sources), `core/src/app/session.rs` (open_status,
+  refresh_rates origin), `core/src/protocol/mod.rs` (rate-limit decode), `core/src/protocol/agents.rs:415-445` (account decode),
+  `core/src/commands/dispatch.rs:355` (one line), `core/src/commands.rs` (a `SessionIntent::Status` variant).
+- Held by others, minimal changes as needs:
+  - `core/src/app.rs` (keymap porter): `AppCtx::RateLimits{backend, origin}` with `enum RateLimitOrigin { Status(u64), UsageMenu, ResetPicker(u64), Startup }`
+    (the oracle's `RateLimitRefreshOrigin`; usage chunk uses the last three), a `connection: Option<status::Remote>` fact on the app, `install_rates` keeps
+    full snapshots. Sequence after keymap lands, or the orchestrator grants these lines.
+  - `host/src/in_process.rs` (keymap porter): emit the connection fact next to `emit_version` (`:561`) for every target, incl. Embedded (none) and Cloud.
+  - `src/pages/session/transcript_pane.rs` (transcript porter): one arm `Item::Status(card) => cell(StatusCell{card})`.
+  - `src/pages/session/actions.rs:136-142` (settings porter): drop `Target::Status` from the Open branch once /status is a session intent.
+  - `tests/oracle/chat_status_2.rs` (chat-status) and `tests/oracle/chat_live_6.rs` (chat-live): only the functions named in section 2.
+- Shared with the usage chunk: rate-limit decode + origins (`protocol/mod.rs`, `session.rs`, `app.rs`): this chunk builds them (step 3); the usage porter's
+  reset flow consumes `RateLimitOrigin::{UsageMenu, ResetPicker, Startup}` and `rate_limit_reset_credits` and lands after it.
 
-## 6. Chunks
-1. **card model + cell view on seeds (no app wiring)**, ~35 tests: G1, G3 (9), G4 (5), G5 (2), G2 minus live data (5), G6 first two, G7 (1) = 24-26 shard tests + the 7 n/a as core unit tests.
-   Area: `core/src/screens/status.rs` (+ new `core/src/screens/status/` dir), `core/tests/status.rs`, `src/pages/session/cells/status/**`, `tests/oracle/status.rs`, `tests/pages/status.rs`, `docs/rtwk-port/parity/status-card.md`.
-   Steps: (1) core `StatusCard` = the raw facts of the oracle (account display, plan, workspace, thread name, session id, forked_from, collaboration mode, provider id + auth requirement, remote connection, agents summary, token usage, context, `RateLimitData` {Available(rows) | Stale | Unavailable | Missing | Refreshing + credits + spend limit + window label rules}); pure fns carried from `status/rate_limits.rs`, `helpers.rs` with a comment naming the file (REUSE: reuse-map.md rows for `status/`); (2) `StatusCell` stateless widget in `cells/status/` replacing `CardDialog`; label column + wrapping per `content_lines`; strings in the string table (rule adr010); (3) one jsonl fixture + `debug_entries` row per snap name (about 30 entries, `EntryOpen::Route`); (4) unpend the shard tests, one test per snap.
-   Done: `status` shard 27 pending -> live except G6 kana and G8; core tests for the 7 n/a helpers; clippy.
-2. **live /status in the chat as a cell** (needs startup-rest files or widening): `Item::Status`, `open_status` through apply, one refresh with request id, `/status` dispatch unchanged; unpend `chat_status_2::status_command_*` (about 8), `chat_commands_2` status copy fields (TODO (recon cut short): read them). Depends on chunk 1; removes the `show_dialog` path and `Intent::Close`, `ScreenStates.status.card`.
-3. **host facts**: account email/plan/workspace (`account/read` fully decoded: extend `account_ev`), rate limits with credits + spend limit + all buckets (`protocol/mod.rs:90`), remote connection fact. Files of startup-rest: do after it lands.
-4. **thread usage rows** (Thread usage / Models / Reasoning / Speed / Billed tokens): `status/thread_usage.rs`, request/reply on `ThreadFx`, retry/settle rules (chat_live_6 7-8 tests, owner chat-live).
-5. **G6 kana / G8 pager overlay**: after gap G44 and the pager.
-Parallel: 1 alone first; 3 and 4 can run in parallel after 2.
+## 6. The plan (one job)
+1. Finish chunk 1 (worktree): commit, rebase, probe; `halfwidth_kana_narrow` entry -> `pending(G44)` if the probe shows the one-cell shift; snaps green for the
+   other 25. Reads `status/tests.rs` (fixture values are already in the 33 fixtures).
+2. Tests first for the live cell: `tests/pages/status.rs` live path (`/status` typed in the chat seed -> the cell in the transcript at the bottom, no dialog);
+   then unpend `chat_status_2::status_command_renders_immediately_*`, `..._uses_catalog_default_reasoning_*`, `..._native_and_foreign_instruction_sources`.
+3. Live /status as a cell (ADR-003): `SessionIntent::Status` (dispatch.rs:355) -> `session_intent` builds `StatusCard` from config facts + ThreadModel +
+   `session.rate_limits` + account + connection, appends `Item::Status(Arc<StatusCard>)` to the ACTIVE thread through the thread's apply (minted `ItemKey`, like
+   `PlanUpdate`, threads.rs:303); refresh with `RateLimitOrigin::Status(request)`; the reply replaces only the items of that request (overlapping refreshes
+   test, stale reply dropped). Remove the dialog `Card`, `Model.card`, `CardDialog`, the `card_dialog` entry, `Intent::{Open,Close}` and the
+   `show_dialog` path; `Model.cell` stays a seed-only input of the debug entries (no live writer). This closes the ADR-003 departure (`status-card-adr003`). Decode full rate limits + account + thread facts
+   here (section 3). Oracle lines: `status_controls.rs:212-330`, `card.rs:279-430`.
+4. Copy data: core `StatusCard::copy_text()` = the card's lines at unbounded width, trimmed (oracle `card.rs:84-93`), and `copy_fields()` =
+   Model, Directory (full cwd), Thread name (non-empty), Session ID (`status_controls.rs:279-296`); the transcript keeps "last status" by item key for the
+   `/copy` picker (chat-commands/transcript build the picker; this chunk exports the data + a core test against `slash_copy_whole_status.snap`).
+5. Thread usage rows: the thread's status slot (`ThreadPart`) gains `usage: Option<ThreadUsage>` + request state (`pending`, `next_request`, settlement
+   request, retry count) as in `chatwidget/thread_usage.rs:39-60`; the call is the slot's RPC (`ThreadFx::request(status::Command::ThreadUsage)` ->
+   `account/usage/read {threadId}`, decode as agents.rs:187-193; share the decode fn, do not copy it). Rows per `status/thread_usage.rs` (Thread usage,
+   Models, Reasoning, Speed, Billed tokens; credits `~$`), label width reserved before the estimate arrives. Unpend `chat_status_2:728-795` (4) and
+   `chat_live_6:401-450` (3); core tests from `status/thread_usage_tests.rs` (3). The status line's thread-usage item (chat-status) reads the same slot.
+6. Server row: connection fact (needs section 5) -> `Remote`; entries `remote_server` / `local_background_server` already exist; live test with a fake host target.
+7. Final: shard `status` 32 live + 2 pending (G44, pager), chat_status_2 12 and chat_live_6 3 green or pending on an open row; parity pack
+   `docs/rtwk-port/parity/status-card.md`; pty run of `/status` beside the oracle (scenario per process.md §A4.3).
 
-## 7. Gaps and risks
-- G44 (halfwidth katakana clustering) blocks `wraps_halfwidth_kana_in_narrow_terminal`: an existing row, say so in the pending reason.
-- Transcript cell width: the snaps start at the `/status` row with no leading blank, while a transcript cell has a separator: the entry must not use the transcript list.
-- `ScreenStates.status.card` is a second copy of thread facts (ADR-003): chunk 2 removes it; until then it is a known departure (no debt task named in the code: file one).
-- Local clock for reset timestamps: oracle uses `Local::now()` and `ClockFormat`; core is pure: pass `now` and the clock preference as facts (determinism in tests).
-- TODO (recon cut short): hyperlink for the usage URL, `copy_text` plumbing, `status/tests.rs` fixture values for each snap (read the test bodies at the lines given in the shard headers), `thread_usage_tests.rs` (status/ 70 lines), remote connection protocol source.
+## 7. Gaps, risks, decisions
+- G44 (halfwidth katakana cluster) blocks the 42-column kana snap: existing row, `pending(G44)`.
+- Pager overlay snap waits for the pager task (transcript chunk); one test.
+- Transcript separator: the cell snaps start at the `/status` row; the debug entry shows the cell alone (Route), the live path is judged by `status_command_*`.
+- Local time for reset stamps: pass `now` + `ClockFormat` as facts (pure core); the worktree's `a_reset_is_read_in_the_local_time_zone` covers it.
+- Thread usage polling (settlement after a turn, retry on billing errors) is timer-driven in the oracle: use the fake clock (`rtwk_test`) for the retry tests;
+  the timer lives in the shell/ThreadFx, never in a widget.
+- Decision (orchestrator, not the person): give the 12 `status_command_*` functions of chat_status_2 and the 3 billing functions of chat_live_6 to this
+  porter. Recommendation: yes, they test this chunk's data path; the owners of those files skip them.
