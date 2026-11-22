@@ -1592,14 +1592,14 @@ mod auto_review {
     }
 
     /// The list in the real selection dialog: the model holds the menu a screen asked for
-    /// (`select::Intent::Open`), then `/permissions` opens the selection dialog over the chat.
+    /// (`select::Intent::Open`), then `/approve` opens the selection dialog over the chat.
     fn shown(width: u16, height: u16, list: List) -> Harness {
         let mut h = start_sized(false, width, height);
         h.wait_idle();
         h.inject([AppEv::Intent(Intent::Screen(ScreenIntent::Select(
             SelectIntent::Open(Menu::List(Box::new(list))),
         )))]);
-        h.t.type_text("/permissions");
+        h.t.type_text("/approve");
         h.press("enter");
         h.t.pump_for(ms(800));
         h
