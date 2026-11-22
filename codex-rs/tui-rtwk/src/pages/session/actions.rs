@@ -60,6 +60,50 @@ pub(super) enum Delivery {
     Queue,
 }
 
+/// A settings shortcut (`Shift+Tab`, `Alt+,`, `Alt+.`) on a thread its parent controls says so
+/// and does nothing (`add_error_message(PARENT_OWNED_INPUT_MESSAGE)`); true when it refused.
+pub(super) fn refuses_parent_owned(cx: &mut Cx<'_, ChatState>, hs: &Hs) -> bool {
+    let thread = read::<ThreadModel, _>(cx);
+    if !thread.screen_slots().chat.parent_owned {
+        return false;
+    }
+    let intent = chat::Intent::Note {
+        thread: read::<SessionSlice, _>(cx).active.clone(),
+        note: Note::from(NoteKey::ParentOwned),
+    };
+    cx.emit(&hs.screen, ScreenIntent::from(intent));
+    true
+}
+
+/// `handle_reasoning_shortcut`: one step of the model's reasoning effort, or the line that says
+/// why there is none.
+pub(super) fn reasoning_shortcut(
+    cx: &mut Cx<'_, ChatState>,
+    hs: &Hs,
+    direction: codex_tui_core::screens::select::reasoning::Direction,
+) {
+    use codex_tui_core::screens::select::{Intent, models::Current, models::Effort};
+    let thread = read::<ThreadModel, _>(cx);
+    if thread.read_only() || refuses_parent_owned(cx, hs) {
+        return;
+    }
+    let states = read::<ScreenStates, _>(cx);
+    let slots = thread.screen_slots();
+    let model = slots.chat.model.clone().or_else(|| states.chat.status.model.clone());
+    let effort = slots.chat.effort.as_deref().or(states.chat.status.effort.as_deref());
+    let current = Current {
+        effort: effort.and_then(|name| name.parse::<Effort>().ok()),
+        ..Current::new(model.unwrap_or_default())
+    };
+    let plan = states.chat.flags.collaboration_modes_enabled
+        && slots.chat.mode() == codex_protocol::config_types::ModeKind::Plan;
+    let started = matches!(read::<SessionSlice, _>(cx).status, Session::Ready);
+    cx.emit(
+        &hs.screen,
+        ScreenIntent::Select(Intent::Reasoning { direction, current, plan, started }),
+    );
+}
+
 pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, send: Delivery) {
     // An empty line is nothing to run: the composer was already taken by the
     // pick or the submit that came with the same Enter.

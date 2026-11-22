@@ -171,6 +171,11 @@ pub struct Strings {
     pub note_save_profile_failed: Msg<1>,
     pub note_save_tier_failed: Msg<1>,
     pub note_tier_set: Msg<1>,
+    pub note_reasoning_disabled: &'static str,
+    pub note_reasoning_unavailable: Msg<1>,
+    pub note_reasoning_lowest: Msg<1>,
+    pub note_reasoning_highest: Msg<1>,
+    pub note_ultra_available: Msg<1>,
     pub note_overridden: Msg<1>,
     pub note_setting_model: &'static str,
     pub note_setting_plan: &'static str,
@@ -295,6 +300,11 @@ pub const EN: Strings = Strings {
         "Failed to save default service tier: {0}\nYou can continue this task. To save the default, resolve the error above, then switch to a different tier and back to the desired tier."
     ),
     note_tier_set: msg!("Service tier set to {0}"),
+    note_reasoning_disabled: "Reasoning shortcuts are disabled until startup completes.",
+    note_reasoning_unavailable: msg!("Reasoning shortcuts are unavailable for {0}."),
+    note_reasoning_lowest: msg!("Reasoning is already at the lowest level ({0})."),
+    note_reasoning_highest: msg!("Reasoning is already at the highest level ({0})."),
+    note_ultra_available: msg!("Ultra is available under /model → {0} → More reasoning…"),
     note_overridden: msg!(
         "Saved {0}, but a higher-priority configuration layer overrides the saved value."
     ),
@@ -525,6 +535,30 @@ impl Strings {
                 line
             }
             Note::ServiceTierSet(tier) => text(self.note_tier_set, tier),
+            Note::ReasoningDisabled => self.note_reasoning_disabled.to_string(),
+            Note::ReasoningUnavailable(model) => text(self.note_reasoning_unavailable, model),
+            Note::ReasoningBound { direction, effort } => {
+                use codex_protocol::openai_models::ReasoningEffort as E;
+                use codex_tui_core::screens::select::reasoning::Direction;
+                let label = match effort {
+                    E::XHigh => "extra high".to_string(),
+                    E::Custom(value) => value.clone(),
+                    other => other.as_str().to_string(),
+                };
+                let message = match direction {
+                    Direction::Lower => self.note_reasoning_lowest,
+                    Direction::Raise => self.note_reasoning_highest,
+                };
+                text(message, &label)
+            }
+            Note::UltraAvailable(model) => {
+                let path = if model.starts_with("codex-auto-") {
+                    model.clone()
+                } else {
+                    format!("All models → {model}")
+                };
+                text(self.note_ultra_available, &path)
+            }
             Note::UltraConcurrency(threads) => Fmt::new(
                 self.note_ultra,
                 [int(*threads), int(threads.saturating_sub(1))],

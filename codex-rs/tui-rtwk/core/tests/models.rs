@@ -823,3 +823,118 @@ fn a_menu_a_script_seeds_is_the_only_one_on_the_stack() {
     intent(&mut s, SelectIntent::Close);
     assert_eq!(depth(&s), 0);
 }
+
+fn reasoning(sandbox: &mut Sandbox, model: &str, effort: Option<Effort>, direction: Direction, plan: bool) {
+    intent(
+        sandbox,
+        SelectIntent::Reasoning {
+            direction,
+            current: Current { effort, ..Current::new(model) },
+            plan,
+            started: true,
+        },
+    );
+}
+
+use codex_tui_core::screens::select::reasoning::Direction;
+
+#[test]
+fn a_reasoning_step_walks_the_advertised_efforts_with_the_advanced_ones_last() {
+    let mut s = sandbox(presets());
+    // gpt-5.5 advertises low, medium, high, xhigh and persistent
+    reasoning(&mut s, "gpt-5.5", Some(Effort::Medium), Direction::Raise, false);
+    reasoning(&mut s, "gpt-5.5", Some(Effort::Medium), Direction::Lower, false);
+    assert_eq!(
+        model(&s).picked,
+        [
+            Picked::Effort { model: "gpt-5.5".into(), effort: Effort::High, plan: false },
+            Picked::Effort { model: "gpt-5.5".into(), effort: Effort::Low, plan: false },
+        ]
+    );
+}
+
+#[test]
+fn an_unset_effort_anchors_to_the_model_default() {
+    let mut s = sandbox(presets());
+    reasoning(&mut s, "gpt-5.5", None, Direction::Raise, true);
+    assert_eq!(
+        model(&s).picked,
+        [Picked::Effort { model: "gpt-5.5".into(), effort: Effort::High, plan: true }]
+    );
+}
+
+#[test]
+fn a_raise_stops_before_ultra_and_says_where_it_is() {
+    let mut s = sandbox(presets());
+    // gpt-astra: max then ultra
+    reasoning(&mut s, "gpt-astra", Some(Effort::Max), Direction::Raise, false);
+    assert!(model(&s).picked.is_empty());
+    assert_eq!(model(&s).notes, [Note::UltraAvailable("gpt-astra".into())]);
+    // and lowering out of Ultra is a step
+    reasoning(&mut s, "gpt-astra", Some(Effort::Ultra), Direction::Lower, false);
+    assert_eq!(
+        model(&s).picked,
+        [Picked::Effort { model: "gpt-astra".into(), effort: Effort::Max, plan: false }]
+    );
+}
+
+#[test]
+fn the_ends_and_the_unknowns_change_nothing() {
+    let mut s = sandbox(presets());
+    reasoning(&mut s, "gpt-sol", Some(Effort::High), Direction::Raise, false);
+    reasoning(&mut s, "gpt-sol", Some(Effort::High), Direction::Lower, false);
+    reasoning(&mut s, "no-such-model", None, Direction::Raise, false);
+    assert!(model(&s).picked.is_empty());
+    assert_eq!(
+        model(&s).notes,
+        [
+            Note::ReasoningBound { direction: Direction::Raise, effort: Effort::High },
+            Note::ReasoningBound { direction: Direction::Lower, effort: Effort::High },
+            Note::ReasoningUnavailable("no-such-model".into()),
+        ]
+    );
+}
+
+#[test]
+fn a_shortcut_before_the_session_is_configured_says_so() {
+    let mut s = sandbox(presets());
+    intent(
+        &mut s,
+        SelectIntent::Reasoning {
+            direction: Direction::Raise,
+            current: Current::new("gpt-5.5"),
+            plan: false,
+            started: false,
+        },
+    );
+    assert!(model(&s).picked.is_empty());
+    assert_eq!(model(&s).notes, [Note::ReasoningDisabled]);
+}
+
+#[test]
+fn a_service_tier_command_toggles_against_the_tier_the_thread_runs_on() {
+    let mut s = sandbox(presets());
+    intent(&mut s, SelectIntent::ServiceTier { id: "priority".into(), current: None });
+    intent(&mut s, SelectIntent::ServiceTier { id: "priority".into(), current: Some("priority".into()) });
+    assert_eq!(
+        model(&s).picked,
+        [Picked::Tier("priority".into()), Picked::Tier("default".into())]
+    );
+}
+
+#[test]
+fn a_model_list_answer_carries_the_tiers_of_each_model() {
+    let answer = json!({"data": [{
+        "id": "1", "model": "gpt-5.4", "upgrade": null, "upgradeInfo": null,
+        "availabilityNux": null, "displayName": "gpt-5.4", "description": "d", "hidden": false,
+        "supportedReasoningEfforts": [{"reasoningEffort": "low", "description": "fast"}],
+        "defaultReasoningEffort": "low", "isDefault": true,
+        "serviceTiers": [{"id": "priority", "name": "Fast", "description": "2x speed"}],
+        "defaultServiceTier": "priority"
+    }], "nextCursor": null});
+    let presets = codex_tui_core::screens::select::models::presets(answer).expect("reads");
+    assert_eq!(presets[0].service_tiers.len(), 1);
+    assert_eq!(presets[0].service_tiers[0].id, "priority");
+    assert_eq!(presets[0].service_tiers[0].name, "Fast");
+    assert_eq!(presets[0].default_service_tier.as_deref(), Some("priority"));
+}

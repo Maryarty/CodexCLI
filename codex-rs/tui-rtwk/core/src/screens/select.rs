@@ -19,6 +19,7 @@ pub mod list;
 pub mod models;
 pub mod permissions;
 pub mod persist;
+pub mod reasoning;
 pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Selection};
 use models::{Effort, PlanSource, Step};
@@ -78,6 +79,9 @@ pub enum Picked {
     /// The service tier the model's tier command switched to (`default` is the one that
     /// leaves the tier).
     Tier(String),
+    /// A step of a reasoning shortcut: the thread's effort for its next turns, nothing saved;
+    /// in Plan mode (`plan`) the Plan override only.
+    Effort { model: String, effort: Effort, plan: bool },
     /// The answer of a confirmation was Yes (No picks nothing).
     Confirmed(Confirm),
     /// An item of a generic list, by id.
@@ -122,6 +126,14 @@ pub enum Note {
     PermissionsUpdated(permissions::Label),
     /// `Service tier set to {tier}`, after the default was saved.
     ServiceTierSet(String),
+    /// `Reasoning shortcuts are disabled until startup completes.`
+    ReasoningDisabled,
+    /// `Reasoning shortcuts are unavailable for {model}.`
+    ReasoningUnavailable(String),
+    /// `Reasoning is already at the lowest level ({effort}).` / `...highest...`
+    ReasoningBound { direction: reasoning::Direction, effort: Effort },
+    /// `Ultra is available under /model -> ... -> More reasoning...`: a raise stops before Ultra.
+    UltraAvailable(String),
     /// `Permission selection requested: {label}`: the server took a profile
     /// pick of a thread.
     PermissionSelectionRequested(permissions::Label),
@@ -477,6 +489,9 @@ pub enum Intent {
     /// `/fast`, `/ultrafast`...: the tier `id` is switched on, or off when it is `current`
     /// (`toggle_service_tier_from_ui`).
     ServiceTier { id: String, current: Option<String> },
+    /// A reasoning shortcut on the thread `current` describes: `plan` is the thread in Plan
+    /// mode (the step is its override only), `started` the session being configured.
+    Reasoning { direction: reasoning::Direction, current: Current, plan: bool, started: bool },
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -579,6 +594,14 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 id
             };
             model.picked.push(Picked::Tier(next));
+        }
+        Intent::Reasoning { direction, current, plan, started } => {
+            match reasoning::step(&model.catalog, &current, direction, started) {
+                reasoning::Outcome::Set(effort) => {
+                    model.picked.push(Picked::Effort { model: current.model, effort, plan });
+                }
+                reasoning::Outcome::Say(note) => model.notes.push(note),
+            }
         }
         Intent::OpenApps { enabled } => model.open_apps(enabled),
         Intent::Choose(id) => match model.stack.last_mut() {

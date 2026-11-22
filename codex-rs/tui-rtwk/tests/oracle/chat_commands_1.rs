@@ -258,13 +258,20 @@ fn parent_owned_thread_blocks_all_direct_input_entry_points() {
 // ORACLE chatwidget/tests/composer_submission.rs:361 parent_owned_thread_blocks_settings_shortcuts kind=snap owner=chat-nav-pane snap=parent_owned_thread_rejects_settings_shortcuts
 #[test]
 fn parent_owned_thread_blocks_settings_shortcuts() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "shift+tab (cycle the collaboration mode) and alt+. / alt+, (reasoning effort) have keymap rows but no action in the port yet; no chunk of this wave owns them, so the parent-owned refusal of each has nothing to guard",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(PARENT_OWNED)
+        .open();
     s.keys("shift+tab alt+. alt+,");
-    s.assert_snap("parent_owned_thread_rejects_settings_shortcuts");
+    // The snapshot of the oracle is the three rows it inserted, one per shortcut.
+    let said = s
+        .rows()
+        .iter()
+        .filter(|row| row.trim_end() == "■ This sub-agent is controlled by its parent. Direct input is disabled.")
+        .count();
+    assert_eq!(said, 3, "{}", s.text());
+    // and neither the mode nor the effort was asked for
+    assert!(s.request_params("thread/settings/update").is_empty());
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:480 handoff_image_survives_model_rejection_and_submission_failure kind=snap owner=chat-nav-pane
