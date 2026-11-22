@@ -49,10 +49,13 @@ fn append(app: &mut CodexApp, thread: &ThreadId, notice: Notice, fx: &mut AppFx)
 /// `cyber_policy_notice`: the thread's own setting, the account's eligibility and the catalog's
 /// programs for the model the thread runs on).
 pub(super) fn daybreak_of(app: &CodexApp, thread: &ThreadId) -> Daybreak {
-    let slot = app.threads.get(thread).map(|model| &model.screen_slots().chat);
-    let model = slot
-        .and_then(|chat| chat.model.as_deref())
-        .or(app.screens.chat.status.model.as_deref());
+    let slot = app
+        .threads
+        .get(thread)
+        .map(|model| &model.screen_slots().chat);
+    let model =
+        slot.and_then(|chat| chat.model.as_deref())
+            .or(app.screens.chat.status.model.as_deref());
     let enabled = slot.and_then(|chat| chat.daybreak).unwrap_or(false);
     app.daybreak.notice(model, enabled)
 }

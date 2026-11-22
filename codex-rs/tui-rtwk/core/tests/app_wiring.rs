@@ -1419,9 +1419,9 @@ mod notices {
     use codex_tui_core::fixtures::builders::{turn_error, turn_started};
     use codex_tui_core::ids::ThreadId;
     use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::ScreenThreadEv;
     use codex_tui_core::screens::cells::Daybreak;
     use codex_tui_core::screens::chat::ThreadEv as ChatThreadEv;
-    use codex_tui_core::screens::ScreenThreadEv;
     use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
     use codex_tui_core::threads::{Item, Notice, ThreadEv};
     use pretty_assertions::assert_eq;
@@ -1569,7 +1569,11 @@ mod notices {
         );
         assert_eq!(items(&app), vec![Item::Notice(Notice::SafetyAccessBlock)]);
         let mut app = ready();
-        error(&mut app, r#"{"error":{"code":"bio_policy","message":"x"}}"#, None);
+        error(
+            &mut app,
+            r#"{"error":{"code":"bio_policy","message":"x"}}"#,
+            None,
+        );
         assert_eq!(items(&app), vec![Item::Notice(Notice::SafetyAccessBlock)]);
         let mut app = ready();
         error(&mut app, "something else", None);
@@ -1776,11 +1780,11 @@ mod host_asks {
         ] {
             apply_app(&mut app, AppEv::Effect { request, done }, &mut fx);
         }
+        assert_eq!(app.effect(2), Some(&Done::ClipboardImage(Ok(image))),);
         assert_eq!(
-            app.effect(2),
-            Some(&Done::ClipboardImage(Ok(image))),
+            app.effect(3),
+            Some(&Done::Desktop(Err("not installed".into())))
         );
-        assert_eq!(app.effect(3), Some(&Done::Desktop(Err("not installed".into()))));
     }
 
     // A failed copy keeps the host's text for the "failed to copy" line.
@@ -1800,5 +1804,235 @@ mod host_asks {
             app.effect(9),
             Some(&Done::Copy(Err("clipboard unavailable".into())))
         );
+    }
+}
+
+// Oracle `chatwidget/replay.rs` and `tests/history_replay.rs`: what a resumed thread's loaded turns
+// show and which of their user messages seed the composer's history.
+mod replay {
+    use codex_app_server_protocol::{ThreadItem, ThreadItemPayload, Turn, TurnStatus, UserInput};
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, apply_app, apply_thread};
+    use codex_tui_core::fixtures::builders::history_turn;
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::backtrack::Mention;
+    use codex_tui_core::threads::{Item, history_page};
+    use pretty_assertions::assert_eq;
+
+    const T: &str = "thread-1";
+
+    fn app() -> CodexApp {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, AppEv::Connected, &mut fx);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        apply_app(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+            &mut AppFx::default(),
+        );
+        app
+    }
+
+    /// The server's page: newest turn first.
+    fn load(app: &mut CodexApp, newest_first: &[Turn]) {
+        apply_thread(
+            app,
+            &ThreadId::new(T),
+            history_page(newest_first, None),
+            &mut AppFx::default(),
+        );
+    }
+
+    fn user(id: &str, inputs: Vec<UserInput>) -> ThreadItem {
+        ThreadItem::untimed(ThreadItemPayload::UserMessage {
+            id: id.to_owned(),
+            client_id: None,
+            content: inputs,
+        })
+    }
+
+    fn text(text: &str) -> UserInput {
+        UserInput::Text {
+            text: text.to_owned(),
+            text_elements: Vec::new(),
+        }
+    }
+
+    fn entered(id: &str) -> ThreadItem {
+        ThreadItem::untimed(ThreadItemPayload::EnteredReviewMode {
+            id: id.to_owned(),
+            review: "changes against main".to_owned(),
+        })
+    }
+
+    fn exited(id: &str) -> ThreadItem {
+        ThreadItem::untimed(ThreadItemPayload::ExitedReviewMode {
+            id: id.to_owned(),
+            review: "looks fine".to_owned(),
+        })
+    }
+
+    fn submitted(app: &CodexApp) -> Vec<String> {
+        app.active_thread()
+            .replayed_submissions()
+            .entries()
+            .iter()
+            .map(|submission| submission.prompt.text.clone())
+            .collect()
+    }
+
+    fn shown_users(app: &CodexApp) -> Vec<String> {
+        let thread = app.active_thread();
+        let transcript = thread.transcript();
+        (0..transcript.len())
+            .filter_map(|index| match transcript.get(index) {
+                Some((_, Item::User(prompt))) => Some(prompt.text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // `replayed_user_messages_seed_composer_history`: the entries are oldest first and keep the
+    // mention the input carried.
+    #[test]
+    fn replayed_user_messages_seed_the_composer_history_oldest_first() {
+        let mut app = app();
+        let mut first = history_turn("turn-1", "x", "ok");
+        first.items[0] = user(
+            "user-1",
+            vec![
+                text("use $sample"),
+                UserInput::Mention {
+                    name: "Sample Plugin".into(),
+                    path: "plugin://sample@test".into(),
+                },
+            ],
+        );
+        let mut second = history_turn("turn-2", "x", "ok");
+        second.items[0] = user(
+            "user-2",
+            vec![
+                text("use $google-calendar"),
+                UserInput::Mention {
+                    name: "Google Calendar".into(),
+                    path: "app://google_calendar".into(),
+                },
+            ],
+        );
+        load(&mut app, &[second, first]);
+        assert_eq!(submitted(&app), ["use $sample", "use $google-calendar"]);
+        assert_eq!(
+            app.active_thread().replayed_submissions().entries()[1]
+                .prompt
+                .mentions,
+            vec![Mention {
+                skill: false,
+                name: "Google Calendar".into(),
+                path: "app://google_calendar".into(),
+            }]
+        );
+        assert_eq!(shown_users(&app), ["use $sample", "use $google-calendar"]);
+    }
+
+    // `replayed_review_prompt_does_not_seed_composer_history`: the message after the review
+    // started is the review prompt; the one after it ended is the user's.
+    #[test]
+    fn a_replayed_review_prompt_adds_no_row_and_seeds_nothing() {
+        let mut app = app();
+        let mut review = history_turn("turn-1", "x", "ok");
+        review.items = vec![
+            entered("review-start"),
+            user(
+                "review-prompt",
+                vec![text(
+                    "Review the code changes against the base branch 'main'.",
+                )],
+            ),
+            exited("review-end"),
+        ];
+        let mut after = history_turn("turn-2", "x", "ok");
+        after.items[0] = user("user-2", vec![text("thanks")]);
+        load(&mut app, &[after, review]);
+        assert_eq!(submitted(&app), ["thanks"]);
+        assert_eq!(shown_users(&app), ["thanks"]);
+    }
+
+    // `replayed_nested_review_prompts_do_not_render_or_seed_composer_history`: an interrupted turn
+    // that follows a finished review and says the same message twice is hidden.
+    #[test]
+    fn a_hidden_nested_review_turn_shows_no_user_message_and_counts_as_completed() {
+        let mut app = app();
+        let mut review = history_turn("turn-1", "x", "ok");
+        review.items = vec![entered("review-start"), exited("review-end")];
+        let mut nested = history_turn("turn-2", "x", "ok");
+        nested.status = TurnStatus::Interrupted;
+        nested.completed_at = None;
+        nested.items = vec![
+            user("nested-1", vec![text("Review this")]),
+            user("nested-2", vec![text("Review this")]),
+        ];
+        load(&mut app, &[nested, review]);
+        assert_eq!(submitted(&app), Vec::<String>::new());
+        assert_eq!(shown_users(&app), Vec::<String>::new());
+        assert!(!app.active_thread().is_running());
+    }
+
+    // The same turns as two messages that differ are a user's own turn.
+    #[test]
+    fn an_interrupted_turn_of_two_different_messages_is_not_hidden() {
+        let mut app = app();
+        let mut review = history_turn("turn-1", "x", "ok");
+        review.items = vec![entered("review-start"), exited("review-end")];
+        let mut next = history_turn("turn-2", "x", "ok");
+        next.status = TurnStatus::Interrupted;
+        next.completed_at = None;
+        next.items = vec![
+            user("u-1", vec![text("one")]),
+            user("u-2", vec![text("two")]),
+        ];
+        load(&mut app, &[next, review]);
+        assert_eq!(submitted(&app), ["one", "two"]);
+    }
+
+    // An older page goes in front; a page seen again adds nothing.
+    #[test]
+    fn an_older_page_goes_in_front_and_the_generation_says_so() {
+        let mut app = app();
+        let mut newer = history_turn("turn-2", "x", "ok");
+        newer.items[0] = user("user-2", vec![text("second")]);
+        let mut older = history_turn("turn-1", "x", "ok");
+        older.items[0] = user("user-1", vec![text("first")]);
+        load(&mut app, std::slice::from_ref(&newer));
+        let generation = app.active_thread().replayed_submissions().generation();
+        load(&mut app, std::slice::from_ref(&older));
+        assert_eq!(submitted(&app), ["first", "second"]);
+        let after = app.active_thread().replayed_submissions().generation();
+        assert!(after > generation);
+        load(&mut app, std::slice::from_ref(&older));
+        assert_eq!(submitted(&app), ["first", "second"]);
+        assert_eq!(
+            app.active_thread().replayed_submissions().generation(),
+            after
+        );
+    }
+
+    // `replayed_in_progress_turn_marks_task_running`.
+    #[test]
+    fn a_replayed_turn_in_progress_marks_the_thread_running() {
+        let mut app = app();
+        let mut turn = history_turn("turn-1", "go", "working");
+        turn.status = TurnStatus::InProgress;
+        turn.completed_at = None;
+        load(&mut app, &[turn]);
+        assert!(app.active_thread().is_running());
+        assert_eq!(submitted(&app), ["go"]);
     }
 }

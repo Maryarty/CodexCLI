@@ -273,7 +273,9 @@ pub enum AppEv {
     /// The browser did not open a page (`Command::OpenUrl`; no answer otherwise): the host's
     /// error line (oracle `Failed to open browser for {url}: {err}`), which the shown
     /// conversation keeps as an error row. The words are the host's: core holds no prose.
-    OpenFailed { message: String },
+    OpenFailed {
+        message: String,
+    },
 }
 
 /// An event with the connection epoch it was attached under, and the

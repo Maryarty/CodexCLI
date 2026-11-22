@@ -118,12 +118,7 @@ impl Services {
 
     /// One ask of `Intent::Effect`, answered under `request`; `None` for the asks of the
     /// app-server (the title, the config).
-    pub async fn effect(
-        &self,
-        request: u64,
-        ask: Ask,
-        exec: &dyn WorkspaceExec,
-    ) -> Option<Ran> {
+    pub async fn effect(&self, request: u64, ask: Ask, exec: &dyn WorkspaceExec) -> Option<Ran> {
         let (done, terminal) = self.done(ask, exec).await?;
         Some(Ran {
             ev: AppEv::Effect { request, done },
@@ -144,11 +139,7 @@ impl Services {
             })
     }
 
-    async fn done(
-        &self,
-        ask: Ask,
-        exec: &dyn WorkspaceExec,
-    ) -> Option<(Done, Option<String>)> {
+    async fn done(&self, ask: Ask, exec: &dyn WorkspaceExec) -> Option<(Done, Option<String>)> {
         Some(match ask {
             Ask::Copy { text, format } => {
                 let done = self
@@ -430,7 +421,11 @@ mod tests {
             text: "hello".into(),
             format: CopyFormat::PlainText,
         };
-        let ran = rig.services.effect(1, ask, &NoExec).await.expect("an answer");
+        let ran = rig
+            .services
+            .effect(1, ask, &NoExec)
+            .await
+            .expect("an answer");
         assert!(matches!(
             ran.ev,
             AppEv::Effect {
@@ -572,8 +567,16 @@ mod tests {
     #[tokio::test]
     async fn a_browser_that_opens_says_nothing_and_one_that_fails_says_why() {
         let rig = rig(false, false);
-        assert!(rig.services.open_url("https://x.test".into()).await.is_none());
-        assert_eq!(*rig.opened.lock().unwrap(), vec!["https://x.test".to_owned()]);
+        assert!(
+            rig.services
+                .open_url("https://x.test".into())
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            *rig.opened.lock().unwrap(),
+            vec!["https://x.test".to_owned()]
+        );
         let rig = self::rig(false, true);
         let failed = rig.services.open_url("https://x.test".into()).await;
         assert!(matches!(

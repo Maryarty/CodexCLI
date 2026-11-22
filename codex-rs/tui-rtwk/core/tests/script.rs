@@ -278,7 +278,10 @@ mod replies {
     #[test]
     fn the_builders_make_a_page_the_protocol_reads_back() {
         let page = turns_page(
-            vec![history_turn("t1", "hello", "hi"), history_turn("t2", "more", "ok")],
+            vec![
+                history_turn("t1", "hello", "hi"),
+                history_turn("t2", "more", "ok"),
+            ],
             Some("older"),
             Some("newer"),
         );

@@ -19,6 +19,7 @@ pub mod goal;
 pub mod inline_vis;
 mod message;
 mod note;
+pub mod replay;
 pub mod stream_preview;
 mod user_prompt;
 
@@ -84,12 +85,12 @@ use crate::rpc::Pending;
 use crate::rpc::Reply;
 use crate::rpc::RpcError;
 use crate::screens;
-use crate::screens::cells::Daybreak;
 use crate::screens::ScreenCommand;
 use crate::screens::ScreenCtx;
 use crate::screens::ScreenThreadEv;
 use crate::screens::ScreenThreadIntent;
 use crate::screens::ThreadSlots;
+use crate::screens::cells::Daybreak;
 
 /// The key of a transcript entry (R4).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -787,6 +788,7 @@ pub enum ThreadEv {
     HistoryPage {
         turns: Vec<HistoryTurn>,
         next: Option<String>,
+        submissions: Vec<replay::Submission>,
     },
     /// The app asked for the next older page (`HistoryState::Loading` until it answers).
     HistoryRequested,
@@ -967,6 +969,8 @@ pub struct ThreadModel {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
+    /// The user messages the replayed turns seed the composer's history with.
+    submissions: replay::Submissions,
     /// What became of the last ask for an older page.
     history_ask: HistoryAsk,
     /// The thread's goal (`thread/goal/updated|cleared`, the answers of `thread/goal/get|set`).
@@ -1118,6 +1122,7 @@ impl ThreadModel {
             completed_items: HashSet::new(),
             history_next: None,
             history_ask: HistoryAsk::Idle,
+            submissions: replay::Submissions::default(),
             writer: Writer::Detached,
         }
     }
@@ -1128,6 +1133,13 @@ impl ThreadModel {
 
     pub(crate) fn history_cursor(&self) -> Option<&str> {
         self.history_next.as_deref()
+    }
+
+    /// The user messages of the loaded history that are submissions of this conversation, oldest
+    /// first (oracle `record_replayed_user_message_history`): the composer seeds its history
+    /// from them; review prompts and hidden nested review turns are not among them.
+    pub fn replayed_submissions(&self) -> &replay::Submissions {
+        &self.submissions
     }
 
     pub fn can_load_history(&self) -> bool {
@@ -1904,23 +1916,15 @@ fn turn_snapshot(turn: &codex_app_server_protocol::Turn) -> Option<TurnSnapshot>
     }
 }
 
-/// The server lists newest turns first. Project them in transcript order.
+/// The server lists newest turns first. Project them in transcript order (`replay`: the review
+/// prompts and hidden nested review turns are left out, the submissions are kept).
 pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<String>) -> ThreadEv {
-    let turns = turns
-        .iter()
-        .rev()
-        .filter_map(|turn| {
-            Some(HistoryTurn {
-                turn: TurnId::new(&turn.id),
-                end: turn_end(&turn.status),
-                started_at: turn.started_at,
-                timing: TurnTiming::from_turn(turn),
-                error: turn.error.as_ref().map(Fault::of),
-                items: turn_snapshot(turn)?,
-            })
-        })
-        .collect();
-    ThreadEv::HistoryPage { turns, next }
+    let (turns, submissions) = replay::project(turns);
+    ThreadEv::HistoryPage {
+        turns,
+        next,
+        submissions,
+    }
 }
 
 fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, Item)> {
@@ -2027,7 +2031,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.slots.chat.mark_budget_limited(turn);
             }
         }
-        ThreadEv::HistoryPage { turns, next } => {
+        ThreadEv::HistoryPage {
+            turns,
+            next,
+            submissions,
+        } => {
             for snapshot in &turns {
                 if snapshot.end.is_some() {
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
@@ -2055,6 +2063,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .map(|entry| (entry.turn.clone(), entry.timing))
                 .collect();
             model.transcript.prepend_snapshots(turns, fx.daybreak());
+            model.submissions.prepend(submissions);
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
             model.history_ask = HistoryAsk::Idle;

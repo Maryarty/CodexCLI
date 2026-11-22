@@ -104,7 +104,10 @@ pub struct Replies {
 impl Replies {
     /// Queues `answer` behind the replies of `method` already there.
     pub fn push(&mut self, method: impl Into<String>, answer: Answer) {
-        self.queues.entry(method.into()).or_default().push_back(answer);
+        self.queues
+            .entry(method.into())
+            .or_default()
+            .push_back(answer);
     }
 
     /// The reply for the next request of `method`, taken off its queue.
@@ -191,9 +194,11 @@ pub fn parse(text: &str) -> Result<Script, ScriptError> {
             line: line_no,
             message,
         };
-        let value = serde_json::from_str::<serde_json::Value>(line).map_err(|e| bad(e.to_string()))?;
+        let value =
+            serde_json::from_str::<serde_json::Value>(line).map_err(|e| bad(e.to_string()))?;
         if value.get("step").and_then(|step| step.as_str()) == Some("reply") {
-            let line = serde_json::from_value::<ReplyLine>(value).map_err(|e| bad(e.to_string()))?;
+            let line =
+                serde_json::from_value::<ReplyLine>(value).map_err(|e| bad(e.to_string()))?;
             let (method, answer) = reply_of(line).map_err(bad)?;
             replies.push(method, answer);
             continue;
