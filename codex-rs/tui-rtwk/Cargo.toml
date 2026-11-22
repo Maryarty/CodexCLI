@@ -83,6 +83,7 @@ codex-app-server-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/c
 codex-config = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/config" }
 codex-file-search = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/file-search" }
 codex-message-history = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/message-history" }
+codex-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/protocol" }
 codex-shell-command = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/shell-command" }
 codex-tui-core = { path = "core" }
 codex-utils-path = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/path-utils" }
@@ -93,6 +94,8 @@ rtwk-render = { workspace = true }
 rtwk-rich = { workspace = true }
 rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }
+# The clipboard image read (services/clipboard/read): the oracle's own features.
+image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 libc = "0.2"
 semver = "1.0"
 serde_json = "1"
@@ -111,6 +114,12 @@ tokio = { version = "1", features = ["io-util", "process", "rt-multi-thread", "s
 # The native clipboard (services/clipboard): the oracle's own features, none on Android.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 arboard = { version = "3", features = ["wayland-data-control"] }
+
+# The macOS pasteboard image read (services/clipboard/read/macos): the oracle's own features.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSEnumerator", "NSString"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
