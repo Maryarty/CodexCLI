@@ -15,6 +15,12 @@
 //!   with (`{"step":"respond","method":"account/rateLimits/read","result":{..}}`);
 //!   the model has no backend, so `play` skips it and a tester's fake backend
 //!   answers with it.
+//! - `reply`: what the backend answers the NEXT request of a method with, one
+//!   line per answer, in the order the requests come (`{"step":"reply",
+//!   "method":"thread/turns/list","result":{..}}`, or `"error":{"message":..}`
+//!   for a refusal). A reply is not an event of the script's timeline, so it is
+//!   not a [`Step`]: `parse` collects the lines into [`Script::replies`] and a
+//!   tester's fake backend takes from the queue as the requests arrive.
 //! - `key` and `resize`: inputs for a tester; the model has no use for them,
 //!   `play` hands them back in order.
 //!
@@ -24,6 +30,7 @@
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use serde::Deserialize;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::app::AppEv;
 use crate::app::AppFx;
@@ -78,10 +85,79 @@ pub enum Seed {
     Session { thread: String },
 }
 
+/// How the backend answers one request of a `reply` step.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Answer {
+    /// The request's `result`.
+    Result(serde_json::Value),
+    /// A refusal: the JSON-RPC error's code (if the script gave one) and message.
+    Error { code: Option<i64>, message: String },
+}
+
+/// The `reply` steps of a script, queued by method: the n-th request of a method gets the n-th
+/// reply of that method; a request with no reply left is not answered by the script.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Replies {
+    queues: BTreeMap<String, VecDeque<Answer>>,
+}
+
+impl Replies {
+    /// Queues `answer` behind the replies of `method` already there.
+    pub fn push(&mut self, method: impl Into<String>, answer: Answer) {
+        self.queues
+            .entry(method.into())
+            .or_default()
+            .push_back(answer);
+    }
+
+    /// The reply for the next request of `method`, taken off its queue.
+    pub fn next(&mut self, method: &str) -> Option<Answer> {
+        self.queues.get_mut(method)?.pop_front()
+    }
+
+    /// How many replies of `method` are still waiting.
+    pub fn waiting(&self, method: &str) -> usize {
+        self.queues.get(method).map_or(0, VecDeque::len)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queues.values().all(VecDeque::is_empty)
+    }
+}
+
 /// A parsed script.
 #[derive(Clone, Debug)]
 pub struct Script {
     pub steps: Vec<(usize, Step)>,
+    /// The `reply` steps, by method (see the module docs).
+    pub replies: Replies,
+}
+
+/// A `reply` line: exactly one of `result` and `error` (the `step` key was read by `parse`).
+#[derive(Deserialize)]
+struct ReplyLine {
+    method: String,
+    result: Option<serde_json::Value>,
+    error: Option<ErrorBody>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ErrorBody {
+    code: Option<i64>,
+    message: String,
+}
+
+fn reply_of(line: ReplyLine) -> Result<(String, Answer), String> {
+    let answer = match (line.result, line.error) {
+        (Some(result), None) => Answer::Result(result),
+        (None, Some(error)) => Answer::Error {
+            code: error.code,
+            message: error.message,
+        },
+        _ => return Err("a `reply` step has exactly one of `result` and `error`".to_string()),
+    };
+    Ok((line.method, answer))
 }
 
 /// An input for a tester, in the order the script gave it.
@@ -107,19 +183,30 @@ pub struct Played {
 /// Parses `text`; the first bad line stops it.
 pub fn parse(text: &str) -> Result<Script, ScriptError> {
     let mut steps = Vec::new();
+    let mut replies = Replies::default();
     for (index, line) in text.lines().enumerate() {
         let line_no = index + 1;
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let step = serde_json::from_str::<Step>(line).map_err(|err| ScriptError {
+        let bad = |message: String| ScriptError {
             line: line_no,
-            message: err.to_string(),
-        })?;
+            message,
+        };
+        let value =
+            serde_json::from_str::<serde_json::Value>(line).map_err(|e| bad(e.to_string()))?;
+        if value.get("step").and_then(|step| step.as_str()) == Some("reply") {
+            let line =
+                serde_json::from_value::<ReplyLine>(value).map_err(|e| bad(e.to_string()))?;
+            let (method, answer) = reply_of(line).map_err(bad)?;
+            replies.push(method, answer);
+            continue;
+        }
+        let step = serde_json::from_value::<Step>(value).map_err(|e| bad(e.to_string()))?;
         steps.push((line_no, step));
     }
-    Ok(Script { steps })
+    Ok(Script { steps, replies })
 }
 
 /// Plays `text` over a fresh, attached model.

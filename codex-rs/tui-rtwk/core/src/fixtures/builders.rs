@@ -159,3 +159,44 @@ pub fn tool_input_request(thread: &str, turn_id: &str, request_id: i64) -> Backe
         },
     }))
 }
+
+/// A finished turn as `thread/turns/list` returns it: the user's prompt and the agent's answer.
+pub fn history_turn(turn_id: &str, prompt: &str, answer: &str) -> Turn {
+    let mut turn = turn(turn_id, TurnStatus::Completed);
+    turn.items_view = codex_app_server_protocol::TurnItemsView::Full;
+    turn.items = vec![
+        ThreadItem::untimed(ThreadItemPayload::UserMessage {
+            id: [turn_id, "-user"].concat(),
+            client_id: None,
+            content: vec![UserInput::Text {
+                text: prompt.to_string(),
+                text_elements: Vec::new(),
+            }],
+        }),
+        ThreadItem::untimed(ThreadItemPayload::AgentMessage {
+            moderation: None,
+            id: [turn_id, "-agent"].concat(),
+            text: answer.to_string(),
+            phase: None,
+            memory_citation: None,
+            delivery: None,
+            questions: None,
+        }),
+    ];
+    turn
+}
+
+/// The result of `thread/turns/list` (a `reply` step's `result`): `turns` in the order the server
+/// sends the page, `next_cursor` the continuation (none on the last page).
+pub fn turns_page(
+    turns: Vec<Turn>,
+    next_cursor: Option<&str>,
+    backwards_cursor: Option<&str>,
+) -> serde_json::Value {
+    serde_json::to_value(codex_app_server_protocol::ThreadTurnsListResponse {
+        data: turns,
+        next_cursor: next_cursor.map(str::to_string),
+        backwards_cursor: backwards_cursor.map(str::to_string),
+    })
+    .unwrap_or(serde_json::Value::Null)
+}

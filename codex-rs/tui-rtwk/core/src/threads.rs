@@ -11,6 +11,7 @@ pub mod calls;
 mod cells;
 pub mod citations;
 mod collab;
+pub mod daybreak;
 pub mod decision;
 pub mod directives;
 pub mod followups;
@@ -18,6 +19,7 @@ pub mod goal;
 pub mod inline_vis;
 mod message;
 mod note;
+pub mod replay;
 pub mod stream_preview;
 mod user_prompt;
 
@@ -88,6 +90,7 @@ use crate::screens::ScreenCtx;
 use crate::screens::ScreenThreadEv;
 use crate::screens::ScreenThreadIntent;
 use crate::screens::ThreadSlots;
+use crate::screens::cells::Daybreak;
 
 /// The key of a transcript entry (R4).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -202,6 +205,45 @@ impl Item {
 pub enum ItemGroup {
     Exploration,
     Computer,
+}
+
+/// The kinds of item whose text streams in deltas.
+#[derive(Clone, Copy)]
+enum Text {
+    Agent,
+    Plan,
+}
+
+impl Text {
+    fn empty(self) -> Item {
+        match self {
+            Text::Agent => Item::Agent {
+                text: String::new(),
+                phase: None,
+            },
+            Text::Plan => Item::Plan {
+                text: String::new(),
+            },
+        }
+    }
+
+    fn text_of(self, item: &Item) -> Option<&String> {
+        match (self, item) {
+            (Text::Agent, Item::Agent { text, .. }) | (Text::Plan, Item::Plan { text }) => {
+                Some(text)
+            }
+            _ => None,
+        }
+    }
+
+    fn text_mut(self, item: &mut Item) -> Option<&mut String> {
+        match (self, item) {
+            (Text::Agent, Item::Agent { text, .. }) | (Text::Plan, Item::Plan { text }) => {
+                Some(text)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The ordered transcript: entries keyed `(TurnId, ItemId)`, kept in the
@@ -404,10 +446,10 @@ impl Transcript {
     }
 
     /// The error row of a turn, once per message.
-    fn report_error(&mut self, turn: &TurnId, fault: &Fault) {
+    fn report_error(&mut self, turn: &TurnId, fault: &Fault, daybreak: Daybreak) {
         if !self.holds_error(turn, fault) {
             let key = self.mint(turn.clone());
-            self.upsert(key, fault.item());
+            self.upsert(key, fault.item(daybreak));
         }
     }
 
@@ -432,6 +474,15 @@ impl Transcript {
 
     /// Appends a delta in wire order, scanning only its new bytes for a line boundary.
     pub fn append_agent(&mut self, key: ItemKey, delta: &str) {
+        self.append_text(key, delta, Text::Agent);
+    }
+
+    /// Appends a delta of the proposed plan (`item/plan/delta`), as an answer's text streams.
+    pub fn append_plan(&mut self, key: ItemKey, delta: &str) {
+        self.append_text(key, delta, Text::Plan);
+    }
+
+    fn append_text(&mut self, key: ItemKey, delta: &str, kind: Text) {
         if delta.is_empty() {
             return;
         }
@@ -440,26 +491,20 @@ impl Transcript {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let (item, committed) = match self.items.get(entry.key()) {
-                    Some(item) => match item.as_ref() {
-                        Item::Agent { text, .. } => (item.clone(), text.len()),
-                        _ => return,
+                    Some(item) => match kind.text_of(item) {
+                        Some(text) => (item.clone(), text.len()),
+                        None => return,
                     },
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
                         self.layout_revision += 1;
-                        (
-                            Rc::new(Item::Agent {
-                                text: String::new(),
-                                phase: None,
-                            }),
-                            0,
-                        )
+                        (Rc::new(kind.empty()), 0)
                     }
                 };
                 entry.insert(StreamingItem { item, committed })
             }
         };
-        if let Item::Agent { text, .. } = Rc::make_mut(&mut live.item) {
+        if let Some(text) = kind.text_mut(Rc::make_mut(&mut live.item)) {
             if let Some(last) = delta.rfind('\n') {
                 live.committed = text.len() + last + 1;
             }
@@ -515,7 +560,7 @@ impl Transcript {
 
     /// Installs a page from persisted history. Its full turns replace any
     /// live rows for those turns, including rows with synthesized ids.
-    fn prepend_snapshots(&mut self, snapshots: Vec<HistoryTurn>) {
+    fn prepend_snapshots(&mut self, snapshots: Vec<HistoryTurn>, daybreak: Daybreak) {
         if snapshots.is_empty() {
             return;
         }
@@ -569,7 +614,7 @@ impl Transcript {
                     turn: turn.clone(),
                     item: ItemId::new(format!("#{}", self.minted)),
                 };
-                stored.insert(key.clone(), Rc::new(fault.item()));
+                stored.insert(key.clone(), Rc::new(fault.item(daybreak)));
                 older.push(key);
             }
         }
@@ -743,6 +788,7 @@ pub enum ThreadEv {
     HistoryPage {
         turns: Vec<HistoryTurn>,
         next: Option<String>,
+        submissions: Vec<replay::Submission>,
     },
     /// The app asked for the next older page (`HistoryState::Loading` until it answers).
     HistoryRequested,
@@ -772,6 +818,11 @@ pub enum ThreadEv {
         item: Item,
     },
     AgentDelta {
+        key: ItemKey,
+        delta: String,
+    },
+    /// The proposed plan's text streams (`item/plan/delta`).
+    PlanDelta {
         key: ItemKey,
         delta: String,
     },
@@ -811,6 +862,15 @@ pub enum ThreadEv {
 }
 
 impl ThreadEv {
+    /// Whether the event can put a turn's error in the transcript (so its wording needs the
+    /// Daybreak facts): a failed turn, a restored page. Not a delta.
+    pub(crate) fn may_fail_a_turn(&self) -> bool {
+        matches!(
+            self,
+            Self::TurnError { .. } | Self::TurnCompleted { .. } | Self::HistoryPage { .. }
+        )
+    }
+
     /// The thread's server notifications: any of them but a retrying error
     /// ends the retry header (oracle `restore_retry_status_header_if_present`).
     fn is_notification(&self) -> bool {
@@ -822,6 +882,7 @@ impl ThreadEv {
             | Self::PlanUpdated { .. }
             | Self::Appended { .. }
             | Self::AgentDelta { .. }
+            | Self::PlanDelta { .. }
             | Self::CommandOutputDelta { .. }
             | Self::TurnEnded { .. }
             | Self::TurnCompleted { .. }
@@ -908,6 +969,8 @@ pub struct ThreadModel {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
+    /// The user messages the replayed turns seed the composer's history with.
+    submissions: replay::Submissions,
     /// What became of the last ask for an older page.
     history_ask: HistoryAsk,
     /// The thread's goal (`thread/goal/updated|cleared`, the answers of `thread/goal/get|set`).
@@ -1059,6 +1122,7 @@ impl ThreadModel {
             completed_items: HashSet::new(),
             history_next: None,
             history_ask: HistoryAsk::Idle,
+            submissions: replay::Submissions::default(),
             writer: Writer::Detached,
         }
     }
@@ -1069,6 +1133,13 @@ impl ThreadModel {
 
     pub(crate) fn history_cursor(&self) -> Option<&str> {
         self.history_next.as_deref()
+    }
+
+    /// The user messages of the loaded history that are submissions of this conversation, oldest
+    /// first (oracle `record_replayed_user_message_history`): the composer seeds its history
+    /// from them; review prompts and hidden nested review turns are not among them.
+    pub fn replayed_submissions(&self) -> &replay::Submissions {
+        &self.submissions
     }
 
     pub fn can_load_history(&self) -> bool {
@@ -1506,6 +1577,9 @@ pub struct ThreadFx<'a> {
     out: &'a mut AppFx,
     mint: &'a mut TicketMint,
     registered: Vec<(Ticket, ThreadCtx)>,
+    /// How the Daybreak setting words a cyber refusal at this moment (the app's fact, stamped
+    /// per event by `apply_thread`).
+    daybreak: Daybreak,
 }
 
 impl<'a> ThreadFx<'a> {
@@ -1515,7 +1589,18 @@ impl<'a> ThreadFx<'a> {
             out,
             mint,
             registered: Vec::new(),
+            daybreak: Daybreak::Apply,
         }
+    }
+
+    /// The same, with the wording of a cyber refusal at this moment.
+    pub(crate) fn stamped(mut self, daybreak: Daybreak) -> Self {
+        self.daybreak = daybreak;
+        self
+    }
+
+    fn daybreak(&self) -> Daybreak {
+        self.daybreak
     }
 
     /// A fresh ticket, for an acceptance that sends no RPC.
@@ -1672,6 +1757,16 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 delta: n.delta.clone(),
             },
         )),
+        ServerNotification::PlanDelta(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::PlanDelta {
+                key: ItemKey {
+                    turn: TurnId::new(&n.turn_id),
+                    item: ItemId::new(&n.item_id),
+                },
+                delta: n.delta.clone(),
+            },
+        )),
         ServerNotification::CommandExecutionOutputDelta(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::CommandOutputDelta {
@@ -1727,12 +1822,44 @@ pub enum Fault {
     Message(String),
     /// An overloaded server that said nothing (oracle `on_server_overloaded_error`).
     HighLoad,
+    /// A refused cybersecurity request (`codexErrorInfo: CyberPolicy`, oracle
+    /// `on_cyber_policy_error`): the notice is worded by the Daybreak setting at the moment it
+    /// was refused.
+    CyberPolicy,
+    /// A request refused for biology safety (oracle `is_bio_policy_error`).
+    SafetyAccessBlock,
+}
+
+const LEGACY_SAFETY_ACCESS_BLOCK_PREFIX: &str =
+    "Invalid prompt: we've limited access to this content for safety reasons.";
+const BIO_POLICY_SAFETY_ACCESS_BLOCK_PREFIX: &str =
+    "This content was flagged for possible biological risk.";
+
+/// Oracle `chatwidget/turn_runtime.rs` `is_bio_policy_error`: the message, or the JSON error
+/// object the server wrapped it in.
+fn is_bio_policy_error(message: &str) -> bool {
+    let blocked = |text: &str| {
+        text.starts_with(LEGACY_SAFETY_ACCESS_BLOCK_PREFIX)
+            || text.starts_with(BIO_POLICY_SAFETY_ACCESS_BLOCK_PREFIX)
+            || text.starts_with("This request has been flagged for possible biological risk.")
+    };
+    blocked(message)
+        || serde_json::from_str::<serde_json::Value>(message).is_ok_and(|response| {
+            response["error"]["code"].as_str() == Some("bio_policy")
+                || response["error"]["message"].as_str().is_some_and(blocked)
+        })
 }
 
 impl Fault {
     fn of(error: &codex_app_server_protocol::TurnError) -> Fault {
         use codex_app_server_protocol::CodexErrorInfo;
-        if matches!(
+        // The oracle's order (`handle_non_retry_error`): cyber policy, biology policy, then the
+        // overload that said nothing.
+        if error.codex_error_info == Some(CodexErrorInfo::CyberPolicy) {
+            Fault::CyberPolicy
+        } else if is_bio_policy_error(&error.message) {
+            Fault::SafetyAccessBlock
+        } else if matches!(
             error.codex_error_info,
             Some(CodexErrorInfo::ServerOverloaded | CodexErrorInfo::PolicyCapacityUnavailable)
         ) && error.message.trim().is_empty()
@@ -1743,12 +1870,15 @@ impl Fault {
         }
     }
 
-    fn item(&self) -> Item {
+    /// The row of the turn; a cyber refusal is worded by `daybreak`, the setting of the moment.
+    fn item(&self, daybreak: Daybreak) -> Item {
         match self {
             Fault::Message(message) => Item::Error {
                 message: message.clone(),
             },
             Fault::HighLoad => Item::HighLoad,
+            Fault::CyberPolicy => Item::Notice(Notice::CyberPolicy(daybreak)),
+            Fault::SafetyAccessBlock => Item::Notice(Notice::SafetyAccessBlock),
         }
     }
 
@@ -1757,6 +1887,8 @@ impl Fault {
         match (self, item) {
             (Fault::Message(message), Item::Error { message: held }) => message == held,
             (Fault::HighLoad, Item::HighLoad) => true,
+            (Fault::CyberPolicy, Item::Notice(Notice::CyberPolicy(_))) => true,
+            (Fault::SafetyAccessBlock, Item::Notice(Notice::SafetyAccessBlock)) => true,
             _ => false,
         }
     }
@@ -1784,26 +1916,15 @@ fn turn_snapshot(turn: &codex_app_server_protocol::Turn) -> Option<TurnSnapshot>
     }
 }
 
-/// The server lists newest turns first. Project them in transcript order.
+/// The server lists newest turns first. Project them in transcript order (`replay`: the review
+/// prompts and hidden nested review turns are left out, the submissions are kept).
 pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<String>) -> ThreadEv {
-    let turns = turns
-        .iter()
-        .rev()
-        .filter_map(|turn| {
-            Some(HistoryTurn {
-                turn: TurnId::new(&turn.id),
-                end: turn_end(&turn.status),
-                started_at: turn.started_at,
-                timing: TurnTiming::from_turn(turn),
-                error: turn
-                    .error
-                    .as_ref()
-                    .map(|error| Fault::Message(error.message.clone())),
-                items: turn_snapshot(turn)?,
-            })
-        })
-        .collect();
-    ThreadEv::HistoryPage { turns, next }
+    let (turns, submissions) = replay::project(turns);
+    ThreadEv::HistoryPage {
+        turns,
+        next,
+        submissions,
+    }
 }
 
 fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, Item)> {
@@ -1910,7 +2031,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.slots.chat.mark_budget_limited(turn);
             }
         }
-        ThreadEv::HistoryPage { turns, next } => {
+        ThreadEv::HistoryPage {
+            turns,
+            next,
+            submissions,
+        } => {
             for snapshot in &turns {
                 if snapshot.end.is_some() {
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
@@ -1937,7 +2062,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .iter()
                 .map(|entry| (entry.turn.clone(), entry.timing))
                 .collect();
-            model.transcript.prepend_snapshots(turns);
+            model.transcript.prepend_snapshots(turns, fx.daybreak());
+            model.submissions.prepend(submissions);
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
             model.history_ask = HistoryAsk::Idle;
@@ -2127,7 +2253,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // Oracle `on_error`: the turn is finalized, then the error row, then
             // the next queued input; the failed turn's own completion is a no-op.
             end_turn(model, turn.clone(), TurnEnd::Failed, fx);
-            model.transcript.report_error(&turn, &fault);
+            model.transcript.report_error(&turn, &fault, fx.daybreak());
         }
         ThreadEv::TurnStarted { turn, started_at } => {
             start_turn(model, turn.clone());
@@ -2179,6 +2305,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.transcript.append_agent(key, &delta);
             }
         }
+        ThreadEv::PlanDelta { key, delta } => {
+            if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
+                model.transcript.append_plan(key, &delta);
+            }
+        }
         ThreadEv::CommandOutputDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) {
                 model.transcript.append_command_output(key, &delta);
@@ -2214,7 +2345,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             model.transcript.remember_timings([(turn.clone(), timing)]);
             if let Some(fault) = &error {
-                model.transcript.report_error(&turn, fault);
+                model.transcript.report_error(&turn, fault, fx.daybreak());
             }
             end_turn(model, turn, end, fx);
         }
