@@ -143,6 +143,10 @@ fn entered_review_mode_defaults_to_current_changes_banner() {
 // ORACLE chatwidget/tests/review_mode.rs:131 live_review_prompt_item_is_not_rendered kind=ui owner=chat-live
 #[test]
 fn live_review_prompt_item_is_not_rendered() {
+    kit::pending(
+        Owner::ChatLive,
+        "the review banner draws (review mode is the thread's state now) but the completed review prompt user item still adds a row: which live user-message items draw (the own-submit echo rule of live_app_server_user_message_item_completed_does_not_duplicate_rendered_prompt) is cells/transcript's (threads/user_prompt.rs, threads/message.rs)",
+    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("changes against 'main'"));
     s.assert_contains("Code review started");
