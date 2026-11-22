@@ -23,6 +23,8 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ThreadDeleted(n) => &n.thread_id,
         N::ThreadUnarchived(n) => &n.thread_id,
         N::ThreadSettingsUpdated(n) => &n.thread_id,
+        N::ThreadGoalUpdated(n) => &n.thread_id,
+        N::ThreadGoalCleared(n) => &n.thread_id,
         N::ThreadClosed(n) => &n.thread_id,
         N::ThreadReverted(n) => &n.thread_id,
         N::ThreadReadStateChanged(n) => &n.thread_id,

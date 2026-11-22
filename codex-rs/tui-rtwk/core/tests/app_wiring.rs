@@ -482,3 +482,274 @@ mod composer_asks {
         assert_eq!(fx.commands(), &[], "taken once");
     }
 }
+
+/// The thread asks beyond turns (group B): the wire request of review, goal, background
+/// terminals, settings patch and the guardian retry, and the goal the notifications and answers
+/// set. Expected values are the oracle's (`app_server_session.rs`: `review_start`,
+/// `thread_goal_set|clear|get`, `thread_background_terminals_clean`, `thread_settings_update`,
+/// `thread_approve_guardian_denied_action`).
+mod thread_asks {
+    use codex_app_server_protocol::{
+        ClientRequest, RequestId, ReviewDelivery, ReviewStartParams, ReviewTarget as Wire,
+        ServerNotification, ThreadApproveGuardianDeniedActionParams,
+        ThreadBackgroundTerminalsCleanParams, ThreadGoalClearParams, ThreadGoalGetParams,
+        ThreadGoalMutationOrigin, ThreadGoalSetParams, ThreadGoalStatus,
+        ThreadSettingsUpdateParams,
+    };
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::{Reply, RpcError};
+    use codex_tui_core::screens::agents::{self, Command as AgentsCommand};
+    use codex_tui_core::threads::{
+        Goal, GoalStatus, ReviewTarget, SettingsPatch, ThreadAsk, goal_of_response,
+    };
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    const T: &str = "thread-1";
+
+    fn wire(ask: ThreadAsk) -> ClientRequest {
+        agents::wire(
+            &AgentsCommand::Thread(ask),
+            &ThreadId::new(T),
+            RequestId::Integer(1),
+        )
+    }
+
+    #[test]
+    fn a_review_starts_inline_on_the_thread() {
+        for (target, wire_target) in [
+            (ReviewTarget::UncommittedChanges, Wire::UncommittedChanges),
+            (
+                ReviewTarget::BaseBranch {
+                    branch: "main".into(),
+                },
+                Wire::BaseBranch {
+                    branch: "main".into(),
+                },
+            ),
+            (
+                ReviewTarget::Commit {
+                    sha: "abc123".into(),
+                    title: Some("Fix it".into()),
+                },
+                Wire::Commit {
+                    sha: "abc123".into(),
+                    title: Some("Fix it".into()),
+                },
+            ),
+            (
+                ReviewTarget::Custom {
+                    instructions: "look at the diff".into(),
+                },
+                Wire::Custom {
+                    instructions: "look at the diff".into(),
+                },
+            ),
+        ] {
+            assert_eq!(
+                wire(ThreadAsk::Review {
+                    thread: T.into(),
+                    target
+                }),
+                ClientRequest::ReviewStart {
+                    request_id: RequestId::Integer(1),
+                    params: ReviewStartParams {
+                        thread_id: T.into(),
+                        target: wire_target,
+                        delivery: Some(ReviewDelivery::Inline),
+                    },
+                }
+            );
+        }
+    }
+
+    /// A goal is set and cleared as the user (the server takes a goal change without that
+    /// provenance as the model's); a token budget of `Some(None)` removes it.
+    #[test]
+    fn goals_are_set_cleared_and_read_as_the_user() {
+        assert_eq!(
+            wire(ThreadAsk::GoalSet {
+                thread: T.into(),
+                objective: Some("ship it".into()),
+                status: Some(GoalStatus::Paused),
+                token_budget: Some(None),
+            }),
+            ClientRequest::ThreadGoalSet {
+                request_id: RequestId::Integer(1),
+                params: ThreadGoalSetParams {
+                    origin: Some(ThreadGoalMutationOrigin::User),
+                    thread_id: T.into(),
+                    objective: Some("ship it".into()),
+                    status: Some(ThreadGoalStatus::Paused),
+                    token_budget: Some(None),
+                },
+            }
+        );
+        assert_eq!(
+            wire(ThreadAsk::GoalClear { thread: T.into() }),
+            ClientRequest::ThreadGoalClear {
+                request_id: RequestId::Integer(1),
+                params: ThreadGoalClearParams {
+                    origin: Some(ThreadGoalMutationOrigin::User),
+                    thread_id: T.into(),
+                },
+            }
+        );
+        assert_eq!(
+            wire(ThreadAsk::GoalGet { thread: T.into() }),
+            ClientRequest::ThreadGoalGet {
+                request_id: RequestId::Integer(1),
+                params: ThreadGoalGetParams {
+                    thread_id: T.into(),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn background_terminals_are_cleaned_and_a_denial_is_retried() {
+        assert_eq!(
+            wire(ThreadAsk::CleanTerminals { thread: T.into() }),
+            ClientRequest::ThreadBackgroundTerminalsClean {
+                request_id: RequestId::Integer(1),
+                params: ThreadBackgroundTerminalsCleanParams {
+                    thread_id: T.into(),
+                },
+            }
+        );
+        let event = json!({ "id": "review-1", "status": "denied" });
+        assert_eq!(
+            wire(ThreadAsk::ApproveGuardianDenied {
+                thread: T.into(),
+                event: event.clone()
+            }),
+            ClientRequest::ThreadApproveGuardianDeniedAction {
+                request_id: RequestId::Integer(1),
+                params: ThreadApproveGuardianDeniedActionParams {
+                    thread_id: T.into(),
+                    event,
+                },
+            }
+        );
+    }
+
+    /// Only the fields a pick sets go out; the rest keep the thread's own.
+    #[test]
+    fn a_settings_patch_sends_only_what_it_sets() {
+        let patch = SettingsPatch {
+            model: Some("gpt-5".into()),
+            service_tier: Some(None),
+            ..SettingsPatch::default()
+        };
+        assert_eq!(
+            wire(ThreadAsk::SettingsUpdate {
+                thread: T.into(),
+                patch
+            }),
+            ClientRequest::ThreadSettingsUpdate {
+                request_id: RequestId::Integer(1),
+                params: ThreadSettingsUpdateParams {
+                    thread_id: T.into(),
+                    model: Some("gpt-5".into()),
+                    service_tier: Some(None),
+                    ..ThreadSettingsUpdateParams::default()
+                },
+            }
+        );
+    }
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    /// The app with its thread started, as after `Connected` and the reply.
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+        app
+    }
+
+    fn goal_json(objective: &str, status: &str) -> serde_json::Value {
+        json!({
+            "threadId": T, "objective": objective, "status": status, "tokenBudget": 5000,
+            "tokensUsed": 120, "timeUsedSeconds": 30, "createdAt": 10, "updatedAt": 20
+        })
+    }
+
+    fn notify(app: &mut CodexApp, method: &str, params: serde_json::Value) {
+        let notification: ServerNotification =
+            serde_json::from_value(json!({ "method": method, "params": params }))
+                .expect("notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        );
+    }
+
+    fn expected(objective: &str, status: GoalStatus) -> Goal {
+        Goal {
+            objective: objective.into(),
+            status,
+            token_budget: Some(5000),
+            tokens_used: 120,
+            time_used_seconds: 30,
+            created_at: 10,
+            updated_at: 20,
+        }
+    }
+
+    /// `thread/goal/updated|cleared` is the thread's goal: stored once in the `ThreadModel`.
+    #[test]
+    fn updated_and_cleared_notifications_set_and_clear_the_goal() {
+        let mut app = ready();
+        assert_eq!(app.active_thread().goal(), None);
+        notify(
+            &mut app,
+            "thread/goal/updated",
+            json!({ "threadId": T, "turnId": null, "goal": goal_json("ship it", "active") }),
+        );
+        assert_eq!(
+            app.active_thread().goal(),
+            Some(&expected("ship it", GoalStatus::Active))
+        );
+        notify(
+            &mut app,
+            "thread/goal/updated",
+            json!({ "threadId": T, "turnId": "turn-1", "goal": goal_json("ship it", "budgetLimited") }),
+        );
+        assert_eq!(
+            app.active_thread().goal(),
+            Some(&expected("ship it", GoalStatus::BudgetLimited))
+        );
+        notify(&mut app, "thread/goal/cleared", json!({ "threadId": T }));
+        assert_eq!(app.active_thread().goal(), None);
+    }
+
+    #[test]
+    fn the_answers_of_get_and_set_decode_to_the_goal() {
+        assert_eq!(
+            goal_of_response(json!({ "goal": goal_json("ship it", "paused") })),
+            Ok(Some(expected("ship it", GoalStatus::Paused)))
+        );
+        assert_eq!(goal_of_response(json!({ "goal": null })), Ok(None));
+        assert!(matches!(
+            goal_of_response(json!({ "goal": { "objective": 3 } })),
+            Err(RpcError::Malformed(_))
+        ));
+    }
+}

@@ -12,6 +12,7 @@ pub mod citations;
 mod collab;
 pub mod directives;
 pub mod followups;
+pub mod goal;
 pub mod inline_vis;
 mod message;
 pub mod stream_preview;
@@ -24,6 +25,7 @@ pub use cells::{
     WebActivity,
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
+pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, UserMessage};
 pub use user_prompt::UserPrompt;
 
@@ -34,10 +36,18 @@ use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ReviewDelivery;
+use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SortDirection;
+use codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams;
+use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
 use codex_app_server_protocol::ThreadCompactStartParams;
 use codex_app_server_protocol::ThreadForkParams;
+use codex_app_server_protocol::ThreadGoalClearParams;
+use codex_app_server_protocol::ThreadGoalGetParams;
+use codex_app_server_protocol::ThreadGoalMutationOrigin;
+use codex_app_server_protocol::ThreadGoalSetParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadReadParams;
@@ -711,6 +721,9 @@ pub enum ThreadEv {
         turn: TurnId,
         fault: Fault,
     },
+    /// The goal changed (`thread/goal/updated`, an answer of `thread/goal/get|set`) or was
+    /// cleared (`None`: `thread/goal/cleared`).
+    Goal(Option<Goal>),
     /// An MCP server's start or outcome (`mcpServer/startupStatus/updated`).
     Mcp {
         server: String,
@@ -818,6 +831,8 @@ pub struct ThreadModel {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
+    /// The thread's goal (`thread/goal/updated|cleared`, the answers of `thread/goal/get|set`).
+    goal: Option<Goal>,
     writer: Writer,
     /// Keeps the struct literal inside this module: a `ThreadModel` is made
     /// only by `ThreadSet::open` (ADR-003).
@@ -952,6 +967,7 @@ impl ThreadModel {
             restore: None,
             slots: ThreadSlots::default(),
             last_error: None,
+            goal: None,
             last_ended: None,
             finished_turns: Rc::default(),
             authoritative_turns: Rc::default(),
@@ -1011,6 +1027,11 @@ impl ThreadModel {
 
     pub fn last_error(&self) -> Option<&Failure> {
         self.last_error.as_ref()
+    }
+
+    /// The thread's goal, none when it has none.
+    pub fn goal(&self) -> Option<&Goal> {
+        self.goal.as_ref()
     }
 
     pub fn last_ended(&self) -> Option<&TurnId> {
@@ -1121,6 +1142,43 @@ pub enum ThreadAsk {
     Unsubscribe {
         thread: String,
     },
+    /// `review/start`, inline on the thread (oracle `review_start`).
+    Review {
+        thread: String,
+        target: ReviewTarget,
+    },
+    /// `thread/goal/get`.
+    GoalGet {
+        thread: String,
+    },
+    /// `thread/goal/set` as the user (oracle `thread_goal_set`): a new objective, a status
+    /// (`/goal pause|resume`), a token budget (`Some(None)` removes it).
+    GoalSet {
+        thread: String,
+        objective: Option<String>,
+        status: Option<GoalStatus>,
+        token_budget: Option<Option<i64>>,
+    },
+    /// `thread/goal/clear` as the user.
+    GoalClear {
+        thread: String,
+    },
+    /// `thread/backgroundTerminals/clean` (`/stop`).
+    CleanTerminals {
+        thread: String,
+    },
+    /// `thread/settings/update`: the settings the picks of the model, effort, permissions and
+    /// collaboration-mode popups change for the turns after them.
+    SettingsUpdate {
+        thread: String,
+        patch: SettingsPatch,
+    },
+    /// `thread/approveGuardianDeniedAction`: one retry of an action Auto Review denied; `event`
+    /// is the serialized assessment the review kept.
+    ApproveGuardianDenied {
+        thread: String,
+        event: serde_json::Value,
+    },
 }
 
 /// How many turns one page of a thread's history holds.
@@ -1145,6 +1203,13 @@ impl ThreadAsk {
             | ThreadAsk::Compact { thread }
             | ThreadAsk::Shell { thread, .. }
             | ThreadAsk::Rename { thread, .. }
+            | ThreadAsk::Review { thread, .. }
+            | ThreadAsk::GoalGet { thread }
+            | ThreadAsk::GoalSet { thread, .. }
+            | ThreadAsk::GoalClear { thread }
+            | ThreadAsk::CleanTerminals { thread }
+            | ThreadAsk::SettingsUpdate { thread, .. }
+            | ThreadAsk::ApproveGuardianDenied { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
         }
@@ -1293,6 +1358,61 @@ impl ThreadAsk {
                     thread_id: thread.clone(),
                 },
             },
+            ThreadAsk::Review { thread, target } => ClientRequest::ReviewStart {
+                request_id,
+                params: ReviewStartParams {
+                    thread_id: thread.clone(),
+                    target: target.wire(),
+                    delivery: Some(ReviewDelivery::Inline),
+                },
+            },
+            ThreadAsk::GoalGet { thread } => ClientRequest::ThreadGoalGet {
+                request_id,
+                params: ThreadGoalGetParams {
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::GoalSet {
+                thread,
+                objective,
+                status,
+                token_budget,
+            } => ClientRequest::ThreadGoalSet {
+                request_id,
+                params: ThreadGoalSetParams {
+                    origin: Some(ThreadGoalMutationOrigin::User),
+                    thread_id: thread.clone(),
+                    objective: objective.clone(),
+                    status: status.map(GoalStatus::wire),
+                    token_budget: *token_budget,
+                },
+            },
+            ThreadAsk::GoalClear { thread } => ClientRequest::ThreadGoalClear {
+                request_id,
+                params: ThreadGoalClearParams {
+                    origin: Some(ThreadGoalMutationOrigin::User),
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::CleanTerminals { thread } => ClientRequest::ThreadBackgroundTerminalsClean {
+                request_id,
+                params: ThreadBackgroundTerminalsCleanParams {
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::SettingsUpdate { thread, patch } => ClientRequest::ThreadSettingsUpdate {
+                request_id,
+                params: patch.wire(thread),
+            },
+            ThreadAsk::ApproveGuardianDenied { thread, event } => {
+                ClientRequest::ThreadApproveGuardianDeniedAction {
+                    request_id,
+                    params: ThreadApproveGuardianDeniedActionParams {
+                        thread_id: thread.clone(),
+                        event: event.clone(),
+                    },
+                }
+            }
         }
     }
 }
@@ -1403,6 +1523,13 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         )),
         ServerNotification::ThreadReverted(n) => {
             Some((ThreadId::new(&n.thread_id), ThreadEv::Reverted))
+        }
+        ServerNotification::ThreadGoalUpdated(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::Goal(Some(Goal::of(&n.goal))),
+        )),
+        ServerNotification::ThreadGoalCleared(n) => {
+            Some((ThreadId::new(&n.thread_id), ThreadEv::Goal(None)))
         }
         ServerNotification::McpServerStatusUpdated(n) => n.thread_id.as_deref().map(|thread| {
             (
@@ -1670,6 +1797,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.last_ended = None;
         }
         ThreadEv::Failure(error) => model.last_error = Some(error),
+        ThreadEv::Goal(goal) => model.goal = goal,
         ThreadEv::HistoryPage { turns, next } => {
             for snapshot in &turns {
                 if snapshot.end.is_some() {
