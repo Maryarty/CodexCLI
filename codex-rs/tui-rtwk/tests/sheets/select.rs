@@ -703,9 +703,9 @@ fn shrinking_the_browser_keeps_the_selected_row_visible() {
 /// The description column hides below 24 cells and the rows keep their whole
 /// width: at 48 cells the names stand alone, at 49 the details come back
 /// (`description_column_visibility`; the oracle's test draws raw rows: the
-/// second one carries its number by hand and a bare reason, while a disabled
-/// row of the list has no number and says `disabled: Unavailable`, as
-/// `selection_row_layout.rs` does).
+/// second one carries its number `2.` by hand, while a disabled row of the
+/// list has none; the reason is bare under this layout, as
+/// `selection_row_layout.rs` `combined_description` says).
 #[test]
 fn the_description_column_hides_when_it_would_be_narrow() {
     for width in [48u16, 49, 80] {
@@ -714,7 +714,7 @@ fn the_description_column_hides_when_it_would_be_narrow() {
         let (first, second) = if width >= 49 {
             (
                 format!("› 1. 日本語{}Details", " ".repeat(14)),
-                "     Blocked (disabled)  disabled: Unavailable".to_string(),
+                "     Blocked (disabled)  Unavailable".to_string(),
             )
         } else {
             (
@@ -723,5 +723,277 @@ fn the_description_column_hides_when_it_would_be_narrow() {
             )
         };
         assert_eq!(rows, [first, second], "width {width}");
+    }
+}
+
+/// An entry opened under the user's keymap, as the kit's `.keymap(..)` does.
+fn keyed(width: u16, height: u16, entry: &str, keys: &[(&str, &str)]) -> Harness {
+    let mut h = crate::common::start_driven(true, width, height);
+    h.connect();
+    h.set_keymap(keys);
+    h.open_debug_row("select", Some(entry));
+    h.advance(800);
+    h
+}
+
+fn screen_of(h: &Harness) -> String {
+    h.t.screen()
+}
+
+/// `list_selection_view.rs:2025`: a printable key bound to accept accepts,
+/// whether or not a search line is there to take it as a letter.
+#[test]
+fn a_printable_accept_key_wins_over_the_search_line() {
+    let mut h = keyed(60, 6, "accept_alternative", &[("list.accept", "z")]);
+    assert!(screen_of(&h).contains("Selection"));
+    h.press("z");
+    assert!(!screen_of(&h).contains('z'), "{}", screen_of(&h));
+}
+
+/// `list_selection_view.rs:2550`: a key the keymap binds to a list action is
+/// that action's, not a row's toggle. (A searchable list draws no numbers.)
+#[test]
+fn a_configured_list_binding_moves_before_it_toggles() {
+    let mut h = keyed(60, 6, "toggle_then_next", &[("list.move_down", "tab")]);
+    h.press("tab");
+    assert!(screen_of(&h).contains("› Next"), "{}", screen_of(&h));
+}
+
+/// `list_selection_view.rs:2598`: space bound to cancel cancels, it does not
+/// flip the checkbox.
+#[test]
+fn space_bound_to_cancel_closes_instead_of_flipping_the_checkbox() {
+    let mut h = keyed(60, 6, "animations_checkbox", &[("list.cancel", "space")]);
+    assert!(screen_of(&h).contains("Animations"));
+    h.press("space");
+    assert!(!screen_of(&h).contains("Animations"), "{}", screen_of(&h));
+}
+
+/// Without a binding for it, space still flips the checkbox.
+#[test]
+fn space_flips_the_checkbox_when_the_keymap_leaves_it_free() {
+    let mut h = keyed(60, 6, "animations_checkbox", &[]);
+    assert!(
+        screen_of(&h).contains("[x] Animations"),
+        "{}",
+        screen_of(&h)
+    );
+    h.press("space");
+    assert!(
+        screen_of(&h).contains("[ ] Animations"),
+        "{}",
+        screen_of(&h)
+    );
+}
+
+/// `list_selection_view.rs:2875, :2907, :2938`: ctrl+p and ctrl+n are the
+/// keymap's, not the search line's: unbound they do nothing, rebound they
+/// move the other way.
+#[test]
+fn ctrl_p_and_ctrl_n_follow_the_keymap_under_a_search_line() {
+    let mut h = keyed(
+        60,
+        6,
+        "first_second_searchable_second",
+        &[("list.move_up", "")],
+    );
+    h.press("ctrl+p");
+    assert!(screen_of(&h).contains("› Second"), "{}", screen_of(&h));
+    let mut h = keyed(60, 6, "first_second_searchable", &[("list.move_down", "")]);
+    h.press("ctrl+n");
+    assert!(screen_of(&h).contains("› First"), "{}", screen_of(&h));
+    let mut h = keyed(
+        60,
+        6,
+        "first_second_searchable",
+        &[("list.move_up", ""), ("list.move_down", "ctrl+p")],
+    );
+    h.press("ctrl+p");
+    assert!(screen_of(&h).contains("› Second"), "{}", screen_of(&h));
+}
+
+/// `list_selection_view.rs:2969`: page and jump keys are the keymap's.
+#[test]
+fn page_and_jump_keys_follow_the_keymap() {
+    // 60x12 shows eight rows between the arrows: a page is eight rows, as
+    // the oracle's `MAX_POPUP_ROWS` when it is not drawn smaller.
+    let mut h = keyed(
+        60,
+        12,
+        "twelve_items",
+        &[
+            ("list.page_down", "ctrl+d"),
+            ("list.page_up", "ctrl+u"),
+            ("list.jump_bottom", "ctrl+e"),
+            ("list.jump_top", "ctrl+a"),
+        ],
+    );
+    for (key, row) in [
+        ("pagedown", "› 1. Item 0"),
+        ("ctrl+d", "› 9. Item 8"),
+        ("ctrl+u", "› 1. Item 0"),
+        ("ctrl+e", "› 12. Item 11"),
+        ("ctrl+a", "› 1. Item 0"),
+    ] {
+        h.press(key);
+        assert!(screen_of(&h).contains(row), "{key}:\n{}", screen_of(&h));
+    }
+}
+
+/// `picker_hint_tests.rs`: the standard footer names the keys the keymap
+/// gives accept and cancel, and the cancel key closes the list.
+#[test]
+fn the_standard_footer_follows_the_configured_bindings() {
+    for entry in ["hint_default", "hint_picker"] {
+        let mut h = keyed(
+            60,
+            7,
+            entry,
+            &[("list.accept", "f3"), ("list.cancel", "f2")],
+        );
+        assert!(
+            screen_of(&h).contains("f3 select · f2 back"),
+            "{entry}:\n{}",
+            screen_of(&h)
+        );
+        h.press("f2");
+        assert!(!screen_of(&h).contains("Continue"), "{entry}");
+    }
+    let h = keyed(60, 7, "hint_default", &[]);
+    assert!(
+        screen_of(&h).contains("enter select · esc back"),
+        "{}",
+        screen_of(&h)
+    );
+}
+
+/// The cell of the first `text` on the screen, as (column, row).
+fn find(h: &Harness, text: &str) -> (usize, usize) {
+    h.t.screen()
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| line.find(text).map(|at| (line[..at].chars().count(), y)))
+        .unwrap_or_else(|| panic!("`{text}` is not on the screen:\n{}", h.t.screen()))
+}
+
+/// `selection_popup_common.rs:986`: the runs of a highlighted row keep their
+/// roles: the mnemonic underlined and bold with the accent, the status in the
+/// success colour, italic and bold, the description in the accent but not bold.
+#[test]
+fn the_runs_of_a_highlighted_row_keep_their_roles() {
+    use rtwk_core::style::{Attrs, Color};
+    let h = keyed(48, 1, "semantic_spans", &[]);
+    let (l, y) = find(&h, "L");
+    let (ready, _) = find(&h, "Ready");
+    let (details, _) = find(&h, "secondary");
+    let (name, _) = find(&h, "provider");
+    let key = h.t.cell(l, y);
+    assert!(
+        key.attrs.intersects(Attrs::BOLD | Attrs::UNDERLINE),
+        "{key:?}"
+    );
+    assert!(key.attrs.intersects(Attrs::UNDERLINE), "{key:?}");
+    let status = h.t.cell(ready, y);
+    assert_eq!(status.fg, Color::GREEN, "{status:?}");
+    assert!(status.attrs.intersects(Attrs::BOLD), "{status:?}");
+    assert!(status.attrs.intersects(Attrs::ITALIC), "{status:?}");
+    assert!(!h.t.cell(name, y).attrs.intersects(Attrs::UNDERLINE));
+    assert!(!h.t.cell(details, y).attrs.intersects(Attrs::BOLD));
+    assert_eq!(h.t.cell(details, y).fg, h.t.cell(l, y).fg);
+}
+
+/// `selection_popup_common.rs:1089`: the highlighted row is bold in the
+/// accent; a row beside it is plain.
+#[test]
+fn the_highlighted_row_is_bold_in_the_accent() {
+    use rtwk_core::style::Attrs;
+    let h = keyed(16, 1, "selected_row", &[]);
+    let mark = h.t.cell(0, 0);
+    assert!(mark.attrs.intersects(Attrs::BOLD), "{mark:?}");
+    assert_ne!(mark.fg, rtwk_core::style::Color::DEFAULT, "{mark:?}");
+}
+
+/// `selection_popup_common.rs:965`: a line break in a name keeps the second
+/// line under the first, one in a description stays a break in its column.
+#[test]
+fn line_breaks_in_a_name_and_a_description_stay_breaks() {
+    let h = keyed(24, 4, "hard_breaks", &[]);
+    let screen = screen_of(&h);
+    let rows: Vec<&str> = screen.lines().collect();
+    assert!(rows[0].ends_with("first"), "{screen}");
+    assert_eq!(rows[1].trim_end(), "  second", "{screen}");
+    let column = |row: &str, text: &str| row.find(text).map(|at| row[..at].chars().count());
+    assert!(
+        rows[2].contains("x") && rows[2].contains("alpha"),
+        "{screen}"
+    );
+    assert_eq!(
+        column(rows[3], "beta"),
+        column(rows[2], "alpha"),
+        "{screen}"
+    );
+}
+
+/// `selection_picker_tests.rs` `shared_menu_presentation_at_wide_and_narrow_sizes`:
+/// the two frames of the oracle's snapshot, a described row's long label cut
+/// with an ellipsis beside its description, a disabled row's reason bare, the
+/// label wrapped when the description column hides. The oracle draws the view
+/// into the whole area (footer on the last row); the dialog is as tall as its
+/// content, so the rows are compared from the blank row above the title on,
+/// and the footer row last.
+#[test]
+fn the_shared_menu_matches_the_oracle_at_both_sizes() {
+    let frames: [(u16, u16, &[&str]); 2] = [
+        (
+            80,
+            24,
+            &[
+                "",
+                "  Choose an option",
+                "  A menu with descriptions and disabled choices.",
+                "",
+                "",
+                "› 1. Recommended option                                 The description column",
+                "                                                        is visible when it fits.",
+                "  2. A long option label that still wraps at narrow wi… Additional details",
+                "     Unavailable (disabled)                             This option needs a",
+                "                                                        connected server.",
+            ],
+        ),
+        (
+            40,
+            16,
+            &[
+                "",
+                "  Choose an option",
+                "  A menu with descriptions and",
+                "  disabled choices.",
+                "",
+                "",
+                "› 1. Recommended option",
+                "  2. A long option label that still",
+                "     wraps at narrow widths",
+                "     Unavailable (disabled)",
+            ],
+        ),
+    ];
+    for (width, height, expected) in frames {
+        let h = keyed(width, height, "shared_menu", &[]);
+        let screen = screen_of(&h);
+        let rows: Vec<&str> = screen.lines().map(str::trim_end).collect();
+        let title = rows
+            .iter()
+            .position(|r| *r == "  Choose an option")
+            .unwrap_or(1);
+        let from = title - 1;
+        assert_eq!(
+            &rows[from..from + expected.len()],
+            expected,
+            "{width}x{height}:\n{screen}"
+        );
+        assert!(
+            rows.contains(&"  enter select · esc back"),
+            "{width}x{height}:\n{screen}"
+        );
     }
 }

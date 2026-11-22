@@ -20,7 +20,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 53] = [
+    let entries: [(&'static str, &'static str, &'static str); 64] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -285,6 +285,61 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "multi_twelve",
             "twelve multi-select rows",
             include_str!("fixtures/multi_twelve.jsonl"),
+        ),
+        (
+            "accept_alternative",
+            "a searchable row, accept bound to a printable key",
+            include_str!("fixtures/accept_alternative.jsonl"),
+        ),
+        (
+            "toggle_then_next",
+            "a toggle row and the row after it, searchable",
+            include_str!("fixtures/toggle_then_next.jsonl"),
+        ),
+        (
+            "animations_checkbox",
+            "one checkbox row",
+            include_str!("fixtures/animations_checkbox.jsonl"),
+        ),
+        (
+            "first_second_searchable",
+            "two rows under a search line",
+            include_str!("fixtures/first_second_searchable.jsonl"),
+        ),
+        (
+            "first_second_searchable_second",
+            "two rows under a search line, the second highlighted",
+            include_str!("fixtures/first_second_searchable_second.jsonl"),
+        ),
+        (
+            "twelve_items",
+            "twelve rows, no title",
+            include_str!("fixtures/twelve_items.jsonl"),
+        ),
+        (
+            "hint_default",
+            "one row, the standard footer",
+            include_str!("fixtures/hint_default.jsonl"),
+        ),
+        (
+            "hint_picker",
+            "one row, the standard footer, shared picker preset",
+            include_str!("fixtures/hint_picker.jsonl"),
+        ),
+        (
+            "semantic_spans",
+            "a row with underlined, success and dim runs",
+            include_str!("fixtures/semantic_spans.jsonl"),
+        ),
+        (
+            "selected_row",
+            "one highlighted row in the accent style",
+            include_str!("fixtures/selected_row.jsonl"),
+        ),
+        (
+            "hard_breaks",
+            "a two-line name, a two-line description",
+            include_str!("fixtures/hard_breaks.jsonl"),
         ),
     ];
     entries
