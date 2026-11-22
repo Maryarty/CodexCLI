@@ -118,6 +118,7 @@ pub(super) fn session_intent(
                     source,
                     backend,
                     name,
+                    plan: None,
                 },
             );
             fx.commands.push(request);
@@ -213,9 +214,8 @@ pub(super) fn session_intent(
                 );
             };
             let kind = codex_protocol::config_types::ModeKind::Plan;
-            let set = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-                chat::ThreadIntent::SetMode(kind),
-            ));
+            let set =
+                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMode(kind)));
             apply_thread(app, &thread, set, fx);
             if let Some(prompt) = prompt {
                 super::submit(app, &thread, UserMessage::text(prompt), fx);
@@ -324,6 +324,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
             source,
             backend,
             name: None,
+            plan: None,
         },
     );
     fx.commands.push(Command::Screen {
@@ -495,11 +496,37 @@ pub(super) fn plan_answer(
     };
     match answer {
         Answer::Implement => {
-            let ev = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-                chat::ThreadIntent::ImplementPlan,
-            ));
+            let ev =
+                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::ImplementPlan));
             apply_thread(app, &thread, ev, fx);
         }
-        Answer::ImplementFresh => {}
+        // `implement_plan_in_fresh_session`: a new thread, which takes the plan.
+        Answer::ImplementFresh => {
+            let Some(markdown) = app
+                .threads
+                .get(&thread)
+                .and_then(|model| model.screen_slots().chat.plan.prompt()?.plan.clone())
+            else {
+                return;
+            };
+            if app
+                .outgoing
+                .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+            {
+                return;
+            }
+            let ticket = app.mint.next();
+            let backend = app.screens.agents.owner_of(thread.as_str());
+            app.outgoing.insert(
+                ticket,
+                AppCtx::NewConversation {
+                    source: Some(thread),
+                    backend,
+                    name: None,
+                    plan: Some(markdown),
+                },
+            );
+            fx.commands.push(super::start_thread(app, ticket, backend));
+        }
     }
 }

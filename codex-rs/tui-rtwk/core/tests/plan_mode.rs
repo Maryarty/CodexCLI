@@ -167,7 +167,11 @@ fn the_cycle_key_flips_the_mode_only_while_idle() {
 
     notification(&mut app, turn_started(T, "turn-1"));
     let fx = chat_intent(&mut app, chat::ThreadIntent::CycleMode);
-    assert_eq!(mode(&app), ModeKind::Default, "a running turn keeps its mode");
+    assert_eq!(
+        mode(&app),
+        ModeKind::Default,
+        "a running turn keeps its mode"
+    );
     assert!(mode_requests(&fx).is_empty());
 }
 
@@ -227,13 +231,21 @@ fn a_message_sent_while_the_plan_streams_waits_in_the_queue() {
             message: UserMessage::text("later"),
         }),
     );
-    let queue: Vec<_> = thread(&app).queue().iter().map(|m| m.text.clone()).collect();
+    let queue: Vec<_> = thread(&app)
+        .queue()
+        .iter()
+        .map(|m| m.text.clone())
+        .collect();
     assert_eq!(queue, vec!["later".to_string()]);
     assert!(started(&fx).is_empty());
     assert!(
-        !fx.commands()
-            .iter()
-            .any(|c| matches!(c, Command::Screen { command: ScreenCommand::Chat(chat::Command::Steer { .. }), .. })),
+        !fx.commands().iter().any(|c| matches!(
+            c,
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Steer { .. }),
+                ..
+            }
+        )),
         "no steer"
     );
 }
@@ -258,4 +270,76 @@ fn yes_while_a_turn_runs_is_refused() {
     assert!(mode_requests(&fx).is_empty());
     assert!(started(&fx).is_empty());
     assert!(notes(&app).contains(&NoteKey::ModeBusy));
+}
+
+/// The row that clears the context starts a new thread, hands it the plan, and the prompt the
+/// server prepared starts its work.
+#[test]
+fn clearing_the_context_hands_the_plan_to_a_fresh_thread() {
+    use codex_tui_core::screens::select::list::{Item, List};
+    use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
+    use codex_tui_core::screens::{ScreenIntent, ScreenReply};
+
+    let mut app = planning();
+    notification(&mut app, turn_completed(T, "turn-1"));
+    let row = |id: &str| Item {
+        id: id.to_string(),
+        name: id.to_string(),
+        ..Item::default()
+    };
+    let list = List {
+        items: vec![row("plan.yes"), row("plan.clear"), row("plan.no")],
+        ..List::default()
+    };
+    let select = |app: &mut CodexApp, intent| {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
+        )
+    };
+    select(&mut app, SelectIntent::Open(Menu::List(Box::new(list))));
+    let fx = select(&mut app, SelectIntent::Choose("plan.clear".to_string()));
+    let ticket = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::StartThread { ticket, .. } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a new thread is started");
+
+    let fx = run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("thread-2"))),
+    );
+    let (ticket, thread, markdown) = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::Screen {
+                ticket,
+                thread,
+                command: ScreenCommand::Chat(chat::Command::ApprovePlan(markdown)),
+                ..
+            } => Some((*ticket, thread.clone(), markdown.clone())),
+            _ => None,
+        })
+        .expect("the fresh thread is handed the plan");
+    assert_eq!(thread, ThreadId::new("thread-2"));
+    assert_eq!(markdown, "- Step 1\n");
+
+    let fx = run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Chat(chat::Reply::Prepared(
+                "Implement this".to_string(),
+            ))),
+        ),
+    );
+    assert_eq!(started(&fx), vec!["Implement this".to_string()]);
+    assert_eq!(
+        app.active_thread().screen_slots().chat.mode(),
+        ModeKind::Default
+    );
 }

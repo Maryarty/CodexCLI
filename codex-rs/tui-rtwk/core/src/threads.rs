@@ -61,6 +61,7 @@ use codex_app_server_protocol::ThreadGoalMutationOrigin;
 use codex_app_server_protocol::ThreadGoalSetParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
+use codex_app_server_protocol::ThreadPrepareApprovedPlanParams;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadRevertParams;
@@ -1342,6 +1343,12 @@ pub enum ThreadAsk {
         thread: String,
         patch: SettingsPatch,
     },
+    /// `thread/prepareApprovedPlan`: the new thread takes the approved plan and answers with the
+    /// prompt that starts its work (the prompt's "clear context" row).
+    PrepareApprovedPlan {
+        thread: String,
+        markdown: String,
+    },
 }
 
 /// How many turns one page of a thread's history holds.
@@ -1372,6 +1379,7 @@ impl ThreadAsk {
             | ThreadAsk::GoalSet { thread, .. }
             | ThreadAsk::GoalClear { thread }
             | ThreadAsk::SettingsUpdate { thread, .. }
+            | ThreadAsk::PrepareApprovedPlan { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
         }
@@ -1566,6 +1574,16 @@ impl ThreadAsk {
                 request_id,
                 params: patch.wire(thread),
             },
+            ThreadAsk::PrepareApprovedPlan { thread, markdown } => {
+                ClientRequest::ThreadPrepareApprovedPlan {
+                    request_id,
+                    params: ThreadPrepareApprovedPlanParams {
+                        thread_id: thread.clone(),
+                        markdown: markdown.clone(),
+                        attachment_path: None,
+                    },
+                }
+            }
         }
     }
 }
@@ -2149,6 +2167,19 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     })),
                     answer,
                 ) => steer_reply(model, turn, retried, message, answer, fx),
+                // The fresh thread has the approved plan: its prompt starts the work.
+                (
+                    ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::ApprovePlan)),
+                    Answer::Screen(screens::ScreenReply::Chat(screens::chat::Reply::Prepared(
+                        prompt,
+                    ))),
+                ) => apply_ev(
+                    model,
+                    ThreadEv::Submit {
+                        message: UserMessage::text(prompt),
+                    },
+                    fx,
+                ),
                 (ThreadCtx::StartTurn { interrupt }, Answer::TurnStarted { turn, .. }) => {
                     // After a `Lagged` gap the end of this turn can have been
                     // seen before this reply: nothing will end it again, so

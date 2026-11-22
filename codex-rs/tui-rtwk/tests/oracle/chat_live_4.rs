@@ -146,7 +146,7 @@ fn advanced_reasoning_selection_in_plan_mode_uses_expected_scope() {
 fn plan_mode_reasoning_override_is_marked_current_in_reasoning_popup() {
     kit::pending(
         Owner::ChatLive,
-        "no Plan-mode reasoning override in the port, so no Low (current) mark: the reasoning popup of gpt-5.5 has no seed here, and the keys that reach it are not yet mapped",
+        "Plan-mode reasoning override and its popup belong to chunk-popups (the mode picker and reasoning popups are not part of plan mode's prompt)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // The oracle opens the popup from the preset directly; the port reaches it
@@ -179,7 +179,7 @@ fn plan_reasoning_scope_popup_all_modes_persists_global_and_plan_override() {
 fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
     kit::pending(
         Owner::ChatLive,
-        "no reasoning-scope prompt (Apply reasoning change): it opens from a Plan-mode reasoning selection, and the port has no Plan mode; the keys that open it are not yet mapped",
+        "the reasoning-scope prompt belongs to chunk-popups (the Plan reasoning override)",
     );
     let s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.assert_contains("Choose where to apply medium reasoning.");
@@ -197,7 +197,7 @@ fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
 fn plan_reasoning_scope_popup_mentions_built_in_plan_default_when_no_override() {
     kit::pending(
         Owner::ChatLive,
-        "no reasoning-scope prompt with no Plan override in the port (no Plan mode); the keys that open it are not yet mapped",
+        "the reasoning-scope prompt belongs to chunk-popups (the Plan reasoning override)",
     );
     let s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // Kit gap: the oracle matches the whitespace-collapsed text
@@ -329,7 +329,7 @@ fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
 fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
     kit::pending(
         Owner::ChatLive,
-        "no fixture yet for the 92% rate-limit snapshot the oracle sends before the turn completes, and no Implement-this-plan prompt in the port",
+        "the Implement-this-plan prompt exists; no fixture yet for the 92% rate-limit snapshot before the turn completes and the rate-limit switch prompt does not take precedence over the plan prompt (chunk-popups owns the rate-limit prompt)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -364,7 +364,7 @@ fn collab_mode_shift_tab_cycles_only_when_idle() {
 fn mode_switch_surfaces_model_change_notification_when_effective_model_changes() {
     kit::pending(
         Owner::ChatLive,
-        "no Plan mode and no plan model override (gpt-5.6-luna medium), so no model-change notice in the transcript; the port has no mode switch to surface it",
+        "G-mask: the mode switch works (/plan, Shift+Tab) but the port has no collaboration-mask catalogue, so no per-mode model/effort (gpt-5.6-luna medium for Plan) and no model-change notice; the masks come from collaborationMode/list, which no screen reads yet",
     );
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.keys("shift+tab");
@@ -378,7 +378,7 @@ fn mode_switch_surfaces_model_change_notification_when_effective_model_changes()
 fn mode_switch_surfaces_reasoning_change_notification_when_model_stays_same() {
     kit::pending(
         Owner::ChatLive,
-        "no Plan mode and no seed for the model gpt-5.6-terra at High effort, so no reasoning-change notice in the transcript",
+        "G-mask: the mode switch works but the port has no collaboration-mask catalogue (per-mode reasoning effort, gpt-5.6-terra High), so no reasoning-change notice",
     );
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.keys("shift+tab");

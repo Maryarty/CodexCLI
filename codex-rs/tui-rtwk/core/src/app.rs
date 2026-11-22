@@ -473,6 +473,8 @@ enum AppCtx {
         source: Option<ThreadId>,
         backend: BackendId,
         name: Option<String>,
+        /// The approved plan the new thread starts from (the plan prompt's "clear context" row).
+        plan: Option<String>,
     },
     /// `thread/archive` or `thread/delete` of the thread the chat shows
     /// (`/archive`, `/delete` after their confirmation).
@@ -1540,6 +1542,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 source,
                 backend,
                 name,
+                plan,
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread } => Ok((thread, None)),
@@ -1573,6 +1576,16 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             show_held_thread(app, thread.clone());
                         }
                         fetch_history(app, &thread, fx);
+                        if let Some(markdown) = plan {
+                            apply_thread(
+                                app,
+                                &thread,
+                                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+                                    chat::ThreadIntent::ApprovePlan(markdown),
+                                )),
+                                fx,
+                            );
+                        }
                     }
                     Err(error) => {
                         if let Some(source) = source {
