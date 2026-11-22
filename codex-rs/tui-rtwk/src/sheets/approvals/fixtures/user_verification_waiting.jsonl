@@ -1,0 +1,4 @@
+# oracle: bottom_pane/user_verification_tests.rs user_verification_waiting
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 12, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "deployments", "mode": "openai/userVerification", "_meta": null, "title": "Production deployment needs your approval.", "description": "Approve deploying the reviewed release?", "challenge": "challenge"}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": 12, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "deployments", "mode": "openai/userVerification", "_meta": null, "title": "Production deployment needs your approval.", "description": "Approve deploying the reviewed release?", "challenge": "challenge"}}, "waiting": true}}

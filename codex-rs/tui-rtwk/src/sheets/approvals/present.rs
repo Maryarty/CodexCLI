@@ -55,6 +55,9 @@ pub struct Body {
     /// The key that opens the thread the request came from (`o`), when the
     /// request is from another thread.
     pub open_thread: bool,
+    /// Drawn from the first row and the first column, with no inset and no list (only Esc and
+    /// the cancel key answer): the waiting view of a user verification.
+    pub flat: bool,
 }
 
 fn piece(text: &str, tone: Tone) -> Piece {
@@ -186,6 +189,7 @@ fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
                 options,
                 hint: approval_hint(s, exec.thread_label.is_some()),
                 open_thread: exec.thread_label.is_some(),
+                flat: false,
             }
         }
         Prompt::Patch(patch) => {
@@ -221,6 +225,7 @@ fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
                     .collect(),
                 hint: approval_hint(s, patch.thread_label.is_some()),
                 open_thread: patch.thread_label.is_some(),
+                flat: false,
             }
         }
         Prompt::Permissions(permissions) => {
@@ -249,6 +254,7 @@ fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
                     .collect(),
                 hint: approval_hint(s, permissions.thread_label.is_some()),
                 open_thread: permissions.thread_label.is_some(),
+                flat: false,
             }
         }
         Prompt::Elicitation(elicitation) => {
@@ -272,9 +278,57 @@ fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
                     .collect(),
                 hint: approval_hint(s, elicitation.thread_label.is_some()),
                 open_thread: elicitation.thread_label.is_some(),
+                flat: false,
             }
         }
         Prompt::UserInput(_) => return None,
+        Prompt::UserVerification(verification) => {
+            // The oracle's own view (`bottom_pane/user_verification.rs`): the title in bold,
+            // the thread, the server and the description; no thread key, no digits-only list.
+            let mut details = Vec::new();
+            if let Some(thread) = &verification.thread_label {
+                details.push(labelled(s.thread, thread, Tone::Bold));
+                details.push(Line::Blank);
+            }
+            details.push(labelled(s.server, &verification.server, Tone::Bold));
+            details.push(Line::Blank);
+            details.push(plain(verification.description.clone()));
+            let options = prompt
+                .decisions()
+                .iter()
+                .filter_map(|decision| approval_option(decision, s, Flavour::Verification))
+                .collect();
+            if verification.waiting {
+                let mut header = vec![
+                    Line::Pieces(vec![piece(s.verify_waiting, Tone::Bold)]),
+                    Line::Blank,
+                ];
+                header.extend(details);
+                header.push(Line::Blank);
+                header.push(Line::Pieces(vec![
+                    piece(s.hint_press, Tone::Dim),
+                    piece(s.key_esc, Tone::Bold),
+                    piece(s.hint_cancel_request, Tone::Dim),
+                ]));
+                Body {
+                    title: None,
+                    header,
+                    options,
+                    hint: Vec::new(),
+                    open_thread: false,
+                    flat: true,
+                }
+            } else {
+                Body {
+                    title: Some(verification.title.clone()),
+                    header: details,
+                    options,
+                    hint: approval_hint(s, false),
+                    open_thread: false,
+                    flat: false,
+                }
+            }
+        }
     })
 }
 
@@ -303,6 +357,7 @@ enum Flavour {
     Patch,
     Permissions,
     Elicitation,
+    Verification,
 }
 
 /// The label and shortcut of a decision (`exec_options`, `patch_options`,
@@ -319,6 +374,7 @@ fn approval_option(decision: &Decision, s: &Strings, flavour: Flavour) -> Option
     );
     let patch = matches!(flavour, Flavour::Patch);
     let (label, key) = match decision {
+        Decision::Verify => (s.verify_accept.to_string(), Some('y')),
         Decision::Accept if matches!(flavour, Flavour::Elicitation) => {
             (s.elicit_accept.to_string(), Some('y'))
         }
@@ -343,6 +399,9 @@ fn approval_option(decision: &Decision, s: &Strings, flavour: Flavour) -> Option
             (s.elicit_decline.to_string(), Some('d'))
         }
         Decision::Decline => (s.decline.to_string(), Some('d')),
+        Decision::Cancel if matches!(flavour, Flavour::Verification) => {
+            (s.elicit_cancel.to_string(), Some('c'))
+        }
         Decision::Cancel if matches!(flavour, Flavour::Elicitation) => {
             (s.elicit_cancel.to_string(), None)
         }
@@ -352,7 +411,8 @@ fn approval_option(decision: &Decision, s: &Strings, flavour: Flavour) -> Option
         Decision::GrantForSession => (s.grant_session.to_string(), Some('a')),
         Decision::DenyPermissions => (s.deny_permissions.to_string(), Some('d')),
     };
-    let escape = matches!(decision, Decision::Cancel);
+    // The user-verification list shows the cancel option's own key (`c`), not `esc`.
+    let escape = matches!(decision, Decision::Cancel) && !matches!(flavour, Flavour::Verification);
     Some(Choice {
         decision: decision.clone(),
         label,

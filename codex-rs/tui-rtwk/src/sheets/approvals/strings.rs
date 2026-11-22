@@ -81,6 +81,10 @@ pub struct Strings {
     pub elicit_accept: &'static str,
     pub elicit_decline: &'static str,
     pub elicit_cancel: &'static str,
+    // bottom_pane/user_verification.rs
+    pub verify_accept: &'static str,
+    pub verify_waiting: &'static str,
+    pub hint_cancel_request: &'static str,
     // bottom_pane/mcp_server_elicitation.rs: the form (`render`, `footer_tips`).
     pub field_progress: Msg<2>,
     pub required_unanswered: Msg<1>,
@@ -200,6 +204,9 @@ pub const EN: Strings = Strings {
     elicit_accept: "Yes, provide the requested info",
     elicit_decline: "No, but continue without it",
     elicit_cancel: "Cancel this request",
+    verify_accept: "Verify and approve",
+    verify_waiting: "Waiting for verification…",
+    hint_cancel_request: " to cancel this request",
     field_progress: msg!("Field {0}/{1}"),
     required_unanswered: msg!(" ({0} required unanswered)"),
     no_fields: "No fields",

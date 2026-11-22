@@ -885,3 +885,95 @@ mod inputs {
         );
     }
 }
+
+/// `bottom_pane/user_verification.rs`: the request a server makes for a device verification.
+mod user_verification {
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::screens::approvals::{
+        Decision, Intent as ApprovalIntent, Prompt, UserVerificationPrompt,
+    };
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    fn request() -> AppEv {
+        let request = serde_json::from_value(json!({
+            "method": "mcpServer/elicitation/request",
+            "id": 12,
+            "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "serverName": "deployments",
+                "mode": "openai/userVerification", "_meta": null,
+                "title": "Production deployment needs your approval.",
+                "description": "Approve deploying the reviewed release?",
+                "challenge": "c2VjcmV0"
+            }
+        }))
+        .expect("request");
+        AppEv::Backend(BackendEv::Request(Box::new(request)))
+    }
+
+    fn answer(app: &CodexApp, decision: Decision) -> AppEv {
+        let key = app.requests().head().expect("a request").key.clone();
+        AppEv::Intent(Intent::Screen(ScreenIntent::Approvals(
+            ApprovalIntent::Answer { key, decision },
+        )))
+    }
+
+    #[test]
+    fn the_request_is_a_prompt_that_keeps_the_challenge_out() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(), &mut fx);
+        let prompt = app.requests().head().and_then(|r| r.prompt.clone());
+        assert_eq!(
+            prompt.as_deref(),
+            Some(&Prompt::UserVerification(UserVerificationPrompt {
+                // No thread is shown yet: the request carries the label of its own.
+                thread_label: Some("Agent (1)".into()),
+                server: "deployments".into(),
+                title: "Production deployment needs your approval.".into(),
+                description: "Approve deploying the reviewed release?".into(),
+                waiting: false,
+            }))
+        );
+        assert_eq!(
+            prompt.expect("a prompt").decisions(),
+            vec![Decision::Verify, Decision::Cancel]
+        );
+    }
+
+    #[test]
+    fn once_the_verification_runs_only_cancel_is_left() {
+        let waiting = Prompt::UserVerification(UserVerificationPrompt {
+            waiting: true,
+            ..UserVerificationPrompt::default()
+        });
+        assert_eq!(waiting.decisions(), vec![Decision::Cancel]);
+    }
+
+    /// Cancel answers the elicitation as cancelled; accepting needs the device's proof, so a
+    /// plain Accept (or Verify, which only starts the controller) sends nothing and keeps the
+    /// request.
+    #[test]
+    fn cancel_answers_and_accept_without_a_proof_does_not() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(), &mut fx);
+        for decision in [Decision::Accept, Decision::Decline, Decision::Verify] {
+            let ev = answer(&app, decision);
+            apply_app(&mut app, ev, &mut fx);
+        }
+        assert_eq!(app.requests().entries.len(), 1);
+        assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+        let ev = answer(&app, Decision::Cancel);
+        apply_app(&mut app, ev, &mut fx);
+        assert!(app.requests().entries.is_empty());
+        let [Command::ResolveRequest { result, .. }] = fx.commands() else {
+            panic!("expected one answer: {:?}", fx.commands());
+        };
+        assert_eq!(
+            *result,
+            json!({ "action": "cancel", "content": null, "_meta": null })
+        );
+    }
+}

@@ -561,6 +561,80 @@ fn user_input_confirmation_a_tap_moves_the_cursor_and_a_second_tap_accepts() {
 /// The banner of the threads that wait (`pending_thread_approvals.rs`
 /// `render_single_thread_snapshot`, `render_multiple_threads_snapshot`): the thread labels, three
 /// at most and then `...`, over the `/subagents` line; the text wraps under itself.
+/// The user-verification request (`bottom_pane/user_verification.rs`): the prompt rows, the
+/// waiting view, and the keys of each state.
+mod user_verification {
+    use super::*;
+
+    const SNAPS: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__user_verification__tests__";
+
+    #[test]
+    fn the_prompt_rows_are_the_oracles() {
+        let h = open(80, 13, "user_verification");
+        assert_rows(
+            &h.t.screen(),
+            &format!("{SNAPS}user_verification_prompt.snap"),
+        );
+    }
+
+    #[test]
+    fn the_waiting_view_has_no_list_and_no_inset() {
+        let h = open(80, 9, "user_verification_waiting");
+        assert_rows(
+            &h.t.screen(),
+            &format!("{SNAPS}user_verification_waiting.snap"),
+        );
+    }
+
+    #[test]
+    fn the_cancel_key_digit_escape_and_a_second_tap_cancel_the_prompt() {
+        for keys in [&["c"][..], &["2"], &["esc"], &["down", "enter"]] {
+            let mut h = open(80, 13, "user_verification");
+            for key in keys {
+                h.press(key);
+            }
+            h.t.pump_for(ms(800));
+            assert!(
+                !shows(&h, "Verify and approve"),
+                "{keys:?}\n{}",
+                h.t.screen()
+            );
+        }
+        let mut h = open(80, 13, "user_verification");
+        tap(&mut h, "Cancel this request");
+        assert!(shows(&h, "› 2. Cancel this request"), "{}", h.t.screen());
+        tap(&mut h, "Cancel this request");
+        h.t.pump_for(ms(800));
+        assert!(!shows(&h, "Verify and approve"), "{}", h.t.screen());
+    }
+
+    /// Once verification runs only the cancel keys answer: Enter, the digits and the verify key do
+    /// nothing (the oracle swallows them in `try_handle_shortcut`).
+    #[test]
+    fn while_waiting_only_escape_and_the_cancel_key_answer() {
+        for key in ["enter", "1", "y"] {
+            let mut h = open(80, 9, "user_verification_waiting");
+            h.press(key);
+            h.t.pump_for(ms(300));
+            assert!(
+                shows(&h, "Waiting for verification"),
+                "{key}\n{}",
+                h.t.screen()
+            );
+        }
+        for key in ["esc", "c"] {
+            let mut h = open(80, 9, "user_verification_waiting");
+            h.press(key);
+            h.t.pump_for(ms(800));
+            assert!(
+                !shows(&h, "Waiting for verification"),
+                "{key}\n{}",
+                h.t.screen()
+            );
+        }
+    }
+}
+
 mod banner {
     use codex_tui_rtwk::app::run::localized;
     use codex_tui_rtwk::l10n::Lang;

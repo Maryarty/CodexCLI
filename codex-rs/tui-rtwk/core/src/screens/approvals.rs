@@ -96,6 +96,18 @@ pub struct ElicitationPrompt {
     pub form: Option<Form>,
 }
 
+/// The device verification an MCP server asks for (`bottom_pane/user_verification.rs`
+/// `UserVerificationRequest`). The challenge stays with the controller, never in a view.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UserVerificationPrompt {
+    pub thread_label: Option<String>,
+    pub server: String,
+    pub title: String,
+    pub description: String,
+    /// The user chose to verify and the controller waits for the device's proof.
+    pub waiting: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserInputPrompt {
     pub questions: Vec<Question>,
@@ -106,6 +118,9 @@ pub struct UserInputPrompt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decision {
     Accept,
+    /// Start the device verification of a user-verification request: not a response, the
+    /// controller answers the request once it has the proof (or the failure).
+    Verify,
     /// Accept and remember the command prefix (the rendered prefix).
     AcceptWithPrefix(String),
     AcceptForSession,
@@ -142,6 +157,7 @@ pub enum Prompt {
     Permissions(PermissionsPrompt),
     Elicitation(ElicitationPrompt),
     UserInput(UserInputPrompt),
+    UserVerification(UserVerificationPrompt),
 }
 
 impl Prompt {
@@ -153,6 +169,7 @@ impl Prompt {
             Prompt::Permissions(p) => p.thread_label.as_deref(),
             Prompt::Elicitation(p) => p.thread_label.as_deref(),
             Prompt::UserInput(_) => None,
+            Prompt::UserVerification(p) => p.thread_label.as_deref(),
         }
     }
 
@@ -164,6 +181,7 @@ impl Prompt {
             Prompt::Permissions(p) => p.thread_label = label,
             Prompt::Elicitation(p) => p.thread_label = label,
             Prompt::UserInput(_) => {}
+            Prompt::UserVerification(p) => p.thread_label = label,
         }
         self
     }
@@ -182,6 +200,9 @@ impl Prompt {
             Prompt::Elicitation(_) => vec![Decision::Accept, Decision::Decline, Decision::Cancel],
             // The questions are answered as a whole (`Intent::Respond`), not by a decision.
             Prompt::UserInput(_) => Vec::new(),
+            // The prompt asks to verify or to cancel; once verification runs, only cancel is left.
+            Prompt::UserVerification(p) if p.waiting => vec![Decision::Cancel],
+            Prompt::UserVerification(_) => vec![Decision::Verify, Decision::Cancel],
         }
     }
 }
@@ -349,6 +370,9 @@ enum SeedEv {
         label: Option<String>,
         #[serde(default)]
         destinations: Vec<String>,
+        /// A user verification whose device proof the controller waits for.
+        #[serde(default)]
+        waiting: bool,
     },
 }
 
@@ -360,12 +384,16 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         request,
         label,
         destinations,
+        waiting,
     } = seed;
     let mut entry = prompt_of(&request).ok_or_else(|| {
         crate::screens::SeedError::Bad("not a request this screen presents".into())
     })?;
     if let Prompt::Patch(patch) = &mut entry.prompt {
         patch.destinations = destinations;
+    }
+    if let Prompt::UserVerification(verification) = &mut entry.prompt {
+        verification.waiting = waiting;
     }
     entry.prompt = entry.prompt.with_thread_label(label);
     Ok(Ev::Presented(entry))
@@ -454,6 +482,19 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
             rule: rule_of(params.get("permissions")),
         }),
         "mcpServer/elicitation/request" => {
+            if params.get("mode").and_then(|m| m.as_str()) == Some("openai/userVerification") {
+                return Some(Entry {
+                    thread,
+                    id: ServerRequestId::new(id),
+                    prompt: Prompt::UserVerification(UserVerificationPrompt {
+                        thread_label: None,
+                        server: text("serverName").unwrap_or_default(),
+                        title: text("title").unwrap_or_default(),
+                        description: text("description").unwrap_or_default(),
+                        waiting: false,
+                    }),
+                });
+            }
             if params.get("mode").and_then(|m| m.as_str()) != Some("form") {
                 return None;
             }

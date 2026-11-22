@@ -202,6 +202,21 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "a freeform question whose text holds a URL",
             include_str!("fixtures/user_input_url_question.jsonl"),
         ),
+        (
+            "user_verification",
+            "a user-verification request: verify and approve, or cancel",
+            include_str!("fixtures/user_verification.jsonl"),
+        ),
+        (
+            "user_verification_waiting",
+            "the verification runs: the device's proof is awaited",
+            include_str!("fixtures/user_verification_waiting.jsonl"),
+        ),
+        (
+            "user_verification_long_urls",
+            "URLs longer than the width in the title and the description",
+            include_str!("fixtures/user_verification_long_urls.jsonl"),
+        ),
     ];
     entries
         .into_iter()

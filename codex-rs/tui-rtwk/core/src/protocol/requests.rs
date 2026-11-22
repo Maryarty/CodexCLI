@@ -119,6 +119,10 @@ pub(crate) fn answer(
                     },
                     D::Accept,
                 ) if requested_schema.properties.is_empty() => Some(serde_json::json!({})),
+                // Accepting a user verification carries the device's proof: the controller
+                // answers, never a plain choice.
+                (McpServerElicitationRequest::UserVerification { .. }, D::Cancel) => None,
+                (McpServerElicitationRequest::UserVerification { .. }, _) => return None,
                 (_, D::Accept | D::Decline | D::Cancel) => None,
                 _ => return None,
             };

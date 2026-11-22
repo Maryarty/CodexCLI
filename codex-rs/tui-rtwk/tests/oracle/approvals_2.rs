@@ -786,11 +786,10 @@ fn halfwidth_sound_marks_are_truncated_and_rendered_at_a_grapheme_boundary() {
 // ORACLE bottom_pane/user_verification_tests.rs:58 prompt_snapshot kind=snap owner=dialogs-pane snap=user_verification_prompt
 #[test]
 fn prompt_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no user-verification request in the port: core has no kind for it and no widget draws it",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 12).live().open();
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 12)
+        .entry("approvals", "user_verification")
+        .open();
     s.assert_snap("user_verification_prompt");
 }
 
@@ -799,9 +798,12 @@ fn prompt_snapshot() {
 fn clipped_prompt_exposes_fullscreen_hint() {
     kit::pending(
         Owner::DialogsPane,
-        "no user-verification request in the port: core has no kind for it and no widget draws it",
+        "the clipped header: a header taller than the pane is cut to `[… N lines]` with the `⌃a view all` hint, and nothing in the dialog clips its header yet",
     );
-    let s = Screen::build(Owner::DialogsPane).size(40, 8).live().open();
+    let s = Screen::build(Owner::DialogsPane)
+        .size(40, 8)
+        .entry("approvals", "user_verification")
+        .open();
     s.assert_snap("user_verification_narrow");
 }
 
@@ -810,9 +812,12 @@ fn clipped_prompt_exposes_fullscreen_hint() {
 fn waiting_snapshot_and_duplicate_approval_suppression() {
     kit::pending(
         Owner::DialogsPane,
-        "no user-verification request in the port: core has no kind for it and no widget draws it",
+        "Enter on Verify starts the controller (userVerification/verify, the attempt, the waiting flag on the queued prompt): app.rs, handed over; the waiting view itself is the entry user_verification_waiting, pinned in tests/sheets/approvals.rs",
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 7).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 7)
+        .entry("approvals", "user_verification")
+        .open();
     s.keys("enter");
     s.assert_snap("user_verification_waiting");
 }
@@ -840,9 +845,12 @@ fn full_screen_request_is_available_before_and_during_verification() {
 fn long_url_tokens_remain_visible_in_a_narrow_verification_prompt() {
     kit::pending(
         Owner::DialogsPane,
-        "no user-verification request in the port: core has no kind for it and no widget draws it",
+        "G72: a URL in a plain string has no autolink (the prompt's OSC 8 links) and TextWrap::Word breaks the URL after a hyphen where the oracle cuts it at the width; the rows differ only there",
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(30, 18).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(30, 18)
+        .entry("approvals", "user_verification_long_urls")
+        .open();
     s.assert_snap("user_verification_long_urls");
     s.keys("enter");
     s.assert_link(

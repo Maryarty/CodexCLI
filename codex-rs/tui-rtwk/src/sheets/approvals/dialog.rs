@@ -180,20 +180,24 @@ impl State for RequestDialogState {
         // The oracle's bottom pane: a blank row, the question in bold, the
         // header, the options (the cursor row in the accent colour, marked
         // `›`), a blank row and the hint, all two cells in.
+        let flat = body.flat;
+        let inset = |child: AnyWidget| if flat { child } else { inset(child) };
         let mut pane = Column::new()
             .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(Text::new(String::new()));
+            .cross_axis_alignment(CrossAxisAlignment::Stretch);
+        if !flat {
+            pane = pane.child(Text::new(String::new()));
+        }
         if let Some(title) = &body.title {
             pane = pane
-                .child(inset(Text::new(title.clone()).style(tokens.bold())))
+                .child(inset(Text::new(title.clone()).style(tokens.bold()).into()))
                 .child(Text::new(String::new()));
         }
         for line in &body.header {
             pane = match line {
                 Line::Blank => pane.child(Text::new(String::new())),
                 Line::Pieces(pieces) => {
-                    pane.child(inset(Text::rich(spans(pieces)).wrap(TextWrap::Word)))
+                    pane.child(inset(Text::rich(spans(pieces)).wrap(TextWrap::Word).into()))
                 }
                 Line::Command(command) => {
                     let code = Highlighter::new(language_named("bash"), command);
@@ -213,9 +217,21 @@ impl State for RequestDialogState {
                         );
                         lines = lines.child(Text::rich(row).wrap(TextWrap::Word));
                     }
-                    pane.child(inset(lines))
+                    pane.child(inset(lines.into()))
                 }
             };
+        }
+        // The waiting view of a user verification has no list: Esc and the cancel key only.
+        if flat {
+            let mut focus = Focus::new(Dialog::bare(
+                BoxWidget::new().style(Style::new()).child(pane),
+            ))
+            .can_request_focus(false)
+            .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Cancel));
+            for option in body.options.iter().filter_map(|option| option.key) {
+                focus = focus.bind(option, cx.send(Msg::Cancel));
+            }
+            return focus.into();
         }
         let styles = OptionStyles {
             cursor: tokens.accent().attrs(Attrs::BOLD),
@@ -228,7 +244,7 @@ impl State for RequestDialogState {
         pane = pane
             .child(options)
             .child(Text::new(String::new()))
-            .child(inset(Text::rich(spans(&body.hint))));
+            .child(inset(Text::rich(spans(&body.hint)).into()));
         let mut focus = Focus::new(Dialog::bare(
             BoxWidget::new().style(Style::new()).child(pane),
         ))
