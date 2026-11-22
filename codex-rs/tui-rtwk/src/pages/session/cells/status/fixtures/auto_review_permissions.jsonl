@@ -1,0 +1,4 @@
+# The /status cell: the :workspace profile with the auto-review reviewer answering approvals.
+# Oracle: status/tests.rs:879 status_snapshot_shows_auto_review_permissions (the cwd is the sanitised `[[workspace]]` of its snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning":{"effort":"none","summary":"auto"},"directory":"[[workspace]]","permissions":{"profile":":workspace","sandbox":"workspace","network":false,"approval":"on_request","auto_review":true},"tokens":{"input":0,"cached_input":0,"output":0,"total":0},"usage_link":true,"hour24":true,"context":{"window":272000,"used":0,"percent_left":100},"limits":{"snapshots":[],"now":1704164645,"refreshing":false}}}

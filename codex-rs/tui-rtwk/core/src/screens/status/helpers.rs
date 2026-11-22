@@ -30,7 +30,7 @@ pub enum PlanLabel {
     Unknown,
 }
 
-// oracle: ../status/helpers.rs fn plan_type_display_name
+// oracle: ../status/helpers.rs fn plan_type_display_name (adapted: typed, no prose)
 pub fn plan_label(plan: PlanType) -> PlanLabel {
     match plan {
         PlanType::Free => PlanLabel::Free,

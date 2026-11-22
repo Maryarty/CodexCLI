@@ -39,7 +39,7 @@ pub enum ModelDetail {
     Summaries(String),
 }
 
-// oracle: ../status/helpers.rs fn compose_model_display
+// oracle: ../status/helpers.rs fn compose_model_display (adapted: typed, no prose)
 pub fn model_details(reasoning: &Reasoning) -> Vec<ModelDetail> {
     let mut details = vec![ModelDetail::Reasoning(reasoning.effort.to_ascii_lowercase())];
     if let Some(summary) = &reasoning.summary {
@@ -57,7 +57,7 @@ pub fn model_details(reasoning: &Reasoning) -> Vec<ModelDetail> {
 /// `summarize_permission_profile`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Sandbox {
+pub enum SandboxKind {
     ReadOnly,
     Workspace,
     Custom,
@@ -72,7 +72,7 @@ pub struct Permissions {
     /// The id of the active permission profile (`:workspace`, a user's own).
     #[serde(default)]
     pub profile: Option<String>,
-    pub sandbox: Sandbox,
+    pub sandbox: SandboxKind,
     /// The sandbox lets the network through.
     #[serde(default)]
     pub network: bool,
@@ -99,7 +99,7 @@ pub enum ApprovalLabel {
 /// A sandbox as the custom and profile labels spell it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SandboxText {
-    pub sandbox: Sandbox,
+    pub sandbox: SandboxKind,
     pub network: bool,
     /// The extra roots, spelled after a workspace sandbox only.
     pub roots: Vec<String>,
@@ -133,14 +133,14 @@ pub enum PermissionsLabel {
 }
 
 impl Permissions {
-    // oracle: status/card.rs fn status_permissions_label
+    // oracle: status/card.rs fn status_permissions_label (adapted: typed, no prose)
     pub fn label(&self) -> PermissionsLabel {
         let approval = match (self.approval, self.auto_review) {
             (Approval::OnRequest, true) => ApprovalLabel::ApproveForMe,
             (Approval::OnRequest, false) => ApprovalLabel::Ask,
             (policy, _) => ApprovalLabel::Policy(policy),
         };
-        let workspace = self.sandbox == Sandbox::Workspace;
+        let workspace = self.sandbox == SandboxKind::Workspace;
         let plain = |sandbox| !self.network && self.sandbox == sandbox;
         let sandbox = SandboxText {
             sandbox: self.sandbox,
@@ -154,7 +154,7 @@ impl Permissions {
         match self.profile.as_deref() {
             Some(":read-only") => {
                 return PermissionsLabel::ReadOnly {
-                    network: self.sandbox == Sandbox::ReadOnly && self.network,
+                    network: self.sandbox == SandboxKind::ReadOnly && self.network,
                     approval,
                 };
             }
@@ -182,13 +182,13 @@ impl Permissions {
             }
             None => {}
         }
-        if plain(Sandbox::ReadOnly) {
+        if plain(SandboxKind::ReadOnly) {
             return PermissionsLabel::ReadOnly {
                 network: false,
                 approval,
             };
         }
-        if self.approval == Approval::OnRequest && plain(Sandbox::Workspace) {
+        if self.approval == Approval::OnRequest && plain(SandboxKind::Workspace) {
             return PermissionsLabel::Workspace {
                 network: false,
                 roots: self.extra_roots.clone(),

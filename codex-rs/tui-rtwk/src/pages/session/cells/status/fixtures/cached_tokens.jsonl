@@ -1,0 +1,4 @@
+# The /status cell: 1_200 input of which 400 cached: the card names no cached tokens (120 columns).
+# Oracle: status/tests.rs:1461 status_card_token_usage_excludes_cached_tokens (the cwd is the sanitised `[[workspace]]` of its snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning":{"effort":"none","summary":"auto"},"directory":"[[workspace]]","permissions":{"sandbox":"workspace","network":true,"approval":"on_request"},"tokens":{"input":1200,"cached_input":400,"output":900,"total":2100},"usage_link":true,"hour24":true,"limits":{"snapshots":[],"now":1709528767,"refreshing":false}}}

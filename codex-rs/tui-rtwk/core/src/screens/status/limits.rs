@@ -183,7 +183,7 @@ pub enum Data {
 }
 
 impl Limits {
-    // oracle: status/rate_limits.rs fn compose_rate_limit_data_many
+    // oracle: status/rate_limits.rs fn compose_rate_limit_data_many (adapted: typed rows, no prose)
     pub fn data(&self) -> Data {
         if self.snapshots.is_empty() {
             return Data::Missing;
@@ -276,7 +276,7 @@ fn bucket_name(name: &str) -> String {
     }
 }
 
-// oracle: status/rate_limits.rs fn credit_status_row
+// oracle: status/rate_limits.rs fn credit_status_row (adapted: typed rows, no prose)
 fn credits_text(credits: &Credits) -> Option<CreditsText> {
     if credits.unlimited {
         return Some(CreditsText::Unlimited);
@@ -293,7 +293,7 @@ fn credits_text(credits: &Credits) -> Option<CreditsText> {
     )
 }
 
-// oracle: status/rate_limits.rs fn format_credit_balance
+// oracle: status/rate_limits.rs fn format_credit_balance (adapted: typed rows, no prose)
 fn credit_balance(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

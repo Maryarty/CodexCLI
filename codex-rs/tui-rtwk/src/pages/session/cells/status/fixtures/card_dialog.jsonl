@@ -1,0 +1,6 @@
+# The /status card of a ChatGPT session with reasoning details and two rate-limit windows.
+# Oracle data: status/tests.rs:271 status_snapshot_includes_reasoning_details
+# (the cwd is the sanitised `[[workspace]]` of its snapshot; 1_200 input of which 200 cached,
+# 900 output, 2_250 total; windows 300 and 10080 minutes used 72% and 45%, reset 3:14 and 3:24)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning_effort":"high","reasoning_summary":"detailed","directory":"[[workspace]]","profile":"workspace","approval":"on_request","tokens":{"input":1200,"cached_input":200,"output":900,"total":2250},"context":{"window":272000,"used":2250,"percent_left":100},"limits":[{"window_minutes":300,"used_percent":72,"reset":{"hour":3,"minute":14}},{"window_minutes":10080,"used_percent":45,"reset":{"hour":3,"minute":24}}]}}

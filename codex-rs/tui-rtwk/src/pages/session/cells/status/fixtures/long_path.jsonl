@@ -1,0 +1,4 @@
+# The /status cell: a long wide-character directory, a session id and a long thread name.
+# Oracle: status/tests.rs:1507 status_wraps_long_paths_and_session_ids_without_losing_text (the cwd is the sanitised `[[workspace]]` of its snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.5","reasoning":{"effort":"none","summary":"auto"},"directory":"/workspace/projects/界界/ｶﾞﾞ/a-very-long-directory-name/codex","permissions":{"sandbox":"workspace","network":true,"approval":"on_request"},"tokens":{"input":0,"cached_input":0,"output":0,"total":0},"usage_link":true,"hour24":true,"session_id":"00000000-0000-0000-0000-000000000123","thread_name":"A thread with a long descriptive name","limits":{"snapshots":[],"now":1709528767,"refreshing":false}}}

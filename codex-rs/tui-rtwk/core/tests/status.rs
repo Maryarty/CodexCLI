@@ -43,8 +43,8 @@ mod cell {
     use codex_tui_core::screens::status::{
         Account, AgentsSource, Approval, ApprovalLabel, CreditsText, LimitData, LimitRow,
         ModelDetail, Permissions, PermissionsLabel, PlanLabel, Reasoning, ResetDate, ResetTime,
-        RowLabel, RowValue, Sandbox, SandboxText, StatusCard, WindowName, compose_agents_summary,
-        model_details, plan_label, reset_time,
+        RowLabel, RowValue, SandboxKind, SandboxText, StatusCard, WindowName,
+        compose_agents_summary, model_details, plan_label, reset_time,
     };
     use pretty_assertions::assert_eq;
 
@@ -80,7 +80,7 @@ mod cell {
             .collect()
     }
 
-    fn permissions(profile: Option<&str>, sandbox: Sandbox, network: bool) -> Permissions {
+    fn permissions(profile: Option<&str>, sandbox: SandboxKind, network: bool) -> Permissions {
         Permissions {
             profile: profile.map(str::to_string),
             sandbox,
@@ -92,7 +92,7 @@ mod cell {
         }
     }
 
-    fn text(sandbox: Sandbox, network: bool, roots: &[&str]) -> SandboxText {
+    fn text(sandbox: SandboxKind, network: bool, roots: &[&str]) -> SandboxText {
         SandboxText {
             sandbox,
             network,
@@ -402,9 +402,9 @@ mod cell {
     #[test]
     fn status_permissions_non_default_workspace_write_uses_workspace_label() {
         assert_eq!(
-            permissions(None, Sandbox::Workspace, true).label(),
+            permissions(None, SandboxKind::Workspace, true).label(),
             PermissionsLabel::Custom {
-                sandbox: text(Sandbox::Workspace, true, &[]),
+                sandbox: text(SandboxKind::Workspace, true, &[]),
                 approval: ApprovalLabel::Ask
             }
         );
@@ -414,7 +414,7 @@ mod cell {
     // and _read_only_profile_shows_additional_writable_roots
     #[test]
     fn status_permissions_named_read_only_profile_shows_builtin_label() {
-        let mut p = permissions(Some(":read-only"), Sandbox::ReadOnly, false);
+        let mut p = permissions(Some(":read-only"), SandboxKind::ReadOnly, false);
         p.extra_roots = vec!["/workspace/extra".to_string()];
         assert_eq!(
             p.label(),
@@ -422,11 +422,11 @@ mod cell {
             "the roots stay out of the built-in read-only label"
         );
         assert_eq!(
-            permissions(Some(":read-only"), Sandbox::ReadOnly, true).label(),
+            permissions(Some(":read-only"), SandboxKind::ReadOnly, true).label(),
             read_only(true)
         );
         assert_eq!(
-            permissions(Some(":read-only"), Sandbox::Workspace, false).label(),
+            permissions(Some(":read-only"), SandboxKind::Workspace, false).label(),
             read_only(false)
         );
     }
@@ -437,7 +437,7 @@ mod cell {
     fn status_permissions_named_workspace_profile_shows_builtin_label() {
         for network in [false, true] {
             assert_eq!(
-                permissions(Some(":workspace"), Sandbox::Workspace, network).label(),
+                permissions(Some(":workspace"), SandboxKind::Workspace, network).label(),
                 PermissionsLabel::Workspace {
                     network,
                     roots: Vec::new(),
@@ -450,7 +450,7 @@ mod cell {
     // ORACLE status/tests.rs status_permissions_workspace_auto_review_shows_reviewer_label
     #[test]
     fn status_permissions_workspace_auto_review_shows_reviewer_label() {
-        let mut p = permissions(Some(":workspace"), Sandbox::Workspace, false);
+        let mut p = permissions(Some(":workspace"), SandboxKind::Workspace, false);
         p.auto_review = true;
         assert_eq!(
             p.label(),
@@ -466,7 +466,7 @@ mod cell {
     // and _workspace_roots_include_profile_defined_directories
     #[test]
     fn status_permissions_workspace_roots_show_additional_directories() {
-        let mut p = permissions(Some(":workspace"), Sandbox::Workspace, false);
+        let mut p = permissions(Some(":workspace"), SandboxKind::Workspace, false);
         p.extra_roots = vec!["/workspace/shared".to_string()];
         assert_eq!(
             p.label(),
@@ -476,7 +476,7 @@ mod cell {
                 approval: ApprovalLabel::Ask
             }
         );
-        let mut p = permissions(None, Sandbox::Workspace, false);
+        let mut p = permissions(None, SandboxKind::Workspace, false);
         p.extra_roots = vec!["/workspace/extra".to_string()];
         assert_eq!(
             p.label(),
@@ -492,10 +492,10 @@ mod cell {
     #[test]
     fn status_permissions_user_defined_profile_shows_name() {
         assert_eq!(
-            permissions(Some("locked"), Sandbox::ReadOnly, false).label(),
+            permissions(Some("locked"), SandboxKind::ReadOnly, false).label(),
             PermissionsLabel::Profile {
                 id: "locked".to_string(),
-                sandbox: text(Sandbox::ReadOnly, false, &[]),
+                sandbox: text(SandboxKind::ReadOnly, false, &[]),
                 approval: ApprovalLabel::Ask
             }
         );
@@ -504,32 +504,32 @@ mod cell {
     // ORACLE status/tests.rs status_permissions_named_profile_shows_additional_writable_roots
     #[test]
     fn status_permissions_named_profile_shows_additional_writable_roots() {
-        let mut p = permissions(Some("mine"), Sandbox::Workspace, false);
+        let mut p = permissions(Some("mine"), SandboxKind::Workspace, false);
         p.extra_roots = vec!["/a".to_string(), "/b".to_string()];
         let PermissionsLabel::Profile { sandbox, .. } = p.label() else {
             panic!("a profile")
         };
-        assert_eq!(sandbox, text(Sandbox::Workspace, false, &["/a", "/b"]));
+        assert_eq!(sandbox, text(SandboxKind::Workspace, false, &["/a", "/b"]));
         // a read-only sandbox has no workspace to add the roots to
-        let mut p = permissions(Some("mine"), Sandbox::ReadOnly, false);
+        let mut p = permissions(Some("mine"), SandboxKind::ReadOnly, false);
         p.extra_roots = vec!["/a".to_string()];
         let PermissionsLabel::Profile { sandbox, .. } = p.label() else {
             panic!("a profile")
         };
-        assert_eq!(sandbox, text(Sandbox::ReadOnly, false, &[]));
+        assert_eq!(sandbox, text(SandboxKind::ReadOnly, false, &[]));
     }
 
     // ORACLE status/tests.rs status_permissions_include_executor_profile_root:
     // the root of another system arrives spelled by the host.
     #[test]
     fn status_permissions_include_executor_profile_root() {
-        let mut p = permissions(Some("executor"), Sandbox::Workspace, false);
+        let mut p = permissions(Some("executor"), SandboxKind::Workspace, false);
         p.extra_roots = vec![r"\\server\share\foreign".to_string()];
         assert_eq!(
             p.label(),
             PermissionsLabel::Profile {
                 id: "executor".to_string(),
-                sandbox: text(Sandbox::Workspace, false, &[r"\\server\share\foreign"]),
+                sandbox: text(SandboxKind::Workspace, false, &[r"\\server\share\foreign"]),
                 approval: ApprovalLabel::Ask
             }
         );
@@ -540,8 +540,8 @@ mod cell {
     #[test]
     fn status_permissions_full_disk_managed_is_a_custom_sandbox() {
         for (sandbox, network) in [
-            (Sandbox::DangerFullAccess, true),
-            (Sandbox::ExternalSandbox, false),
+            (SandboxKind::DangerFullAccess, true),
+            (SandboxKind::ExternalSandbox, false),
         ] {
             assert_eq!(
                 permissions(None, sandbox, network).label(),
@@ -557,7 +557,7 @@ mod cell {
     fn the_disabled_profile_is_full_access_or_no_sandbox() {
         let mut p = permissions(
             Some(":danger-full-access"),
-            Sandbox::DangerFullAccess,
+            SandboxKind::DangerFullAccess,
             false,
         );
         p.disabled = true;
@@ -577,7 +577,7 @@ mod cell {
     // ORACLE status/card.rs status_approval_label
     #[test]
     fn a_policy_other_than_on_request_names_itself() {
-        let mut p = permissions(None, Sandbox::Workspace, true);
+        let mut p = permissions(None, SandboxKind::Workspace, true);
         p.approval = Approval::UnlessTrusted;
         let PermissionsLabel::Custom { approval, .. } = p.label() else {
             panic!("custom")

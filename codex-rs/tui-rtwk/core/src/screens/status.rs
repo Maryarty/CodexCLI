@@ -19,7 +19,7 @@ mod limits;
 
 pub use card::{
     Account, ApprovalLabel, ModelDetail, Permissions, PermissionsLabel, Reasoning, Remote,
-    Sandbox, SandboxText, StatusCard, model_details,
+    SandboxKind, SandboxText, StatusCard, model_details,
 };
 pub use helpers::{
     AgentsSource, PlanLabel, ResetDate, ResetTime, compose_agents_summary,

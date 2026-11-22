@@ -1,0 +1,4 @@
+# The /status cell: two windows read 20 minutes before the card: stale, with the warning row.
+# Oracle: status/tests.rs:2139 status_snapshot_shows_stale_limits_message (the cwd is the sanitised `[[workspace]]` of its snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning":{"effort":"none","summary":"auto"},"directory":"[[workspace]]","permissions":{"sandbox":"workspace","network":true,"approval":"on_request"},"tokens":{"input":1200,"cached_input":200,"output":900,"total":2250},"usage_link":true,"hour24":true,"context":{"window":272000,"used":2250,"percent_left":100},"limits":{"snapshots":[{"captured_at":1704164645,"primary":{"used_percent":72,"window_minutes":300,"resets_at":1704165245},"secondary":{"used_percent":40,"window_minutes":10080,"resets_at":1704166445}}],"now":1704165845,"refreshing":false}}}
