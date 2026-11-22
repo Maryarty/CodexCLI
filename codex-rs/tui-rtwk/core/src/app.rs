@@ -166,6 +166,13 @@ pub enum Intent {
         backend: BackendId,
         ticket: Ticket,
     },
+    /// The user chose row `row` of the banner `ticket` shows (a number key or
+    /// a tap): what the action does is decided here, not by the view.
+    PickBannerCta {
+        backend: BackendId,
+        ticket: Ticket,
+        row: usize,
+    },
     AnswerRequest {
         key: RequestKey,
         answer: approvals::RequestAnswer,
@@ -298,6 +305,10 @@ pub enum Command {
     Import {
         ask: crate::screens::import::Request,
     },
+    /// Opens a page in the user's browser (oracle `AppEvent::OpenUrlInBrowser`):
+    /// no answer.
+    #[non_exhaustive]
+    OpenUrl { url: String },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -928,7 +939,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             if let Some((thread, ev)) = threads::project(&notification) {
                 if app.threads.contains(&thread) {
+                    let reverted = matches!(ev, ThreadEv::Reverted);
                     apply_thread(app, &thread, ev, fx);
+                    if reverted {
+                        // the retained turns are the server's: read them again
+                        fetch_history(app, &thread, fx);
+                    }
                 } else if app.outgoing.any(|ctx| may_attach(ctx, origin, &thread)) {
                     // Bound the startup/reconnect window. A loaded turn or terminal
                     // snapshot can recover the transcript if this buffer overflows.
@@ -1393,6 +1409,25 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 .get_mut(&backend)
             {
                 banner.dismiss(ticket);
+            }
+        }
+        Intent::PickBannerCta {
+            backend,
+            ticket,
+            row,
+        } => {
+            let action = app
+                .session
+                .backend_banners
+                .get(&backend)
+                .filter(|occurrence| occurrence.ticket == ticket)
+                .and_then(|occurrence| occurrence.banner.ctas().into_iter().nth(row))
+                .map(|cta| cta.action);
+            // The e-mail to the owner and the reset-credit flow are the
+            // usage chunk's; a url opens in the browser, and the banner stays
+            // (oracle: `dismiss_on_select: false`).
+            if let Some(chat::BannerAction::OpenUrl(url)) = action {
+                fx.commands.push(Command::OpenUrl { url });
             }
         }
         Intent::Submit { thread, message } => {

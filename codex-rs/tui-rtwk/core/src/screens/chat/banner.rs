@@ -19,6 +19,7 @@ pub struct Banner {
     fallback_model_slugs: Vec<String>,
     #[serde(default)]
     presentation: Presentation,
+    request_url: Option<String>,
     #[serde(skip)]
     account_id: Option<String>,
     #[serde(skip)]
@@ -103,14 +104,46 @@ impl Banner {
         &self.description
     }
 
-    pub fn links(&self) -> impl Iterator<Item = (&str, String)> + '_ {
-        self.ctas.iter().filter_map(move |cta| {
-            let label = cta.label.trim();
-            if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) {
-                return None;
+    /// The banner's actions in the order the backend gave them (oracle
+    /// `BackendBanner::actionable_banner`): a cta whose label is empty, longer
+    /// than 256 bytes or holds a control character, or whose action this
+    /// client cannot do, is left out.
+    pub fn ctas(&self) -> Vec<BannerCta> {
+        self.ctas
+            .iter()
+            .filter_map(|cta| {
+                let label = cta.label.as_str();
+                if label.trim().is_empty() || label.len() > 256 || label.chars().any(char::is_control) {
+                    return None;
+                }
+                Some(BannerCta {
+                    label: label.to_owned(),
+                    action: self.resolve(&cta.action)?,
+                })
+            })
+            .collect()
+    }
+
+    /// When the limit resets (unix seconds): the copy's `{time}`.
+    pub fn reset_at(&self) -> Option<i64> {
+        self.reset_at
+    }
+
+    /// Oracle `BackendBanner::resolve_action`.
+    fn resolve(&self, action: &str) -> Option<BannerAction> {
+        match action {
+            "notify_owner" | "contact_owner" => return Some(BannerAction::NotifyOwner(Nudge::Credits)),
+            "request_increase" => {
+                let Some(destination) = self.request_url.as_deref() else {
+                    return Some(BannerAction::NotifyOwner(Nudge::UsageLimit));
+                };
+                return web_url(destination).map(BannerAction::OpenUrl);
             }
-            Some((label, self.destination(&cta.action)?))
-        })
+            // the existing picker and its confirmation come before a reset is consumed
+            "reset_usage" => return Some(BannerAction::ResetUsage),
+            _ => {}
+        }
+        self.destination(action).map(BannerAction::OpenUrl)
     }
 
     fn destination(&self, action: &str) -> Option<String> {
@@ -141,6 +174,40 @@ impl Banner {
             Some(destination.to_string())
         }
     }
+}
+
+/// What a banner action does (oracle `BannerAction`): the browser opens a
+/// page, the owner is told by e-mail, or the reset-credit flow opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BannerAction {
+    OpenUrl(String),
+    NotifyOwner(Nudge),
+    ResetUsage,
+}
+
+/// What the owner is asked for (`AddCreditsNudgeCreditType`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nudge {
+    Credits,
+    UsageLimit,
+}
+
+/// One numbered row of a banner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BannerCta {
+    pub label: String,
+    pub action: BannerAction,
+}
+
+/// `request_increase`'s own page: an http(s) URL with a host and no
+/// credentials (oracle `resolve_action`).
+fn web_url(destination: &str) -> Option<String> {
+    let rest = destination
+        .strip_prefix("https://")
+        .or_else(|| destination.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    (!authority.is_empty() && !authority.contains('@') && !destination.chars().any(char::is_whitespace))
+        .then(|| destination.to_owned())
 }
 
 /// A generation minted by the reducer ties a dismissal to the shown occurrence.
@@ -195,7 +262,13 @@ mod tests {
             panic!("valid banner");
         };
         assert!(!banner.same_occurrence(&other_account));
-        assert_eq!(banner.links().collect::<Vec<_>>(), [("Usage", "https://chatgpt.com/settings/usage".to_string())]);
+        assert_eq!(
+            banner.ctas(),
+            [BannerCta {
+                label: "Usage".to_string(),
+                action: BannerAction::OpenUrl("https://chatgpt.com/settings/usage".to_string()),
+            }]
+        );
         let mut mint = TicketMint::default();
         let ticket = mint.next();
         let mut occurrence = BannerOccurrence::new(banner, ticket);

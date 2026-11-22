@@ -124,3 +124,23 @@ TOTAL 15 -> 32 pass, 0 red, 0 stale. `shards.py --check`: 0 files stale.
   The scenarios cannot press Tab or the edit-queued key (those are covered by the pages/app tests above); the captures are raw ANSI streams, not rendered rows, so a row-by-row diff was not made.
 - Open delta seen in the captures (not investigated, not chat-live's file): during turn 1 of `mcp-tool` the oracle's footer reads `⚠ 1 warning · f2 to view`; the rtwk capture has no warning count at that checkpoint (footer = chat-status; the cause may be the oracle's model-metadata warning notification).
 - The claim for this task was reported "already claimed" by `task_start` (held by this worktree's own earlier run); I continued under it.
+
+# chunk-live C5 — ThreadAsk::ReadTurns/Revert and the backend banner (brief §6 step 5, first part)
+
+## Built (ADR-003: asks only in `threads.rs`; the page reads and emits)
+- STEP 0, for chunk-transcript-2's backtrack: `ThreadAsk::ReadTurns{thread}` and `ThreadAsk::Revert{thread, before_turn}` in `core/src/threads.rs` (the only place that names `ThreadRevertParams`; the layers scan lists it), `ThreadEv::Reverted` from `ServerNotification::ThreadReverted` clears the transcript, history and finished set and `app.rs` re-reads the retained turns (`ThreadAsk::History`). Core tests: `the_prompt_edit_reads_the_turns_then_reverts_before_one`, `a_reverted_thread_clears_its_transcript_and_reads_the_retained_turns`. `backtrack.rs` not touched.
+- Backend banner = the oracle's actionable banner (`bottom_pane/actionable_banner.rs`), `Callout` gone: blank row, bold title + description wrapped at width-4 two cells in (more than 8 rows keep 7 and a dim `…`), numbered rows (`Options` under `IntrinsicHeight`, cursor `› `), the hint (`Press a number to choose`, `· esc to dismiss`, `· type to continue`; information-only banners have the Esc hint only). Words in `pages/session/strings.rs`.
+- Keys on the page's composer `FocusNode` handler (`session_page.rs`), the oracle's `handle_inline_banner_key` gate: composer empty, no paste burst, no modifier, no running turn; Esc only for a dismissible banner and not while the shortcut overlay is open; a digit with no row of its own is the composer's. `BannerGate` shares what the banner shows (keys) and its `Options` cursor with the handler; choosing moves the cursor and does not dismiss.
+- Core: `Banner::ctas()` (label rules, `BannerAction::{OpenUrl, NotifyOwner(Nudge), ResetUsage}` as `resolve_action`), `Intent::PickBannerCta{backend, ticket, row}` -> `Command::OpenUrl{url}`; a stale ticket or a row past the end does nothing. `Hs.pick_banner` (view.rs + debug `seeded.rs`).
+- Tests: `tests/pages/chat_live.rs` (rows and hint layout, number key picks and the banner stays, a number with a draft is text, Esc dismisses only dismissible, tap on a row picks, tap on the title inert, wheel inert), `core/tests/model.rs::choosing_a_banner_row_opens_its_page_and_keeps_the_banner`.
+
+## Needs
+- host/shell: an arm for `Command::OpenUrl` (the browser seam `Startup.browser`, `webbrowser::open`); the fake records it. NotifyOwner (the add-credits nudge RPC) and ResetUsage (usage-status's confirm flow) are typed in `BannerAction` and not handled.
+- `{time}` in the banner copy: chat core has no clock facts (now, utc offset, hour24); the status card's `Limits.now/utc_offset_secs` and `ResetTime` are the model.
+- chunk-transcript-2 landed: `ModeKeys` wrapper and Esc / Ctrl+T / F3 forwarding in `session_page.rs`, mount of `TranscriptSheet`, and the one-line `backtrack::apply_thread(.., Reverted)` in the `ThreadEv::Reverted` arm (neither the controller nor core `Backtrack` exist on this base).
+
+## Left
+Luna Reserve selector, automatic switch and usage notice (step 5 rest; the 12 `chat_live_2` banner tests stay pending: they need a seed for an upsell rate-limit response) · 4 · 8 · 9 · 10 · 1 · rest of 3 and 7 (see C3 Left).
+
+## Checks (ac5e0427b)
+fmt, clippy `--workspace --all-targets -D warnings` clean, whole nextest 1909 passed 17 skipped (one load flake, `importing_sends_the_checked_items_and_leaves_the_page_for_the_chat`, passes alone and on rerun), `shards.py --check` 0 stale. Binary run of the banner not done (no check.py scenario serves an upsell response).

@@ -31,6 +31,8 @@ pub struct Hs {
     /// Close a request without answering it.
     pub dismiss: Handler<RequestKey>,
     pub dismiss_banner: Handler<(BackendId, Ticket)>,
+    /// A row of a backend banner was chosen (a number key, a tap).
+    pub pick_banner: Handler<(BackendId, Ticket, usize)>,
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
     /// An intent of a screen slot of one thread (the queue, Esc with
@@ -60,6 +62,15 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
                 ticket,
             }));
         }),
+        pick_banner: cx.on_with(
+            |app: &mut UiApp, (backend, ticket, row): (BackendId, Ticket, usize), _cx| {
+                app.send(AppEv::Intent(Intent::PickBannerCta {
+                    backend,
+                    ticket,
+                    row,
+                }));
+            },
+        ),
         screen: cx.on_with(|app: &mut UiApp, intent: ScreenIntent, _cx| {
             app.send(AppEv::Intent(Intent::Screen(intent)));
         }),

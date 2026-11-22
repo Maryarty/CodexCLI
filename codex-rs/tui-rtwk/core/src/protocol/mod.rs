@@ -82,6 +82,7 @@ pub fn client_request(
         | Command::Directories { .. }
         | Command::SaveGrouping { .. }
         | Command::Startup { .. }
+        | Command::OpenUrl { .. }
         | Command::Import { .. } => None,
     }
 }
@@ -150,6 +151,7 @@ pub fn reply(
         | Command::Directories { .. }
         | Command::SaveGrouping { .. }
         | Command::Startup { .. }
+        | Command::OpenUrl { .. }
         | Command::Import { .. } => None,
     }
 }

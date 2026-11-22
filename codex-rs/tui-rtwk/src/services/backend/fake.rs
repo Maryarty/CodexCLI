@@ -443,7 +443,8 @@ async fn run_as(
             // responder answers them as the client does.
             Command::RejectRequest { .. }
             | Command::ResolveRequest { .. }
-            | Command::InterruptTurn { .. } => {}
+            | Command::InterruptTurn { .. }
+            | Command::OpenUrl { .. } => {}
             // The scripted server has no launch facts: nothing is due.
             Command::Startup { .. } => {}
             // The import flow: answered as the responder scripts the

@@ -9,7 +9,7 @@ mod mcp;
 
 use std::rc::Rc;
 
-pub use banner::{Banner, BannerOccurrence};
+pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge};
 pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;

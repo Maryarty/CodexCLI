@@ -19,7 +19,7 @@ use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
-use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
 use codex_tui_core::threads::ThreadModel;
@@ -41,7 +41,7 @@ use crate::widgets::thread_ui::ThreadUi;
 
 use super::actions::*;
 use super::activity::{Run, StatusSlot};
-use super::banners::{BackendBanners, NoticeLine};
+use super::banners::{BackendBanners, BannerGate, NoticeLine};
 use super::live::put_back;
 use super::pending_input::PendingInput;
 use super::search_key::*;
@@ -87,6 +87,12 @@ pub struct ChatState {
     /// The backend control is visible, so its chord (`change_host`, `Ctrl+X
     /// b`) is live; read by the key handler.
     control: Rc<Cell<bool>>,
+    /// The backend banner and the page: what it shows, and its rows' cursor.
+    banner: BannerGate,
+    /// A turn runs and the shortcut overlay is open: the banner's keys wait
+    /// (`handle_inline_banner_key`); written by the build, read by the key
+    /// handler.
+    banner_blocked: Rc<Cell<BannerBlocked>>,
     /// The composer of the thread the chat shows now (the page outlives a
     /// switch of thread; lifecycle updates keep the key handler current).
     composer: Rc<RefCell<TextEditingController>>,
@@ -94,8 +100,21 @@ pub struct ChatState {
     draft: Rc<RefCell<ComposerDraft>>,
 }
 
+/// What keeps the banner's keys from the banner (`handle_inline_banner_key`).
+#[derive(Clone, Copy, Debug, Default)]
+struct BannerBlocked {
+    /// A turn runs: the number keys and Esc are the turn's.
+    running: bool,
+    /// The shortcut overlay is open: Esc closes it.
+    overlay: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatMsg {
+    /// A row of the banner of `Ticket` was chosen (its number key).
+    BannerPick(BackendId, Ticket, usize),
+    /// Esc dismissed the banner of `Ticket`.
+    BannerDismiss(BackendId, Ticket),
     /// `change_host`: the empty conversation moves to the next backend.
     Cycle,
     Submit(Rc<str>),
@@ -141,6 +160,8 @@ impl StatefulWidget for Chat {
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
+            banner: BannerGate::new(),
+            banner_blocked: Rc::new(Cell::new(BannerBlocked::default())),
             composer: Rc::new(RefCell::new(self.ui.composer.clone())),
             draft: Rc::new(RefCell::new(self.ui.draft.clone())),
         }
@@ -170,6 +191,7 @@ impl State for ChatState {
         let composer = self.composer.clone();
         let draft = self.draft.clone();
         let (leader, control) = (self.leader.clone(), self.control.clone());
+        let (banner, blocked) = (self.banner.clone(), self.banner_blocked.clone());
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
             // `change_host` is the leader chord `Ctrl+X b`, live while the
             // backend control shows (`visible_new_backend_control`), and it
@@ -190,6 +212,35 @@ impl State for ChatState {
             if let Some(pages) = transcript::follow::pager_key(&key, &composer.borrow()) {
                 send(ChatMsg::Page(pages));
                 return KeyEventResult::Handled;
+            }
+            // The banner's numbers and Esc: only on an empty composer, off a
+            // paste, with no turn running and no modifier
+            // (`handle_inline_banner_key`; a popup needs text in the field).
+            if composer.borrow().text().is_empty()
+                && !draft.borrow().in_burst()
+                && key.mods.is_empty()
+                && let Some(shown) = banner.keys.get().backend
+                && !blocked.get().running
+            {
+                let keys = banner.keys.get();
+                match (key.code, key.text()) {
+                    (KeyCode::Escape, _) if keys.dismissible && !blocked.get().overlay => {
+                        send(ChatMsg::BannerDismiss(shown.0, shown.1));
+                        return KeyEventResult::Handled;
+                    }
+                    (KeyCode::Char, Some(digit)) => {
+                        if let Some(row) = digit
+                            .parse::<usize>()
+                            .ok()
+                            .filter(|n| (1..=keys.actions).contains(n))
+                        {
+                            banner.options.set(row - 1);
+                            send(ChatMsg::BannerPick(shown.0, shown.1, row - 1));
+                            return KeyEventResult::Handled;
+                        }
+                    }
+                    _ => {}
+                }
             }
             // keys held as a paste are the paste's, not the shortcuts'
             // (`is_in_paste_burst`)
@@ -282,6 +333,11 @@ impl State for ChatState {
         );
     }
 
+    fn dispose(&mut self) {
+        self.node.set_on_key_event(None);
+        self.banner.options.dispose();
+    }
+
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
         let previous = (
@@ -295,6 +351,14 @@ impl State for ChatState {
             self.esc_primed = false;
         }
         match msg {
+            ChatMsg::BannerPick(backend, ticket, row) => {
+                cx.emit(&hs.pick_banner, (backend, ticket, row));
+                return Rebuild::No;
+            }
+            ChatMsg::BannerDismiss(backend, ticket) => {
+                cx.emit(&hs.dismiss_banner, (backend, ticket));
+                return Rebuild::No;
+            }
             ChatMsg::Submit(text) => {
                 // The same Enter may have run it through a popup's pick.
                 if !w.ui.composer.text().is_empty() {
@@ -663,7 +727,13 @@ impl State for ChatState {
                     .child(Text::new(chat_strings.backend_cycle).style(tokens.dim())),
             );
         }
-        let body = body.child(BackendBanners);
+        self.banner_blocked.set(BannerBlocked {
+            running,
+            overlay: self.shortcuts,
+        });
+        let body = body.child(BackendBanners {
+            gate: self.banner.clone(),
+        });
         let mut body = if thread.read_only() {
             body.child(composer)
         } else {
