@@ -51,21 +51,27 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
 /// server accepted (`select_session_model`, `persist_default_model_selection`,
 /// `apply_permission_profile_selection`).
 fn picks(app: &mut CodexApp, fx: &mut AppFx) {
-    let picked = std::mem::take(&mut Rc::make_mut(&mut app.screens).select.picked);
+    use select::Picked::{Permissions, Selection};
+    let ours = |pick: &select::Picked| matches!(pick, Selection(_) | Permissions(_));
+    if !app.screens.select.picked.iter().any(ours) {
+        return;
+    }
+    // The picks of the generic lists and the confirmations belong to the
+    // screens that opened them: they stay.
+    let mut picked = Vec::new();
+    Rc::make_mut(&mut app.screens).select.picked.retain(|pick| {
+        if ours(pick) {
+            picked.push(pick.clone());
+            false
+        } else {
+            true
+        }
+    });
     for pick in picked {
         match pick {
-            select::Picked::Selection(selection) => model_pick(app, selection, fx),
-            select::Picked::Permissions(selection) => permissions_pick(app, selection, fx),
-            // A confirmation's answer is `confirmed`'s (the removal asks).
-            select::Picked::Confirmed(_) => {
-                Rc::make_mut(&mut app.screens).select.picked.push(pick);
-            }
-            // A generic list's picks belong to the screen that opened it; an
-            // app's page is the app link dialog's (a core Need, pack).
-            select::Picked::App(_)
-            | select::Picked::Item(_)
-            | select::Picked::ItemSecondary(_)
-            | select::Picked::Items(_) => {}
+            Selection(selection) => model_pick(app, selection, fx),
+            Permissions(selection) => permissions_pick(app, selection, fx),
+            _ => {}
         }
     }
 }

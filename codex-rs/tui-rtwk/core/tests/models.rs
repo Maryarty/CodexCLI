@@ -6,14 +6,12 @@
 //! refresh keeps what is open and drops what has nothing left to offer).
 //! `core/tests/model.rs` is the app model's; this file is the picker's.
 
-use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::app::AppFx;
 use codex_tui_core::screens::select::models::{
     ALL_MODELS, ALL_MODES, Apply, Current, Effort, Heading, Kind, MORE_REASONING, ModelMenu,
     PLAN_ONLY, PlanMode, PlanSource, Preset,
 };
 use codex_tui_core::screens::select::{Ev, Intent as SelectIntent, Menu, Note, Picked, Selection};
-use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -45,8 +43,28 @@ fn presets() -> Vec<Preset> {
     serde_json::from_value(list).expect("presets")
 }
 
+/// The picker's own model: these are state tests of the screen, not of the
+/// app that answers its asks (`core/tests/select_live.rs` is that).
+#[derive(Default)]
+struct Sandbox {
+    model: codex_tui_core::screens::select::Model,
+    fx: AppFx,
+}
+
+impl Sandbox {
+    /// The picker's model after a script's events (`play` of the app).
+    fn play(script: &str) -> Result<Self, String> {
+        let played = codex_tui_core::fixtures::sandbox::Sandbox::play(script)
+            .map_err(|error| format!("{error:?}"))?;
+        Ok(Self {
+            model: played.app().screens().select.clone(),
+            fx: AppFx::default(),
+        })
+    }
+}
+
 fn sandbox(catalog: Vec<Preset>) -> Sandbox {
-    let mut sandbox = Sandbox::play("").expect("plays");
+    let mut sandbox = Sandbox::default();
     if !catalog.is_empty() {
         event(&mut sandbox, Ev::Loaded(catalog));
     }
@@ -54,11 +72,11 @@ fn sandbox(catalog: Vec<Preset>) -> Sandbox {
 }
 
 fn event(sandbox: &mut Sandbox, ev: Ev) {
-    sandbox.send(AppEv::Screen(ScreenEv::Select(ev)));
+    codex_tui_core::screens::select::apply(&mut sandbox.model, ev, &mut sandbox.fx);
 }
 
 fn intent(sandbox: &mut Sandbox, intent: SelectIntent) {
-    sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))));
+    codex_tui_core::screens::select::apply_intent(&mut sandbox.model, intent, &mut sandbox.fx);
 }
 
 fn choose(sandbox: &mut Sandbox, id: &str) {
@@ -66,7 +84,7 @@ fn choose(sandbox: &mut Sandbox, id: &str) {
 }
 
 fn model(sandbox: &Sandbox) -> &codex_tui_core::screens::select::Model {
-    &sandbox.app().screens().select
+    &sandbox.model
 }
 
 /// The rows of the model menu shown.

@@ -6,14 +6,12 @@
 //! menu or is final, a disabled row is not chosen, one request serves the
 //! menu that waits and an answer of an older one is dropped).
 
-use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::app::AppFx;
 use codex_tui_core::screens::select::permissions::{
     Approval, CANCEL, CONTINUE, Current, Disabled, Discovery, Failure, Heading, Kind, Label,
     Notice, Page, PermissionsMenu, Preset, RETRY, Recommend, Reviewer, Selection,
 };
 use codex_tui_core::screens::select::{Ev, Intent as SelectIntent, Menu, Page as AnyPage, Picked};
-use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -36,16 +34,24 @@ fn local() -> serde_json::Value {
     json!({"profiles": [{"id": ":read-only"}, {"id": ":workspace"}, {"id": ":danger-full-access"}]})
 }
 
+/// The picker's own model: these are state tests of the screen, not of the
+/// app that answers its asks (`core/tests/select_live.rs` is that).
+#[derive(Default)]
+struct Sandbox {
+    model: codex_tui_core::screens::select::Model,
+    fx: AppFx,
+}
+
 fn sandbox() -> Sandbox {
-    Sandbox::play("").expect("plays")
+    Sandbox::default()
 }
 
 fn event(sandbox: &mut Sandbox, ev: Ev) {
-    sandbox.send(AppEv::Screen(ScreenEv::Select(ev)));
+    codex_tui_core::screens::select::apply(&mut sandbox.model, ev, &mut sandbox.fx);
 }
 
 fn intent(sandbox: &mut Sandbox, intent: SelectIntent) {
-    sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))));
+    codex_tui_core::screens::select::apply_intent(&mut sandbox.model, intent, &mut sandbox.fx);
 }
 
 fn choose(sandbox: &mut Sandbox, id: &str) {
@@ -53,7 +59,7 @@ fn choose(sandbox: &mut Sandbox, id: &str) {
 }
 
 fn model(sandbox: &Sandbox) -> &codex_tui_core::screens::select::Model {
-    &sandbox.app().screens().select
+    &sandbox.model
 }
 
 fn page(sandbox: &Sandbox) -> Page {

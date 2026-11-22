@@ -6,8 +6,8 @@
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::select::permissions::{Preset, Reviewer, Selection};
-use codex_tui_core::screens::select::{Intent as SelectIntent, Menu, Picked};
+use codex_tui_core::screens::select::permissions::{Label, Preset, Reviewer};
+use codex_tui_core::screens::select::{Intent as SelectIntent, Menu, Note, Picked};
 use pretty_assertions::assert_eq;
 
 const PERMISSIONS: &str = r#"{"step":"screen","dir":"select","ev":{"kind":"permissions"}}"#;
@@ -17,13 +17,16 @@ fn pick(sandbox: &mut Sandbox, intent: SelectIntent) {
 }
 
 #[test]
-fn a_pick_is_recorded_and_closes_the_menu() {
+fn a_permission_pick_closes_the_menu_and_the_app_takes_it() {
     let mut sandbox = Sandbox::play(PERMISSIONS).expect("plays");
     pick(&mut sandbox, SelectIntent::Choose(":workspace".into()));
     let model = &sandbox.app().screens().select;
+    // The app applies a permission pick at once (core/tests/select_live.rs
+    // holds its asks); what stays is the line for the history.
+    assert!(model.picked.is_empty());
     assert_eq!(
-        model.picked,
-        vec![Picked::Permissions(Selection::Preset {
+        model.notes,
+        vec![Note::PermissionsUpdated(Label::Mode {
             preset: Preset::Auto,
             reviewer: Reviewer::User
         })]
