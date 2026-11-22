@@ -18,7 +18,7 @@ the app-server client or the process's flags (the dispatcher arm, the connection
 | # | Need | Source (pack / brief) | Mine? | Answer |
 |---|---|---|---|---|
 | 1 | Clipboard copy with a result: `Command::Copy` / `Ev::Copied(CopyStatus)`; routes native (arboard, HTML flavour), WSL PowerShell, tmux `load-buffer -w`, OSC 52, X11 PRIMARY | transcript.md "fourth handoff" (4), tm `clipboard-service`, briefs transcript §3, chat-commands §3 (/export Clipboard), status-card (copy), composer_4 | yes | DONE `src/services/clipboard.rs` + `clipboard/{machine,tmux,wsl}.rs`: `Routes` trait, `route()` (oracle `copy_to_clipboard_with`, same error texts), `Clipboard` worker (5 s setup budget, `Busy`), `Machine` (the real routes) |
-| 2 | Clipboard text / image read (Ctrl+V image, right-click paste, PRIMARY read), path paste | composer.md "Also there: ClipboardImage", brief composer §3 (G11), §6 step 9 | yes (last) | LEFT (see §4) |
+| 2 | Clipboard text / image read (Ctrl+V image, right-click paste, PRIMARY read), path paste | composer.md "Also there: ClipboardImage", brief composer §3 (G11), §6 step 9 | yes (last) | DONE `src/services/clipboard/read.rs` + `read/{text,picture,decode,macos}.rs`: `TextReader::read_within` (native `arboard` text with the oracle's deadline/size checks, WSL framed PowerShell reader thread, SSH refusal), `paste_image` / `paste_image_to_temp_png` (file list first, macOS pasteboard PNG/JPEG in item order, `arboard` image, WSL PowerShell fallback), `PasteImageError` (the oracle's texts), `pasted_image_format`. The path-paste half is the composer's `services/images.rs` |
 | 3 | Message history: `history_metadata` on thread open, `append_entry` on submit, `lookup`, `lookup_batch` -> `popovers::Ev::{HistoryMetadata, HistoryEntry, HistoryBatch, HistoryBatchFailed}` | composer.md "Needs", brief composer §3 | yes | DONE `src/services/history.rs` (`HistoryFile` seam, `metadata`/`append`/`lookup` run as the oracle does) + `history/file.rs` (`MessageHistory` over `codex-message-history`, keeps the batch cursor's byte anchor) |
 | 4 | Mention usage file (`mention_usage.json`): load window -> `Ev::MentionUsage`, write each `Ask::RecordMention` | composer.md step 8 Needs, core `mentions/usage.rs` | yes | DONE `src/services/history/usage.rs` (`MentionFile::{load, record}`; file lock 100 ms, 1 MiB cap, atomic write, window 50) |
 | 5 | File search: app-server `fuzzyFileSearch/session*` default (`AppServerSearch`, core: requests only) and the in-process `codex-file-search` second implementation; the person's choice is open | composer.md "File-search backend choice", brief composer D1 | yes | DONE the in-process one: `src/services/file_search.rs` (`InProcessSearch::{query, stop, ask, set_search_dir}`, oracle `FileSearchManager`, sink = the app's ingress). The default needs only core-wiring's routing (below) |
@@ -42,6 +42,7 @@ the app-server client or the process's flags (the dispatcher arm, the connection
 | Service | Command (expected) | Ev (expected) | Typed entry point |
 |---|---|---|---|
 | clipboard | `Command::Copy { ticket, text: String, format: CopyFormat, dest: CopyDestination }` | `Ev::Copied { ticket, result: Result<CopyStatus, String> }`, `CopyStatus::{Confirmed, Unconfirmed, Busy}` (`Pending` is the model's own state: a request out, no answer yet) | `Clipboard::copy(text, Format, Destination) -> Done { result, terminal }`; `Done::terminal` is the OSC 52 text the terminal's owner writes (rtwk has no `AppCx` clipboard write, gap G-clip below) |
+| clipboard read | `Command::ReadClipboardText { ticket }` (Ctrl+Shift+V / right-click paste) and `Command::PasteClipboardImage { ticket }` (Ctrl+V) | `Ev::ClipboardText { ticket, Result<String, String> }`; `Ev::ClipboardImage { ticket, Result<(PathBuf, PastedImageInfo), PasteImageError> }` (the composer attaches `[Image #N]` from the path, label `EncodedImageFormat::label`) | `TextReader::new(&environment()).read_within(timeout)`; `paste_image()` |
 | history | `Command::History(popovers::Ask)` (`Append`, `Lookup`); metadata when a thread opens | `popovers::Ev::{HistoryMetadata, HistoryEntry, HistoryBatch, HistoryBatchFailed}` | `history::{metadata, append, lookup}` over `Arc<dyn HistoryFile>` (`MessageHistory::new(codex_home, &History)`) |
 | mention usage | `Command::History(Ask::RecordMention)` and a load at start | `popovers::Ev::MentionUsage` | `MentionFile::{load, record}` |
 | file search | `Ask::FileSearch(FileSearchAsk)` drained from `popovers::Model::take_asks`: routed either to `AppServerSearch::requests` (default, answered by the `sessionUpdated` notification through `matches_of`) or to `InProcessSearch::ask` | `popovers::Ev::FileMatches` (both) | `InProcessSearch::{ask, query, stop}` |
@@ -82,20 +83,15 @@ answers the path under the fake's directory; `History(Ask)` answers from a scrip
 ## 4. Done / left
 
 Done (library `src/services/`, each with its own unit tests; `acargo nextest -E 'test(services::)'`
-90 tests): clipboard (34), history seam (5) + `MessageHistory` over the backend crate (7, tempdir),
+100 tests): clipboard (34), clipboard read (10: the oracle's text, decode and macOS pasteboard tests carried, plus
+PasteImageError texts, `pasted_image_format`, WSL path map on Linux), history seam (5) + `MessageHistory` over the backend crate (7, tempdir),
 mention usage (7), in-process file search (5, real `codex-file-search` sessions over a tempdir),
 `AppServerExec` (5, scripted `send`), `/export` file writer (6), `open_url` (3 + 1 off-macOS), connection
-fact (1). Gates at partial 1 (f7c51711c): fmt, `clippy --workspace --all-targets -D warnings`, whole
+fact (1). Gates at partial 1 (f7c51711c, re-run at the end): fmt, `clippy --workspace --all-targets -D warnings`, whole
 `nextest --workspace` 2138 passed, `shards.py --check`.
 
 Left, and why:
 
-- Clipboard read (#2): text read for paste, image read (`paste_image_to_temp_png`, WSL fallback,
-  macOS pasteboard file/image) and path paste. No `Command` asks for it yet (composer step 9 and
-  core-wiring name it); it needs the `image` crate (PNG encode, orientation decode: oracle
-  `image_decode.rs`) and, for macOS, `objc2-app-kit`: a dependency commit of its own. The text read is
-  a few lines over `arboard` on the same worker as the copy (the oracle's `clipboard_paste/text.rs`).
-  Not started: it is the one open service.
 - The dispatcher arms in `host/src/in_process.rs::work` (chunk-status-card's file): once core-wiring
   adds the Commands. The `OpenUrl` arm exists in core and has no arm in the host (`answer` returns
   none): `Command::OpenUrl { url } => Box::pin(async move { open_url(browser, url).await.err().map(failed) })`
@@ -107,5 +103,16 @@ Left, and why:
 - rtwk gap (for the person): no `AppCx::copy_to_clipboard` (Flutter `Clipboard.setData(ClipboardData)` from
   anywhere); `rtwk::editing::copy_to_clipboard(cx: &Cx<S>, text)` needs a widget `Cx`. The OSC 52 text of a
   `Command::Copy` therefore travels back as `Done::terminal`. Not entered in rtwk-gaps.md (not my file).
+- rtwk gap, the read side (same family): rtwk has no clipboard READ (Flutter `Clipboard.getData`): a
+  bracketed paste arrives as an event, but Ctrl+V of an image, the right-click paste and the text paste of a
+  terminal that sends no paste event need the system clipboard. `read::TextReader` and `read::paste_image`
+  are the app's own, over `arboard`, as the oracle's.
+- Not compiled here: the Linux-only code of the read side (the WSL PowerShell text reader thread, the
+  PowerShell image fallback, `convert_windows_path_to_wsl`) and the Windows paths: this machine builds macOS
+  only (the Linux target's std is not installed), so they are the oracle's code carried over and read, not
+  built. The macOS pasteboard code and every test above ran.
+- Path paste: the composer's `services/images.rs` `normalize_pasted_path` has no WSL mapping of `C:\...`
+  to `/mnt/c/...` (oracle `normalize_windows_path`, `is_probably_wsl`, test `normalize_windows_path_in_wsl`);
+  `clipboard::is_wsl_session()` is the probe it needs. Not mine (the composer's file): for its holder.
 - Run it: services only, no page. `acargo build -q -p codex-rtwk --bin codex-rtwk` is green; no scenario of
   `tools/rtwk-port/mock-model` exercises a service yet (no `Command` reaches it).

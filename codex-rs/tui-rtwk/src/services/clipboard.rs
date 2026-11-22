@@ -33,6 +33,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 mod machine;
+pub mod read;
 mod tmux;
 mod wsl;
 
