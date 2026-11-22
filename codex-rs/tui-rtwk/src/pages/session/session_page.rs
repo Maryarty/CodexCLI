@@ -29,15 +29,14 @@ use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
-use crate::pages::session::composer::footer::with_shell_mode;
-use crate::pages::session::composer::footer::{FooterLine, footer};
 use crate::pages::session::composer::{Composer, clear_sent, submission};
+use crate::pages::session::footer::{Footer, Line, StatusRows};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
+use crate::widgets::status_line::{Notice, status_spans, with_warning_notice};
 use crate::widgets::thread_ui::{Modes, ThreadUi};
 
 use super::actions::*;
@@ -46,7 +45,7 @@ use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, re
 use super::live::browse::{self, Browse};
 use super::live::put_back;
 use super::pending_input::PendingInput;
-use super::status_surfaces::StatusContext;
+use super::status_surfaces::{StatusContext, TitleInputs};
 use super::transcript;
 use super::transcript_pane::Pane;
 
@@ -653,9 +652,9 @@ impl State for ChatState {
         let reconnecting = connection == Some(&ConnectionState::Reconnecting);
         let running = run.running();
         let compacting = run.compacting();
-        let (panel, close) = shortcut_panel(cx);
+        let (panel, _) = shortcut_panel(cx, running);
         let chat_strings = chat_strings::of(cx);
-
+        let mut hints: Option<Footer> = None;
         let (composer, footer): (AnyWidget, AnyWidget) = if thread.read_only() {
             (
                 super::external_writer::notice(cx, chat_strings, &tokens),
@@ -673,18 +672,26 @@ impl State for ChatState {
             } else {
                 let line = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
-                    FooterLine::Close(close)
+                    Line::Close
                 } else if w.ui.modes.primed()
                     && Targets::of(thread.transcript(), thread.can_load_history()).count > 0
                 {
-                    FooterLine::Hint(strings.chat.backtrack_hint)
-                } else if running && !self.draft_empty {
-                    FooterLine::Hint(strings.chat.queue_hint)
+                    Line::EscPrimed
                 } else {
-                    FooterLine::Keys
+                    Line::Passive
                 };
-                let footer = footer(cx, line);
-                let footer = if line == FooterLine::Keys {
+                let props = Footer {
+                    line,
+                    agents: true,
+                    draft_empty: self.draft_empty,
+                    shell: self.draft_shell,
+                    on_queue: Some(cx.send(ChatMsg::QueueDraft)),
+                    on_warnings: Some(cx.send(ChatMsg::Action(Action::OpenWarnings))),
+                    on_close: Some(cx.send(ChatMsg::Shortcuts)),
+                };
+                hints = Some(props.clone());
+                let footer: AnyWidget = props.into();
+                if line == Line::Passive {
                     transcript::follow::footer(
                         cx,
                         w.ui.follow.clone(),
@@ -693,18 +700,13 @@ impl State for ChatState {
                     )
                 } else {
                     footer
-                };
-                if self.draft_shell {
-                    with_shell_mode(cx, footer)
-                } else {
-                    footer
                 }
             };
             (composer.into(), footer)
         };
-        // `⚠ N warnings · f2 to view` at the footer's right (not while history
-        // search owns the footer).
-        let footer = if searching.is_none() {
+        // `⚠ N warnings · f2 to view` at the right of the read-only footer; the
+        // composer's footer holds its own.
+        let footer = if searching.is_none() && thread.read_only() {
             let data = Theme::of(cx);
             with_warning_notice(
                 footer,
@@ -751,7 +753,7 @@ impl State for ChatState {
             run_state: Some(run.word(&session, reconnecting)),
             strings,
         };
-        let line = status_line(context.items_for(facts), facts.colors, &tokens);
+        let line = status_spans(context.items_for(facts), facts.colors, &tokens);
         // The backend control above the composer (`rendering.rs`,
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session
@@ -798,49 +800,34 @@ impl State for ChatState {
                 .with_key(Key::value("composer")),
             )
         };
-        if let Some(line) = line.filter(|_| !thread.read_only()) {
-            body = body.child(
-                Row::new()
-                    .child(SizedBox::new(Some(2), None, None))
-                    .child(Expanded::new(1, line)),
-            );
+        if !line.is_empty() && !thread.read_only() {
+            body = body.child(StatusRows {
+                spans: line,
+                composer: w.ui.composer.clone(),
+                hints,
+            });
         }
         let body = body.child(footer);
         // the terminal title keeps being told while the selector takes the bottom pane
         let mut titles: Vec<AnyWidget> = Vec::new();
         let action_required =
             select::<RequestQueue, bool, _>(cx, |queue| !queue.entries.is_empty());
-        let action = action_required.then_some(strings.chat.action_required);
-        if action.is_none()
-            && facts.animations
-            && facts.progress_effect
-            && (running || compacting)
-            && StatusContext::title_has_activity(facts)
+        let title = context.title(
+            facts,
+            TitleInputs {
+                spinner: facts.animations && facts.progress_effect && (running || compacting),
+                action_required: action_required.then_some(strings.chat.action_required),
+            },
+        );
+        if title.has_spinner() {
+            titles.push(super::window_title::WindowTitle { title }.into());
+        } else if !title.text(None).is_empty()
+            || facts
+                .terminal_title
+                .as_ref()
+                .is_some_and(|items| !items.is_empty())
         {
-            let mut parts = context.title_parts(facts, Some(""));
-            if let Some(index) = parts.iter().position(String::is_empty) {
-                let after = parts.split_off(index + 1);
-                parts.pop();
-                titles.push(
-                    super::window_title::WindowTitle {
-                        before: parts,
-                        after,
-                    }
-                    .into(),
-                );
-            }
-        } else {
-            let parts = context.title_parts(facts, action);
-            if !parts.is_empty()
-                || facts
-                    .terminal_title
-                    .as_ref()
-                    .is_some_and(|items| !items.is_empty())
-            {
-                titles.push(
-                    TerminalTitle::new(parts.join(" · "), super::window_title::empty()).into(),
-                );
-            }
+            titles.push(TerminalTitle::new(title.text(None), super::window_title::empty()).into());
         }
         // The Luna Reserve selector owns the bottom pane (`show_selection_view`): no composer,
         // no footer; the draft waits in `UiApp.ui`.

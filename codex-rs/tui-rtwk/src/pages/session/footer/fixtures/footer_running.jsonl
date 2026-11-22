@@ -1,0 +1,6 @@
+# The footer while a turn runs, the status line off.
+# Ported from codex-tui bottom_pane/footer.rs footer_snapshots
+# (is_task_running: true): a started turn in the thread.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}

@@ -26,8 +26,18 @@ fn row_of(s: &Screen, text: &str) -> usize {
 
 const FIND_REASON: &str = "the transcript Find footer (`Find: needle` above the composer, its cursor, the copy flash) is not built: the chat footer draws only the history-search row, and no key or seed opens a find footer";
 const SPARKLE_REASON: &str = "the composer sparkle (braille starfield dots in the placeholder of a fresh Astra task, with its 15 s idle deadline and 1 s fade) is not built: the chat draws no dots and no seed marks a fresh task";
-const HELP_REASON: &str = "the `?` shortcut overlay above the composer (`Keyboard shortcuts`, `? / esc close`) is not built: `?` on an empty composer opens nothing in the chat";
-const STATUS_REASON: &str = "the composer status rows (extension status line, `Plan mode` row, agent label, context line, warning notice) are not built: the chat draws no footer rows and has no seed for them";
+const HELP_REASON: &str = "the help itself is built (the `?` overlay above the composer); what these two wait for is the composer sparkle under it (braille dots in the placeholder, step 7 of chunk-status: no sparkle yet)";
+const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
+const EXTENSION_REASON: &str = "the status line of this test is a ui_tree `extension` (a `FooterContent` that only the oracle's tests and previews build; no native item makes such a row): the person decides (brief section 7), the behaviour it checks is re-expressed with native items in tests/pages/chat_status.rs";
+const PROVIDER_REASON: &str = "a provider status (the bold `codex-internal`, an extension row) beside Plan mode: no collaboration-mode fact in StatusFacts (core/src/screens/chat.rs, chunk-live's) and no extension status";
+const THUMBNAIL_REASON: &str = "the composer's image thumbnails between the footer rows and the extra status (composer chunk) over an extension status row";
+const LINK_REASON: &str = "the native status carries a link (`PR #42`): no pull-request fact (git summary in StatusFacts, chunk-live's; the host probe is a need), and Plan mode needs the collaboration fact";
+const AGENT_REASON: &str = "the viewed agent's label joins the status (`build ready · frontend`): no agent-label fact in StatusFacts (chunk-live's)";
+const ACTIVITY_REASON: &str = "the passive activity hint (`ctrl+o t/f4 inspect activity`) is not in the footer: the activity rows are step 5 of chunk-status";
+const MODE_REASON: &str = "the Plan mode indicator and its cycle hint (and the side-conversation label): no collaboration-mode / side facts in StatusFacts (chunk-live's); the footer's fit for them is done (footer/hints.rs unit tests)";
+const GOAL_REASON: &str = "the goal indicator (`Pursuing goal (40K / 50K)`): no goal fact (ThreadPart.goal from thread/goal/updated, chunk-live's)";
+const QUEUE_REASON: &str = "the status under hints, a flash and the queued messages (`persistent_status_and_messages`): the queue preview of the oracle's layout and the footer flash are steps 2/5 of chunk-status, not yet built";
+const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
 const WARN_REASON: &str = "the warning notice (`⚠ N warnings · /warnings to view`) is not built in the composer footer: no seed sets a warning count";
 const EFFORT_REASON: &str = "the reasoning-effort footer (the `U L T R A` ignition, the status row, the Ultra prompt accent) is not built: no seed sets a reasoning effort";
 
@@ -361,7 +371,7 @@ fn focus_startup_work_and_configuration_do_not_extend_a_started_deadline() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:27 extension_status_line_clips_links_to_footer_layout kind=ui owner=ui-pane
 #[test]
 fn extension_status_line_clips_links_to_footer_layout() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, EXTENSION_REASON);
     // the status `plain · PR #42` (the PR a link to https://example.com/pr/42) clips to `PR#` at
     // 12 columns and shows `PR #42` at 40; an agent label shows only when the status is cleared
     let mut s = Screen::build(Owner::UiPane).size(40, 8).live().open();
@@ -376,7 +386,7 @@ fn extension_status_line_clips_links_to_footer_layout() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:131 extension_uses_the_full_width_after_resize kind=ui owner=ui-pane
 #[test]
 fn extension_uses_the_full_width_after_resize() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, EXTENSION_REASON);
     // the status `Ready PR 12345` (the number is a link) on one row at 16 columns, two rows at
     // 15 in fullscreen; the warning `⚠` sits at the bottom-right corner after collaboration modes
     let mut s = Screen::build(Owner::UiPane).size(16, 6).live().open();
@@ -391,7 +401,7 @@ fn extension_uses_the_full_width_after_resize() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:174 provider_status_and_hints_use_separate_rows kind=snap owner=ui-pane snap=provider_status_and_hints_use_separate_rows
 #[test]
 fn provider_status_and_hints_use_separate_rows() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, PROVIDER_REASON);
     // the bold `codex-internal` status and the hints sit on separate rows at 84 columns, with
     // 2 warnings and Plan mode; the warning `⚠` stays on the footer row at 22 and at 4 rows
     let mut s = Screen::build(Owner::UiPane).size(84, 22).live().open();
@@ -403,27 +413,39 @@ fn provider_status_and_hints_use_separate_rows() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:205 status_rows_respect_host_budget_and_yield_to_the_draft kind=snap owner=ui-pane snap=status_rows_respect_host_budget_and_yield_to_the_draft
 #[test]
 fn status_rows_respect_host_budget_and_yield_to_the_draft() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
-    // the status `one…five` at 7 columns shows `one` and `two…` when the host caps the height;
-    // the draft `a b c` keeps its rows and the cursor at its end
-    let mut s = Screen::build(Owner::UiPane).size(7, 7).live().open();
-    s.type_text("a");
-    s.keys("shift+enter");
-    s.type_text("b");
-    s.keys("shift+enter");
-    s.type_text("c");
-    s.assert_in_order(&["one", "two…"]);
-    s.assert_snap("status_rows_respect_host_budget_and_yield_to_the_draft");
-    s.resize(7, 10);
-    s.assert_in_order(&["one", "two", "thre…"]);
-    s.resize(7, 14);
+    // the status `one two three four five` at 7 columns shows `one` and `two…` when the frame
+    // caps the height; the draft `a b c` keeps its rows. The oracle's unit test hands the
+    // composer `max_height = height`; the app hands it `composer_height_limit` (two thirds of the
+    // frame, at least 8), so the cap (a quarter of that, two to four rows) is 2 at 7 to 14 rows
+    // and 4 at 24: the page is held to what the app does.
+    let mut s = Screen::build(Owner::UiPane)
+        .size(7, 7)
+        .script(include_str!(
+            "fixtures/pane_footer_1/status_one_to_five.jsonl"
+        ))
+        .open();
+    s.paste("a\nb\nc");
+    // the oracle's snapshot (rows between `|`, a format `oracle_snap` does not read yet: the kit
+    // owner's file), row by row
+    for (row, text) in ["", "› a", "  b", "  c", "", "  one", "  two…"]
+        .iter()
+        .enumerate()
+    {
+        s.assert_row(row, text);
+    }
+    for height in [10, 14] {
+        s.resize(7, height);
+        s.assert_in_order(&["one", "two…"]);
+        s.assert_absent("three");
+    }
+    s.resize(7, 24);
     s.assert_in_order(&["one", "two", "three", "four…"]);
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:269 sidebar_focus_keeps_dim_extension_status_rows kind=snap owner=ui-pane
 #[test]
 fn sidebar_focus_keeps_dim_extension_status_rows() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, EXTENSION_REASON);
     // the draft `draft` above four status rows; unfocused (sidebar focus) the warning is hidden
     // and the rows dim, the last one shortened to `three…` (the oracle's inline snapshot)
     let mut s = Screen::build(Owner::UiPane).size(40, 12).live().open();
@@ -436,7 +458,7 @@ fn sidebar_focus_keeps_dim_extension_status_rows() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:316 thumbnails_fit_after_basic_footer_rows_and_before_extra_status kind=snap owner=ui-pane snap=thumbnails_fit_after_basic_footer_rows_and_before_extra_status
 #[test]
 fn thumbnails_fit_after_basic_footer_rows_and_before_extra_status() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, THUMBNAIL_REASON);
     // the attached image `preview.png` (the test attaches it; no key does) shows thumbnails
     // between the basic footer rows and the extra status, at caps 4 to 10 rows, in fullscreen
     let mut s = Screen::build(Owner::UiPane).size(32, 9).live().open();
@@ -449,7 +471,7 @@ fn thumbnails_fit_after_basic_footer_rows_and_before_extra_status() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:416 extension_status_paints_with_the_current_theme_at_the_same_width kind=ui owner=ui-pane
 #[test]
 fn extension_status_paints_with_the_current_theme_at_the_same_width() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, EXTENSION_REASON);
     // the status `λ` in the primary colour: red under the first syntax theme, green under the
     // second (the test switches the theme; no key does) at the same width of 24 columns
     let s = Screen::build(Owner::UiPane).size(24, 4).live().open();
@@ -460,7 +482,7 @@ fn extension_status_paints_with_the_current_theme_at_the_same_width() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:460 extension_status_keeps_its_rows_when_effort_changes kind=ui owner=ui-pane
 #[test]
 fn extension_status_keeps_its_rows_when_effort_changes() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, EXTENSION_REASON);
     // the status `one two three` at 7 columns keeps its rows through an effort change to Max
     // (the test sets the effort; no key does): three rows fullscreen, `two…` in scrollback
     let s = Screen::build(Owner::UiPane).size(7, 12).live().open();
@@ -470,7 +492,7 @@ fn extension_status_keeps_its_rows_when_effort_changes() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:489 native_status_wraps_links_within_the_host_budget kind=snap owner=ui-pane snap=native_status_wraps_links_within_the_host_budget
 #[test]
 fn native_status_wraps_links_within_the_host_budget() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, LINK_REASON);
     // the native status `لا PR #42 build green …` (a link) wraps within 18 columns: 4 rows
     // fullscreen, 2 in scrollback; with Plan mode 3 and 1 rows
     let s = Screen::build(Owner::UiPane).size(18, 20).live().open();
@@ -480,7 +502,7 @@ fn native_status_wraps_links_within_the_host_budget() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:542 native_wrap_tracks_agent_label_and_content_changes_at_the_same_width kind=ui owner=ui-pane
 #[test]
 fn native_wrap_tracks_agent_label_and_content_changes_at_the_same_width() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, AGENT_REASON);
     // the status `build ready` at 16 columns wraps to `build ready ·` and the agent label; the
     // test changes the label and the status (no key does) and the wrap follows at the same width
     let mut s = Screen::build(Owner::UiPane).size(16, 14).live().open();
@@ -499,7 +521,7 @@ fn native_wrap_tracks_agent_label_and_content_changes_at_the_same_width() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:571 native_effort_transition_restores_wrapping_after_its_final_frame kind=ui owner=ui-pane
 #[test]
 fn native_effort_transition_restores_wrapping_after_its_final_frame() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, EFFORT_REASON);
     // the status `build ready tests passed deploy queued` at 14 columns is one row during the
     // effort animation; after its final frame (10 s) it wraps again and `tests` shows
     let mut s = Screen::build(Owner::UiPane).size(14, 20).live().open();
@@ -511,7 +533,7 @@ fn native_effort_transition_restores_wrapping_after_its_final_frame() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:651 passive_activity_keeps_shortcuts_only_when_the_complete_hint_fits kind=ui owner=ui-pane
 #[test]
 fn passive_activity_keeps_shortcuts_only_when_the_complete_hint_fits() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, ACTIVITY_REASON);
     // the passive activity hint `ctrl+o t/f4 inspect activity` keeps `· ? shortcuts` at 80
     // columns and drops it at 40; an interactive footer or no shortcut key drops it at 80
     let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -524,7 +546,7 @@ fn passive_activity_keeps_shortcuts_only_when_the_complete_hint_fits() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:683 fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits kind=snap owner=ui-pane snap=fullscreen_plan_cycle_hint
 #[test]
 fn fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, MODE_REASON);
     // Plan mode shows `Plan mode (⇧tab to cycle)` at 100 columns while idle; narrow (37) it keeps
     // `Plan mode` on the last row beside the status; running it has no ⇧tab; a `Search: verify`
     // footer keeps it too
@@ -542,7 +564,7 @@ fn fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:771 footer_layout_in_fullscreen_and_scrollback kind=snap owner=ui-pane snap=empty snap=footer_layout_in_fullscreen_and_scrollback
 #[test]
 fn footer_layout_in_fullscreen_and_scrollback() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, MODE_REASON);
     // the footer rows at 120x2, 60x2 and 31x3 in fullscreen, and in scrollback at 31x4 and 31x1,
     // with Plan mode, the ide context, the vim mode and 2 warnings; a draft (`draft`) shifts them
     let mut s = Screen::build(Owner::UiPane).size(120, 5).live().open();
@@ -555,7 +577,7 @@ fn footer_layout_in_fullscreen_and_scrollback() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:830 active_side_action_keeps_plan_expanded_on_the_other_row kind=ui owner=ui-pane
 #[test]
 fn active_side_action_keeps_plan_expanded_on_the_other_row() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, MODE_REASON);
     // a side conversation: `Side from main thread · ctrl+/ to switch · ctrl+c to close` is the
     // last row and `Plan mode (⇧tab to cycle)` sits on the row above it, at 63 columns
     let s = Screen::build(Owner::UiPane).size(63, 6).live().open();
@@ -568,7 +590,7 @@ fn active_side_action_keeps_plan_expanded_on_the_other_row() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:852 oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled kind=ui owner=ui-pane
 #[test]
 fn oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, GOAL_REASON);
     // status disabled, a 100-token context window: `? for shortcuts` at 18 columns and
     // `100% context left` at 20; a paused goal (`/goal resume`) wins at 80 columns
     let mut s = Screen::build(Owner::UiPane).size(18, 4).live().open();
@@ -579,18 +601,61 @@ fn oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled() {
     s.assert_contains("Goal paused (/goal resume)");
 }
 
-// ORACLE bottom_pane/chat_composer/status_surface_tests.rs:883 shortcut_help_stays_above_the_prompt_and_bottom_status kind=snap owner=ui-pane snap=shortcut_help_above_narrow snap=shortcut_help_above_wide
+/// The oracle's snapshot of the composer alone against our rows from the help's title on: the
+/// page keeps the reader's gap (one blank row, `composer_gap`) above the prompt box that the
+/// snapshot lacks, and the prompt row carries the page's own placeholder (the oracle's is
+/// `Ask Codex`).
+fn assert_help_snap(s: &Screen, name: &str) {
+    assert_help_rows(s, &kit::snap_rows(name, ""), name);
+}
+
+/// `assert_help_snap` against the rows of one frame the oracle joined of several.
+fn assert_help_rows(s: &Screen, oracle: &[String], name: &str) {
+    let at = |rows: &[String], text: &str| {
+        rows.iter()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("no row with `{text}`"))
+    };
+    let ours = s.rows();
+    let (o_help, o_prompt) = (at(oracle, "Keyboard shortcuts"), at(oracle, "Ask Codex"));
+    let (help, prompt) = (at(&ours, "Keyboard shortcuts"), at(&ours, "Ask Codex"));
+    let mut got: Vec<String> = ours[help..]
+        .iter()
+        .map(|row| row.trim_end().to_string())
+        .collect();
+    // customize, the gap, the box's blank row, the prompt: the gap is two rows above the prompt
+    got.remove(prompt - help - 2);
+    let want = &oracle[o_help..];
+    let at_prompt = o_prompt - o_help;
+    assert!(
+        got[at_prompt].starts_with(&want[at_prompt]),
+        "{name}: the prompt row `{}` does not start with the oracle's `{}`",
+        got[at_prompt],
+        want[at_prompt]
+    );
+    got[at_prompt] = want[at_prompt].clone();
+    pretty_assertions::assert_eq!(
+        want.join("\n"),
+        got.join("\n"),
+        "{name}: ours (right) differs from the oracle (left)"
+    );
+}
+
+// ORACLE bottom_pane/chat_composer/status_surface_tests.rs:883 shortcut_help_stays_above_the_prompt_and_bottom_status kind=snap owner=ui-pane snap=shortcut
 #[test]
 fn shortcut_help_stays_above_the_prompt_and_bottom_status() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // `?` opens the help above the prompt (`Keyboard shortcuts` above `Ask Codex`), the close row
-    // `? / esc close` is the last row; at 130, 40 and 80x12 the oracle's frames hold
-    let mut s = Screen::build(Owner::UiPane).size(130, 24).live().open();
+    // `? / esc close` is the last row; the oracle renders at the height the composer wants, so
+    // the narrow frame (30 rows of help) gets the rows to show them all
+    let mut s = Screen::build(Owner::UiPane)
+        .size(130, 24)
+        .script(HELP_STATUS)
+        .open();
     s.keys("?");
     s.assert_in_order(&["Keyboard shortcuts", "Ask Codex"]);
-    s.assert_snap("shortcut_help_above_wide");
-    s.resize(40, 24);
-    s.assert_snap("shortcut_help_above_narrow");
+    assert_help_snap(&s, "shortcut_help_above_wide");
+    s.resize(40, 40);
+    assert_help_snap(&s, "shortcut_help_above_narrow");
     s.resize(80, 12);
     s.assert_contains("? / esc close");
 }
@@ -598,10 +663,12 @@ fn shortcut_help_stays_above_the_prompt_and_bottom_status() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:929 shortcut_help_keeps_bottom_anchored_composer_status_and_cursor_stable kind=ui owner=ui-pane
 #[test]
 fn shortcut_help_keeps_bottom_anchored_composer_status_and_cursor_stable() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // at 40x12 the composer, its status and the cursor keep the same geometry while `?` opens the
     // help and `esc` closes it
-    let mut s = Screen::build(Owner::UiPane).size(40, 12).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(40, 12)
+        .script(HELP_STATUS)
+        .open();
     let before = s.shot();
     s.keys("?");
     s.keys("esc");
@@ -611,34 +678,41 @@ fn shortcut_help_keeps_bottom_anchored_composer_status_and_cursor_stable() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:966 shortcut_help_keeps_input_and_close_hint_visible_when_height_is_tiny kind=ui owner=ui-pane
 #[test]
 fn shortcut_help_keeps_input_and_close_hint_visible_when_height_is_tiny() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // the help at 40 columns, heights 4 to 7: the last row is `? / esc close` and the input stays
     // visible; with the status on and off (the test sets it; no key does)
-    let mut s = Screen::build(Owner::UiPane).size(40, 4).live().open();
+    // (opened taller: a resize to the size it has repaints nothing)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(40, 8)
+        .script(HELP_STATUS)
+        .open();
     s.keys("?");
     for height in [4u16, 5, 6, 7] {
         s.resize(40, height);
-        s.assert_row(usize::from(height) - 1, "? / esc close");
+        s.assert_row(usize::from(height) - 1, "  ? / esc close");
     }
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1002 shortcut_help_close_row_uses_runtime_binding_and_narrow_fallback kind=ui owner=ui-pane
 #[test]
 fn shortcut_help_close_row_uses_runtime_binding_and_narrow_fallback() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // the help close row names the runtime binding of the shortcut toggle (`⌃x ⌃⇧⌥f12`) at 80
     // columns and falls back to `esc close` at 22 (the test sets the binding; no key does)
-    let mut s = Screen::build(Owner::UiPane).size(80, 8).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 8)
+        .keymap(&[("composer.toggle_shortcuts", "ctrl-x ctrl-shift-alt-f12")])
+        .script(HELP_STATUS)
+        .open();
     s.keys("?");
-    s.assert_row(7, "⌃x ⌃⇧⌥f12 / esc close");
+    // the oracle trims the row; ours keeps the footer's two-cell indent
+    s.assert_row(7, "  ⌃x ⌃⇧⌥f12 / esc close");
     s.resize(22, 8);
-    s.assert_row(7, "esc close");
+    s.assert_row(7, "  esc close");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1031 status_survives_hints_feedback_and_queue kind=snap owner=ui-pane snap=persistent_status_and_messages
 #[test]
 fn status_survives_hints_feedback_and_queue() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, QUEUE_REASON);
     // the status `MODEL · ~/project · Context 20% used` and `Plan mode` persist through the
     // shortcut overlay, a copy flash, a hint override, a running task and the file and skill
     // popups (the test sets the flash and the override; no key does)
@@ -678,7 +752,7 @@ fn input_history_search_uses_the_final_row() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1109 slash_suggestions_take_space_before_status_expands kind=snap owner=ui-pane snap=slash_suggestions_take_space_before_status_expands
 #[test]
 fn slash_suggestions_take_space_before_status_expands() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, EXTENSION_REASON);
     // the status `one two three four` shows `one…` while the `/m` command popup takes the space
     // above the composer, at 80 columns and 7 rows
     let mut s = Screen::build(Owner::UiPane).size(80, 7).live().open();
@@ -690,7 +764,7 @@ fn slash_suggestions_take_space_before_status_expands() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1130 slash_popup_preserves_footer_and_selection_style kind=snap owner=ui-pane snap=slash_popup_footer_wide
 #[test]
 fn slash_popup_preserves_footer_and_selection_style() {
-    kit::pending(Owner::UiPane, STATUS_REASON);
+    kit::pending(Owner::UiPane, POPUP_REASON);
     // the `/m` popup with Down selected keeps the status `model · high · fast` below it at 80
     // and 32 columns; the transcript footer `transcript status` sits on the last row
     let mut s = Screen::build(Owner::UiPane).size(80, 12).live().open();
@@ -704,16 +778,27 @@ fn slash_popup_preserves_footer_and_selection_style() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1198 activity_shortcut_help_follows_runtime_binding kind=snap owner=ui-pane snap=activity_shortcut_help_follows_runtime_binding
 #[test]
 fn activity_shortcut_help_follows_runtime_binding() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // the help at 130 columns names the activity key from the runtime keymap: `f4`, `ctrl-x t`,
-    // and no key at all; the test sets the keymap (`global.focus_activity`), no key does
-    let mut s = Screen::build(Owner::UiPane)
-        .size(130, 24)
-        .keymap(&[("focus_activity", "f4")])
-        .live()
-        .open();
-    s.keys("?");
-    s.assert_snap("activity_shortcut_help_follows_runtime_binding");
+    // and no key at all (the row is gone); the test sets the keymap (`global.focus_activity`),
+    // no key does. The oracle joined its three renders in one snapshot with `---` lines.
+    const NAME: &str = "activity_shortcut_help_follows_runtime_binding";
+    let oracle = kit::snap_rows(NAME, "");
+    let frames: Vec<&[String]> = oracle.split(|row| row == "---").collect();
+    assert_eq!(frames.len(), 3, "the snapshot holds three renders");
+    let keymaps: [&'static [(&'static str, &'static str)]; 3] = [
+        &[("global.focus_activity", "f4")],
+        &[("global.focus_activity", "ctrl-x t")],
+        &[("global.focus_activity", "")],
+    ];
+    for (keymap, frame) in keymaps.into_iter().zip(frames) {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(130, 24)
+            .script(HELP_STATUS)
+            .keymap(keymap)
+            .open();
+        s.keys("?");
+        assert_help_rows(&s, frame, NAME);
+    }
 }
 
 // ---- oracle: bottom_pane/chat_composer/warning_notice_tests.rs (4 screen-level tests here; 0 state tests left to ui-pane)

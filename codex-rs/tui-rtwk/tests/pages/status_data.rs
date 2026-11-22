@@ -182,8 +182,9 @@ fn warning_notice_is_at_the_footer_right() {
     );
 }
 
-// `plural`, and the compact form when the full one does not fit the budget
-// (`warning_notice`: half the width, at least 14).
+// `plural`, and the compact form when the full one does not fit beside the
+// hints (`passive_hints`: the warning is a label of the hint row and collapses
+// by the oracle's order, not by a budget of its own).
 #[test]
 fn warning_notice_pluralizes_and_compacts() {
     let h = session(80, &retained(1));
@@ -194,6 +195,9 @@ fn warning_notice_pluralizes_and_compacts() {
             .ends_with("⚠ 1 warning · f2 to view")
     );
     let h = session(48, &retained(3));
+    let last = rows(&h).last().cloned().expect("rows");
+    assert!(last.ends_with("⚠ 3 warnings · f2 to view"), "{last}");
+    let h = session(30, &retained(3));
     let last = rows(&h).last().cloned().expect("rows");
     assert!(last.ends_with("⚠ 3 · f2"), "{last}");
 }
