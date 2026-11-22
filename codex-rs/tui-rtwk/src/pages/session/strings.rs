@@ -58,10 +58,6 @@ pub struct Strings {
     /// The part of a command that needs the session (session-core) is not
     /// built yet: the slice's own text, not the oracle's.
     pub not_available: Msg<1>,
-    /// `chat_composer/history_search.rs`: the footer while searching.
-    pub search_idle: Msg<1>,
-    pub search_match: Msg<1>,
-    pub search_no_match: Msg<1>,
     /// `skill_popup.rs`, `mentions_v2/candidate.rs`: the tags of a row.
     pub tag_skill: &'static str,
     pub tag_app: &'static str,
@@ -161,9 +157,6 @@ pub const EN: Strings = Strings {
     usage_mcp: "Usage: /mcp [verbose | login <name>]",
     mcp_login_needs_session: "MCP sign-in requires an active session.",
     not_available: msg!("'/{0}' is not available yet."),
-    search_idle: msg!("reverse-i-search: {0}"),
-    search_match: msg!("reverse-i-search: {0}  enter accept \u{b7} esc cancel"),
-    search_no_match: msg!("reverse-i-search: {0}  no match"),
     tag_skill: "[Skill]",
     tag_app: "[App]",
     tag_plugin: "Plugin",
@@ -366,24 +359,6 @@ impl Strings {
             .to_string(),
         }
     }
-
-    /// The footer while history search is open.
-    pub fn search_footer(&self, query: &str, status: Search) -> String {
-        let msg = match status {
-            Search::Idle => self.search_idle,
-            Search::Match => self.search_match,
-            Search::NoMatch => self.search_no_match,
-        };
-        Fmt::new(msg, [Arg::Text(query)], &self.num).to_string()
-    }
-}
-
-/// Which footer of history search.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Search {
-    Idle,
-    Match,
-    NoMatch,
 }
 
 /// The oracle's `SlashCommand::description` (`slash_command.rs`), exhaustive

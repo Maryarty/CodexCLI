@@ -20,8 +20,7 @@ use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{ThreadId, Ticket};
-use codex_tui_core::screens::popovers::{Direction, SearchStatus};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat};
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::debug::menu::DebugMenu;
@@ -44,7 +43,6 @@ use super::activity::{Run, StatusSlot};
 use super::banners::{BackendBanners, NoticeLine};
 use super::live::put_back;
 use super::pending_input::PendingInput;
-use super::search_key::*;
 use super::status_surfaces::StatusContext;
 use super::transcript;
 use super::transcript_pane::TranscriptPane;
@@ -76,6 +74,10 @@ pub struct ChatState {
     shortcuts: bool,
     detailed_transcript: bool,
     draft_empty: bool,
+    /// The revision of the composer's reverse history search (Ctrl+R) this
+    /// page drew: its footer stands in the key footer's place, and a change of
+    /// the search draws the page again.
+    search_rev: u64,
     /// The composer is in shell mode: the footer label, no submit by the queue key.
     draft_shell: bool,
     /// The composer's focus node: the page sees `?` and `←` before the field
@@ -116,8 +118,6 @@ pub enum ChatMsg {
     /// A suggestion was put in: a command is run, the others are text.
     Picked(Rc<str>),
     Escape,
-    /// A key of history search.
-    Search(SearchKey),
     /// `?`: the shortcut overlay (the footer's hint).
     Shortcuts,
     /// `←` on an empty composer: the agents page (the footer's hint).
@@ -137,6 +137,7 @@ impl StatefulWidget for Chat {
             shortcuts: false,
             detailed_transcript: false,
             draft_empty: self.ui.composer.text().is_empty(),
+            search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
@@ -151,8 +152,10 @@ impl_widget!(stateful eq Chat);
 
 impl ChatState {
     /// What the page keeps of the draft (the footer and the Tab binding
-    /// read it): empty (shell mode's `!` is content) and in shell mode.
+    /// read it): empty (shell mode's `!` is content), in shell mode, in
+    /// history search.
     fn sync_draft(&mut self, w: &Chat) {
+        self.search_rev = w.ui.draft.search_rev();
         self.draft_shell = w.ui.draft.shell();
         self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
     }
@@ -276,10 +279,8 @@ impl State for ChatState {
                 thread.screen_slots().status.clone(),
             )
         });
-        self.control.set(
-            session.cycle_label(&thread, &states.agents).is_some()
-                && states.popovers.search.is_none(),
-        );
+        self.control
+            .set(session.cycle_label(&thread, &states.agents).is_some() && !w.ui.draft.searching());
     }
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -289,6 +290,7 @@ impl State for ChatState {
             self.esc_primed,
             self.draft_empty,
             self.draft_shell,
+            self.search_rev,
             self.detailed_transcript,
         );
         if !matches!(msg, ChatMsg::Escape) {
@@ -390,14 +392,6 @@ impl State for ChatState {
             }
             ChatMsg::Action(action) => match action {
                 Action::OpenTranscript => self.detailed_transcript = !self.detailed_transcript,
-                Action::SearchPrevious => {
-                    let draft = w.ui.composer.text().to_string();
-                    let intent = popovers::Intent::SearchStart { draft };
-                    cx.emit(&hs.screen, ScreenIntent::from(intent));
-                }
-                // `history_search_next` steps inside a search only
-                // (`search_key`); outside one it opens nothing.
-                Action::SearchNext => {}
                 Action::ToggleSide => {
                     let notice = codex_tui_core::commands::Notice::NotAvailable(SlashCommand::Side);
                     cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::Notice(notice)));
@@ -458,29 +452,6 @@ impl State for ChatState {
                     self.esc_primed = true;
                 }
             }
-            ChatMsg::Search(key) => {
-                let states = read::<ScreenStates, _>(cx);
-                let Some(search) = &states.popovers.search else {
-                    return Rebuild::No;
-                };
-                let intent = match key {
-                    SearchKey::Char(text) => popovers::Intent::SearchAppend(text.to_string()),
-                    SearchKey::Backspace => popovers::Intent::SearchBackspace,
-                    SearchKey::Clear => popovers::Intent::SearchClear,
-                    SearchKey::Older => popovers::Intent::SearchStep(Direction::Older),
-                    SearchKey::Newer => popovers::Intent::SearchStep(Direction::Newer),
-                    SearchKey::Accept => {
-                        if let Some(entry) = search.preview(&states.popovers.history) {
-                            w.ui.composer.reset(entry);
-                        }
-                        // Core ends the search only on a match.
-                        popovers::Intent::SearchAccept
-                    }
-                    SearchKey::Cancel => popovers::Intent::SearchEnd,
-                    SearchKey::Ignore => return Rebuild::No,
-                };
-                cx.emit(&hs.screen, ScreenIntent::from(intent));
-            }
         }
         if previous
             == (
@@ -488,6 +459,7 @@ impl State for ChatState {
                 self.esc_primed,
                 self.draft_empty,
                 self.draft_shell,
+                self.search_rev,
                 self.detailed_transcript,
             )
         {
@@ -507,6 +479,8 @@ impl State for ChatState {
         let connection = session.connections.get(&backend);
         let slots = thread.screen_slots();
         let facts = &states.chat.status;
+        // Reverse history search: the footer's row and what it takes from the page
+        let searching = w.ui.draft.search_state();
         let mut transcript = Stack::new()
             .alignment(Alignment::CENTER)
             .child(TranscriptPane(
@@ -517,7 +491,7 @@ impl State for ChatState {
             && facts.empty_state
             && self.draft_empty
             && !self.shortcuts
-            && states.popovers.search.is_none()
+            && searching.is_none()
             && thread.transcript().is_empty()
             && thread.last_submit().is_none()
             && !thread.read_only()
@@ -530,44 +504,22 @@ impl State for ChatState {
         let compacting = run.compacting();
         let (panel, close) = shortcut_panel(cx);
         let chat_strings = chat_strings::of(cx);
-        let search = states.popovers.search.clone();
-        let (composer, footer): (AnyWidget, AnyWidget) = match &search {
-            Some(search) => {
-                // Reverse history search: the preview stands where the text
-                // is, the keys are the search's (`history_search.rs`).
-                let shown = search
-                    .preview(&states.popovers.history)
-                    .unwrap_or(&search.draft)
-                    .to_string();
-                let status = match search.status {
-                    SearchStatus::Idle => chat_strings::Search::Idle,
-                    SearchStatus::Match => chat_strings::Search::Match,
-                    SearchStatus::NoMatch => chat_strings::Search::NoMatch,
-                };
-                let line = Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(prompt(chat_strings.prompt, tokens.bold()))
-                    .child(Expanded::new(1, Text::new(shown)));
-                let field = Focus::new(line)
-                    .can_request_focus(true)
-                    .autofocus()
-                    .on_key(cx.keys(search_key));
-                (
-                    field.into(),
-                    Text::new(chat_strings.search_footer(&search.query, status))
-                        .style(tokens.dim())
-                        .into(),
-                )
-            }
-            None if thread.read_only() => (
+
+        let (composer, footer): (AnyWidget, AnyWidget) = if thread.read_only() {
+            (
                 super::external_writer::notice(cx, chat_strings, &tokens),
                 super::external_writer::footer(chat_strings, &tokens),
-            ),
-            None => {
-                let composer = Composer::new(w.ui.clone(), self.node.clone())
-                    .on_changed(cx.map(ChatMsg::Changed))
-                    .on_submitted(cx.map(ChatMsg::Submit))
-                    .on_picked(cx.map(ChatMsg::Picked));
+            )
+        } else {
+            let composer = Composer::new(w.ui.clone(), self.node.clone())
+                .on_changed(cx.map(ChatMsg::Changed))
+                .on_submitted(cx.map(ChatMsg::Submit))
+                .on_picked(cx.map(ChatMsg::Picked));
+            let footer = if let Some((query, status)) = searching.clone() {
+                // Reverse history search: its row is the footer
+                // (`history_search_footer_line`).
+                super::composer::search::footer(cx, query, status)
+            } else {
                 let line = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
                     FooterLine::Close(close)
@@ -589,17 +541,17 @@ impl State for ChatState {
                 } else {
                     footer
                 };
-                let footer = if self.draft_shell {
+                if self.draft_shell {
                     with_shell_mode(cx, footer)
                 } else {
                     footer
-                };
-                (composer.into(), footer)
-            }
+                }
+            };
+            (composer.into(), footer)
         };
         // `⚠ N warnings · f2 to view` at the footer's right (not while history
         // search owns the footer).
-        let footer = if search.is_none() {
+        let footer = if searching.is_none() {
             let data = Theme::of(cx);
             with_warning_notice(
                 footer,
@@ -635,7 +587,7 @@ impl State for ChatState {
             .child(StatusSlot)
             .child(PendingInput)
             .child(NoticeLine);
-        if self.shortcuts && search.is_none() {
+        if self.shortcuts && searching.is_none() {
             body = body.child(panel);
         }
         let context = StatusContext {
@@ -651,7 +603,7 @@ impl State for ChatState {
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session
             .cycle_label(&thread, &states.agents)
-            .filter(|_| search.is_none() && !self.shortcuts);
+            .filter(|_| searching.is_none() && !self.shortcuts);
         let mut body = body;
         if let Some(label) = control {
             body = body.child(
@@ -746,7 +698,7 @@ impl State for ChatState {
             .bind(KeyPress::code(KeyCode::PageDown), cx.send(ChatMsg::Page(1)));
         // Tab queues while a turn runs and submits otherwise, but not a
         // shell command (`queue_keys` in `handle_key_event_without_popup`).
-        if (running || !self.draft_shell) && !self.draft_empty && search.is_none() {
+        if (running || !self.draft_shell) && !self.draft_empty && searching.is_none() {
             focus = focus.bind(KeyPress::code(KeyCode::Tab), cx.send(ChatMsg::QueueDraft));
         }
         if thread.read_only() {

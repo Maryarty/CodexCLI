@@ -474,6 +474,128 @@ fn ctrl_h_and_ctrl_u_edit_the_query() {
     assert!(screen.contains("reverse-i-search:"), "{screen}");
 }
 
+// ------------------------------------------------- chunk-composer: Ctrl+R as a mode of the composer
+
+/// The row of the screen that starts with `text`.
+fn row_of(h: &Harness, text: &str) -> usize {
+    h.t.screen()
+        .lines()
+        .position(|r| r.trim_start().starts_with(text))
+        .unwrap_or_else(|| panic!("no row starts with {text:?}:\n{}", h.t.screen()))
+}
+
+/// `history_search_paste_tests.rs:46`: a paste goes into the query whole, and
+/// the match follows it; one that sanitizes to nothing changes nothing.
+#[test]
+fn a_paste_goes_into_the_query_and_the_match_follows() {
+    let mut h = open_chat();
+    type_in(&mut h, "draft");
+    h.press("ctrl+r");
+    h.t.paste("git");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(screen.contains("› git status"), "{screen}");
+    assert!(
+        screen.contains("reverse-i-search: git  enter accept · esc cancel"),
+        "{screen}"
+    );
+    h.t.paste("\u{1b}[31m\u{1b}[0m");
+    h.t.paste("");
+    h.t.pump_for(ms(200));
+    assert_eq!(h.t.screen(), screen, "an empty paste changed the search");
+    h.press("enter");
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("› git status"), "{}", h.t.screen());
+    assert!(!h.t.screen().contains("reverse-i-search"));
+}
+
+/// `history_search_paste_tests.rs:121`: the footer shows a newline as `↵` and
+/// a tab as `⇥`, and the query stays what was pasted.
+#[test]
+fn the_footer_shows_pasted_newlines_and_tabs_as_marks() {
+    let mut h = open_chat();
+    type_in(&mut h, "draft");
+    h.press("ctrl+r");
+    h.t.paste("foo\nbar\tbaz");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("reverse-i-search: foo↵bar⇥baz  no match"),
+        "{screen}"
+    );
+    assert!(screen.contains("› draft"), "{screen}");
+}
+
+/// `history_search_paste_tests.rs:158`: Esc and Ctrl+C bring the draft back
+/// with its placeholder and its caret, the preview and a miss in between.
+#[test]
+fn cancel_restores_the_draft_its_placeholder_and_its_caret() {
+    for cancel in ["escape", "ctrl+c"] {
+        let mut h = open_chat();
+        type_in(&mut h, "draft");
+        h.t.paste(&"x".repeat(1001));
+        h.t.pump_for(ms(200));
+        h.press("home");
+        h.press("right right");
+        h.press("ctrl+r");
+        h.t.paste("git");
+        h.t.pump_for(ms(200));
+        assert!(h.t.screen().contains("› git status"), "{}", h.t.screen());
+        h.t.paste(" missing");
+        h.t.pump_for(ms(200));
+        let draft = "› draft[Pasted Content 1001 chars]";
+        assert!(h.t.screen().contains(draft), "{}", h.t.screen());
+        h.press(cancel);
+        h.t.pump_for(ms(200));
+        let screen = h.t.screen();
+        assert!(!screen.contains("reverse-i-search"), "{cancel}: {screen}");
+        assert!(screen.contains(draft), "{cancel}: {screen}");
+        // offset 2 of the draft, after the two cells of `› `
+        assert_eq!(h.t.cursor(), (4, row_of(&h, "›")), "{cancel}");
+    }
+}
+
+/// The footer row's look (`history_search_footer_line`): the label dim, the
+/// query in the info colour, and `no match` in red.
+#[test]
+fn the_footer_row_is_styled_as_the_oracle_styles_it() {
+    use rtwk::style::Attrs;
+    let mut h = open_chat();
+    h.press("ctrl+r");
+    type_in(&mut h, "zzz");
+    let y = row_of(&h, "reverse-i-search");
+    let text = h.t.screen().lines().nth(y).unwrap().to_string();
+    let at = |needle: &str| text.find(needle).unwrap();
+    let label = h.t.cell(at("reverse"), y);
+    assert!(label.attrs.intersects(Attrs::DIM), "label: {label:?}");
+    let query = h.t.cell(at("zzz"), y);
+    assert!(!query.attrs.intersects(Attrs::DIM), "query: {query:?}");
+    assert_ne!(query.fg, label.fg, "the query has its own colour");
+    let miss = h.t.cell(at("no match"), y);
+    assert_ne!(miss.fg, query.fg, "no match is red: {miss:?}");
+}
+
+/// A click in the composer while the search is open moves the caret of the
+/// preview; Esc still brings back the draft with the caret it had.
+#[test]
+fn a_click_in_the_preview_does_not_lose_the_draft() {
+    let mut h = open_chat();
+    type_in(&mut h, "keep me");
+    h.press("home");
+    h.press("right right");
+    h.press("ctrl+r");
+    type_in(&mut h, "git");
+    let y = row_of(&h, "›");
+    h.t.click(8, u16::try_from(y).unwrap());
+    h.t.pump_for(ms(200));
+    h.press("escape");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(screen.contains("› keep me"), "{screen}");
+    assert!(!screen.contains("reverse-i-search"), "{screen}");
+    assert_eq!(h.t.cursor(), (4, row_of(&h, "›")));
+}
+
 // ------------------------------------------------- chat-nav-fix (G10): Ctrl+/ aliases
 
 /// `keymap.rs:730-735`: Ctrl+/ is also Ctrl+7 and, on a terminal that cannot

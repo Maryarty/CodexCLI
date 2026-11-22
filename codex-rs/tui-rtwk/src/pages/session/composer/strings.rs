@@ -27,6 +27,18 @@ pub struct Strings {
     /// `shell_mode_footer_line`).
     pub shell_prompt: &'static str,
     pub shell_mode: &'static str,
+    /// The footer while reverse history search is open
+    /// (`history_search.rs`, `history_search_footer_line`): the label, the
+    /// state after the query, and the two actions of a match, each key and
+    /// its word.
+    pub search_label: &'static str,
+    pub search_gap: &'static str,
+    pub search_no_match: &'static str,
+    pub search_accept_key: &'static str,
+    pub search_accept: &'static str,
+    pub search_cancel_key: &'static str,
+    pub search_cancel: &'static str,
+    pub search_between: &'static str,
     pub num: NumSyms,
 }
 
@@ -55,6 +67,14 @@ pub const EN: Strings = Strings {
     image_label: msg!("[Image #{0}]"),
     shell_prompt: "!",
     shell_mode: "Shell mode",
+    search_label: "reverse-i-search: ",
+    search_gap: "  ",
+    search_no_match: "  no match",
+    search_accept_key: "enter",
+    search_accept: " accept",
+    search_cancel_key: "esc",
+    search_cancel: " cancel",
+    search_between: " \u{b7} ",
     num: NumSyms::ENGLISH,
 };
 

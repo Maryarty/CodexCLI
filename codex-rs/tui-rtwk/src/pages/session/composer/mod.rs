@@ -37,6 +37,7 @@ use crate::widgets::thread_ui::ThreadUi;
 pub mod burst;
 pub mod editing;
 pub mod footer;
+pub mod search;
 pub mod strings;
 pub mod suggest;
 pub mod vim;
@@ -218,6 +219,9 @@ pub enum ComposerMsg {
     Shell,
     /// The queue key (`composer.queue`) other than Tab.
     Queue,
+    /// Reverse history search opened, took a key or ended: the preview and
+    /// the footer's query are drawn again.
+    Searched,
     /// The timer of the paste-burst detector: what it holds goes in if its
     /// time is up.
     BurstDue,
@@ -428,6 +432,13 @@ impl State for ComposerState {
                 };
             }
             ComposerMsg::Redraw => return rtwk::Rebuild::Yes,
+            ComposerMsg::Searched => {
+                // the page's footer is the query: it hears of every change
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
             ComposerMsg::Highlight(at) => {
                 if let Ok(at) = usize::try_from(at) {
                     self.suggest.highlight(at);
@@ -483,6 +494,7 @@ impl State for ComposerState {
             keymap: crate::keymap::keymap(cx),
         };
         let env = data.burst.clone();
+        let searching = data.clone();
         let keys = |child: AnyWidget| -> AnyWidget {
             EditingKeys::new(
                 move |c, key, kcx| editing::take_key(&data, c, key, kcx),
@@ -503,6 +515,11 @@ impl State for ComposerState {
                 burst::flush_held_with(&draft, &*tell, env, &pasted_into);
             }
             draft.burst(PasteBurst::clear_after_explicit_paste);
+            // a paste while history search is open goes into its query
+            if draft.searching() {
+                search::paste(&searching, &pasted_into, text);
+                return true;
+            }
             // a paste while the `/` query is typed goes into the query
             if vim::paste_into_query(&draft, text) {
                 tell(ComposerMsg::Redraw);
