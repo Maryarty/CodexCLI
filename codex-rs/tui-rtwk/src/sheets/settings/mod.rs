@@ -6,10 +6,10 @@
 //! Their model part, events, intents and RPCs are core's
 //! `codex_tui_core::screens::settings`.
 
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
+use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog, show_dialog};
 use rtwk::provider::select;
 use rtwk::text::Text;
-use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::settings::{ID, NAME, Open};
@@ -18,6 +18,7 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 
+pub mod features;
 pub mod setup;
 pub mod strings;
 pub mod theme;
@@ -67,6 +68,36 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/skills_empty.jsonl"),
         ),
         (
+            "experimental_features_two",
+            "the experimental features with two features, the first on",
+            include_str!("fixtures/experimental_two.jsonl"),
+        ),
+        (
+            "experimental_features_discovery",
+            "the experimental features after the server's catalogue arrived: three on",
+            include_str!("fixtures/experimental_discovery.jsonl"),
+        ),
+        (
+            "experimental_features_save_failed",
+            "the experimental features after a write that did not confirm",
+            include_str!("fixtures/experimental_save_failed.jsonl"),
+        ),
+        (
+            "experimental_features_empty",
+            "the experimental features, the catalogue came empty",
+            include_str!("fixtures/experimental_empty.jsonl"),
+        ),
+        (
+            "experimental_features_unavailable",
+            "the experimental features, the catalogue request failed",
+            include_str!("fixtures/experimental_unavailable.jsonl"),
+        ),
+        (
+            "experimental_features_changed_default",
+            "the experimental features with one server feature",
+            include_str!("fixtures/experimental_changed_default.jsonl"),
+        ),
+        (
             "theme_picker_all",
             "the syntax theme picker over the built-in themes and a custom one",
             include_str!("fixtures/theme_picker_all.jsonl"),
@@ -109,26 +140,58 @@ enum Shown {
     Nothing,
     Setup,
     Theme,
+    Features,
     Other,
 }
 
-/// The sheet of this slot: the dialog the model holds open.
+/// The sheet of this slot: the dialog the model holds open. It closes the
+/// slot when the model closes what it held (the sheets are replaced by this
+/// widget's own build in that frame, so none of them sees it).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen;
 
-impl_widget!(stateless eq Screen);
+/// Widget state: whether a dialog was ever held open here.
+pub struct ScreenState {
+    had: bool,
+}
 
-impl StatelessWidget for Screen {
-    fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
-        let shown = select::<ScreenStates, Shown, _>(cx, |states| match &states.settings.open {
-            None => Shown::Nothing,
-            Some(Open::Setup(_)) => Shown::Setup,
-            Some(Open::Theme(_)) => Shown::Theme,
-            Some(_) => Shown::Other,
-        });
-        match shown {
+impl StatefulWidget for Screen {
+    type State = ScreenState;
+
+    fn create_state(&self) -> ScreenState {
+        ScreenState { had: false }
+    }
+}
+
+impl_widget!(stateful eq Screen);
+
+fn shown_of(cx: &mut Cx<'_, ScreenState>) -> Shown {
+    select::<ScreenStates, Shown, _>(cx, |states| match &states.settings.open {
+        None => Shown::Nothing,
+        Some(Open::Setup(_)) => Shown::Setup,
+        Some(Open::Theme(_)) => Shown::Theme,
+        Some(Open::Experimental(_)) => Shown::Features,
+        Some(_) => Shown::Other,
+    })
+}
+
+impl State for ScreenState {
+    type Widget = Screen;
+    type Msg = ();
+
+    fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
+        match shown_of(cx) {
+            Shown::Nothing if self.had => close_dialog::<_, ()>(cx, None),
+            Shown::Nothing => {}
+            _ => self.had = true,
+        }
+    }
+
+    fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        match shown_of(cx) {
             Shown::Setup => setup::SetupSheet.into(),
             Shown::Theme => theme::ThemeSheet.into(),
+            Shown::Features => features::FeaturesSheet.into(),
             // No dialog seeded (the debug menu's row): the skeleton's
             // empty-slot line.
             Shown::Nothing | Shown::Other => {

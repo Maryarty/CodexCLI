@@ -415,12 +415,108 @@ impl KeymapPicker {
 }
 
 /// The settings dialog open now.
+/// One experimental feature of the dialog (`ExperimentalFeatureItem`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Feature {
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub enabled: bool,
+    /// Read-only features cannot be flipped (`item.writable`).
+    #[serde(default = "writable")]
+    pub writable: bool,
+}
+
+fn writable() -> bool {
+    true
+}
+
+/// The line under the subtitle of the experimental features: the state of
+/// the catalogue and of the write (`discovery_status`). The words are the
+/// view's (ADR-010); only what the server said is text here.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum FeaturesStatus {
+    #[default]
+    Quiet,
+    /// The server's catalogue was asked for.
+    Loading,
+    /// The write was sent.
+    Saving,
+    /// The catalogue came with nothing in it.
+    NoExperiments,
+    /// The catalogue request failed.
+    Unavailable,
+    /// What the write answered: a warning or an error of the server.
+    Message(String),
+}
+
+/// `ExperimentalFeaturesView`: the features, what each was when the dialog
+/// last agreed with the config, and where discovery and the write stand.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Experimental {
+    pub features: Vec<Feature>,
+    /// What each feature was at the last agreement (`initial_enabled`).
+    pub initial: Vec<bool>,
+    /// The keys a write was sent for and did not confirm: Enter sends them
+    /// again (`unconfirmed`).
+    pub unconfirmed: Vec<String>,
+    pub status: FeaturesStatus,
+    /// The catalogue is on its way (`catalog_rx.is_some()`).
+    pub loading: bool,
+    /// A write is on its way (`write_rx.is_some()`).
+    pub saving: bool,
+    /// Which open of the dialog the answers belong to; an answer of
+    /// another one is stale and dropped.
+    pub generation: u64,
+}
+
+impl Experimental {
+    pub fn new(features: Vec<Feature>, loading: bool, generation: u64) -> Self {
+        Self {
+            initial: features.iter().map(|feature| feature.enabled).collect(),
+            features,
+            unconfirmed: Vec::new(),
+            status: if loading {
+                FeaturesStatus::Loading
+            } else {
+                FeaturesStatus::Quiet
+            },
+            loading,
+            saving: false,
+            generation,
+        }
+    }
+
+    /// `save_changes`: what a write would send, in the dialog's order.
+    fn updates(&self) -> Vec<(String, bool)> {
+        self.features
+            .iter()
+            .zip(&self.initial)
+            .filter(|(feature, initial)| {
+                feature.writable
+                    && (feature.enabled != **initial || self.unconfirmed.contains(&feature.key))
+            })
+            .map(|(feature, _)| (feature.key.clone(), feature.enabled))
+            .collect()
+    }
+}
+
+/// What a write answered (`FeatureWriteResult`): the features as the config
+/// reads them again, and a warning that keeps the dialog open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Written {
+    pub features: Vec<(String, bool)>,
+    pub warning: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Open {
     Config(ConfigPanel),
     Theme(ThemePicker),
     Setup(Setup),
     Keymap(KeymapPicker),
+    Experimental(Experimental),
 }
 
 /// What a settings dialog asked the app to do (the oracle's `AppEvent`s).
@@ -445,6 +541,8 @@ pub enum Edit {
         use_theme_colors: bool,
     },
     SetupCancelled(SetupKind),
+    /// `AppEvent::SaveExperimentalFeatures`: the keys and values to write.
+    FeaturesSave(Vec<(String, bool)>),
     /// An action was picked in the keymap picker.
     KeymapPicked(String),
 }
@@ -547,6 +645,18 @@ pub enum Ev {
     Opened(Open),
     /// The config's values and the disk's files the dialogs open from.
     Facts(Facts),
+    /// The server's catalogue of the experimental features arrived; none:
+    /// the request failed. The host leaves out what the dialog hides (the
+    /// stages other than beta, the retired features).
+    FeaturesDiscovered {
+        generation: u64,
+        features: Option<Vec<Feature>>,
+    },
+    /// The write of the experimental features was answered.
+    FeaturesSaved {
+        generation: u64,
+        result: Result<Written, String>,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`. The
@@ -593,6 +703,62 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
             model.facts = facts;
         }
+        Ev::FeaturesDiscovered {
+            generation,
+            features,
+        } => {
+            let Some(Open::Experimental(dialog)) = &mut model.open else {
+                return;
+            };
+            if dialog.generation != generation || !dialog.loading {
+                return;
+            }
+            dialog.loading = false;
+            match features {
+                Some(features) => {
+                    for feature in features {
+                        dialog.initial.push(feature.enabled);
+                        dialog.features.push(feature);
+                    }
+                    dialog.status = if dialog.features.is_empty() {
+                        FeaturesStatus::NoExperiments
+                    } else {
+                        FeaturesStatus::Quiet
+                    };
+                }
+                None => dialog.status = FeaturesStatus::Unavailable,
+            }
+        }
+        Ev::FeaturesSaved { generation, result } => {
+            let Some(Open::Experimental(dialog)) = &mut model.open else {
+                return;
+            };
+            if dialog.generation != generation || !dialog.saving {
+                return;
+            }
+            dialog.saving = false;
+            match result {
+                Ok(written) => {
+                    for feature in &mut dialog.features {
+                        if let Some((_, enabled)) =
+                            written.features.iter().find(|(key, _)| *key == feature.key)
+                        {
+                            feature.enabled = *enabled;
+                        }
+                    }
+                    dialog.unconfirmed.clear();
+                    dialog.initial = dialog.features.iter().map(|f| f.enabled).collect();
+                    dialog.status = match written.warning {
+                        Some(warning) => FeaturesStatus::Message(warning),
+                        None => FeaturesStatus::Quiet,
+                    };
+                    if dialog.status == FeaturesStatus::Quiet {
+                        model.open = None;
+                    }
+                }
+                Err(error) => dialog.status = FeaturesStatus::Message(error),
+            }
+        }
     }
 }
 
@@ -637,6 +803,44 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.edits.push(Edit::ThemeSelected(theme));
                 model.open = None;
             }
+        }
+        (Open::Experimental(dialog), Intent::Toggle(key)) => {
+            if dialog.saving {
+                return;
+            }
+            if let Some(feature) = dialog
+                .features
+                .iter_mut()
+                .find(|feature| feature.key == key && feature.writable)
+            {
+                feature.enabled = !feature.enabled;
+            }
+        }
+        // Enter: a write for what changed, or the close when nothing did;
+        // while a write is on its way it closes (`save_changes`).
+        (Open::Experimental(dialog), Intent::Save) => {
+            let updates = dialog.updates();
+            if dialog.saving || updates.is_empty() {
+                model.open = None;
+                return;
+            }
+            dialog.saving = true;
+            // A failed answer can follow a committed write: these keys stay
+            // dirty so that putting a value back still sends a correction.
+            dialog.unconfirmed = updates.iter().map(|(key, _)| key.clone()).collect();
+            dialog.status = FeaturesStatus::Saving;
+            model.edits.push(Edit::FeaturesSave(updates));
+        }
+        // Esc saves what changed and closes (`on_ctrl_c`); after a write
+        // that did not confirm it only closes, so that it always can.
+        (Open::Experimental(dialog), Intent::Close) => {
+            if dialog.unconfirmed.is_empty() {
+                let updates = dialog.updates();
+                if !dialog.saving && !updates.is_empty() {
+                    model.edits.push(Edit::FeaturesSave(updates));
+                }
+            }
+            model.open = None;
         }
         (Open::Setup(setup), Intent::Toggle(id)) => {
             if let Some(item) = setup.items.iter_mut().find(|item| item.id == id) {
@@ -799,6 +1003,25 @@ enum SeedEv {
     Skills {
         items: Vec<SkillSeed>,
     },
+    Experimental {
+        features: Vec<Feature>,
+        #[serde(default)]
+        loading: bool,
+        /// Keys whose write did not confirm.
+        #[serde(default)]
+        unconfirmed: Vec<String>,
+        /// What the failed write answered.
+        #[serde(default)]
+        failed: Option<String>,
+        #[serde(default)]
+        generation: u64,
+    },
+    FeaturesDiscovered {
+        #[serde(default)]
+        generation: u64,
+        #[serde(default)]
+        features: Option<Vec<Feature>>,
+    },
 }
 
 /// One skill of the toggle (`SkillsToggleItem`).
@@ -870,6 +1093,38 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(Ev::Opened(match seed {
+        SeedEv::FeaturesDiscovered {
+            generation,
+            features,
+        } => {
+            return Ok(Ev::FeaturesDiscovered {
+                generation,
+                features,
+            });
+        }
+        SeedEv::Experimental {
+            features,
+            loading,
+            unconfirmed,
+            failed,
+            generation,
+        } => {
+            let mut dialog = Experimental::new(features, loading, generation);
+            if let Some(error) = failed {
+                dialog.status = FeaturesStatus::Message(error);
+            }
+            // A write that failed: the baseline is the config's, which the
+            // flips differ from.
+            if !unconfirmed.is_empty() {
+                for (feature, initial) in dialog.features.iter().zip(&mut dialog.initial) {
+                    if unconfirmed.contains(&feature.key) {
+                        *initial = !feature.enabled;
+                    }
+                }
+                dialog.unconfirmed = unconfirmed;
+            }
+            Open::Experimental(dialog)
+        }
         SeedEv::ConfigPanel { rows } => Open::Config(ConfigPanel::new(rows)),
         SeedEv::ThemePicker {
             themes,

@@ -505,19 +505,24 @@ fn theme_row(
 /// The wide preview: all its lines, left inset 2, centred by the caller.
 fn wide_preview(s: &'static Strings, tokens: &Tokens, syntax: &SyntaxTheme) -> AnyWidget {
     let rows = s.theme_wide;
-    let lines = diff_lines(&rows, tokens, syntax);
+    let lines = diff_lines(s, &rows, tokens, syntax);
     Padding::new(EdgeInsets::only(WIDE_LEFT, 0, 0, 0), lines).into()
 }
 
 /// The narrow preview below the rows: the four lines of the compact sample.
 fn narrow_preview(s: &'static Strings, tokens: &Tokens, syntax: &SyntaxTheme) -> AnyWidget {
     let rows = s.theme_narrow;
-    diff_lines(&rows, tokens, syntax)
+    diff_lines(s, &rows, tokens, syntax)
 }
 
 /// The sample diff: the number column aligned right, the sign, the code
 /// highlighted as Rust (`render_preview`).
-fn diff_lines(rows: &[PreviewRow], tokens: &Tokens, syntax: &SyntaxTheme) -> AnyWidget {
+fn diff_lines(
+    s: &'static Strings,
+    rows: &[PreviewRow],
+    tokens: &Tokens,
+    syntax: &SyntaxTheme,
+) -> AnyWidget {
     let gutter = rows.iter().map(|row| row.no.len()).max().unwrap_or(1);
     let source = rows
         .iter()
@@ -560,7 +565,7 @@ fn diff_lines(rows: &[PreviewRow], tokens: &Tokens, syntax: &SyntaxTheme) -> Any
                 .child(fixed(
                     2,
                     Text::rich(vec![
-                        Span::new(" ".to_string()),
+                        Span::new(s.diff_gutter.to_string()),
                         Span::styled(sign.to_string(), sign_style),
                     ])
                     .into(),

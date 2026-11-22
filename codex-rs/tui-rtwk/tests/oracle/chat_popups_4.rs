@@ -69,7 +69,7 @@ fn apps_popup_for_not_installed_app_uses_install_only_selected_description() {
 fn experimental_features_popup_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port (`/experimental`): the feature list with its checkboxes and the configured list-accept chord have no widget and no seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 13)
@@ -88,7 +88,7 @@ fn experimental_features_popup_snapshot() {
 fn experimental_features_toggle_saves_on_exit() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port: the toggle row, the remapped cancel key (F2) that saves and closes, and the save-on-exit have no widget and no keymap seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/experimental");
@@ -104,7 +104,7 @@ fn experimental_features_toggle_saves_on_exit() {
 fn experimental_popup_loading_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port: the startup history cell and the loading popup while the feature list is fetched have no widget and no seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/experimental");
@@ -119,7 +119,7 @@ fn experimental_popup_loading_snapshot() {
 fn experimental_popup_available_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port: the available-features list after the fetch has no widget and no seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 12).live().open();
     s.assert_snap("experimental_features_available_popup");

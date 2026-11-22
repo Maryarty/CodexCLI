@@ -13,11 +13,12 @@
 
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::settings::{
-    ConfigPanel, Edit, Intent as SettingsIntent, Open, Section, SettingId, Setup, SetupKind,
-    USE_THEME_COLORS, Value,
+    ConfigPanel, Edit, Ev as SettingsEv, Experimental, Feature, FeaturesStatus,
+    Intent as SettingsIntent, Open, Section, SettingId, Setup, SetupKind, USE_THEME_COLORS, Value,
+    Written,
 };
+use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
 
 const CONFIG: &str = include_str!("../../src/sheets/settings/fixtures/config_panel.jsonl");
@@ -26,6 +27,14 @@ const THEME_ALL: &str = include_str!("../../src/sheets/settings/fixtures/theme_p
 const STATUS_LINE: &str = include_str!("../../src/sheets/settings/fixtures/status_line.jsonl");
 const TITLE: &str = include_str!("../../src/sheets/settings/fixtures/title.jsonl");
 const SKILLS: &str = include_str!("../../src/sheets/settings/fixtures/skills_long_names.jsonl");
+const EXPERIMENTAL_DISCOVERY: &str =
+    include_str!("../../src/sheets/settings/fixtures/experimental_discovery.jsonl");
+const EXPERIMENTAL_TWO: &str =
+    include_str!("../../src/sheets/settings/fixtures/experimental_two.jsonl");
+const EXPERIMENTAL_FAILED: &str =
+    include_str!("../../src/sheets/settings/fixtures/experimental_save_failed.jsonl");
+const EXPERIMENTAL_UNAVAILABLE: &str =
+    include_str!("../../src/sheets/settings/fixtures/experimental_unavailable.jsonl");
 const KEYMAP: &str = include_str!("../../src/sheets/settings/fixtures/keymap.jsonl");
 
 fn send(sandbox: &mut Sandbox, intent: SettingsIntent) {
@@ -582,4 +591,213 @@ fn the_skills_search_matches_the_display_name_then_the_skill_name_and_each_flip_
             Edit::SkillsClosed,
         ]
     );
+}
+
+fn experimental(sandbox: &Sandbox) -> Experimental {
+    match &sandbox.app().screens().settings.open {
+        Some(Open::Experimental(dialog)) => dialog.clone(),
+        other => panic!("experimental features expected, got {other:?}"),
+    }
+}
+
+fn answer(sandbox: &mut Sandbox, ev: SettingsEv) {
+    sandbox.send(AppEv::Screen(ScreenEv::Settings(ev)));
+}
+
+fn flags(sandbox: &Sandbox) -> Vec<(String, bool)> {
+    experimental(sandbox)
+        .features
+        .iter()
+        .map(|feature| (feature.key.clone(), feature.enabled))
+        .collect()
+}
+
+/// `experimental_features_view.rs`: discovery keeps the server's order, a
+/// toggle flips a writable row, Enter sends what differs from the config
+/// and holds the dialog until the answer (`save_changes`, `pre_draw_tick`).
+#[test]
+fn experimental_features_discovered_toggled_and_saved() {
+    let mut sandbox = Sandbox::play(EXPERIMENTAL_DISCOVERY).expect("plays");
+    let dialog = experimental(&sandbox);
+    assert_eq!(dialog.status, FeaturesStatus::Quiet);
+    assert!(!dialog.loading);
+    let keys: Vec<_> = dialog.features.iter().map(|f| f.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        ["network_proxy", "future_feature", "prevent_idle_sleep"]
+    );
+
+    // nothing changed: Enter closes without a write
+    let mut idle = Sandbox::play(EXPERIMENTAL_DISCOVERY).expect("plays");
+    send(&mut idle, SettingsIntent::Save);
+    assert!(idle.app().screens().settings.open.is_none());
+    assert_eq!(idle.app().screens().settings.edits, vec![]);
+
+    for key in ["future_feature", "network_proxy", "prevent_idle_sleep"] {
+        send(&mut sandbox, SettingsIntent::Toggle(key.to_string()));
+    }
+    send(&mut sandbox, SettingsIntent::Save);
+    let dialog = experimental(&sandbox);
+    assert!(dialog.saving);
+    assert_eq!(dialog.status, FeaturesStatus::Saving);
+    let updates = vec![
+        ("network_proxy".to_string(), false),
+        ("future_feature".to_string(), false),
+        ("prevent_idle_sleep".to_string(), false),
+    ];
+    assert_eq!(
+        sandbox.app().screens().settings.edits,
+        vec![Edit::FeaturesSave(updates.clone())]
+    );
+    // a toggle while the write is on its way changes nothing
+    send(&mut sandbox, SettingsIntent::Toggle("network_proxy".into()));
+    assert_eq!(flags(&sandbox), updates);
+
+    // the write was confirmed: the dialog closes
+    answer(
+        &mut sandbox,
+        SettingsEv::FeaturesSaved {
+            generation: 0,
+            result: Ok(Written {
+                features: updates,
+                warning: None,
+            }),
+        },
+    );
+    assert!(sandbox.app().screens().settings.open.is_none());
+}
+
+#[test]
+fn a_failed_write_keeps_the_choices_and_enter_sends_them_again_while_esc_closes() {
+    let mut sandbox = Sandbox::play(EXPERIMENTAL_DISCOVERY).expect("plays");
+    send(&mut sandbox, SettingsIntent::Toggle("network_proxy".into()));
+    send(&mut sandbox, SettingsIntent::Save);
+    answer(
+        &mut sandbox,
+        SettingsEv::FeaturesSaved {
+            generation: 0,
+            result: Err("Persistent write rejection".into()),
+        },
+    );
+    let dialog = experimental(&sandbox);
+    assert!(!dialog.saving);
+    assert_eq!(
+        dialog.status,
+        FeaturesStatus::Message("Persistent write rejection".into())
+    );
+    assert_eq!(dialog.unconfirmed, ["network_proxy"]);
+    // putting the value back still corrects a write that may have landed
+    send(&mut sandbox, SettingsIntent::Toggle("network_proxy".into()));
+    send(&mut sandbox, SettingsIntent::Save);
+    assert_eq!(
+        sandbox.app().screens().settings.edits.last(),
+        Some(&Edit::FeaturesSave(vec![("network_proxy".into(), true)]))
+    );
+    answer(
+        &mut sandbox,
+        SettingsEv::FeaturesSaved {
+            generation: 0,
+            result: Err("again".into()),
+        },
+    );
+    // Esc after an unconfirmed write closes without another write
+    let writes = sandbox.app().screens().settings.edits.len();
+    send(&mut sandbox, SettingsIntent::Close);
+    assert!(sandbox.app().screens().settings.open.is_none());
+    assert_eq!(sandbox.app().screens().settings.edits.len(), writes);
+
+    // the seeded failure (the oracle's snapshot state)
+    let failed = Sandbox::play(EXPERIMENTAL_FAILED).expect("plays");
+    let dialog = experimental(&failed);
+    assert_eq!(dialog.unconfirmed.len(), 3);
+    assert_eq!(
+        dialog.status,
+        FeaturesStatus::Message("Saved but readback failed".into())
+    );
+}
+
+#[test]
+fn a_warning_keeps_the_dialog_open_and_esc_saves_what_changed() {
+    let mut sandbox = Sandbox::play(EXPERIMENTAL_TWO).expect("plays");
+    send(&mut sandbox, SettingsIntent::Toggle("last".into()));
+    send(&mut sandbox, SettingsIntent::Save);
+    answer(
+        &mut sandbox,
+        SettingsEv::FeaturesSaved {
+            generation: 0,
+            result: Ok(Written {
+                features: vec![("first".into(), true), ("last".into(), true)],
+                warning: Some("Restart to apply".into()),
+            }),
+        },
+    );
+    let dialog = experimental(&sandbox);
+    assert_eq!(
+        dialog.status,
+        FeaturesStatus::Message("Restart to apply".into())
+    );
+    assert!(dialog.unconfirmed.is_empty());
+    assert_eq!(dialog.initial, [true, true]);
+    // Esc with a change writes it and closes
+    send(&mut sandbox, SettingsIntent::Toggle("first".into()));
+    send(&mut sandbox, SettingsIntent::Close);
+    assert!(sandbox.app().screens().settings.open.is_none());
+    assert_eq!(
+        sandbox.app().screens().settings.edits.last(),
+        Some(&Edit::FeaturesSave(vec![("first".into(), false)]))
+    );
+}
+
+#[test]
+fn answers_of_another_open_and_read_only_rows_change_nothing() {
+    let mut sandbox = Sandbox::play(EXPERIMENTAL_UNAVAILABLE).expect("plays");
+    assert_eq!(experimental(&sandbox).status, FeaturesStatus::Unavailable);
+    // the catalogue of an earlier open of the dialog is stale: the open
+    // that waits for its own keeps waiting
+    answer(
+        &mut sandbox,
+        SettingsEv::Opened(Open::Experimental(Experimental::new(vec![], true, 8))),
+    );
+    answer(
+        &mut sandbox,
+        SettingsEv::FeaturesDiscovered {
+            generation: 7,
+            features: Some(vec![]),
+        },
+    );
+    let waiting = experimental(&sandbox);
+    assert!(waiting.loading);
+    assert_eq!(waiting.status, FeaturesStatus::Loading);
+    answer(
+        &mut sandbox,
+        SettingsEv::Opened(Open::Experimental(Experimental::new(vec![], false, 0))),
+    );
+    answer(
+        &mut sandbox,
+        SettingsEv::FeaturesSaved {
+            generation: 7,
+            result: Ok(Written {
+                features: vec![],
+                warning: None,
+            }),
+        },
+    );
+    assert!(sandbox.app().screens().settings.open.is_some());
+
+    let read_only = Feature {
+        key: "pinned".into(),
+        name: "Pinned".into(),
+        description: String::new(),
+        enabled: true,
+        writable: false,
+    };
+    let mut dialog = Experimental::new(vec![read_only], false, 0);
+    dialog.status = FeaturesStatus::Quiet;
+    let mut sandbox = Sandbox::play(EXPERIMENTAL_TWO).expect("plays");
+    answer(&mut sandbox, SettingsEv::Opened(Open::Experimental(dialog)));
+    send(&mut sandbox, SettingsIntent::Toggle("pinned".into()));
+    assert!(experimental(&sandbox).features[0].enabled);
+    send(&mut sandbox, SettingsIntent::Save);
+    assert!(sandbox.app().screens().settings.open.is_none());
+    assert_eq!(sandbox.app().screens().settings.edits, vec![]);
 }

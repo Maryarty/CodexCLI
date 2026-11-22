@@ -123,26 +123,42 @@ pub enum Msg {
     Row(usize),
 }
 
-/// The act of a key; none: the key is the search field's.
-fn act_of(key: &KeyPress) -> Option<Act> {
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    let letter = key.text().and_then(|text| {
+/// The single character a key types, if it types one.
+pub(super) fn letter_of(key: &KeyPress) -> Option<char> {
+    key.text().and_then(|text| {
         let mut chars = text.chars();
         let first = chars.next()?;
         chars.next().is_none().then_some(first)
-    });
-    match (key.code, letter, ctrl, alt) {
+    })
+}
+
+/// How a key moves the cursor of a list (the oracle's list keymap).
+pub(super) fn move_of(key: &KeyPress) -> Option<Move> {
+    let ctrl = key.mods.contains(Mods::CTRL);
+    let alt = key.mods.contains(Mods::ALT);
+    match (key.code, letter_of(key), ctrl, alt) {
         (KeyCode::Up, _, false, false) | (KeyCode::Char, Some('p'), true, false) => {
-            Some(Act::Move(Move::Step(false)))
+            Some(Move::Step(false))
         }
         (KeyCode::Down, _, false, false) | (KeyCode::Char, Some('n'), true, false) => {
-            Some(Act::Move(Move::Step(true)))
+            Some(Move::Step(true))
         }
-        (KeyCode::PageUp, _, false, false) => Some(Act::Move(Move::Page(false))),
-        (KeyCode::PageDown, _, false, false) => Some(Act::Move(Move::Page(true))),
-        (KeyCode::Home, _, false, false) => Some(Act::Move(Move::Edge(false))),
-        (KeyCode::End, _, false, false) => Some(Act::Move(Move::Edge(true))),
+        (KeyCode::PageUp, _, false, false) => Some(Move::Page(false)),
+        (KeyCode::PageDown, _, false, false) => Some(Move::Page(true)),
+        (KeyCode::Home, _, false, false) => Some(Move::Edge(false)),
+        (KeyCode::End, _, false, false) => Some(Move::Edge(true)),
+        _ => None,
+    }
+}
+
+/// The act of a key; none: the key is the search field's.
+fn act_of(key: &KeyPress) -> Option<Act> {
+    if let Some(mv) = move_of(key) {
+        return Some(Act::Move(mv));
+    }
+    let ctrl = key.mods.contains(Mods::CTRL);
+    let alt = key.mods.contains(Mods::ALT);
+    match (key.code, letter_of(key), ctrl, alt) {
         // Left and Right reorder; with a search typed they move nothing (the
         // oracle's search has no caret to move).
         (KeyCode::Left, _, false, false) => Some(Act::Reorder(-1)),

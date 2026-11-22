@@ -440,6 +440,110 @@ fn a_tap_moves_the_cursor_to_a_skill_and_a_second_tap_flips_it() {
     );
 }
 
+// ---- the experimental features (`experimental_features_view.rs`): a checklist
+// that writes what changed
+
+#[test]
+fn space_flips_the_feature_under_the_cursor_the_cursor_wraps_and_enter_sends_the_write() {
+    let mut h = open("experimental_features_two");
+    assert!(
+        h.t.screen().contains("› [x] First feature"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("space");
+    assert!(
+        h.t.screen().contains("› [ ] First feature"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("up");
+    assert!(
+        h.t.screen().contains("› [ ] Last feature"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    assert!(
+        h.t.screen().contains("› [ ] First feature"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.press("space");
+    assert!(
+        h.t.screen().contains("› [x] Last feature"),
+        "{}",
+        h.t.screen()
+    );
+    // Enter sends the write and holds the sheet until it is answered; the
+    // rows are inert meanwhile
+    h.press("enter");
+    let screen = h.t.screen();
+    assert!(screen.contains("Saving experimental features"), "{screen}");
+    assert!(screen.contains("Saving… Closing this popup will not cancel the write."));
+    h.press("space");
+    assert!(
+        h.t.screen().contains("› [x] Last feature"),
+        "{}",
+        h.t.screen()
+    );
+    // Esc closes at any time
+    h.press("esc");
+    assert!(
+        !h.t.screen().contains("Experimental features"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn the_empty_catalogue_leaves_the_keys_inert_and_enter_closes_without_a_write() {
+    let mut h = open("experimental_features_empty");
+    h.press("down");
+    h.press("space");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("No experimental features available for now"),
+        "{screen}"
+    );
+    assert!(!screen.contains('›'), "{screen}");
+    h.press("enter");
+    assert!(
+        !h.t.screen().contains("Experimental features"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011 (beyond the oracle): a tap puts the cursor on a feature, a second
+/// tap flips it.
+#[test]
+fn a_tap_moves_the_cursor_to_a_feature_and_a_second_tap_flips_it() {
+    let mut h = open("experimental_features_two");
+    let (y, x) = find(&h, "Last feature");
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("› [ ] Last feature"),
+        "{}",
+        h.t.screen()
+    );
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("› [x] Last feature"),
+        "{}",
+        h.t.screen()
+    );
+    // the first row is untouched
+    assert!(
+        h.t.screen().contains("  [x] First feature"),
+        "{}",
+        h.t.screen()
+    );
+}
+
 // ---- /theme through the app: the model builds the picker from its facts,
 // so these tests read the real model (a debug entry's lives in its seeded
 // scope) ----
