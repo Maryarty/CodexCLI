@@ -73,6 +73,8 @@ pub struct Composer {
     on_changed: Option<Handler<Rc<str>>>,
     on_submitted: Option<Handler<Rc<str>>>,
     on_picked: Option<Handler<Rc<str>>>,
+    /// Told the queue key (`composer.queue`) when it is not Tab.
+    on_queue: Option<Handler<()>>,
     /// The text area alone: no prompt, no placeholder, no suggestions.
     bare: bool,
     /// Shell mode as the page built this widget: the page resets it when
@@ -87,6 +89,7 @@ impl PartialEq for Composer {
             && self.on_changed == other.on_changed
             && self.on_submitted == other.on_submitted
             && self.on_picked == other.on_picked
+            && self.on_queue == other.on_queue
             && self.bare == other.bare
             && self.shell == other.shell
     }
@@ -102,6 +105,7 @@ impl Composer {
             on_changed: None,
             on_submitted: None,
             on_picked: None,
+            on_queue: None,
             bare: false,
         }
     }
@@ -115,6 +119,7 @@ impl Composer {
             on_changed: None,
             on_submitted: None,
             on_picked: None,
+            on_queue: None,
             bare: true,
         }
     }
@@ -137,6 +142,14 @@ impl Composer {
     #[must_use]
     pub fn on_picked(mut self, h: Handler<Rc<str>>) -> Composer {
         self.on_picked = Some(h);
+        self
+    }
+
+    /// Told a press of the queue key when it is not Tab (the page binds Tab
+    /// itself; `composer.queue` may be any key).
+    #[must_use]
+    pub fn on_queue(mut self, h: Handler<()>) -> Composer {
+        self.on_queue = Some(h);
         self
     }
 }
@@ -202,6 +215,8 @@ pub enum ComposerMsg {
     ClearForCtrlC,
     /// The draft entered or left shell mode.
     Shell,
+    /// The queue key (`composer.queue`) other than Tab.
+    Queue,
     /// The timer of the paste-burst detector: what it holds goes in if its
     /// time is up.
     BurstDue,
@@ -346,6 +361,11 @@ impl State for ComposerState {
                 // a paste at the start may have made it shell mode
                 return rtwk::Rebuild::Yes;
             }
+            ComposerMsg::Queue => {
+                if let Some(h) = &w.on_queue {
+                    cx.emit(h, ());
+                }
+            }
             ComposerMsg::Submitted(_) => {
                 // the draft clears when the thread takes it (`clear_sent`)
                 if let Some(h) = &w.on_submitted {
@@ -459,6 +479,7 @@ impl State for ComposerState {
             tell: cx.local_sender(),
             burst: AppBinding::maybe_of(cx).map(|binding| burst_env(&binding, cx, table)),
             suggest: self.suggest.clone(),
+            keymap: crate::keymap::keymap(cx),
         };
         let env = data.burst.clone();
         let keys = |child: AnyWidget| -> AnyWidget {

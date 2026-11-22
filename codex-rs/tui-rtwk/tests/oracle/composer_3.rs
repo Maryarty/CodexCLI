@@ -308,10 +308,6 @@ fn vim_normal_operator_pending_consumes_submit_key() {
 // ORACLE bottom_pane/chat_composer.rs:11197 remapped_editor_history_navigation_does_not_fall_back_to_up kind=ui owner=chat-live
 #[test]
 fn remapped_editor_history_navigation_does_not_fall_back_to_up() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed for editor.move_up on the chat composer, and no prompt history: F2 recalls 'first' while Up on an empty draft does nothing",
-    );
     // oracle: editor.move_up remapped to F2
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
@@ -319,6 +315,8 @@ fn remapped_editor_history_navigation_does_not_fall_back_to_up() {
         .live()
         .open();
     s.type_text("first").keys("enter");
+    s.wait(100);
+    s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("up");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("f2");

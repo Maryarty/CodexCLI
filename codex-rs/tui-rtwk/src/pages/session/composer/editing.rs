@@ -9,13 +9,23 @@
 
 use std::rc::Rc;
 
-use rtwk::editing::{KeyCx, TextEditingController, TextSelection};
+use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, editing_key};
 use rtwk::focus::KeyPress;
 use rtwk::prelude::{KeyCode, Mods};
+
+use codex_tui_core::keymap::actions::{
+    COMPOSER_QUEUE, COMPOSER_SUBMIT, EDITOR_DELETE_BACKWARD, EDITOR_DELETE_BACKWARD_WORD,
+    EDITOR_DELETE_FORWARD, EDITOR_DELETE_FORWARD_WORD, EDITOR_INSERT_NEWLINE, EDITOR_KILL_LINE_END,
+    EDITOR_KILL_LINE_START, EDITOR_KILL_WHOLE_LINE, EDITOR_MOVE_DOWN, EDITOR_MOVE_LEFT,
+    EDITOR_MOVE_LINE_END, EDITOR_MOVE_LINE_START, EDITOR_MOVE_RIGHT, EDITOR_MOVE_UP,
+    EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK,
+};
+use codex_tui_core::keymap::{ActionId, Keymap};
 
 use super::ComposerMsg;
 use super::burst::{self, BurstEnv};
 use super::suggest::Suggest;
+use crate::keymap::pressed;
 use crate::widgets::composer_draft::ComposerDraft;
 
 /// What the handler reads besides the controller: the draft of the same
@@ -30,6 +40,9 @@ pub struct KeyData {
     pub burst: Option<BurstEnv>,
     /// The popup's rows: it takes Up, Down, Enter and Tab while it shows.
     pub suggest: Rc<Suggest>,
+    /// The user's bindings (`tui.keymap`): the Composer and Editor contexts
+    /// say which key is which edit.
+    pub keymap: Rc<Keymap>,
 }
 
 fn only(key: &KeyPress, mods: Mods) -> bool {
@@ -58,7 +71,247 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     if data.suggest.take_key(c, key, &*data.tell) {
         return true;
     }
+    if let Some(took) = composer_key(data, c, key) {
+        return took;
+    }
     edit_key(data, c, key, skill_space)
+}
+
+/// The Composer-context actions a key may be (`composer.submit`,
+/// `composer.queue`): Enter and Tab are the field's and the page's own, so a
+/// key bound elsewhere reaches them as a message, and an unbound Tab is
+/// nothing (the oracle's `handle_key_event_without_popup`). `None`: not a
+/// Composer key; `Some(false)`: the field's or the page's own key, left to
+/// them (the Editor context does not see it: Composer shadows it).
+fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Option<bool> {
+    let keymap = &*data.keymap;
+    let plain = |code: KeyCode| key.code == code && key.mods == Mods::NONE;
+    if pressed(keymap, COMPOSER_SUBMIT, key) {
+        if plain(KeyCode::Enter) {
+            return Some(false);
+        }
+        (data.tell)(ComposerMsg::Submitted(c.text()));
+        return Some(true);
+    }
+    if pressed(keymap, COMPOSER_QUEUE, key) {
+        if plain(KeyCode::Tab) {
+            return Some(false);
+        }
+        (data.tell)(ComposerMsg::Queue);
+        return Some(true);
+    }
+    plain(KeyCode::Tab).then_some(true)
+}
+
+/// The Editor-context actions the composer carries out itself, each with the
+/// key its editing is written for (`canonical`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Edit {
+    Newline,
+    Left,
+    Right,
+    Up,
+    Down,
+    WordLeft,
+    WordRight,
+    LineStart,
+    LineEnd,
+    DeleteBackward,
+    DeleteForward,
+    DeleteBackwardWord,
+    DeleteForwardWord,
+    KillLineStart,
+    KillWholeLine,
+    KillLineEnd,
+    Yank,
+}
+
+const EDITS: [(Edit, ActionId); 17] = [
+    (Edit::Newline, EDITOR_INSERT_NEWLINE),
+    (Edit::Left, EDITOR_MOVE_LEFT),
+    (Edit::Right, EDITOR_MOVE_RIGHT),
+    (Edit::Up, EDITOR_MOVE_UP),
+    (Edit::Down, EDITOR_MOVE_DOWN),
+    (Edit::WordLeft, EDITOR_MOVE_WORD_LEFT),
+    (Edit::WordRight, EDITOR_MOVE_WORD_RIGHT),
+    (Edit::LineStart, EDITOR_MOVE_LINE_START),
+    (Edit::LineEnd, EDITOR_MOVE_LINE_END),
+    (Edit::DeleteBackward, EDITOR_DELETE_BACKWARD),
+    (Edit::DeleteForward, EDITOR_DELETE_FORWARD),
+    (Edit::DeleteBackwardWord, EDITOR_DELETE_BACKWARD_WORD),
+    (Edit::DeleteForwardWord, EDITOR_DELETE_FORWARD_WORD),
+    (Edit::KillLineStart, EDITOR_KILL_LINE_START),
+    (Edit::KillWholeLine, EDITOR_KILL_WHOLE_LINE),
+    (Edit::KillLineEnd, EDITOR_KILL_LINE_END),
+    (Edit::Yank, EDITOR_YANK),
+];
+
+impl Edit {
+    /// The key the field's own editing answers to for this action: a key
+    /// the user bound to it is carried out as this one.
+    fn canonical(self) -> Option<KeyPress> {
+        let ctrl = |ch: char| KeyPress::char(ch).with_mods(Mods::CTRL);
+        let alt = |code: KeyCode| KeyPress::code(code).with_mods(Mods::ALT);
+        Some(match self {
+            Edit::Newline | Edit::KillWholeLine => return None,
+            Edit::Left => KeyPress::code(KeyCode::Left),
+            Edit::Right => KeyPress::code(KeyCode::Right),
+            Edit::Up => KeyPress::code(KeyCode::Up),
+            Edit::Down => KeyPress::code(KeyCode::Down),
+            Edit::WordLeft => alt(KeyCode::Left),
+            Edit::WordRight => alt(KeyCode::Right),
+            Edit::LineStart => KeyPress::code(KeyCode::Home),
+            Edit::LineEnd => KeyPress::code(KeyCode::End),
+            Edit::DeleteBackward => KeyPress::code(KeyCode::Backspace),
+            Edit::DeleteForward => KeyPress::code(KeyCode::Delete),
+            Edit::DeleteBackwardWord => ctrl('w'),
+            Edit::DeleteForwardWord => KeyPress::char('d').with_mods(Mods::ALT),
+            Edit::KillLineStart => ctrl('u'),
+            Edit::KillLineEnd => ctrl('k'),
+            Edit::Yank => ctrl('y'),
+        })
+    }
+}
+
+/// What a key is to the composer's editing under the user's bindings.
+enum Resolved {
+    /// Not an editing key: the field's.
+    None,
+    /// The key of an action the user took away from it: nothing happens
+    /// (`left` once `move_left` is bound elsewhere does not fall back).
+    Nothing,
+    /// An editing action; `via` is the key it is carried out as.
+    Edit { edit: Edit, via: Option<KeyPress> },
+}
+
+fn resolve(keymap: &Keymap, key: &KeyPress) -> Resolved {
+    for (edit, id) in EDITS {
+        if pressed(keymap, id, key) {
+            let via = edit.canonical().filter(|k| k != key);
+            return Resolved::Edit { edit, via };
+        }
+    }
+    thread_local! {
+        static DEFAULTS: Keymap = Keymap::defaults();
+    }
+    let was_default = DEFAULTS.with(|d| EDITS.iter().any(|(_, id)| pressed(d, *id, key)));
+    if was_default {
+        Resolved::Nothing
+    } else {
+        Resolved::None
+    }
+}
+
+/// The caret one logical line up or down, in the column it is in
+/// (`move_up` / `move_down` bound to a key the field does not know).
+fn move_line(c: &TextEditingController, down: bool) {
+    let text = c.buffer();
+    let caret = c.selection().extent_offset;
+    let line = text.line_of(caret);
+    let column = caret - text.line_start(line);
+    let to = if down {
+        let end = text.line_end(line);
+        if end >= text.len() {
+            text.len()
+        } else {
+            let next = end + 1;
+            (next + column).min(text.line_end(text.line_of(next)))
+        }
+    } else if line == 0 {
+        0
+    } else {
+        let prev_end = text.line_start(line) - 1;
+        let prev = text.line_start(text.line_of(prev_end));
+        (prev + column).min(prev_end)
+    };
+    c.move_caret(to, false);
+}
+
+/// Carries out `key` as the field's own editing would (the caret moves and
+/// the character deletions, as `rtwk` writes them).
+fn field_edit(c: &TextEditingController, key: &KeyPress) {
+    match key.code {
+        KeyCode::Up => move_line(c, false),
+        KeyCode::Down => move_line(c, true),
+        KeyCode::Backspace if c.selection().is_collapsed() => {
+            let caret = c.selection().extent_offset;
+            let from = c.buffer().character_start_before(caret);
+            c.replace(from, caret, "");
+        }
+        KeyCode::Delete if c.selection().is_collapsed() => {
+            let caret = c.selection().extent_offset;
+            let to = c.buffer().character_end_after(caret);
+            c.replace(caret, to, "");
+        }
+        KeyCode::Backspace | KeyCode::Delete => {
+            let s = c.selection();
+            c.replace(s.start(), s.end(), "");
+        }
+        _ => {
+            editing_key(c, key.clone(), &|t| c.insert(t), &StoredStops, false, None);
+        }
+    }
+}
+
+/// Whether the composer takes `key` for the editable field of `c`: the key
+/// is read through the user's Editor bindings first, then the editing that
+/// is Codex's (elements, history, kills) runs on the key it means.
+fn edit_key(
+    data: &KeyData,
+    c: &TextEditingController,
+    key: &KeyPress,
+    skill_space: Option<usize>,
+) -> bool {
+    match resolve(&data.keymap, key) {
+        Resolved::None => edit_arms(data, c, key, skill_space),
+        Resolved::Nothing => true,
+        Resolved::Edit {
+            edit: Edit::Newline,
+            ..
+        } => {
+            // Shift+Enter and Alt+Enter are the field's own line break;
+            // any other key of the action (Enter, once submit is
+            // elsewhere) breaks the line here
+            if key.code == KeyCode::Enter
+                && (key.mods.contains(Mods::SHIFT) || key.mods.contains(Mods::ALT))
+            {
+                return false;
+            }
+            c.insert("\n");
+            true
+        }
+        Resolved::Edit {
+            edit: Edit::KillWholeLine,
+            ..
+        } => {
+            kill_whole_line(&data.draft, c);
+            true
+        }
+        Resolved::Edit { via: None, .. } => edit_arms(data, c, key, skill_space),
+        Resolved::Edit { via: Some(via), .. } => {
+            edit_arms(data, c, &via, skill_space) || {
+                field_edit(c, &via);
+                true
+            }
+        }
+    }
+}
+
+/// `kill_current_line`: the line the caret is on goes, with the newline
+/// that ends it (the one before it for the last line), into the kill ring.
+fn kill_whole_line(draft: &ComposerDraft, c: &TextEditingController) {
+    let text = c.buffer();
+    let caret = c.selection().extent_offset;
+    let line = text.line_of(caret);
+    let (start, end) = (text.line_start(line), text.line_end(line));
+    let (from, to) = if end < text.len() {
+        (start, end + 1)
+    } else if start > 0 {
+        (start - 1, end)
+    } else {
+        (start, end)
+    };
+    kill(draft, c, from, to);
 }
 
 /// A typed character the draft's rules take: punctuation right after a
@@ -92,8 +345,9 @@ pub fn typed_char(
     false
 }
 
-/// Whether the composer takes `key` for the editable field of `c`.
-fn edit_key(
+/// Codex's own editing of the keys it means (the placeholders whole, shell
+/// mode, history at the draft's ends, the kill ring).
+fn edit_arms(
     data: &KeyData,
     c: &TextEditingController,
     key: &KeyPress,
@@ -274,6 +528,7 @@ mod tests {
             tell: Rc::new(|_| {}),
             burst: None,
             suggest: Rc::default(),
+            keymap: Rc::new(Keymap::defaults()),
         }
     }
 
@@ -375,5 +630,77 @@ mod tests {
         press(&d, &c, KeyPress::code(KeyCode::Backspace));
         assert_eq!(state(&c), ("ab".into(), 1));
         assert_eq!(d.draft.expanded(&c), "ab");
+    }
+
+    fn keyed(table: &str, action: &str, keys: &[&str]) -> KeyData {
+        let spec = codex_tui_core::keymap::KeymapSpec::default().with(table, action, keys);
+        KeyData {
+            keymap: Rc::new(Keymap::resolve_unchecked(&spec)),
+            ..data()
+        }
+    }
+
+    #[test]
+    fn enter_and_tab_are_left_to_the_field_and_the_page_by_default() {
+        let d = data();
+        let c = at("abc", 3);
+        // Enter is `editor.insert_newline` too, but Composer shadows it: it submits
+        assert_eq!(
+            composer_key(&d, &c, &KeyPress::code(KeyCode::Enter)),
+            Some(false)
+        );
+        // the page's own binding queues
+        assert_eq!(
+            composer_key(&d, &c, &KeyPress::code(KeyCode::Tab)),
+            Some(false)
+        );
+        assert_eq!(composer_key(&d, &c, &KeyPress::char('a')), None);
+    }
+
+    #[test]
+    fn a_remapped_submit_frees_enter_for_the_line_break_and_swallows_tab_when_unbound() {
+        let d = keyed("composer", "submit", &["ctrl-s"]);
+        let c = at("ab", 2);
+        assert_eq!(composer_key(&d, &c, &KeyPress::code(KeyCode::Enter)), None);
+        press(&d, &c, KeyPress::code(KeyCode::Enter));
+        assert_eq!(c.text().as_ref(), "ab\n");
+        let d = keyed("composer", "queue", &["f5"]);
+        assert_eq!(
+            composer_key(&d, &c, &KeyPress::code(KeyCode::Tab)),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn a_key_rebound_to_an_editor_action_is_carried_out_as_it_and_the_old_key_does_nothing() {
+        let d = keyed("editor", "move_left", &["f2"]);
+        let c = at("abc", 2);
+        press(&d, &c, KeyPress::code(KeyCode::F2));
+        assert_eq!(state(&c), ("abc".into(), 1));
+        // `left` is no longer bound to anything: it does not fall back
+        press(&d, &c, KeyPress::code(KeyCode::Left));
+        assert_eq!(state(&c), ("abc".into(), 1));
+    }
+
+    #[test]
+    fn kill_whole_line_is_unbound_until_the_user_binds_it() {
+        let d = data();
+        let c = at("abc\ndef\nghi", 5);
+        press(&d, &c, ctrl('u'));
+        assert_eq!(
+            c.text().as_ref(),
+            "abc\nef\nghi",
+            "ctrl+u is kill_line_start"
+        );
+        let d = keyed("editor", "kill_whole_line", &["ctrl-o"]);
+        let c = at("abc\ndef\nghi", 5);
+        press(&d, &c, ctrl('o'));
+        assert_eq!(c.text().as_ref(), "abc\nghi");
+        let c = at("abc\ndef", 5);
+        press(&d, &c, ctrl('o'));
+        assert_eq!(c.text().as_ref(), "abc");
+        // the killed line is in the ring
+        press(&d, &c, ctrl('y'));
+        assert_eq!(c.text().as_ref(), "abc\ndef");
     }
 }

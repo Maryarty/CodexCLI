@@ -9,8 +9,6 @@ use crate::kit::{self, Owner, Screen};
 // Reasons shared by several tests: what the port's chat composer does not have yet.
 const WRAP: &str = "G65: rtwk TextArea wraps and places the caret differently from the oracle's textarea at full rows (a caret after a full row, wide and half-width graphemes), on hanging spaces and tabs, and does not clear its rect's cells or keep its scroll as the oracle does";
 const VIM: &str = "no vim mode in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) has no vim bindings and no seed turns them on";
-const KILL: &str = "no kill-line command in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) binds no kill_current_line, and no key reaches it";
-const KEYMAP: &str = "no keymap seed: the port reads no key bindings from a config yet (the keymap slice), so the kill_whole_line binding of the test cannot be set";
 const LINK: &str = "the port's composer draws no OSC 8 links for URLs (rtwk-editing has no hyperlink annotation) and keeps no link cache to reuse";
 const MOUSE: &str = "the bare text area takes the mouse (a drag selects, a tap places the caret), but these rows are the oracle's wrap of the rect (G65), and its rect offsets (a 1-row rect at y 1, a resize mid-test) have no kit seed yet";
 
@@ -25,6 +23,22 @@ fn draft(width: u16, height: u16, text: &str) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .size(width, height)
         .entry("composer", "textarea")
+        .open();
+    s.paste(text);
+    s
+}
+
+/// As `draft`, with the user's bindings (`(action, key)` pairs of the keymap config).
+fn draft_keyed(
+    width: u16,
+    height: u16,
+    text: &str,
+    bindings: &'static [(&'static str, &'static str)],
+) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(width, height)
+        .entry("composer", "textarea")
+        .keymap(bindings)
         .open();
     s.paste(text);
     s
@@ -79,10 +93,16 @@ fn vim_linewise_yank_pastes_below_current_line() {
 // ORACLE bottom_pane/textarea.rs:3232 kill_current_line_removes_current_line_linewise kind=ui owner=chat-live
 #[test]
 fn kill_current_line_removes_current_line_linewise() {
-    kit::pending(Owner::ChatLive, KILL);
-    // oracle: "abc\ndef\nghi" with the caret on byte 5 (line 2): kill_current_line removes "def" and its newline. No key reaches the call yet; the step below is the oracle's caret.
-    let mut s = draft(80, 24, "abc\ndef\nghi");
+    // oracle: "abc\ndef\nghi" with the caret on byte 5 (line 2): kill_current_line removes "def" and its newline.
+    // The method has no default key: `editor.kill_whole_line` is bound to ctrl+u here, as the oracle's keymap test does.
+    let mut s = draft_keyed(
+        80,
+        24,
+        "abc\ndef\nghi",
+        &[("editor.kill_whole_line", "ctrl+u")],
+    );
     step(&mut s, 11, 5);
+    s.keys("ctrl+u");
     s.assert_in_order(&["abc", "ghi"]);
     s.assert_absent("def");
 }
@@ -90,10 +110,10 @@ fn kill_current_line_removes_current_line_linewise() {
 // ORACLE bottom_pane/textarea.rs:3245 kill_current_line_keeps_previous_newline_for_final_line kind=ui owner=chat-live
 #[test]
 fn kill_current_line_keeps_previous_newline_for_final_line() {
-    kit::pending(Owner::ChatLive, KILL);
     // oracle: "abc\ndef" with the caret on byte 5: kill_current_line leaves "abc" and its newline.
-    let mut s = draft(80, 24, "abc\ndef");
+    let mut s = draft_keyed(80, 24, "abc\ndef", &[("editor.kill_whole_line", "ctrl+u")]);
     step(&mut s, 7, 5);
+    s.keys("ctrl+u");
     s.assert_has_row("abc");
     s.assert_absent("def");
 }
@@ -101,9 +121,13 @@ fn kill_current_line_keeps_previous_newline_for_final_line() {
 // ORACLE bottom_pane/textarea.rs:3258 kill_whole_line_keymap_dispatch_uses_linewise_kill kind=ui owner=chat-live
 #[test]
 fn kill_whole_line_keymap_dispatch_uses_linewise_kill() {
-    kit::pending(Owner::ChatLive, KEYMAP);
     // oracle: "abc\ndef\nghi" with the caret on byte 5 and ctrl+u bound to kill_whole_line: the line "def" goes.
-    let mut s = draft(80, 24, "abc\ndef\nghi");
+    let mut s = draft_keyed(
+        80,
+        24,
+        "abc\ndef\nghi",
+        &[("editor.kill_whole_line", "ctrl+u")],
+    );
     step(&mut s, 11, 5);
     s.keys("ctrl+u");
     s.assert_in_order(&["abc", "ghi"]);

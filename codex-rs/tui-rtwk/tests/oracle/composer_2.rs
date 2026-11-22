@@ -560,10 +560,6 @@ fn tab_queues_slash_led_prompts_while_task_running_without_validation() {
 // ORACLE bottom_pane/chat_composer.rs:9820 remapped_submit_does_not_fall_back_to_enter kind=ui owner=chat-live
 #[test]
 fn remapped_submit_does_not_fall_back_to_enter() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed: the port reads no composer.submit binding (keymap(..) is missing), so the remapped submit (ctrl+j) cannot be set",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .live()
@@ -577,10 +573,6 @@ fn remapped_submit_does_not_fall_back_to_enter() {
 // ORACLE bottom_pane/chat_composer.rs:9856 remapped_queue_does_not_fall_back_to_tab kind=ui owner=chat-live
 #[test]
 fn remapped_queue_does_not_fall_back_to_tab() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed: the port reads no composer.queue binding (keymap(..) is missing), so the remapped queue key (ctrl+q) cannot be set",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .script(include_str!("fixtures/composer_2/running.jsonl"))
