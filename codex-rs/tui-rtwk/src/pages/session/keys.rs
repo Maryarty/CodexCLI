@@ -22,10 +22,6 @@ pub enum Action {
     OpenWarnings,
     /// `toggle_voice`: F8.
     ToggleVoice,
-    /// `history_search_previous`: Ctrl+R.
-    SearchPrevious,
-    /// `history_search_next`: Ctrl+S.
-    SearchNext,
     /// `toggle_side_conversation`: Ctrl+/.
     ToggleSide,
 }
@@ -37,10 +33,7 @@ impl Action {
             Action::FindTranscript => Some(Target::Pager),
             Action::OpenWarnings => Some(Target::Dialogs),
             Action::ToggleVoice => Some(Target::Voice),
-            Action::OpenTranscript
-            | Action::SearchPrevious
-            | Action::SearchNext
-            | Action::ToggleSide => None,
+            Action::OpenTranscript | Action::ToggleSide => None,
         }
     }
 }
@@ -53,8 +46,6 @@ pub fn defaults() -> Vec<(Action, KeyPress)> {
         (Action::FindTranscript, KeyPress::code(KeyCode::F3)),
         (Action::OpenWarnings, KeyPress::code(KeyCode::F2)),
         (Action::ToggleVoice, KeyPress::code(KeyCode::F8)),
-        (Action::SearchPrevious, ctrl('r')),
-        (Action::SearchNext, ctrl('s')),
         (Action::ToggleSide, ctrl('/')),
         // `keymap.rs:730-735`, `2317`: without the kitty protocol Ctrl+/ is
         // sent as the C0 byte 0x1f (rtwk reads Ctrl+_), and Ctrl+7 shares it.

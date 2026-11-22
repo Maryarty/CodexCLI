@@ -79,7 +79,6 @@ fn model() -> Model {
             "git status".into(),
             "cargo test".into(),
         ],
-        search: None,
     }
 }
 
@@ -108,7 +107,7 @@ fn at_lists_files_and_plugins() {
 #[test]
 fn history_search_shows_the_newest_match_and_walks_older_and_newer() {
     let m = model();
-    let mut s = HistorySearch::new("keep me".into());
+    let mut s = HistorySearch::new();
     assert_eq!(s.status, SearchStatus::Idle);
     s.set_query("c".into(), &m.history);
     assert_eq!(s.preview(&m.history), Some("cargo test"));
@@ -123,7 +122,7 @@ fn history_search_shows_the_newest_match_and_walks_older_and_newer() {
 #[test]
 fn history_search_is_case_insensitive_and_reports_no_match() {
     let m = model();
-    let mut s = HistorySearch::new(String::new());
+    let mut s = HistorySearch::new();
     s.set_query("GIT".into(), &m.history);
     assert_eq!(s.preview(&m.history), Some("git status"));
     s.set_query("zzz".into(), &m.history);
@@ -133,92 +132,55 @@ fn history_search_is_case_insensitive_and_reports_no_match() {
     assert_eq!(s.status, SearchStatus::Idle);
 }
 
-// ------------------------------------------------- chat-nav-fix (G2): the keys' decisions
-
-fn search_run(intents: Vec<Intent>) -> Model {
-    let mut m = model();
-    let mut fx = codex_tui_core::app::AppFx::default();
-    for intent in intents {
-        apply_intent(&mut m, intent, &mut fx);
-    }
-    m
-}
-
-fn start(draft: &str) -> Intent {
-    Intent::SearchStart {
-        draft: draft.into(),
-    }
-}
+// ------------------------------------------------- the search's own state: the composer holds it
 
 #[test]
-fn typing_extends_the_query_from_the_model_not_from_a_read() {
-    // Two keys of one flush: the second builds on the first.
-    let m = search_run(vec![
-        start("keep me"),
-        Intent::SearchAppend("g".into()),
-        Intent::SearchAppend("it".into()),
-    ]);
-    let s = m.search.as_ref().unwrap();
+fn a_query_built_key_by_key_matches_as_one_typed_at_once() {
+    let m = model();
+    let mut s = HistorySearch::new();
+    let mut query = String::new();
+    for typed in ["g", "it"] {
+        query.push_str(typed);
+        s.set_query(query.clone(), &m.history);
+    }
     assert_eq!(s.query, "git");
     assert_eq!(s.status, SearchStatus::Match);
     assert_eq!(s.preview(&m.history), Some("git status"));
 }
 
 #[test]
-fn backspace_and_ctrl_u_edit_the_query() {
-    let m = search_run(vec![
-        start(""),
-        Intent::SearchAppend("gitx".into()),
-        Intent::SearchBackspace,
-    ]);
-    let s = m.search.as_ref().unwrap();
-    assert_eq!(s.query, "git");
-    assert_eq!(s.status, SearchStatus::Match);
-    let m = search_run(vec![
-        start(""),
-        Intent::SearchAppend("git".into()),
-        Intent::SearchClear,
-    ]);
-    let s = m.search.as_ref().unwrap();
-    assert_eq!(s.query, "");
-    assert_eq!(s.status, SearchStatus::Idle);
-    // Backspace on an empty query leaves the search open and idle.
-    let m = search_run(vec![start(""), Intent::SearchBackspace]);
-    assert_eq!(m.search.as_ref().unwrap().status, SearchStatus::Idle);
-}
-
-/// `history_search.rs:213-230`: Enter accepts only a match.
-#[test]
-fn history_search_no_match_restores_preview_but_keeps_search_open() {
-    let m = search_run(vec![
-        start("keep me"),
-        Intent::SearchAppend("zzz".into()),
-        Intent::SearchAccept,
-    ]);
-    let s = m.search.as_ref().expect("the search is still open");
+fn shortening_or_emptying_the_query_restarts_from_the_newest() {
+    let m = model();
+    let mut s = HistorySearch::new();
+    s.set_query("gitx".into(), &m.history);
     assert_eq!(s.status, SearchStatus::NoMatch);
-    assert_eq!(s.preview(&m.history), None);
-    assert_eq!(s.draft, "keep me");
+    s.set_query("git".into(), &m.history);
+    assert_eq!(s.status, SearchStatus::Match);
+    s.set_query(String::new(), &m.history);
+    assert_eq!(s.status, SearchStatus::Idle);
+    assert_eq!(s.index(), None);
 }
 
+/// `history_search.rs:213-230`: Enter accepts only a match, which is the
+/// composer's decision on `status`: no preview and no index otherwise.
 #[test]
-fn enter_on_an_idle_search_keeps_it_open_and_on_a_match_ends_it() {
-    let m = search_run(vec![start(""), Intent::SearchAccept]);
-    assert!(m.search.is_some());
-    let m = search_run(vec![
-        start(""),
-        Intent::SearchAppend("git".into()),
-        Intent::SearchAccept,
-    ]);
-    assert!(m.search.is_none());
+fn only_a_match_has_a_preview_and_an_index() {
+    let m = model();
+    let mut s = HistorySearch::new();
+    assert_eq!((s.status, s.index()), (SearchStatus::Idle, None));
+    s.set_query("zzz".into(), &m.history);
+    assert_eq!((s.status, s.index()), (SearchStatus::NoMatch, None));
+    s.set_query("cargo".into(), &m.history);
+    assert_eq!((s.status, s.index()), (SearchStatus::Match, Some(2)));
 }
 
+/// `display_query`: a newline and a tab are shown as marks; the query that
+/// is matched is the original.
 #[test]
-fn cancel_ends_the_search_whatever_its_status() {
-    let m = search_run(vec![
-        start("keep me"),
-        Intent::SearchAppend("zzz".into()),
-        Intent::SearchEnd,
-    ]);
-    assert!(m.search.is_none());
+fn the_displayed_query_marks_newlines_and_tabs() {
+    let m = model();
+    let mut s = HistorySearch::new();
+    s.set_query("foo\nbar\tbaz".into(), &m.history);
+    assert_eq!(s.display_query(), "foo\u{21b5}bar\u{21e5}baz");
+    assert_eq!(s.query, "foo\nbar\tbaz");
 }

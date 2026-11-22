@@ -18,7 +18,6 @@ pub mod open;
 mod pending_input;
 pub mod popovers;
 mod popup;
-mod search_key;
 mod session_page;
 mod status_surfaces;
 pub mod transcript;

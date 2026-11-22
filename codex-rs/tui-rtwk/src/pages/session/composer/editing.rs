@@ -25,6 +25,7 @@ use codex_tui_core::screens::composer::vim::{EditorAction, Pending};
 
 use super::ComposerMsg;
 use super::burst::{self, BurstEnv};
+use super::search;
 use super::suggest::Suggest;
 use super::vim;
 use crate::keymap::pressed;
@@ -62,6 +63,10 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
         vim::toggle(data);
         return true;
     }
+    // reverse history search owns every key while it is open
+    if data.draft.searching() {
+        return search::key(data, c, key);
+    }
     let mode = vim::mode(&data.draft);
     if mode.searching {
         return vim::search_key(data, c, key);
@@ -87,6 +92,11 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     // a popup with rows takes the keys of its list before the editing keys
     // (history on Up and Down, the queue key on Tab)
     if data.suggest.take_key(c, key, &*data.tell) {
+        return true;
+    }
+    // Ctrl+R opens the search (Vim's Normal mode keeps it for redo)
+    if !mode.normal && search::opens(data, key) {
+        search::begin(data, c);
         return true;
     }
     // a command waiting for its next key takes Enter too (it is no submit)

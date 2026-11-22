@@ -20,7 +20,7 @@ pub const KIND: Kind = Kind::Part;
 
 /// The app-scoped model state of this screen, changed only by `apply`: the
 /// data the `@` and `$` popups list, the prompts history search walks, and
-/// the search in progress. The backend would supply the data; scripts seed it.
+/// the history the search reads. The backend would supply the data; scripts seed it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     /// Paths relative to the working directory (`@` file search).
@@ -29,8 +29,6 @@ pub struct Model {
     pub mentions: Vec<Mention>,
     /// Submitted prompts, oldest first (Ctrl+R).
     pub history: Vec<String>,
-    /// Reverse history search, while it is open.
-    pub search: Option<HistorySearch>,
 }
 
 /// What a mention is.
@@ -135,24 +133,24 @@ pub enum Sigil {
 }
 
 /// Where reverse history search stands (`history_search.rs`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchStatus {
     /// The query is empty: nothing is previewed.
+    #[default]
     Idle,
     /// A match is previewed.
     Match,
     NoMatch,
 }
 
-/// Reverse history search: the query, the draft it will restore and the
-/// history entry the preview shows (`chat_composer/history_search.rs`, with
-/// the history of `chat_composer_history.rs`: a case-insensitive substring,
-/// newest first).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Reverse history search: the query and the history entry the preview
+/// shows (`chat_composer/history_search.rs`, with the history of
+/// `chat_composer_history.rs`: a case-insensitive substring, newest first).
+/// The composer owns it with the draft it will restore (UI state, one per
+/// thread's draft): the model holds only the history it reads.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HistorySearch {
     pub query: String,
-    /// The composer's text when the search opened.
-    pub draft: String,
     pub status: SearchStatus,
     cursor: Option<usize>,
 }
@@ -167,22 +165,28 @@ pub enum Direction {
 impl HistorySearch {
     /// Opens without previewing anything: Ctrl+R on an empty composer must not
     /// replace it with the latest prompt.
-    pub fn new(draft: String) -> Self {
-        Self {
-            query: String::new(),
-            draft,
-            status: SearchStatus::Idle,
-            cursor: None,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// The entry the preview shows; none while idle or without a match, and
-    /// the composer then shows `draft`.
+    /// the composer then shows its own draft.
     pub fn preview<'a>(&self, history: &'a [String]) -> Option<&'a str> {
+        self.index().and_then(|i| history.get(i)).map(String::as_str)
+    }
+
+    /// The history index of the match the preview shows.
+    pub fn index(&self) -> Option<usize> {
         match self.status {
-            SearchStatus::Match => self.cursor.and_then(|i| history.get(i)).map(String::as_str),
+            SearchStatus::Match => self.cursor,
             SearchStatus::Idle | SearchStatus::NoMatch => None,
         }
+    }
+
+    /// The query as the footer shows it: a newline and a tab as marks
+    /// (`display_query`); matching keeps the query as it is.
+    pub fn display_query(&self) -> String {
+        self.query.replace('\n', "\u{21b5}").replace('\t', "\u{21e5}")
     }
 
     /// The query changed: the search restarts from the newest entry.
@@ -236,19 +240,6 @@ pub enum Ev {
 pub enum Intent {
     /// A prompt was submitted: history search finds it later.
     Record(String),
-    SearchStart { draft: String },
-    /// Typed or pasted text after the query.
-    SearchAppend(String),
-    /// Backspace (and Ctrl+H): the query loses its last character.
-    SearchBackspace,
-    /// Ctrl+U: the query is emptied.
-    SearchClear,
-    SearchStep(Direction),
-    /// Enter: ends the search only when a match is previewed
-    /// (`history_search.rs:213-230`); otherwise the search stays open.
-    SearchAccept,
-    /// The search was cancelled (Esc, Ctrl+C): the composer keeps its draft.
-    SearchEnd,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -268,55 +259,6 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.history.push(text);
             }
         }
-        Intent::SearchStart { draft } => model.search = Some(HistorySearch::new(draft)),
-        Intent::SearchAppend(text) => {
-            // The borrow is split: the search edits itself against the
-            // history without a copy of it per key.
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                let query = format!("{}{text}", search.query);
-                search.set_query(query, history);
-            }
-        }
-        Intent::SearchBackspace => {
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                let mut query = search.query.clone();
-                query.pop();
-                search.set_query(query, history);
-            }
-        }
-        Intent::SearchClear => {
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                search.set_query(String::new(), history);
-            }
-        }
-        Intent::SearchStep(direction) => {
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                search.step(direction, history);
-            }
-        }
-        // `history_search.rs:213-230`: only a match is accepted.
-        Intent::SearchAccept => {
-            if model
-                .search
-                .as_ref()
-                .is_some_and(|search| search.status == SearchStatus::Match)
-            {
-                model.search = None;
-            }
-        }
-        Intent::SearchEnd => model.search = None,
     }
 }
 

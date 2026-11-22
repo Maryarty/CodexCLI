@@ -27,6 +27,7 @@ use codex_tui_core::threads::{LocalImage, UserMessage};
 
 use crate::services::images;
 
+mod search;
 mod vim;
 
 pub use vim::{Snapshot, VimHost};
@@ -57,9 +58,10 @@ struct Inner {
     /// What the last `Ctrl+K` / `Ctrl+W` killed (`textarea.rs`
     /// `kill_buffer`), put back by `Ctrl+Y`, with the elements it held.
     kill: Option<(String, Vec<Element>)>,
-    /// The history entry Up and Down last recalled, and its text
+    /// The history entry Up and Down last recalled (none: a search's pick
+    /// is a recalled text with no place in the walk), and its text
     /// (`chat_composer_history.rs`: `history_cursor`, `last_history_text`).
-    recalled: Option<(usize, String)>,
+    recalled: Option<(Option<usize>, String)>,
     /// The drafts this composer submitted or cleared with placeholders in
     /// them, by the text they sent: Up brings an entry back with its
     /// placeholders (`HistoryEntry::pending_pastes`).
@@ -77,6 +79,11 @@ struct Inner {
     /// Modal (Vim) editing: the engine, the register's kind, the undo
     /// history and the search query.
     vim: vim::Modal,
+    /// Reverse history search (Ctrl+R), while it is open.
+    search: Option<search::Session>,
+    /// Counts the changes of that search: a page that shows its footer asks
+    /// whether it is the one it drew (`ComposerDraft::search_rev`).
+    search_rev: u64,
 }
 
 /// A local history entry with its elements.
@@ -614,25 +621,25 @@ impl ComposerDraft {
     /// (`navigate_up`).
     pub fn history_up(&self, c: &TextEditingController, history: &[String]) -> bool {
         let at = match self.0.borrow().recalled {
-            None => history.len().checked_sub(1),
-            Some((0, _)) => None,
-            Some((i, _)) => Some(i - 1),
+            None | Some((None, _)) => history.len().checked_sub(1),
+            Some((Some(0), _)) => None,
+            Some((Some(i), _)) => Some(i - 1),
         };
         let Some(at) = at else {
             return false;
         };
-        self.recall(c, at, &history[at]);
+        self.recall(c, Some(at), &history[at]);
         true
     }
 
     /// Down: the entry after the one recalled, or past the newest an empty
     /// draft and the walk over; `false` when not walking (`navigate_down`).
     pub fn history_down(&self, c: &TextEditingController, history: &[String]) -> bool {
-        let Some((i, _)) = self.0.borrow().recalled.clone() else {
+        let Some((Some(i), _)) = self.0.borrow().recalled.clone() else {
             return false;
         };
         if i + 1 < history.len() {
-            self.recall(c, i + 1, &history[i + 1]);
+            self.recall(c, Some(i + 1), &history[i + 1]);
         } else {
             {
                 let mut inner = self.0.borrow_mut();
@@ -646,7 +653,7 @@ impl ComposerDraft {
         true
     }
 
-    fn recall(&self, c: &TextEditingController, at: usize, entry: &str) {
+    fn recall(&self, c: &TextEditingController, at: Option<usize>, entry: &str) {
         let local = {
             let inner = self.0.borrow();
             inner.local.iter().rev().find(|l| l.sent == entry).cloned()
