@@ -1350,3 +1350,323 @@ mod order {
         assert_eq!(Family::of(None), Family::Other);
     }
 }
+
+// ---- guardian (auto-review): chatwidget/tool_requests.rs `on_guardian_assessment`,
+// auto_review_denials.rs, permission_popups.rs `open_auto_review_denials_popup` and
+// `approve_recent_auto_review_denial`, status_state.rs `PendingGuardianReviewStatus`.
+
+mod guardian {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::screens::approvals::decided::{
+        Actor, Decided, Outcome, Reviewed, Subject, Verdict,
+    };
+    use codex_tui_core::screens::approvals::guardian::{Action, Ask, History, project};
+    use codex_tui_core::screens::approvals::{ThreadEv, ThreadPart};
+    use pretty_assertions::assert_eq;
+
+    fn notification(method: &str, params: &str) -> ServerNotification {
+        serde_json::from_str(&format!(r#"{{"method":"{method}","params":{params}}}"#))
+            .expect("a notification")
+    }
+
+    fn review(id: &str, status: &str, action: &str, rationale: Option<&str>) -> ServerNotification {
+        let rationale = rationale.map_or("null".to_string(), |r| format!("{r:?}"));
+        let done = if status == "inProgress" {
+            String::new()
+        } else {
+            r#","completedAtMs":1,"decisionSource":"agent""#.to_string()
+        };
+        let method = if status == "inProgress" {
+            "item/autoApprovalReview/started"
+        } else {
+            "item/autoApprovalReview/completed"
+        };
+        notification(
+            method,
+            &format!(
+                r#"{{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0{done},"reviewId":"{id}","targetItemId":null,"review":{{"status":"{status}","riskLevel":null,"userAuthorization":null,"rationale":{rationale}}},"action":{action}}}"#
+            ),
+        )
+    }
+
+    fn command(text: &str) -> String {
+        format!(r#"{{"type":"command","source":"shell","command":{text:?},"cwd":"/tmp"}}"#)
+    }
+
+    const STDIN: &str =
+        r#"{"type":"writeStdin","approvalId":"a","processId":"42","stdin":"confirm\n","cwd":"/tmp"}"#;
+
+    /// Applies `notification` to `part` the way the app does: projected for its thread.
+    fn feed(part: &mut ThreadPart, notification: &ServerNotification) -> Option<Ask> {
+        let (thread, ev) = project(notification).expect("a guardian notification");
+        assert_eq!(thread.as_str(), "thread-1");
+        part.apply(ev)
+    }
+
+    #[test]
+    fn only_the_three_guardian_notifications_are_projected() {
+        let turn = notification(
+            "turn/started",
+            r#"{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"inProgress"}}"#,
+        );
+        assert!(project(&turn).is_none());
+        let warning = notification(
+            "guardianWarning",
+            r#"{"threadId":"thread-1","message":"Automatic approval review denied"}"#,
+        );
+        assert!(project(&warning).is_some());
+        assert!(project(&review("g", "inProgress", &command("ls"), None)).is_some());
+        assert!(project(&review("g", "denied", &command("ls"), None)).is_some());
+    }
+
+    #[test]
+    fn a_review_in_progress_owns_the_status_until_it_ends() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "inProgress", &command("rm -rf '/tmp/a'"), None));
+        assert_eq!(part.reviews.len(), 1);
+        assert_eq!(part.reviews[0].action, Action::Command { line: "rm -rf '/tmp/a'".into() });
+        assert!(part.take_history().is_empty());
+        feed(&mut part, &review("g1", "approved", &command("rm -rf '/tmp/a'"), None));
+        assert!(part.reviews.is_empty());
+        assert!(part.take_history().is_empty(), "approved: no history");
+        assert!(part.recent_denials.is_empty());
+    }
+
+    #[test]
+    fn a_second_start_of_the_same_review_updates_it() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "inProgress", &command("first"), None));
+        feed(&mut part, &review("g1", "inProgress", &command("second"), None));
+        assert_eq!(part.reviews.len(), 1);
+        assert_eq!(part.reviews[0].action, Action::Command { line: "second".into() });
+    }
+
+    #[test]
+    fn parallel_reviews_stay_in_arrival_order_and_leave_one_by_one() {
+        let mut part = ThreadPart::default();
+        for (id, line) in [("g1", "rm one"), ("g2", "rm two"), ("g3", "rm three")] {
+            feed(&mut part, &review(id, "inProgress", &command(line), None));
+        }
+        let ids: Vec<_> = part.reviews.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["g1", "g2", "g3"]);
+        feed(&mut part, &review("g2", "approved", &command("rm two"), None));
+        let ids: Vec<_> = part.reviews.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["g1", "g3"]);
+    }
+
+    #[test]
+    fn a_denied_command_is_the_auto_reviewers_cell_and_a_stored_denial() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "inProgress", &command("curl https://example.com"), None));
+        feed(
+            &mut part,
+            &review("g1", "denied", &command("curl https://example.com"), Some("Exfiltrates a file.")),
+        );
+        assert!(part.reviews.is_empty());
+        assert_eq!(
+            part.take_history(),
+            vec![History::Decided(Decided::Request {
+                actor: Actor::Guardian,
+                subject: Subject::Command("curl https://example.com".into()),
+                outcome: Outcome::Denied,
+            })]
+        );
+        let denials: Vec<_> = part.recent_denials.iter().collect();
+        assert_eq!(denials.len(), 1);
+        assert_eq!(denials[0].id, "g1");
+        assert_eq!(denials[0].rationale.as_deref(), Some("Exfiltrates a file."));
+    }
+
+    #[test]
+    fn a_shell_wrapper_is_stripped_from_the_command_of_the_cell() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "denied", &command("bash -lc 'echo hi'"), None));
+        assert_eq!(
+            part.take_history(),
+            vec![History::Decided(Decided::Request {
+                actor: Actor::Guardian,
+                subject: Subject::Command("echo hi".into()),
+                outcome: Outcome::Denied,
+            })]
+        );
+    }
+
+    #[test]
+    fn a_timed_out_command_leaves_a_cell_and_no_denial() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "timedOut", &command("make"), None));
+        assert_eq!(
+            part.take_history(),
+            vec![History::Decided(Decided::Request {
+                actor: Actor::Guardian,
+                subject: Subject::Command("make".into()),
+                outcome: Outcome::TimedOut,
+            })]
+        );
+        assert!(part.recent_denials.is_empty());
+    }
+
+    #[test]
+    fn an_aborted_review_leaves_nothing_but_the_status_goes() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "inProgress", &command("make"), None));
+        feed(&mut part, &review("g1", "aborted", &command("make"), None));
+        assert!(part.reviews.is_empty());
+        assert!(part.take_history().is_empty());
+        assert!(part.recent_denials.is_empty());
+    }
+
+    #[test]
+    fn what_is_not_a_command_has_its_own_subject() {
+        let cases = [
+            (
+                STDIN.to_string(),
+                Reviewed::Stdin { process: "42".into(), input: "confirm\n".into() },
+            ),
+            (
+                r#"{"type":"applyPatch","cwd":"/tmp","files":["/tmp/a.rs","/tmp/b.rs"]}"#.into(),
+                Reviewed::Patch(vec!["/tmp/a.rs".into(), "/tmp/b.rs".into()]),
+            ),
+            (
+                r#"{"type":"mcpToolCall","server":"docs","toolName":"search","connectorId":null,"connectorName":"Docs","toolTitle":null}"#.into(),
+                Reviewed::Mcp { server: "docs".into(), tool: "search".into() },
+            ),
+            (
+                r#"{"type":"networkAccess","target":"https://example.com:443","host":"example.com","protocol":"https","port":443}"#.into(),
+                Reviewed::Network("https://example.com:443".into()),
+            ),
+            (
+                r#"{"type":"requestPermissions","reason":"Need write access.","permissions":{"network":null,"fileSystem":null}}"#.into(),
+                Reviewed::Permissions(Some("Need write access.".into())),
+            ),
+        ];
+        for (action, about) in cases {
+            for (status, verdict) in [("denied", Verdict::Denied), ("timedOut", Verdict::TimedOut)] {
+                let mut part = ThreadPart::default();
+                feed(&mut part, &review("g", status, &action, None));
+                assert_eq!(
+                    part.take_history(),
+                    vec![History::Decided(Decided::Reviewed { verdict, about: about.clone() })],
+                    "{action} {status}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_execve_is_a_command_of_its_arguments() {
+        let mut part = ThreadPart::default();
+        let execve =
+            r#"{"type":"execve","source":"shell","program":"rm","argv":["rm","-rf","a b"],"cwd":"/tmp"}"#;
+        feed(&mut part, &review("g", "inProgress", execve, None));
+        assert_eq!(part.reviews[0].action, Action::Command { line: "rm -rf 'a b'".into() });
+        let empty = r#"{"type":"execve","source":"shell","program":"ls","argv":[],"cwd":"/tmp"}"#;
+        feed(&mut part, &review("h", "inProgress", empty, None));
+        assert_eq!(part.reviews[1].action, Action::Command { line: "ls".into() });
+    }
+
+    #[test]
+    fn the_ten_most_recent_denials_stay_newest_first() {
+        let mut part = ThreadPart::default();
+        for n in 0..12 {
+            feed(&mut part, &review(&format!("review-{n}"), "denied", &command(&format!("rm {n}")), None));
+        }
+        let ids: Vec<_> = part.recent_denials.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["review-11", "review-10", "review-9", "review-8", "review-7", "review-6", "review-5", "review-4", "review-3", "review-2"]
+        );
+    }
+
+    #[test]
+    fn a_denial_seen_again_moves_to_the_front_without_a_copy() {
+        let mut part = ThreadPart::default();
+        for n in 0..3 {
+            feed(&mut part, &review(&format!("r{n}"), "denied", &command("x"), None));
+        }
+        feed(&mut part, &review("r0", "denied", &command("x"), Some("again")));
+        let ids: Vec<_> = part.recent_denials.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["r0", "r2", "r1"]);
+    }
+
+    #[test]
+    fn the_end_of_a_turn_drops_the_reviews_and_keeps_the_denials() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("stale", "inProgress", &command("rm stale"), None));
+        feed(&mut part, &review("old", "denied", &command("rm old"), None));
+        part.take_history();
+        assert!(part.apply(ThreadEv::TurnEnded).is_none());
+        assert!(part.reviews.is_empty());
+        assert_eq!(part.recent_denials.iter().count(), 1);
+    }
+
+    #[test]
+    fn a_warning_is_history_unless_the_review_approved() {
+        let mut part = ThreadPart::default();
+        for (message, shown) in [
+            ("Automatic approval review denied (risk: high): no.", true),
+            ("Automatic approval review timed out while evaluating the requested approval.", true),
+            ("Automatic approval review approved (risk: low, authorization: high): ok.", false),
+        ] {
+            let warning = notification(
+                "guardianWarning",
+                &format!(r#"{{"threadId":"thread-1","message":{message:?}}}"#),
+            );
+            feed(&mut part, &warning);
+            assert_eq!(
+                part.take_history(),
+                if shown { vec![History::Warning(message.into())] } else { vec![] },
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn approving_a_denial_takes_it_and_asks_the_server_with_its_event() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "denied", &command("rm x"), Some("Destructive.")));
+        part.take_history();
+        let ask = part.apply(ThreadEv::ApproveDenied { id: "g1".into() });
+        let Some(Ask::ApproveDenied { event, id }) = ask else {
+            panic!("an ask, got {ask:?}");
+        };
+        assert_eq!(id, "g1");
+        assert_eq!(event["id"], "g1");
+        assert_eq!(event["status"], "denied");
+        assert_eq!(event["rationale"], "Destructive.");
+        assert_eq!(event["action"]["command"], "rm x");
+        assert!(part.recent_denials.is_empty());
+        assert_eq!(
+            part.take_history(),
+            vec![History::Info {
+                message: "Approval recorded for one retry of the selected auto-review denial.".into(),
+                details: Some(
+                    "The model will see the approval context; the retry still goes through auto-review.".into()
+                ),
+            }]
+        );
+    }
+
+    #[test]
+    fn approving_a_gone_denial_says_so_and_asks_nothing() {
+        let mut part = ThreadPart::default();
+        assert!(part.apply(ThreadEv::ApproveDenied { id: "g1".into() }).is_none());
+        assert_eq!(
+            part.take_history(),
+            vec![History::Error("That auto-review denial is no longer available.".into())]
+        );
+    }
+
+    #[test]
+    fn no_denials_is_an_info_line() {
+        let mut part = ThreadPart::default();
+        assert!(part.apply(ThreadEv::NoDenials).is_none());
+        assert_eq!(
+            part.take_history(),
+            vec![History::Info {
+                message: "No recent auto-review denials in this thread.".into(),
+                details: Some("Denials are recorded after auto-review rejects an action.".into()),
+            }]
+        );
+    }
+}

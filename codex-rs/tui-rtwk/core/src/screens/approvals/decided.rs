@@ -55,6 +55,26 @@ pub enum Grant {
     Session,
 }
 
+/// What the auto-reviewer concluded without letting the action through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    Denied,
+    TimedOut,
+}
+
+/// What the auto-reviewer judged when it was not a command (`new_guardian_denied_*_request`,
+/// `new_guardian_timed_out_*_request`): each has its own sentence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reviewed {
+    /// A patch touching these files.
+    Patch(Vec<String>),
+    /// Input for the terminal of this process; `input` is the raw text.
+    Stdin { process: String, input: String },
+    Mcp { server: String, tool: String },
+    Network(String),
+    Permissions(Option<String>),
+}
+
 /// One answer in the thread's history.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decided {
@@ -64,6 +84,8 @@ pub enum Decided {
         outcome: Outcome,
     },
     Permissions(Grant),
+    /// The auto-reviewer refused, or ran out of time on, something that is not a command.
+    Reviewed { verdict: Verdict, about: Reviewed },
 }
 
 impl Decided {

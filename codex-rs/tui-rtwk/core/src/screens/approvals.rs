@@ -16,6 +16,7 @@ use crate::threads::ThreadFx;
 
 pub mod decided;
 pub mod form;
+pub mod guardian;
 pub mod input;
 pub mod order;
 
@@ -318,34 +319,60 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
 /// only by `apply_thread` and `apply_reply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ThreadPart {}
+pub struct ThreadPart {
+    /// The auto-reviews under way, in the order they began: the status line names them.
+    pub reviews: Vec<guardian::Reviewing>,
+    /// The denials `/auto-review` offers to approve once, newest first.
+    pub recent_denials: guardian::Denials,
+    /// What the thread's history should gain from the last events (`take_history`).
+    outbox: Vec<guardian::History>,
+    /// How the last request of this part ended.
+    pub error: Option<RpcError>,
+}
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
     /// An answer left a record in the history (`decided::Decided::of`, the app's call once the
-    /// request is resolved); the thread keeps it among its items.
+    /// request is resolved).
     Decided(decided::Decided),
+    /// A review of the auto-reviewer started, or ended (`guardian::project`).
+    Review(Box<guardian::Review>),
+    /// The auto-reviewer's warning (`guardian::project`).
+    Warning(String),
+    /// The paths of a review could not be localized.
+    Unlocalized(String),
+    /// The turn ended (completed, interrupted or failed): its reviews are over.
+    TurnEnded,
+    /// `/auto-review` found nothing to list.
+    NoDenials,
+    /// The user picked this denial to approve once.
+    ApproveDenied { id: String },
 }
 
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    /// `thread/approveGuardianDeniedAction` with the serialized assessment event.
+    ApproveDenied { event: serde_json::Value },
+}
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    Approved,
+}
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
+pub enum Ctx {
+    ApproveDenied,
+}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    let _ = (part, fx);
-    match ev {
-        // The history is the thread's items (`threads.rs`), not this part's.
-        ThreadEv::Decided(_) => {}
+    if let Some(guardian::Ask::ApproveDenied { event, .. }) = part.apply(ev) {
+        fx.request(Ctx::ApproveDenied, Command::ApproveDenied { event });
     }
 }
 
@@ -355,20 +382,36 @@ pub fn apply_reply(
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    let _ = fx;
+    match ctx {
+        Ctx::ApproveDenied => part.error = result.err(),
+    }
 }
 
 /// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    match command {
+        Command::ApproveDenied { event } => ClientRequest::ThreadApproveGuardianDeniedAction {
+            request_id: id,
+            params: codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams {
+                thread_id: thread.to_string(),
+                event: event.clone(),
+            },
+        },
+    }
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    match command {
+        Command::ApproveDenied { .. } => {
+            serde_json::from_value::<codex_app_server_protocol::ThreadApproveGuardianDeniedActionResponse>(
+                result,
+            )
+            .map(|_| Reply::Approved)
+            .map_err(|error| RpcError::Malformed(error.to_string()))
+        }
+    }
 }
 
 /// The seed form of this screen's events: the protocol's own server request
