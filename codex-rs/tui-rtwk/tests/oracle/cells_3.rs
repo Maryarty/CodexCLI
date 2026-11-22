@@ -123,10 +123,6 @@ fn source_backed_cells_render_raw_source_without_prefix_or_style() {
 // ORACLE history_cell/tests.rs:358 proposed_plan_cell_renders_markdown_table kind=snap owner=chat-live snap=proposed_plan_cell_renders_markdown_table
 #[test]
 fn proposed_plan_cell_renders_markdown_table() {
-    kit::pending(
-        Owner::ChatLive,
-        "no proposed-plan cell on S11: the cells screen draws no plan cell; the oracle's snapshot is a Line-level Debug dump with span styles (dim/bold) and the test's default colours, which the kit cannot seed or compare",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/cells_3/proposed_plan_table.jsonl"))

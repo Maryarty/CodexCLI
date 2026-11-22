@@ -26,7 +26,7 @@ use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::startup::launch;
 use codex_tui_core::screens::usage::data::GROUPINGS;
-use codex_tui_core::screens::usage::{AccountReply, Ask, AskKind, Ev, NaiveDate};
+use codex_tui_core::screens::usage::{AccountReply, Ask, AskKind, Ev, LoadError, NaiveDate};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::clock::unix_now;
 
@@ -65,13 +65,14 @@ impl Store {
 const INTERRUPTED: &str = "Request timed out. Press R to retry.";
 
 /// `future` for at most `secs` seconds (oracle: `Load::start_with_timeout`).
-async fn within<T>(
-    secs: u64,
-    future: impl Future<Output = Result<T, String>>,
-) -> Result<T, String> {
-    tokio::time::timeout(Duration::from_secs(secs), future)
-        .await
-        .unwrap_or_else(|_| Err(INTERRUPTED.into()))
+async fn within<T, E>(secs: u64, future: impl Future<Output = Result<T, E>>) -> Result<T, LoadError>
+where
+    LoadError: From<E>,
+{
+    match tokio::time::timeout(Duration::from_secs(secs), future).await {
+        Ok(result) => result.map_err(LoadError::from),
+        Err(_) => Err(LoadError::Host(INTERRUPTED.into())),
+    }
 }
 
 /// The event of `ask`: the answer under the ask's session and stamp, or the
@@ -104,7 +105,7 @@ where
                 (Some(report), Some(grouping)) => {
                     within(30, live.history(report, days, *grouping, model.as_deref())).await
                 }
-                _ => Err("Invalid analytics report.".into()),
+                _ => Err(LoadError::Host("Invalid analytics report.".into())),
             };
             Ev::Report {
                 session,

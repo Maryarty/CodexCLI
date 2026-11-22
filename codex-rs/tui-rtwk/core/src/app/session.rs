@@ -118,6 +118,7 @@ pub(super) fn session_intent(
                     source,
                     backend,
                     name,
+                    plan: None,
                 },
             );
             fx.commands.push(request);
@@ -201,12 +202,30 @@ pub(super) fn session_intent(
             );
             session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
         }
+        // `apply_plan_slash_command`: the thread goes on in Plan mode; with a prompt that
+        // prompt is the first message in it.
+        S::Plan { prompt } => {
+            let Some(thread) = source else {
+                return session_note(
+                    app,
+                    None,
+                    Note::from(crate::commands::Notice::SessionStarting(command)),
+                    fx,
+                );
+            };
+            let kind = codex_protocol::config_types::ModeKind::Plan;
+            let set =
+                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMode(kind)));
+            apply_thread(app, &thread, set, fx);
+            if let Some(prompt) = prompt {
+                super::submit(app, &thread, UserMessage::text(prompt), fx);
+            }
+        }
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
         | S::Worktree
         | S::Rename { name: None }
-        | S::Plan { .. }
         | S::Goal { .. }
         | S::Side { .. }
         | S::Copy
@@ -305,6 +324,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
             source,
             backend,
             name: None,
+            plan: None,
         },
     );
     fx.commands.push(Command::Screen {
@@ -460,5 +480,53 @@ pub(super) fn session_note(
             chat::Intent::Note { thread: None, note },
             fx,
         ),
+    }
+}
+
+/// The answer of the "Implement this plan?" question, for the thread the chat shows
+/// (`plan_implementation::selection_view_params` actions).
+pub(super) fn plan_answer(
+    app: &mut CodexApp,
+    answer: crate::screens::chat::plan_mode::Answer,
+    fx: &mut AppFx,
+) {
+    use crate::screens::chat::plan_mode::Answer;
+    let Some(thread) = app.session.active.clone() else {
+        return;
+    };
+    match answer {
+        Answer::Implement => {
+            let ev =
+                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::ImplementPlan));
+            apply_thread(app, &thread, ev, fx);
+        }
+        // `implement_plan_in_fresh_session`: a new thread, which takes the plan.
+        Answer::ImplementFresh => {
+            let Some(markdown) = app
+                .threads
+                .get(&thread)
+                .and_then(|model| model.screen_slots().chat.plan.prompt()?.plan.clone())
+            else {
+                return;
+            };
+            if app
+                .outgoing
+                .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+            {
+                return;
+            }
+            let ticket = app.mint.next();
+            let backend = app.screens.agents.owner_of(thread.as_str());
+            app.outgoing.insert(
+                ticket,
+                AppCtx::NewConversation {
+                    source: Some(thread),
+                    backend,
+                    name: None,
+                    plan: Some(markdown),
+                },
+            );
+            fx.commands.push(super::start_thread(app, ticket, backend));
+        }
     }
 }
