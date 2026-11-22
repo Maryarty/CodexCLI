@@ -87,8 +87,12 @@ Done (library `src/services/`, each with its own unit tests; `acargo nextest -E 
 PasteImageError texts, `pasted_image_format`, WSL path map on Linux), history seam (5) + `MessageHistory` over the backend crate (7, tempdir),
 mention usage (7), in-process file search (5, real `codex-file-search` sessions over a tempdir),
 `AppServerExec` (5, scripted `send`), `/export` file writer (6), `open_url` (3 + 1 off-macOS), connection
-fact (1). Gates at partial 1 (f7c51711c, re-run at the end): fmt, `clippy --workspace --all-targets -D warnings`, whole
-`nextest --workspace` 2138 passed, `shards.py --check`.
+fact (1). Gates at the end (a51fc68d5, base 1759cf2bc = the tip of claude/tui-rtwk): fmt, `clippy --workspace
+--all-targets -D warnings` rc 0, `shards.py --check` ok, `nextest --workspace --no-fail-fast` 2173 of 2175 passed.
+The two reds are pty scenarios of `codex-rtwk::session_sse` (`exec-approval`: "mock served 0 of 2 model
+request(s) in 60s", `interrupted`: "the model request did not start before Escape"), stuck at `starting…` on a
+machine at load average ~180; the same stall hits `check.py --only markdown` with another worktree's binary
+(an oracle run of it passes), and nothing of this branch is reachable from the host binary. Noted, not chased.
 
 Left, and why:
 
