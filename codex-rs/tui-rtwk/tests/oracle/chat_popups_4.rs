@@ -12,7 +12,7 @@ use crate::kit::{self, Owner, Screen};
 fn apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps() {
     kit::pending(
         Owner::DialogsPane,
-        "no /apps directory popup in the port: the connector list (loading rows, the install-state fallback after a failed refresh) has no widget and no connector script step",
+        "/apps is live; the oracle injects a partial snapshot (`is_final: false`) and then a failed refresh: no protocol message carries a partial snapshot and the kit's `respond` step has no error answer",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps");
@@ -25,11 +25,13 @@ fn apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2925 apps_popup_shows_disabled_status_for_installed_but_disabled_apps kind=ui owner=dialogs-pane
 #[test]
 fn apps_popup_shows_disabled_status_for_installed_but_disabled_apps() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no /apps directory popup in the port: the installed-but-disabled status row and its description have no widget and no connector script step",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(
+            r#"{"step":"respond","method":"app/list","result":{"data":[{"id":"notion","name":"Notion","description":"Workspace docs","installUrl":"https://example.test/notion","isAccessible":true,"isEnabled":false,"pluginDisplayNames":[]}],"nextCursor":null}}"#,
+        )
+        .open();
     s.type_text("/apps");
     s.keys("enter");
     s.assert_contains("Installed · Disabled · Press Enter to open the app page");
@@ -41,7 +43,7 @@ fn apps_popup_shows_disabled_status_for_installed_but_disabled_apps() {
 fn apps_refresh_preserves_toggled_enabled_state() {
     kit::pending(
         Owner::DialogsPane,
-        "no /apps directory popup in the port: the enable toggle and a reload that keeps it (the oracle's update_connector_enabled then a refreshed snapshot) have no key or script step",
+        "/apps is live (core `select::Ev::AppSwitched` keeps a switch over a refreshed list, core/tests/select_live.rs); the oracle calls `update_connector_enabled` directly: the port has no key or message that switches an app (the app link dialog does, a core Need)",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps");
@@ -53,11 +55,13 @@ fn apps_refresh_preserves_toggled_enabled_state() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3045 apps_popup_for_not_installed_app_uses_install_only_selected_description kind=ui owner=dialogs-pane
 #[test]
 fn apps_popup_for_not_installed_app_uses_install_only_selected_description() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no /apps directory popup in the port: the not-installed app's install-only description has no widget and no connector script step",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(
+            r#"{"step":"respond","method":"app/list","result":{"data":[{"id":"notion","name":"Notion","description":"Workspace docs","installUrl":"https://example.test/notion","isAccessible":false,"isEnabled":true,"pluginDisplayNames":[]}],"nextCursor":null}}"#,
+        )
+        .open();
     s.type_text("/apps");
     s.keys("enter");
     s.assert_contains("Can be installed · Press Enter to open the app page to install");
@@ -208,10 +212,6 @@ fn model_selection_popup_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3375 model_picker_refresh_rejects_obsolete_and_unusable_replies kind=ui owner=dialogs-pane
 #[test]
 fn model_picker_refresh_rejects_obsolete_and_unusable_replies() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: a refresh reply the picker rejects (obsolete or unusable) leaves the open list unchanged; no catalog seed and no reply step",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/model");
     s.keys("enter");
@@ -392,10 +392,6 @@ fn max_reasoning_selection_persists_model_selection() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3984 reasoning_shortcut_clears_armed_quit_shortcut kind=ui owner=dialogs-pane
 #[test]
 fn reasoning_shortcut_clears_armed_quit_shortcut() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning shortcut (alt+.) in the port: the armed quit hint is cleared by the shortcut; no widget and no seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.keys("ctrl+c");
     s.keys("alt+.");
@@ -469,10 +465,6 @@ fn reasoning_popup_shows_extra_high_with_space() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4216 single_reasoning_option_skips_selection kind=ui owner=dialogs-pane
 #[test]
 fn single_reasoning_option_skips_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning-effort popup in the port: a model with one reasoning option applies it without showing the Select Reasoning Level list; no widget and no seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/model");
     s.keys("enter enter");
@@ -706,10 +698,6 @@ fn security_setup_respects_applicable_backend_banner() {
 // ORACLE chatwidget/tests/session_model_selection_tests.rs:6 session_model_selection_accepts_final_choices_without_saving kind=ui owner=dialogs-pane
 #[test]
 fn session_model_selection_accepts_final_choices_without_saving() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no session-only model selection in the port: the s key applies the final choice for this session and closes the picker; no widget and no seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/model");
     s.keys("enter enter s");
@@ -720,10 +708,6 @@ fn session_model_selection_accepts_final_choices_without_saving() {
 // ORACLE chatwidget/tests/session_model_selection_tests.rs:66 session_model_selection_notifies_the_original_task_after_each_final_astra_choice kind=ui owner=dialogs-pane
 #[test]
 fn session_model_selection_notifies_the_original_task_after_each_final_astra_choice() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no session-only model selection in the port: after each final choice the picker closes; the Astra notify event is not drawn; no widget and no seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/model");
     s.keys("enter enter s");
@@ -734,10 +718,6 @@ fn session_model_selection_notifies_the_original_task_after_each_final_astra_cho
 // ORACLE chatwidget/tests/session_model_selection_tests.rs:143 session_model_selection_hides_conflicting_shortcut kind=ui owner=dialogs-pane
 #[test]
 fn session_model_selection_hides_conflicting_shortcut() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no session-only model selection in the port: with a remapped list key the s session hint is hidden from the reasoning popup; no widget and no keymap seed",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 24)
         .keymap(&[("list.accept", "s")])
