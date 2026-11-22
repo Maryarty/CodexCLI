@@ -70,10 +70,6 @@ fn interrupt_discards_queued_requests_and_emits_interrupt() {
 // ORACLE bottom_pane/request_user_input/mod.rs:1881 auto_resolution_hides_timer_during_grace_period kind=ui owner=dialogs-pane
 #[test]
 fn auto_resolution_hides_timer_during_grace_period() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no auto-resolution timer in the port: a request with autoResolutionMs shows no `auto-resolves` countdown in the grace period",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/auto_options.jsonl"))
@@ -142,10 +138,6 @@ fn enter_commits_default_selection_on_last_option_question() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2270 enter_commits_default_selection_on_non_last_option_question kind=ui owner=dialogs-pane
 #[test]
 fn enter_commits_default_selection_on_non_last_option_question() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no question navigation in the port: Enter on a non-last question must move the form to question 2 of 2 (the port shows the first question only)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
@@ -166,10 +158,6 @@ fn number_keys_select_and_submit_options() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2335 vim_keys_move_option_selection kind=ui owner=dialogs-pane
 #[test]
 fn vim_keys_move_option_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the port's request form does not move the option selection with j/k: dialog.rs binds the digit keys and esc only",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -183,10 +171,6 @@ fn vim_keys_move_option_selection() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2357 typing_in_options_does_not_open_notes kind=ui owner=dialogs-pane
 #[test]
 fn typing_in_options_does_not_open_notes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI and no question navigation in the port's request form: typing in the options does not open notes, the footer keeps the navigation tip",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
@@ -202,10 +186,6 @@ fn typing_in_options_does_not_open_notes() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2383 h_l_move_between_questions_in_options kind=ui owner=dialogs-pane
 #[test]
 fn h_l_move_between_questions_in_options() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no question navigation in the port's request form: the form shows one question and does not move between questions with l / h",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
@@ -220,10 +200,6 @@ fn h_l_move_between_questions_in_options() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2407 left_right_move_between_questions_in_options kind=ui owner=dialogs-pane
 #[test]
 fn left_right_move_between_questions_in_options() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no question navigation in the port's request form: the form shows one question and does not move between questions with right / left",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
@@ -238,10 +214,6 @@ fn left_right_move_between_questions_in_options() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2431 horizontal_list_keys_move_between_questions_in_options kind=ui owner=dialogs-pane
 #[test]
 fn horizontal_list_keys_move_between_questions_in_options() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no question navigation in the port's request form: the form shows one question and does not move between questions with ctrl+l / ctrl+h",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
@@ -256,10 +228,6 @@ fn horizontal_list_keys_move_between_questions_in_options() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2455 options_notes_focus_hides_question_navigation_tip kind=ui owner=dialogs-pane
 #[test]
 fn options_notes_focus_hides_question_navigation_tip() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes focus in the port's request form: tab does not change the footer tips to the notes tips",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
@@ -277,7 +245,7 @@ fn options_notes_focus_hides_question_navigation_tip() {
 fn request_user_input_uses_remapped_interrupt_binding_while_notes_are_visible() {
     kit::pending(
         Owner::DialogsPane,
-        "no notes UI in the port's request form, and the port reads no keymap for the request's interrupt (chat.interrupt_turn remapped to F12)",
+        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -293,10 +261,6 @@ fn request_user_input_uses_remapped_interrupt_binding_while_notes_are_visible() 
 // ORACLE bottom_pane/request_user_input/mod.rs:2618 tab_opens_notes_when_option_selected kind=ui owner=dialogs-pane
 #[test]
 fn tab_opens_notes_when_option_selected() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: tab on a selected option opens no notes composer",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -308,10 +272,6 @@ fn tab_opens_notes_when_option_selected() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2661 switching_from_freeform_with_text_resets_focus_and_keeps_last_option_empty kind=ui owner=dialogs-pane
 #[test]
 fn switching_from_freeform_with_text_resets_focus_and_keeps_last_option_empty() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no freeform answer and no question navigation in the port's request form: a typed freeform draft and the unanswered confirmation do not exist",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!(
@@ -319,10 +279,16 @@ fn switching_from_freeform_with_text_resets_focus_and_keeps_last_option_empty() 
         ))
         .open();
     s.type_text("freeform notes");
-    s.keys("right");
+    // The oracle calls `move_question(next)`; a freeform question's key for it is ctrl+n.
+    s.keys("ctrl+n");
     s.assert_contains("Question 2/2 (2 unanswered)");
+    s.assert_absent("Add notes");
     s.keys("enter");
-    s.assert_contains("Question 2/2 (2 unanswered)");
+    s.assert_contains("Submit with unanswered questions?");
+    s.assert_contains("1 unanswered question");
+    s.keys("1 enter");
+    s.assert_absent("Submit with unanswered questions?");
+    s.assert_absent("Question 2/2");
 }
 
 // ORACLE bottom_pane/request_user_input/mod.rs:2705 esc_in_notes_mode_without_options_interrupts kind=ui owner=dialogs-pane
@@ -346,10 +312,6 @@ fn esc_in_options_mode_interrupts() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2739 esc_in_notes_mode_clears_notes_and_hides_ui kind=ui owner=dialogs-pane
 #[test]
 fn esc_in_notes_mode_clears_notes_and_hides_ui() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: Esc in notes is not a clear, the form only interrupts on Esc",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -364,10 +326,6 @@ fn esc_in_notes_mode_clears_notes_and_hides_ui() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2767 esc_in_notes_mode_with_text_clears_notes_and_hides_ui kind=ui owner=dialogs-pane
 #[test]
 fn esc_in_notes_mode_with_text_clears_notes_and_hides_ui() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: notes with text cannot be typed or cleared with Esc",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -394,7 +352,7 @@ fn esc_drops_committed_answers() {
 fn backspace_in_options_clears_selection() {
     kit::pending(
         Owner::DialogsPane,
-        "the port's request form does not clear the option selection on backspace: dialog.rs binds the digit keys and esc only",
+        "`src/widgets/options.rs` (not this slice's file) has no empty-cursor state: the sheet clears its selection (core: no answer) but `Options` always draws a `› ` row; wanted: an Options cursor that can be none",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -409,10 +367,6 @@ fn backspace_in_options_clears_selection() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2845 backspace_on_empty_notes_closes_notes_ui kind=ui owner=dialogs-pane
 #[test]
 fn backspace_on_empty_notes_closes_notes_ui() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: backspace on empty notes cannot close notes",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -427,10 +381,6 @@ fn backspace_on_empty_notes_closes_notes_ui() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2871 tab_in_notes_clears_notes_and_hides_ui kind=ui owner=dialogs-pane
 #[test]
 fn tab_in_notes_clears_notes_and_hides_ui() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: tab in notes cannot clear the typed notes",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -445,10 +395,6 @@ fn tab_in_notes_clears_notes_and_hides_ui() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2930 freeform_requires_enter_with_text_to_mark_answered kind=ui owner=dialogs-pane
 #[test]
 fn freeform_requires_enter_with_text_to_mark_answered() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no freeform answer in the port's request form: a freeform question takes no text and Enter does not mark it answered",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_freeform.jsonl"))
@@ -462,10 +408,6 @@ fn freeform_requires_enter_with_text_to_mark_answered() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2959 freeform_enter_with_empty_text_is_unanswered kind=ui owner=dialogs-pane
 #[test]
 fn freeform_enter_with_empty_text_is_unanswered() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no freeform answer in the port's request form: Enter on an empty freeform question has no effect on the answered count",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_freeform.jsonl"))
@@ -479,7 +421,7 @@ fn freeform_enter_with_empty_text_is_unanswered() {
 fn freeform_shift_enter_inserts_newline_without_advancing() {
     kit::pending(
         Owner::DialogsPane,
-        "no freeform answer in the port's request form: shift+enter does not insert a newline into a freeform draft",
+        "the pty kit sends no bytes for shift+enter (no kitty keyboard protocol in the pty): the behaviour is pinned by the sheet test `approvals::user_input_freeform_shift_enter_inserts_a_newline_without_advancing` (the Tester takes the kitty sequence)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -496,7 +438,7 @@ fn freeform_shift_enter_inserts_newline_without_advancing() {
 fn freeform_uses_configured_composer_submit_binding() {
     kit::pending(
         Owner::DialogsPane,
-        "no freeform answer in the port's request form, and the port reads no composer.submit keymap for the request",
+        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice), so composer.submit cannot be remapped; the request's freeform answer exists and submits on Enter",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -513,7 +455,7 @@ fn freeform_uses_configured_composer_submit_binding() {
 fn freeform_submit_binding_wins_over_question_navigation() {
     kit::pending(
         Owner::DialogsPane,
-        "no freeform answer in the port's request form, and the port reads no composer.submit keymap for the request",
+        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice), so composer.submit cannot be remapped; the request's freeform answer exists and submits on Enter",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -528,10 +470,6 @@ fn freeform_submit_binding_wins_over_question_navigation() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3115 freeform_commit_resets_when_draft_changes kind=ui owner=dialogs-pane
 #[test]
 fn freeform_commit_resets_when_draft_changes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no freeform answer in the port's request form: an edited draft does not reset a committed answer",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_freeform.jsonl"))
@@ -539,19 +477,17 @@ fn freeform_commit_resets_when_draft_changes() {
     s.type_text("Committed");
     s.keys("enter");
     s.assert_contains("Question 2/2 (1 unanswered)");
-    s.keys("left");
+    // The oracle calls `move_question`; the freeform keys for it are ctrl+p / ctrl+n (left and right
+    // move the text cursor).
+    s.keys("ctrl+p");
     s.type_text("Edited");
-    s.keys("right");
+    s.keys("ctrl+n");
     s.assert_contains("Question 2/2 (2 unanswered)");
 }
 
 // ORACLE bottom_pane/request_user_input/mod.rs:3196 notes_submission_commits_selected_option kind=ui owner=dialogs-pane
 #[test]
 fn notes_submission_commits_selected_option() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: the notes submitted with Enter commit the selected option and advance",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
@@ -565,10 +501,6 @@ fn notes_submission_commits_selected_option() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3228 tab_and_enter_open_notes_for_other_option kind=ui owner=dialogs-pane
 #[test]
 fn tab_and_enter_open_notes_for_other_option() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: tab or enter on the none-of-the-above row opens no notes composer",
-    );
     for key in ["tab", "enter"] {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(120, 16)
@@ -613,13 +545,9 @@ fn request_user_input_options_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3387 request_user_input_options_notes_visible_snapshot kind=snap owner=dialogs-pane snap=request_user_input_options_notes_visible
 #[test]
 fn request_user_input_options_notes_visible_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes UI in the port's request form: tab does not open the notes composer",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
-        .script(include_str!("fixtures/approvals_2/options.jsonl"))
+        .entry("approvals", "user_input_options")
         .open();
     s.keys("tab");
     s.assert_snap("request_user_input_options_notes_visible");
@@ -628,10 +556,6 @@ fn request_user_input_options_notes_visible_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3410 request_user_input_tight_height_snapshot kind=snap owner=dialogs-pane snap=request_user_input_tight_height
 #[test]
 fn request_user_input_tight_height_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "open (not G39: the rows are `ui::options` now): the oracle draws the overlay top-aligned in its 10-row area and uses 9 rows; the port's dialog sits at the bottom of the screen, so the spare row lands above it (bottom-pane look, the dialogs-pane slice)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -663,11 +587,11 @@ fn request_user_input_wrapped_options_snapshot() {
 fn request_user_input_long_option_text_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "G39b (rtwk-gaps.md): the label column is capped at 70% and wraps now (`GridTrack::content().within`); left: the oracle's continuation lines hang under the text after `› 1. ` (a Row of prefix and Expanded text), it breaks after `/` (N4: `TextWrap::Word` does not), and its pane is bottom-aligned (dialogs-pane slice)",
+        "G49 + G39b (rtwk-gaps.md): the label column is capped at 70% and wraps now (`GridTrack::content().within`); left: the oracle's continuation lines hang under the text after `› 1. ` (a Row of prefix and Expanded text), it breaks after `/` (G49: `TextWrap::Word` does not), and its pane is bottom-aligned (dialogs-pane slice)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 18)
-        .script(include_str!("fixtures/approvals_2/very_long_option.jsonl"))
+        .entry("approvals", "user_input_very_long_option")
         .open();
     s.assert_snap("request_user_input_long_option_text");
 }
@@ -686,14 +610,12 @@ fn selected_long_wrapped_option_stays_visible() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3597 request_user_input_footer_wrap_snapshot kind=snap owner=dialogs-pane snap=request_user_input_footer_wrap
 #[test]
 fn request_user_input_footer_wrap_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no two-question form in the port: the footer tips of a two-question request wrap over navigation tips the port does not draw",
-    );
-    let s = Screen::build(Owner::DialogsPane)
-        .size(52, 10)
-        .script(include_str!("fixtures/approvals_2/two_options.jsonl"))
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(52, 11)
+        .entry("approvals", "user_input_two_options")
         .open();
+    // The oracle's setup selects the second option (`selected_idx = Some(1)`).
+    s.keys("down");
     s.assert_snap("request_user_input_footer_wrap");
 }
 
@@ -717,7 +639,7 @@ fn request_user_input_hidden_options_footer_snapshot() {
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 10)
-        .script(include_str!("fixtures/approvals_2/what_next.jsonl"))
+        .entry("approvals", "user_input_what_next")
         .open();
     s.keys("down down down");
     s.assert_snap("request_user_input_hidden_options_footer");
@@ -728,11 +650,11 @@ fn request_user_input_hidden_options_footer_snapshot() {
 fn wrapped_question_preserves_the_complete_url_destination() {
     kit::pending(
         Owner::DialogsPane,
-        "no freeform question in the port's request form: a freeform question with a URL is not drawn as a question body; the link destination is checked on the drawn text",
+        "G49 + G72: every row but the wrapped question equals the oracle's (entry approvals/user_input_url_question); rtwk Text does not break after a slash (the oracle: `Review https://github.com/openai/` / `codex/pull/12345?diff=split before`) and a plain string has no autolink (no OSC 8 link on the URL)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(40, 18)
-        .script(include_str!("fixtures/approvals_2/wrapped_url.jsonl"))
+        .entry("approvals", "user_input_url_question")
         .open();
     s.assert_snap("request_user_input_wrapped_url");
     s.assert_link(
@@ -744,13 +666,9 @@ fn wrapped_question_preserves_the_complete_url_destination() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3770 request_user_input_freeform_snapshot kind=snap owner=dialogs-pane snap=request_user_input_freeform
 #[test]
 fn request_user_input_freeform_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no freeform question in the port's request form: the `Type your answer (optional)` row and the freeform footer do not exist",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
-        .script(include_str!("fixtures/approvals_2/freeform.jsonl"))
+        .entry("approvals", "user_input_freeform")
         .open();
     s.assert_snap("request_user_input_freeform");
 }
@@ -760,7 +678,7 @@ fn request_user_input_freeform_snapshot() {
 fn request_user_input_freeform_chord_only_submit_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no freeform question in the port's request form, and the port reads no composer.submit chord (ctrl-x enter) for it",
+        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
@@ -778,7 +696,7 @@ fn request_user_input_freeform_chord_only_submit_snapshot() {
 fn request_user_input_freeform_remapped_submit_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no freeform question in the port's request form, and the port reads no composer.submit keymap for the request",
+        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
@@ -793,7 +711,7 @@ fn request_user_input_freeform_remapped_submit_snapshot() {
 fn request_user_input_freeform_remapped_interrupt_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no freeform question in the port's request form, and the port reads no interrupt keymap (chat.interrupt_turn remapped to F12) for it",
+        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
@@ -806,15 +724,9 @@ fn request_user_input_freeform_remapped_interrupt_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3865 request_user_input_multi_question_first_snapshot kind=snap owner=dialogs-pane snap=request_user_input_multi_question_first
 #[test]
 fn request_user_input_multi_question_first_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no multi-question form in the port: the first of two questions (an options question, then a freeform one) with the question progress and navigation tips",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 15)
-        .script(include_str!(
-            "fixtures/approvals_2/other_then_freeform.jsonl"
-        ))
+        .entry("approvals", "user_input_options_then_freeform")
         .open();
     s.assert_snap("request_user_input_multi_question_first");
 }
@@ -822,15 +734,9 @@ fn request_user_input_multi_question_first_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3888 request_user_input_multi_question_last_snapshot kind=snap owner=dialogs-pane snap=request_user_input_multi_question_last
 #[test]
 fn request_user_input_multi_question_last_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no multi-question form in the port: moving to the last of two questions (freeform) is not navigable",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 12)
-        .script(include_str!(
-            "fixtures/approvals_2/other_then_freeform.jsonl"
-        ))
+        .entry("approvals", "user_input_options_then_freeform")
         .open();
     s.keys("right");
     s.assert_snap("request_user_input_multi_question_last");
@@ -841,25 +747,19 @@ fn request_user_input_multi_question_last_snapshot() {
 fn request_user_input_unanswered_confirmation_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no unanswered confirmation in the port: Enter with unanswered questions submits nothing and draws no confirmation",
+        "no seed opens the confirmation: the oracle's test calls `open_unanswered_confirmation()` with two unanswered questions; by keys it opens only at the last question, whose Enter takes the default option (so one question stays unanswered, as in `switching_from_freeform_...`) and an Enter on an empty freeform answer does nothing. With the old Enter that advanced on an empty answer the rows equalled this snapshot; the sheet test `approvals::user_input_unanswered_confirmation_rows` pins the confirmation of one",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 12)
-        .script(include_str!(
-            "fixtures/approvals_2/other_then_freeform.jsonl"
-        ))
+        .entry("approvals", "user_input_options_then_freeform")
         .open();
-    s.keys("enter");
+    s.keys("right enter");
     s.assert_snap("request_user_input_unanswered_confirmation");
 }
 
 // ORACLE bottom_pane/request_user_input/mod.rs:3938 options_scroll_while_editing_notes kind=ui owner=dialogs-pane
 #[test]
 fn options_scroll_while_editing_notes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no notes editing in the port's request form: Down while the notes have focus does not move the option selection",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))

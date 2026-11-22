@@ -437,9 +437,10 @@ impl State for FormViewState {
                     .child(Text::new(String::new()))
                     .child(
                         Row::new()
-                            .child(
+                            .child(Padding::new(
+                                EdgeInsets::only(0, 0, 1, 0),
                                 Text::new(s.composer_prompt).style(tokens.dim().attrs(Attrs::BOLD)),
-                            )
+                            ))
                             .child(Expanded::new(1, area)),
                     )
                     .child(Text::new(String::new()))

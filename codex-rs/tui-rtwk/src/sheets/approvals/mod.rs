@@ -159,6 +159,46 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "request_user_input_options: a question with options",
             include_str!("fixtures/user_input.jsonl"),
         ),
+        (
+            "user_input_options",
+            "question_with_options, the area taller than the overlay (notes visible)",
+            include_str!("fixtures/user_input_options.jsonl"),
+        ),
+        (
+            "user_input_freeform",
+            "question_without_options: the freeform input takes the area",
+            include_str!("fixtures/user_input_freeform.jsonl"),
+        ),
+        (
+            "user_input_two_options",
+            "two questions with options: the footer tips wrap at 52 columns",
+            include_str!("fixtures/user_input_two_options.jsonl"),
+        ),
+        (
+            "user_input_what_next",
+            "five options in a short area: the footer says which one",
+            include_str!("fixtures/user_input_what_next.jsonl"),
+        ),
+        (
+            "user_input_very_long_option",
+            "an option whose text wraps",
+            include_str!("fixtures/user_input_very_long_option.jsonl"),
+        ),
+        (
+            "user_input_options_then_freeform",
+            "an options question, then a freeform one (question_with_options, question_without_options)",
+            include_str!("fixtures/user_input_options_then_freeform.jsonl"),
+        ),
+        (
+            "user_input_freeform_then_options",
+            "a freeform question, then an options question (question_without_options, question_with_options)",
+            include_str!("fixtures/user_input_freeform_then_options.jsonl"),
+        ),
+        (
+            "user_input_url_question",
+            "a freeform question whose text holds a URL",
+            include_str!("fixtures/user_input_url_question.jsonl"),
+        ),
     ];
     entries
         .into_iter()
@@ -168,7 +208,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script,
             // The oracle's form snapshots render the overlay into a buffer taller than its
             // desired height, and the form fills it; the debug menu is that frame.
-            open: EntryOpen::Dialog(if name.starts_with("mcp_") {
+            open: EntryOpen::Dialog(if name.starts_with("mcp_") || name.starts_with("user_input_") {
                 framed_dialog
             } else {
                 head_dialog

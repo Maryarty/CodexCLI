@@ -209,7 +209,7 @@ pub const EN: Strings = Strings {
     tip_change_field: "change field",
     tip_cancel: "to cancel",
     tip_separator: " | ",
-    composer_prompt: "› ",
+    composer_prompt: "›",
     too_long: msg!("Message exceeds the maximum length of {0} characters ({1} provided)."),
     act_allow: "Allow",
     act_allow_session: "Allow for this session",

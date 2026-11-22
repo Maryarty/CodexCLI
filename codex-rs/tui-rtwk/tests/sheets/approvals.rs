@@ -436,3 +436,56 @@ fn form_a_text_field_reached_from_a_list_takes_the_typed_text() {
     h.t.pump_for(ms(100));
     assert!(shows(&h, "hello!"), "{}", h.t.screen());
 }
+
+/// A freeform answer takes Shift+Enter as a new line and stays on the question (the oracle's
+/// `freeform_shift_enter_inserts_newline_without_advancing`; the pty kit has no bytes for the key,
+/// the Tester takes the kitty sequence).
+#[test]
+fn user_input_freeform_shift_enter_inserts_a_newline_without_advancing() {
+    let mut h = open(120, 16, "user_input_options_then_freeform");
+    h.press("ctrl+n");
+    assert!(shows(&h, "Question 2/2"), "{}", h.t.screen());
+    h.t.type_text("Draft");
+    h.t.pump_for(ms(100));
+    h.t.input(b"\x1b[13;2u");
+    h.t.pump_for(ms(100));
+    h.t.type_text("more");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(shows(&h, "Question 2/2"), "{screen}");
+    let rows: Vec<&str> = screen.lines().collect();
+    let draft = rows.iter().position(|r| r.contains("Draft")).expect("Draft");
+    let more = rows.iter().position(|r| r.contains("more")).expect("more");
+    assert!(!rows[draft].contains("more") && more > draft, "{screen}");
+}
+
+/// Enter on the last question with a question unanswered asks first (the oracle's confirmation:
+/// a title, the count, `Proceed` and `Go back`, the press hint at the foot), Go back returns to the
+/// unanswered question and Proceed answers.
+#[test]
+fn user_input_unanswered_confirmation_rows() {
+    let mut h = open(80, 12, "user_input_freeform_then_options");
+    h.t.type_text("freeform notes");
+    h.t.pump_for(ms(100));
+    h.press("ctrl+n");
+    assert!(shows(&h, "Question 2/2 (2 unanswered)"), "{}", h.t.screen());
+    h.press("enter");
+    let screen = h.t.screen();
+    for row in [
+        "Submit with unanswered questions?",
+        "1 unanswered question",
+        "› 1. Proceed  Submit with 1 unanswered question",
+        "2. Go back  Return to the first unanswered question",
+        "Press enter to confirm or esc to go back",
+    ] {
+        assert!(screen.lines().any(|l| l.trim() == row), "{row}\n{screen}");
+    }
+    // Go back lands on the first question that is not answered
+    h.press("esc");
+    assert!(shows(&h, "Question 1/2"), "{}", h.t.screen());
+    h.press("ctrl+n");
+    h.press("enter");
+    assert!(shows(&h, "Submit with unanswered questions?"), "{}", h.t.screen());
+    h.press("enter");
+    assert!(!shows(&h, "Submit with unanswered questions?"), "{}", h.t.screen());
+}

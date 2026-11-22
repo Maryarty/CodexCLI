@@ -460,6 +460,10 @@ impl State for UserInputViewState {
                 state.committed = false;
             }
             Msg::Submitted(text) if self.notes_focus || !has_options => {
+                if text.trim().is_empty() {
+                    // The composer submits nothing empty: Enter does not advance.
+                    return Rebuild::No;
+                }
                 let state = &mut self.questions[self.current];
                 state.committed = has_options || !text.trim().is_empty();
                 self.go_next_or_submit(w, cx);
@@ -618,14 +622,30 @@ impl UserInputViewState {
                 .child(Text::new(String::new()))
                 .child(
                     Row::new()
-                        .child(Text::new(s.composer_prompt).style(tokens.dim().attrs(Attrs::BOLD)))
+                        .child(Padding::new(
+                            EdgeInsets::only(0, 0, 1, 0),
+                            Text::new(s.composer_prompt).style(tokens.dim().attrs(Attrs::BOLD)),
+                        ))
                         .child(Expanded::new(1, area)),
                 )
                 .child(Text::new(String::new()))
                 .into();
             column = column.child(composer.with_key(u32::try_from(self.current).unwrap_or(0)));
         }
-        column.child(self.footer(tokens, s, question, visible)).into()
+        let footer = self.footer(tokens, s, question, visible);
+        if !visible {
+            // Without the input the spare rows of a tall frame stay under the footer.
+            return column.child(footer).into();
+        }
+        // The oracle's input takes the rows of its area that the others leave: the footer stays
+        // at the foot (a frame as tall as the overlay needs leaves none).
+        Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Flexible::new(1, column))
+            .child(footer)
+            .into()
     }
 
     /// The tips under the question (`footer_tips`).
