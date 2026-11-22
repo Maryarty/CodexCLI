@@ -212,6 +212,19 @@ impl Current {
     pub fn new(model: impl Into<String>) -> Self {
         Current { model: model.into(), effort: None, plan: None, threads: None }
     }
+
+    /// What the chat's status facts know of the thread: its model and
+    /// effective effort. The plan mode and the thread limit are not among
+    /// them (the opener adds them when the thread model carries them).
+    pub fn from_facts(facts: &crate::screens::chat::StatusFacts) -> Self {
+        let effort = facts.effort.as_deref().and_then(|name| {
+            serde_json::from_value(serde_json::Value::String(name.to_owned())).ok()
+        });
+        Current {
+            effort,
+            ..Current::new(facts.model.clone().unwrap_or_default())
+        }
+    }
 }
 
 /// What a final choice applies as (`AstraModelPickerAction` and the plan

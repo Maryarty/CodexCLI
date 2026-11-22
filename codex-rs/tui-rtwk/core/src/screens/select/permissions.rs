@@ -120,6 +120,37 @@ pub struct Current {
     pub limits: Limits,
 }
 
+impl Current {
+    /// What the chat's status facts know of the thread: the approval policy,
+    /// the reviewer and the built-in preset both match (the sandbox profile of
+    /// the facts is the built-in one it names). The feature flag, the
+    /// requirements' limits and the model's class are the config's, not the
+    /// facts': they stay off until the opener has them.
+    pub fn from_facts(facts: &crate::screens::chat::StatusFacts) -> Self {
+        use crate::screens::status::Profile as Sandbox;
+        let approval = match facts.approval_policy.as_deref() {
+            Some("on-request") => Some(Approval::OnRequest),
+            Some("never") => Some(Approval::Never),
+            Some("untrusted") => Some(Approval::UnlessTrusted),
+            _ => None,
+        };
+        let preset = match facts.profile {
+            Sandbox::ReadOnly => Preset::ReadOnly,
+            Sandbox::Workspace => Preset::Auto,
+            Sandbox::Full => Preset::FullAccess,
+        };
+        let matches = (approval == Some(preset.approval())).then_some(preset);
+        Current {
+            approval,
+            reviewer: if facts.auto_review { Reviewer::AutoReview } else { Reviewer::User },
+            matches,
+            profile: matches.map(|preset| preset.profile().to_owned()),
+            discover: true,
+            ..Current::default()
+        }
+    }
+}
+
 impl Default for Current {
     fn default() -> Self {
         Current {
@@ -178,6 +209,17 @@ fn yes() -> bool {
     true
 }
 
+impl Profile {
+    fn from_wire(profile: PermissionProfileSummary) -> Profile {
+        Profile { id: profile.id, description: profile.description, allowed: profile.allowed }
+    }
+}
+
+/// The profiles of a `permissionProfile/list` page.
+pub fn profiles_of(wire: Vec<PermissionProfileSummary>) -> Vec<Profile> {
+    wire.into_iter().map(Profile::from_wire).collect()
+}
+
 /// Why a row cannot be chosen: the view gives it its words.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Disabled {
@@ -207,21 +249,22 @@ impl Discovery {
         profiles: Vec<PermissionProfileSummary>,
         requirements: Option<&ConfigRequirements>,
     ) -> Result<Discovery, Failure> {
+        Discovery::new(
+            profiles.into_iter().map(Profile::from_wire).collect(),
+            requirements.map(Requirements::from_wire),
+        )
+    }
+
+    /// The catalog of the pages read and the requirements read beside them.
+    pub fn new(
+        profiles: Vec<Profile>,
+        requirements: Option<Requirements>,
+    ) -> Result<Discovery, Failure> {
         let mut ids = std::collections::HashSet::new();
         if !profiles.iter().all(|profile| ids.insert(profile.id.clone())) {
             return Err(Failure::Duplicate);
         }
-        Ok(Discovery {
-            profiles: profiles
-                .into_iter()
-                .map(|profile| Profile {
-                    id: profile.id,
-                    description: profile.description,
-                    allowed: profile.allowed,
-                })
-                .collect(),
-            requirements: requirements.map(Requirements::from_wire),
-        })
+        Ok(Discovery { profiles, requirements })
     }
 
     /// `disabled_reason`: a profile the server does not list is not

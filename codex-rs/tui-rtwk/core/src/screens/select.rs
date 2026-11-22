@@ -442,18 +442,45 @@ pub struct ThreadPart {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {}
 
-/// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
-/// the thread and the ticket; the shell sends them through `wire`.
+/// The RPCs of this screen. They are about the app (the catalog of models,
+/// the server's permission profiles), not about one thread: the app sends
+/// them (`app/select.rs`) as a screen command with no thread, under a ticket
+/// of its own, and the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    /// `model/list` for the request `Catalog::pending` names.
+    Models { request: u64 },
+    /// `configRequirements/read`, the first half of a permission read.
+    Requirements { request: u64 },
+    /// One page of `permissionProfile/list` (100 per page, at most 10).
+    Profiles { request: u64, cursor: Option<String>, cwd: Option<String> },
+}
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    Models(Vec<Preset>),
+    Requirements(Option<permissions::Requirements>),
+    Profiles { profiles: Vec<permissions::Profile>, next: Option<String> },
+}
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
+pub enum Ctx {
+    Models { request: u64 },
+    Requirements { request: u64 },
+    /// The pages of the catalog read so far, and the requirements read before
+    /// them.
+    Profiles {
+        request: u64,
+        requirements: Option<permissions::Requirements>,
+        found: Vec<permissions::Profile>,
+        pages: u8,
+    },
+}
+
+/// The pages a catalog may take (`permission_discovery.rs`).
+pub const MAX_PAGES: u8 = 10;
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = (part, fx);
@@ -466,20 +493,32 @@ pub fn apply_reply(
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    // The replies are the app's (`app/select.rs`): no thread asks for them.
+    let _ = (part, ctx, result, fx);
 }
 
-/// The wire request of `command` for `thread`.
+/// The wire request of `command`; the thread is none.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    let _ = thread;
+    match command {
+        Command::Models { .. } => models::list_request(id),
+        Command::Requirements { .. } => permissions::requirements_request(id),
+        Command::Profiles { cursor, cwd, .. } => {
+            permissions::profiles_request(id, cursor.clone(), cwd.clone())
+        }
+    }
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    match command {
+        Command::Models { .. } => models::presets(result).map(Reply::Models),
+        Command::Requirements { .. } => permissions::requirements(result)
+            .map(|wire| Reply::Requirements(wire.as_ref().map(permissions::Requirements::from_wire))),
+        Command::Profiles { .. } => permissions::profiles_page(result)
+            .map(|(wire, next)| Reply::Profiles { profiles: permissions::profiles_of(wire), next }),
+    }
+    .map_err(RpcError::Malformed)
 }
 
 /// The seed form of this screen's events: `{"kind":"catalog","presets":[..]}`

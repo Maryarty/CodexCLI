@@ -165,6 +165,11 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     ScreenIntent::Settings(codex_tui_core::screens::settings::Intent::Open(dialog)),
                 );
             }
+            // `/model` and `/permissions` fill the selection dialog from the
+            // thread's facts, and the app asks the server for the rest.
+            if let Some(intent) = select_intent(opened.command, &states.chat.status) {
+                cx.emit(&hs.screen, ScreenIntent::Select(intent));
+            }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx, hs);
             } else {
@@ -187,6 +192,22 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::Quit => cx.emit(&hs.quit, ()),
         // The line stays in the composer to be corrected.
         Outcome::Notice(notice) => screen(cx, chat::Intent::Notice(notice)),
+    }
+}
+
+/// The menu a slash command opens in the selection dialog, built from the
+/// thread's facts (the others open their slot empty until they land).
+fn select_intent(
+    command: SlashCommand,
+    facts: &chat::StatusFacts,
+) -> Option<codex_tui_core::screens::select::Intent> {
+    use codex_tui_core::screens::select::{Intent, models, permissions};
+    match command {
+        SlashCommand::Model => Some(Intent::OpenModels(models::Current::from_facts(facts))),
+        SlashCommand::Permissions => Some(Intent::OpenPermissions(
+            permissions::Current::from_facts(facts),
+        )),
+        _ => None,
     }
 }
 

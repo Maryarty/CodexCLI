@@ -36,6 +36,7 @@ mod popovers;
 mod resume;
 mod script;
 mod select;
+mod select_live;
 mod settings;
 mod status;
 mod status_data;
