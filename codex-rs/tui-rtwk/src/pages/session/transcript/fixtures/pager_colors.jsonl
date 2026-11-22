@@ -1,0 +1,3 @@
+# A static pager over the colours of git diff (ANSI), a blank line between hunks (page tests: parse_ansi).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"transcript","ev":{"kind":"pager","title":"D I F F","text":"\u001b[31m-removed\u001b[0m\n\u001b[32m+added\u001b[0m\n\nplain"}}

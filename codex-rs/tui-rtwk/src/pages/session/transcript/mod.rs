@@ -13,12 +13,49 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 pub mod follow;
+pub mod pager;
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+use crate::app::debug::EntryOpen;
+
+/// What the debug menu lists for this directory: the static pager over the
+/// document a fixture script gives the model.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    [
+        (
+            "pager_basic",
+            "the static pager, three short lines",
+            include_str!("fixtures/pager_basic.jsonl"),
+        ),
+        (
+            "pager_wraps_long_lines",
+            "the static pager, one long line wrapped",
+            include_str!("fixtures/pager_wraps_long_lines.jsonl"),
+        ),
+        (
+            "pager_long",
+            "the static pager, forty numbered lines",
+            include_str!("fixtures/pager_long.jsonl"),
+        ),
+        (
+            "pager_colors",
+            "the static pager, the colours of a diff and a blank line",
+            include_str!("fixtures/pager_colors.jsonl"),
+        ),
+        (
+            "pager_action",
+            "the static pager with an action on Enter",
+            include_str!("fixtures/pager_action.jsonl"),
+        ),
+    ]
+    .into_iter()
+    .map(|(name, description, script)| DebugEntry {
+        name,
+        description,
+        script,
+        open: EntryOpen::Route(|_| pager::StaticPager.into()),
+    })
+    .collect()
 }
 
 /// The part as a widget, placed by the chat screen's subtree.

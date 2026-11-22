@@ -35,6 +35,31 @@ pub struct Strings {
     /// that opens the shortcuts and its action (`render_transcript_footer`).
     pub shortcuts_key: &'static str,
     pub shortcuts_action: &'static str,
+    /// The static pager's chrome (`pager_overlay.rs`): the header's slashes
+    /// and the title's lead, the filler row, the rule and the percent.
+    pub pager_slashes: &'static str,
+    pub pager_title_lead: &'static str,
+    pub pager_filler: &'static str,
+    pub pager_rule: &'static str,
+    /// What comes before and after the percent scrolled (` 100% `).
+    pub pager_percent: [&'static str; 2],
+    /// The hints under it: each pair of keys and what they do, joined by
+    /// `hint_joiner`; the keys of a pair are joined by `hint_slash`.
+    pub hint_joiner: &'static str,
+    pub hint_slash: &'static str,
+    pub key_up: &'static str,
+    pub key_down: &'static str,
+    pub key_page_up: &'static str,
+    pub key_page_down: &'static str,
+    pub key_home: &'static str,
+    pub key_end: &'static str,
+    pub key_close: &'static str,
+    pub key_enter: &'static str,
+    pub hint_scroll: &'static str,
+    pub hint_page: &'static str,
+    pub hint_jump: &'static str,
+    pub hint_close: &'static str,
+    pub action_edit_configuration: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -62,6 +87,26 @@ pub const EN: Strings = Strings {
     footer_joiner: " · ",
     shortcuts_key: "?",
     shortcuts_action: " shortcuts",
+    pager_slashes: "/ ",
+    pager_title_lead: "/ ",
+    pager_filler: "~",
+    pager_rule: "─",
+    pager_percent: [" ", "% "],
+    hint_joiner: " · ",
+    hint_slash: "/",
+    key_up: "↑",
+    key_down: "↓",
+    key_page_up: "pgup",
+    key_page_down: "pgdn",
+    key_home: "home",
+    key_end: "end",
+    key_close: "q",
+    key_enter: "enter",
+    hint_scroll: "to scroll",
+    hint_page: "to page",
+    hint_jump: "to jump",
+    hint_close: "close",
+    action_edit_configuration: "Edit configuration",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

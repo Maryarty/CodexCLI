@@ -30,6 +30,8 @@ mod composer_vim;
 mod startup_mouse;
 #[path = "pages/transcript_follow.rs"]
 mod transcript_follow;
+#[path = "pages/transcript_pager.rs"]
+mod transcript_pager;
 
 mod rtwk_g46;
 mod rtwk_g49_g51;

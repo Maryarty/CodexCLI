@@ -1,0 +1,305 @@
+//! The static pager (oracle `pager_overlay.rs`: `PagerView`, `StaticOverlay`):
+//! a titled, full-screen read of a program's text (`/diff`, the full-screen
+//! approvals, provider details), scrolled by the pager's keys.
+//!
+//! Flutter's full-screen route of a `Column`: the title row, the scrolling
+//! text with `~` rows where it ends, the rule with the percent scrolled
+//! (`ListenableBuilder` over the `ScrollController`), the hint rows. The text
+//! is the ANSI text of a program (`parse_ansi`), one `Text.rich` per line; the
+//! document is the model's (`ScreenStates.transcript.pager`), read through
+//! the provider, never handed to the widget.
+
+use std::rc::Rc;
+
+use rtwk::ansi::parse_ansi;
+use rtwk::focus::{Focus, KeyPress};
+use rtwk::foundation::ListenableBuilder;
+use rtwk::layout::{
+    Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox, Stack,
+};
+use rtwk::navigation::Navigator;
+use rtwk::prelude::{KeyCode, Mods};
+use rtwk::provider::{read, select};
+use rtwk::scroll::{ScrollController, SingleChildScrollView};
+use rtwk::style::{Attrs, Span, Style};
+use rtwk::text::{Text, TextOverflow};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+
+use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::transcript::{Intent, PagerAction, PagerDoc};
+
+use super::strings::{self, Strings};
+use crate::app::view::Hs;
+
+/// The static pager over the document of the model.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StaticPager;
+
+/// Widget state: the text's scroll controller only (R14).
+pub struct PagerState {
+    scroll: ScrollController,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Msg {
+    Rows(i64),
+    Pages(i64),
+    HalfPages(i64),
+    Top,
+    Bottom,
+    Close,
+    Action,
+}
+
+impl StatefulWidget for StaticPager {
+    type State = PagerState;
+
+    fn create_state(&self) -> PagerState {
+        PagerState {
+            scroll: ScrollController::new(),
+        }
+    }
+}
+
+impl_widget!(stateful eq StaticPager);
+
+impl PagerState {
+    fn scroll_by(&self, rows: i64) {
+        if let Ok(position) = self.scroll.try_position() {
+            self.scroll.jump_to(position.pixels().saturating_add(rows));
+        }
+    }
+
+    /// One page of the text's rows (`PagerView::page_height`).
+    fn page(&self) -> i64 {
+        self.scroll
+            .try_position()
+            .map_or(1, |position| position.viewport_dimension())
+    }
+}
+
+impl State for PagerState {
+    type Widget = StaticPager;
+    type Msg = Msg;
+
+    fn update(&mut self, msg: Msg, _: &StaticPager, cx: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            Msg::Rows(rows) => self.scroll_by(rows),
+            Msg::Pages(pages) => self.scroll_by(pages.saturating_mul(self.page())),
+            Msg::HalfPages(pages) => {
+                self.scroll_by(pages.saturating_mul(self.page().saturating_add(1) / 2));
+            }
+            Msg::Top => self.scroll.jump_to(0),
+            Msg::Bottom => self.scroll.jump_to(i64::MAX),
+            // the action's effect is the opener's, a later intent of its
+            // screen; closing is the pager's
+            Msg::Close | Msg::Action => {
+                let handlers = read::<Hs, _>(cx);
+                cx.emit(&handlers.screen, Intent::ClosePager.into());
+                Navigator::maybe_pop(cx);
+            }
+        }
+        Rebuild::No
+    }
+
+    fn build(&self, _: &StaticPager, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let table = strings::of(cx);
+        let dim = crate::app::theme::Tokens::of(cx).dim();
+        let doc = select::<ScreenStates, _, _>(cx, |states| states.transcript.pager.clone());
+        let doc = doc.unwrap_or_else(|| PagerDoc {
+            title: String::new(),
+            text: String::new(),
+            action: None,
+        });
+        let action = doc.action;
+        let column = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(header(&doc.title, table, dim.clone()))
+            .child(Expanded::new(
+                1,
+                body(&doc.text, self.scroll.clone(), table),
+            ))
+            .child(rule(self.scroll.clone(), table, dim.clone()))
+            .child(hints(action, table, dim));
+        let mut focus = Focus::new(column).autofocus();
+        for (key, msg) in bindings(action.is_some()) {
+            focus = focus.bind(key, cx.send(msg));
+        }
+        focus.into()
+    }
+}
+
+/// The pager's default keys (`keymap.rs` `PagerKeymap` defaults), then the
+/// action's.
+fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
+    let plain = KeyPress::code;
+    let ch = |c: char| KeyPress::char(c);
+    let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
+    let mut keys = vec![
+        (plain(KeyCode::Up), Msg::Rows(-1)),
+        (ch('k'), Msg::Rows(-1)),
+        (plain(KeyCode::Down), Msg::Rows(1)),
+        (ch('j'), Msg::Rows(1)),
+        (plain(KeyCode::PageUp), Msg::Pages(-1)),
+        (KeyPress::char(' ').with_mods(Mods::SHIFT), Msg::Pages(-1)),
+        (ctrl('b'), Msg::Pages(-1)),
+        (plain(KeyCode::PageDown), Msg::Pages(1)),
+        (ch(' '), Msg::Pages(1)),
+        (ctrl('f'), Msg::Pages(1)),
+        (ctrl('u'), Msg::HalfPages(-1)),
+        (ctrl('d'), Msg::HalfPages(1)),
+        (plain(KeyCode::Home), Msg::Top),
+        (plain(KeyCode::End), Msg::Bottom),
+        (ch('q'), Msg::Close),
+        (ctrl('c'), Msg::Close),
+    ];
+    if has_action {
+        keys.push((plain(KeyCode::Enter), Msg::Action));
+    }
+    keys
+}
+
+/// `/ ` repeated over the row, the title over its start (`render_header`).
+fn header(title: &str, table: &'static Strings, style: Style) -> AnyWidget {
+    let title = format!("{}{title}", table.pager_title_lead);
+    LayoutBuilder::new(move |_, constraints| {
+        let slashes = table
+            .pager_slashes
+            .repeat(usize::try_from(constraints.max_width / 2).unwrap_or(0));
+        SizedBox::new(
+            None,
+            Some(1),
+            Some(
+                Stack::new()
+                    .child(
+                        Text::line(slashes)
+                            .style(style.clone())
+                            .overflow(TextOverflow::Clip),
+                    )
+                    .child(
+                        Text::line(title.clone())
+                            .style(style.clone())
+                            .overflow(TextOverflow::Clip),
+                    )
+                    .into(),
+            ),
+        )
+        .into()
+    })
+    .into()
+}
+
+/// The text, wrapped, scrolled; `~` rows below where it ends.
+fn body(text: &str, scroll: ScrollController, table: &'static Strings) -> AnyWidget {
+    let lines: Vec<AnyWidget> = parse_ansi(text)
+        .into_iter()
+        .map(|spans| Text::rich(spans).into())
+        .collect();
+    let lines = Rc::new(lines);
+    LayoutBuilder::new(move |_, constraints| {
+        let filler = Column::new().children(
+            (0..constraints.max_height.max(0)).map(|_| Text::line(table.pager_filler).into()),
+        );
+        // The text fills its own rows with blanks over the filler (`Clear`
+        // then the filler from where the text ends).
+        let text = rtwk::layout::BoxWidget::new().style(Style::new()).child(
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .children(lines.iter().cloned()),
+        );
+        Stack::new()
+            .child(filler)
+            .child(SingleChildScrollView::new(text).controller(scroll.clone()))
+            .into()
+    })
+    .into()
+}
+
+/// `─` over the row with ` N% ` one cell from its end (`render_bottom_bar`).
+fn rule(scroll: ScrollController, table: &'static Strings, style: Style) -> AnyWidget {
+    ListenableBuilder::new(Rc::new(scroll.clone()), move |_, _| {
+        let percent = match scroll.try_position() {
+            Ok(position) if position.max_scroll_extent() > 0 => {
+                let ratio = position.pixels().min(position.max_scroll_extent()) as f64
+                    / position.max_scroll_extent() as f64;
+                (ratio * 100.0).round() as u8
+            }
+            _ => 100,
+        };
+        let style = style.clone();
+        LayoutBuilder::new(move |_, constraints| {
+            let [before, after] = table.pager_percent;
+            let label = format!("{before}{percent}{after}");
+            let label_width = i32::try_from(label.chars().count()).unwrap_or(0);
+            let line = table.pager_rule.repeat(
+                usize::try_from((constraints.max_width - label_width - 1).max(0)).unwrap_or(0),
+            );
+            let last = table.pager_rule;
+            SizedBox::new(
+                None,
+                Some(1),
+                Some(
+                    Row::new()
+                        .child(
+                            Text::line(line)
+                                .style(style.clone())
+                                .overflow(TextOverflow::Clip),
+                        )
+                        .child(Text::line(label).style(style.clone()))
+                        .child(Text::line(last).style(style.clone()))
+                        .into(),
+                ),
+            )
+            .into()
+        })
+        .into()
+    })
+    .into()
+}
+
+/// The two hint rows and a blank one (`HINTS_HEIGHT` 3).
+fn hints(action: Option<PagerAction>, table: &'static Strings, style: Style) -> AnyWidget {
+    let pair = |keys: &[&'static str], what: &'static str| -> Vec<Span> {
+        let mut spans = Vec::new();
+        for (i, key) in keys.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(table.hint_slash, style.clone()));
+            }
+            spans.push(Span::styled(*key, style.clone().attrs(Attrs::BOLD)));
+        }
+        spans.push(Span::new(format!(" {what}")));
+        spans
+    };
+    let joined = |pairs: Vec<Vec<Span>>| -> AnyWidget {
+        let mut spans = vec![Span::new(" ")];
+        for (i, pair) in pairs.into_iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::new(table.hint_joiner));
+            }
+            spans.extend(pair);
+        }
+        Text::rich_line(spans)
+            .style(style.clone())
+            .overflow(TextOverflow::Clip)
+            .into()
+    };
+    let first = joined(vec![
+        pair(&[table.key_up, table.key_down], table.hint_scroll),
+        pair(&[table.key_page_up, table.key_page_down], table.hint_page),
+        pair(&[table.key_home, table.key_end], table.hint_jump),
+    ]);
+    let mut second = vec![pair(&[table.key_close], table.hint_close)];
+    if let Some(PagerAction::EditConfiguration) = action {
+        second.push(pair(&[table.key_enter], table.action_edit_configuration));
+    }
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(first)
+        .child(joined(second))
+        .child(Padding::new(
+            EdgeInsets::ZERO,
+            SizedBox::new(None, Some(1), None),
+        ))
+        .into()
+}
