@@ -375,6 +375,12 @@ fn a_style_spec_reads_like_the_oracles_assertion() {
     g.assert_style(2, 0, "bg=Rgb(1, 2, 3)");
     g.assert_style(3, 0, "plain fg=Reset");
     assert!(fails(|| g.assert_style(0, 0, "fg=Red")));
+    // `!fg=` / `!bg=`: the colour is not that one (the `!` was ignored before)
+    g.assert_style(0, 0, "!fg=Red");
+    g.assert_style(0, 0, "!bg=Rgb(1,2,3)");
+    g.assert_style(2, 0, "!fg=Cyan");
+    assert!(fails(|| g.assert_style(0, 0, "!fg=Cyan")));
+    assert!(fails(|| g.assert_style(2, 0, "!bg=Rgb(1,2,3)")));
     assert!(fails(|| g.assert_style(0, 0, "dim")));
     assert!(fails(|| g.assert_style(1, 0, "!dim")));
     assert!(fails(|| g.assert_style(3, 0, "bold")));
@@ -768,4 +774,56 @@ fn the_kit_sends_the_rest_of_the_mouse() {
     s.triple_click(10, 8);
     s.right_down(10, 8).right_up(10, 8);
     s.assert_contains("Fix resume picker timestamps");
+}
+
+// ---- kit-caps: what the app asked the backend to do ----
+
+/// The sent turns are readable: the typed text, literal, once; the probe
+/// bites on a different text.
+#[test]
+fn the_probe_reads_the_turns_the_app_started() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("oracle/fixtures/chat_commands_2/session.jsonl"))
+        .open();
+    s.assert_no_turn();
+    s.type_text("**send once**");
+    s.keys("enter");
+    s.assert_turn_texts(&["**send once**"]);
+    s.assert_interrupts(0);
+    assert_eq!(s.turn_texts(), vec!["**send once**".to_string()]);
+}
+
+#[test]
+#[should_panic(expected = "the turns the app started differ")]
+fn the_probe_bites_on_a_text_that_was_not_sent() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("oracle/fixtures/chat_commands_2/session.jsonl"))
+        .open();
+    s.type_text("sent");
+    s.keys("enter");
+    s.assert_turn_texts(&["not sent"]);
+}
+
+/// A key that interrupts a running turn is one interrupt request, counted.
+#[test]
+fn the_probe_counts_interrupt_requests() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("oracle/fixtures/chat_commands_2/running.jsonl"))
+        .open();
+    s.assert_interrupts(0);
+    s.keys("esc");
+    s.assert_interrupts(1);
+}
+
+/// A snapshot the oracle joined of several renders under bare labels
+/// (`before scroll:` / `after scroll:`) reads as two frames.
+#[test]
+fn a_snapshot_with_bare_labels_reads_as_frames() {
+    assert_eq!(
+        Screen::snap_frame_names("list_selection_col_width_mode_auto_all_rows_scroll"),
+        vec!["before scroll:".to_string(), "after scroll:".to_string()]
+    );
 }

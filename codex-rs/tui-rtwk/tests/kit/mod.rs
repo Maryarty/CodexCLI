@@ -22,6 +22,7 @@ mod grid;
 mod input;
 mod labels;
 mod markdown_gutter;
+mod probe;
 mod seed;
 mod verdict;
 
@@ -381,6 +382,15 @@ impl Screen {
     /// frame of the same header.
     pub fn assert_snap_section(&self, name: &str, section: &str) {
         self.snap(name).frame(section).assert();
+    }
+
+    /// The frame names of the oracle snapshot `name` (what `assert_snap_section`
+    /// takes), in order: a bare label such as `before scroll:` is one.
+    pub fn snap_frame_names(name: &str) -> Vec<String> {
+        oracle_snap::frames(&oracle_snap::find(name))
+            .into_iter()
+            .map(|f| f.name)
+            .collect()
     }
 
     /// The composer's text (`ComposerInput::composer_text` of the oracle),

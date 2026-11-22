@@ -470,10 +470,6 @@ fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
 // ORACLE bottom_pane/list_selection_view.rs:3280 snapshot_auto_all_rows_col_width_mode_scroll_behavior kind=snap owner=ui-pane snap=list_selection_col_width_mode_auto_all_rows_scroll
 #[test]
 fn snapshot_auto_all_rows_col_width_mode_scroll_behavior() {
-    kit::pending(
-        Owner::UiPane,
-        "the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header; tests/kit is not this slice's); the same rows are checked against the oracle's snapshot text in tests/sheets/select.rs",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(96, 12)
         .entry("select", "col_width_auto_all_rows")

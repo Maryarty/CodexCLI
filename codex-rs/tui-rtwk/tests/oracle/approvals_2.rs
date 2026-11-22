@@ -93,10 +93,6 @@ fn auto_resolution_visible_countdown_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:1938 auto_resolution_visible_countdown_is_red kind=ui owner=dialogs-pane
 #[test]
 fn auto_resolution_visible_countdown_is_red() {
-    kit::pending(
-        Owner::UiPane,
-        "kit: `check_style` ignores the `!` of `!fg=Red` (tests/kit/grid.rs:256 negates modifiers only), so the progress prefix reads as 'must be red' and fails; the countdown itself is red (tests/sheets/approvals.rs the_countdown_is_red)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/auto_options.jsonl"))

@@ -708,10 +708,6 @@ fn changing_filter_resets_selection_after_scrolling() {
 // ORACLE bottom_pane/file_search_popup.rs:209 long_paths_keep_distinguishing_filenames_and_original_selection kind=snap owner=chat-nav-pane snap=long_paths_keep_distinguishing_filenames_and_original_selection
 #[test]
 fn long_paths_keep_distinguishing_filenames_and_original_selection() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the snapshot joins 18 popup renders (three directories, three widths, two selections) in one text, with no section names: one chat screen shows one state",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .entry("popovers", "composer_popups")
