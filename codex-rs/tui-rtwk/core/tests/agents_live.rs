@@ -551,7 +551,7 @@ fn a_failed_worktree_replaces_the_busy_notice_with_the_error() {
 #[test]
 fn an_agents_start_does_not_start_a_thread() {
     use codex_tui_core::app::Session;
-    let mut app = CodexApp::new().with_start_thread_on_connect(false);
+    let mut app = CodexApp::new().with_first_thread(codex_tui_core::app::FirstThread::Never);
     let mut fx = AppFx::default();
     apply_app(&mut app, AppEv::Connected, &mut fx);
     assert!(

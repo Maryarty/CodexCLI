@@ -3,13 +3,16 @@
 //! pushed over it at once with nowhere to go back to but the session it
 //! reveals when it ends.
 
+use rtwk::Handler;
 use rtwk::layout::SizedBox;
-use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::provider::watch;
+use rtwk::navigation::{Navigator, PageRoute, PopInvoked, PopScope};
+use rtwk::provider::{read, watch};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::onboarding::Intent as StartupIntent;
+use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
+use crate::app::view::Hs;
 use crate::pages::startup::onboarding;
 
 /// The page the command line starts on.
@@ -20,10 +23,18 @@ pub enum Start {
 }
 
 impl Start {
-    fn route(self) -> PageRoute<()> {
+    /// The route of the page. The resume picker stands in for the first
+    /// thread: its `PopScope` (Flutter: `onPopInvokedWithResult`) tells
+    /// `left` that it is gone, and the app starts a fresh thread unless the
+    /// picker opened one (oracle: `SessionSelection::StartFresh`).
+    fn route(self, left: Handler<PopInvoked>) -> PageRoute<()> {
         match self {
             Start::Agents => crate::pages::agents::start_route(),
-            Start::Resume => crate::pages::resume::route(),
+            Start::Resume => PageRoute::new(move |_| {
+                PopScope::new(crate::pages::resume::Screen { live: true })
+                    .on_pop_invoked_with_result(left.clone())
+                    .into()
+            }),
         }
     }
 }
@@ -37,6 +48,15 @@ pub struct StartPage {
 
 pub struct StartPageState;
 
+/// What the start page does next.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartMsg {
+    /// Push the page of the command line.
+    Push,
+    /// The page was left (popped).
+    Left,
+}
+
 impl StatefulWidget for StartPage {
     type State = StartPageState;
 
@@ -49,15 +69,27 @@ impl_widget!(stateful eq StartPage);
 
 impl State for StartPageState {
     type Widget = StartPage;
-    type Msg = ();
+    type Msg = StartMsg;
 
     fn init_state(&mut self, _: &StartPage, cx: &mut Cx<'_, Self>) {
-        let push = cx.send(());
+        let push = cx.send(StartMsg::Push);
         cx.emit(&push, ());
     }
 
-    fn update(&mut self, _: (), w: &StartPage, cx: &mut Cx<'_, Self>) -> Rebuild {
-        drop(Navigator::of(cx).push::<()>(w.start.route()));
+    fn update(&mut self, msg: StartMsg, w: &StartPage, cx: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            StartMsg::Push => {
+                let left = cx.map(|_: PopInvoked| StartMsg::Left);
+                drop(Navigator::of(cx).push::<()>(w.start.route(left)));
+            }
+            StartMsg::Left => {
+                let hs = read::<Hs, _>(cx);
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Onboarding(StartupIntent::StartPageLeft),
+                );
+            }
+        }
         Rebuild::No
     }
 

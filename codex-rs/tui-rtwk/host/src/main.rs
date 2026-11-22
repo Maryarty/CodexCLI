@@ -101,12 +101,15 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
             Backend::Connector(Box::new(cloud)),
         )],
     };
-    let app = UiApp::new(backend)
+    let mut app = UiApp::new(backend)
         .with_debug_screens(cli.debug_screens)
         .with_start_agents(cli.agents)
         .with_start_resume(cli.resume)
         .with_awaited_facts(true)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
+    if let Some(start) = cli.session.clone() {
+        app = app.with_start_session(start);
+    }
     let result = run_on(app, !cli.no_alt_screen);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts
     // its task), so nothing after its loop runs: the client came back

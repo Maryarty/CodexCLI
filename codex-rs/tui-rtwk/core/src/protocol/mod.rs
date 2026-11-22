@@ -48,10 +48,10 @@ pub fn client_request(
             request_id,
             params: None,
         }),
-        Command::StartThread { .. } => Some(ClientRequest::ThreadStart {
+        Command::StartThread { model: chosen, .. } => Some(ClientRequest::ThreadStart {
             request_id,
             params: ThreadStartParams {
-                model: model.map(str::to_string),
+                model: chosen.clone().or_else(|| model.map(str::to_string)),
                 ..ThreadStartParams::default()
             },
         }),

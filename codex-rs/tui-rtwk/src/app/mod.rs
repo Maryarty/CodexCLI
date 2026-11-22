@@ -7,6 +7,7 @@
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::CodexApp;
+use codex_tui_core::app::FirstThread;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::screens::chat::DesktopNotice;
 use rtwk::GlobalKey;
@@ -93,13 +94,38 @@ impl UiApp {
 
     pub fn with_start_agents(mut self, on: bool) -> Self {
         self.ui.start_agents = on;
-        // The overview opens instead of a first thread (`codex agents`).
-        self.core = self.core.with_start_thread_on_connect(!on);
-        self
+        self.with_synced_first_thread()
     }
 
     pub fn with_start_resume(mut self, on: bool) -> Self {
         self.ui.start_resume = on;
+        self.with_synced_first_thread()
+    }
+
+    /// `codex resume <id>` / `codex fork <id>`: the first thread is that
+    /// session (read after the connection is up, opened after the startup
+    /// steps and the cwd prompt).
+    pub fn with_start_session(
+        mut self,
+        start: codex_tui_core::screens::onboarding::session::Start,
+    ) -> Self {
+        self.core = self.core.with_start_session(start);
+        self
+    }
+
+    /// When the first thread starts follows from the command line: a page
+    /// (`codex agents`, `codex resume`) opens instead of one, a host that
+    /// answers the startup facts has it wait for the startup steps, any
+    /// other starts it on connect.
+    fn with_synced_first_thread(mut self) -> Self {
+        let when = if self.ui.start_agents || self.ui.start_resume {
+            FirstThread::Never
+        } else if self.ui.awaits_facts {
+            FirstThread::AfterLaunch
+        } else {
+            FirstThread::OnConnect
+        };
+        self.core = self.core.with_first_thread(when);
         self
     }
 
@@ -108,8 +134,7 @@ impl UiApp {
     /// screens (`Ev::Launched`), not on connect.
     pub fn with_awaited_facts(mut self, on: bool) -> Self {
         self.ui.awaits_facts = on;
-        self.core = self.core.with_start_after_launch(on);
-        self
+        self.with_synced_first_thread()
     }
 
     pub fn with_lang(mut self, lang: Lang) -> Self {

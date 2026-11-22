@@ -18,10 +18,12 @@ use codex_tui_core::screens::startup::{Intent, Prompt};
 use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
 use crate::app::view::Hs;
 
+mod history;
 mod keys;
 mod panel;
 pub mod strings;
 
+pub use history::HistoryLines;
 pub use panel::Panel;
 
 /// The route of the prompt the model has open.
@@ -146,7 +148,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/daemon_non_restartable.jsonl"),
         ),
     ];
-    entries
+    let mut listed: Vec<DebugEntry> = entries
         .into_iter()
         .map(|(name, description, script)| DebugEntry {
             name,
@@ -154,7 +156,15 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script,
             open: EntryOpen::Route(|_| Panel::default().into()),
         })
-        .collect()
+        .collect();
+    // Not a prompt: the line a failed save of its choice leaves.
+    listed.push(DebugEntry {
+        name: "cwd_persistence_failure",
+        description: "history line of a failed working directory save",
+        script: include_str!("fixtures/cwd_persistence_failure.jsonl"),
+        open: EntryOpen::Route(|_| HistoryLines.into()),
+    });
+    listed
 }
 
 /// Opens the empty form of this slot (debug menu): no prompt is open.

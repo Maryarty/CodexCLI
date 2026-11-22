@@ -10,6 +10,7 @@
 pub mod auth;
 pub mod device;
 pub mod gateway;
+pub mod session;
 
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ClientRequest;
@@ -89,6 +90,10 @@ pub struct Model {
     /// The gateway's device code, asked for once the steps are over and
     /// before the launch's prompts (`device_login::start_if_needed`).
     device: device::Phase,
+    /// The session `codex resume <id>` / `codex fork <id>` names.
+    session: session::Phase,
+    /// What the host read for the session's working directory (`Facts`).
+    resume: startup::cwd::Setting,
 }
 
 /// The number of an ask of this page to the host (`Ask`): its answer carries
@@ -134,6 +139,13 @@ pub enum Ask {
     /// of the trusted folder, the model migration), answered with
     /// `Ev::Launched`. The host reads them after a reload asked before it.
     Launch { request: Request },
+    /// Remember the working directory choice of the cwd prompt
+    /// (`tui.resume_cwd`), answered with the startup screen's
+    /// `Ev::CwdSaved` under `request`.
+    SaveResumeCwd {
+        request: u64,
+        mode: startup::cwd::ResumeMode,
+    },
     /// Trust the reviewed hooks (`write_hook_trusts`), answered with the
     /// startup screen's `Ev::HooksTrusted` under `request`.
     TrustHooks {
@@ -203,6 +215,9 @@ pub struct Facts {
     /// The update cache is missing or stale: the page asks the host to
     /// refresh it (`Ask::RefreshUpdateCache`), for the next run.
     pub refresh_update: bool,
+    /// What the working directory of a resumed or forked session is decided
+    /// by (the config's `tui.resume_cwd`, `--cd`, the workspace).
+    pub resume: startup::cwd::Setting,
 }
 
 /// A slot step's state: due, or done.
@@ -495,6 +510,11 @@ pub enum Intent {
     /// The first startup prompt due was put on screen (the page asked it
     /// of the startup screen): it leaves the queue.
     PromptAsked,
+    /// The page the command line opened instead of a thread (`codex
+    /// resume`'s picker) was left. The app decides: a fresh thread starts
+    /// when none is open or on its way (oracle: `SessionSelection::StartFresh`);
+    /// the model keeps nothing of it.
+    StartPageLeft,
 }
 
 /// A server notification the sign-in reads (`handle_app_server_notification`):
@@ -566,6 +586,7 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
 pub fn disconnected(model: &mut Model) {
     model.launching = None;
     model.reloaded = false;
+    session::lost(model);
     gateway::lost(model);
     device::lost(model);
     if model.writing.take().is_some()
@@ -612,7 +633,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
             model.launching = None;
             model.launched = true;
-            model.prompts = prompts;
+            // The cwd prompt of a session named on the command line is
+            // already first.
+            model.prompts.extend(prompts);
         }
         Ev::GatewayStarted { request } => gateway::started(model, request, fx),
         Ev::GatewayLogins { request, logins } => gateway::logins(model, request, logins, fx),
@@ -637,6 +660,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.sign_in = facts.sign_in.map(auth::SignIn::new);
             model.provider = None;
             model.trust = facts.trust;
+            model.resume = facts.resume;
             if facts.refresh_update {
                 ask(fx, Ask::RefreshUpdateCache);
             }
@@ -751,6 +775,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 
 fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     match intent {
+        Intent::StartPageLeft => {}
         Intent::PromptAsked => {
             if !model.prompts.is_empty() {
                 model.prompts.remove(0);
@@ -867,6 +892,11 @@ fn follow_launch(model: &mut Model, fx: &mut AppFx) {
     // The gateway's device code comes before the prompts
     // (`device_login::start_if_needed` before the models are read).
     if !device::follow(model, fx) {
+        return;
+    }
+    // A session named on the command line is read and its directory decided
+    // before the prompts (`lookup_session_target_with_app_server`).
+    if matches!(session::follow(model, fx), session::Step::Wait) {
         return;
     }
     let request = mint(model);

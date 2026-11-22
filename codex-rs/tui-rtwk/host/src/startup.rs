@@ -85,6 +85,9 @@ pub struct Startup {
     /// the remote host whose trust is asked. A remote workspace without one
     /// is not asked.
     pub remote_cwd: Option<PathBuf>,
+    /// `--cd` was given (a resumed or forked session then opens here:
+    /// `effective_resume_cwd_mode`).
+    pub cwd_override: bool,
     pub update: UpdateSlot,
     /// A launch fact that could not be read ends the launch with its error
     /// (`get_login_status(..)?`, `check_directory_trust(..)?`).
@@ -314,6 +317,16 @@ where
                 crate::launch::prompts(&config, startup.target, cwd, false, &ids, &send).await;
             Ev::Launched { request, prompts }
         }
+        Ask::SaveResumeCwd { request, mode } => {
+            let config = startup.current.read().await.clone();
+            let saved = crate::launch::save_resume_cwd(&config, mode).await;
+            return Some(AppEv::Screen(ScreenEv::Startup(
+                codex_tui_core::screens::startup::Ev::CwdSaved {
+                    request,
+                    failed: !saved,
+                },
+            )));
+        }
         Ask::TrustHooks { request, updates } => {
             let failure = crate::launch::trust_hooks(&updates, &ids, &send).await;
             return Some(AppEv::Screen(ScreenEv::Startup(
@@ -530,6 +543,21 @@ where
         // background, so the launch is not blocked by a network call: this
         // run reads the previous value, the next one shows the offer.
         refresh_update: checks && version_cache_needs_refresh(&version_file(config)),
+        // `resolve_cwd_for_resume_or_fork_selection`: what decides the
+        // directory a named session opens in.
+        resume: codex_tui_core::screens::startup::cwd::Setting {
+            current: config.cwd.display().to_string(),
+            configured: config.tui_resume_cwd.map(|mode| match mode {
+                codex_config::types::ResumeCwdMode::Current => {
+                    codex_tui_core::screens::startup::cwd::ResumeMode::Current
+                }
+                codex_config::types::ResumeCwdMode::Session => {
+                    codex_tui_core::screens::startup::cwd::ResumeMode::Session
+                }
+            }),
+            cwd_override: startup.cwd_override,
+            remote: startup.target.remote_workspace(),
+        },
     })
 }
 
@@ -899,6 +927,7 @@ mod tests {
             connected: false,
             check_trust: true,
             remote_cwd: None,
+            cwd_override: false,
             update: UpdateSlot::default(),
             failure: FailureSlot::default(),
             reload: Arc::new(|| Box::pin(std::future::ready(Err("no reload".to_owned())))),

@@ -229,8 +229,15 @@ impl Ingress {
 /// `ThreadFx`, which stamps the thread id (R3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
+    /// `model`: the model an accepted migration prompt chose, for the thread
+    /// to start on (oracle: `config.model` set before `start_thread`); none
+    /// leaves the host's own choice (`--model`, the config).
     #[non_exhaustive]
-    StartThread { ticket: Ticket, backend: BackendId },
+    StartThread {
+        ticket: Ticket,
+        backend: BackendId,
+        model: Option<String>,
+    },
     #[non_exhaustive]
     ReadRateLimits { ticket: Ticket, backend: BackendId },
     #[non_exhaustive]
@@ -354,6 +361,15 @@ enum AppCtx {
         backend: BackendId,
         step: worktree::Step,
     },
+    /// `thread/read` of the session `codex resume <id>` names (the launch
+    /// goes on with the directory it recorded).
+    SessionRead,
+    /// The resume or fork of that session, in the directory the launch
+    /// decided.
+    OpenSession {
+        action: crate::screens::startup::Action,
+        thread: ThreadId,
+    },
 }
 
 /// An ask made before the first thread exists.
@@ -379,21 +395,31 @@ pub struct CodexApp {
     queued_submits: Vec<BeforeThread>,
     /// Notifications may be delivered before the reply to the operation attaching the writer.
     attaching_events: VecDeque<(BackendId, ThreadId, ThreadEv)>,
-    /// Whether connecting starts the first thread. `codex agents` opens the
-    /// overview instead (oracle: `agents_overview`), and a task starts when
-    /// the user asks for one.
-    start_thread_on_connect: bool,
-    /// The host answers the startup facts (`Ask::Facts`): the first thread
-    /// starts after the startup screens, once the launch is known
-    /// (`Ev::Launched`). Not before: the server's own sign-in (the browser
-    /// login) would pre-empt the device-code screen. DEPARTURE (startup-rest):
-    /// the oracle starts the session only after the launch prompts (GovCloud,
-    /// hooks review, model migration) are answered; ours releases the start at
-    /// `Ev::Launched`, when they are known but not yet answered, so an accepted
-    /// model migration applies from the next thread.
-    start_after_launch: bool,
-    /// The first thread's start waits for the launch.
+    /// When the first thread starts.
+    first_thread: FirstThread,
+    /// The first thread's start waits for the startup steps to end
+    /// (`FirstThread::AfterLaunch`).
     start_held: bool,
+}
+
+/// When the process's first thread starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FirstThread {
+    /// On connect: no startup screen runs (tests, a host that does not
+    /// answer the startup facts).
+    #[default]
+    OnConnect,
+    /// The host answers the startup facts (`Ask::Facts`): the thread starts
+    /// once the startup steps and the launch prompts (GovCloud, hooks review,
+    /// model migration) are answered (oracle: `App::run` starts the session
+    /// after them, with the model an accepted migration chose). Not on
+    /// connect: the server's own sign-in (the browser login) would pre-empt
+    /// the device-code screen.
+    AfterLaunch,
+    /// A page opens instead (`codex agents`, `codex resume`): a thread
+    /// starts when the user asks for one (`Intent::StartFirstThread`, a task,
+    /// the picker's cancel).
+    Never,
 }
 
 impl Default for CodexApp {
@@ -425,22 +451,26 @@ impl CodexApp {
             outgoing: Pending::default(),
             queued_submits: Vec::new(),
             attaching_events: VecDeque::new(),
-            start_thread_on_connect: true,
-            start_after_launch: false,
+            first_thread: FirstThread::OnConnect,
             start_held: false,
         }
     }
 
-    pub fn with_start_thread_on_connect(mut self, enabled: bool) -> Self {
-        self.start_thread_on_connect = enabled;
+    pub fn with_first_thread(mut self, when: FirstThread) -> Self {
+        self.first_thread = when;
         self
     }
 
-    /// The first thread starts once the startup screens are done and the
-    /// launch is known (`Ev::Launched`), not on connect; for a host that
-    /// answers the startup facts.
-    pub fn with_start_after_launch(mut self, enabled: bool) -> Self {
-        self.start_after_launch = enabled;
+    /// `codex resume <id>` / `codex fork <id>`: the session is read once the
+    /// connection is up, its directory decided after the startup steps (a
+    /// prompt when it differs from this one), and the app opens it in place
+    /// of a fresh thread. The first thread starts after the launch.
+    pub fn with_start_session(mut self, start: crate::screens::onboarding::session::Start) -> Self {
+        self.first_thread = FirstThread::AfterLaunch;
+        crate::screens::onboarding::session::want(
+            &mut Rc::make_mut(&mut self.screens).onboarding,
+            start,
+        );
         self
     }
 
@@ -720,22 +750,22 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 refresh_rates(app, origin, fx);
             }
         }
-        AppEv::Connected if !app.start_thread_on_connect => {
-            Rc::make_mut(&mut app.session).status = Session::Ready;
-            crate::screens::onboarding::connected(
-                &mut Rc::make_mut(&mut app.screens).onboarding,
-                fx,
-            );
-        }
         AppEv::Connected => {
+            if app.first_thread == FirstThread::Never {
+                Rc::make_mut(&mut app.session).status = Session::Ready;
+            }
             crate::screens::onboarding::connected(
                 &mut Rc::make_mut(&mut app.screens).onboarding,
                 fx,
             );
-            if app.start_after_launch && !app.screens.onboarding.launched() {
-                app.start_held = true;
-            } else {
-                start_first_thread(app, fx);
+            read_session(app, fx);
+            match app.first_thread {
+                FirstThread::Never => {}
+                FirstThread::OnConnect => start_first_thread(app, fx),
+                FirstThread::AfterLaunch => {
+                    app.start_held = true;
+                    release_held_start(app, fx);
+                }
             }
         }
         AppEv::StartFailed(message) => {
@@ -972,7 +1002,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 fx,
             );
         }
-        AppEv::Intent(intent) => apply_intent(app, intent, fx),
+        AppEv::Intent(intent) => {
+            apply_intent(app, intent, fx);
+            release_held_start(app, fx);
+        }
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
@@ -1002,6 +1035,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 ScreenEv::Agents(agents::Ev::Reconnecting | agents::Ev::Lagged) => {
                     app.threads.previews_mut().clear();
                     if matches!(ev, ScreenEv::Agents(agents::Ev::Reconnecting)) {
+                        // The startup asks went to the lost connection.
+                        if origin == BackendId::default() {
+                            crate::screens::onboarding::disconnected(
+                                &mut Rc::make_mut(&mut app.screens).onboarding,
+                            );
+                        }
                         app.reset_requests(origin);
                         Rc::make_mut(&mut app.session)
                             .backend_banners
@@ -1015,6 +1054,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             | AppCtx::OpenThread { backend, .. }
                             | AppCtx::NewConversation { backend, .. }
                             | AppCtx::RateLimits { backend } => *backend != origin,
+                            AppCtx::SessionRead => origin != BackendId::default(),
                             AppCtx::Agents(agents::Ctx::History { thread }) => {
                                 owners.owner_of(thread) != origin
                             }
@@ -1037,10 +1077,15 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
-            if app.start_held && app.screens.onboarding.launched() {
-                app.start_held = false;
-                start_first_thread(app, fx);
+            if reconnected && origin == BackendId::default() {
+                // The new server is told the startup facts again.
+                crate::screens::onboarding::connected(
+                    &mut Rc::make_mut(&mut app.screens).onboarding,
+                    fx,
+                );
+                read_session(app, fx);
             }
+            release_held_start(app, fx);
             if reconnected {
                 if app.screens.chat.status.account_usage {
                     refresh_rates(app, origin, fx);
@@ -1067,10 +1112,118 @@ fn start_first_thread(app: &mut CodexApp, fx: &mut AppFx) {
     let ticket = app.mint.next();
     app.outgoing
         .insert(ticket, AppCtx::StartThread { switch: None });
-    fx.commands.push(Command::StartThread {
+    fx.commands
+        .push(start_thread(app, ticket, BackendId::default()));
+}
+
+/// A new thread's start, on the model an accepted migration chose.
+fn start_thread(app: &CodexApp, ticket: Ticket, backend: BackendId) -> Command {
+    Command::StartThread {
         ticket,
-        backend: BackendId::default(),
+        backend,
+        model: app.screens.startup.accepted_model().map(str::to_string),
+    }
+}
+
+/// The held first thread goes out once the startup steps are over and no
+/// startup prompt is due or on screen (oracle: the session starts after the
+/// launch prompts). Checked after every event and intent that can end the
+/// last of them.
+fn release_held_start(app: &mut CodexApp, fx: &mut AppFx) {
+    if app.start_held
+        && app.screens.onboarding.launched()
+        && !app.screens.onboarding.due()
+        && app.screens.startup.open.is_none()
+    {
+        app.start_held = false;
+        if crate::screens::onboarding::session::pending(&app.screens.onboarding) {
+            open_session(app, fx);
+        } else {
+            start_first_thread(app, fx);
+        }
+    }
+}
+
+/// The session the command line names is read once the connection is up
+/// (asked again on a new connection if the first was lost with the read in
+/// flight).
+fn read_session(app: &mut CodexApp, fx: &mut AppFx) {
+    use crate::screens::onboarding::session;
+    if !session::pending(&app.screens.onboarding) {
+        return;
+    }
+    let Some(start) = session::to_read(&mut Rc::make_mut(&mut app.screens).onboarding) else {
+        return;
+    };
+    let ticket = app.mint.next();
+    app.outgoing.insert(ticket, AppCtx::SessionRead);
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
+            thread: start.id,
+        })),
     });
+}
+
+/// The session the command line names, opened in the directory the launch
+/// decided, in place of a fresh thread. Nothing opens while the cwd prompt
+/// has no answer (the user left instead).
+fn open_session(app: &mut CodexApp, fx: &mut AppFx) {
+    use crate::screens::onboarding::session;
+    use crate::screens::startup::Action;
+    let Some(opening) = session::opening(&app.screens.onboarding, &app.screens.startup.answers)
+    else {
+        return;
+    };
+    session::opened(&mut Rc::make_mut(&mut app.screens).onboarding);
+    let thread = opening.start.id.clone();
+    let ticket = app.mint.next();
+    app.outgoing.insert(
+        ticket,
+        AppCtx::OpenSession {
+            action: opening.start.action,
+            thread: ThreadId::new(&thread),
+        },
+    );
+    let ask = match opening.start.action {
+        Action::Resume => ThreadAsk::ResumeAt {
+            thread,
+            cwd: opening.cwd,
+        },
+        Action::Fork => ThreadAsk::ForkAt {
+            thread,
+            cwd: opening.cwd,
+        },
+    };
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+    });
+}
+
+/// A fresh thread where none was started (`FirstThread::Never`): the picker
+/// of `codex resume` was cancelled. Nothing starts while a thread is open or
+/// on its way.
+fn start_fresh_thread(app: &mut CodexApp, fx: &mut AppFx) {
+    let coming = app.outgoing.any(|ctx| {
+        matches!(
+            ctx,
+            AppCtx::StartThread { .. }
+                | AppCtx::OpenThread {
+                    cancelled: false,
+                    ..
+                }
+        )
+    });
+    if app.first_thread == FirstThread::Never
+        && app.session.active.is_none()
+        && app.screens.agents.opening.is_none()
+        && !coming
+    {
+        start_first_thread(app, fx);
+    }
 }
 
 fn set_status(app: &mut CodexApp, status: Session) {
@@ -1187,6 +1340,24 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
             }
             AppCtx::Worktree { backend, step } => step.advance(app, backend, answer, fx),
+            AppCtx::SessionRead => {
+                // An id nothing is saved under (or a server that cannot read
+                // it) ends the launch with the oracle's message.
+                let read = match answer {
+                    Answer::Screen(ScreenReply::Agents(agents::Reply::Read { thread, .. })) => {
+                        Ok(Some(thread.cwd.display().to_string()))
+                    }
+                    _ => Err(()),
+                };
+                crate::screens::onboarding::session::read(
+                    &mut Rc::make_mut(&mut app.screens).onboarding,
+                    read,
+                    fx,
+                );
+            }
+            AppCtx::OpenSession { action, thread } => {
+                session_opened(app, action, thread, answer, fx);
+            }
         }
         return;
     }
@@ -1249,7 +1420,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     switch: Some(backend),
                 },
             );
-            fx.commands.push(Command::StartThread { ticket, backend });
+            fx.commands.push(start_thread(app, ticket, backend));
         }
         Intent::DismissRequest(key) => {
             if app.requests.contains(&key) {
@@ -1308,6 +1479,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::OpenThread(id) => open_thread(app, &id, fx),
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
+        // The page the command line opened instead of a thread was left.
+        Intent::Screen(ScreenIntent::Onboarding(
+            crate::screens::onboarding::Intent::StartPageLeft,
+        )) => {
+            start_fresh_thread(app, fx);
+        }
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread,
             command,
@@ -1584,12 +1761,54 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
             session.status = Session::Ready;
-            for ask in std::mem::take(&mut app.queued_submits) {
-                match ask {
-                    BeforeThread::Message(message) => submit(app, &thread, message, fx),
-                    BeforeThread::Shell(command) => run_shell(app, &thread, command, fx),
-                }
-            }
+            send_queued(app, &thread, fx);
+        }
+        Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
+        _ => {}
+    }
+}
+
+/// What was asked before the first thread existed goes out on it.
+fn send_queued(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    for ask in std::mem::take(&mut app.queued_submits) {
+        match ask {
+            BeforeThread::Message(message) => submit(app, thread, message, fx),
+            BeforeThread::Shell(command) => run_shell(app, thread, command, fx),
+        }
+    }
+}
+
+/// The answer to the launch's resume or fork: the session is the first
+/// thread (its history read, the queued asks sent on it); a refusal fails
+/// the start as a fresh thread's would, except another writer, which the chat
+/// shows read-only.
+fn session_opened(
+    app: &mut CodexApp,
+    action: crate::screens::startup::Action,
+    requested: ThreadId,
+    answer: Answer,
+    fx: &mut AppFx,
+) {
+    use crate::screens::startup::Action;
+    match answer {
+        Answer::Screen(ScreenReply::Agents(
+            agents::Reply::Resumed(opened) | agents::Reply::Forked(opened),
+        )) => {
+            let id = ThreadId::new(&opened.id);
+            let origin = match action {
+                Action::Resume => Origin::Resumed,
+                Action::Fork => Origin::Started,
+            };
+            attach_thread_with_metadata(app, &id, BackendId::default(), origin, Some(&opened), fx);
+            show_held_thread(app, id.clone());
+            apply_thread(app, &id, threads::history_page(&opened.turns, None), fx);
+            fetch_history(app, &id, fx);
+            send_queued(app, &id, fx);
+        }
+        Answer::Failed(error) if action == Action::Resume && agents::is_active_writer(&error) => {
+            app.threads.open(&requested, Origin::ForeignWriter);
+            show_held_thread(app, requested.clone());
+            fetch_history(app, &requested, fx);
         }
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
         _ => {}
@@ -1651,6 +1870,7 @@ fn is_attach(ctx: &AppCtx) -> bool {
         AppCtx::StartThread { .. }
             | AppCtx::NewConversation { .. }
             | AppCtx::OpenThread { .. }
+            | AppCtx::OpenSession { .. }
             | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork)
     )
 }
