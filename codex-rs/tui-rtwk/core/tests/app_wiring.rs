@@ -1543,6 +1543,7 @@ mod notices {
                 effort: None,
                 provider: "openai".into(),
                 daybreak: Some(true),
+                resumed: false,
             })),
             &mut AppFx::default(),
         );

@@ -41,5 +41,6 @@ mod select_live;
 mod settings;
 mod status;
 mod status_data;
+mod status_facts;
 mod transcript_diff;
 mod usage;
