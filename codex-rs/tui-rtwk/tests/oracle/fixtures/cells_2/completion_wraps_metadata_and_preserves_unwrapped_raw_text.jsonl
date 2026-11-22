@@ -1,4 +1,7 @@
-# Oracle data of codex-tui history_cell/separators_tests.rs:135 (the runtime metrics, 3 tool calls in 2450 ms, have no wire field the chat reads yet) (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":968250720,"durationMs":125000}}}}
+# Oracle data of codex-tui history_cell/separators_tests.rs:135 (completedAt is 2000-09-06 14:32 UTC; the viewer is in 2001, UTC; the runtime metrics are 3 tool calls in 2450 ms, a host fact) (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"screen","dir":"agents","ev":{"clock":999873120}}
+{"step":"screen","dir":"cells","ev":{"kind":"clock","format":"twelve_hour","utc_offset":0}}
+{"step":"screen","dir":"cells","ev":{"kind":"runtime_metrics","turn":"turn-1","metrics":{"tool_calls":{"count":3,"duration_ms":2450}}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"error":null,"startedAt":null,"items":[],"itemsView":"full","status":"inProgress","completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"error":null,"startedAt":null,"items":[{"type":"agentMessage","moderation":null,"id":"msg-1","text":"Done.","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null}],"itemsView":"summary","status":"completed","completedAt":968250720,"durationMs":125000}}}}

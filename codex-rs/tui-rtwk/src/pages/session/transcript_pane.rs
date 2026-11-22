@@ -8,12 +8,14 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use rtwk::gestures::SelectionArea;
-use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
+use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
-use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{
+    AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, StatelessWidget,
+    impl_widget,
+};
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
@@ -71,21 +73,21 @@ impl ViewportState {
             return layout.rows.clone();
         }
         let mut rows: Vec<Range<usize>> = Vec::new();
-        let mut exploration = None;
+        let mut run = None;
         for (index, (key, item)) in transcript.iter().enumerate() {
             if !detailed && item.is_detailed_only() {
                 continue;
             }
-            let turn = item.is_exploration().then_some(&key.turn);
-            if turn.is_some()
-                && turn == exploration
+            let kind = item.group().map(|group| (group, &key.turn));
+            if kind.is_some()
+                && kind == run
                 && let Some(group) = rows.last_mut()
             {
                 group.end = index + 1;
             } else {
                 rows.push(index..index + 1);
             }
-            exploration = turn;
+            run = kind;
         }
         let rows: Rc<[_]> = rows.into();
         *cache = Some(RowLayout {
@@ -196,8 +198,12 @@ impl State for ViewportState {
         let tokens = theme::Tokens::of(cx);
         let prompt_surface = tokens.prompt_surface(cx, true);
         let agent_style = tokens.dim().attrs(Attrs::DIM);
+        let bullet = strings.agent_line("").to_string();
         let table = chat_strings::of(cx);
         let now = rtwk::provider::read::<ScreenStates, _>(cx).agents.now;
+        let clock = select::<ScreenStates, _, _>(cx, |states| states.cells.clock);
+        let metrics =
+            select::<ScreenStates, _, _>(cx, |states| states.cells.runtime_metrics.clone());
         let facts = select::<ScreenStates, _, _>(cx, |states| states.chat.status.clone());
         let cwd = thread
             .screen_slots()
@@ -243,14 +249,17 @@ impl State for ViewportState {
                 Item::User(prompt) => {
                     let joins_prompt = matches!(previous, Some((_, Item::User(_))))
                         && transcript.timing_after(index.saturating_sub(1)).is_none();
-                    let panel = super::transcript_prompt::panel(
+                    let panel = super::cells::user::panel(
                         prompt,
-                        prompt_surface.clone(),
-                        &tokens,
-                        table,
+                        &super::cells::user::Look {
+                            surface: prompt_surface.clone(),
+                            tokens: &tokens,
+                            chat: table,
+                            cells,
+                            markdown: &markdown,
+                            highlighted: marked.as_ref() == Some(key),
+                        },
                         joins_prompt,
-                        &markdown,
-                        marked.as_ref() == Some(key),
                     );
                     // A separator belongs to the transcript, outside the prompt surface.
                     Padding::new(
@@ -259,31 +268,22 @@ impl State for ViewportState {
                     )
                     .into()
                 }
-                Item::Agent { text, .. } => {
-                    let markdown = crate::widgets::markdown::themed(
-                        super::cells::citation::view(
-                            text,
-                            transcript.is_agent_streaming(key),
-                            cwd.as_deref(),
+                Item::Agent { text, .. } => cell(
+                    separator,
+                    super::cells::agent::message(
+                        text,
+                        transcript.is_agent_streaming(key),
+                        cwd.as_deref(),
+                        &super::cells::agent::Look {
+                            bullet: &bullet,
+                            bullet_style: agent_style.clone(),
+                            markdown: &markdown,
                             cells,
-                        ),
-                        markdown.clone(),
-                    );
-                    Padding::new(
-                        EdgeInsets::only(0, i32::from(separator), 1, 0),
-                        Row::new()
-                            .cross_axis_alignment(CrossAxisAlignment::Start)
-                            .spacing(1)
-                            .child(
-                                Text::new(strings.agent_line("").to_string())
-                                    .style(agent_style.clone()),
-                            )
-                            .child(Expanded::new(1, markdown)),
-                    )
-                    .into()
-                }
+                        },
+                    ),
+                ),
                 Item::Tool(tool) => Padding::new(
-                    EdgeInsets::only(0, i32::from(separator), 1, 0),
+                    EdgeInsets::only(0, i32::from(separator), 0, 0),
                     super::transcript_activity::ToolRow {
                         first: tool.clone(),
                         rest: (index + 1..range.end)
@@ -442,9 +442,12 @@ impl State for ViewportState {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(row);
             if let Some(timing) = transcript.timing_after(range.end - 1) {
-                column = column.child(super::transcript_activity::completion(
-                    timing, now, table, &tokens,
-                ));
+                let facts = super::cells::separator::Facts {
+                    now,
+                    clock,
+                    metrics: metrics.get(&key.turn),
+                };
+                column = column.children(super::cells::separator::completion(timing, facts, cells));
             }
             let row: AnyWidget = column.into();
             row.with_key(Key::value(key.clone()))

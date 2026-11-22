@@ -20,7 +20,10 @@ mod message;
 pub mod stream_preview;
 mod user_prompt;
 
-pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
+pub use activity::{
+    BlockBody, DynamicCall, DynamicOutput, ExplorationAction, McpBlock, McpCall, McpResult,
+    McpResultKind, ToolActivity, ToolKind, ToolStatus,
+};
 pub use calls::ShellClass;
 pub use cells::{
     DelegatedMessage, GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Notice,
@@ -32,7 +35,7 @@ pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, UserMessage};
-pub use user_prompt::UserPrompt;
+pub use user_prompt::{Shown, UserPrompt};
 
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
@@ -174,12 +177,26 @@ impl Item {
         )
     }
 
-    /// An exploration can share one visible section with its neighbors.
-    pub fn is_exploration(&self) -> bool {
-        matches!(self, Self::Tool(tool) if matches!(
-            &tool.kind, ToolKind::Shell { actions, .. } if !actions.is_empty()
-        ))
+    /// The run of neighbors the entry can share one visible section with
+    /// (oracle `thread_transcript` `PendingActivity`): explorations with
+    /// explorations, computer calls with computer calls.
+    pub fn group(&self) -> Option<ItemGroup> {
+        let Self::Tool(tool) = self else {
+            return None;
+        };
+        match &tool.kind {
+            ToolKind::Shell { actions, .. } if !actions.is_empty() => Some(ItemGroup::Exploration),
+            _ if tool.is_computer_activity() => Some(ItemGroup::Computer),
+            _ => None,
+        }
     }
+}
+
+/// What entries of one run have in common (`Item::group`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemGroup {
+    Exploration,
+    Computer,
 }
 
 /// The ordered transcript: entries keyed `(TurnId, ItemId)`, kept in the
@@ -336,7 +353,7 @@ impl Transcript {
             // The second entry of the item: its id and `#2`.
             key.item = ItemId::new(format!("{}#2", key.item.as_str()));
         }
-        if self.item(&key).map(Item::is_exploration) != Some(item.is_exploration()) {
+        if self.item(&key).map(Item::group) != Some(item.group()) {
             self.layout_revision += 1;
         }
         if let Item::Tool(tool) = &mut item

@@ -7,7 +7,6 @@
 use crate::kit::{self, Owner, Screen};
 
 const EXEC_CELL: &str = "no exec cell in S11: the cells slot is an empty form and the transcript draws a command as plain text (no branch, gutter, wrap or stderr preview of the ran cell)";
-const USER_CELL: &str = "no user-message cell in S11: the transcript draws the message as plain text (no gutter, wrap, [Image #n] labels or trimmed trailing blanks of the user cell)";
 const REASONING_CELL: &str = "no reasoning-summary cell in S11: the transcript does not split the summary header from its body, drop the HTML-comment parts or show the transcript-only variant (Ctrl+T)";
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
 const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
@@ -78,17 +77,21 @@ fn ran_cell_multiline_with_stderr_snapshot() {
 // ORACLE history_cell/tests.rs:2339 user_history_cell_wraps_and_prefixes_each_line_snapshot kind=snap owner=chat-live snap=user_history_cell_wraps_and_prefixes_each_line_snapshot
 #[test]
 fn user_history_cell_wraps_and_prefixes_each_line_snapshot() {
-    kit::pending(Owner::ChatLive, USER_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(12, 24)
         .script(include_str!(
             "fixtures/cells_5/user_history_cell_wraps_and_prefixes_each_line_snapshot.jsonl"
         ))
         .open();
-    // The oracle's raw_lines assertion (`["_count_rows"]`) is the transcript's raw mode: not reachable here.
+    // The oracle's raw_lines assertion (`["_count_rows"]`) is the transcript's raw mode (step 11).
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("›"))
+        .expect("prompt");
     s.assert_snap_region(
         "user_history_cell_wraps_and_prefixes_each_line_snapshot",
-        0,
+        row,
         0,
     );
 }
@@ -96,7 +99,6 @@ fn user_history_cell_wraps_and_prefixes_each_line_snapshot() {
 // ORACLE history_cell/tests.rs:2359 user_history_cell_wraps_long_urls_inside_the_message_gutter kind=snap owner=chat-live snap=user_history_cell_wraps_long_urls_inside_the_message_gutter
 #[test]
 fn user_history_cell_wraps_long_urls_inside_the_message_gutter() {
-    kit::pending(Owner::ChatLive, USER_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(64, 24)
         .script(include_str!(
@@ -108,9 +110,15 @@ fn user_history_cell_wraps_long_urls_inside_the_message_gutter() {
         "https://example.test/forwarded/threads/10930?page=1",
         "https://example.test/forwarded/threads/10930?page=1&search=&filter=all&queue=customer_support_unprocessed&sort=latest_desc&forwardedScope=all",
     );
+    // The snapshot opens with the cell's blank row above the prompt.
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("›"))
+        .expect("prompt");
     s.assert_snap_region(
         "user_history_cell_wraps_long_urls_inside_the_message_gutter",
-        0,
+        row - 1,
         0,
     );
 }
@@ -139,7 +147,7 @@ fn user_history_cell_renders_remote_image_urls() {
 fn user_image_labels_follow_the_painted_prompt_surface() {
     kit::pending(
         Owner::ChatLive,
-        "no user-message cell in S11, and no seed for the terminal default colours (the oracle paints the cell on three fg/bg palettes); the kit cannot set them",
+        "no seed for the terminal default colours (the oracle paints the cell on three fg/bg palettes) and the kit's frames do not read the snapshot's `(r, g, b): Buffer {` labels; the kit is not this slice's",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(32, 5)
@@ -232,7 +240,10 @@ fn user_history_cell_trims_trailing_blank_message_lines_with_text_elements() {
 // ORACLE history_cell/tests.rs:2585 render_uses_wrapping_for_long_url_like_line kind=ui owner=chat-live
 #[test]
 fn render_uses_wrapping_for_long_url_like_line() {
-    kit::pending(Owner::ChatLive, USER_CELL);
+    kit::pending(
+        Owner::ChatLive,
+        "G48 TextWrap::Word breaks after a hyphen: the URL's `alpha-team` splits as `alpha-` / `team`, where the oracle cuts only at the width, so the head the test reads is never on one row",
+    );
     let s = Screen::build(Owner::ChatLive)
         .size(52, 24)
         .script(include_str!(
@@ -589,7 +600,7 @@ fn streamed_agent_list_paragraph_preserves_item_indent_when_wrapped() {
 fn agent_markdown_cell_narrow_width_shows_prefix_only() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `•`:",
+        "traced: the chat page at 2 columns draws no transcript row, with or without a message (its other rows take the screen; the log says `A RenderList of 1 items was given 0 rows`), a layout of the composer, footer and status rows below the gutter that is not the cells'; the agent cell alone reads `•` at 1 and 2 columns (tests/pages/cells.rs message_cells_at_tiny_widths)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(2, 24)
@@ -604,7 +615,10 @@ fn agent_markdown_cell_narrow_width_shows_prefix_only() {
 // ORACLE history_cell/tests.rs:3078 wrapped_and_prefixed_cells_handle_tiny_widths kind=ui owner=chat-live
 #[test]
 fn wrapped_and_prefixed_cells_handle_tiny_widths() {
-    kit::pending(Owner::ChatLive, USER_CELL);
+    kit::pending(
+        Owner::ChatLive,
+        "the chat page at 1..4 columns shows no transcript row (the composer, footer and status rows take the screen: `A RenderList of 1 items was given 0 rows`) and its Working row overflows by 3 columns (fail_on_overflow); both are not the cells'; the agent and user cells alone at 1, 2 and 4 columns: tests/pages/cells.rs message_cells_at_tiny_widths",
+    );
     for width in 1..=4u16 {
         let blank = Screen::build(Owner::ChatLive)
             .size(width, 24)

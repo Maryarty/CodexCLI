@@ -13,6 +13,15 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use crate::app::theme::Tokens;
 
+use super::strings::Strings;
+
+/// The texts of the cell: the summary row (the mark is part of it), then the details.
+pub fn texts(summary: &str, details: Option<&str>, strings: &Strings) -> Vec<String> {
+    let mut texts = vec![[strings.warning_mark, summary].concat()];
+    texts.extend(details.map(str::to_owned));
+    texts
+}
+
 /// Columns the oracle keeps free right of the details (`width - 4`).
 const DETAILS_MARGIN: i32 = 4;
 

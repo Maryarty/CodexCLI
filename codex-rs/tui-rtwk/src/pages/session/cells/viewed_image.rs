@@ -17,6 +17,44 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use crate::app::theme::Tokens;
 
 use super::one_row::one_row;
+use super::strings::Strings;
+use super::text::Part;
+
+/// Control characters read as blanks.
+fn blank(text: &str, strings: &Strings) -> String {
+    text.replace(['\n', '\r', '\t'], strings.gap)
+}
+
+/// The texts of the cell. Expanded: the bullet (a gutter), the label and the
+/// full path; compact: the row, whose first span is the bullet. Then the
+/// disclosure's control, a gutter, unless the transcript is the detailed one.
+pub fn texts(
+    name: &str,
+    path: &str,
+    detailed: bool,
+    expanded: bool,
+    strings: &Strings,
+) -> Vec<Part> {
+    let expanded = detailed || expanded;
+    let mut parts = if expanded {
+        vec![
+            Part::gutter(strings.bullet),
+            Part::text([strings.viewed_image, &blank(path, strings)].concat()),
+        ]
+    } else {
+        vec![Part::text(
+            [strings.bullet, strings.viewed_image, &blank(name, strings)].concat(),
+        )]
+    };
+    if !detailed {
+        parts.push(Part::gutter(if expanded {
+            strings.hide_details
+        } else {
+            strings.show_details
+        }));
+    }
+    parts
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewedImageCell {
@@ -55,7 +93,6 @@ impl State for ViewedImageCellState {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
         let expanded = widget.detailed || self.expanded;
-        let blank = |text: &str| text.replace(['\n', '\r', '\t'], strings.gap);
         let summary: AnyWidget = if expanded {
             // transcript_hyperlink_lines: the bullet, then the label and the
             // path wrapped under two blanks.
@@ -70,7 +107,7 @@ impl State for ViewedImageCellState {
                     1,
                     Text::rich(vec![
                         Span::styled(strings.viewed_image, tokens.bold()),
-                        Span::styled(blank(&widget.path), tokens.dim()),
+                        Span::styled(blank(&widget.path, strings), tokens.dim()),
                     ]),
                 ))
                 .into()
@@ -78,7 +115,7 @@ impl State for ViewedImageCellState {
             one_row(vec![
                 Span::styled(strings.bullet, tokens.dim()),
                 Span::styled(strings.viewed_image, tokens.bold()),
-                Span::styled(blank(&widget.name), tokens.dim()),
+                Span::styled(blank(&widget.name, strings), tokens.dim()),
             ])
         };
         if widget.detailed {
