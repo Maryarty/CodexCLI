@@ -400,7 +400,7 @@ fn finalized_plan_file_citation_renders_as_local_path_snapshot() {
 fn completed_and_interrupted_results() {
     kit::pending(
         Owner::ChatLive,
-        "no request-user-input result cell and no seed for its answers or the interrupted state: the transcript carries no such item; the oracle also pins the default colours (240,240,240 on 24,24,24), which the kit cannot set",
+        "the cell is built (cells::request_input, rows of both frames equal in tests/pages/cells.rs notice_cells, the answer and flag colours checked); need: the host appends Notice::Questions when the request-user-input exchange ends, which the kit cannot seed; the oracle also pins the default colours (240,240,240 on 24,24,24), which the kit cannot set",
     );
     let s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
     s.assert_snap_section("completed_and_interrupted_results", "completed");
