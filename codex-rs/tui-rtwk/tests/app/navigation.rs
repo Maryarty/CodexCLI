@@ -439,10 +439,11 @@ fn the_cli_entries_start_at_the_right_page() {
 
 // ---------------------------------------------------------------- the footers
 
-/// The usage page's footer rows are the oracle's (`hints.rs` `footer_lines`,
-/// pinned by the summary snapshots of tests/usage.rs); every key the footer
-/// shows is bound: `esc` closes, `tab` and the digits pick the report, and
-/// `z`, `?` and `R` (not built yet) open the not-implemented popup.
+/// The usage page opened live asks for the account first, so its tabs are not
+/// known yet and the footer is the oracle's two rows for that state
+/// (`hints.rs` `footer_lines`: `esc back`, `R retry`; the rows of a settled
+/// account are pinned by the summary snapshot of tests/pages/usage.rs). Every
+/// key shown is bound: `R` asks again and the page stays, `esc` closes.
 #[test]
 fn usage_footer_keys_are_bound() {
     use codex_tui_rtwk::pages::usage;
@@ -450,30 +451,14 @@ fn usage_footer_keys_are_bound() {
 
     let mut h = open_over_the_session("/usage");
     let screen = h.t.screen();
-    assert!(
-        screen.contains("tab/1\u{2013}6 report · z dashboard · ? help · R refresh"),
-        "{screen}"
-    );
     assert!(screen.contains("esc back"), "{screen}");
-    for (key, action) in [("z", "dashboard"), ("?", "help"), ("R", "refresh")] {
+    assert!(screen.contains("R retry"), "{screen}");
+    for key in ["R", "tab"] {
         h.press(key);
-        h.t.pump_for(crate::common::ms(600));
-        let screen = h.t.screen();
-        assert!(
-            screen.contains(&format!("Not implemented yet: {action}")),
-            "{key}:\n{screen}"
-        );
-        h.press("enter");
-        h.t.pump_for(crate::common::ms(600));
-        assert!(
-            !h.t.screen().contains("Not implemented yet"),
-            "{key}: the popup stays"
-        );
+        h.t.pump_for(crate::common::ms(300));
+        assert!(!h.t.screen().contains("Not implemented yet"), "{key}");
+        assert_eq!(find::by_type::<usage::Screen>().count(&h.t), 1, "{key}");
     }
-    h.press("tab");
-    h.t.pump_for(crate::common::ms(300));
-    assert!(!h.t.screen().contains("Not implemented yet"));
-    assert_eq!(find::by_type::<usage::Screen>().count(&h.t), 1);
 }
 
 /// The resume picker's footer keys not built yet open the popup (the rows
