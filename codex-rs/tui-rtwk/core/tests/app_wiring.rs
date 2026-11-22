@@ -1546,6 +1546,7 @@ mod notices {
                 provider: "openai".into(),
                 daybreak: Some(true),
                 resumed: false,
+                fresh: false,
             })),
             &mut AppFx::default(),
         );

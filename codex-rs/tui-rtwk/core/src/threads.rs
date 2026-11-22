@@ -37,7 +37,7 @@ pub use codex_protocol::models::MessagePhase;
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
-pub use message::{LocalImage, UserMessage};
+pub use message::{LocalImage, ToolMention, UserMessage};
 pub use note::{CdRefusal, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use user_prompt::{Shown, UserPrompt};
 
@@ -1079,8 +1079,11 @@ impl ThreadSet {
     /// fresh one; `ForeignWriter` marks it read-only).
     pub(crate) fn open(&mut self, id: &ThreadId, origin: Origin) -> &mut ThreadModel {
         if origin == Origin::Started {
-            self.held
-                .insert(id.clone(), Rc::new(ThreadModel::new(id.clone())));
+            // A thread this process just started has run nothing (the composer sparkle's
+            // "fresh task"); the server's `thread/started` confirms or ends that.
+            let mut fresh = ThreadModel::new(id.clone());
+            fresh.slots.chat.mark_fresh(true);
+            self.held.insert(id.clone(), Rc::new(fresh));
         }
         let model = Rc::make_mut(
             self.held
@@ -2869,6 +2872,11 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
     for (index, message) in messages.into_iter().enumerate() {
         if index > 0 {
             merged.text.push('\n');
+        }
+        for mention in message.mentions {
+            if !merged.mentions.contains(&mention) {
+                merged.mentions.push(mention);
+            }
         }
         let mut images = message.images;
         images.sort_by_key(|image| image.range.start);

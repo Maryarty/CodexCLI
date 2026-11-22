@@ -103,6 +103,8 @@ pub struct StatusFacts {
     pub animations: bool,
     pub progress_effect: bool,
     pub shimmer_effect: bool,
+    /// `tui.effects.starfield`: the composer sparkle (oracle `settings.effects.starfield`).
+    pub starfield_effect: bool,
     pub account_usage: bool,
     pub empty_state: bool,
     pub notification_policy: NotificationPolicy,
@@ -135,6 +137,7 @@ impl Default for StatusFacts {
             animations: true,
             progress_effect: true,
             shimmer_effect: true,
+            starfield_effect: true,
             account_usage: false,
             empty_state: false,
             notification_policy: NotificationPolicy::default(),
@@ -380,6 +383,11 @@ pub struct ThreadPart {
     retry_header: Option<Retry>,
     /// A code review runs in this thread (oracle `review.is_review_mode`).
     review_mode: bool,
+    /// A new primary thread that has run nothing yet (oracle `mark_fresh_task_for_sparkle`: no
+    /// turns, not a fork, not controlled by a parent); the first turn ends it.
+    fresh: bool,
+    /// A turn started in this thread.
+    ran_turn: bool,
     /// Turns the goal's budget stopped, until their interrupted completion
     /// is seen (oracle `budget_limited_turn_ids`).
     budget_limited: Vec<TurnId>,
@@ -441,6 +449,8 @@ pub enum ActivityPhase {
 
 impl ThreadPart {
     pub(crate) fn begin_turn(&mut self) {
+        self.fresh = false;
+        self.ran_turn = true;
         self.details = None;
         self.progress = None;
         self.activity = ActivityPhase::Working;
@@ -466,6 +476,29 @@ impl ThreadPart {
     /// The lines under the status row's header, if the thread sets any.
     pub fn details(&self) -> Option<&StatusDetails> {
         self.details.as_ref()
+    }
+
+    pub(crate) fn mark_fresh(&mut self, fresh: bool) {
+        self.fresh = fresh;
+    }
+
+    /// A new primary thread that has run nothing yet.
+    pub fn fresh(&self) -> bool {
+        self.fresh
+    }
+
+    /// The composer sparkle may be offered here (oracle `mark_fresh_task_for_sparkle`,
+    /// `stop_ineligible_sparkle`): a fresh thread of an Astra model with animations and the
+    /// starfield effect on. `facts` is the config's model when the thread names none.
+    pub fn sparkle_eligible(&self, facts: &StatusFacts) -> bool {
+        self.fresh
+            && facts.animations
+            && facts.starfield_effect
+            && self
+                .model
+                .as_deref()
+                .or(facts.model.as_deref())
+                .is_some_and(is_sparkle_model)
     }
 
     /// A code review runs in this thread (oracle `review.is_review_mode`).
@@ -564,6 +597,8 @@ pub enum ThreadEv {
         daybreak: Option<bool>,
         /// The thread came with turns (a resume or a fork): its token usage is yet to come.
         resumed: bool,
+        /// A new primary thread: no turns, not a fork, not controlled by a parent.
+        fresh: bool,
     },
     Settings {
         cwd: String,
@@ -632,6 +667,13 @@ fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) -> bool {
     )
 }
 
+/// The Astra models: any word of the name is `astra` (oracle `BottomPane::is_sparkle_model`).
+pub fn is_sparkle_model(model: &str) -> bool {
+    model
+        .split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+        .any(|part| part.eq_ignore_ascii_case("astra"))
+}
+
 pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
     ThreadEv::Metadata {
         name: thread.name.clone(),
@@ -644,6 +686,9 @@ pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
         provider: thread.model_provider.clone(),
         daybreak: thread.daybreak_enabled,
         resumed: !thread.turns.is_empty(),
+        fresh: thread.turns.is_empty()
+            && thread.forked_from_id.is_none()
+            && !blocks_direct_input(thread),
     }
 }
 
@@ -787,7 +832,7 @@ pub fn apply_thread_intent(
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak, resumed } => {
+        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak, resumed, fresh } => {
             part.name = name;
             part.daybreak = daybreak;
             part.cwd = Some(cwd);
@@ -799,6 +844,8 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.provider = (!provider.is_empty()).then_some(provider);
             // a later `thread/started` without turns does not make a resumed thread fresh
             part.awaiting_usage |= resumed;
+            // a later `thread/started` of a thread that ran a turn does not make it fresh again
+            part.fresh = fresh && !part.ran_turn;
         }
         ThreadEv::Settings { cwd, model, effort, provider, service_tier, mode } => {
             part.mode = mode;

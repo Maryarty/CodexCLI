@@ -40,6 +40,7 @@ mod script;
 mod select;
 mod select_live;
 mod settings;
+mod sparkle;
 mod status;
 mod status_data;
 mod status_facts;
