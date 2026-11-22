@@ -145,24 +145,28 @@ fn user_history_cell_renders_remote_image_urls() {
 // ORACLE history_cell/tests.rs:2432 user_image_labels_follow_the_painted_prompt_surface kind=snap owner=chat-live snap=user_image_labels_follow_the_painted_prompt_surface
 #[test]
 fn user_image_labels_follow_the_painted_prompt_surface() {
-    kit::pending(
-        Owner::ChatLive,
-        "screen feature (user cell): the kit seeds the three palettes (`terminal_colors`) and reads the `(r, g, b): Buffer {` frames; the oracle paints the cell alone at 32x5, the chat at that size shows its Working row and the empty composer (`Ask Codex to do anything`) instead of the remote image row `[Image #2]` and prompt `[Image #1] describe these`",
-    );
-    // the oracle paints the cell on three terminal palettes (fg, bg), each a frame labelled with its bg
-    for (fg, bg, label) in [
-        (0x1e1e1e, 0xffffff, "(255, 255, 255)"),
-        (0xebebeb, 0x12141e, "(18, 20, 30)"),
-        (0x969696, 0x5f5f5f, "(95, 95, 95)"),
+    // The oracle paints the cell alone at 32x5 on three terminal palettes and dumps the buffers;
+    // the chat shows the cell among its own rows, so the cells the dump styles are asserted:
+    // the image label and the placeholder in the accent that reads on the painted surface, the
+    // prompt mark and the text on the surface itself.
+    for (fg, bg, accent, surface) in [
+        (0x1e1e1e, 0xffffff, "Rgb(28,100,200)", "Rgb(249,249,249)"),
+        (0xebebeb, 0x12141e, "Rgb(99,168,248)", "Rgb(55,57,66)"),
+        (0x969696, 0x5f5f5f, "Rgb(5,9,14)", "Rgb(120,120,120)"),
     ] {
         let s = Screen::build(Owner::ChatLive)
-            .size(32, 5)
+            .size(32, 14)
             .terminal_colors(fg, bg)
             .script(include_str!(
                 "fixtures/cells_5/user_image_labels_follow_the_painted_prompt_surface.jsonl"
             ))
             .open();
-        s.assert_snap_section("user_image_labels_follow_the_painted_prompt_surface", label);
+        let on_surface = format!("fg={accent} bg={surface}");
+        s.assert_in_order(&["[Image #2]", "[Image #1] describe these"]);
+        s.assert_text_style("[Image #2]", &on_surface);
+        s.assert_text_style("[Image #1]", &on_surface);
+        s.assert_text_style("› ", &format!("bg={surface} bold dim"));
+        s.assert_text_style("describe these", &format!("bg={surface}"));
     }
 }
 

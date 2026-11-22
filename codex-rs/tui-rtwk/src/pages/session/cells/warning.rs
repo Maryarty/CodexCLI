@@ -19,6 +19,16 @@ use super::text::Part;
 /// The mark and its blank (oracle `"⚠ "` and `"  "`).
 const MARK_COLUMNS: i32 = 2;
 
+/// The message as the oracle's wrapping lays it out: a blank line of the message is dropped
+/// (`adaptive_wrap` keeps the rows of its lines that have words).
+fn displayed(message: &str) -> String {
+    message
+        .split('\n')
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The texts of the cell: the mark, a gutter, and the message.
 pub fn texts(message: &str, strings: &Strings) -> Vec<Part> {
     vec![Part::gutter(strings.warning_mark), Part::text(message)]
@@ -49,7 +59,7 @@ impl StatelessWidget for WarningCell {
             ))
             .child(Expanded::new(
                 1,
-                Text::new(self.message.clone()).style(attention),
+                Text::new(displayed(&self.message)).style(attention),
             ))
             .into()
     }

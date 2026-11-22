@@ -12,7 +12,7 @@ mod warnings;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
-use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
+use rtwk::overlay::{DialogResult, show_dialog};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -87,7 +87,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(
         cx,
         move |_| dialog::SmallDialog.into(),
-        DialogOptions::default(),
+        crate::sheets::sheet_options(),
     )
 }
 

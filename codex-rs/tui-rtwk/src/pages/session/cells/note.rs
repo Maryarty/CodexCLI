@@ -34,6 +34,11 @@ impl StatelessWidget for NoteCell {
                 Span::styled(message, Style::new()),
             ])
             .into(),
+            Tone::Done => Text::rich(vec![
+                Span::styled(cells.check, tokens.success()),
+                Span::styled(message, Style::new()),
+            ])
+            .into(),
             Tone::Error => Text::new(cells.error_line.replace("{}", &message))
                 .style(tokens.error())
                 .into(),
@@ -53,6 +58,13 @@ pub fn texts(
         Tone::Info => vec![
             Part {
                 text: cells.bullet.to_owned(),
+                gutter: true,
+            },
+            Part::text(message),
+        ],
+        Tone::Done => vec![
+            Part {
+                text: cells.check.to_owned(),
                 gutter: true,
             },
             Part::text(message),
