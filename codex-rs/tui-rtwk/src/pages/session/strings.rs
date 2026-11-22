@@ -327,7 +327,9 @@ impl Strings {
     /// The description of the clear-context row.
     pub fn plan_clear_description(&self, label: Option<&str>) -> String {
         match label {
-            Some(label) => Fmt::new(self.plan_clear_usage, [Arg::Text(label)], &self.num).to_string(),
+            Some(label) => {
+                Fmt::new(self.plan_clear_usage, [Arg::Text(label)], &self.num).to_string()
+            }
             None => self.plan_clear_note.to_string(),
         }
     }

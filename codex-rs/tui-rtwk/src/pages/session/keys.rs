@@ -37,7 +37,9 @@ impl Action {
             Action::FindTranscript => Some(Target::Pager),
             Action::OpenWarnings => Some(Target::Dialogs),
             Action::ToggleVoice => Some(Target::Voice),
-            Action::OpenTranscript | Action::ToggleSide | Action::ToggleRaw | Action::CycleMode => None,
+            Action::OpenTranscript | Action::ToggleSide | Action::ToggleRaw | Action::CycleMode => {
+                None
+            }
         }
     }
 }
@@ -56,6 +58,9 @@ pub fn defaults() -> Vec<(Action, KeyPress)> {
         (Action::ToggleSide, ctrl('_')),
         (Action::ToggleSide, ctrl('7')),
         (Action::ToggleRaw, KeyPress::char('r').with_mods(Mods::ALT)),
-        (Action::CycleMode, KeyPress::code(KeyCode::Tab).with_mods(Mods::SHIFT)),
+        (
+            Action::CycleMode,
+            KeyPress::code(KeyCode::Tab).with_mods(Mods::SHIFT),
+        ),
     ]
 }

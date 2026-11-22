@@ -61,7 +61,12 @@ impl Seen {
         let now = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
             (
                 thread.id().clone(),
-                thread.screen_slots().chat.plan.prompt().map(|prompt| prompt.seq),
+                thread
+                    .screen_slots()
+                    .chat
+                    .plan
+                    .prompt()
+                    .map(|prompt| prompt.seq),
             )
         });
         let fresh = matches!(
