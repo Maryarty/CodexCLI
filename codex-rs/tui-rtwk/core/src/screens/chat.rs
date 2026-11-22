@@ -391,6 +391,13 @@ impl ThreadPart {
     }
 
     /// Any notification of the thread but a retrying error ends the retry header.
+    /// A budget-limited goal stopped `turn` (`on_thread_goal_updated`).
+    pub(crate) fn mark_budget_limited(&mut self, turn: TurnId) {
+        if !self.budget_limited.contains(&turn) {
+            self.budget_limited.push(turn);
+        }
+    }
+
     /// The turn's interruption is the budget's (`take_budget_limited`): true once.
     pub(crate) fn take_budget_limited(&mut self, turn: &TurnId) -> bool {
         let before = self.budget_limited.len();

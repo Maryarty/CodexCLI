@@ -793,7 +793,9 @@ pub enum ThreadEv {
     },
     /// The goal changed (`thread/goal/updated`, an answer of `thread/goal/get|set`) or was
     /// cleared (`None`: `thread/goal/cleared`).
-    Goal(Option<Goal>),
+    /// The goal changed or was cleared; the turn a budget-limited goal stopped
+    /// (oracle `budget_limited_turn_ids`), marked for the interruption notice.
+    Goal(Option<Goal>, Option<TurnId>),
     /// An MCP server's start or outcome (`mcpServer/startupStatus/updated`).
     Mcp {
         server: String,
@@ -1594,10 +1596,15 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         }
         ServerNotification::ThreadGoalUpdated(n) => Some((
             ThreadId::new(&n.thread_id),
-            ThreadEv::Goal(Some(Goal::of(&n.goal))),
+            ThreadEv::Goal(
+                Some(Goal::of(&n.goal)),
+                (n.goal.status == codex_app_server_protocol::ThreadGoalStatus::BudgetLimited)
+                    .then(|| n.turn_id.as_deref().map(TurnId::new))
+                    .flatten(),
+            ),
         )),
         ServerNotification::ThreadGoalCleared(n) => {
-            Some((ThreadId::new(&n.thread_id), ThreadEv::Goal(None)))
+            Some((ThreadId::new(&n.thread_id), ThreadEv::Goal(None, None)))
         }
         ServerNotification::McpServerStatusUpdated(n) => n.thread_id.as_deref().map(|thread| {
             (
@@ -1885,7 +1892,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.last_ended = None;
         }
         ThreadEv::Failure(error) => model.last_error = Some(error),
-        ThreadEv::Goal(goal) => model.goal = goal,
+        ThreadEv::Goal(goal, budget_turn) => {
+            model.goal = goal;
+            if let Some(turn) = budget_turn {
+                model.slots.chat.mark_budget_limited(turn);
+            }
+        }
         ThreadEv::HistoryPage { turns, next } => {
             for snapshot in &turns {
                 if snapshot.end.is_some() {
