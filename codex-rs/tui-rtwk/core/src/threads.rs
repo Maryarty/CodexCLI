@@ -7,25 +7,35 @@ mod previews;
 pub use previews::{ThreadPreview, ThreadPreviews};
 
 mod activity;
+pub mod calls;
 mod cells;
 pub mod citations;
 mod collab;
+pub mod decision;
 pub mod directives;
 pub mod followups;
+pub mod goal;
 pub mod inline_vis;
 mod message;
 pub mod stream_preview;
 mod user_prompt;
 
-pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
+pub use activity::{
+    BlockBody, DynamicCall, DynamicOutput, ExplorationAction, McpBlock, McpCall, McpResult,
+    McpResultKind, ToolActivity, ToolKind, ToolStatus,
+};
+pub use calls::ShellClass;
 pub use cells::{
     DelegatedMessage, GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Notice,
     PatchActivity, PatchChange, PatchKind, PlanStep, PlanUpdate, StepStatus, WebAction,
     WebActivity,
 };
+pub use codex_protocol::models::MessagePhase;
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
+pub use decision::ReviewLine;
+pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, UserMessage};
-pub use user_prompt::UserPrompt;
+pub use user_prompt::{Shown, UserPrompt};
 
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
@@ -34,10 +44,17 @@ use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ReviewDelivery;
+use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SortDirection;
+use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
 use codex_app_server_protocol::ThreadCompactStartParams;
 use codex_app_server_protocol::ThreadForkParams;
+use codex_app_server_protocol::ThreadGoalClearParams;
+use codex_app_server_protocol::ThreadGoalGetParams;
+use codex_app_server_protocol::ThreadGoalMutationOrigin;
+use codex_app_server_protocol::ThreadGoalSetParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadReadParams;
@@ -81,8 +98,12 @@ pub struct ItemKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     User(UserPrompt),
+    /// An assistant message. `phase` is what the server said about it (oracle
+    /// `AgentMarkdownCell::phase`): none for a streamed message or a legacy model, so
+    /// callers treat none as "unknown".
     Agent {
         text: String,
+        phase: Option<MessagePhase>,
     },
     Tool(Arc<ToolActivity>),
     /// The model's reasoning summary; shown only in the detailed transcript
@@ -121,6 +142,9 @@ pub enum Item {
     Warning {
         message: String,
     },
+    /// A warning the client itself raises, shown only in the detailed
+    /// transcript like every `new_warning_event`; its words are the view's.
+    LocalWarning(LocalWarning),
     /// An overloaded server that said nothing (oracle `on_server_overloaded_error`):
     /// the error row the UI words as high load.
     HighLoad,
@@ -133,6 +157,11 @@ pub enum Item {
         summary: String,
         details: Option<String>,
     },
+    /// What an answer to an approval request or the auto-reviewer's verdict left (oracle
+    /// `new_approval_decision_cell`, the plain permissions line).
+    Decision(screens::approvals::decided::Decided),
+    /// A line `/auto-review` or the reviewer's paths added.
+    Review(ReviewLine),
 }
 
 impl Item {
@@ -141,16 +170,33 @@ impl Item {
     pub fn is_detailed_only(&self) -> bool {
         matches!(
             self,
-            Self::Reasoning { .. } | Self::Warning { .. } | Self::Deprecation { .. }
+            Self::Reasoning { .. }
+                | Self::Warning { .. }
+                | Self::LocalWarning(_)
+                | Self::Deprecation { .. }
         )
     }
 
-    /// An exploration can share one visible section with its neighbors.
-    pub fn is_exploration(&self) -> bool {
-        matches!(self, Self::Tool(tool) if matches!(
-            &tool.kind, ToolKind::Shell { actions, .. } if !actions.is_empty()
-        ))
+    /// The run of neighbors the entry can share one visible section with
+    /// (oracle `thread_transcript` `PendingActivity`): explorations with
+    /// explorations, computer calls with computer calls.
+    pub fn group(&self) -> Option<ItemGroup> {
+        let Self::Tool(tool) = self else {
+            return None;
+        };
+        match &tool.kind {
+            ToolKind::Shell { actions, .. } if !actions.is_empty() => Some(ItemGroup::Exploration),
+            _ if tool.is_computer_activity() => Some(ItemGroup::Computer),
+            _ => None,
+        }
     }
+}
+
+/// What entries of one run have in common (`Item::group`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemGroup {
+    Exploration,
+    Computer,
 }
 
 /// The ordered transcript: entries keyed `(TurnId, ItemId)`, kept in the
@@ -172,6 +218,27 @@ pub struct Transcript {
 struct StreamingItem {
     item: Rc<Item>,
     committed: usize,
+}
+
+/// How much of a thread's history the transcript holds (oracle `TranscriptHistoryState`
+/// `Complete`, `Partial`, `LoadingOlder`, `Failed`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryState {
+    /// The oldest page was read.
+    Complete,
+    /// Older pages exist and none is being read.
+    Partial,
+    /// An older page was asked for and has not come.
+    Loading,
+    /// The last ask for an older page failed; asking again retries it.
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HistoryAsk {
+    Idle,
+    Loading,
+    Failed,
 }
 
 /// Timing data is separate from item IDs so a summary cannot collide with a server item.
@@ -286,7 +353,7 @@ impl Transcript {
             // The second entry of the item: its id and `#2`.
             key.item = ItemId::new(format!("{}#2", key.item.as_str()));
         }
-        if self.item(&key).map(Item::is_exploration) != Some(item.is_exploration()) {
+        if self.item(&key).map(Item::group) != Some(item.group()) {
             self.layout_revision += 1;
         }
         if let Item::Tool(tool) = &mut item
@@ -347,7 +414,7 @@ impl Transcript {
     /// The source eligible for a stable commit. The raw item retains its
     /// partial line for rtwk's live preview.
     pub fn committed_agent_text(&self, key: &ItemKey) -> Option<&str> {
-        let Item::Agent { text } = self.item(key)? else {
+        let Item::Agent { text, .. } = self.item(key)? else {
             return None;
         };
         Some(
@@ -369,7 +436,7 @@ impl Transcript {
             Entry::Vacant(entry) => {
                 let (item, committed) = match self.items.get(entry.key()) {
                     Some(item) => match item.as_ref() {
-                        Item::Agent { text } => (item.clone(), text.len()),
+                        Item::Agent { text, .. } => (item.clone(), text.len()),
                         _ => return,
                     },
                     None => {
@@ -378,6 +445,7 @@ impl Transcript {
                         (
                             Rc::new(Item::Agent {
                                 text: String::new(),
+                                phase: None,
                             }),
                             0,
                         )
@@ -386,7 +454,7 @@ impl Transcript {
                 entry.insert(StreamingItem { item, committed })
             }
         };
-        if let Item::Agent { text } = Rc::make_mut(&mut live.item) {
+        if let Item::Agent { text, .. } = Rc::make_mut(&mut live.item) {
             if let Some(last) = delta.rfind('\n') {
                 live.committed = text.len() + last + 1;
             }
@@ -555,6 +623,14 @@ pub struct RunningTurn {
     interrupt_sent: bool,
 }
 
+/// What the client itself warns of (the words are the view's, ADR-010).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalWarning {
+    /// Esc with steers waiting while a review runs: a review turn takes no
+    /// steer (`REVIEW_STEER_UNAVAILABLE_MESSAGE`).
+    ReviewSteerUnavailable,
+}
+
 /// How a turn ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnEnd {
@@ -663,6 +739,10 @@ pub enum ThreadEv {
         turns: Vec<HistoryTurn>,
         next: Option<String>,
     },
+    /// The app asked for the next older page (`HistoryState::Loading` until it answers).
+    HistoryRequested,
+    /// The ask for an older page failed or its connection went (`HistoryState::Failed`).
+    HistoryFailed,
     TurnStarted {
         turn: TurnId,
         started_at: Option<i64>,
@@ -711,6 +791,11 @@ pub enum ThreadEv {
         turn: TurnId,
         fault: Fault,
     },
+    /// The goal changed (`thread/goal/updated`, an answer of `thread/goal/get|set`) or was
+    /// cleared (`None`: `thread/goal/cleared`).
+    /// The goal changed or was cleared; the turn a budget-limited goal stopped
+    /// (oracle `budget_limited_turn_ids`), marked for the interruption notice.
+    Goal(Option<Goal>, Option<TurnId>),
     /// An MCP server's start or outcome (`mcpServer/startupStatus/updated`).
     Mcp {
         server: String,
@@ -818,6 +903,10 @@ pub struct ThreadModel {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
+    /// What became of the last ask for an older page.
+    history_ask: HistoryAsk,
+    /// The thread's goal (`thread/goal/updated|cleared`, the answers of `thread/goal/get|set`).
+    goal: Option<Goal>,
     writer: Writer,
     /// Keeps the struct literal inside this module: a `ThreadModel` is made
     /// only by `ThreadSet::open` (ADR-003).
@@ -952,11 +1041,13 @@ impl ThreadModel {
             restore: None,
             slots: ThreadSlots::default(),
             last_error: None,
+            goal: None,
             last_ended: None,
             finished_turns: Rc::default(),
             authoritative_turns: Rc::default(),
             completed_items: HashSet::new(),
             history_next: None,
+            history_ask: HistoryAsk::Idle,
             writer: Writer::Detached,
         }
     }
@@ -971,6 +1062,17 @@ impl ThreadModel {
 
     pub fn can_load_history(&self) -> bool {
         self.history_next.is_some()
+    }
+
+    /// How much of the thread's history the transcript holds (oracle `TranscriptHistoryState`;
+    /// its `LoadingBeginning` is the sheet's own walk to the start, a controller's state).
+    pub fn history_state(&self) -> HistoryState {
+        match self.history_ask {
+            HistoryAsk::Loading => HistoryState::Loading,
+            HistoryAsk::Failed => HistoryState::Failed,
+            HistoryAsk::Idle if self.history_next.is_some() => HistoryState::Partial,
+            HistoryAsk::Idle => HistoryState::Complete,
+        }
     }
 
     pub fn transcript(&self) -> &Transcript {
@@ -1011,6 +1113,11 @@ impl ThreadModel {
 
     pub fn last_error(&self) -> Option<&Failure> {
         self.last_error.as_ref()
+    }
+
+    /// The thread's goal, none when it has none.
+    pub fn goal(&self) -> Option<&Goal> {
+        self.goal.as_ref()
     }
 
     pub fn last_ended(&self) -> Option<&TurnId> {
@@ -1121,6 +1228,37 @@ pub enum ThreadAsk {
     Unsubscribe {
         thread: String,
     },
+    /// `review/start`, inline on the thread (oracle `review_start`).
+    Review {
+        thread: String,
+        target: ReviewTarget,
+    },
+    /// `thread/goal/get`.
+    GoalGet {
+        thread: String,
+    },
+    /// `thread/goal/set` as the user (oracle `thread_goal_set`): a new objective, a status
+    /// (`/goal pause|resume`), a token budget (`Some(None)` removes it).
+    GoalSet {
+        thread: String,
+        objective: Option<String>,
+        status: Option<GoalStatus>,
+        token_budget: Option<Option<i64>>,
+    },
+    /// `thread/goal/clear` as the user.
+    GoalClear {
+        thread: String,
+    },
+    /// `thread/backgroundTerminals/clean` (`/stop`).
+    CleanTerminals {
+        thread: String,
+    },
+    /// `thread/settings/update`: the settings the picks of the model, effort, permissions and
+    /// collaboration-mode popups change for the turns after them.
+    SettingsUpdate {
+        thread: String,
+        patch: SettingsPatch,
+    },
 }
 
 /// How many turns one page of a thread's history holds.
@@ -1145,6 +1283,12 @@ impl ThreadAsk {
             | ThreadAsk::Compact { thread }
             | ThreadAsk::Shell { thread, .. }
             | ThreadAsk::Rename { thread, .. }
+            | ThreadAsk::Review { thread, .. }
+            | ThreadAsk::GoalGet { thread }
+            | ThreadAsk::GoalSet { thread, .. }
+            | ThreadAsk::GoalClear { thread }
+            | ThreadAsk::CleanTerminals { thread }
+            | ThreadAsk::SettingsUpdate { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
         }
@@ -1293,6 +1437,52 @@ impl ThreadAsk {
                     thread_id: thread.clone(),
                 },
             },
+            ThreadAsk::Review { thread, target } => ClientRequest::ReviewStart {
+                request_id,
+                params: ReviewStartParams {
+                    thread_id: thread.clone(),
+                    target: target.wire(),
+                    delivery: Some(ReviewDelivery::Inline),
+                },
+            },
+            ThreadAsk::GoalGet { thread } => ClientRequest::ThreadGoalGet {
+                request_id,
+                params: ThreadGoalGetParams {
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::GoalSet {
+                thread,
+                objective,
+                status,
+                token_budget,
+            } => ClientRequest::ThreadGoalSet {
+                request_id,
+                params: ThreadGoalSetParams {
+                    origin: Some(ThreadGoalMutationOrigin::User),
+                    thread_id: thread.clone(),
+                    objective: objective.clone(),
+                    status: status.map(GoalStatus::wire),
+                    token_budget: *token_budget,
+                },
+            },
+            ThreadAsk::GoalClear { thread } => ClientRequest::ThreadGoalClear {
+                request_id,
+                params: ThreadGoalClearParams {
+                    origin: Some(ThreadGoalMutationOrigin::User),
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::CleanTerminals { thread } => ClientRequest::ThreadBackgroundTerminalsClean {
+                request_id,
+                params: ThreadBackgroundTerminalsCleanParams {
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::SettingsUpdate { thread, patch } => ClientRequest::ThreadSettingsUpdate {
+                request_id,
+                params: patch.wire(thread),
+            },
         }
     }
 }
@@ -1404,6 +1594,18 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         ServerNotification::ThreadReverted(n) => {
             Some((ThreadId::new(&n.thread_id), ThreadEv::Reverted))
         }
+        ServerNotification::ThreadGoalUpdated(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::Goal(
+                Some(Goal::of(&n.goal)),
+                (n.goal.status == codex_app_server_protocol::ThreadGoalStatus::BudgetLimited)
+                    .then(|| n.turn_id.as_deref().map(TurnId::new))
+                    .flatten(),
+            ),
+        )),
+        ServerNotification::ThreadGoalCleared(n) => {
+            Some((ThreadId::new(&n.thread_id), ThreadEv::Goal(None, None)))
+        }
         ServerNotification::McpServerStatusUpdated(n) => n.thread_id.as_deref().map(|thread| {
             (
                 ThreadId::new(thread),
@@ -1470,9 +1672,16 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         )),
         _ => None,
     };
-    transcript.or_else(|| {
-        screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
-    })
+    transcript
+        .or_else(|| {
+            screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
+        })
+        .or_else(|| {
+            // The auto-reviewer's notifications (`screens::project_thread` is the popups'
+            // file: the approvals slot is routed here until it adds the arm).
+            screens::approvals::project(notification)
+                .map(|(thread, ev)| (thread, ThreadEv::Screen(ScreenThreadEv::Approvals(ev))))
+        })
 }
 
 /// What the server sends without a thread and the chat shows in the thread
@@ -1590,9 +1799,15 @@ fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, I
         ThreadItemPayload::UserMessage { id, content, .. } => {
             (ItemId::new(id), Item::User(UserPrompt::from_input(content)))
         }
-        ThreadItemPayload::AgentMessage { id, text, .. } => {
-            (ItemId::new(id), Item::Agent { text: text.clone() })
-        }
+        ThreadItemPayload::AgentMessage {
+            id, text, phase, ..
+        } => (
+            ItemId::new(id),
+            Item::Agent {
+                text: text.clone(),
+                phase: phase.clone(),
+            },
+        ),
         _ => {
             return activity::tool(payload)
                 .map(|(id, tool)| (id, Item::Tool(Arc::new(tool))))
@@ -1662,14 +1877,27 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::ConnectionLost => {}
         ThreadEv::Reverted => {
+            // the edit of a past prompt waits for this (`ThreadReverted`)
+            screens::apply_thread_ev(
+                &mut model.slots,
+                ScreenThreadEv::Backtrack(screens::backtrack::ThreadEv::Reverted),
+                fx,
+            );
             model.transcript.reset();
             model.history_next = None;
+            model.history_ask = HistoryAsk::Idle;
             Rc::make_mut(&mut model.finished_turns).clear();
             Rc::make_mut(&mut model.authoritative_turns).clear();
             model.completed_items.clear();
             model.last_ended = None;
         }
         ThreadEv::Failure(error) => model.last_error = Some(error),
+        ThreadEv::Goal(goal, budget_turn) => {
+            model.goal = goal;
+            if let Some(turn) = budget_turn {
+                model.slots.chat.mark_budget_limited(turn);
+            }
+        }
         ThreadEv::HistoryPage { turns, next } => {
             for snapshot in &turns {
                 if snapshot.end.is_some() {
@@ -1700,7 +1928,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.transcript.prepend_snapshots(turns);
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
+            model.history_ask = HistoryAsk::Idle;
         }
+        ThreadEv::HistoryRequested => model.history_ask = HistoryAsk::Loading,
+        // Without a cursor there is no page to retry: the first read's failure is the
+        // session's, not the history's.
+        ThreadEv::HistoryFailed if model.history_next.is_some() => {
+            model.history_ask = HistoryAsk::Failed;
+        }
+        ThreadEv::HistoryFailed => model.history_ask = HistoryAsk::Idle,
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id
@@ -1817,11 +2053,26 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::InterruptForSteers,
         )) if model.has_writer() => {
-            if model.can_interrupt() && !model.pending_steers.is_empty() {
+            if !model.can_interrupt() {
+                return;
+            }
+            let waiting = !model.pending_steers.is_empty() || !model.rejected_steers.is_empty();
+            if model.slots.chat.review_mode() && waiting {
+                // a review turn takes no steer: say so, and keep going
+                apply_appended(
+                    model,
+                    None,
+                    Item::LocalWarning(LocalWarning::ReviewSteerUnavailable),
+                );
+            } else if !model.pending_steers.is_empty() {
                 model.steers_after_interrupt = true;
                 apply_ev(model, ThreadEv::Interrupt, fx);
             }
         }
+        // a line of the chat's own: a read-only thread says it too
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::NoPreviousMessage,
+        )) => apply_appended(model, None, Item::Notice(Notice::NoPreviousMessage)),
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::EditQueued,
         )) if model.has_writer() => {
@@ -1843,6 +2094,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 return;
             }
             screens::apply_thread_ev(&mut model.slots, ev, fx);
+            append_history(model);
         }
         ThreadEv::TurnError { turn, fault } => {
             // Oracle `on_error`: the turn is finalized, then the error row, then
@@ -1868,15 +2120,18 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ItemStarted { key, item } => {
             note_review(model, &item);
             if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
-                steer_echoed(model, &item);
-                model.transcript.upsert(key, item);
+                let echo = steer_echoed(model, &item);
+                if !review_prompt(model, &item, echo) {
+                    model.transcript.upsert(key, item);
+                }
             }
         }
         ThreadEv::ItemUpsert { key, item } => {
             note_review(model, &item);
             if !model.authoritative_turns.contains(&key.turn) {
-                if model.transcript.item(&key).is_none() {
-                    steer_echoed(model, &item);
+                let echo = model.transcript.item(&key).is_none() && steer_echoed(model, &item);
+                if review_prompt(model, &item, echo) {
+                    return;
                 }
                 if !model.finished_turns.contains(&key.turn) && matches!(item, Item::Agent { .. }) {
                     model.completed_items.insert(key.clone());
@@ -1940,6 +2195,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
 }
 
 fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut ThreadFx<'_>) {
+    // The reviews of the turn are over with it (oracle `on_task_complete`).
+    let over = ScreenThreadEv::Approvals(screens::approvals::ThreadEv::TurnEnded);
+    screens::apply_thread_ev(&mut model.slots, over, fx);
     Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
     model.transcript.finish_streams(&turn);
     model.completed_items.retain(|key| key.turn != turn);
@@ -1971,6 +2229,17 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
         .into_iter()
         .partition(|steer| steer.admitted.as_ref().is_some_and(|id| id != turn));
     let submit = std::mem::take(&mut model.steers_after_interrupt);
+    // `on_interrupted_turn`: the steer notice when Esc sent the steers, else
+    // the budget's message when the goal stopped the turn, else the plain one.
+    let budget = model.slots.chat.take_budget_limited(turn);
+    let notice = if submit {
+        Notice::InterruptedForSteer
+    } else if budget {
+        Notice::GoalBudgetReached
+    } else {
+        Notice::Interrupted
+    };
+    apply_appended(model, Some(turn.clone()), Item::Notice(notice));
     if submit && !mine.is_empty() {
         let merged = merge_messages(mine.into_iter().map(|steer| steer.message).collect());
         fx.start_turn(merged);
@@ -2020,7 +2289,7 @@ fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool)
 }
 
 /// The user's item of a steer came back: its pending entry is done.
-fn steer_echoed(model: &mut ThreadModel, item: &Item) {
+fn steer_echoed(model: &mut ThreadModel, item: &Item) -> bool {
     if let Item::User(prompt) = item
         && let Some(index) = model
             .pending_steers
@@ -2028,7 +2297,16 @@ fn steer_echoed(model: &mut ThreadModel, item: &Item) {
             .position(|steer| steer.message.text == prompt.text)
     {
         model.pending_steers.remove(index);
+        return true;
     }
+    false
+}
+
+/// In review mode the server's user item is the review prompt, not something
+/// the user typed: it adds no row unless it is a steer's echo
+/// (`on_committed_user_message`: `!self.review.is_review_mode`).
+fn review_prompt(model: &ThreadModel, item: &Item, echo: bool) -> bool {
+    matches!(item, Item::User(_)) && !echo && model.slots.chat.review_mode()
 }
 
 /// How the server refused a `turn/steer` (`active_turn_steer_race`,
@@ -2201,6 +2479,14 @@ fn apply_appended(model: &mut ThreadModel, turn: Option<TurnId>, item: Item) {
         .unwrap_or_default();
     let key = model.transcript.mint(turn);
     model.transcript.upsert(key, item);
+}
+
+/// What the approvals slot owes the history (`History`: decisions, the reviewer's warnings and
+/// the `/auto-review` lines), appended in the order it came.
+fn append_history(model: &mut ThreadModel) {
+    for history in model.slots.approvals.take_history() {
+        apply_appended(model, None, decision::item_of(history));
+    }
 }
 
 /// Entering or leaving code review is the thread's state (oracle

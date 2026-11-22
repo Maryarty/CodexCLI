@@ -12,7 +12,7 @@ const URL_LIKE: &str =
 const NO_MCP_CELL: &str = "core threads::project maps only user and agent messages (item_upsert), so an mcpToolCall item draws no tool-call cell on the S11 transcript";
 const NO_EXEC_CELL: &str = "core threads::project maps only user and agent messages (item_upsert), so a commandExecution item draws no exec cell on the S11 transcript";
 const NO_SEED_MCP_RPC: &str = "no seed: the /mcp inventory is an RPC answer the script cannot carry, and S11 draws no MCP inventory cell";
-const NO_SEED_UPDATE: &str = "no seed: the update-available notice comes from the version check, which the kit cannot set, and S11 draws no notice cell";
+const NO_SEED_UPDATE: &str = "the cell is built (cells::update_available, rows equal in tests/pages/cells.rs notice_cells); need: app.rs appends Notice::UpdateAvailable from the version check, which the kit cannot set";
 const HALFWIDTH_HEADER: &str = "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark (`ｶﾞ`) into one cell (TextMode::Graphemes), the oracle counts the mark as its own cell, so the header's directory (`ｶﾞﾊﾟ`x8 and `-project`, 40 oracle cells, 24 in rtwk) fits the 37 columns beside its five-column indent and is not cut to `…` and its tail";
 const NO_SEED_LOCAL: &str = "no seed: this cell comes from a local flow (an approval answer, a stdin interaction, a recap or a loading state) the script cannot drive, and S11 draws no such cell";
 

@@ -6,6 +6,7 @@
 //! effects as data (`AppFx`); the shell runs them (R1). Nothing here touches
 //! the network, the clock or the file system (R12).
 
+pub mod effects;
 mod session;
 pub mod worktree;
 
@@ -190,7 +191,34 @@ pub enum Intent {
     /// is; any other is resumed once, by `apply_app` alone.
     OpenThread(ThreadId),
     LoadOlderHistory(ThreadId),
+    /// An ask the host runs outside the thread RPCs (the clipboard, the git
+    /// diff, the title generator, the export, the config file), answered
+    /// with `AppEv::Effect` under `request`; read it with `CodexApp::effect`.
+    Effect {
+        request: u64,
+        ask: effects::Ask,
+    },
+    /// ctrl+c: the queued requests are dropped unanswered (rejected), the
+    /// one on screen included (oracle `ChatWidget::on_ctrl_c` with approvals).
+    CancelRequests,
+    /// `/auto-review` on a thread: the list found nothing, or one denial was picked.
+    AutoReview {
+        thread: ThreadId,
+        what: AutoReview,
+    },
     Screen(ScreenIntent),
+}
+
+/// What `/auto-review` does to a thread (oracle `open_auto_review_denials_popup`,
+/// `approve_recent_auto_review_denial`): the denials kept are the thread's own
+/// (`screen_slots().approvals.recent_denials`), the view opens the list and says which was
+/// picked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AutoReview {
+    /// The thread has no denial to list.
+    NoDenials,
+    /// The user picked the denial with this review id: one retry is approved.
+    Approve { id: String },
 }
 
 /// Everything that reaches `apply_app`, through one ordered stream.
@@ -210,6 +238,18 @@ pub enum AppEv {
     },
     Intent(Intent),
     Screen(ScreenEv),
+    /// The host's answer to an `Intent::Effect`.
+    Effect {
+        request: u64,
+        done: effects::Done,
+    },
+    /// The device's result of a user verification attempt
+    /// (`Command::VerifyUser`).
+    Verified {
+        key: RequestKey,
+        attempt: effects::Attempt,
+        result: effects::Verified,
+    },
     /// The keymap the config makes (`tui.keymap.*`), sent by the host once
     /// the config is read; until then the built-in defaults hold.
     Keymap(Box<Keymap>),
@@ -317,6 +357,27 @@ pub enum Command {
     /// no answer.
     #[non_exhaustive]
     OpenUrl { url: String },
+    /// An ask of the composer's popovers the host runs: the history file, the
+    /// file search, the mention usage file (`popovers::Ask`), answered with
+    /// the popovers' events (`AppEv::Screen(ScreenEv::Popovers(..))`).
+    #[non_exhaustive]
+    Popovers { ask: crate::screens::popovers::Ask },
+    /// An ask of the usage page the host runs (the analytics loads),
+    /// answered with `usage::Ev` under the ask's session and stamp.
+    #[non_exhaustive]
+    Usage { ask: crate::screens::usage::Ask },
+    /// An ask of `Intent::Effect`, answered with `AppEv::Effect` under `request`.
+    #[non_exhaustive]
+    Effect { request: u64, ask: effects::Ask },
+    /// `userVerification/verify`: the device signs the request's challenge
+    /// (`attempt` is the controller's generation); answered with
+    /// `AppEv::Verified`.
+    #[non_exhaustive]
+    VerifyUser {
+        key: RequestKey,
+        attempt: effects::Attempt,
+        params: codex_app_server_protocol::UserVerificationVerifyParams,
+    },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -433,6 +494,8 @@ pub struct CodexApp {
     /// The key bindings every screen reads (`AppEv::Keymap`); one value, so a
     /// widget that holds a binding hint can never hold a stale one.
     keymap: Rc<Keymap>,
+    /// The answers of the host's asks and the user-verification controller.
+    effects: effects::Effects,
 }
 
 /// When the process's first thread starts.
@@ -487,6 +550,7 @@ impl CodexApp {
             first_thread: FirstThread::OnConnect,
             start_held: false,
             keymap: Rc::new(Keymap::defaults()),
+            effects: effects::Effects::default(),
         }
     }
 
@@ -521,6 +585,23 @@ impl CodexApp {
     }
 
     /// The key bindings (`tui.keymap.*` over the built-in defaults).
+    /// The host's answer to the ask `request` (`Intent::Effect`), until
+    /// newer answers push it out.
+    pub fn effect(&self, request: u64) -> Option<&effects::Done> {
+        self.effects.result(request)
+    }
+
+    /// The newest answer of any ask, with its request number.
+    pub fn latest_effect(&self) -> Option<(u64, &effects::Done)> {
+        self.effects.latest()
+    }
+
+    /// Why the user verification of request `key` failed, if it did (the words are the approvals
+    /// strings' `verification_failure`).
+    pub fn verification_failure(&self, key: &RequestKey) -> Option<approvals::verify::Cause> {
+        self.effects.verification_failure(key)
+    }
+
     pub fn keymap(&self) -> &Rc<Keymap> {
         &self.keymap
     }
@@ -630,7 +711,13 @@ impl CodexApp {
             Command::StartTurn { thread, .. } | Command::InterruptTurn { thread, .. } => {
                 agents.owner_of(thread.as_str())
             }
-            Command::RejectRequest { key } | Command::ResolveRequest { key, .. } => key.backend,
+            Command::RejectRequest { key }
+            | Command::ResolveRequest { key, .. }
+            | Command::VerifyUser { key, .. } => key.backend,
+            Command::Effect {
+                ask: effects::Ask::SuggestTitle { thread } | effects::Ask::Export { thread, .. },
+                ..
+            } => agents.owner_of(thread.as_str()),
             Command::StartThread { backend, .. }
             | Command::ReadRateLimits { backend, .. }
             | Command::SendAddCreditsNudge { backend, .. } => *backend,
@@ -691,16 +778,7 @@ impl CodexApp {
         }
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
-        if self
-            .requests
-            .entries
-            .iter()
-            .any(|entry| entry.key.backend == backend)
-        {
-            Rc::make_mut(&mut self.requests)
-                .entries
-                .retain(|entry| entry.key.backend != backend);
-        }
+        self.drop_requests_of(backend);
         epoch
     }
 
@@ -714,16 +792,28 @@ impl CodexApp {
     fn reset_requests(&mut self, backend: BackendId) {
         let epoch = self.request_epoch(backend).next();
         self.request_epochs.insert(backend, epoch);
-        if self
+        self.drop_requests_of(backend);
+    }
+
+    /// The connection of `backend` is gone: its queued requests and the verifications of them
+    /// (the oracle's `clear` on reconnect) go with it.
+    fn drop_requests_of(&mut self, backend: BackendId) {
+        let gone: Vec<RequestKey> = self
             .requests
             .entries
             .iter()
-            .any(|entry| entry.key.backend == backend)
-        {
-            Rc::make_mut(&mut self.requests)
-                .entries
-                .retain(|entry| entry.key.backend != backend);
+            .filter(|entry| entry.key.backend == backend)
+            .map(|entry| entry.key.clone())
+            .collect();
+        if gone.is_empty() {
+            return;
         }
+        for key in &gone {
+            self.effects.verifications.remove(key);
+        }
+        Rc::make_mut(&mut self.requests)
+            .entries
+            .retain(|entry| entry.key.backend != backend);
     }
 
     /// The ingress router: drops what an older connection of its backend
@@ -751,6 +841,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     apply_event(app, origin, ev, fx);
+    drain_popover_asks(app, fx);
     if lists && !app.outgoing.any(is_attach) {
         app.attaching_events.clear();
     }
@@ -760,6 +851,17 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
         if !cwds.is_empty() {
             fx.commands.push(Command::Directories { cwds });
         }
+    }
+}
+
+/// The composer's asks of the host (message history, file search, mention usage), taken once per
+/// apply: one command each, in order.
+fn drain_popover_asks(app: &mut CodexApp, fx: &mut AppFx) {
+    if app.screens.popovers.pending_asks().is_empty() {
+        return;
+    }
+    for ask in Rc::make_mut(&mut app.screens).popovers.take_asks() {
+        fx.commands.push(Command::Popovers { ask });
     }
 }
 
@@ -910,9 +1012,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     &resolved.request_id,
                 );
                 if app.requests.contains(&key) {
-                    Rc::make_mut(&mut app.requests)
-                        .entries
-                        .retain(|entry| entry.key != key);
+                    remove_request(app, &key);
                 }
                 return;
             }
@@ -985,6 +1085,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             let (method, thread) = targets::request_target(&request);
             let key = targets::request_key(origin, app.request_epoch(origin), thread, request.id());
             if !app.requests.contains(&key) {
+                app.effects.verifications.note(key.clone(), &request);
                 let preview = agents::request_preview(&request);
                 let kind = match &*request {
                     ServerRequest::CommandExecutionRequestApproval { .. } => {
@@ -1063,6 +1164,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             release_held_start(app, fx);
         }
         AppEv::Keymap(keymap) => app.keymap = Rc::new(*keymap),
+        AppEv::Effect { request, done } => app.effects.settle(request, done),
+        AppEv::Verified {
+            key,
+            attempt,
+            result,
+        } => verified(app, key, attempt, result, fx),
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
@@ -1118,6 +1225,20 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             }
                             _ => true,
                         });
+                        // An older page that will never come is a failed one: asking again
+                        // retries it.
+                        let unanswered: Vec<_> = app
+                            .threads
+                            .iter()
+                            .filter(|(id, model)| {
+                                model.history_state() == threads::HistoryState::Loading
+                                    && app.screens.agents.owner_of(id.as_str()) == origin
+                            })
+                            .map(|(id, _)| id.clone())
+                            .collect();
+                        for thread in unanswered {
+                            apply_thread(app, &thread, ThreadEv::HistoryFailed, fx);
+                        }
                         if !app.outgoing.any(|ctx| {
                             matches!(
                                 ctx,
@@ -1533,6 +1654,18 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::ThreadScreen { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
         }
+        Intent::AutoReview { thread, what } => {
+            let ev = match what {
+                AutoReview::NoDenials => approvals::ThreadEv::NoDenials,
+                AutoReview::Approve { id } => approvals::ThreadEv::ApproveDenied { id },
+            };
+            apply_thread(
+                app,
+                &thread,
+                ThreadEv::Screen(ScreenThreadEv::Approvals(ev)),
+                fx,
+            );
+        }
         Intent::CycleBackend => {
             let switching = app
                 .outgoing
@@ -1561,6 +1694,11 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::AnswerRequest { key, answer } => {
             resolve_request(app, key, answer, fx);
         }
+        // Verifying is not a response: the device signs first (oracle `start_user_verification`).
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::Answer {
+            key,
+            decision: approvals::Decision::Verify,
+        })) => start_verification(app, key, fx),
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::Answer { key, decision })) => {
             if resolve_request(
                 app,
@@ -1608,6 +1746,8 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::OpenThread(id) => open_thread(app, &id, fx),
+        Intent::Effect { request, ask } => fx.commands.push(effects::command(request, ask)),
+        Intent::CancelRequests => cancel_requests(app, fx),
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
         // The page the command line opened instead of a thread was left.
         Intent::Screen(ScreenIntent::Onboarding(
@@ -1662,6 +1802,7 @@ fn install_banner(app: &mut CodexApp, backend: BackendId, banner: Option<chat::B
 }
 
 fn remove_request(app: &mut CodexApp, key: &RequestKey) {
+    app.effects.verifications.remove(key);
     Rc::make_mut(&mut app.requests)
         .entries
         .retain(|entry| &entry.key != key);
@@ -1676,12 +1817,127 @@ fn resolve_request(
     let Some(entry) = app.requests.get(&key) else {
         return false;
     };
+    let decision = match &answer {
+        approvals::RequestAnswer::Choice(decision)
+        | approvals::RequestAnswer::Elicitation { decision, .. } => Some(decision),
+        approvals::RequestAnswer::UserInput(_) => None,
+    };
+    // What the answer leaves in the thread's history (the oracle's decision cell): only for
+    // the requests it records, none for a thread that is not the one shown.
+    let decided = entry
+        .prompt
+        .as_deref()
+        .zip(decision)
+        .and_then(|(prompt, decision)| approvals::decided::Decided::of(prompt, decision));
     let Some(result) = requests::answer(&entry.request, entry.prompt.as_deref(), answer) else {
         return false;
     };
     remove_request(app, &key);
+    if let Some(decided) = decided {
+        let ev = ThreadEv::Screen(ScreenThreadEv::Approvals(approvals::ThreadEv::Decided(
+            decided,
+        )));
+        apply_thread(app, &key.thread, ev, fx);
+    }
     fx.commands.push(Command::ResolveRequest { key, result });
     true
+}
+
+/// The user chose to verify: one attempt per request, the host runs the device and answers with
+/// `AppEv::Verified`; the dialog shows the waiting state meanwhile.
+fn start_verification(app: &mut CodexApp, key: RequestKey, fx: &mut AppFx) {
+    if !app.requests.contains(&key) {
+        return;
+    }
+    let Some(attempt) = app.effects.verifications.begin(&key) else {
+        return;
+    };
+    let queue = Rc::make_mut(&mut app.requests);
+    if let Some(prompt) = queue
+        .entries
+        .iter_mut()
+        .find(|entry| entry.key == key)
+        .and_then(|entry| entry.prompt.as_mut())
+        && let approvals::Prompt::UserVerification(verification) = Rc::make_mut(prompt)
+    {
+        verification.waiting = true;
+    }
+    fx.commands.push(Command::VerifyUser {
+        key,
+        attempt: attempt.id,
+        params: attempt.params,
+    });
+}
+
+/// The device's result: only the attempt that is still pending may answer the request (a late
+/// result of one cancelled, resolved or left behind by a reconnect is dropped).
+fn verified(
+    app: &mut CodexApp,
+    key: RequestKey,
+    attempt: effects::Attempt,
+    result: effects::Verified,
+    fx: &mut AppFx,
+) {
+    use approvals::verify::{Failure as Refused, Outcome};
+    if !app.effects.verifications.is_pending(&key, attempt) {
+        return;
+    }
+    let outcome = match result {
+        effects::Verified::Proof(proof) => Outcome::Accepted(proof),
+        failed => {
+            let refused = match failed {
+                effects::Verified::Failed(data) => Refused::of_server(data.as_ref()),
+                _ => Refused::unreachable(),
+            };
+            app.effects.record_failure(key.clone(), refused.cause);
+            Outcome::Failed(refused.details)
+        }
+    };
+    if let Some(answer) = outcome.answer() {
+        resolve_request(app, key, answer, fx);
+    }
+}
+
+/// Ctrl+C on the approval dialog: the request shown is cancelled (answered with its cancelling
+/// decision) and the dialog's own queue is dropped unanswered, as the oracle's overlay does
+/// (`ApprovalOverlay::cancel_current_request` clears its queue); questions are not approvals and
+/// stay.
+fn cancel_requests(app: &mut CodexApp, fx: &mut AppFx) {
+    let asks_approval = |entry: &PendingRequest| {
+        !matches!(
+            entry.prompt.as_deref(),
+            Some(approvals::Prompt::UserInput(_))
+        )
+    };
+    let approvals: Vec<PendingRequest> = app
+        .requests
+        .entries
+        .iter()
+        .filter(|entry| asks_approval(entry))
+        .cloned()
+        .collect();
+    let Some((current, queued)) = approvals.split_first() else {
+        return;
+    };
+    for entry in queued {
+        remove_request(app, &entry.key);
+    }
+    let cancel = current.prompt.as_deref().and_then(|prompt| {
+        prompt.decisions().into_iter().rev().find(|decision| {
+            matches!(
+                decision,
+                approvals::Decision::Cancel | approvals::Decision::DenyPermissions
+            )
+        })
+    });
+    if let Some(decision) = cancel {
+        resolve_request(
+            app,
+            current.key.clone(),
+            approvals::RequestAnswer::Choice(decision),
+            fx,
+        );
+    }
 }
 
 /// The resume picker on the live backend: opening it lists the sessions again,
@@ -1770,6 +2026,9 @@ fn fetch_history(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
 }
 
 fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx: &mut AppFx) {
+    if cursor.is_some() {
+        apply_thread(app, id, ThreadEv::HistoryRequested, fx);
+    }
     send_agents(
         app,
         vec![agents::Out {
@@ -1867,6 +2126,9 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
     {
         let thread = ThreadId::new(thread);
         apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
+    }
+    if let (agents::Ctx::History { thread }, Err(_)) = (&ctx, &result) {
+        apply_thread(app, &ThreadId::new(thread), ThreadEv::HistoryFailed, fx);
     }
     let outs = agents::apply_answer(
         &mut Rc::make_mut(&mut app.screens).agents,

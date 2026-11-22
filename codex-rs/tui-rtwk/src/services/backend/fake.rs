@@ -444,7 +444,13 @@ async fn run_as(
             Command::RejectRequest { .. }
             | Command::ResolveRequest { .. }
             | Command::InterruptTurn { .. }
-            | Command::OpenUrl { .. } => {}
+            | Command::OpenUrl { .. }
+            // Host-run asks (the clipboard, the diff, the history file, the analytics, the
+            // device): recorded; a test answers with `inject` of the matching `AppEv`.
+            | Command::Popovers { .. }
+            | Command::Usage { .. }
+            | Command::Effect { .. }
+            | Command::VerifyUser { .. } => {}
             // The scripted server has no launch facts: nothing is due.
             Command::Startup { .. } => {}
             // The import flow: answered as the responder scripts the
