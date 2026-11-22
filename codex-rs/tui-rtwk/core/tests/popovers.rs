@@ -1,5 +1,5 @@
-//! The composer's triggers, the `$`/`@` candidates and reverse history
-//! search. History search ports `chat_composer/history_search.rs` behaviour
+//! The composer's triggers and reverse history search (the `$`/`@` popups'
+//! rows are `mentions`' own: `tests/mentions.rs`). History search ports `chat_composer/history_search.rs` behaviour
 //! (substring, case-insensitive, newest first; the end of the matches keeps
 //! the current one).
 
@@ -48,28 +48,8 @@ fn a_blank_after_the_mention_closes_the_popup() {
     assert_eq!(trigger("mail me@x"), None);
 }
 
-fn model() -> Model {
-    let mut m = Model::default();
-    m.files = vec![
-        "src/shared/long_directory/parser_alpha.rs".into(),
-        "src/shared/long_directory/parser_beta.rs".into(),
-        "README.md".into(),
-    ];
-    m.mentions = vec![
-        Mention::new(MentionKind::App, "Shared", "Secondary details", "shared"),
-        Mention::new(MentionKind::Skill, "Shared", "Secondary details", "shared"),
-        Mention::new(
-            MentionKind::Plugin,
-            "Sample Plugin",
-            "Plugin with skills and an MCP server",
-            "sample",
-        ),
-    ];
-    m
-}
-
 fn model_with_history() -> Model {
-    let mut m = model();
+    let mut m = Model::default();
     *m.history = Store::seeded(vec![
         "cargo build".into(),
         "git status".into(),
@@ -124,28 +104,6 @@ impl Walk {
     fn preview(&self) -> Option<&str> {
         self.shown.as_deref()
     }
-}
-
-#[test]
-fn dollar_lists_skills_and_apps_not_plugins_or_files() {
-    let rows = model().candidates(Sigil::Dollar, "sha");
-    let kinds: Vec<_> = rows.iter().map(|r| r.kind).collect();
-    assert_eq!(kinds, vec![CandidateKind::App, CandidateKind::Skill]);
-}
-
-#[test]
-fn at_lists_files_and_plugins() {
-    let m = model();
-    let rows = m.candidates(Sigil::At, "parser");
-    assert_eq!(
-        rows.iter().map(|r| r.label.as_str()).collect::<Vec<_>>(),
-        vec![
-            "src/shared/long_directory/parser_alpha.rs",
-            "src/shared/long_directory/parser_beta.rs"
-        ]
-    );
-    let rows = m.candidates(Sigil::At, "sa");
-    assert_eq!(rows[0].kind, CandidateKind::Plugin);
 }
 
 #[test]

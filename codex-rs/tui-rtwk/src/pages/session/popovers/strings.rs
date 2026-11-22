@@ -39,6 +39,10 @@ pub struct Strings {
     /// skill, task, file, directory.
     pub type_tags: [&'static str; 5],
     /// The `$` popup's category tags (`skill_popup.rs`).
+    /// A file row at the working directory's top: its parent path.
+    pub current_dir: &'static str,
+    /// Between a file row's parent path and its description.
+    pub description_gap: &'static str,
     pub tag_skill: &'static str,
     pub tag_app: &'static str,
     /// What an empty list says (`FileSearch::empty_message`).
@@ -115,6 +119,8 @@ pub const EN: Strings = Strings {
     scroll_up: "\u{2191}",
     scroll_down: "\u{2193}",
     type_tags: ["Plugin", "Skill", "Task", "File", "Dir"],
+    current_dir: "./",
+    description_gap: "  ",
     tag_skill: "[Skill]",
     tag_app: "[App]",
     loading: "loading...",

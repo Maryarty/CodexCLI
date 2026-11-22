@@ -8,7 +8,6 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::commands::fuzzy_match;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
@@ -32,8 +31,6 @@ pub const KIND: Kind = Kind::Part;
 /// seed it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// Paths relative to the working directory (`@` file search).
-    pub files: Vec<String>,
     /// Skills, apps and plugins (`$`, `@`).
     pub mentions: Vec<Mention>,
     /// The tasks the last task search found (`@`).
@@ -68,26 +65,6 @@ pub enum Ask {
     Lookup(Lookup),
 }
 
-/// What a popup row stands for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CandidateKind {
-    File,
-    Skill,
-    App,
-    Plugin,
-}
-
-/// One row of the `$` or `@` popup.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Candidate {
-    pub kind: CandidateKind,
-    /// The name, or the path of a file.
-    pub label: String,
-    pub description: String,
-    /// What follows the sigil when it is picked.
-    pub insert: String,
-}
-
 impl Model {
     /// The asks since the last call, oldest first: what the host runs.
     pub fn take_asks(&mut self) -> Vec<Ask> {
@@ -108,67 +85,6 @@ impl Model {
     pub fn pending_asks(&self) -> &[Ask] {
         &self.asks
     }
-
-    /// The rows of a popup for `query`: best match first, ties in the data's
-    /// order. `$` lists skills and apps; `@` files, skills, plugins and apps
-    /// (a skill picked from `@` is inserted as `$name`).
-    pub fn candidates(&self, sigil: Sigil, query: &str) -> Vec<Candidate> {
-        let mut scored: Vec<(i32, Candidate)> = Vec::new();
-        let mut push = |name: &str, candidate: Candidate| {
-            if let Some((_, score)) = fuzzy_match(name, query) {
-                scored.push((score, candidate));
-            }
-        };
-        if sigil == Sigil::At {
-            for path in &self.files {
-                // The file name decides the match, the path is what is shown.
-                let file_name = path.rsplit('/').next().unwrap_or(path);
-                push(
-                    file_name,
-                    Candidate {
-                        kind: CandidateKind::File,
-                        label: path.clone(),
-                        description: String::new(),
-                        insert: path.clone(),
-                    },
-                );
-            }
-        }
-        for mention in &self.mentions {
-            let wanted = matches!(
-                (sigil, mention.kind),
-                (Sigil::Dollar, MentionKind::Skill | MentionKind::App)
-                    | (Sigil::At, MentionKind::Skill | MentionKind::Plugin | MentionKind::App)
-            );
-            if !wanted {
-                continue;
-            }
-            push(
-                &mention.name,
-                Candidate {
-                    kind: match mention.kind {
-                        MentionKind::Skill => CandidateKind::Skill,
-                        MentionKind::App => CandidateKind::App,
-                        MentionKind::Plugin => CandidateKind::Plugin,
-                    },
-                    label: mention.name.clone(),
-                    description: mention.description.clone(),
-                    insert: mention.insert.clone(),
-                },
-            );
-        }
-        scored.sort_by_key(|(score, _)| *score);
-        scored.into_iter().map(|(_, c)| c).collect()
-    }
-}
-
-/// The sigil of a mention popup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sigil {
-    /// `$`: skills.
-    Dollar,
-    /// `@`: files, skills, plugins and apps.
-    At,
 }
 
 /// Where reverse history search stands (`HistorySearchStatus`).
@@ -302,7 +218,6 @@ impl HistorySearch {
 /// (and the metadata read when a thread opens).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    Files(Vec<String>),
     Mentions(Vec<Mention>),
     /// The tasks a task search found.
     Tasks(Vec<TaskMention>),
@@ -352,7 +267,6 @@ pub enum Intent {
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Files(files) => model.files = files,
         Ev::Mentions(mentions) => model.mentions = mentions,
         Ev::Tasks(tasks) => model.tasks = tasks,
         Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
@@ -450,7 +364,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// The seed form of this screen's events: `{"files":["src/a.rs"]}`,
+/// The seed form of this screen's events:
 /// `{"mentions":[{kind,name,description,insert,path?,plugin_id?,capabilities?}]}` (capabilities: `"skills"`, `{"mcp_servers":2}`, `{"apps":1}`),
 /// `{"tasks":[{thread,title,cwd?,snippet?}]}`,
 /// `{"file_matches":{"query":"q","matches":[{path,dir?,score?,indices?}]}}`,
@@ -458,7 +372,6 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
-    Files(Vec<String>),
     Mentions(Vec<SeedMention>),
     Tasks(Vec<SeedTask>),
     FileMatches(SeedFileMatches),
@@ -527,7 +440,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
-        SeedEv::Files(files) => Ev::Files(files),
         SeedEv::History(history) => Ev::History(history),
         SeedEv::Mentions(mentions) => Ev::Mentions(
             mentions

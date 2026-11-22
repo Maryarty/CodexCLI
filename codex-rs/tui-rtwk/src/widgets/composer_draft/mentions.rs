@@ -41,7 +41,7 @@ struct Shared {
     changed: Rc<ChangeNotifier>,
     /// What a click on a row does: the composer's (it owns the text the
     /// pick goes into), as the `onSelected` of Flutter's options view.
-    chooser: RefCell<Option<Rc<dyn Fn(usize)>>>,
+    chooser: RefCell<Option<Chooser>>,
 }
 
 impl Default for Mentions {
@@ -55,6 +55,9 @@ impl Default for Mentions {
         }))
     }
 }
+
+/// What a click on a row of the popup asks for.
+type Chooser = Rc<dyn Fn(usize)>;
 
 /// What a `sync` found.
 #[derive(Debug, Default)]
@@ -96,7 +99,7 @@ impl Mentions {
 
     /// What a click on a row of the popup asks for (`choose`), set by the
     /// composer.
-    pub fn on_choose(&self, chooser: Rc<dyn Fn(usize)>) {
+    pub fn on_choose(&self, chooser: Chooser) {
         *self.0.chooser.borrow_mut() = Some(chooser);
     }
 

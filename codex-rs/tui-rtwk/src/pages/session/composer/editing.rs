@@ -21,12 +21,13 @@ use codex_tui_core::keymap::actions::{
     EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_TOGGLE_VIM_MODE,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::screens::Shared;
 use codex_tui_core::screens::composer::history::Store;
 use codex_tui_core::screens::composer::vim::{EditorAction, Pending};
+use codex_tui_core::screens::{ScreenStates, Shared};
 
 use super::ComposerMsg;
 use super::burst::{self, BurstEnv};
+use super::mentions;
 use super::search;
 use super::suggest::Suggest;
 use super::vim;
@@ -49,6 +50,8 @@ pub struct KeyData {
     /// The user's bindings (`tui.keymap`): the Composer and Editor contexts
     /// say which key is which edit.
     pub keymap: Rc<Keymap>,
+    /// The app's data the mention popups read (their sources).
+    pub states: Rc<ScreenStates>,
 }
 
 /// Up (`up`) or Down at the draft's ends: the history's entry replaces the
@@ -112,6 +115,9 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     }
     // a popup with rows takes the keys of its list before the editing keys
     // (history on Up and Down, the queue key on Tab)
+    if mentions::take_key(data, c, key) {
+        return true;
+    }
     if data.suggest.take_key(c, key, &*data.tell) {
         return true;
     }
@@ -650,6 +656,7 @@ mod tests {
             burst: None,
             suggest: Rc::default(),
             keymap: Rc::new(Keymap::defaults()),
+            states: Rc::default(),
         }
     }
 

@@ -27,7 +27,6 @@ use rtwk::scroll::{ListController, ListView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_core::unicode::TextSegmenter;
 
 use codex_tui_core::screens::composer::mentions::candidate::{MentionType, Row as Candidate};
 use codex_tui_core::screens::composer::mentions::catalog::MentionKind;
@@ -294,7 +293,10 @@ impl Part {
                 }
             });
             match taps.get(at) {
-                Some(tap) => GestureDetector::new().on_tap(tap.clone()).child(built).into(),
+                Some(tap) => GestureDetector::new()
+                    .on_tap(tap.clone())
+                    .child(built)
+                    .into(),
                 None => built.into(),
             }
         })
@@ -396,8 +398,7 @@ struct Sections {
 }
 
 fn sections(content: i32) -> Sections {
-    let (header_want, header_gap_want, tabs_want, search_want, rows_want) =
-        (2, 1, 1, 1, MAX_ROWS);
+    let (header_want, header_gap_want, tabs_want, search_want, rows_want) = (2, 1, 1, 1, MAX_ROWS);
     let tabs = tabs_want.min(content);
     let search = search_want.min(content - tabs).max(0);
     let minimum_rows = rows_want.min(1);
@@ -438,7 +439,7 @@ fn unified(at: Rc<At>, part: Part, tab_taps: Vec<Handler<PointerEvent>>) -> AnyW
             return AnyWidget::default();
         }
         let table = part.table;
-        let view = Rc::new(UnifiedRows::new(&at, &part, seg, width));
+        let view = Rc::new(UnifiedRows::new(&at, &part, &|text| seg.width(text), width));
         let list = |rows: i32| -> AnyWidget {
             if at.rows.is_empty() {
                 let message = match at.empty {
@@ -552,15 +553,15 @@ struct UnifiedRows {
 }
 
 impl UnifiedRows {
-    fn new(at: &At, part: &Part, seg: TextSegmenter, width: usize) -> UnifiedRows {
+    fn new(at: &At, part: &Part, measure: &dyn Fn(&str) -> usize, width: usize) -> UnifiedRows {
         let table = part.table;
         // the mark, the gap before the type tag and the tag
-        let chrome = seg.width(table.mark_off) + 2 + usize::try_from(TAG_CELLS).unwrap_or(0);
+        let chrome = measure(table.mark_off) + 2 + usize::try_from(TAG_CELLS).unwrap_or(0);
         let content = width.saturating_sub(chrome);
         let widest = at
             .rows
             .iter()
-            .map(|row| seg.width(row.primary()))
+            .map(|row| measure(row.primary()))
             .max()
             .unwrap_or(0);
         UnifiedRows {
@@ -608,12 +609,17 @@ impl UnifiedRows {
             MentionType::Task | MentionType::File => look.info.clone(),
             MentionType::Directory => Style::new(),
         };
-        let tag = Text::line(self.tag_text(row.mention_type)).style(self.style(selected, &tag_style));
+        let tag =
+            Text::line(self.tag_text(row.mention_type)).style(self.style(selected, &tag_style));
         let primary =
             Text::rich_line(self.primary_spans(row, selected)).overflow(TextOverflow::Ellipsis);
         let content: AnyWidget = match self.secondary(row, selected) {
             Some(secondary) => Row::new()
-                .child(SizedBox::new(Some(self.primary), Some(1), Some(primary.into())))
+                .child(SizedBox::new(
+                    Some(self.primary),
+                    Some(1),
+                    Some(primary.into()),
+                ))
                 .child(SizedBox::new(Some(2), None, None))
                 .child(Expanded::new(
                     1,
@@ -640,7 +646,10 @@ impl UnifiedRows {
             } else {
                 Style::new()
             };
-            return vec![Span::styled(row.primary().to_string(), self.style(selected, &own))];
+            return vec![Span::styled(
+                row.primary().to_string(),
+                self.style(selected, &own),
+            )];
         }
         let own = match row.mention_type {
             MentionType::Plugin => look.accent.clone(),
@@ -673,17 +682,12 @@ impl UnifiedRows {
             return description.map(|text| vec![Span::styled(text, dim)]);
         };
         let mut spans = if start == 0 {
-            vec![Span::styled("./", dim.clone())]
+            vec![Span::styled(self.table.current_dir, dim.clone())]
         } else {
-            matched(
-                &row.display_name,
-                row.match_indices.as_deref(),
-                start,
-                &dim,
-            )
+            matched(&row.display_name, row.match_indices.as_deref(), start, &dim)
         };
         if let Some(text) = description {
-            spans.push(Span::styled("  ", dim.clone()));
+            spans.push(Span::styled(self.table.description_gap, dim.clone()));
             spans.push(Span::styled(text, dim));
         }
         Some(spans)
@@ -750,7 +754,12 @@ fn dollar(rows: Rc<[DollarRow]>, part: Part) -> AnyWidget {
             return AnyWidget::default();
         }
         let table = part.table;
-        let view = Rc::new(DollarRows::new(&rows, &part, seg, width));
+        let view = Rc::new(DollarRows::new(
+            &rows,
+            &part,
+            &|text| seg.width(text),
+            width,
+        ));
         let body = |height: i32| -> AnyWidget {
             if rows.is_empty() {
                 let spans = vec![Span::styled(
@@ -796,17 +805,19 @@ struct DollarRows {
 }
 
 impl DollarRows {
-    fn new(rows: &Rc<[DollarRow]>, part: &Part, seg: TextSegmenter, width: usize) -> DollarRows {
+    fn new(
+        rows: &Rc<[DollarRow]>,
+        part: &Part,
+        measure: &dyn Fn(&str) -> usize,
+        width: usize,
+    ) -> DollarRows {
         let table = part.table;
         let tag_of = |kind: MentionKind| match kind {
             MentionKind::App => table.tag_app,
             MentionKind::Skill | MentionKind::Plugin => table.tag_skill,
         };
-        let mark = seg.width(table.mark_off);
-        let names: Vec<usize> = rows
-            .iter()
-            .map(|row| mark + seg.width(&row.name))
-            .collect();
+        let mark = measure(table.mark_off);
+        let names: Vec<usize> = rows.iter().map(|row| mark + measure(&row.name)).collect();
         let column = description_column(&names, width);
         let starts = names
             .iter()
@@ -815,7 +826,7 @@ impl DollarRows {
                 // the description column, or just after the name, but
                 // always inside the row
                 let wanted = if column > 0 { column } else { name + 2 };
-                wanted.min(width.saturating_sub(seg.width(tag_of(row.kind))))
+                wanted.min(width.saturating_sub(measure(tag_of(row.kind))))
             })
             .collect();
         DollarRows {

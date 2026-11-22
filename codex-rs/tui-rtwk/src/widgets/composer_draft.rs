@@ -643,6 +643,20 @@ impl ComposerDraft {
         true
     }
 
+    /// Whether Up and Down walk the history from here (an empty draft, or
+    /// the text of the last recall with the caret at an end): no popup
+    /// opens meanwhile, nothing steals the keys of the walk
+    /// (`browsing_history` in `sync_popups`).
+    pub fn history_browsing(&self, c: &TextEditingController, store: &Store) -> bool {
+        let Some((text, cursor)) = self.navigation(c) else {
+            return false;
+        };
+        self.0
+            .borrow()
+            .prompts
+            .should_handle_navigation(store, &text, cursor)
+    }
+
     /// Whether a read the history asked for is outstanding: the composer
     /// polls when the store changes.
     pub fn history_waiting(&self) -> bool {
