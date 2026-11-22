@@ -42,6 +42,7 @@ use crate::widgets::thread_ui::ThreadUi;
 use super::actions::*;
 use super::activity::{Run, StatusSlot};
 use super::banners::{BackendBanners, NoticeLine};
+use super::live::put_back;
 use super::pending_input::PendingInput;
 use super::search_key::*;
 use super::status_surfaces::StatusContext;
@@ -64,6 +65,9 @@ impl PartialEq for Chat {
 /// last submit the model accepted (ids only, R14).
 pub struct ChatState {
     seen: Option<(ThreadId, Option<Ticket>)>,
+    /// The last restore (`Restore::seq`) the composer took from the model: a
+    /// number is applied once, in the thread that made it.
+    restored: Option<(ThreadId, Option<u64>)>,
     /// Escape was pressed on an empty composer: the next one starts
     /// backtrack (`app_backtrack.rs`).
     esc_primed: bool,
@@ -126,6 +130,7 @@ impl StatefulWidget for Chat {
     fn create_state(&self) -> ChatState {
         ChatState {
             seen: None,
+            restored: None,
             esc_primed: false,
             shortcuts: false,
             detailed_transcript: false,
@@ -229,6 +234,25 @@ impl State for ChatState {
             self.sync_draft(w);
         }
         self.seen = Some(now);
+        // Messages the model gave back (an interrupt, a failed steer, the
+        // edit-queued key) go into the composer, once each.
+        let restore = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
+            (thread.id().clone(), thread.restore().map(|r| r.seq()))
+        });
+        if let Some((thread, before)) = &self.restored
+            && *thread == restore.0
+            && *before != restore.1
+            && restore.1.is_some()
+        {
+            let model = read::<ThreadModel, _>(cx);
+            if let Some(restore) = model.restore() {
+                let table = crate::pages::session::composer::strings::of(cx);
+                let draft = w.ui.draft.submission(&w.ui.composer, |n| table.image(n));
+                put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
+                self.sync_draft(w);
+            }
+        }
+        self.restored = Some(restore);
         let states = watch::<ScreenStates, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
         let thread = read::<ThreadModel, _>(cx);

@@ -199,7 +199,7 @@ pub fn dismissal() -> JSONRPCErrorError {
 
 /// The input of a turn (`input_submission.rs`): the local images first,
 /// then the text with a text element for each image's placeholder.
-fn turn_input(message: &UserMessage) -> Vec<UserInput> {
+pub(crate) fn turn_input(message: &UserMessage) -> Vec<UserInput> {
     let mut input: Vec<UserInput> = message
         .images
         .iter()

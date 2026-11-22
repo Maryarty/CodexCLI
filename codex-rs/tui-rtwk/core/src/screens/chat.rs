@@ -359,6 +359,15 @@ pub enum ThreadIntent {
     /// `!cmd` from the composer: a user shell command (the oracle's
     /// `AppCommand::RunUserShellCommand`), run while a turn runs too.
     Shell(String),
+    /// Tab: the message waits behind the running turn (the oracle's
+    /// `InputResult::Queued`); `threads::apply` owns the queue.
+    Queue(crate::threads::UserMessage),
+    /// Esc while steers are pending: interrupt the turn, then send the
+    /// steers as one message (`submit_pending_steers_after_interrupt`).
+    InterruptForSteers,
+    /// The edit-queued key: the newest queued message goes back to the
+    /// composer (`pop_latest_queued_composer_state`).
+    EditQueued,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -460,11 +469,18 @@ pub enum Command {
     Compact,
     Rename(String),
     Shell(String),
+    /// `turn/steer`: the message joins the running turn `turn`.
+    Steer {
+        turn: TurnId,
+        message: crate::threads::UserMessage,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     Ack,
+    /// The turn the steer joined.
+    Steered(TurnId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -472,6 +488,14 @@ pub enum Ctx {
     Compact,
     Rename,
     Shell,
+    /// A steer in flight: `threads::apply` reads its reply (the queue and the
+    /// previews are the thread's, not the slot's); `retried` once the turn id
+    /// was corrected.
+    Steer {
+        turn: TurnId,
+        retried: bool,
+        message: crate::threads::UserMessage,
+    },
 }
 
 pub fn apply_thread_intent(
@@ -494,6 +518,7 @@ pub fn apply_thread_intent(
             part.error = None;
             fx.request(Ctx::Shell, Command::Shell(command));
         }
+        // the queue and the steers are the thread model's (`threads::apply`)
         _ => {}
     }
 }
@@ -536,7 +561,10 @@ pub fn apply_reply(
     if matches!(ctx, Ctx::Compact) {
         part.compact_pending = false;
     }
-    part.error = result.err();
+    // a steer's reply is read by `threads::apply`, never here
+    if !matches!(ctx, Ctx::Steer { .. }) {
+        part.error = result.err();
+    }
 }
 
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
@@ -550,6 +578,11 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             thread: thread.to_string(),
             command: command.clone(),
         },
+        Command::Steer { turn, message } => crate::threads::ThreadAsk::Steer {
+            thread: thread.to_string(),
+            turn: turn.to_string(),
+            message: message.clone(),
+        },
     };
     ask.wire(id)
 }
@@ -557,11 +590,14 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     use codex_app_server_protocol::{
         ThreadCompactStartResponse, ThreadSetNameResponse, ThreadShellCommandResponse,
+        TurnSteerResponse,
     };
     let decoded = match command {
         Command::Compact => serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack),
         Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
         Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
+        Command::Steer { .. } => serde_json::from_value::<TurnSteerResponse>(result)
+            .map(|response| Reply::Steered(TurnId::new(response.turn_id))),
     };
     decoded.map_err(|error| RpcError::Malformed(error.to_string()))
 }

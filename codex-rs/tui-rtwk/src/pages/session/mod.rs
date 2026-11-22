@@ -13,6 +13,7 @@ pub mod cells;
 pub mod composer;
 mod external_writer;
 mod keys;
+mod live;
 pub mod open;
 mod pending_input;
 pub mod popovers;

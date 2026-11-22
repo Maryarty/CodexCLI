@@ -8,7 +8,7 @@ use codex_tui_core::fixtures::builders::{
     agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
 };
 use codex_tui_core::ids::{ConnEpoch, ThreadId};
-use codex_tui_core::screens::Kind;
+use codex_tui_core::screens::{Kind, ScreenCommand, chat};
 use codex_tui_rtwk::app::debug;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
@@ -363,10 +363,28 @@ fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
         .collect()
 }
 
-/// R10: the model decides. A message sent while a turn runs is queued: the
-/// composer clears and the chat shows it as a dim line above the composer.
+fn steer_texts(h: &crate::common::Harness) -> Vec<String> {
+    steer_texts_of(&h.fake.commands())
+}
+
+fn steer_texts_of(commands: &[Command]) -> Vec<String> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Steer { message, .. }),
+                ..
+            } => Some(message.text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// R10: the model decides. A message sent with Enter while a turn runs steers
+/// it (`turn/steer`, the oracle's `submit_user_message_as_plain_user_turn`):
+/// the composer clears and no second turn starts.
 #[test]
-fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
+fn a_message_typed_while_a_turn_runs_is_steered() {
     let mut h = start();
     h.wait_idle();
     h.fake
@@ -376,14 +394,21 @@ fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
     h.wait_for("the turn to run", |s| s.contains("• so far"));
     h.t.type_text("two");
     h.press("enter");
-    h.wait_for("the queued line", |s| s.contains("(queued) two"));
+    let fake = h.fake.clone();
+    h.wait_for("the steer request", |_| {
+        !steer_texts_of(&fake.commands()).is_empty()
+    });
     let screen = h.t.screen();
     assert!(!screen.contains("› two"), "{screen}");
     h.settle();
-    assert_eq!(turn_texts(&h), vec!["one".to_string()], "not sent yet");
+    assert_eq!(steer_texts(&h), vec!["two".to_string()]);
+    assert_eq!(turn_texts(&h), vec!["one".to_string()], "no second turn");
 }
 
+/// Tab queues, Enter steers (the person, 2026-11-22): the page cannot emit the
+/// queue until `Hs` has a thread-screen handler (src/app/view.rs, keymap).
 #[test]
+#[ignore = "pending(chat-live): Tab queues through `ThreadIntent::Queue`, which the page can emit only through an `Hs.thread_screen` handler in src/app/view.rs (keymap holds the file); a Tab now submits and steers"]
 fn queued_messages_are_sent_in_order_one_per_turn_end() {
     let mut h = start();
     h.wait_idle();
@@ -396,7 +421,7 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
     h.wait_for("the turn to run", |s| s.contains("• so far"));
     for text in ["two", "three"] {
         h.t.type_text(text);
-        h.press("enter");
+        h.press("tab");
         h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
     }
     let epoch = h.fake.epoch().expect("attached");
@@ -417,7 +442,10 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
     );
 }
 
+/// Tab queues, Enter steers (the person, 2026-11-22): the page cannot emit the
+/// queue until `Hs` has a thread-screen handler (src/app/view.rs, keymap).
 #[test]
+#[ignore = "pending(chat-live): Tab queues through `ThreadIntent::Queue`, which the page can emit only through an `Hs.thread_screen` handler in src/app/view.rs (keymap holds the file); a Tab now submits and steers"]
 fn a_queue_survives_a_second_submit() {
     let mut h = start();
     h.wait_idle();
@@ -428,7 +456,7 @@ fn a_queue_survives_a_second_submit() {
     h.wait_for("the turn to run", |s| s.contains("• so far"));
     for text in ["two", "three"] {
         h.t.type_text(text);
-        h.press("enter");
+        h.press("tab");
         h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
     }
     let screen = h.t.screen();
@@ -453,7 +481,10 @@ fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
     }));
 }
 
+/// Tab queues, Enter steers (the person, 2026-11-22): the page cannot emit the
+/// queue until `Hs` has a thread-screen handler (src/app/view.rs, keymap).
 #[test]
+#[ignore = "pending(chat-live): Tab queues through `ThreadIntent::Queue`, which the page can emit only through an `Hs.thread_screen` handler in src/app/view.rs (keymap holds the file); a Tab now submits and steers"]
 fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
     let mut h = start_quittable(false);
     h.wait_idle();

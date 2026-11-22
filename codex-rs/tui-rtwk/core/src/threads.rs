@@ -552,6 +552,67 @@ pub enum TurnEnd {
     Failed,
 }
 
+/// A message sent to the running turn (`turn/steer`) that the server has not
+/// yet echoed as the user's item (the oracle's `PendingSteer`): the pending-
+/// input preview lists it until then.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingSteer {
+    message: UserMessage,
+    /// The turn the server said it joined.
+    admitted: Option<TurnId>,
+}
+
+impl PendingSteer {
+    pub fn message(&self) -> &UserMessage {
+        &self.message
+    }
+}
+
+/// Messages the model gives back to the composer (the oracle's
+/// `restore_composer_state`): after an interrupt, a failed steer, or the
+/// edit-queued key. The composer's controller applies each `seq` once; the
+/// fact is the model's, the draft is the UI's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Restore {
+    seq: u64,
+    messages: Vec<UserMessage>,
+    replace: bool,
+}
+
+impl Restore {
+    /// Grows with every restore: the composer applies a number once.
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+
+    /// In the order they were sent: rejected steers, pending steers, queued.
+    pub fn messages(&self) -> &[UserMessage] {
+        &self.messages
+    }
+
+    /// Whether the composer's draft is replaced (edit-queued) or the messages
+    /// go before it (an interrupt or a failure).
+    pub fn replaces(&self) -> bool {
+        self.replace
+    }
+
+    /// The messages as one, joined by newlines, image placeholders renumbered.
+    pub fn merged(&self) -> UserMessage {
+        merge_messages(self.messages.clone())
+    }
+
+    /// What the composer holds after the restore, given the `draft` it holds
+    /// now: the messages first, the draft after them (`drain_pending_
+    /// messages_for_restore`); an edit-queued restore replaces the draft.
+    pub fn onto(&self, draft: UserMessage) -> UserMessage {
+        let mut messages = self.messages.clone();
+        if !self.replace && !draft.is_empty() {
+            messages.push(draft);
+        }
+        merge_messages(messages)
+    }
+}
+
 /// What an outgoing thread RPC was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadCtx {
@@ -690,6 +751,16 @@ pub struct ThreadModel {
     last_submit: Option<Ticket>,
     /// Messages sent while a turn runs: one goes out per turn end, in order.
     queue: Vec<UserMessage>,
+    /// Steers sent to the running turn and not yet echoed, oldest first.
+    pending_steers: Vec<PendingSteer>,
+    /// Steers the server refused (a review or compact turn): they go out first
+    /// when the turn ends, merged into one message.
+    rejected_steers: Vec<UserMessage>,
+    /// Esc with steers pending: the interrupt that follows sends them as one
+    /// message (`submit_pending_steers_after_interrupt`).
+    steers_after_interrupt: bool,
+    /// The last messages given back to the composer.
+    restore: Option<Restore>,
     /// The per-thread parts of the screen slots.
     slots: ThreadSlots,
     last_error: Option<Failure>,
@@ -829,6 +900,10 @@ impl ThreadModel {
             outgoing: Pending::default(),
             last_submit: None,
             queue: Vec::new(),
+            pending_steers: Vec::new(),
+            rejected_steers: Vec::new(),
+            steers_after_interrupt: false,
+            restore: None,
             slots: ThreadSlots::default(),
             last_error: None,
             last_ended: None,
@@ -870,6 +945,18 @@ impl ThreadModel {
 
     pub fn queue(&self) -> &[UserMessage] {
         &self.queue
+    }
+
+    pub fn pending_steers(&self) -> &[PendingSteer] {
+        &self.pending_steers
+    }
+
+    pub fn rejected_steers(&self) -> &[UserMessage] {
+        &self.rejected_steers
+    }
+
+    pub fn restore(&self) -> Option<&Restore> {
+        self.restore.as_ref()
     }
 
     pub fn screen_slots(&self) -> &ThreadSlots {
@@ -953,6 +1040,12 @@ pub enum ThreadAsk {
         thread: String,
         turn: String,
     },
+    /// `turn/steer`: `message` joins the running turn `turn`.
+    Steer {
+        thread: String,
+        turn: String,
+        message: UserMessage,
+    },
     Compact {
         thread: String,
     },
@@ -988,6 +1081,7 @@ impl ThreadAsk {
             | ThreadAsk::Turns { thread }
             | ThreadAsk::History { thread, .. }
             | ThreadAsk::Interrupt { thread, .. }
+            | ThreadAsk::Steer { thread, .. }
             | ThreadAsk::Compact { thread }
             | ThreadAsk::Shell { thread, .. }
             | ThreadAsk::Rename { thread, .. }
@@ -1080,6 +1174,19 @@ impl ThreadAsk {
                 params: TurnInterruptParams {
                     thread_id: thread.clone(),
                     turn_id: turn.clone(),
+                },
+            },
+            ThreadAsk::Steer {
+                thread,
+                turn,
+                message,
+            } => ClientRequest::TurnSteer {
+                request_id,
+                params: codex_app_server_protocol::TurnSteerParams {
+                    thread_id: thread.clone(),
+                    input: crate::protocol::turn_input(message),
+                    expected_turn_id: turn.clone(),
+                    ..Default::default()
                 },
             },
             ThreadAsk::Compact { thread } => ClientRequest::ThreadCompactStart {
@@ -1389,6 +1496,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.writer = Writer::Detached;
             model.outgoing = Pending::default();
             model.turn = TurnState::Idle;
+            // A steer in flight will never be echoed: it goes back to the
+            // composer with the rest that waited.
+            let mut messages = std::mem::take(&mut model.rejected_steers);
+            messages.extend(
+                std::mem::take(&mut model.pending_steers)
+                    .into_iter()
+                    .map(|steer| steer.message),
+            );
+            give_back(model, messages, false);
+            model.steers_after_interrupt = false;
             model.slots.chat.connection_lost();
         }
         ThreadEv::ConnectionLost => {}
@@ -1398,7 +1515,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 if snapshot.end.is_some() {
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
                     {
-                        end_turn(model, snapshot.turn.clone(), fx);
+                        let end = snapshot.end.unwrap_or(TurnEnd::Completed);
+                        end_turn(model, snapshot.turn.clone(), end, fx);
                     } else {
                         Rc::make_mut(&mut model.finished_turns).insert(snapshot.turn.clone());
                     }
@@ -1424,16 +1542,22 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
         }
         ThreadEv::Submit { message } if model.has_writer() => {
-            // The decision is here (R10): while a turn runs or starts the
-            // message is queued, otherwise it starts a turn.
-            // An older queued message goes first, whatever the turn state.
-            let busy = model.is_running() || model.outgoing.any(is_start_turn);
-            if busy || !model.queue.is_empty() {
-                model.queue.push(message);
-                model.last_submit = Some(fx.mint());
-                if !busy {
-                    send_next(model, fx);
-                }
+            // The decision is here (R10). Enter during a running turn steers
+            // it (`turn/steer`); while the turn is only starting (no turn id
+            // yet) the message waits in the queue; with none running it starts
+            // a turn, after any older queued message.
+            let starting = model.outgoing.any(is_start_turn);
+            if let (TurnState::Running(running), false) = (&model.turn, starting) {
+                let turn = running.turn.clone();
+                model.pending_steers.push(PendingSteer {
+                    message: message.clone(),
+                    admitted: None,
+                });
+                model.last_submit = Some(steer(fx, turn, false, message));
+                return;
+            }
+            if starting || !model.queue.is_empty() {
+                enqueue(model, message, fx);
                 return;
             }
             model.last_error = None;
@@ -1459,6 +1583,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 return;
             };
             match (ctx, answer) {
+                (
+                    ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::Steer {
+                        turn,
+                        retried,
+                        message,
+                    })),
+                    answer,
+                ) => steer_reply(model, turn, retried, message, answer, fx),
                 (ThreadCtx::StartTurn { interrupt }, Answer::TurnStarted { turn, .. }) => {
                     // After a `Lagged` gap the end of this turn can have been
                     // seen before this reply: nothing will end it again, so
@@ -1517,6 +1649,44 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 _ => {}
             }
         }
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Queue(
+            message,
+        ))) if model.has_writer() => enqueue(model, message, fx),
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::InterruptForSteers,
+        )) if model.has_writer() => {
+            if model.can_interrupt() && !model.pending_steers.is_empty() {
+                model.steers_after_interrupt = true;
+                apply_ev(model, ThreadEv::Interrupt, fx);
+            }
+        }
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::EditQueued,
+        )) if model.has_writer() => {
+            let message = model.queue.pop().or_else(|| model.rejected_steers.pop());
+            if let Some(message) = message {
+                give_back(model, vec![message], true);
+            }
+        }
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Queue(
+            message,
+        ))) if model.has_writer() => enqueue(model, message, fx),
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::InterruptForSteers,
+        )) if model.has_writer() => {
+            if model.can_interrupt() && !model.pending_steers.is_empty() {
+                model.steers_after_interrupt = true;
+                apply_ev(model, ThreadEv::Interrupt, fx);
+            }
+        }
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::EditQueued,
+        )) if model.has_writer() => {
+            let message = model.queue.pop().or_else(|| model.rejected_steers.pop());
+            if let Some(message) = message {
+                give_back(model, vec![message], true);
+            }
+        }
         ThreadEv::ScreenIntent(intent) if model.has_writer() => {
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
@@ -1534,7 +1704,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::TurnError { turn, message } => {
             // Oracle `on_error`: the turn is finalized, then the error row, then
             // the next queued input; the failed turn's own completion is a no-op.
-            end_turn(model, turn.clone(), fx);
+            end_turn(model, turn.clone(), TurnEnd::Failed, fx);
             model.transcript.report_error(&turn, &message);
         }
         ThreadEv::TurnStarted { turn, started_at } => {
@@ -1554,11 +1724,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::ItemStarted { key, item } => {
             if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
+                steer_echoed(model, &item);
                 model.transcript.upsert(key, item);
             }
         }
         ThreadEv::ItemUpsert { key, item } => {
             if !model.authoritative_turns.contains(&key.turn) {
+                if model.transcript.item(&key).is_none() {
+                    steer_echoed(model, &item);
+                }
                 if !model.finished_turns.contains(&key.turn) && matches!(item, Item::Agent { .. }) {
                     model.completed_items.insert(key.clone());
                 }
@@ -1593,10 +1767,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.transcript.append_command_output(key, &delta);
             }
         }
-        ThreadEv::TurnEnded { turn, .. } => end_turn(model, turn, fx),
+        ThreadEv::TurnEnded { turn, end } => end_turn(model, turn, end, fx),
         ThreadEv::TurnCompleted {
             turn,
-            end: _,
+            end,
             snapshot,
             timing,
             error,
@@ -1625,12 +1799,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             if let Some(message) = &error {
                 model.transcript.report_error(&turn, message);
             }
-            end_turn(model, turn, fx);
+            end_turn(model, turn, end, fx);
         }
     }
 }
 
-fn end_turn(model: &mut ThreadModel, turn: TurnId, fx: &mut ThreadFx<'_>) {
+fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut ThreadFx<'_>) {
     Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
     model.transcript.finish_streams(&turn);
     model.completed_items.retain(|key| key.turn != turn);
@@ -1644,14 +1818,230 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, fx: &mut ThreadFx<'_>) {
     if ends_running {
         model.turn = TurnState::Idle;
         model.slots.chat.end_turn();
-        if !model.outgoing.any(is_start_turn) {
+        if end == TurnEnd::Interrupted {
+            interrupted(model, &turn, fx);
+        } else if !model.outgoing.any(is_start_turn) {
             send_next(model, fx);
         }
     }
 }
 
+/// Esc or budget exhaustion ended the turn (`on_interrupted_server_turn`).
+/// With `steers_after_interrupt` the steers go out as one message now; else
+/// what waits (rejected and pending steers, then the queue) goes back to the
+/// composer, never auto-sent. A steer the server admitted to another turn
+/// is left alone.
+fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
+    let (later, mine): (Vec<_>, Vec<_>) = std::mem::take(&mut model.pending_steers)
+        .into_iter()
+        .partition(|steer| steer.admitted.as_ref().is_some_and(|id| id != turn));
+    let submit = std::mem::take(&mut model.steers_after_interrupt);
+    if submit && !mine.is_empty() {
+        let merged = merge_messages(mine.into_iter().map(|steer| steer.message).collect());
+        fx.start_turn(merged);
+    } else {
+        let mut messages = std::mem::take(&mut model.rejected_steers);
+        messages.extend(mine.into_iter().map(|steer| steer.message));
+        messages.append(&mut model.queue);
+        give_back(model, messages, false);
+    }
+    model.pending_steers = later;
+}
+
+/// A message to the queue, behind the running turn; with none running and
+/// nothing older waiting it goes out at once.
+fn enqueue(model: &mut ThreadModel, message: UserMessage, fx: &mut ThreadFx<'_>) {
+    let busy = model.is_running() || model.outgoing.any(is_start_turn);
+    model.queue.push(message);
+    model.last_submit = Some(fx.mint());
+    if !busy {
+        send_next(model, fx);
+    }
+}
+
+/// `turn/steer` of `message` to `turn`.
+fn steer(fx: &mut ThreadFx<'_>, turn: TurnId, retried: bool, message: UserMessage) -> Ticket {
+    fx.request(
+        screens::chat::Ctx::Steer {
+            turn: turn.clone(),
+            retried,
+            message: message.clone(),
+        },
+        screens::chat::Command::Steer { turn, message },
+    )
+}
+
+/// Messages back to the composer (`restore_composer_state`).
+fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool) {
+    if messages.is_empty() {
+        return;
+    }
+    let seq = model.restore.as_ref().map_or(1, |restore| restore.seq + 1);
+    model.restore = Some(Restore {
+        seq,
+        messages,
+        replace,
+    });
+}
+
+/// The user's item of a steer came back: its pending entry is done.
+fn steer_echoed(model: &mut ThreadModel, item: &Item) {
+    if let Item::User(prompt) = item
+        && let Some(index) = model
+            .pending_steers
+            .iter()
+            .position(|steer| steer.message.text == prompt.text)
+    {
+        model.pending_steers.remove(index);
+    }
+}
+
+/// How the server refused a `turn/steer` (`active_turn_steer_race`,
+/// `active_turn_not_steerable_turn_error`).
+enum Refusal {
+    /// A review or compact turn takes no steer.
+    NotSteerable,
+    /// The turn is over.
+    NoActiveTurn,
+    /// Another turn is the active one.
+    Changed(TurnId),
+    Other,
+}
+
+fn refusal(text: &str) -> Refusal {
+    if text.starts_with("cannot steer a ") {
+        return Refusal::NotSteerable;
+    }
+    if text == "no active turn to steer" {
+        return Refusal::NoActiveTurn;
+    }
+    text.strip_prefix("expected active turn id `")
+        .and_then(|rest| rest.split_once("` but found `"))
+        .and_then(|(_, actual)| actual.strip_suffix('`'))
+        .map_or(Refusal::Other, |actual| {
+            Refusal::Changed(TurnId::new(actual))
+        })
+}
+
+/// The answer of a `turn/steer`.
+fn steer_reply(
+    model: &mut ThreadModel,
+    turn: TurnId,
+    retried: bool,
+    message: UserMessage,
+    answer: Answer,
+    fx: &mut ThreadFx<'_>,
+) {
+    let position = model
+        .pending_steers
+        .iter()
+        .position(|steer| steer.message == message);
+    let failure = match answer {
+        Answer::Screen(screens::ScreenReply::Chat(screens::chat::Reply::Steered(admitted))) => {
+            if let Some(index) = model
+                .pending_steers
+                .iter()
+                .position(|steer| steer.admitted.is_none() && steer.message == message)
+            {
+                model.pending_steers[index].admitted = Some(admitted);
+            }
+            return;
+        }
+        Answer::Failed(RpcError::Remote(text)) => Failure::Message(text),
+        Answer::Failed(error) => Failure::from(error),
+        _ => return,
+    };
+    let text = match &failure {
+        Failure::Message(text) => text.as_str(),
+        _ => "",
+    };
+    match refusal(text) {
+        Refusal::NotSteerable => match position {
+            Some(index) => {
+                let steer = model.pending_steers.remove(index);
+                model.rejected_steers.push(steer.message);
+            }
+            None => model.last_error = Some(failure),
+        },
+        Refusal::NoActiveTurn => {
+            if let Some(index) = position {
+                model.pending_steers.remove(index);
+            }
+            fx.start_turn(message);
+        }
+        Refusal::Changed(actual) if !retried && actual != turn => {
+            if let TurnState::Running(running) = &mut model.turn
+                && running.turn == turn
+                && !model.finished_turns.contains(&actual)
+            {
+                running.turn = actual.clone();
+            }
+            steer(fx, actual, true, message);
+        }
+        Refusal::Changed(_) | Refusal::Other => {
+            if let Some(index) = position {
+                model.pending_steers.remove(index);
+            }
+            model.last_error = Some(failure);
+            give_back(model, vec![message], false);
+        }
+    }
+}
+
+/// The messages as one, joined by newlines; the local images' placeholders
+/// are numbered afresh in order (`merge_user_messages`).
+fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
+    let mut merged = UserMessage::default();
+    for (index, message) in messages.into_iter().enumerate() {
+        if index > 0 {
+            merged.text.push('\n');
+        }
+        let mut images = message.images;
+        images.sort_by_key(|image| image.range.start);
+        let mut cursor = 0;
+        for image in images {
+            let range = image.range;
+            if range.start < cursor || range.end > message.text.len() {
+                continue;
+            }
+            merged.text.push_str(&message.text[cursor..range.start]);
+            let start = merged.text.len();
+            let placeholder = &message.text[range.clone()];
+            merged
+                .text
+                .push_str(&renumbered(placeholder, merged.images.len() + 1));
+            merged.images.push(LocalImage {
+                path: image.path,
+                range: start..merged.text.len(),
+            });
+            cursor = range.end;
+        }
+        merged.text.push_str(&message.text[cursor..]);
+    }
+    merged
+}
+
+/// `placeholder` with the number inside it (its last run of digits) replaced
+/// by `number`; a placeholder without one stays as it is. Whatever words the
+/// placeholder is in (the UI's table words it) is kept.
+fn renumbered(placeholder: &str, number: usize) -> String {
+    let body = placeholder.trim_end_matches(|c: char| !c.is_ascii_digit());
+    let head = body.trim_end_matches(|c: char| c.is_ascii_digit());
+    if body.is_empty() {
+        return placeholder.to_string();
+    }
+    format!("{head}{number}{}", &placeholder[body.len()..])
+}
+
 /// The next queued message becomes the next turn (one per turn end).
 fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
+    // Steers the server refused go first, as one message
+    // (`pop_next_queued_user_message`).
+    if !model.rejected_steers.is_empty() {
+        let merged = merge_messages(std::mem::take(&mut model.rejected_steers));
+        fx.start_turn(merged);
+        return;
+    }
     if model.queue.is_empty() {
         return;
     }

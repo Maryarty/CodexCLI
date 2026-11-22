@@ -16,7 +16,7 @@ use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
 };
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenCommand, ScreenIntent, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, ScreenThreadIntent, chat};
 use codex_tui_core::threads::UserMessage;
 use codex_tui_core::threads::{self, Failure, Item, ItemKey, TurnEnd, TurnState};
 
@@ -105,6 +105,58 @@ fn submit(app: &mut CodexApp, text: &str) -> AppFx {
             message: UserMessage::text(text),
         }),
     )
+}
+
+/// An intent of the chat slot that reaches the thread (`Intent::ThreadScreen`).
+fn chat_intent(app: &mut CodexApp, intent: chat::ThreadIntent) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::ThreadScreen {
+            thread: ThreadId::new(T),
+            intent: ScreenThreadIntent::Chat(intent),
+        }),
+    )
+}
+
+/// Tab: the message waits behind the running turn instead of steering it.
+fn tab(app: &mut CodexApp, text: &str) -> AppFx {
+    chat_intent(app, chat::ThreadIntent::Queue(UserMessage::text(text)))
+}
+
+/// The `(ticket, turn, text)` of every `turn/steer` in `fx`.
+fn steers(fx: &AppFx) -> Vec<(Ticket, String, String)> {
+    fx.commands()
+        .iter()
+        .filter_map(|c| match c {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Chat(chat::Command::Steer { turn, message }),
+                ..
+            } => Some((*ticket, turn.to_string(), message.text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The texts of the steers the server has not yet echoed.
+fn pending_steers(app: &CodexApp) -> Vec<String> {
+    thread(app)
+        .pending_steers()
+        .iter()
+        .map(|steer| steer.message().text.clone())
+        .collect()
+}
+
+fn rejected_steers(app: &CodexApp) -> Vec<String> {
+    thread(app)
+        .rejected_steers()
+        .iter()
+        .map(|message| message.text.clone())
+        .collect()
+}
+
+fn steered(turn: &str) -> Reply {
+    Reply::screen(ScreenReply::Chat(chat::Reply::Steered(TurnId::new(turn))))
 }
 
 #[test]
@@ -206,14 +258,32 @@ fn a_second_submit_while_the_turn_starts_is_queued_not_refused() {
     assert_ne!(thread(&app).last_submit(), first, "the intent was accepted");
 }
 
+/// Enter during a running turn steers it (`turn/steer`); the message waits
+/// as a pending steer until the server echoes it, and is not in the queue.
 #[test]
-fn a_submit_while_a_turn_runs_is_queued_and_accepted() {
+fn enter_while_a_turn_runs_steers_it() {
     let mut app = ready();
     let first = thread(&app).last_submit();
     notification(&mut app, turn_started(T, "turn-1"));
     let fx = submit(&mut app, "two");
+    let sent = steers(&fx);
+    assert_eq!(sent.len(), 1, "{:?}", fx.commands());
+    assert_eq!((sent[0].1.as_str(), sent[0].2.as_str()), ("turn-1", "two"));
+    assert!(queued(&app).is_empty());
+    assert_eq!(pending_steers(&app), vec!["two".to_string()]);
+    assert_ne!(thread(&app).last_submit(), first);
+}
+
+/// Tab during a running turn queues the message behind it.
+#[test]
+fn tab_while_a_turn_runs_queues_the_message() {
+    let mut app = ready();
+    let first = thread(&app).last_submit();
+    notification(&mut app, turn_started(T, "turn-1"));
+    let fx = tab(&mut app, "two");
     assert!(fx.commands().is_empty());
     assert_eq!(queued(&app), vec!["two".to_string()]);
+    assert!(pending_steers(&app).is_empty());
     assert_ne!(thread(&app).last_submit(), first);
 }
 
@@ -221,8 +291,8 @@ fn a_submit_while_a_turn_runs_is_queued_and_accepted() {
 fn queued_messages_go_out_in_order_one_per_turn_end() {
     let mut app = ready();
     notification(&mut app, turn_started(T, "turn-1"));
-    submit(&mut app, "two");
-    submit(&mut app, "three");
+    tab(&mut app, "two");
+    tab(&mut app, "three");
     assert_eq!(queued(&app), vec!["two".to_string(), "three".to_string()]);
     let fx = notification(&mut app, turn_completed(T, "turn-1"));
     let turns = start_turns(&fx);
@@ -249,9 +319,9 @@ fn queued_messages_go_out_in_order_one_per_turn_end() {
 fn a_queue_survives_a_second_submit_and_keeps_its_order() {
     let mut app = ready();
     notification(&mut app, turn_started(T, "turn-1"));
-    submit(&mut app, "two");
-    submit(&mut app, "three");
-    submit(&mut app, "four");
+    tab(&mut app, "two");
+    tab(&mut app, "three");
+    tab(&mut app, "four");
     assert_eq!(
         queued(&app),
         ["two", "three", "four"].map(String::from).to_vec()
@@ -586,8 +656,8 @@ fn a_failed_turn_keeps_the_servers_error_message() {
 fn a_turn_error_ends_the_turn_and_sends_the_next_queued_message_once() {
     let mut app = ready();
     notification(&mut app, turn_started(T, "turn-1"));
-    submit(&mut app, "two");
-    submit(&mut app, "three");
+    tab(&mut app, "two");
+    tab(&mut app, "three");
     let fx = notification(&mut app, turn_error(T, "turn-1", "no network", false));
     assert_eq!(thread(&app).turn(), &TurnState::Idle);
     let turns = start_turns(&fx);
@@ -685,7 +755,7 @@ fn interrupt_waits_for_the_turn_id_and_is_sent_once() {
         }
         notification(&mut app, agent_delta(T, "turn-1", "msg-1", "partial"));
         assert!(run(&mut app, interrupt()).commands().is_empty());
-        assert!(start_turns(&submit(&mut app, "queued")).is_empty());
+        assert!(start_turns(&tab(&mut app, "queued")).is_empty());
         let fx = notification(&mut app, turn_completed(T, "turn-1"));
         assert_eq!(start_turns(&fx)[0].1, "queued");
         assert!(thread(&app).last_error().is_none());
@@ -855,4 +925,279 @@ fn interrupt_retries_once_when_the_server_names_a_different_active_turn() {
             .is_empty()
     );
     assert!(thread(&app).last_error().is_some());
+}
+
+/// `turn/completed` of an interrupted turn (the fixtures' builders have none).
+fn turn_interrupted(thread: &str, turn_id: &str) -> BackendEv {
+    use codex_app_server_protocol::{
+        ServerNotification, Turn, TurnCompletedNotification, TurnItemsView, TurnStatus,
+    };
+    BackendEv::Notification(Box::new(ServerNotification::TurnCompleted(
+        TurnCompletedNotification {
+            thread_id: thread.to_string(),
+            turn: Turn {
+                id: turn_id.to_string(),
+                root_turn_id: None,
+                items: Vec::new(),
+                items_view: TurnItemsView::NotLoaded,
+                status: TurnStatus::Interrupted,
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+            },
+        },
+    )))
+}
+
+/// A running thread with `turn-1`.
+fn running() -> CodexApp {
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    app
+}
+
+fn restored(app: &CodexApp) -> Vec<String> {
+    thread(app)
+        .restore()
+        .map(|restore| restore.messages().iter().map(|m| m.text.clone()).collect())
+        .unwrap_or_default()
+}
+
+/// The server echoes the steer as the user's item: the pending steer is done,
+/// oldest first, and the echo is the transcript's, never a second copy.
+#[test]
+fn the_echo_of_a_steer_clears_its_pending_entry_in_order() {
+    let mut app = running();
+    let first = steers(&submit(&mut app, "one"));
+    let second = steers(&submit(&mut app, "two"));
+    assert_eq!(first.len() + second.len(), 2, "a double Enter sends both");
+    assert_eq!(
+        pending_steers(&app),
+        ["one", "two"].map(String::from).to_vec()
+    );
+    run(&mut app, AppEv::Reply(first[0].0, steered("turn-1")));
+    notification(&mut app, user_item(T, "turn-1", "item-1", "one"));
+    assert_eq!(pending_steers(&app), vec!["two".to_string()]);
+    notification(&mut app, user_item(T, "turn-1", "item-2", "two"));
+    assert!(pending_steers(&app).is_empty());
+    assert!(queued(&app).is_empty());
+}
+
+/// A reply that comes after the echo, or after the turn ended, changes nothing.
+#[test]
+fn a_late_steer_reply_is_harmless() {
+    let mut app = running();
+    let sent = steers(&submit(&mut app, "one"));
+    notification(&mut app, user_item(T, "turn-1", "item-1", "one"));
+    assert!(pending_steers(&app).is_empty());
+    let fx = run(&mut app, AppEv::Reply(sent[0].0, steered("turn-1")));
+    assert!(fx.commands().is_empty());
+    assert!(pending_steers(&app).is_empty());
+    assert!(thread(&app).last_error().is_none());
+}
+
+/// The server refuses a steer of a review or compact turn: the message goes
+/// to the rejected queue and is sent first, as one message, when the turn ends.
+#[test]
+fn a_refused_steer_is_sent_when_the_turn_ends() {
+    let mut app = running();
+    let one = steers(&submit(&mut app, "one"));
+    let two = steers(&submit(&mut app, "two"));
+    tab(&mut app, "later");
+    run(
+        &mut app,
+        AppEv::Reply(one[0].0, Reply::failed("cannot steer a review turn")),
+    );
+    run(
+        &mut app,
+        AppEv::Reply(two[0].0, Reply::failed("cannot steer a review turn")),
+    );
+    assert!(pending_steers(&app).is_empty());
+    assert_eq!(
+        rejected_steers(&app),
+        ["one", "two"].map(String::from).to_vec()
+    );
+    assert!(thread(&app).last_error().is_none(), "not an error");
+    let fx = notification(&mut app, turn_completed(T, "turn-1"));
+    let turns = start_turns(&fx);
+    assert_eq!(turns.len(), 1, "{:?}", fx.commands());
+    assert_eq!(turns[0].1, "one\ntwo");
+    assert_eq!(queued(&app), vec!["later".to_string()]);
+    assert!(rejected_steers(&app).is_empty());
+}
+
+/// "no active turn to steer": the turn is over, the message starts a turn.
+#[test]
+fn a_steer_with_no_active_turn_starts_a_turn() {
+    let mut app = running();
+    let sent = steers(&submit(&mut app, "one"));
+    let fx = run(
+        &mut app,
+        AppEv::Reply(sent[0].0, Reply::failed("no active turn to steer")),
+    );
+    let turns = start_turns(&fx);
+    assert_eq!(turns.len(), 1, "{:?}", fx.commands());
+    assert_eq!(turns[0].1, "one");
+    assert!(pending_steers(&app).is_empty());
+    assert!(restored(&app).is_empty());
+}
+
+/// A stale turn id: the steer goes again to the turn the server names, once.
+#[test]
+fn a_steer_retries_once_with_the_turn_the_server_names() {
+    let mut app = running();
+    let sent = steers(&submit(&mut app, "one"));
+    let fx = run(
+        &mut app,
+        AppEv::Reply(
+            sent[0].0,
+            Reply::failed("expected active turn id `turn-1` but found `turn-2`"),
+        ),
+    );
+    let again = steers(&fx);
+    assert_eq!(again.len(), 1, "{:?}", fx.commands());
+    assert_eq!(
+        (again[0].1.as_str(), again[0].2.as_str()),
+        ("turn-2", "one")
+    );
+    assert_eq!(pending_steers(&app), vec!["one".to_string()]);
+    let fx = run(
+        &mut app,
+        AppEv::Reply(
+            again[0].0,
+            Reply::failed("expected active turn id `turn-2` but found `turn-3`"),
+        ),
+    );
+    assert!(steers(&fx).is_empty(), "retried once only");
+    assert!(pending_steers(&app).is_empty());
+    assert!(thread(&app).last_error().is_some());
+    assert_eq!(restored(&app), vec!["one".to_string()]);
+}
+
+/// Any other failure puts the message back in the composer with the error.
+#[test]
+fn a_failed_steer_goes_back_to_the_composer() {
+    let mut app = running();
+    let sent = steers(&submit(&mut app, "one"));
+    run(&mut app, AppEv::Reply(sent[0].0, Reply::failed("boom")));
+    assert_eq!(
+        thread(&app).last_error().cloned(),
+        Some(Failure::Message("boom".into()))
+    );
+    assert!(pending_steers(&app).is_empty());
+    assert_eq!(restored(&app), vec!["one".to_string()]);
+}
+
+/// The interrupted turn gives the queue back to the composer instead of
+/// sending it (`on_interrupted_turn`).
+#[test]
+fn an_interrupted_turn_restores_the_queue_to_the_composer() {
+    let mut app = running();
+    tab(&mut app, "a");
+    tab(&mut app, "b");
+    let fx = notification(&mut app, turn_interrupted(T, "turn-1"));
+    assert!(start_turns(&fx).is_empty(), "{:?}", fx.commands());
+    assert!(queued(&app).is_empty());
+    assert_eq!(restored(&app), ["a", "b"].map(String::from).to_vec());
+    assert_eq!(thread(&app).turn(), &TurnState::Idle);
+}
+
+/// Pending steers come back too: rejected first, then pending, then queued.
+#[test]
+fn an_interrupted_turn_restores_rejected_pending_and_queued_in_order() {
+    let mut app = running();
+    let one = steers(&submit(&mut app, "rejected"));
+    run(
+        &mut app,
+        AppEv::Reply(one[0].0, Reply::failed("cannot steer a review turn")),
+    );
+    submit(&mut app, "pending");
+    tab(&mut app, "queued");
+    let fx = notification(&mut app, turn_interrupted(T, "turn-1"));
+    assert!(start_turns(&fx).is_empty());
+    assert_eq!(
+        restored(&app),
+        ["rejected", "pending", "queued"].map(String::from).to_vec()
+    );
+    assert!(pending_steers(&app).is_empty() && rejected_steers(&app).is_empty());
+}
+
+/// Esc with pending steers interrupts and then sends them as one message.
+#[test]
+fn esc_with_pending_steers_interrupts_and_submits_them_merged() {
+    let mut app = running();
+    submit(&mut app, "one");
+    submit(&mut app, "two");
+    tab(&mut app, "queued");
+    let fx = chat_intent(&mut app, chat::ThreadIntent::InterruptForSteers);
+    assert!(
+        matches!(fx.commands(), [Command::InterruptTurn { .. }]),
+        "{:?}",
+        fx.commands()
+    );
+    let fx = notification(&mut app, turn_interrupted(T, "turn-1"));
+    let turns = start_turns(&fx);
+    assert_eq!(turns.len(), 1, "{:?}", fx.commands());
+    assert_eq!(turns[0].1, "one\ntwo");
+    assert!(pending_steers(&app).is_empty());
+    assert_eq!(queued(&app), vec!["queued".to_string()], "the queue waits");
+    assert!(restored(&app).is_empty());
+}
+
+/// With no steer pending the key is the plain Esc: nothing is sent.
+#[test]
+fn the_steer_interrupt_without_steers_does_not_interrupt() {
+    let mut app = running();
+    let fx = chat_intent(&mut app, chat::ThreadIntent::InterruptForSteers);
+    assert!(fx.commands().is_empty());
+}
+
+/// The edit-queued key takes the newest queued message back into the composer.
+#[test]
+fn edit_queued_takes_the_newest_message_back() {
+    let mut app = running();
+    tab(&mut app, "a");
+    tab(&mut app, "b");
+    chat_intent(&mut app, chat::ThreadIntent::EditQueued);
+    assert_eq!(queued(&app), vec!["a".to_string()]);
+    assert_eq!(restored(&app), vec!["b".to_string()]);
+    assert!(
+        thread(&app)
+            .restore()
+            .is_some_and(codex_tui_core::threads::Restore::replaces)
+    );
+}
+
+/// While a turn is only starting (no turn id yet) Enter waits in the queue.
+#[test]
+fn enter_while_the_turn_is_starting_queues() {
+    let mut app = ready();
+    start_turns(&submit(&mut app, "one"));
+    let fx = submit(&mut app, "two");
+    assert!(steers(&fx).is_empty());
+    assert_eq!(queued(&app), vec!["two".to_string()]);
+}
+
+/// Restored images are renumbered in order so the merged placeholders agree.
+#[test]
+fn restored_messages_merge_with_renumbered_image_placeholders() {
+    use codex_tui_core::threads::LocalImage;
+    let image = |start, end| LocalImage {
+        path: "/tmp/a.png".into(),
+        range: start..end,
+    };
+    let mut app = running();
+    let with_image = UserMessage {
+        text: "[Image #1] first".into(),
+        images: vec![image(0, 10)],
+    };
+    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image.clone()));
+    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image));
+    notification(&mut app, turn_interrupted(T, "turn-1"));
+    let restore = thread(&app).restore().cloned().expect("restore");
+    let merged = restore.merged();
+    assert_eq!(merged.text, "[Image #1] first\n[Image #2] first");
+    assert_eq!(merged.images.len(), 2);
+    assert_eq!(merged.images[1].range, 17..27);
 }
