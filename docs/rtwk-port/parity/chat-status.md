@@ -82,6 +82,15 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
 - `tests/pages/status_data.rs` (old unowned test): one assertion changed (see Deltas).
 - `tests/oracle/pane_footer_2.rs` (un-pend of the Ctrl+C history-search test): in my area (widened on the record).
 
+## session_page.rs after the rebase onto af5799546 (chunk-live's file; tip's version + only these lines)
+- imports: `use crate::pages::session::footer::{Footer, Line, StatusRows};` replaces the `composer::footer` imports; `status_spans` replaces `status_line` in the `widgets::status_line` import;
+  `super::status_surfaces::{StatusContext, TitleInputs}`.
+- the composer arm of the bottom pane: `let mut hints: Option<Footer> = None;` before the `(composer, footer)` tuple; the Passive/Close/EscPrimed `Line` choice, `Footer { line, agents, draft_empty,
+  shell, on_queue, on_warnings }` (kept as `props`, cloned into `hints`) in place of `footer(cx, line)` + `with_shell_mode`; the follow control still wraps the Passive footer.
+- the `with_warning_notice` wrap: `searching.is_none() && thread.read_only()` (the composer's Footer carries its own notice).
+- the status row block: `status_spans(..)` and `StatusRows { spans, composer, hints }` in place of the `Row` + `Expanded(line)`.
+- the title block: `context.title(facts, TitleInputs { spinner, action_required })`; `titles.push(WindowTitle { title })` or `titles.push(TerminalTitle::new(title.text(None), ..))` (the tip's `titles` list kept).
+
 ## Needs (other owners)
 - Model facts the footer entries need (core, chat-live's area): collaboration mode (Plan indicator + cycle hint), goal status, IDE context, side conversation
   label / active, vim mode, active agent label, git summary, thread headline, per-thread usage. Until they exist the matching `footer_*` entries and the pane_footer_1
