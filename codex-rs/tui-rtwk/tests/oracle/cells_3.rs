@@ -302,14 +302,20 @@ fn unified_exec_interaction_cell_retains_detailed_wait() {
 // ORACLE history_cell/tests.rs:683 final_message_separator_preserves_runtime_metrics_for_short_turns kind=ui owner=chat-live
 #[test]
 fn final_message_separator_preserves_runtime_metrics_for_short_turns() {
-    kit::pending(
-        Owner::ChatLive,
-        "no final-message separator with runtime metrics on S11: the separator and its RuntimeMetricsSummary are not drawn, and no fixture step carries the summary",
-    );
     // The oracle renders at width 600 and expects exactly one row.
-    let s = Screen::build(Owner::ChatLive).size(600, 4).live().open();
-    s.assert_in_order(&[
-        "  Worked for 12s • Local tools:",
+    let s = Screen::build(Owner::ChatLive)
+        .size(600, 12)
+        .script(include_str!(
+            "fixtures/cells_3/final_message_separator_preserves_runtime_metrics_for_short_turns.jsonl"
+        ))
+        .open();
+    let Some(y) = s.rows().iter().position(|row| row.contains("Worked for")) else {
+        panic!("no separator row:\n{}", s.text());
+    };
+    // One row holds the whole label: it starts and ends on the row's first and last parts.
+    s.assert_row_starts_with(y, "  Worked for 12s • Local tools:");
+    s.assert_row_ends_with(y, "TBT: 1.2s (iapi) 1.2s (service)");
+    for part in [
         "Local tools: 3 calls (2.5s)",
         "Inference: 2 calls (1.2s)",
         "WebSocket: 1 events send (700ms)",
@@ -318,30 +324,34 @@ fn final_message_separator_preserves_runtime_metrics_for_short_turns() {
         "Responses API overhead: 650ms",
         "Responses API inference: 1.9s",
         "TTFT: 410ms (iapi) 460ms (service)",
-        "TBT: 1.2s (iapi) 1.2s (service)",
-    ]);
+    ] {
+        s.assert_contains(part);
+    }
 }
 
 // ORACLE history_cell/tests.rs:731 runtime_metrics_label_rounds_fractional_tbt_milliseconds kind=snap owner=chat-live
 #[test]
 fn runtime_metrics_label_rounds_fractional_tbt_milliseconds() {
-    kit::pending(
-        Owner::ChatLive,
-        "no final-message separator with a TBT runtime metric on S11: the label is part of the separator, which the cells screen does not draw yet",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 4).live().open();
-    s.assert_contains("TBT: 2ms (iapi) 5ms (service)");
+    let s = Screen::build(Owner::ChatLive)
+        .size(100, 12)
+        .script(include_str!(
+            "fixtures/cells_3/runtime_metrics_label_rounds_fractional_tbt_milliseconds.jsonl"
+        ))
+        .open();
+    // The oracle prints the label alone; here it follows the turn's elapsed time.
+    s.assert_has_row("  Worked for 12s • TBT: 2ms (iapi) 5ms (service)");
 }
 
 // ORACLE history_cell/tests.rs:742 final_message_separator_includes_worked_label_after_one_minute kind=ui owner=chat-live
 #[test]
 fn final_message_separator_includes_worked_label_after_one_minute() {
-    kit::pending(
-        Owner::ChatLive,
-        "no final-message separator on S11: the cells screen draws no 'Worked for' separator yet",
-    );
-    let s = Screen::build(Owner::ChatLive).size(200, 4).live().open();
-    s.assert_contains("Worked for");
+    let s = Screen::build(Owner::ChatLive)
+        .size(200, 12)
+        .script(include_str!(
+            "fixtures/cells_3/final_message_separator_includes_worked_label_after_one_minute.jsonl"
+        ))
+        .open();
+    s.assert_has_row("  Worked for 1m 1s");
 }
 
 // ORACLE history_cell/tests.rs:751 ps_output_empty_snapshot kind=snap owner=chat-live snap=ps_output_empty_snapshot

@@ -2181,6 +2181,87 @@ mod tool_cells_in_transcript {
 // ---- the series token (owed to the usage plot: oracle plot/painting.rs, the
 // terminal's cyan, magenta and green, then its own ink) ----
 
+// ---- the separator under a finished turn follows the host's facts: the clock setting and the
+// turn's runtime metrics arrive after the row is drawn and redraw it.
+mod separator_facts {
+    use codex_tui_core::app::{AppEv, BackendEv};
+    use codex_tui_core::fixtures::builders::{agent_completed, turn_started};
+    use codex_tui_core::ids::TurnId;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::cells::{ClockFormat, Ev, RuntimeMetrics, Totals, ViewerClock};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common::{self, Harness};
+
+    /// `turn/completed` of turn-1 with its duration and end time.
+    fn finished(duration_ms: i64, completed_at: i64) -> BackendEv {
+        match serde_json::from_value(json!({
+            "method": "turn/completed",
+            "params": {"threadId": FAKE_THREAD, "turn": {
+                "id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary",
+                "status": "completed", "error": null, "startedAt": null,
+                "completedAt": completed_at, "durationMs": duration_ms}}
+        })) {
+            Ok(notification) => BackendEv::Notification(Box::new(notification)),
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    fn separator() -> Harness {
+        let mut h = common::start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            turn_started(FAKE_THREAD, "turn-1"),
+            agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Done."),
+            // 2000-09-06 14:32 UTC, long before the viewer's today.
+            finished(125_000, 968_250_720),
+        ]);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the separator", |screen| {
+            screen.contains("Worked for 2m 5s")
+        });
+        h
+    }
+
+    fn cells(ev: Ev) -> AppEv {
+        AppEv::Screen(ScreenEv::Cells(ev))
+    }
+
+    #[test]
+    fn the_clock_setting_and_the_runtime_metrics_arrive_after_the_row_and_redraw_it() {
+        let mut h = separator();
+        h.inject([cells(Ev::Clock(ViewerClock {
+            format: ClockFormat::TwentyFourHour,
+            utc_offset: Some(0),
+        }))]);
+        h.wait_for("the 24-hour time with its date", |screen| {
+            screen.contains("Worked for 2m 5s • Sep 6, 2000 at 14:32")
+        });
+        h.inject([cells(Ev::Clock(ViewerClock {
+            format: ClockFormat::TwelveHour,
+            utc_offset: Some(0),
+        }))]);
+        h.wait_for("the 12-hour time", |screen| {
+            screen.contains("Worked for 2m 5s • Sep 6, 2000 at 2:32 PM")
+        });
+        h.inject([cells(Ev::RuntimeMetrics {
+            turn: TurnId::new("turn-1"),
+            metrics: RuntimeMetrics {
+                tool_calls: Totals {
+                    count: 1,
+                    duration_ms: 5,
+                },
+                ..RuntimeMetrics::default()
+            },
+        })]);
+        h.wait_for("the metrics after the time", |screen| {
+            screen.contains("at 2:32 PM • Local tools: 1 call (5ms)")
+        });
+    }
+}
+
 mod series_token {
     use std::rc::Rc;
 

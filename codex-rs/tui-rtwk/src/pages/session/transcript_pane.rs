@@ -218,6 +218,9 @@ impl State for ViewportState {
         let agent_style = tokens.dim().attrs(Attrs::DIM);
         let table = chat_strings::of(cx);
         let now = rtwk::provider::read::<ScreenStates, _>(cx).agents.now;
+        let clock = select::<ScreenStates, _, _>(cx, |states| states.cells.clock);
+        let metrics =
+            select::<ScreenStates, _, _>(cx, |states| states.cells.runtime_metrics.clone());
         let facts = select::<ScreenStates, _, _>(cx, |states| states.chat.status.clone());
         let cwd = thread
             .screen_slots()
@@ -444,9 +447,12 @@ impl State for ViewportState {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(row);
             if let Some(timing) = transcript.timing_after(range.end - 1) {
-                column = column.child(super::cells::separator::completion(
-                    timing, now, cells, &tokens,
-                ));
+                let facts = super::cells::separator::Facts {
+                    now,
+                    clock,
+                    metrics: metrics.get(&key.turn),
+                };
+                column = column.children(super::cells::separator::completion(timing, facts, cells));
             }
             let row: AnyWidget = column.into();
             row.with_key(Key::value(key.clone()))

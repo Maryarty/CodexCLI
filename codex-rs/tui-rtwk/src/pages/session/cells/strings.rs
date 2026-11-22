@@ -129,7 +129,34 @@ pub struct Strings {
     pub exit_ok: &'static str,
     pub exit_failed: &'static str,
     pub exit_status: &'static str,
+    // history_cell/separators.rs FinalMessageSeparator, with clock_format.rs
     pub worked_for: &'static str,
+    pub elapsed_hours: &'static str,
+    pub elapsed_minutes: &'static str,
+    pub elapsed_seconds: &'static str,
+    pub elapsed_under_a_second: &'static str,
+    pub stamp_other_day: &'static str,
+    pub stamp_other_year: &'static str,
+    pub time_twelve_hour: &'static str,
+    pub time_twenty_four_hour: &'static str,
+    pub separator_join: &'static str,
+    // history_cell/separators.rs runtime_metrics_label
+    pub metric_local_tools: &'static str,
+    pub metric_inference: &'static str,
+    pub metric_websocket_sent: &'static str,
+    pub metric_streams: &'static str,
+    pub metric_events_received: &'static str,
+    pub metric_overhead: &'static str,
+    pub metric_inference_time: &'static str,
+    pub metric_first_token: &'static str,
+    pub metric_between_tokens: &'static str,
+    pub metric_iapi: &'static str,
+    pub metric_service: &'static str,
+    pub metric_milliseconds: &'static str,
+    pub metric_seconds: &'static str,
+    pub metric_call: (&'static str, &'static str),
+    pub metric_stream: (&'static str, &'static str),
+    pub metric_event: (&'static str, &'static str),
     // history_cell/{mcp,mcp_preview,dynamic}.rs (MCP and dynamic calls)
     pub calling_tool: &'static str,
     pub called_tool: &'static str,
@@ -283,6 +310,31 @@ pub const EN: Strings = Strings {
     exit_failed: "✗",
     exit_status: " ({})",
     worked_for: "Worked for {}",
+    elapsed_hours: "{0}h {1}m {2}s",
+    elapsed_minutes: "{0}m {1}s",
+    elapsed_seconds: "{0}s",
+    elapsed_under_a_second: "<1s",
+    stamp_other_day: "%b %-d at ",
+    stamp_other_year: "%b %-d, %Y at ",
+    time_twelve_hour: "%-I:%M %p",
+    time_twenty_four_hour: "%H:%M",
+    separator_join: " • ",
+    metric_local_tools: "Local tools: {0} {1} ({2})",
+    metric_inference: "Inference: {0} {1} ({2})",
+    metric_websocket_sent: "WebSocket: {0} events send ({1})",
+    metric_streams: "{0}: {1} {2} ({3})",
+    metric_events_received: "{0} events received ({1})",
+    metric_overhead: "Responses API overhead: {0}",
+    metric_inference_time: "Responses API inference: {0}",
+    metric_first_token: "TTFT: {0}",
+    metric_between_tokens: "TBT: {0}",
+    metric_iapi: "{0} (iapi)",
+    metric_service: "{0} (service)",
+    metric_milliseconds: "{0}ms",
+    metric_seconds: "{0}s",
+    metric_call: ("call", "calls"),
+    metric_stream: ("Stream", "Streams"),
+    metric_event: ("event", "events"),
     calling_tool: "Calling",
     called_tool: "Called",
     failed_tool: "Failed",
@@ -339,6 +391,15 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
 }
 
 impl Strings {
+    /// `template` with `{0}`, `{1}`, ... read as `args`.
+    pub fn fill(&self, template: &str, args: &[&str]) -> String {
+        args.iter()
+            .enumerate()
+            .fold(template.to_owned(), |text, (index, arg)| {
+                text.replace(&["{", &index.to_string(), "}"].concat(), arg)
+            })
+    }
+
     /// `template` with its `{}` read as `arg`.
     pub fn label(&self, template: &str, arg: &str) -> String {
         template.replace("{}", arg)

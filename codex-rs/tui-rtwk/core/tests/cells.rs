@@ -1308,3 +1308,71 @@ fn a_computer_failure_reads_as_its_first_line_of_words() {
         (None, Some("Open"))
     );
 }
+
+// ---- host facts of the separators (oracle history_cell/separators.rs): the viewer's wall clock
+// (12/24-hour setting; a fixed zone only where the machine's must not matter) and a turn's
+// runtime metrics. The oracle's defaults hold until the host says otherwise: 12-hour time in the
+// process's local zone, and no metrics.
+
+mod separator_facts {
+    use codex_tui_core::fixtures::sandbox::Sandbox;
+    use codex_tui_core::ids::TurnId;
+    use codex_tui_core::screens::cells::{ClockFormat, RuntimeMetrics, Totals, ViewerClock};
+    use pretty_assertions::assert_eq;
+
+    const TWENTY_FOUR: &str = r#"{"step":"screen","dir":"cells","ev":{"kind":"clock","format":"twenty_four_hour","utc_offset":0}}"#;
+    const METRICS: &str = r#"{"step":"screen","dir":"cells","ev":{"kind":"runtime_metrics","turn":"turn-1","metrics":{"tool_calls":{"count":3,"duration_ms":2450},"responses_api_engine_iapi_tbt_ms":1.5}}}"#;
+    const NEWER: &str = r#"{"step":"screen","dir":"cells","ev":{"kind":"runtime_metrics","turn":"turn-1","metrics":{"api_calls":{"count":1,"duration_ms":10}}}}"#;
+
+    fn turn() -> TurnId {
+        TurnId::new("turn-1")
+    }
+
+    fn cells(script: &str) -> codex_tui_core::screens::cells::Model {
+        Sandbox::play(script)
+            .expect("plays")
+            .app()
+            .screens()
+            .cells
+            .clone()
+    }
+
+    #[test]
+    fn the_clock_is_twelve_hour_local_time_until_the_host_says_otherwise() {
+        assert_eq!(
+            cells("").clock,
+            ViewerClock {
+                format: ClockFormat::TwelveHour,
+                utc_offset: None
+            }
+        );
+        assert_eq!(
+            cells(TWENTY_FOUR).clock,
+            ViewerClock {
+                format: ClockFormat::TwentyFourHour,
+                utc_offset: Some(0)
+            }
+        );
+    }
+
+    #[test]
+    fn a_turns_metrics_are_kept_by_turn_and_the_latest_totals_replace_the_earlier() {
+        assert!(cells("").runtime_metrics.is_empty());
+        let one = cells(METRICS);
+        assert_eq!(
+            one.runtime_metrics[&turn()],
+            RuntimeMetrics {
+                tool_calls: Totals {
+                    count: 3,
+                    duration_ms: 2450
+                },
+                responses_api_engine_iapi_tbt_ms: 1.5,
+                ..RuntimeMetrics::default()
+            }
+        );
+        let later = cells(&format!("{METRICS}\n{NEWER}"));
+        assert_eq!(later.runtime_metrics.len(), 1);
+        assert_eq!(later.runtime_metrics[&turn()].tool_calls, Totals::default());
+        assert_eq!(later.runtime_metrics[&turn()].api_calls.count, 1);
+    }
+}

@@ -4,13 +4,20 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+mod clock;
 pub mod local_links;
+mod metrics;
+
+pub use clock::{ClockFormat, ViewerClock};
+pub use metrics::{RuntimeMetrics, Totals};
+
+use std::collections::BTreeMap;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::ids::ThreadId;
+use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
@@ -38,6 +45,10 @@ pub enum LinkDisplay {
 pub struct Model {
     /// How web links of a message are written; the oracle's default until the host knows.
     pub link_display: LinkDisplay,
+    /// The viewer's 12/24-hour setting (and zone), for the separator's time.
+    pub clock: ViewerClock,
+    /// The runtime metrics of a turn (its id), as the host last reported them.
+    pub runtime_metrics: BTreeMap<TurnId, RuntimeMetrics>,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -46,6 +57,13 @@ pub struct Model {
 pub enum Ev {
     /// What the host found out about the terminal's hyperlinks.
     LinkDisplay(LinkDisplay),
+    /// What the host found out about the viewer's clock.
+    Clock(ViewerClock),
+    /// The totals so far of one turn's runtime metrics (they replace the earlier ones).
+    RuntimeMetrics {
+        turn: TurnId,
+        metrics: RuntimeMetrics,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -56,6 +74,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::LinkDisplay(display) => model.link_display = display,
+        Ev::Clock(clock) => model.clock = clock,
+        Ev::RuntimeMetrics { turn, metrics } => {
+            model.runtime_metrics.insert(turn, metrics);
+        }
     }
 }
 
@@ -116,7 +138,9 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// A script's `screen` step for this directory: the event `value` stands for
 /// (`fixtures::script`). None is seedable yet; the slice gives its events a
 /// serde form here and reads it, so the shared loader never changes.
-/// `{"kind": "link_display", "display": "label_only" | "with_destination"}`.
+/// `{"kind": "link_display", "display": "label_only" | "with_destination"}`,
+/// `{"kind": "clock", "format": "twelve_hour" | "twenty_four_hour", "utc_offset": seconds}`,
+/// `{"kind": "runtime_metrics", "turn": id, "metrics": {"tool_calls": {"count": n, "duration_ms": n}, ..}}`.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
@@ -125,13 +149,35 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             SeedLinkDisplay::LabelOnly => LinkDisplay::LabelOnly,
             SeedLinkDisplay::WithDestination => LinkDisplay::WithDestination,
         }),
+        SeedEv::Clock {
+            format,
+            utc_offset,
+        } => Ev::Clock(ViewerClock {
+            format,
+            utc_offset,
+        }),
+        SeedEv::RuntimeMetrics { turn, metrics } => Ev::RuntimeMetrics {
+            turn: TurnId::new(turn),
+            metrics,
+        },
     })
 }
 
 #[derive(serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
-    LinkDisplay { display: SeedLinkDisplay },
+    LinkDisplay {
+        display: SeedLinkDisplay,
+    },
+    Clock {
+        format: ClockFormat,
+        #[serde(default)]
+        utc_offset: Option<i32>,
+    },
+    RuntimeMetrics {
+        turn: String,
+        metrics: RuntimeMetrics,
+    },
 }
 
 #[derive(serde::Deserialize)]

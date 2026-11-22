@@ -1,0 +1,5 @@
+# Oracle data of codex-tui history_cell/tests.rs:731 (the oracle prints the metrics label alone; here it follows the elapsed time of a finished turn) (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"screen","dir":"cells","ev":{"kind":"runtime_metrics","turn":"turn-1","metrics":{"responses_api_engine_iapi_tbt_ms":2.450638,"responses_api_engine_service_tbt_ms":5.267279}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"error":null,"startedAt":null,"items":[],"itemsView":"full","status":"inProgress","completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"error":null,"startedAt":null,"items":[{"type":"agentMessage","moderation":null,"id":"msg-1","text":"Done.","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null}],"itemsView":"summary","status":"completed","completedAt":null,"durationMs":12000}}}}
