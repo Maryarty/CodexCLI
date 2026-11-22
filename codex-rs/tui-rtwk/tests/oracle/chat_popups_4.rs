@@ -267,15 +267,28 @@ fn model_picker_refresh_preserves_highlight() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3536 model_picker_refreshes_service_tier_controls kind=snap owner=dialogs-pane snap=model_picker_refreshes_service_tier_controls
 #[test]
 fn model_picker_refreshes_service_tier_controls() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: the speed (service tier) controls of the fast-mode catalog and the /fast composer line have no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 3).live().open();
+    // the config says fast; the catalog first gives the model the tier, then takes it away
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
+    let fast = include_str!("fixtures/chat_popups_4/fast_catalog.json").trim();
+    let refreshed = include_str!("fixtures/chat_popups_4/no_tiers.json").trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{fast}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","service_tier":"priority","cwd":"/tmp/project"}}}}}}"#
+    ));
     s.type_text("/model");
-    s.keys("enter esc");
+    s.keys("enter");
+    s.keys("esc");
     s.type_text("/fast");
-    s.assert_snap("model_picker_refreshes_service_tier_controls");
+    s.assert_contains("/fast");
+    s.keys("ctrl+u");
+    s.feed(&format!(r#"{{"step":"respond","method":"model/list","result":{refreshed}}}"#));
+    s.type_text("/model");
+    s.keys("enter");
+    s.keys("esc");
+    // the model no longer offers a tier: the effective tier is none and `/fast` lists nothing
+    s.type_text("/fast");
+    let row = s.rows().iter().position(|r| r.starts_with("› /fast")).expect("the composer row");
+    s.assert_snap_region("model_picker_refreshes_service_tier_controls", row, 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3561 model_picker_refresh_preserves_dismissal_and_reasoning_submenu kind=snap owner=dialogs-pane snap=model_selection_popup

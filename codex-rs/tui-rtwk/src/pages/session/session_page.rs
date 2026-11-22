@@ -764,6 +764,7 @@ impl State for ChatState {
             rate_limits: session.rate_limits.get(&backend),
             run_state: Some(run.word(&session, reconnecting)),
             strings,
+            catalog: &states.select.catalog,
         };
         let line = status_spans(context.items_for(facts), facts.colors, &tokens);
         // The backend control above the composer (`rendering.rs`,

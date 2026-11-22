@@ -429,6 +429,38 @@ pub fn tier_commands(
     }
 }
 
+/// `effective_service_tier`: the tier the thread runs on. `configured` is the thread's own tier,
+/// else the config's. The flex tier stands; a model the catalog does not know keeps a configured
+/// tier its feature allows; a known model keeps `default` and the tiers it offers, and runs on its
+/// own default tier when none is configured. Every tier needs its feature.
+pub fn effective_service_tier(
+    status: &StatusFacts,
+    configured: Option<&str>,
+    model: Option<&str>,
+    catalog: &Catalog,
+) -> Option<String> {
+    let enabled = |id: &str| match id {
+        "flex" => true,
+        "ultrafast" => status.ultrafast_mode,
+        _ => status.fast_mode,
+    };
+    if configured == Some("flex") {
+        return configured.map(str::to_owned);
+    }
+    let preset = model.and_then(|model| catalog.presets.iter().find(|preset| preset.model == model));
+    let Some(preset) = preset else {
+        return configured.filter(|tier| enabled(tier)).map(str::to_owned);
+    };
+    let offers = |id: &str| preset.service_tiers.iter().any(|tier| tier.id == id);
+    match configured {
+        Some("default") => configured.map(str::to_owned),
+        Some(tier) if offers(tier) => Some(tier.to_owned()),
+        Some(_) => None,
+        None => preset.default_service_tier.clone().filter(|tier| offers(tier)),
+    }
+    .filter(|tier| enabled(tier))
+}
+
 /// The footer's facts of the shown thread, one projection of the parts that hold them
 /// (oracle `collaboration_mode_label`, `collaboration_mode_indicator`, `FooterProps`).
 #[derive(Clone, Debug, PartialEq, Eq)]

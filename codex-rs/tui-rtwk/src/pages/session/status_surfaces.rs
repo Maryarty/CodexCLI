@@ -17,6 +17,8 @@ pub(super) struct StatusContext<'a> {
     pub rate_limits: Option<&'a status::RateLimits>,
     pub run_state: Option<&'a str>,
     pub strings: &'a Shared,
+    /// The model catalog: the tier the model runs on and its name.
+    pub catalog: &'a codex_tui_core::screens::select::models::Catalog,
 }
 
 impl StatusContext<'_> {
@@ -95,6 +97,7 @@ impl StatusContext<'_> {
         let model = thread
             .and_then(|thread| thread.model.as_deref())
             .or_else(|| facts.model_name());
+        let slug = model;
         let model = model.map(|model| {
             if model.eq_ignore_ascii_case("gpt-reserve") {
                 "Luna Reserve"
@@ -102,26 +105,47 @@ impl StatusContext<'_> {
                 model
             }
         });
+        // the catalog's name of the model, else the slug (`model_display_name`)
+        let model = model.map(|model| {
+            self.catalog
+                .presets
+                .iter()
+                .find(|preset| Some(preset.model.as_str()) == slug)
+                .map_or(model, |preset| preset.name.as_str())
+        });
         let effort = thread
             .and_then(|thread| thread.effort.as_deref())
             .unwrap_or_else(|| facts.effort_label());
         let tier = thread
             .and_then(|thread| thread.service_tier.as_ref())
             .map_or(facts.service_tier.as_deref(), |tier| tier.as_deref());
-        let fast = tier == Some("priority");
+        let tier = chat::facts::effective_service_tier(facts, tier, slug, self.catalog);
+        // `processing_tier_display_name`: the name the model's catalog entry gives the tier;
+        // without one the fast tier is `Fast`
+        let tier_name = tier.as_deref().and_then(|id| {
+            let offered = slug.and_then(|slug| self.catalog.presets.iter().find(|p| p.model == slug));
+            offered
+                .and_then(|preset| preset.service_tiers.iter().find(|t| t.id == id))
+                .map(|t| t.name.clone())
+                .or_else(|| {
+                    (id == "flex" && facts.provider.as_deref() != Some("amazon-bedrock"))
+                        .then(|| "Flex".to_string())
+                })
+                .or_else(|| (id == "priority").then(|| "Fast".to_string()))
+        });
         let usage = self.usage.filter(|usage| usage.received);
         let tokens = usage.map(|usage| usage.tokens);
         let context_usage = usage.and_then(|usage| usage.context);
         match id {
             "model" | "model-name" => model.map(str::to_owned),
             "model-with-reasoning" => model.map(|model| {
-                if fast {
-                    self.strings.status_model_fast(model, effort)
-                } else {
-                    format!("{model} {effort}")
+                match &tier_name {
+                    Some(name) if name == "Fast" => self.strings.status_model_fast(model, effort),
+                    Some(name) => format!("{model} {effort} {}", name.to_lowercase()),
+                    None => format!("{model} {effort}"),
                 }
             }),
-            "fast-mode" => Some(if fast { "Fast" } else { "Standard" }.to_string()),
+            "fast-mode" => Some(tier_name.unwrap_or_else(|| "Standard".to_string())),
             // the preference is off until the thread says it is on (`daybreak_enabled` is false by default)
             "daybreak" => Some(
                 if thread.and_then(|thread| thread.daybreak).unwrap_or(false) {
