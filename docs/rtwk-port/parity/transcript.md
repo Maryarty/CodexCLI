@@ -186,3 +186,65 @@ App-level (core/app): nothing touched.
 Selection and copy, find, copy and select modes, disclosure focus, the pager (Ctrl+T)
 stay pending in the shards with their reasons; the footer for selection and search is
 the oracle's `footer.rs` rows still to build on the same `footer()` seam.
+
+---
+
+# Chunk `chunk-transcript` (tier 2): state at the first handoff
+
+Branch `worktree-agent-a78257323a3aeb7ab`, on `claude/tui-rtwk` at cabe0b853. Step 2's
+sheet is done; step 2's /diff and steps 3-10 are not started. Nothing in the tree is red.
+
+## Done
+
+| step | what | where |
+|---|---|---|
+| 1 (part) | the 2 static snapshots live and 3 `kit::na` (ratatui renderable internals); the 18 transcript-overlay tests keep `kit::missing("the transcript sheet, step 9")` | `tests/oracle/pager.rs` |
+| 2 (sheet) | `StaticPager`: the `/ ` title row, the text from `parse_ansi` in a `SingleChildScrollView` over a `~` filler (`LayoutBuilder` + `Stack`), the rule with ` N% ` (`ListenableBuilder` over the `ScrollController`), the hint rows, the Pager keys (up/down/k/j, pgup/pgdn/space/shift+space/ctrl+b/f, ctrl+u/d half pages rounded up, home/end, q/ctrl+c close, Enter = the action when the doc has one) | `src/pages/session/transcript/pager.rs`, strings in `transcript/strings.rs` |
+| 2 (model) | the document is the model's: `transcript::Model.pager: Option<PagerDoc{title,text,action}>`, `Ev::Pager`, `Intent::ClosePager`; the fixture seed `{"kind":"pager",...}` runs through `apply` | `core/src/screens/transcript.rs` |
+| 2 (entries) | debug entries `pager_basic`, `pager_wraps_long_lines`, `pager_long`, `pager_colors`, `pager_action` | `transcript/mod.rs`, `transcript/fixtures/*.jsonl` |
+| tests | 11 page tests, the half-page rounding shown biting once: text at column 0, one-row scroll, pages, half pages, home/end, percent, wheel, q/ctrl+c close, the action key listed and bound only with an action, ANSI colours, hint clipping | `tests/pages/transcript_pager.rs` |
+
+Oracle shards after this commit (`summary.py --run`; real pass / n/a / pending):
+pager 2 / 3 / 18 (before 0 / 0 / 23), transcript_view_1 12 / 1 / 38, _2 5 / 7 / 40, _3 1 / 34 / 15,
+_4 0 / 1 / 59, _5 1 / 9 / 49 (the last five as tier 1 left them). Checks that ran: `clippy
+--all-targets -D warnings` exit 0, the 11 new page tests. Not re-run: whole nextest, `--workspace`.
+
+A `Column` centres its children across by default (Flutter's `CrossAxisAlignment.center`): the
+pager's text rows were centred in the width of the widest one until `CrossAxisAlignment::Stretch`.
+
+## Location note (for popups)
+
+The brief put the sheet in `src/sheets/pager/`; registering it needs `pub mod pager;` in
+`src/sheets/mod.rs` (chunk-popups'). It is at `src/pages/session/transcript/pager.rs`
+(`pub struct StaticPager`, a route widget: `Navigator` push, or a debug entry `EntryOpen::Route`).
+Another chunk that opens it (approvals, provider details, /diff) sends `transcript::Ev::Pager(PagerDoc)`
+through `apply`, then pushes `StaticPager`. Moving it under `sheets/` is a rename and one `mod` line.
+
+## Needs from other owners (exact)
+
+1. **chunk-live, `src/pages/session/session_page.rs`**: every keyboard behaviour of steps 3-8 needs it.
+   A `ModeKeys` wrapper (to build in `transcript/mode.rs`: a `Focus` with the mode's bindings that is not
+   handled when the controller has nothing to do) around `body`, inside the page's own `Focus`;
+   `ChatMsg::Escape` and `Action::OpenTranscript`/`FindTranscript` forward to the controller
+   (`w.ui.mode`) first; `detailed_transcript` and `esc_primed` become the controller's state. About
+   30 lines, as the brief says.
+2. **keymap, `core/src/app.rs`**: `Command::GitDiff{cwd,ticket}`, `Ev::GitDiff{ticket,Result<(bool,String),String>}`,
+   `Intent::EditPrompt{thread,nth}`; `tests/kit/seed.rs`: `history_pages`, shift/right/triple click, key release.
+3. **chunk-live, `core/src/threads.rs`** (and cells' `threads/user_prompt.rs`): the Revert command in
+   ThreadFx and the ThreadReverted apply arm; `UserPrompt` keeps local/remote images and element placeholders.
+4. **composer**: `ComposerDraft::restore(UserPrompt)`.
+5. **commands**: `/diff` -> `Command::GitDiff` (today `Target::Pager`), the owned `/copy` branch.
+
+## Left, in the brief's order
+
+- Step 2 rest, /diff end to end: the pure argv builders of `get_git_diff.rs` into
+  `core/src/screens/transcript/diff.rs` (rev-parse, fsmonitor probe, filter config, tracked diff, `ls-files
+  --others`, per-file `--no-index`); the runner in `services/shell.rs`; `Target::Pager` in `open.rs` opens
+  `StaticPager` when the doc arrives. The wiring waits on need 2; builders and runner can land first (no
+  oracle test registers `get_git_diff.rs`).
+- Step 4, selection and copy: `ItemTexts` says the text of an item equals the texts of the `Text`s it builds,
+  joined by "\n". The pane's rows are the cells' widgets (gutters are `Text`s too), so `TranscriptTexts`
+  needs a text per `Item` kind from the cells chunk, and a way to leave the gutters out of the payload.
+  Settle with chunk-cells before building: a `fn texts(&Item) -> Vec<String>` beside each cell, tested to
+  equal the rendered rows. The Markdown copy source is the brief's D2 / G-new row.
+- Steps 3 and 5-10 as in the brief §6; the seam for the key-driven ones is need 1.
