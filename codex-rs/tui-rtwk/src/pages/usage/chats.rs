@@ -190,7 +190,7 @@ impl Say<'_> {
         let secondary = &look.secondary;
         Some(match line {
             ChatLine::Blurb => self.secondary(strings.chat_blurb),
-            ChatLine::Message(text) => self.secondary(text.clone()),
+            ChatLine::Message(note) => self.secondary(strings.note(note).to_owned()),
             ChatLine::NoRecent => self.secondary(strings.chat_none),
             ChatLine::Missing(count) => self.secondary(strings.chat_missing(*count, num)),
             ChatLine::Blank => Item::one(gap()),
@@ -453,9 +453,10 @@ impl Say<'_> {
             } else {
                 strings.task_basis_limit
             }),
-            TaskLine::Message(text) => self.plain(
-                text.clone()
-                    .unwrap_or_else(|| strings.task_no_report.to_owned()),
+            TaskLine::Message(note) => self.plain(
+                note.as_ref()
+                    .map_or(strings.task_no_report, |note| strings.note(note))
+                    .to_owned(),
             ),
             TaskLine::NoRecent => self.plain(strings.chat_none),
             TaskLine::Partial { partial, missing } => {

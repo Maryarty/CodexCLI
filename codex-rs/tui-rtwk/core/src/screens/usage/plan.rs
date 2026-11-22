@@ -288,7 +288,7 @@ pub enum Line {
     /// The history is not shown: it has not been asked for.
     Unavailable,
     /// The history is not shown: what its load says (loading, an error).
-    Notice(String),
+    Notice(super::Note),
     /// The `index`-th period of table `window`: its span, whether it is the
     /// one in progress, the used share
     /// as the number shown (none: not available), the row under the cursor
@@ -345,9 +345,7 @@ impl super::Model {
             let Some(report) = report else {
                 lines.push(match &self.plan {
                     super::Load::Unavailable => Line::Unavailable,
-                    load => load.message().map_or(Line::Unavailable, |message| {
-                        Line::Notice(message.to_owned())
-                    }),
+                    load => load.note().map_or(Line::Unavailable, Line::Notice),
                 });
                 return lines;
             };

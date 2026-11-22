@@ -9,8 +9,8 @@
 use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::models::{AccountAnalyticsHistory, AccountAnalyticsUnit};
 use codex_tui_core::screens::usage::{
-    AccountReply, Ask, AskKind, Control, Ev, Intent, Load, Model, ReportReply, Section, Stamp,
-    settle, step,
+    AccountReply, Ask, AskKind, Control, Ev, GroupName, Intent, Load, Model, Note, ReportReply,
+    Section, Stamp, settle, step,
 };
 use pretty_assertions::assert_eq;
 
@@ -155,13 +155,13 @@ fn account_layouts_show_the_reports_of_each_kind() {
 }
 
 #[test]
-fn tabs_are_named_per_account_kind() {
+fn the_usage_tab_is_the_business_one_per_account_kind() {
+    // The words of the tabs live in the page's string table; the core only
+    // says which account kind a tab is for.
     let (consumer, _) = opened(PlanType::Plus);
     let (business, _) = opened(PlanType::Business);
-    assert_eq!(consumer.tab_label(Section::Usage), "Usage");
-    assert_eq!(business.tab_label(Section::Usage), "Tokens");
-    assert_eq!(consumer.tab_label(Section::Summary), "Overview");
-    assert_eq!(consumer.tab_label(Section::Activity), "Messages");
+    assert!(!consumer.business());
+    assert!(business.business());
 }
 
 #[test]
@@ -185,8 +185,8 @@ fn account_pending_and_error_start_no_report() {
     );
     assert!(asks.is_empty());
     assert_eq!(
-        model.account.message(),
-        Some("Sign in again to view Analytics.")
+        model.account.note(),
+        Some(Note::Error("Sign in again to view Analytics.".to_owned()))
     );
     assert!(model.visible_sections().is_empty());
     assert!(
@@ -356,7 +356,7 @@ fn an_unattributed_consumer_falls_back_to_the_product_grouping() {
     assert_eq!(model.groups[Section::Usage as usize], 0);
     step(&mut model, Intent::Select(Section::Usage));
     assert_eq!(model.group_options(), [0, 2]);
-    assert_eq!(model.group_label(Section::Usage, 0), "Product");
+    assert_eq!(model.group_name(Section::Usage, 0), GroupName::Product);
 }
 
 #[test]

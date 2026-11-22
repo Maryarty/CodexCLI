@@ -9,7 +9,7 @@ use codex_tui_core::screens::usage::plan::{
     self, Data, Dimension, Line, Note, PlanStep, Pos, Report,
 };
 use codex_tui_core::screens::usage::{
-    AccountReply, Ask, AskKind, Ev, Intent, Load, Model, Section, settle, step,
+    AccountReply, Ask, AskKind, Ev, Intent, Load, Model, Note as LoadNote, Section, settle, step,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -155,8 +155,10 @@ fn the_reply_settles_the_load_of_its_stamp_only() {
         },
     );
     assert_eq!(
-        other.plan.message(),
-        Some("Unsupported plan history window.")
+        other.plan.note(),
+        Some(LoadNote::Error(
+            "Unsupported plan history window.".to_owned()
+        ))
     );
     settle(
         &mut model,

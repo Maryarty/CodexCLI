@@ -40,7 +40,7 @@ pub mod sections;
 pub mod tokens;
 
 pub use activity::TokenActivityView;
-pub use data::{Load, Stamp};
+pub use data::{GroupName, Load, Note, Stamp};
 pub use date::NaiveDate;
 pub use models::{AccountAnalyticsHistory as History, AccountKind};
 pub use sections::{Control, RangeGroup, Section};

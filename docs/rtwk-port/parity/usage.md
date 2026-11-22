@@ -245,3 +245,24 @@ Branch `worktree-agent-afdce575fa199675f`. The asks of core run as `Command::Usa
   run only against a real sign-in, so the binary scenario shows the sign-in error text of a machine with none.
 - The English of the load errors (`Request timed out...`, the report errors, `Untitled chat`) is in the host as in
   the oracle's data layer; step 5 may give core a typed error if the person wants them in the string tables.
+
+## chunk-usage, step 4: the usage menu and reset credits (not built, blocked)
+Oracle rows: `chat_live_6.rs:12-394` (the `/usage` menu of the rate-limit prompt, the reset-credit actions). They stay
+`kit::pending` in `tests/oracle/chat_live_6.rs` (owner chat-live).
+### Needs
+- Core data: the reset-credit state and the rate-limit origin (`RateLimitOrigin`) exist nowhere in core or on
+  `claude/tui-rtwk`; they come with the account/rate-limit snapshot of core-wiring (`core/src/protocol/`,
+  `core/src/app.rs`, `app/session.rs`, `commands/dispatch.rs`) and status-card step 3 (the `/status` card reads the same
+  snapshot). The menu itself is a chat popup (chunk-popups) opening `UsagePage` or the credit reset ask; nothing in
+  `src/pages/usage/` is missing for it once the data is there.
+
+## chunk-usage, step 5 (subset): English out of core
+- Core no longer holds prose: `tab_label` (the page already names its tabs from `Strings`), `TokenActivityView::label`,
+  `models::plan_label`, `GROUP_LABELS`/`group_label` and `Load::message` are gone. Typed values replace them:
+  `GroupName` (+ `Model::group_name`), `Note` (`Loading`/`Unavailable`/`Error(host text)` from `Load::note`), carried by
+  `Left::Group`, `ChatLine::Message`, `TaskLine::Message`, `plan::Line::Notice`.
+- `src/pages/usage/strings.rs` gains `plan_name`, `group_name`, `note` and their fields (oracle `SubscriptionDisplay::
+  Analytics`, `GROUP_LABELS`, `Load::message`), byte for byte.
+- Left as debt: the host's load errors (`Request timed out...`, report errors, `Untitled chat`) are English in the host
+  as in the oracle's data layer; the normalize/tokens/plan error texts and the activity/month strings in core
+  (`core/src/screens/usage/{normalize,activity,date}`) are still prose in core and want typed errors in a later step.

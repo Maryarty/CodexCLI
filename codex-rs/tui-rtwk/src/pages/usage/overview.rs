@@ -15,7 +15,6 @@ use rtwk::{AnyWidget, LayoutBuilder};
 
 use codex_tui_core::screens::usage::activity::{CHART_LEFT_WIDTH, Caption, Chart, Square, VIEWS};
 use codex_tui_core::screens::usage::data::compact_amount;
-use codex_tui_core::screens::usage::models::plan_label;
 use codex_tui_core::screens::usage::profile::{
     InvocationKind, Profile, Stats, count_value, duration, percent,
 };
@@ -37,9 +36,9 @@ pub fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width:
     let profile = match &model.profile {
         Load::Ready(profile) => profile.clone(),
         other => {
-            return other
-                .message()
-                .map_or_else(nothing, |message| line(message, Style::default()).into());
+            return other.note().map_or_else(nothing, |note| {
+                line(strings.note(&note).to_owned(), Style::default()).into()
+            });
         }
     };
     let inner = width.min(BLOCK);
@@ -94,8 +93,9 @@ pub fn card(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, fit: F
             vec![Item::new(widget, rows)]
         }
         other => other
-            .message()
-            .map(|message| {
+            .note()
+            .map(|note| {
+                let message = strings.note(&note);
                 Item::new(
                     Text::new(message.to_owned()).wrap(TextWrap::Word),
                     fit.rows(message),
@@ -135,9 +135,8 @@ fn identity(model: &Model, profile: &Profile, strings: &Strings, look: &Look) ->
     }
     if let Some(plan) = model.account.ready() {
         rows += 1;
-        column = column.child(centred(plan_label(*plan).to_owned(), &look.dim));
+        column = column.child(centred(strings.plan_name(*plan).to_owned(), &look.dim));
     }
-    let _ = strings;
     Item::new(column.child(gap()), rows)
 }
 

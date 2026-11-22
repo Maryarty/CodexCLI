@@ -227,7 +227,7 @@ impl Deck {
             say(strings.card_range(long, filter, num));
         }
         if let Some(group) = lead.group {
-            say(strings.card_group(model.group_label(section, group), num));
+            say(strings.card_group(model.group_name(section, group), num));
         }
         let shown = report::Shown {
             cursor: cursors[section as usize],

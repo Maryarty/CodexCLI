@@ -125,7 +125,9 @@ impl Say<'_> {
                 look.secondary.clone(),
                 room,
             ),
-            Line::Notice(text) => words(text.clone(), look.secondary.clone(), room),
+            Line::Notice(note) => {
+                words(strings.note(note).to_owned(), look.secondary.clone(), room)
+            }
             Line::Period {
                 window,
                 index,

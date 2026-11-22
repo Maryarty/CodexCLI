@@ -25,7 +25,6 @@ use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget
 
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::usage::chats::Pos as ChatPos;
-use codex_tui_core::screens::usage::models::plan_label;
 use codex_tui_core::screens::usage::plan::{PlanStep, Pos as PlanPos};
 use codex_tui_core::screens::usage::{
     Control, Intent as UsageIntent, Model, Section, TokenActivityView,
@@ -373,7 +372,7 @@ fn tab_name(strings: &Strings, model: &Model, section: Section) -> &'static str 
 /// The heading: the plan and the account (oracle: `render.rs`).
 fn heading(model: &Model, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
     let title = match model.account.ready() {
-        Some(plan) => strings.heading_with(plan_label(*plan), num),
+        Some(plan) => strings.heading_with(strings.plan_name(*plan), num),
         None => strings.heading.to_string(),
     };
     let mut spans = vec![Span::styled(title, look.bold.clone())];
@@ -487,7 +486,12 @@ impl Page<'_> {
                 .into();
         }
         if model.visible_sections().is_empty() {
-            let message = model.account.message().unwrap_or(strings.not_available);
+            let message = model
+                .account
+                .note()
+                .map_or(strings.not_available.to_owned(), |note| {
+                    strings.note(&note).to_owned()
+                });
             return line(message, Style::default()).wrap(TextWrap::Word).into();
         }
         if !self.shown.zoomed {
@@ -616,7 +620,10 @@ impl Page<'_> {
                 vec![
                     key(strings.group_key),
                     blank(),
-                    Span::styled(model.group_label(model.section, group), Style::default()),
+                    Span::styled(
+                        strings.group_name(model.group_name(model.section, group)),
+                        Style::default(),
+                    ),
                 ],
                 &taps.group,
             ));

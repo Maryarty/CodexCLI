@@ -13,7 +13,10 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_protocol::account::PlanType;
+use codex_tui_core::screens::usage::GroupName;
 use codex_tui_core::screens::usage::NaiveDate;
+use codex_tui_core::screens::usage::Note;
 use codex_tui_core::screens::usage::report::Unit;
 
 use crate::l10n::Lang;
@@ -46,6 +49,35 @@ pub struct Strings {
     pub tab_skills: &'static str,
     pub tab_chats: &'static str,
     pub tab_plan: &'static str,
+    /// Oracle: `subscription.rs`, `SubscriptionDisplay::Analytics`: the
+    /// subscription's name on the heading and the profile block.
+    plan_free: &'static str,
+    plan_go: &'static str,
+    plan_plus: &'static str,
+    plan_pro: &'static str,
+    plan_pro_lite: &'static str,
+    plan_pro_max: &'static str,
+    plan_business: &'static str,
+    plan_enterprise: &'static str,
+    plan_education: &'static str,
+    plan_sci: &'static str,
+    plan_sci_plus: &'static str,
+    plan_account: &'static str,
+    /// Oracle: `GROUP_LABELS` and the Overview's chart views.
+    group_surface: &'static str,
+    group_feature: &'static str,
+    group_model: &'static str,
+    group_turn_start: &'static str,
+    group_speed: &'static str,
+    group_reasoning: &'static str,
+    group_token_type: &'static str,
+    group_product: &'static str,
+    group_daily: &'static str,
+    group_weekly: &'static str,
+    group_cumulative: &'static str,
+    /// Oracle: `Load::message`: what a load says before it is ready.
+    note_loading: &'static str,
+    note_unavailable: &'static str,
     /// Oracle: `controls.rs`: the range, group and model controls.
     pub range_key: &'static str,
     pub range_week: &'static str,
@@ -296,6 +328,31 @@ pub const EN: Strings = Strings {
     tab_skills: "Skills",
     tab_chats: "Chats",
     tab_plan: "Plan",
+    plan_free: "Free",
+    plan_go: "Go",
+    plan_plus: "Plus",
+    plan_pro: "Pro 200",
+    plan_pro_lite: "Pro 100",
+    plan_pro_max: "Pro 500",
+    plan_business: "Business",
+    plan_enterprise: "Enterprise",
+    plan_education: "Education",
+    plan_sci: "Academic Researchers",
+    plan_sci_plus: "Academic Researchers Plus",
+    plan_account: "Account",
+    group_surface: "Surface",
+    group_feature: "Feature",
+    group_model: "Model",
+    group_turn_start: "Turn start",
+    group_speed: "Speed",
+    group_reasoning: "Reasoning",
+    group_token_type: "Token type",
+    group_product: "Product",
+    group_daily: "Daily",
+    group_weekly: "Weekly",
+    group_cumulative: "Cumulative",
+    note_loading: "Loading\u{2026}",
+    note_unavailable: "No history has been reported.",
     range_key: "r",
     range_week: "7d",
     range_month: "30d",
@@ -517,6 +574,56 @@ pub fn title(lang: Lang) -> &'static str {
 }
 
 impl Strings {
+    /// The subscription's name (oracle: `SubscriptionDisplay::Analytics`).
+    pub fn plan_name(&self, plan: PlanType) -> &'static str {
+        match plan {
+            PlanType::Free => self.plan_free,
+            PlanType::Go => self.plan_go,
+            PlanType::Plus => self.plan_plus,
+            PlanType::Pro => self.plan_pro,
+            PlanType::ProLite => self.plan_pro_lite,
+            PlanType::ProMax => self.plan_pro_max,
+            PlanType::Team
+            | PlanType::SelfServeBusinessUsageBased
+            | PlanType::Business
+            | PlanType::SelfServeBusinessProLite => self.plan_business,
+            PlanType::EnterpriseCbpAutomation
+            | PlanType::Enterprise
+            | PlanType::Ent26
+            | PlanType::EnterpriseCbpUsageBased => self.plan_enterprise,
+            PlanType::Edu | PlanType::EduPlus | PlanType::EduPro => self.plan_education,
+            PlanType::Sci => self.plan_sci,
+            PlanType::SciPlus => self.plan_sci_plus,
+            PlanType::Unknown => self.plan_account,
+        }
+    }
+
+    /// A grouping's name (oracle: `GROUP_LABELS`).
+    pub fn group_name(&self, name: GroupName) -> &'static str {
+        match name {
+            GroupName::Surface => self.group_surface,
+            GroupName::Feature => self.group_feature,
+            GroupName::Model => self.group_model,
+            GroupName::TurnStart => self.group_turn_start,
+            GroupName::Speed => self.group_speed,
+            GroupName::Reasoning => self.group_reasoning,
+            GroupName::TokenType => self.group_token_type,
+            GroupName::Product => self.group_product,
+            GroupName::Daily => self.group_daily,
+            GroupName::Weekly => self.group_weekly,
+            GroupName::Cumulative => self.group_cumulative,
+        }
+    }
+
+    /// What a load says before it is ready (oracle: `Load::message`).
+    pub fn note<'a>(&'a self, note: &'a Note) -> &'a str {
+        match note {
+            Note::Loading => self.note_loading,
+            Note::Unavailable => self.note_unavailable,
+            Note::Error(message) => message,
+        }
+    }
+
     pub fn heading_with(&self, plan: &str, num: &NumSyms) -> String {
         Fmt::new(self.heading_plan, [Arg::Text(plan)], num).to_string()
     }
@@ -927,8 +1034,9 @@ impl Strings {
     }
 
     /// `By feature`: the grouping's name in lower case.
-    pub fn card_group(&self, group: &str, num: &NumSyms) -> String {
-        Fmt::new(self.card_group, [Arg::Text(&group.to_lowercase())], num).to_string()
+    pub fn card_group(&self, group: GroupName, num: &NumSyms) -> String {
+        let name = self.group_name(group).to_lowercase();
+        Fmt::new(self.card_group, [Arg::Text(&name)], num).to_string()
     }
 
     fn month(&self, month: u32) -> &'static str {

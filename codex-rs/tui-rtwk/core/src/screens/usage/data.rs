@@ -16,15 +16,43 @@ pub const GROUPINGS: [Grouping; 7] = [
     Grouping::TokenType,
 ];
 
-pub const GROUP_LABELS: [&str; 7] = [
-    "Surface",
-    "Feature",
-    "Model",
-    "Turn start",
-    "Speed",
-    "Reasoning",
-    "Token type",
+/// What a grouping is called (the view's words; oracle: `GROUP_LABELS`, the
+/// Overview's chart views and `Product` for the first grouping of the
+/// reports that read it so). `NAMES` is `GROUPINGS` in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GroupName {
+    Surface,
+    Feature,
+    Model,
+    TurnStart,
+    Speed,
+    Reasoning,
+    TokenType,
+    Product,
+    Daily,
+    Weekly,
+    Cumulative,
+}
+
+pub const GROUP_NAMES: [GroupName; 7] = [
+    GroupName::Surface,
+    GroupName::Feature,
+    GroupName::Model,
+    GroupName::TurnStart,
+    GroupName::Speed,
+    GroupName::Reasoning,
+    GroupName::TokenType,
 ];
+
+/// What a load says while it is not ready (the view's words; oracle:
+/// `Load::message`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Note {
+    Loading,
+    Unavailable,
+    /// The host's message of a failed load.
+    Error(String),
+}
 
 /// The number of one request: a reply settles the load only when it carries
 /// the stamp the load was started with.
@@ -67,12 +95,12 @@ impl<T> Load<T> {
         }
     }
 
-    pub fn message(&self) -> Option<&str> {
+    pub fn note(&self) -> Option<Note> {
         match self {
             Self::Ready(_) => None,
-            Self::Loading(_) => Some("Loading…"),
-            Self::Unavailable => Some("No history has been reported."),
-            Self::Error(message) => Some(message),
+            Self::Loading(_) => Some(Note::Loading),
+            Self::Unavailable => Some(Note::Unavailable),
+            Self::Error(message) => Some(Note::Error(message.clone())),
         }
     }
 

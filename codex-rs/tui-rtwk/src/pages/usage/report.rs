@@ -55,7 +55,7 @@ pub fn message_text(model: &Model, section: Section, strings: &Strings) -> Optio
     match load {
         Load::Ready(history) if history.data.is_empty() => Some(strings.empty_range.to_owned()),
         Load::Ready(_) => None,
-        other => other.message().map(str::to_owned),
+        other => other.note().map(|note| strings.note(&note).to_owned()),
     }
 }
 
@@ -278,7 +278,7 @@ fn header(left: Left, right: Right, strings: &Strings, look: &Look) -> AnyWidget
         Left::Plugin => strings.head_plugin,
         Left::Skill => strings.head_skill,
         Left::Chat => strings.head_chat,
-        Left::Group(label) => label,
+        Left::Group(name) => strings.group_name(name),
     };
     let right = match right {
         Right::Tokens => strings.head_tokens,

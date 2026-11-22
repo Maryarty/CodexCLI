@@ -429,8 +429,8 @@ pub enum Amount {
 pub enum ChatLine {
     /// "Active in past 30 days, sorted by lifetime credits".
     Blurb,
-    /// The load's own message while the listing is not there.
-    Message(String),
+    /// The load's own note while the listing is not there.
+    Message(super::Note),
     NoRecent,
     /// Chats without an estimate.
     Missing(usize),
@@ -487,8 +487,8 @@ pub enum TaskLine {
     Basis {
         balance: bool,
     },
-    /// The listing is not there: the load's message, or the plain empty text.
-    Message(Option<String>),
+    /// The listing is not there: the load's note, or the plain empty text.
+    Message(Option<super::Note>),
     NoRecent,
     Partial {
         partial: usize,
@@ -613,8 +613,8 @@ impl Model {
     /// The business account's report (oracle: `chat_lines`).
     pub fn chat_view(&self, pos: &Pos) -> Vec<ChatLine> {
         let mut lines = vec![ChatLine::Blurb];
-        if let Some(message) = self.chats.message() {
-            lines.push(ChatLine::Message(message.to_owned()));
+        if let Some(note) = self.chats.note() {
+            lines.push(ChatLine::Message(note));
         }
         let Some(list) = self.business_chats() else {
             return lines;
@@ -696,8 +696,8 @@ impl Model {
             if list.rows.iter().any(|row| row.estimate.is_none()) {
                 lines.push(ChatLine::CardMissing);
             }
-        } else if let Some(message) = self.chats.message() {
-            lines.push(ChatLine::Message(message.to_owned()));
+        } else if let Some(note) = self.chats.note() {
+            lines.push(ChatLine::Message(note));
         }
         lines
     }
@@ -743,7 +743,7 @@ impl Model {
     /// rows only, no details; oracle: `task_lines`).
     pub fn task_view(&self, pos: &Pos, zoomed: bool) -> Vec<TaskLine> {
         let Some(list) = self.tasks.ready() else {
-            return vec![TaskLine::Message(self.tasks.message().map(str::to_owned))];
+            return vec![TaskLine::Message(self.tasks.note())];
         };
         let metric = self.task_metric();
         let mut lines = vec![
