@@ -1,6 +1,9 @@
-//! An assistant message as a `MarkdownView` that reads its file citations
+//! An assistant message as a `MarkdownView` that reads its directives
 //! (oracle markdown_render/inline_directives.rs): `:codex-file-citation{path=…}`
-//! shows as the file's name in the transcript's code style.
+//! shows as the file's name in the transcript's code style, and
+//! `:codex-followup[label]{prompt=…}` as its label (inline Markdown) with the
+//! prompt never drawn. A message still streaming shows what
+//! `threads::stream_preview` lets through.
 //!
 //! Flutter: `MarkdownBody(inlineSyntaxes: [FileCitationSyntax()])`. rtwk-rich
 //! takes no inline syntax, so the document is parsed here with the directives
@@ -18,36 +21,45 @@ use rtwk_rich::markdown::{
     MdTable,
 };
 
-use codex_tui_core::threads::citations::{Citation, citations, label};
+use codex_tui_core::threads::citations::{Directive, directives, label};
+use codex_tui_core::threads::{inline_vis, stream_preview};
 
 use crate::widgets::markdown::prepared;
 
 use super::markdown::lift_markdown_fences;
+use super::strings::Strings;
 
 /// Private-use characters around a directive's number: letters to the
 /// Markdown parser, so flanking and escapes around them are as around text.
 const OPEN: char = '\u{E000}';
 const CLOSE: char = '\u{E001}';
 
-/// `source` as the transcript shows an assistant message: table-holding
-/// Markdown fences lifted, citations read against the session `cwd`.
-pub fn view(source: &str, cwd: Option<&str>) -> MarkdownView {
-    let lifted = lift_markdown_fences(source);
-    let found = citations(&lifted);
+/// `source` as the transcript shows an assistant message, `live` while it
+/// streams: inline visualizations read as their note, table-holding Markdown
+/// fences lifted, directives read against the session `cwd`.
+pub fn view(source: &str, live: bool, cwd: Option<&str>, strings: &Strings) -> MarkdownView {
+    let source = if live {
+        stream_preview::visible(source)
+    } else {
+        source
+    };
+    let source = inline_vis::rewrite(source, strings.visualization_unavailable);
+    let lifted = lift_markdown_fences(&source);
+    let found = directives(&lifted);
     // The marker characters are the app's: text that holds them is shown as it is.
     if found.is_empty() || lifted.contains([OPEN, CLOSE]) {
         return crate::widgets::markdown::view_in(lifted.as_ref(), cwd);
     }
-    let found: Vec<Citation> = found
+    let found: Vec<Directive> = found
         .into_iter()
-        .filter(|citation| !in_html(&lifted[..citation.range.start]))
+        .filter(|directive| !in_html(&lifted[..directive.range().start]))
         .collect();
     let mut masked = String::with_capacity(lifted.len());
     let mut end = 0;
-    for (index, citation) in found.iter().enumerate() {
-        masked.push_str(&lifted[end..citation.range.start]);
+    for (index, directive) in found.iter().enumerate() {
+        masked.push_str(&lifted[end..directive.range().start]);
         masked.push_str(&format!("{OPEN}{index}{CLOSE}"));
-        end = citation.range.end;
+        end = directive.range().end;
     }
     masked.push_str(&lifted[end..]);
     let directives = Directives {
@@ -74,6 +86,19 @@ pub fn view(source: &str, cwd: Option<&str>) -> MarkdownView {
         })
         .collect();
     MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions)
+}
+
+/// The inline nodes of a follow-up's label: its own Markdown, the first
+/// paragraph's inlines; a label that parses to anything else is its text.
+fn label_inlines(label: &str) -> Vec<MdInline> {
+    let mut stream = MarkdownStream::new(label);
+    match stream.blocks() {
+        [block] => match block.as_ref() {
+            MdBlock::Paragraph(inlines) => inlines.clone(),
+            _ => vec![MdInline::text(label)],
+        },
+        _ => vec![MdInline::text(label)],
+    }
 }
 
 /// Whether the text before a directive leaves an HTML tag or comment open
@@ -108,7 +133,7 @@ fn in_html(before: &str) -> bool {
 
 struct Directives<'a> {
     source: &'a str,
-    found: &'a [Citation],
+    found: &'a [Directive],
     cwd: Option<&'a str>,
 }
 
@@ -124,8 +149,8 @@ impl Directives<'_> {
             out.push_str(&rest[..start]);
             let after = &rest[start + OPEN.len_utf8()..];
             match self.marker(after) {
-                Some((citation, length)) => {
-                    out.push_str(&self.source[citation.range.clone()]);
+                Some((directive, length)) => {
+                    out.push_str(&self.source[directive.range().clone()]);
                     rest = &after[length..];
                 }
                 None => {
@@ -138,9 +163,9 @@ impl Directives<'_> {
         Cow::Owned(out)
     }
 
-    /// The citation a marker names, and the length of its digits and closing
+    /// The directive a marker names, and the length of its digits and closing
     /// character; `text` follows the opening character.
-    fn marker(&self, text: &str) -> Option<(&Citation, usize)> {
+    fn marker(&self, text: &str) -> Option<(&Directive, usize)> {
         let digits = text.bytes().take_while(u8::is_ascii_digit).count();
         let index: usize = text[..digits].parse().ok()?;
         text[digits..].starts_with(CLOSE).then_some(())?;
@@ -219,13 +244,20 @@ impl Directives<'_> {
         let mut rest = text.as_str();
         while read && let Some(start) = rest.find(OPEN) {
             let after = &rest[start + OPEN.len_utf8()..];
-            let Some((citation, length)) = self.marker(after) else {
+            let Some((directive, length)) = self.marker(after) else {
                 break;
             };
             if start > 0 {
                 out.push(MdInline::text(&rest[..start]));
             }
-            out.push(MdInline::code(&label(&citation.path, self.cwd)));
+            match directive {
+                Directive::Citation(citation) => {
+                    out.push(MdInline::code(&label(&citation.path, self.cwd)));
+                }
+                // The label is Markdown of its own, parsed apart from the text around it (the
+                // oracle keeps an unmatched `[` as a sentinel so a label cannot open a block).
+                Directive::Followup(followup) => out.extend(label_inlines(&followup.label)),
+            }
             rest = &after[length..];
         }
         if !rest.is_empty() {

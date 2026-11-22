@@ -8,18 +8,12 @@ use crate::kit::{self, Owner, Screen};
 
 /// A table draws as its plain text: no table renderer (separators, wrapping, held tail).
 const TABLE: &str = "the chat draws a table as its plain text: the table renderer (box separators, cell wrapping at the width, the mutable tail held until the table is stable, the no-outer-pipes and fenced forms) is not in the transcript yet";
-/// The plan stream has no view of its own in the chat.
-const PLAN: &str = "the plan stream has no view in the chat: a plan item (its heading, quote, table and links) is drawn as plain text; PlanStreamController has no screen yet";
-/// A followup directive draws as its text: no followup prompt preview.
-const FOLLOWUP: &str = "the chat draws a :codex-followup[..]{prompt=..} directive as its text: the followup prompt preview (hidden while the directive is open, its prompt attribute never drawn) is not built";
-/// A link draws as its text: no unfinished-link preview.
-const LINK: &str = "the chat draws a markdown link as its text: the unfinished-link preview (the label held until the destination closes, flushed on newline or completion) is not built";
+/// The plan stream: the heading and quote markers, the table rules and the prompt surface.
+const PLAN: &str = "G73: items 1 and 3, the oracle's plan item draws the `#` heading marker and the `>` quote marker from the source and a table with a `━` rule under the header (tui markdown_render.rs); rtwk MarkdownView draws no source markers and a `│ ┼ ─` box table; the plan item stream `item/plan/delta` into a streaming plan item is the transcript owner's";
 /// The chat draws math sources as their text: no unicode math renderer.
 const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet";
 /// A mermaid fence draws as its source: no native mermaid renderer.
 const MERMAID: &str = "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer and its holdback are not built in the chat's markdown yet";
-/// Inline visualization directives draw as text: no inline visualization context.
-const VIS: &str = "the chat draws inline visualization directives and reference links as text: the inline visualization context and its canonical full render are not built";
 /// The chat has one render mode: no raw/rich history render mode to switch.
 const MODE: &str = "the chat has no raw/rich history render mode (HistoryRenderMode) to set or switch: no seed or key reaches it, the chat renders its own way";
 /// `text` as the body of a JSON string.
@@ -73,6 +67,65 @@ fn chat(width: u16, height: u16, markdown: &str) -> Screen {
 /// The streamed screen equals the whole-answer screen: the oracle's "streamed == full render".
 fn assert_matches_whole(s: &Screen, width: u16, height: u16, chunks: &[&str]) {
     s.assert_same_rows(&chat(width, height, &chunks.concat()).shot());
+}
+
+/// A turn that has streamed `chunks` and is still running: the oracle's controller state between
+/// pushes. Push more with `push`, end the turn with `finish`.
+fn streaming(width: u16, height: u16, chunks: &[&str]) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(width, height)
+        .live()
+        .open();
+    let head: String = include_str!("fixtures/markdown_streaming_5/answer.jsonl")
+        .lines()
+        .take_while(|line| !line.contains("{MARKDOWN}"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    s.feed(&head);
+    for chunk in chunks {
+        push(&mut s, chunk);
+    }
+    s
+}
+
+/// The rows above the Working row: the answer as it stands (the spinner row animates).
+fn answer_rows(s: &Screen) -> std::ops::Range<usize> {
+    0..s.rows()
+        .iter()
+        .position(|row| row.contains("Working"))
+        .unwrap_or(0)
+}
+
+/// The answer's rows equal the shot's.
+fn assert_answer_same(s: &Screen, before: &kit::Shot) {
+    s.assert_same_rows_in(before, answer_rows(s));
+}
+
+/// One more delta of the running turn's answer.
+fn push(s: &mut Screen, chunk: &str) {
+    let line = include_str!("fixtures/markdown_streaming_5/answer.jsonl")
+        .lines()
+        .find(|line| line.contains("{MARKDOWN}"))
+        .map(|line| line.replace("{MARKDOWN}", &json_string(chunk)))
+        .unwrap_or_default();
+    s.feed(&format!("{line}\n"));
+}
+
+/// The characters of `text` pushed one by one; `check` runs after each.
+fn push_chars(s: &mut Screen, text: &str, mut check: impl FnMut(&Screen)) {
+    for character in text.chars() {
+        push(s, &character.to_string());
+        check(s);
+    }
+}
+
+/// The turn ends: the answer is committed in full.
+fn finish(s: &mut Screen) {
+    let done = include_str!("fixtures/markdown_streaming_5/answer.jsonl")
+        .lines()
+        .find(|line| line.contains("turn/completed"))
+        .unwrap_or_default();
+    s.feed(&format!("{done}\n"));
 }
 
 // ---- oracle: streaming/controller.rs (23 screen-level tests here; 22 state tests left to chat-live)
@@ -464,7 +517,7 @@ fn controller_keeps_non_markdown_fenced_tables_as_code() {
 fn plan_controller_streamed_table_matches_final_render() {
     kit::pending(
         Owner::ChatLive,
-        "the plan stream has no view in the chat: a plan item (its heading, quote, table and links) is drawn as plain text; PlanStreamController has no screen yet; probe: the body passes without it (it checks less than the oracle claims)",
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header (tui markdown_render.rs TABLE_HEADER_SEPARATOR_CHAR); rtwk MarkdownView draws a `│ ┼ ─` box-style table; the streamed plan reaches the chat as an agent answer here (the plan item stream `item/plan/delta` is the transcript owner's)",
     );
     let deltas = [
         "## Build plan\n\n",
@@ -497,7 +550,7 @@ fn finalized_plan_stream_preserves_semantic_url_fragments() {
 fn plan_controller_streamed_markdown_fenced_table_matches_final_render() {
     kit::pending(
         Owner::ChatLive,
-        "the plan stream has no view in the chat: a plan item (its heading, quote, table and links) is drawn as plain text; PlanStreamController has no screen yet; probe: the body passes without it (it checks less than the oracle claims)",
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header (tui markdown_render.rs TABLE_HEADER_SEPARATOR_CHAR); rtwk MarkdownView draws a `│ ┼ ─` box-style table; the streamed plan reaches the chat as an agent answer here (the plan item stream `item/plan/delta` is the transcript owner's)",
     );
     let deltas = [
         "## Build plan\n\n",
@@ -518,26 +571,48 @@ fn plan_controller_streamed_markdown_fenced_table_matches_final_render() {
 // ORACLE streaming/controller_preview_tests.rs:6 followup_preview_hides_prompts_until_complete kind=snap owner=chat-live
 #[test]
 fn followup_preview_hides_prompts_until_complete() {
-    kit::pending(Owner::ChatLive, FOLLOWUP);
-    // The oracle's inline snapshot: while the directive is open the preview shows `Before` only.
-    let s = chat(
-        40,
-        24,
-        r#"Before :codex-followup[Inspect `items[0]`]{prompt="Use \\"}" and `ticks`"} after."#,
+    // The oracle pushes `Before `, the directive's opener at once, then its label and prompt one
+    // character at a time: the preview stays `Before` while the directive is open.
+    let mut s = streaming(40, 24, &["Before "]);
+    let prefix = s.shot();
+    push(&mut s, ":codex-followup[");
+    assert_answer_same(&s, &prefix);
+    push_chars(
+        &mut s,
+        r#"Inspect `items[0]`]{prompt="Use \\"}\" and `ticks`""#,
+        |s| assert_answer_same(s, &prefix),
     );
     s.assert_has_row("Before");
+    s.assert_absent("prompt=");
+    // The directive closes: its label reads in the line, the prompt never drawn.
+    push(&mut s, "} after.");
+    s.assert_has_row("Before Inspect items[0] after.");
+    s.assert_absent("prompt=");
+    // A long prompt held back while it grows, then the closing brace.
+    let mut s = streaming(40, 24, &["Before "]);
+    let prefix = s.shot();
+    push(
+        &mut s,
+        &format!(":codex-followup[Long]{{prompt=\"{}", "界".repeat(3000)),
+    );
+    push(&mut s, "more prompt");
+    assert_answer_same(&s, &prefix);
+    push(&mut s, "\"}");
+    s.assert_has_row("Before Long");
+    push(&mut s, " after.");
+    s.assert_has_row("Before Long after.");
     s.assert_absent("prompt=");
 }
 
 // ORACLE streaming/controller_preview_tests.rs:55 followup_preview_resumes_after_the_directive_leaves_the_window kind=ui owner=chat-live
 #[test]
 fn followup_preview_resumes_after_the_directive_leaves_the_window() {
-    kit::pending(Owner::ChatLive, FOLLOWUP);
-    let s = chat(
-        40,
-        24,
-        ":codex-followup[First]{prompt=secret} and then prose. :codex-followup[Second]{prompt=hidden} after.",
-    );
+    // The oracle bounds the preview to an 8 KiB window; the chat shows the whole safe tail
+    // (pack departure), so the check is the one it ends on: the text ends with `Second after.`
+    // and no prompt shows.
+    let mut s = streaming(40, 24, &[":codex-followup[First]{prompt=secret}"]);
+    push(&mut s, &"ordinary prose ".repeat(700));
+    push(&mut s, ":codex-followup[Second]{prompt=hidden} after.");
     s.assert_contains("Second after.");
     s.assert_absent("prompt=");
 }
@@ -545,31 +620,50 @@ fn followup_preview_resumes_after_the_directive_leaves_the_window() {
 // ORACLE streaming/controller_preview_tests.rs:100 followup_preview_handles_surrounding_unfinished_markdown kind=ui owner=chat-live
 #[test]
 fn followup_preview_handles_surrounding_unfinished_markdown() {
-    kit::pending(Owner::ChatLive, FOLLOWUP);
-    let s = chat(
-        40,
-        24,
-        "[unfinished :codex-followup[Inspect]{prompt=\"secret\"}",
-    );
+    let mut s = streaming(40, 24, &["[unfinished "]);
+    let prefix = s.shot();
+    push(&mut s, ":codex-followup[Inspect]{prompt=\"secret\"");
+    assert_answer_same(&s, &prefix);
     s.assert_absent("prompt=");
     s.assert_absent("secret");
+    push(&mut s, "}");
+    s.assert_has_row("[unfinished Inspect");
+    // Not a directive (no attributes): the text is what it is, character by character.
+    for source in [
+        ":codex-followup[not a directive] continuing text",
+        ":codex-followup[not a directive] `code`",
+    ] {
+        let mut s = streaming(80, 24, &[]);
+        push_chars(&mut s, source, |_| {});
+        let whole = chat(80, 24, source);
+        s.assert_in_order(&[":codex-followup[not a directive]"]);
+        whole.assert_in_order(&[":codex-followup[not a directive]"]);
+    }
 }
 
-// ORACLE streaming/controller_preview_tests.rs:135 unmatched_code_openers_do_not_expose_followup_prompts kind=snap owner=chat-live
+// ORACLE streaming/controller_preview_tests.rs:135 unmatched_code_openers_do_not_expose_followup_prompts kind=snap owner=chat-live snap=unmatched_code_openers_do_not_expose_followup_prompts
 #[test]
 fn unmatched_code_openers_do_not_expose_followup_prompts() {
-    kit::pending(Owner::ChatLive, FOLLOWUP);
     // The oracle's inline snapshot: an unmatched code opener shows its text and no prompt.
-    let s = chat(80, 24, "Type ` then :codex-followup[Open]{prompt=secret}");
+    let mut s = streaming(80, 24, &["Type ` then "]);
+    push(&mut s, ":codex-followup[Open]{prompt=secret}");
     s.assert_has_row("Type ` then");
+    s.assert_absent("prompt=secret");
+    // The turn ends: the whole text is committed, the unmatched backtick literal and the
+    // directive its label.
+    finish(&mut s);
+    s.assert_has_row("Type ` then Open");
     s.assert_absent("prompt=secret");
 }
 
 // ORACLE streaming/controller_preview_tests.rs:180 unfinished_link_destinations_do_not_expand_the_preview kind=ui owner=chat-live
 #[test]
 fn unfinished_link_destinations_do_not_expand_the_preview() {
-    kit::pending(Owner::ChatLive, LINK);
-    let s = chat(40, 24, "See [documentation](https://example.com/unfinished");
+    let s = streaming(
+        40,
+        24,
+        &["See [documentation](https://example.com/unfinished"],
+    );
     s.assert_has_row("See [documentation]");
     s.assert_absent("example.com");
 }
@@ -577,7 +671,6 @@ fn unfinished_link_destinations_do_not_expand_the_preview() {
 // ORACLE streaming/controller_preview_tests.rs:221 unfinished_links_flush_on_newline_or_completion kind=ui owner=chat-live
 #[test]
 fn unfinished_links_flush_on_newline_or_completion() {
-    kit::pending(Owner::ChatLive, LINK);
     for (source, prefix) in [
         (
             "See [documentation](https://example.com/a/very/long/path",
@@ -586,10 +679,16 @@ fn unfinished_links_flush_on_newline_or_completion() {
         ("See :codex-followup[Inspect]{prompt=\"unfinished", "See"),
     ] {
         for ending in ["", "\n"] {
-            let mut s = chat(24, 24, &format!("{source}{ending}"));
-            s.assert_contains(prefix);
+            let mut s = streaming(24, 24, &[source]);
+            s.assert_has_row(prefix);
             s.resize(32, 24);
-            s.assert_contains(prefix);
+            s.assert_has_row(prefix);
+            // The newline, or the turn's end, commits the source in full: the screen is the
+            // whole message's.
+            push(&mut s, ending);
+            finish(&mut s);
+            let whole = chat(32, 24, &format!("{source}{ending}"));
+            s.assert_same_rows(&whole.shot());
         }
     }
 }
@@ -852,38 +951,43 @@ fn inline_visualization_context_without_directives_keeps_stable_prefix() {
 // ORACLE streaming/render_tests.rs:293 inline_visualizations_use_canonical_full_render kind=ui owner=chat-live
 #[test]
 fn inline_visualizations_use_canonical_full_render() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws inline visualization directives and reference links as text: the inline visualization context and its canonical full render are not built; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let chunks = ["Before.\n\n", "::codex-inline-vis{file=\"missing.html\"}\n"];
     let s = chat_chunks(80, 24, &chunks);
     assert_matches_whole(&s, 80, 24, &chunks);
+    s.assert_absent("codex-inline-vis");
+    s.assert_has_row("Visualization unavailable on this device.");
+    // A directive still being written is not shown: its line waits for the closing brace.
+    let mut live = streaming(80, 24, &["Before.\n\n", "::codex-inline-vis{file=\"mis"]);
+    live.assert_absent("codex-inline-vis");
+    push(&mut live, "sing.html\"}\n");
+    live.assert_absent("codex-inline-vis");
+    live.assert_has_row("Visualization unavailable on this device.");
 }
 
 // ORACLE streaming/render_tests.rs:328 inline_visualizations_without_context_use_canonical_full_render kind=snap owner=chat-live snap=inline_visualizations_without_context_use_canonical_full_render
 #[test]
 fn inline_visualizations_without_context_use_canonical_full_render() {
-    kit::pending(Owner::ChatLive, VIS);
     let chunks = ["Before.\n\n", "::codex-inline-vis{file=\"missing.html\"}\n"];
     let s = chat_chunks(80, 24, &chunks);
     assert_matches_whole(&s, 80, 24, &chunks);
-    s.assert_snap("inline_visualizations_without_context_use_canonical_full_render");
+    // The snapshot is a `Vec<HyperlinkLine>` Debug dump, which the kit's snapshot reader does not
+    // parse (4 snaps of the shard are in that form); its rows are asserted as the dump's literals:
+    // `Before.`, an empty line, the note in italics.
+    s.assert_in_order(&["Before.\n\nVisualization unavailable on this device."]);
+    s.assert_text_style("Visualization unavailable on this device.", "italic");
 }
 
 // ORACLE streaming/render_tests.rs:343 inline_visualization_content_references_use_canonical_full_render kind=ui owner=chat-live
 #[test]
 fn inline_visualization_content_references_use_canonical_full_render() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws inline visualization directives and reference links as text: the inline visualization context and its canonical full render are not built; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let chunks = [
         "Before.\n\n",
         "\u{e200}visualize\u{e202}{\"path\":\"/tmp/missing.html\"}\u{e201}\n",
     ];
     let s = chat_chunks(80, 24, &chunks);
     assert_matches_whole(&s, 80, 24, &chunks);
+    s.assert_absent("visualize");
+    s.assert_has_row("Visualization unavailable on this device.");
 }
 
 // ORACLE streaming/render_tests.rs:357 inline_visualization_directive_survives_raw_to_rich_render_mode_switch kind=ui owner=chat-live

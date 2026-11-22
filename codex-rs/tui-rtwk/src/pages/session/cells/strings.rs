@@ -59,6 +59,9 @@ pub struct Strings {
     // history_cell/plans.rs ProposedPlanCell
     pub proposed_plan: &'static str,
     pub empty_plan: &'static str,
+    /// The words of an inline visualization the chat cannot show
+    /// (inline_visualization.rs, no context), set in italics by the view.
+    pub visualization_unavailable: &'static str,
     // history_cell/plans.rs PlanUpdateCell
     pub updated_plan: &'static str,
     /// Before the steps done and the steps in all: ` · `, `/`, ` complete`.
@@ -162,6 +165,7 @@ pub const EN: Strings = Strings {
     count_close: ")",
     proposed_plan: "Proposed Plan",
     empty_plan: "(empty)",
+    visualization_unavailable: "Visualization unavailable on this device.",
     updated_plan: "Updated Plan",
     plan_progress: (" · ", "/", " complete"),
     plan_branch: "  └ ",

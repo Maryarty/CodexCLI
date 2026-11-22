@@ -209,7 +209,12 @@ impl State for ViewportState {
                 }
                 Item::Agent { text } => {
                     let markdown = crate::widgets::markdown::themed(
-                        super::cells::citation::view(text, cwd.as_deref()),
+                        super::cells::citation::view(
+                            text,
+                            transcript.is_agent_streaming(key),
+                            cwd.as_deref(),
+                            cells,
+                        ),
                         markdown.clone(),
                     );
                     Padding::new(
