@@ -36,4 +36,5 @@ mod select;
 mod settings;
 mod status;
 mod status_data;
+mod transcript_diff;
 mod usage;

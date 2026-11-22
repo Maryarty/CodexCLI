@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::path::Path;
 use std::pin::Pin;
 
 use rtwk::app::AppCx;
@@ -21,6 +22,7 @@ use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
+use codex_tui_core::screens::transcript::diff;
 
 use crate::app::UiApp;
 
@@ -208,4 +210,128 @@ pub fn emit(ingress: &IngressTx, epoch: ConnEpoch, ev: AppEv) {
 /// Puts `ev` of `backend` into `ingress` under that backend's `epoch`.
 pub fn emit_from(ingress: &IngressTx, backend: BackendId, epoch: ConnEpoch, ev: AppEv) {
     let _ = ingress.send(Ingress::of(backend, epoch, ev));
+}
+
+/// Where `/diff` runs its commands (oracle `WorkspaceCommandExecutor`): in the
+/// workspace of the active session, which may be another machine. The host
+/// implements it over the app server's one-off `command/exec` (argv, cwd, env,
+/// timeout, output cap from the call's limits); a test implements it with a
+/// script. An `Err` is the command not running at all, not a non-zero exit.
+pub trait WorkspaceExec: Send + Sync {
+    fn run(
+        &self,
+        call: diff::Call,
+        cwd: &Path,
+    ) -> Pin<Box<dyn Future<Output = Result<diff::Output, String>> + Send + '_>>;
+}
+
+/// The diff of `cwd` (oracle `get_git_diff`): the core's step machine driven
+/// to its end over `exec`, each batch of commands in order.
+pub async fn git_diff(exec: &dyn WorkspaceExec, cwd: &Path) -> Result<diff::Report, String> {
+    let (mut machine, mut step) = diff::Diff::start();
+    loop {
+        match step {
+            diff::Step::Done(result) => return result,
+            diff::Step::Run(calls) => {
+                let mut outputs = Vec::with_capacity(calls.len());
+                for call in calls {
+                    outputs.push(exec.run(call, cwd).await);
+                }
+                step = machine.feed(outputs);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod git_diff_tests {
+    use std::collections::VecDeque;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    use super::*;
+
+    /// The last argument the command must have, and what it answers.
+    type Response = (Option<&'static str>, Result<diff::Output, String>);
+
+    /// A scripted workspace: each command must be the next one expected
+    /// (`FakeRunner` of the oracle's `get_git_diff.rs` tests); it records the
+    /// directory every command ran in.
+    struct Scripted {
+        responses: Mutex<VecDeque<Response>>,
+        cwds: Mutex<Vec<PathBuf>>,
+    }
+
+    impl WorkspaceExec for Scripted {
+        fn run(
+            &self,
+            call: diff::Call,
+            cwd: &Path,
+        ) -> Pin<Box<dyn Future<Output = Result<diff::Output, String>> + Send + '_>> {
+            let cwd = cwd.to_path_buf();
+            Box::pin(async move {
+                self.cwds.lock().unwrap().push(cwd);
+                let (last, response) = self
+                    .responses
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("a scripted response");
+                if let Some(last) = last {
+                    assert_eq!(call.argv.last().map(String::as_str), Some(last));
+                }
+                response
+            })
+        }
+    }
+
+    fn output(exit_code: i32, stdout: &str) -> Result<diff::Output, String> {
+        Ok(diff::Output {
+            exit_code,
+            stdout: stdout.to_owned(),
+        })
+    }
+
+    #[tokio::test]
+    async fn the_runner_drives_the_sequence_in_the_given_directory() {
+        let exec = Scripted {
+            responses: Mutex::new(
+                [
+                    (Some("--is-inside-work-tree"), output(0, "true\n")),
+                    (Some("core.fsmonitor"), output(1, "")),
+                    (Some("^filter\\..*\\.(clean|process)$"), output(1, "")),
+                    (Some("--color"), output(1, "tracked\n")),
+                    (Some("--exclude-standard"), output(0, "new.txt\n")),
+                    (Some("new.txt"), output(1, "untracked\n")),
+                ]
+                .into(),
+            ),
+            cwds: Mutex::new(Vec::new()),
+        };
+        let cwd = PathBuf::from("/workspace");
+
+        let report = git_diff(&exec, &cwd).await;
+
+        assert_eq!(
+            report,
+            Ok(diff::Report {
+                in_repo: true,
+                text: "tracked\nuntracked\n".to_owned()
+            })
+        );
+        assert!(exec.responses.lock().unwrap().is_empty());
+        assert_eq!(exec.cwds.lock().unwrap().as_slice(), [cwd.as_path(); 6]);
+    }
+
+    #[tokio::test]
+    async fn a_command_the_workspace_cannot_run_ends_the_diff_with_its_error() {
+        let exec = Scripted {
+            responses: Mutex::new([(None, Err("the app server went away".to_owned()))].into()),
+            cwds: Mutex::new(Vec::new()),
+        };
+
+        let report = git_diff(&exec, Path::new("/workspace")).await;
+
+        assert_eq!(report, Err("the app server went away".to_owned()));
+    }
 }

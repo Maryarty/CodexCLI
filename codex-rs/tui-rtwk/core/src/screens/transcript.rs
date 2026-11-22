@@ -4,6 +4,8 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+pub mod diff;
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use serde::Deserialize;
