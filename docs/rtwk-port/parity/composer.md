@@ -18,6 +18,64 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
+## chunk-composer (the whole composer as one job; in progress, steps 1-5 of 11 landed)
+Branch `worktree-agent-a8b7d6f0f27a204d2` (rebased on `claude/tui-rtwk` 2026-11-22).
+
+Done:
+- Keymap wiring: Composer/Editor contexts (submit, queue, the 17 editor actions,
+  `kill_whole_line`); every key of the composer goes through `crate::keymap`.
+- Vim engine in core (`core/src/screens/composer/vim/{mod,engine,motions,history}.rs`):
+  pure, a `VimText` host trait, `VimMode` (not `Mode`: R14 is name-based and the agents
+  page has its own `Mode`), 19 state tests from `vim_commands_tests`, `History<S>` (64
+  steps, 1 MiB) with 3 unit tests.
+- Vim in the view: `src/pages/session/composer/vim.rs` (keymap Vim contexts into `Input`,
+  chords from the `.keymap` view API, the `/` query in its own controller, Insert/Replace
+  recording for `.`, `u`/Ctrl+R through the draft's history), `src/widgets/composer_draft/vim.rs`
+  (`Modal` UI state, `Snapshot` of the whole draft, `VimHost` = `VimText` over the controller plus
+  the draft's atomic elements and the kill ring as the register). A paste in Normal mode is
+  its own undo step (the draft inserts a plain paste itself in Vim, the step has to close with it).
+  11 page tests in `tests/pages/composer_vim.rs` (`global.toggle_vim_mode` on F9).
+- Turned on: textarea 14 -> 18, composer_4 12 -> 16 (see counts).
+
+Counts now (`summary.py --run` of the six shards): composer_1 8/1/41/0 of 50, composer_2
+30/4/16/0 of 50, composer_3 33/2/21/0 of 56, composer_4 16/2/55/0 of 73, composer_popups
+12/0/31/0 of 43, textarea 18/2/39/0 of 59: 117 pass, 11 n/a, 203 pending, 0 red (109 pass
+before this job's Vim steps). `shards.py --check`: 0 files stale. Whole default nextest 914
+passed; fmt, clippy `--workspace --all-targets -D warnings`: clean.
+
+Imported oracle tests corrected (the kit's expectation was not the oracle's):
+- `removing_the_shell_prefix_is_its_own_undoable_edit`: the oracle compares the whole draft
+  (`draft_snapshot() == before`): undo returns to shell mode with "foo", drawn `! foo`.
+- `undo_and_redo_restore_deleted_large_paste_payload`: the oracle sets the caret after
+  "alpha " and presses `i`; Esc leaves the caret on the space, so the test presses `A`.
+- `vim_e_advances_from_each_word_end` stays pending (the snapshot joins three states with
+  caret rows; the page test drives the three `e` presses).
+
+Deltas (one line each): `word_pieces` by separator class, not UAX29; no counts (as in the
+oracle); a dot-repeated `Yank` replays the register text only; mouse selection is not in
+the engine; paste-burst x Replace (`retract_paste_burst`) and `absorb_prompt_prefix` not
+ported; Vim j/k move by logical lines; text typed through the paste-burst flush is not
+recorded for `.`; `MoveLineStart/End` pass `move_up_at_bol`/`move_down_at_eol` false.
+
+Needs (other owners' files):
+- Footer (`composer/footer.rs`, `strings.rs`; chunk-status): the `Vim: <mode>` label, the `/`
+  query line and the context line; every composer-alone frame includes the footer row.
+- `actions.rs` `Outcome::Session{intent: Vim}`: toggle the draft's Vim plus the info cell
+  "Vim mode enabled."/"disabled." (core `app/session.rs`, `chat.rs`, `dispatch.rs`); the
+  `tui.vim_mode_default` config.
+- `core/src/app.rs` and `host`: history Commands (`HistoryMetadata/Append/Lookup/Batch`),
+  FileSearch (`fuzzyFileSearch`, D1), ClipboardImage, `host/Cargo.toml` deps.
+- Kit (`tests/kit/*`): a Vim seed, SUPER/kitty modifiers, terminal default colours, right
+  click, parent-owned and disconnected seeds, a caret-row/multi-frame snapshot compare.
+- `CORE_DEPS` in `tests/rules/layers.rs` when core gets a dependency.
+
+Left (steps 6-11): persistent history (core `composer/history.rs`; Command/AppEv/host are
+needs); Ctrl+R history search (re-add `vim_normal_end_cursor` for history navigation, which
+also unblocks `remapped_history_search_does_not_fall_back_to_ctrl_r`); the `@` mentions popup
+with file search and tabs; images and attachments (Ctrl+V needs host); reconnect/offline and
+Ctrl+G (G67 pending); remaining tests, gap rows (G-new-1 Ctrl+R match highlight, G65, G66,
+G67, G68, G11), the embedded plain-text composer (D4), the binary run and `check.py`.
+
 ## Shard counts (pass / n/a / pending / red of total), composer-2 third run (paste burst in)
 - composer_1: 8 / 1 / 41 / 0 of 50
 - composer_2: 24 / 4 / 22 / 0 of 50
