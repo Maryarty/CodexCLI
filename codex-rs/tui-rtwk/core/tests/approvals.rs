@@ -327,6 +327,45 @@ fn a_seeded_label_reaches_the_prompt_the_queue_holds() {
     assert_eq!(prompt.thread_label(), Some("Robie [explorer]"));
 }
 
+#[test]
+fn the_banner_lists_the_inactive_threads_that_wait_for_an_approval() {
+    use codex_tui_core::screens::approvals::pending_threads;
+    let request = |id: u64, thread: &str| {
+        exec("")
+            .replace("\"id\":1", &format!("\"id\":{id}"))
+            .replace("thread-1", thread)
+    };
+    let mut script =
+        String::from("{\"step\":\"seed\",\"seed\":\"session\",\"thread\":\"thread-1\"}\n");
+    for (id, thread) in [
+        (1, "thread-2"),
+        (2, "thread-1"),
+        (3, "thread-3"),
+        (4, "thread-2"),
+    ] {
+        let request = request(id, thread);
+        script.push_str(&format!(
+            "{{\"step\":\"request\",\"message\":{request}}}\n{{\"step\":\"screen\",\"dir\":\"approvals\",\"ev\":{{\"kind\":\"request\",\"request\":{request}}}}}\n"
+        ));
+    }
+    let sandbox = Sandbox::play(&script).expect("plays");
+    let threads = [agent("thread-2", Some("Robie"), Some("explorer"))];
+    let shown = ThreadId::new("thread-1");
+    assert_eq!(
+        pending_threads(sandbox.app().requests(), &threads, Some(&shown)),
+        vec!["Robie [explorer]".to_string(), "Agent (3)".to_string()],
+        "the shown thread has none, a thread is listed once, in the order its first request came"
+    );
+    assert_eq!(
+        pending_threads(
+            sandbox.app().requests(),
+            &threads,
+            Some(&ThreadId::new("thread-2"))
+        ),
+        vec!["Agent (1)".to_string(), "Agent (3)".to_string()],
+    );
+}
+
 // ---- family B: the form of an MCP elicitation (`screens::approvals::form`) ----
 
 mod forms {

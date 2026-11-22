@@ -572,9 +572,11 @@ impl UserInputViewState {
                 .options
                 .on_accept(cx.map(|_: usize| Msg::Accept))
                 .on_move(cx.map(Msg::Moved));
-            column = column
-                .child(Text::new(String::new()))
-                .child(rows.view(Rc::new(option_rows(s, question)), styles, 0));
+            column = column.child(Text::new(String::new())).child(rows.view(
+                Rc::new(option_rows(s, question)),
+                styles,
+                0,
+            ));
             if !visible {
                 column = column.child(Text::new(String::new()));
             }
@@ -732,10 +734,10 @@ impl UserInputViewState {
             label: Style::new(),
             description: Style::new(),
         };
-        let list = self
-            .confirm
-            .on_accept(cx.map(|_: usize| Msg::Accept))
-            .view(Rc::new(rows), styles, 0);
+        let list =
+            self.confirm
+                .on_accept(cx.map(|_: usize| Msg::Accept))
+                .view(Rc::new(rows), styles, 0);
         let hint = Text::rich(vec![
             Span::styled(s.hint_press.to_string(), tokens.dim()),
             Span::styled(s.key_enter.to_string(), tokens.bold()),

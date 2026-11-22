@@ -401,6 +401,33 @@ pub fn thread_label(
     })
 }
 
+/// The labels of the inactive threads that wait for an approval, oldest request first, one per
+/// thread (the oracle's `App::refresh_pending_thread_approvals`: the banner over the composer).
+/// A request for user input is not an approval (`has_pending_thread_approvals`), and the thread
+/// shown has none.
+pub fn pending_threads(
+    queue: &crate::app::RequestQueue,
+    threads: &[codex_app_server_protocol::Thread],
+    active: Option<&ThreadId>,
+) -> Vec<String> {
+    let mut seen: Vec<&ThreadId> = Vec::new();
+    let mut labels = Vec::new();
+    for entry in &queue.entries {
+        if matches!(entry.prompt.as_deref(), Some(Prompt::UserInput(_))) {
+            continue;
+        }
+        let thread = &entry.key.thread;
+        if seen.contains(&thread) {
+            continue;
+        }
+        if let Some(label) = thread_label(threads, thread, active) {
+            seen.push(thread);
+            labels.push(label);
+        }
+    }
+    labels
+}
+
 /// The presentation of a server request, read through its wire form (the
 /// oracle's `exec_approval_request_from_params` and its siblings in
 /// `chatwidget.rs`).

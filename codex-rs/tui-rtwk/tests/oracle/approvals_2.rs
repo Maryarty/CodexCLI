@@ -21,7 +21,7 @@ fn desired_height_empty() {
 fn render_single_thread_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no pending-thread approval banner in the port: the subagent threads awaiting approval (`Approval needed in <thread>` over `/subagents to review requests`) have no widget and no seed",
+        "the banner's widget and its list exist (`sheets::approvals::PendingThreadApprovals`, core `pending_threads`; sheet tests `approvals::banner::*` hold the oracle's rows), but the session page's bottom pane that hosts it is not in this slice: the live chat draws no banner (handover: the page puts the widget above the composer, fed by `pending_threads(requests, threads, active)`)",
     );
     let s = Screen::build(Owner::DialogsPane).size(40, 2).live().open();
     s.assert_row(0, "  ! Approval needed in Robie [explorer]");
@@ -33,7 +33,7 @@ fn render_single_thread_snapshot() {
 fn render_multiple_threads_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no pending-thread approval banner in the port: three threads awaiting approval and the `/subagents to review requests` line have no widget and no seed",
+        "the banner's widget and its list exist (`sheets::approvals::PendingThreadApprovals`, core `pending_threads`; sheet tests `approvals::banner::*` hold the oracle's rows), but the session page's bottom pane that hosts it is not in this slice: the live chat draws no banner (handover: the page puts the widget above the composer, fed by `pending_threads(requests, threads, active)`)",
     );
     let s = Screen::build(Owner::DialogsPane).size(44, 5).live().open();
     s.assert_row(0, "  ! Approval needed in Main [default]");

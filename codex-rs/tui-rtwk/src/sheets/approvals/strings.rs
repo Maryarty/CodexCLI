@@ -98,6 +98,12 @@ pub struct Strings {
     pub tip_cancel: &'static str,
     pub tip_separator: &'static str,
     pub composer_prompt: &'static str,
+    // bottom_pane/pending_thread_approvals.rs
+    pub banner_mark: &'static str,
+    pub banner_needed: Msg<1>,
+    pub banner_more: &'static str,
+    pub banner_command: &'static str,
+    pub banner_review: &'static str,
     pub too_long: Msg<2>,
     /// The choices of the approval fallback (`approval_choice_options`, `tool_approval_options`) and
     /// of a boolean field.
@@ -210,6 +216,11 @@ pub const EN: Strings = Strings {
     tip_cancel: "to cancel",
     tip_separator: " | ",
     composer_prompt: "›",
+    banner_mark: "!",
+    banner_needed: msg!("Approval needed in {0}"),
+    banner_more: "...",
+    banner_command: "/subagents",
+    banner_review: " to review requests",
     too_long: msg!("Message exceeds the maximum length of {0} characters ({1} provided)."),
     act_allow: "Allow",
     act_allow_session: "Allow for this session",
@@ -267,6 +278,10 @@ pub fn title(lang: Lang) -> &'static str {
 impl Strings {
     pub fn network_title<'a>(&'a self, host: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.network_title, [Arg::Text(host)], &self.num)
+    }
+
+    pub fn banner_needed<'a>(&'a self, thread: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.banner_needed, [Arg::Text(thread)], &self.num)
     }
 
     pub fn accept_prefix<'a>(&'a self, prefix: &'a str) -> Fmt<'a, 1> {

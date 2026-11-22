@@ -4,6 +4,7 @@
 //! core's `codex_tui_core::screens::approvals`. Nothing outside these two
 //! directories (bar their test files) needs an edit when it grows.
 
+mod banner;
 mod dialog;
 mod dismiss;
 mod form;
@@ -24,6 +25,8 @@ use crate::app::debug::EntryOpen;
 use crate::app::debug::seeded::Seeded;
 
 pub mod strings;
+
+pub use banner::PendingThreadApprovals;
 
 /// What the debug menu lists for this directory: a screen per state worth
 /// opening, on the model a fixture script makes.
@@ -208,11 +211,13 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script,
             // The oracle's form snapshots render the overlay into a buffer taller than its
             // desired height, and the form fills it; the debug menu is that frame.
-            open: EntryOpen::Dialog(if name.starts_with("mcp_") || name.starts_with("user_input_") {
-                framed_dialog
-            } else {
-                head_dialog
-            }),
+            open: EntryOpen::Dialog(
+                if name.starts_with("mcp_") || name.starts_with("user_input_") {
+                    framed_dialog
+                } else {
+                    head_dialog
+                },
+            ),
         })
         .collect()
 }

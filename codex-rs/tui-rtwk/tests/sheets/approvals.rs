@@ -454,7 +454,10 @@ fn user_input_freeform_shift_enter_inserts_a_newline_without_advancing() {
     let screen = h.t.screen();
     assert!(shows(&h, "Question 2/2"), "{screen}");
     let rows: Vec<&str> = screen.lines().collect();
-    let draft = rows.iter().position(|r| r.contains("Draft")).expect("Draft");
+    let draft = rows
+        .iter()
+        .position(|r| r.contains("Draft"))
+        .expect("Draft");
     let more = rows.iter().position(|r| r.contains("more")).expect("more");
     assert!(!rows[draft].contains("more") && more > draft, "{screen}");
 }
@@ -485,7 +488,140 @@ fn user_input_unanswered_confirmation_rows() {
     assert!(shows(&h, "Question 1/2"), "{}", h.t.screen());
     h.press("ctrl+n");
     h.press("enter");
-    assert!(shows(&h, "Submit with unanswered questions?"), "{}", h.t.screen());
+    assert!(
+        shows(&h, "Submit with unanswered questions?"),
+        "{}",
+        h.t.screen()
+    );
     h.press("enter");
-    assert!(!shows(&h, "Submit with unanswered questions?"), "{}", h.t.screen());
+    assert!(
+        !shows(&h, "Submit with unanswered questions?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011: a tap on an option of a question moves the cursor there, a second tap on the cursor's
+/// row commits it and goes on (the last question answers and the dialog closes).
+#[test]
+fn user_input_a_tap_moves_the_cursor_and_a_second_tap_answers() {
+    let mut h = open(120, 16, "user_input_options_then_freeform");
+    tap(&mut h, "2. Option 2");
+    assert!(shows(&h, "› 2. Option 2"), "{}", h.t.screen());
+    assert!(shows(&h, "Question 1/2"), "the first tap only moves");
+    tap(&mut h, "2. Option 2");
+    assert!(shows(&h, "Question 2/2 (1 unanswered)"), "{}", h.t.screen());
+
+    let mut h = open(120, 16, "user_input");
+    tap(&mut h, "3. Option 3");
+    assert!(shows(&h, "› 3. Option 3"), "{}", h.t.screen());
+    tap(&mut h, "3. Option 3");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "Choose an option."), "{}", h.t.screen());
+}
+
+/// The confirmation of the unanswered questions is a list too: a tap on `Go back` moves the cursor,
+/// a second tap goes back; a tap on the cursor's `Proceed` answers.
+#[test]
+fn user_input_confirmation_a_tap_moves_the_cursor_and_a_second_tap_accepts() {
+    let reach = |h: &mut Harness| {
+        h.t.type_text("freeform notes");
+        h.t.pump_for(ms(100));
+        h.press("ctrl+n");
+        h.press("enter");
+        assert!(
+            shows(h, "Submit with unanswered questions?"),
+            "{}",
+            h.t.screen()
+        );
+    };
+    let mut h = open(80, 12, "user_input_freeform_then_options");
+    reach(&mut h);
+    tap(&mut h, "2. Go back");
+    assert!(shows(&h, "› 2. Go back"), "{}", h.t.screen());
+    assert!(
+        shows(&h, "Submit with unanswered questions?"),
+        "the first tap only moves"
+    );
+    tap(&mut h, "2. Go back");
+    assert!(shows(&h, "Question 1/2"), "{}", h.t.screen());
+
+    let mut h = open(80, 12, "user_input_freeform_then_options");
+    reach(&mut h);
+    tap(&mut h, "1. Proceed");
+    h.t.pump_for(ms(800));
+    assert!(
+        !shows(&h, "Submit with unanswered questions?"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(!shows(&h, "Question"), "{}", h.t.screen());
+}
+
+/// The banner of the threads that wait (`pending_thread_approvals.rs`
+/// `render_single_thread_snapshot`, `render_multiple_threads_snapshot`): the thread labels, three
+/// at most and then `...`, over the `/subagents` line; the text wraps under itself.
+mod banner {
+    use codex_tui_rtwk::app::run::localized;
+    use codex_tui_rtwk::l10n::Lang;
+    use codex_tui_rtwk::sheets::approvals::PendingThreadApprovals;
+    use rtwk_test::{Options, Tester};
+
+    fn rows(width: u16, height: u16, threads: &[&str]) -> Vec<String> {
+        let mut t = Tester::with(Options::new().size(width, height));
+        let banner = PendingThreadApprovals {
+            threads: threads.iter().map(ToString::to_string).collect(),
+        };
+        t.pump_widget(localized(banner, Lang::En));
+        t.screen()
+            .lines()
+            .map(|l| l.trim_end().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn one_thread() {
+        assert_eq!(
+            rows(40, 2, &["Robie [explorer]"]),
+            [
+                "  ! Approval needed in Robie [explorer]",
+                "    /subagents to review requests"
+            ]
+        );
+    }
+
+    #[test]
+    fn four_threads_list_three_and_an_ellipsis() {
+        assert_eq!(
+            rows(
+                44,
+                5,
+                &[
+                    "Main [default]",
+                    "Robie [explorer]",
+                    "Inspector",
+                    "Extra agent"
+                ]
+            ),
+            [
+                "  ! Approval needed in Main [default]",
+                "  ! Approval needed in Robie [explorer]",
+                "  ! Approval needed in Inspector",
+                "    ...",
+                "    /subagents to review requests"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_long_label_wraps_under_its_text() {
+        let shown = rows(24, 4, &["A very long agent name"]);
+        assert_eq!(shown[0], "  ! Approval needed in A");
+        assert_eq!(shown[1], "    very long agent name");
+    }
+
+    #[test]
+    fn no_thread_draws_nothing() {
+        assert!(rows(40, 2, &[]).iter().all(String::is_empty));
+    }
 }
