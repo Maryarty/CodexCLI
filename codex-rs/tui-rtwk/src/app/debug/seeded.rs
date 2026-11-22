@@ -48,6 +48,7 @@ pub enum SeededMsg {
     Submit(UserMessage),
     Dismiss(RequestKey),
     DismissBanner(BackendId, Ticket),
+    PickBanner(BackendId, Ticket, usize),
     Screen(ScreenIntent),
     ThreadScreen(ThreadId, ScreenThreadIntent),
     OpenThread(ThreadId),
@@ -92,6 +93,11 @@ impl State for SeededScopeState {
             SeededMsg::DismissBanner(backend, ticket) => {
                 Intent::DismissBackendBanner { backend, ticket }
             }
+            SeededMsg::PickBanner(backend, ticket, row) => Intent::PickBannerCta {
+                backend,
+                ticket,
+                row,
+            },
             SeededMsg::Screen(intent) => Intent::Screen(intent),
             SeededMsg::ThreadScreen(thread, intent) => Intent::ThreadScreen { thread, intent },
             SeededMsg::OpenThread(id) => Intent::OpenThread(id),
@@ -118,6 +124,8 @@ impl State for SeededScopeState {
             submit: cx.map(SeededMsg::Submit),
             dismiss: cx.map(SeededMsg::Dismiss),
             dismiss_banner: cx.map(|(backend, ticket)| SeededMsg::DismissBanner(backend, ticket)),
+            pick_banner: cx
+                .map(|(backend, ticket, row)| SeededMsg::PickBanner(backend, ticket, row)),
             screen: cx.map(SeededMsg::Screen),
             thread_screen: cx.map(|(thread, intent)| SeededMsg::ThreadScreen(thread, intent)),
             open_thread: cx.map(SeededMsg::OpenThread),

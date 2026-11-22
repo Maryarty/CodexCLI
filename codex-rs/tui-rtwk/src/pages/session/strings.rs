@@ -118,6 +118,11 @@ pub struct Strings {
     pub writer_exit: &'static str,
     pub writer_transcript: &'static str,
     pub backend_cycle: &'static str,
+    /// `actionable_banner.rs` / `set_inline_banner`: the hint under the
+    /// banner's actions, and under an information-only one.
+    pub banner_choose: &'static str,
+    pub banner_choose_dismiss: &'static str,
+    pub banner_dismiss: &'static str,
     pub warning_singular: &'static str,
     pub warning_plural: &'static str,
     pub warning_key: &'static str,
@@ -213,6 +218,9 @@ pub const EN: Strings = Strings {
     writer_exit: "exit",
     writer_transcript: "transcript",
     backend_cycle: " to cycle",
+    banner_choose: "Press a number to choose",
+    banner_choose_dismiss: "Press a number to choose \u{b7} esc to dismiss \u{b7} type to continue",
+    banner_dismiss: "esc to dismiss \u{b7} type to continue",
     warning_singular: "warning",
     warning_plural: "warnings",
     warning_key: "f2",
@@ -248,6 +256,20 @@ pub fn description(lang: Lang, command: SlashCommand) -> &'static str {
 }
 
 impl Strings {
+    /// The hint under a backend banner.
+    pub(super) fn banner_hint(
+        &self,
+        hint: crate::pages::session::banners::BannerHint,
+    ) -> Option<&'static str> {
+        use crate::pages::session::banners::BannerHint;
+        match hint {
+            BannerHint::Choose => Some(self.banner_choose),
+            BannerHint::ChooseOrDismiss => Some(self.banner_choose_dismiss),
+            BannerHint::Dismiss => Some(self.banner_dismiss),
+            BannerHint::None => None,
+        }
+    }
+
     pub(super) fn search_in(&self, query: &str, path: &str) -> String {
         Fmt::new(
             self.explored_search_in,

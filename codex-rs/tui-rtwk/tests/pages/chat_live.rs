@@ -91,24 +91,122 @@ fn cell_of(h: &Harness, needle: &str) -> (u16, u16) {
     panic!("`{needle}` is not on the screen:\n{}", h.t.screen());
 }
 
+fn opened_urls(h: &Harness) -> Vec<String> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::OpenUrl { url, .. } => Some(url),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `inline_banner_snapshot` and `backend_banner_personal_limit`: a blank row, the bold
+/// title and the description, the numbered rows with the cursor on the first, and the hint
+/// under them (`esc to dismiss` only for a dismissible banner).
 #[test]
-fn a_click_on_the_close_button_dismisses_a_dismissible_banner() {
-    let mut h = with_banner("dismissible");
-    assert!(h.t.screen().contains("View usage"), "{}", h.t.screen());
-    let (x, y) = cell_of(&h, "×");
-    h.t.click(x, y);
-    h.settle();
+fn the_banner_is_the_oracles_numbered_rows_and_hint() {
+    let h = with_banner("dismissible");
     let screen = h.t.screen();
-    assert!(!screen.contains("Usage limit reached"), "{screen}");
-    assert!(!screen.contains("View usage"), "{screen}");
+    assert!(screen.contains("Usage limit reached"), "{screen}");
+    assert!(screen.contains("Add credits to keep working."), "{screen}");
+    let lines = h.t.lines();
+    let row = lines
+        .iter()
+        .position(|line| line.starts_with("\u{203a} 1. View usage"))
+        .unwrap_or_else(|| panic!("the cursor row is not on the screen:\n{screen}"));
+    assert_eq!(lines[row - 1].trim(), "", "a blank row above the rows");
+    assert!(lines[row - 2].contains("Add credits"), "{screen}");
+    assert_eq!(lines[row + 1].trim(), "", "a blank row under the rows");
+    assert!(
+        lines[row + 2].starts_with("  Press a number to choose \u{b7} esc to dismiss"),
+        "{screen}"
+    );
+    let inline = with_banner("inline");
+    assert!(
+        inline
+            .t
+            .lines()
+            .iter()
+            .any(|line| line.trim_end() == "  Press a number to choose"),
+        "{}",
+        inline.t.screen()
+    );
+}
+
+/// `handle_inline_banner_key`: a digit chooses the row, and choosing does not dismiss.
+#[test]
+fn a_number_key_chooses_the_row_and_the_banner_stays() {
+    let mut h = with_banner("dismissible");
+    h.press("1");
+    h.settle();
+    assert_eq!(
+        opened_urls(&h),
+        ["https://chatgpt.com/settings/usage".to_owned()]
+    );
+    assert!(
+        h.t.screen().contains("Usage limit reached"),
+        "{}",
+        h.t.screen()
+    );
+    // a number with no row of its own is the composer's
+    h.press("2");
+    h.settle();
+    assert_eq!(opened_urls(&h).len(), 1);
+    assert!(h.t.screen().contains('2'), "{}", h.t.screen());
+}
+
+/// The banner keeps its keys from a draft: a digit with text in the composer is text.
+#[test]
+fn a_number_with_a_draft_is_text() {
+    let mut h = with_banner("dismissible");
+    h.t.type_text("a");
+    h.press("1");
+    h.settle();
+    assert!(opened_urls(&h).is_empty());
+    assert!(h.t.screen().contains("a1"), "{}", h.t.screen());
 }
 
 #[test]
-fn an_inline_banner_has_no_close_button_and_stays() {
-    let mut h = with_banner("inline");
+fn esc_dismisses_a_dismissible_banner_only() {
+    let mut h = with_banner("dismissible");
+    h.press("esc");
+    h.settle();
     let screen = h.t.screen();
-    assert!(screen.contains("Usage limit reached"), "{screen}");
-    assert!(!screen.contains('×'), "{screen}");
+    assert!(!screen.contains("Usage limit reached"), "{screen}");
+    let mut h = with_banner("inline");
+    h.press("esc");
+    h.settle();
+    assert!(
+        h.t.screen().contains("Usage limit reached"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011: a tap on a row chooses it (the cursor is on the first already); the oracle's
+/// banner has no mouse.
+#[test]
+fn a_tap_on_a_row_chooses_it() {
+    let mut h = with_banner("dismissible");
+    let (x, y) = cell_of(&h, "View usage");
+    h.t.click(x, y);
+    h.settle();
+    assert_eq!(
+        opened_urls(&h),
+        ["https://chatgpt.com/settings/usage".to_owned()]
+    );
+    assert!(
+        h.t.screen().contains("Usage limit reached"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_tap_on_the_title_leaves_the_banner_alone() {
+    let mut h = with_banner("inline");
     let (x, y) = cell_of(&h, "Usage limit reached");
     h.t.click(x, y);
     h.settle();
@@ -117,6 +215,7 @@ fn an_inline_banner_has_no_close_button_and_stays() {
         "{}",
         h.t.screen()
     );
+    assert!(opened_urls(&h).is_empty());
 }
 
 #[test]
@@ -131,6 +230,7 @@ fn the_wheel_over_the_banner_leaves_it_alone() {
         "{}",
         h.t.screen()
     );
+    assert!(opened_urls(&h).is_empty());
 }
 
 #[test]

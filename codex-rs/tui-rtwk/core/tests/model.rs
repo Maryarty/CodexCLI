@@ -1523,3 +1523,63 @@ fn a_reverted_thread_clears_its_transcript_and_reads_the_retained_turns() {
         fx.commands()
     );
 }
+
+/// The banner's numbered rows (oracle `handle_inline_banner_key`): a row whose action is a
+/// page asks the host to open it; a stale ticket or a row past the last does nothing, and
+/// choosing leaves the banner where it is (`dismiss_on_select: false`).
+#[test]
+fn choosing_a_banner_row_opens_its_page_and_keeps_the_banner() {
+    use codex_tui_core::ids::{BackendId, Ticket};
+    use codex_tui_core::protocol;
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::screens::status::Intent as StatusIntent;
+
+    let mut app = ready();
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Status(StatusIntent::Open))),
+    );
+    let [read @ Command::ReadRateLimits { backend, .. }] = fx.commands() else {
+        panic!("expected the account read: {:?}", fx.commands());
+    };
+    let backend: BackendId = *backend;
+    let (read_ticket, reply) = protocol::reply(
+        read,
+        Ok(serde_json::json!({
+            "rateLimits": {},
+            "rateLimitUpsell": {
+                "banner_type": "credits",
+                "title": "Usage limit",
+                "description": "Add credits.",
+                "ctas": [{"action": "view_usage", "label": "Usage"}],
+                "presentation": "dismissible",
+            },
+        })),
+    )
+    .expect("a reply");
+    run(&mut app, AppEv::Reply(read_ticket, reply));
+    let shown: Ticket = app.session().backend_banners[&backend].ticket;
+    let pick = |app: &mut CodexApp, ticket: Ticket, row: usize| {
+        run(
+            app,
+            AppEv::Intent(Intent::PickBannerCta {
+                backend,
+                ticket,
+                row,
+            }),
+        )
+    };
+    let fx = pick(&mut app, shown, 0);
+    assert!(
+        matches!(
+            fx.commands(),
+            [Command::OpenUrl { url, .. }] if url == "https://chatgpt.com/settings/usage"
+        ),
+        "{:?}",
+        fx.commands()
+    );
+    assert!(app.session().backend_banners[&backend].is_visible(None));
+    assert!(pick(&mut app, shown, 1).commands().is_empty());
+    // the read's own ticket is not the banner occurrence's
+    assert!(pick(&mut app, read_ticket, 0).commands().is_empty());
+}
