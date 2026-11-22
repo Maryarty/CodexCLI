@@ -298,3 +298,144 @@ fn the_openers_read_the_status_facts() {
     };
     assert_eq!(PermsCurrent::from_facts(&custom).matches, None);
 }
+
+/// A model menu opened on `presets()` in an app with thread `thread-1` active.
+fn threaded() -> CodexApp {
+    use codex_tui_core::fixtures::script::build;
+    let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+    let mut app = build(&format!("{script}\n")).expect("plays").app;
+    let fx = open(
+        &mut app,
+        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+    );
+    let (ticket, _) = asked(&fx);
+    answer(&mut app, ticket, select::Reply::Models(presets()));
+    app
+}
+
+/// Every select command in `fx`, in order.
+fn all(fx: &AppFx) -> Vec<(Ticket, select::Command)> {
+    fx.commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Select(command),
+                ..
+            } => Some((*ticket, command.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A default pick updates the thread, saves the defaults, and says
+/// `Model changed to ..` only once the write was saved.
+#[test]
+fn a_default_model_pick_updates_the_thread_saves_it_and_then_says_so() {
+    let mut app = threaded();
+    // `gpt-sol` has one effort: the pick settles at once.
+    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    assert!(app.screens().select.stack.is_empty());
+    let asks = all(&fx);
+    let [
+        (_, select::Command::Settings { thread, patch }),
+        (write, select::Command::Write { edits }),
+    ] = &asks[..]
+    else {
+        panic!("expected the settings update and the write, got {asks:?}");
+    };
+    assert_eq!(thread, "thread-1");
+    assert_eq!(patch.model.as_deref(), Some("gpt-sol"));
+    let keys: Vec<_> = edits.iter().map(|e| (e.key, e.value.as_deref())).collect();
+    assert_eq!(
+        keys,
+        vec![
+            ("model", Some("gpt-sol")),
+            ("model_reasoning_effort", Some("high"))
+        ]
+    );
+    assert!(
+        app.screens().select.notes.is_empty(),
+        "nothing is said before the write"
+    );
+    answer(
+        &mut app,
+        *write,
+        select::Reply::Written { overridden: false },
+    );
+    let notes = &app.screens().select.notes;
+    assert!(matches!(
+        notes.as_slice(),
+        [select::Note::ModelChanged { model, session: false, .. }] if model == "gpt-sol"
+    ));
+}
+
+/// The `s` key picks for the session: the thread updates, nothing is written.
+#[test]
+fn a_session_pick_updates_the_thread_and_writes_nothing() {
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::Secondary("gpt-sol".into()));
+    let asks = all(&fx);
+    let [(_, select::Command::Settings { patch, .. })] = &asks[..] else {
+        panic!("expected only the settings update, got {asks:?}");
+    };
+    assert_eq!(patch.model.as_deref(), Some("gpt-sol"));
+    assert!(matches!(
+        app.screens().select.notes.as_slice(),
+        [select::Note::ModelChanged { session: true, .. }]
+    ));
+}
+
+/// A write a layer above overrides says so, and a failed one says why.
+#[test]
+fn a_write_that_is_overridden_or_failed_is_reported() {
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let (write, _) = all(&fx).pop().expect("a write");
+    answer(&mut app, write, select::Reply::Written { overridden: true });
+    assert!(matches!(
+        app.screens().select.notes.as_slice(),
+        [
+            select::Note::Overridden(select::Setting::Model),
+            select::Note::ModelChanged { .. }
+        ]
+    ));
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let (write, _) = all(&fx).pop().expect("a write");
+    run(
+        &mut app,
+        AppEv::Reply(write, Reply::error(RpcError::Remote("read-only".into()))),
+    );
+    assert_eq!(
+        app.screens().select.notes,
+        vec![select::Note::SaveFailed {
+            setting: select::Setting::Model,
+            error: "read-only".into()
+        }]
+    );
+}
+
+/// A permission pick changes the thread's profile, policy and reviewer for
+/// its next turns and says `Permissions updated to ..`.
+#[test]
+fn a_permission_pick_updates_the_thread_and_says_so() {
+    use codex_tui_core::fixtures::script::build;
+    let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+    let mut app = build(&format!("{script}\n")).expect("plays").app;
+    open(
+        &mut app,
+        SelectIntent::OpenPermissions(PermsCurrent::default()),
+    );
+    let fx = open(&mut app, SelectIntent::Choose(":workspace".into()));
+    let asks = all(&fx);
+    let [(_, select::Command::Settings { thread, patch })] = &asks[..] else {
+        panic!("expected one settings update, got {asks:?}");
+    };
+    assert_eq!(thread, "thread-1");
+    assert_eq!(patch.permissions.as_deref(), Some(":workspace"));
+    assert!(matches!(
+        app.screens().select.notes.as_slice(),
+        [select::Note::PermissionsUpdated(_)]
+    ));
+}

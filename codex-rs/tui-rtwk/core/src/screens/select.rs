@@ -17,6 +17,7 @@ pub mod layout;
 pub mod list;
 pub mod models;
 pub mod permissions;
+pub mod persist;
 pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Selection};
 use models::{Effort, PlanSource, Step};
@@ -74,6 +75,31 @@ pub enum Note {
     NoAdditionalModels,
     /// `Could not load models. Try /model again.`
     ModelsNotLoaded,
+    /// `Model changed to {model} {effort}` (`for this session only` when the
+    /// pick was the `s` key), after the pick was applied.
+    ModelChanged { model: String, effort: Option<Effort>, session: bool },
+    /// The Ultra concurrency warning of a pick
+    /// (`ultra_reasoning_concurrency_warning`): the threads configured.
+    UltraConcurrency(usize),
+    /// `Permissions updated to {label}`.
+    PermissionsUpdated(permissions::Label),
+    /// `Failed to save default model: {error}`, or `Failed to set permission
+    /// profile`: what was being stored and the server's text.
+    SaveFailed { setting: Setting, error: String },
+    /// `Saved {setting}, but a higher-priority configuration layer overrides
+    /// the saved value.`
+    Overridden(Setting),
+}
+
+/// What a failed or overridden write was for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Setting {
+    /// The default model and reasoning effort.
+    Model,
+    /// The Plan mode's reasoning effort.
+    PlanEffort,
+    /// The thread's permissions.
+    Permissions,
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
@@ -454,6 +480,11 @@ pub enum Command {
     Requirements { request: u64 },
     /// One page of `permissionProfile/list` (100 per page, at most 10).
     Profiles { request: u64, cursor: Option<String>, cwd: Option<String> },
+    /// `thread/settings/update` of `thread`: what a pick changes for its
+    /// next turns.
+    Settings { thread: String, patch: crate::threads::SettingsPatch },
+    /// `config/batchWrite`: the defaults a pick saves.
+    Write { edits: Vec<persist::Edit> },
 }
 
 /// The replies of those RPCs, decoded by `decode`.
@@ -462,6 +493,10 @@ pub enum Reply {
     Models(Vec<Preset>),
     Requirements(Option<permissions::Requirements>),
     Profiles { profiles: Vec<permissions::Profile>, next: Option<String> },
+    /// The thread's settings were updated.
+    Updated,
+    /// The config was written; whether a layer above overrides the value.
+    Written { overridden: bool },
 }
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
@@ -477,6 +512,10 @@ pub enum Ctx {
         found: Vec<permissions::Profile>,
         pages: u8,
     },
+    /// A pick's settings update: what to tell if it fails.
+    Settings { setting: Setting },
+    /// A pick's write: the pick whose line follows a saved write.
+    Write { setting: Setting, then: Option<Note> },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).
@@ -501,6 +540,12 @@ pub fn apply_reply(
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
     let _ = thread;
     match command {
+        Command::Settings { thread, patch } => crate::threads::ThreadAsk::SettingsUpdate {
+            thread: thread.clone(),
+            patch: patch.clone(),
+        }
+        .wire(id),
+        Command::Write { edits } => persist::write_request(edits, id),
         Command::Models { .. } => models::list_request(id),
         Command::Requirements { .. } => permissions::requirements_request(id),
         Command::Profiles { cursor, cwd, .. } => {
@@ -512,6 +557,8 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     match command {
+        Command::Settings { .. } => Ok(Reply::Updated),
+        Command::Write { .. } => persist::written(result).map(|overridden| Reply::Written { overridden }),
         Command::Models { .. } => models::presets(result).map(Reply::Models),
         Command::Requirements { .. } => permissions::requirements(result)
             .map(|wire| Reply::Requirements(wire.as_ref().map(permissions::Requirements::from_wire))),

@@ -41,6 +41,100 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
             fx,
         );
     }
+    picks(app, fx);
+}
+
+/// The picks the screen holds, applied: the thread's settings change for its
+/// next turns, a default pick is saved, and the history line follows what the
+/// server accepted (`select_session_model`, `persist_default_model_selection`,
+/// `apply_permission_profile_selection`).
+fn picks(app: &mut CodexApp, fx: &mut AppFx) {
+    let picked = std::mem::take(&mut Rc::make_mut(&mut app.screens).select.picked);
+    for pick in picked {
+        match pick {
+            select::Picked::Selection(selection) => model_pick(app, selection, fx),
+            select::Picked::Permissions(selection) => permissions_pick(app, selection, fx),
+            // A generic list's picks belong to the screen that opened it.
+            select::Picked::Item(_)
+            | select::Picked::ItemSecondary(_)
+            | select::Picked::Items(_) => {}
+        }
+    }
+}
+
+fn notes(app: &mut CodexApp, notes: impl IntoIterator<Item = select::Note>) {
+    Rc::make_mut(&mut app.screens).select.notes.extend(notes);
+}
+
+fn settings(
+    app: &mut CodexApp,
+    patch: crate::threads::SettingsPatch,
+    setting: select::Setting,
+    fx: &mut AppFx,
+) -> bool {
+    let Some(thread) = app.session.active.as_ref().map(ToString::to_string) else {
+        return false;
+    };
+    ask(
+        app,
+        select::Command::Settings { thread, patch },
+        select::Ctx::Settings { setting },
+        fx,
+    );
+    true
+}
+
+fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
+    use select::models::Apply;
+    let effects = select::persist::effects(&selection);
+    if let Some(threads) = selection.warning {
+        notes(app, [select::Note::UltraConcurrency(threads)]);
+    }
+    let session = selection.apply == Apply::Session;
+    let line = select::Note::ModelChanged {
+        model: selection.model.clone(),
+        effort: selection.effort.clone(),
+        session,
+    };
+    if let Some(patch) = effects.patch {
+        settings(app, patch, select::Setting::Model, fx);
+    }
+    if effects.edits.is_empty() {
+        // Plan mode only saves a key and says nothing of the model.
+        if session {
+            notes(app, [line]);
+        }
+        return;
+    }
+    let setting = if selection.apply == Apply::PlanOnly {
+        select::Setting::PlanEffort
+    } else {
+        select::Setting::Model
+    };
+    let then = (selection.apply != Apply::PlanOnly).then_some(line);
+    ask(
+        app,
+        select::Command::Write {
+            edits: effects.edits,
+        },
+        select::Ctx::Write { setting, then },
+        fx,
+    );
+}
+
+fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &mut AppFx) {
+    let label = match &selection {
+        permissions::Selection::Preset { preset, reviewer } => permissions::Label::Mode {
+            preset: *preset,
+            reviewer: *reviewer,
+        },
+        permissions::Selection::Profile { label, .. } => label.clone(),
+    };
+    let patch = select::persist::permissions_patch(&selection);
+    // Without a thread the legacy list has nothing to update: the oracle's
+    // config is the host's, and its line is still said.
+    settings(app, patch, select::Setting::Permissions, fx);
+    notes(app, [select::Note::PermissionsUpdated(label)]);
 }
 
 fn ask(app: &mut CodexApp, command: select::Command, ctx: select::Ctx, fx: &mut AppFx) {
@@ -78,6 +172,33 @@ pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &
         select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     };
     match (ctx, result) {
+        (select::Ctx::Settings { setting }, result) => {
+            if let Err(error) = result {
+                notes(
+                    app,
+                    [select::Note::SaveFailed {
+                        setting,
+                        error: text(error),
+                    }],
+                );
+            }
+        }
+        (select::Ctx::Write { setting, then }, result) => match result {
+            Ok(select::Reply::Written { overridden }) => {
+                if overridden {
+                    notes(app, [select::Note::Overridden(setting)]);
+                }
+                notes(app, then);
+            }
+            Ok(_) => {}
+            Err(error) => notes(
+                app,
+                [select::Note::SaveFailed {
+                    setting,
+                    error: text(error),
+                }],
+            ),
+        },
         (select::Ctx::Models { request }, result) => {
             let result = match result {
                 Ok(select::Reply::Models(presets)) => Ok(presets),

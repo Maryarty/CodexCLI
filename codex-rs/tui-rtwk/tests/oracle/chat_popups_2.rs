@@ -140,7 +140,6 @@ fn inline_permission_discovery_retry_preserves_profile_id() {
 // ORACLE chatwidget/tests/permissions.rs:296 permission_discovery_discards_stale_results_and_preserves_covering_modal kind=ui owner=dialogs-pane
 #[test]
 fn permission_discovery_discards_stale_results_and_preserves_covering_modal() {
-    kit::pending(Owner::DialogsPane, NO_DISCOVERY);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/permissions").keys("enter");
     s.keys("esc");
@@ -516,7 +515,6 @@ fn permissions_selection_hides_auto_review_when_feature_disabled() {
 // ORACLE chatwidget/tests/permissions.rs:1574 permissions_selection_hides_auto_review_when_feature_disabled_even_if_auto_review_is_active kind=ui owner=dialogs-pane
 #[test]
 fn permissions_selection_hides_auto_review_when_feature_disabled_even_if_auto_review_is_active() {
-    kit::pending(Owner::DialogsPane, NO_AUTO_REVIEW);
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
