@@ -928,7 +928,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             if let Some((thread, ev)) = threads::project(&notification) {
                 if app.threads.contains(&thread) {
+                    let reverted = matches!(ev, ThreadEv::Reverted);
                     apply_thread(app, &thread, ev, fx);
+                    if reverted {
+                        // the retained turns are the server's: read them again
+                        fetch_history(app, &thread, fx);
+                    }
                 } else if app.outgoing.any(|ctx| may_attach(ctx, origin, &thread)) {
                     // Bound the startup/reconnect window. A loaded turn or terminal
                     // snapshot can recover the transcript if this buffer overflows.

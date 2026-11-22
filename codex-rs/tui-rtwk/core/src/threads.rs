@@ -42,6 +42,7 @@ use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadResumeParams;
+use codex_app_server_protocol::ThreadRevertParams;
 use codex_app_server_protocol::ThreadSetNameParams;
 use codex_app_server_protocol::ThreadShellCommandParams;
 use codex_app_server_protocol::ThreadStartParams;
@@ -430,6 +431,15 @@ impl Transcript {
         }
     }
 
+    /// The server's history became shorter (`thread/revert`): every row and
+    /// every timing is dropped; the retained turns are read again.
+    fn reset(&mut self) {
+        *self = Transcript {
+            layout_revision: self.layout_revision + 1,
+            ..Transcript::default()
+        };
+    }
+
     /// Installs a page from persisted history. Its full turns replace any
     /// live rows for those turns, including rows with synthesized ids.
     fn prepend_snapshots(&mut self, snapshots: Vec<HistoryTurn>) {
@@ -635,6 +645,11 @@ pub enum ThreadEv {
         message: UserMessage,
     },
     Interrupt,
+    /// `thread/reverted`: the server's history is now the prefix before a
+    /// turn (the edit of a past prompt). Nothing held of the old history is
+    /// trusted: the transcript is cleared and the app reads the retained
+    /// turns again (oracle `AppEvent::PromptRevert`, `set_session`).
+    Reverted,
     ScreenIntent(ScreenThreadIntent),
     /// An event of a screen slot's per-thread part.
     Screen(ScreenThreadEv),
@@ -1057,6 +1072,18 @@ pub enum ThreadAsk {
     ActiveTurn {
         thread: String,
     },
+    /// `thread/read` with turns: the persisted history of a thread. The edit
+    /// of a past prompt (the transcript's backtrack) resolves the prompt and
+    /// the turn to revert before from it; the caller decodes the response.
+    ReadTurns {
+        thread: String,
+    },
+    /// `thread/revert`: drop `before_turn` and every later turn from the
+    /// thread's persisted history; the server answers with `ThreadReverted`.
+    Revert {
+        thread: String,
+        before_turn: TurnId,
+    },
     /// The newest turn of a thread (`thread/turns/list`, limit 1).
     Turns {
         thread: String,
@@ -1109,6 +1136,8 @@ impl ThreadAsk {
             | ThreadAsk::ForkAt { thread, .. }
             | ThreadAsk::Read { thread }
             | ThreadAsk::ActiveTurn { thread }
+            | ThreadAsk::ReadTurns { thread }
+            | ThreadAsk::Revert { thread, .. }
             | ThreadAsk::Turns { thread }
             | ThreadAsk::History { thread, .. }
             | ThreadAsk::Interrupt { thread, .. }
@@ -1178,6 +1207,23 @@ impl ThreadAsk {
                 params: ThreadReadParams {
                     thread_id: thread.clone(),
                     include_turns: true,
+                },
+            },
+            ThreadAsk::ReadTurns { thread } => ClientRequest::ThreadRead {
+                request_id,
+                params: ThreadReadParams {
+                    thread_id: thread.clone(),
+                    include_turns: true,
+                },
+            },
+            ThreadAsk::Revert {
+                thread,
+                before_turn,
+            } => ClientRequest::ThreadRevert {
+                request_id,
+                params: ThreadRevertParams {
+                    thread_id: thread.clone(),
+                    before_turn_id: before_turn.as_str().to_owned(),
                 },
             },
             ThreadAsk::Turns { thread } => ClientRequest::ThreadTurnsList {
@@ -1355,6 +1401,9 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 fault: Fault::of(&n.error),
             },
         )),
+        ServerNotification::ThreadReverted(n) => {
+            Some((ThreadId::new(&n.thread_id), ThreadEv::Reverted))
+        }
         ServerNotification::McpServerStatusUpdated(n) => n.thread_id.as_deref().map(|thread| {
             (
                 ThreadId::new(thread),
@@ -1612,6 +1661,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.slots.chat.connection_lost();
         }
         ThreadEv::ConnectionLost => {}
+        ThreadEv::Reverted => {
+            model.transcript.reset();
+            model.history_next = None;
+            Rc::make_mut(&mut model.finished_turns).clear();
+            Rc::make_mut(&mut model.authoritative_turns).clear();
+            model.completed_items.clear();
+            model.last_ended = None;
+        }
         ThreadEv::Failure(error) => model.last_error = Some(error),
         ThreadEv::HistoryPage { turns, next } => {
             for snapshot in &turns {
@@ -2209,5 +2266,34 @@ mod tests {
         };
         assert_eq!(params.thread_id, "t1");
         assert!(params.exclude_turns, "thread/resume must exclude the turns");
+    }
+
+    /// The edit of a past prompt (the transcript's backtrack) reads the
+    /// persisted turns, then reverts before one of them: both are thread RPCs,
+    /// made here and nowhere else (ADR-003).
+    #[test]
+    fn the_prompt_edit_reads_the_turns_then_reverts_before_one() {
+        let ClientRequest::ThreadRead { params, .. } = (ThreadAsk::ReadTurns {
+            thread: "t1".to_owned(),
+        })
+        .wire(RequestId::Integer(1)) else {
+            panic!("a read of the turns is thread/read");
+        };
+        assert_eq!(params.thread_id, "t1");
+        assert!(
+            params.include_turns,
+            "the edit resolves the prompt from the turns"
+        );
+
+        let ask = ThreadAsk::Revert {
+            thread: "t1".to_owned(),
+            before_turn: TurnId::new("turn-3"),
+        };
+        assert_eq!(ask.thread(), Some("t1"));
+        let ClientRequest::ThreadRevert { params, .. } = ask.wire(RequestId::Integer(2)) else {
+            panic!("a revert is thread/revert");
+        };
+        assert_eq!(params.thread_id, "t1");
+        assert_eq!(params.before_turn_id, "turn-3");
     }
 }

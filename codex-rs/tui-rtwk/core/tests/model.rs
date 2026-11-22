@@ -1479,3 +1479,47 @@ fn a_retrying_error_sets_the_header_until_the_next_notification() {
     notification(&mut app, agent_delta(T, "turn-1", "msg", "hello"));
     assert_eq!(header(&app), None);
 }
+
+/// The edit of a past prompt reverted the server's history (`thread/revert`):
+/// the thread drops every row it held and reads the retained turns again
+/// (oracle: the thread's replay store is replaced).
+#[test]
+fn a_reverted_thread_clears_its_transcript_and_reads_the_retained_turns() {
+    use codex_app_server_protocol::{ServerNotification, ThreadRevertedNotification};
+    use codex_tui_core::screens::agents::Command as AgentsCommand;
+    use codex_tui_core::threads::ThreadAsk;
+
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    notification(&mut app, user_item(T, "turn-1", "u1", "first"));
+    notification(&mut app, agent_completed(T, "turn-1", "a1", "answer"));
+    notification(&mut app, turn_completed(T, "turn-1"));
+    assert_eq!(thread(&app).transcript().len(), 2);
+    let revision = thread(&app).transcript().layout_revision();
+
+    let fx = notification(
+        &mut app,
+        BackendEv::Notification(Box::new(ServerNotification::ThreadReverted(
+            ThreadRevertedNotification {
+                thread_id: T.to_string(),
+            },
+        ))),
+    );
+
+    assert_eq!(thread(&app).transcript().len(), 0, "the old rows are gone");
+    assert_ne!(thread(&app).transcript().layout_revision(), revision);
+    assert!(
+        fx.commands().iter().any(|c| matches!(
+            c,
+            Command::Screen {
+                command: ScreenCommand::Agents(AgentsCommand::Thread(ThreadAsk::History {
+                    thread,
+                    cursor: None,
+                })),
+                ..
+            } if thread == T
+        )),
+        "the retained turns are read again: {:?}",
+        fx.commands()
+    );
+}
