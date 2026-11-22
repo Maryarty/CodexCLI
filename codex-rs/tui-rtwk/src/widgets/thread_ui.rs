@@ -116,6 +116,26 @@ impl Follow {
         self.clear_unseen();
     }
 
+    /// To the first row (`jump_top`).
+    pub fn jump_to_first(&self) {
+        let controller = self.scroll.as_scroll_controller();
+        let reverse = controller
+            .try_position()
+            .map(|position| position.reverse())
+            .unwrap_or(false);
+        controller.jump_to(if reverse { i64::MAX } else { 0 });
+    }
+
+    /// Half the rows in view, rounded up, towards the last row (a negative
+    /// count: towards the first) (`ctrl-d`, `ctrl-u`).
+    pub fn half_page(&self, pages: i64) {
+        let Ok(position) = self.scroll.as_scroll_controller().try_position() else {
+            return;
+        };
+        let half = position.viewport_dimension().saturating_add(1) / 2;
+        self.scroll_by(pages.saturating_mul(half.max(1)));
+    }
+
     /// `rows` towards the last row (a negative count towards the first).
     pub fn scroll_by(&self, rows: i64) {
         let controller = self.scroll.as_scroll_controller();

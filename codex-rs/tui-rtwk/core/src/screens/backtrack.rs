@@ -100,7 +100,7 @@ pub fn nth_user_position(transcript: &Transcript, nth: usize) -> Option<usize> {
 }
 
 /// The server ids and the prompt of the `nth` offered prompt.
-pub fn nth_user<'a>(transcript: &'a Transcript, nth: usize) -> Option<(&'a ItemKey, &'a UserPrompt)> {
+pub fn nth_user(transcript: &Transcript, nth: usize) -> Option<(&ItemKey, &UserPrompt)> {
     let (key, item) = transcript.get(nth_user_position(transcript, nth)?)?;
     match item {
         Item::User(prompt) => Some((key, prompt)),

@@ -60,6 +60,19 @@ pub struct Strings {
     pub hint_jump: &'static str,
     pub hint_close: &'static str,
     pub action_edit_configuration: &'static str,
+    /// The transcript sheet (`pager_overlay/transcript.rs`): its title, the
+    /// select key shown in the status row, the keys and hints of the second
+    /// row, and the news the status row names.
+    pub sheet_title: &'static str,
+    pub status_select: &'static str,
+    pub status_news: &'static str,
+    pub key_find: &'static str,
+    pub key_esc: &'static str,
+    pub key_right: &'static str,
+    pub hint_find: &'static str,
+    pub hint_browse: &'static str,
+    pub hint_edit_next: &'static str,
+    pub hint_edit_message: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -107,6 +120,16 @@ pub const EN: Strings = Strings {
     hint_jump: "to jump",
     hint_close: "close",
     action_edit_configuration: "Edit configuration",
+    sheet_title: "T R A N S C R I P T",
+    status_select: "⌃space select",
+    status_news: "New activity · ",
+    key_find: "f3",
+    key_esc: "esc",
+    key_right: "→",
+    hint_find: "find",
+    hint_browse: "browse prompts",
+    hint_edit_next: "to edit next",
+    hint_edit_message: "to edit message",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

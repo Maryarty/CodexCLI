@@ -14,9 +14,11 @@ use crate::app::debug::DebugOpen;
 
 pub mod follow;
 pub mod pager;
+pub mod sheet;
 pub mod strings;
 
 use crate::app::debug::EntryOpen;
+use crate::app::debug::seeded::Seeded;
 
 /// What the debug menu lists for this directory: the static pager over the
 /// document a fixture script gives the model.
@@ -55,6 +57,22 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         script,
         open: EntryOpen::Route(|_| pager::StaticPager.into()),
     })
+    .chain([DebugEntry {
+        name: "sheet_basic",
+        description: "the transcript sheet over a prompt, a reasoning summary and a long answer",
+        script: include_str!("fixtures/sheet_basic.jsonl"),
+        open: EntryOpen::Route(|seeded: &Seeded| {
+            sheet::TranscriptSheet {
+                follow: seeded
+                    .thread_ui
+                    .get(seeded.core.session().active.as_ref())
+                    .follow
+                    .clone(),
+                highlight: false,
+            }
+            .into()
+        }),
+    }])
     .collect()
 }
 

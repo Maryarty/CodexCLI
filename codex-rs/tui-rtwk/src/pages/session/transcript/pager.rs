@@ -131,7 +131,7 @@ impl State for PagerState {
 
 /// The pager's default keys (`keymap.rs` `PagerKeymap` defaults), then the
 /// action's.
-fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
+pub(super) fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
     let plain = KeyPress::code;
     let ch = |c: char| KeyPress::char(c);
     let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
@@ -160,7 +160,7 @@ fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
 }
 
 /// `/ ` repeated over the row, the title over its start (`render_header`).
-fn header(title: &str, table: &'static Strings, style: Style) -> AnyWidget {
+pub(super) fn header(title: &str, table: &'static Strings, style: Style) -> AnyWidget {
     let title = format!("{}{title}", table.pager_title_lead);
     LayoutBuilder::new(move |_, constraints| {
         let slashes = table
@@ -257,46 +257,54 @@ fn rule(scroll: ScrollController, table: &'static Strings, style: Style) -> AnyW
     .into()
 }
 
-/// The two hint rows and a blank one (`HINTS_HEIGHT` 3).
-fn hints(action: Option<PagerAction>, table: &'static Strings, style: Style) -> AnyWidget {
-    let pair = |keys: &[&'static str], what: &'static str| -> Vec<Span> {
-        let mut spans = Vec::new();
-        for (i, key) in keys.iter().enumerate() {
-            if i > 0 {
+/// The keys of a pair and what they do (`render_key_hints`).
+pub(super) type Pair = (Vec<&'static str>, &'static str);
+
+/// The navigation pairs (`render_navigation_hints`): scroll, page, jump.
+pub(super) fn navigation(table: &'static Strings) -> Vec<Pair> {
+    vec![
+        (vec![table.key_up, table.key_down], table.hint_scroll),
+        (
+            vec![table.key_page_up, table.key_page_down],
+            table.hint_page,
+        ),
+        (vec![table.key_home, table.key_end], table.hint_jump),
+    ]
+}
+
+/// One row of key hints: a blank, then the pairs joined by `hint_joiner`
+/// (`render_key_hints`).
+pub(super) fn hint_row(pairs: &[Pair], table: &'static Strings, style: Style) -> AnyWidget {
+    let mut spans = vec![Span::new(" ")];
+    for (i, (keys, what)) in pairs.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::new(table.hint_joiner));
+        }
+        for (k, key) in keys.iter().enumerate() {
+            if k > 0 {
                 spans.push(Span::styled(table.hint_slash, style.clone()));
             }
             spans.push(Span::styled(*key, style.clone().attrs(Attrs::BOLD)));
         }
         spans.push(Span::new(format!(" {what}")));
-        spans
-    };
-    let joined = |pairs: Vec<Vec<Span>>| -> AnyWidget {
-        let mut spans = vec![Span::new(" ")];
-        for (i, pair) in pairs.into_iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::new(table.hint_joiner));
-            }
-            spans.extend(pair);
-        }
-        Text::rich_line(spans)
-            .style(style.clone())
-            .overflow(TextOverflow::Clip)
-            .into()
-    };
-    let first = joined(vec![
-        pair(&[table.key_up, table.key_down], table.hint_scroll),
-        pair(&[table.key_page_up, table.key_page_down], table.hint_page),
-        pair(&[table.key_home, table.key_end], table.hint_jump),
-    ]);
-    let mut second = vec![pair(&[table.key_close], table.hint_close)];
+    }
+    Text::rich_line(spans)
+        .style(style)
+        .overflow(TextOverflow::Clip)
+        .into()
+}
+
+/// The two hint rows and a blank one (`HINTS_HEIGHT` 3).
+fn hints(action: Option<PagerAction>, table: &'static Strings, style: Style) -> AnyWidget {
+    let mut second = vec![(vec![table.key_close], table.hint_close)];
     if let Some(PagerAction::EditConfiguration) = action {
-        second.push(pair(&[table.key_enter], table.action_edit_configuration));
+        second.push((vec![table.key_enter], table.action_edit_configuration));
     }
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(first)
-        .child(joined(second))
+        .child(hint_row(&navigation(table), table, style.clone()))
+        .child(hint_row(&second, table, style))
         .child(Padding::new(
             EdgeInsets::ZERO,
             SizedBox::new(None, Some(1), None),
