@@ -4,7 +4,8 @@
 //!
 //! Flutter's full-screen route of a `Column`: the title row, the same
 //! transcript list the chat shows (`TranscriptPane`, detailed), the status
-//! row (the news and the select key, or the browsing keys), two hint rows.
+//! row (the news and the select key, or the browsing keys), two hint rows;
+//! the rows around the list are the `Chrome` the opener asks for.
 //! The scroll state is the thread's `Follow` controller, shared with the chat
 //! so the reader's place survives the sheet; the mode is the thread's `Modes`
 //! controller; the document is the thread model's, read through the provider.
@@ -30,19 +31,43 @@ use crate::app::debug::seeded::Seeded;
 use crate::pages::session::transcript_pane::Pane;
 use crate::widgets::thread_ui::{Follow, Modes};
 
+/// What the sheet draws around the transcript (the person's decision on the
+/// pager chrome: as the oracle has it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chrome {
+    /// The title row, the status row and the hint rows, no percent rule
+    /// (`TranscriptOverlay`: the inline overlay and the resume preview).
+    Overlay,
+    /// The transcript alone, the chat's own footer speaks (the owned
+    /// full-screen Ctrl+T and backtrack draw no pager chrome).
+    Bare,
+}
+
 /// The sheet over the transcript of the thread below it.
 #[derive(Clone, PartialEq)]
 pub struct TranscriptSheet {
     pub follow: Follow,
     pub modes: Modes,
+    pub chrome: Chrome,
 }
 
-/// The sheet of the active thread inside a seeded debug entry.
+/// The sheet of the active thread inside a seeded debug entry, with the
+/// overlay's chrome.
 pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
+    seeded_with(seeded, Chrome::Overlay)
+}
+
+/// The same sheet without chrome, as the owned full-screen Ctrl+T shows it.
+pub fn seeded_bare(seeded: &Seeded<'_>) -> AnyWidget {
+    seeded_with(seeded, Chrome::Bare)
+}
+
+fn seeded_with(seeded: &Seeded<'_>, chrome: Chrome) -> AnyWidget {
     let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
     TranscriptSheet {
         follow: ui.follow.clone(),
         modes: ui.modes.clone(),
+        chrome,
     }
     .into()
 }
@@ -127,56 +152,62 @@ impl State for SheetState {
                 .into()
             })
         };
-        // older messages can still be loaded (`TranscriptHistoryState::Partial`)
-        let partial = select::<ThreadModel, _, _>(cx, ThreadModel::can_load_history);
-        // the reader and the mode both change what the rows below say
-        let listenable = <dyn Listenable>::merge([
-            Some(follow.listenable()),
-            Some(modes.listenable() as Rc<dyn Listenable>),
-        ]);
-        let bottom = ListenableBuilder::new(Rc::new(listenable), move |_, _| {
-            let browsing = modes.browsing();
-            let hints = second(modes.selected().is_some(), table);
-            let mut rows = Column::new()
-                .main_axis_size(MainAxisSize::Min)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch);
-            if browsing {
-                rows = rows
-                    .child(browsing_footer(
-                        table,
-                        bold.clone(),
-                        accent.clone(),
-                        dim.clone(),
-                    ))
-                    .child(pager::hint_row(
-                        &pager::navigation(table),
-                        table,
-                        dim.clone(),
-                    ))
-                    .child(pager::hint_row(&hints, table, dim.clone()));
-            } else if follow.away() {
-                // the reader is away: one status row, the hints give way to it
-                // (`footer_with_navigation`)
-                rows = rows
-                    .child(status(true, follow.unseen(), partial, table, &bold, &dim))
-                    .child(SizedBox::new(None, Some(2), None));
-            } else {
-                rows = rows
-                    .child(status(false, false, partial, table, &bold, &dim))
-                    .child(pager::hint_row(
-                        &pager::navigation(table),
-                        table,
-                        dim.clone(),
-                    ))
-                    .child(pager::hint_row(&hints, table, dim.clone()));
-            }
-            rows.into()
+        let bottom = (w.chrome == Chrome::Overlay).then(|| {
+            // older messages can still be loaded (`TranscriptHistoryState::Partial`)
+            let partial = select::<ThreadModel, _, _>(cx, ThreadModel::can_load_history);
+            // the reader and the mode both change what the rows below say
+            let listenable = <dyn Listenable>::merge([
+                Some(follow.listenable()),
+                Some(modes.listenable() as Rc<dyn Listenable>),
+            ]);
+            let bottom = ListenableBuilder::new(Rc::new(listenable), move |_, _| {
+                let browsing = modes.browsing();
+                let hints = second(modes.selected().is_some(), table);
+                let mut rows = Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch);
+                if browsing {
+                    rows = rows
+                        .child(browsing_footer(
+                            table,
+                            bold.clone(),
+                            accent.clone(),
+                            dim.clone(),
+                        ))
+                        .child(pager::hint_row(
+                            &pager::navigation(table),
+                            table,
+                            dim.clone(),
+                        ))
+                        .child(pager::hint_row(&hints, table, dim.clone()));
+                } else if follow.away() {
+                    // the reader is away: one status row, the hints give way to it
+                    // (`footer_with_navigation`)
+                    rows = rows
+                        .child(status(true, follow.unseen(), partial, table, &bold, &dim))
+                        .child(SizedBox::new(None, Some(2), None));
+                } else {
+                    rows = rows
+                        .child(status(false, false, partial, table, &bold, &dim))
+                        .child(pager::hint_row(
+                            &pager::navigation(table),
+                            table,
+                            dim.clone(),
+                        ))
+                        .child(pager::hint_row(&hints, table, dim.clone()));
+                }
+                rows.into()
+            });
+            bottom
         });
-        let column = Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(pager::header(table.sheet_title, table, tokens.dim()))
-            .child(Expanded::new(1, marked))
-            .child(bottom);
+        let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+        if w.chrome == Chrome::Overlay {
+            column = column.child(pager::header(table.sheet_title, table, tokens.dim()));
+        }
+        column = column.child(Expanded::new(1, marked));
+        if let Some(bottom) = bottom {
+            column = column.child(bottom);
+        }
         let mut focus = Focus::new(column).autofocus();
         for (key, msg) in pager::bindings(false) {
             focus = focus.bind(key, cx.send(Msg::Pager(msg)));

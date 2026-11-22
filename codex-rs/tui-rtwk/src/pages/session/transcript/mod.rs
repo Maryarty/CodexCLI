@@ -64,6 +64,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(sheet::seeded),
         },
         DebugEntry {
+            name: "sheet_owned",
+            description: "the transcript sheet without pager chrome (the owned full-screen Ctrl+T)",
+            script: include_str!("fixtures/sheet_basic.jsonl"),
+            open: EntryOpen::Route(sheet::seeded_bare),
+        },
+        DebugEntry {
             name: "sheet_reveal",
             description: "the transcript sheet over a prompt and a four-line answer",
             script: include_str!("fixtures/sheet_reveal.jsonl"),

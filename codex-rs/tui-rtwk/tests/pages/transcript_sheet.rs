@@ -6,7 +6,9 @@
 //! The sheet is opened through the transcript directory's `sheet_basic`
 //! entry: a prompt, a reasoning summary and an answer of forty rows. At
 //! 60x12 the transcript has eight rows: the title row, the status row and the
-//! two hint rows take the others.
+//! two hint rows take the others. `sheet_owned` is the same transcript
+//! without chrome (the person's decision: the owned full-screen Ctrl+T and
+//! backtrack draw none).
 
 use crate::kit::{Owner, Screen};
 
@@ -231,4 +233,51 @@ fn a_marked_prompt_out_of_view_is_scrolled_into_view() {
     s.assert_absent("hello");
     s.keys("esc");
     s.assert_contains("hello");
+}
+
+// ---- the chrome (the person's decision on the pager chrome, as the oracle has it:
+// the overlay has title, status row and hints but no percent rule; the owned
+// full-screen Ctrl+T draws none)
+
+fn owned() -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .entry("transcript", "sheet_owned")
+        .open()
+}
+
+#[test]
+fn the_overlay_draws_no_percent_rule() {
+    let s = sheet();
+    s.assert_absent("%");
+    s.assert_absent("───");
+}
+
+#[test]
+fn the_owned_sheet_draws_no_title_status_or_hint_rows() {
+    let s = owned();
+    s.assert_absent("T R A N S C R I P T");
+    s.assert_absent("select");
+    s.assert_absent("to scroll");
+    s.assert_absent("q close");
+    // the transcript has every row: the last one is the answer's
+    let rows = s.rows();
+    assert!(!rows[0].starts_with('/'), "{}", s.text());
+    assert!(!rows[11].trim().is_empty(), "{}", s.text());
+}
+
+#[test]
+fn the_owned_sheet_reads_and_browses_with_the_same_keys() {
+    let mut s = owned();
+    s.keys("home");
+    s.assert_contains("hello");
+    s.keys("esc");
+    s.assert_text_style("hello", "reversed");
+    // the browsing keys are the chat footer's to name, not the sheet's
+    s.assert_absent("Browsing");
+    s.keys("esc");
+    s.assert_text_style("hello", "!reversed");
+    s.keys("q");
+    s.assert_absent("Detailed reasoning goes here.");
+    s.assert_contains("debug screens");
 }
