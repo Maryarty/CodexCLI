@@ -277,6 +277,16 @@ really missing. `shards.py --check`: 0 stale.
 Gap rows G-new-1, G65-G68 and G11 are in `rtwk-gaps.md`. Left: the embedded plain-text composer
 (D4: a question sheet's answer composer, no sheet to host it yet).
 
+## Binary run (end of chunk-composer, debug build)
+`check.py --bin rtwk --bin oracle --only multi-turn,text-100 --capture-dir /tmp/cc-cap` (PTY): 4/4
+pass (both binaries, the same composer rows at `ready` and after each turn; the rtwk multi-turn
+sentinel is `no` as on the base). The restricted (offline) composer is not reachable from a mock
+scenario: the mock model never drops the connection, so its keys are held by the page tests
+(`tests/pages/composer_draft.rs` `offline`, injected `Reconnecting`) and the key tests in
+`composer/editing.rs`. Differing rows: none seen in the two scenarios; the 3 composer_4 reconnect
+screen tests: 2 green, `offline_delete_reveals_...` pending (the page's `Reconnecting…` row and
+footer around the composer, no `↑` cue on a wheel-scrolled composer).
+
 ## Shard counts
 See "Counts now, end of step 11" above (the third-run table that stood here was stale).
 
