@@ -17,6 +17,22 @@ use codex_tui_core::threads::GeneratedImage;
 
 use crate::app::theme::Tokens;
 
+use super::strings::Strings;
+
+/// The texts of the cell: the heading, the detail, and where the image went.
+pub fn texts(image: &GeneratedImage, strings: &Strings) -> Vec<String> {
+    let heading = if image.failed {
+        [strings.generated_cross, strings.generated_failed].concat()
+    } else {
+        [strings.bullet, strings.generated_heading].concat()
+    };
+    let mut texts = vec![heading, [strings.file_branch, &image.detail].concat()];
+    if let Some(saved) = &image.saved_to {
+        texts.push([strings.file_branch, strings.generated_saved_to, saved].concat());
+    }
+    texts
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeneratedImageCell {
     pub image: Arc<GeneratedImage>,

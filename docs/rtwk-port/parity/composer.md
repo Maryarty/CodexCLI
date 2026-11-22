@@ -18,7 +18,7 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
-## chunk-composer (the whole composer as one job; in progress, steps 1-7 of 11 landed)
+## chunk-composer (the whole composer as one job; in progress, steps 1-7 and 8a (core) of 11 landed; 8b, the view, is next)
 Branch `worktree-agent-a8b7d6f0f27a204d2` (rebased on `claude/tui-rtwk` 2026-11-22).
 
 Done:
@@ -36,6 +36,36 @@ Done:
   its own undo step (the draft inserts a plain paste itself in Vim, the step has to close with it).
   11 page tests in `tests/pages/composer_vim.rs` (`global.toggle_vim_mode` on F9).
 - Turned on: textarea 14 -> 18, composer_4 12 -> 16 (see counts).
+- Step 8a, mentions in pure core (b1059275f, 3378b4719): `core/src/screens/composer/mentions/`
+  (no rtwk, no IO, no prose; 64 unit tests, the oracle's carried where it has them):
+  - `target.rs`: `Doc{text, cursor, elements}` and the element-aware token range
+    (`current_prefixed_token_range[_with_dollar_predicate]`, `dollar_query_kind` arbitrating
+    shell variables, `prefixed_token_range_is_editable`, `ends_plaintext_at_mention`).
+  - `codec.rs`: `mention_codec` over `history::TextElement` (`[$name](path)`, `[@name](thread://id)`);
+    `task.rs`: `TaskMention{thread_id: ThreadId, ..}`, `parse/format_task_link`; `usage.rs`:
+    `MentionUsage` (50-pick window).
+  - `candidate.rs` / `catalog.rs` / `filter.rs` / `search_mode.rs` / `popup.rs`: the unified `@`
+    popup as values: `Candidate`, `Capability{Skills, McpServers(n), Apps(n)}` (the words are
+    the view's table), the oracle's sort (Plugin < Skill < Task < File; files by score), tabs
+    `SearchMode{Results, FilesystemOnly, Tools}`; highlight and scroll belong to view controllers.
+  - `dollar.rs`: the legacy `$` popup (skills and apps; Exact/Prefix/Fuzzy tier, frequency).
+  - `files.rs`: the file-search seam. `FileSearchAsk{Query, Stop}` values and
+    `trait FileSearchBackend`; the default `AppServerSearch` speaks `fuzzyFileSearch/session*`
+    (start once, update, stop; answers filtered by session id); `FileSearch` keeps old matches
+    until the answer (oracle) and has the "loading..."/"no matches" state.
+  - `session.rs`: `Session` per composer (`sync(doc, sources) -> Vec<FileSearchAsk>`,
+    `dismiss` by query + token + occurrence, `pick -> Pick{range, action, usage}`,
+    `completion_separator`, `can_switch_search_mode`).
+  - `popovers.rs`: `Ask::FileSearch`, `Ask::RecordMention`; `Ev::Tasks`, `Ev::FileMatches`,
+    `Ev::MentionUsage`; `Intent::SearchFiles`, `Intent::RecordMention`; seeds `tasks`,
+    `file_matches`, `mention_usage`, mentions with `path`/`plugin_id`/`capabilities`.
+  - `history.rs`: `HistoryEntry::persisted(text, at_mentions_enabled)` decodes mentions and task
+    ranges; `set_at_mention_restore_enabled`.
+  Step 8a counts: whole `--workspace` nextest 2092 passed, 17 skipped; fmt, clippy
+  `--workspace --all-targets -D warnings`, `shards.py --check` (55 shards, 2560 tests, 0 stale): clean.
+  The view (8b) is not built: `$`/`@` still go through the old `Suggest`/`popup.rs` path
+  (`Model::candidates`, `Sigil`), to be retired in 8b with route 2 (rows composed above the
+  composer, G68 untried until then).
 - Step 7, Ctrl+R as a mode of the composer (2c4294dbe): the search lives in the composer
   because a paste reaches only a focused TextArea and the draft's `Snapshot` restores
   text, caret, placeholders and shell mode exactly. Core `screens/popovers.rs`:
@@ -159,7 +189,19 @@ Needs (other owners' files):
   `HistoryBatch{rows, next_older}`, `HistoryBatchFailed`; the host keeps the
   `HistoryBatchCursor` byte anchors by `end_offset`; the metadata is read when a thread opens
   and delivered as `Ev::HistoryMetadata{log_id, entry_count}`.
-- Also there: FileSearch (`fuzzyFileSearch`, D1), ClipboardImage.
+- File-search backend choice open (the person's): app-server session API (default,
+  `AppServerSearch`) vs in-process `codex-file-search`; both are an implementation of the same
+  `FileSearchBackend` trait.
+- Step 8 needs of `core/src/app.rs` and `host` (chunk-live): the drain of
+  `popovers::Model::take_asks` also runs `Ask::FileSearch` (through `FileSearchBackend::requests`
+  to `fuzzyFileSearch/sessionStart|Update|Stop`) and `Ask::RecordMention` (the `mention_usage`
+  file); the `fuzzyFileSearch/sessionUpdated` notification maps to `Ev::FileMatches` (via
+  `AppServerSearch::matches_of`), the task-mention thread search to `Ev::Tasks`, the usage file
+  to `Ev::MentionUsage`; skills/plugins/apps arrive as `Ev::Mentions` with
+  `path`/`plugin_id`/`capabilities`; `UserMessage` gets mention bindings and task references;
+  an image-path pick needs the host to read image dimensions (step 9). The legacy file popup
+  (`mentions_v2` off) is not ported.
+- Also there: ClipboardImage.
 - Kit (`tests/kit/*`): a Vim seed, SUPER/kitty modifiers, terminal default colours, right
   click, parent-owned and disconnected seeds, a caret-row/multi-frame snapshot compare.
 - `CORE_DEPS` in `tests/rules/layers.rs` when core gets a dependency.

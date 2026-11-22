@@ -145,17 +145,21 @@ chord_opens! {
     f2_opens_the_warnings: "f2" => "dialogs";
 }
 
-/// Escape on an empty composer, twice, starts backtrack (`app_backtrack.rs`).
+/// Escape on an empty composer, twice, is no page any more (`app_backtrack.rs`): the
+/// detailed transcript opens in place of the chat's (`tests/pages/chat_live.rs`).
 #[test]
-fn esc_esc_starts_backtrack_and_esc_leaves_it() {
+fn esc_esc_opens_no_page() {
     let mut h = chat();
-    let before = h.t.screen();
     h.press("escape");
     h.press("escape");
-    wait_shows(&mut h, "esc esc", "backtrack");
-    assert!(shows(&h, "backtrack"), "{}", h.t.screen());
-    escape_closes(&mut h, &before);
-    assert_chat_back(&h, None, &before);
+    h.t.pump_for(ms(400));
+    assert_ne!(
+        open::last_opened(),
+        Some(Target::Backtrack),
+        "{}",
+        h.t.screen()
+    );
+    assert!(!shows(&h, "backtrack"), "{}", h.t.screen());
 }
 
 /// Escape with text in the composer does not start backtrack.

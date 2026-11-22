@@ -101,6 +101,14 @@ pass it as `RTWK_BIN` to the scenarios.
   The old all-roots form `-E 'test(<page>) | binary(rules)'` still works and is the slow one.
   A new worktree's first build is ~1 to 2 min now (sccache hits across worktrees, acargo wires it);
   never export CARGO_TARGET_DIR (it makes every crate miss).
+- A partial (a step handed on as `partial ready: <tip>` in a checkpoint)
+  carries the scoped checks above only — fmt, check --tests, your test
+  root(s), clippy `-q --all-targets`, `shards.py --check` if a shard file
+  changed — then commit and checkpoint. NO clippy `--workspace`, whole
+  nextest or oracle run per step or per partial: the landing's
+  `land-check.sh` is the partial's full gate, and a red there comes back to
+  you. A brief that asks for the full gate after each step is outdated —
+  follow this rule (measured 2026-11-22: 31 % of porter time).
 - Once, before `task_done`: rebase onto the integration tip (the orchestrator
   names it in tm notes), then `acargo fmt -- --check`, clippy `--workspace`,
   the whole nextest, your oracle shard(s) with `--profile oracle`,
@@ -110,6 +118,15 @@ pass it as `RTWK_BIN` to the scenarios.
   red not on the list is yours, unless one run on the tip without your
   change shows it red: name it in the handover.
 
+
+## macOS here (measured friction, 2026-11-22)
+- No `timeout` binary: use `bgrun.sh run|wait` or the Bash tool's `timeout`.
+- `sed -i` is BSD (`sed -i ''`): prefer Edit, or `python3 -I` with str.replace.
+- nextest takes `--cargo-quiet`, not `-q`.
+- Start every Bash call with `cd <worktree>/codex-rs/tui-rtwk` (cwd is not kept).
+- One cargo at a time per worktree: a foreground and a bgrun cargo share the
+  target lock and wait on each other.
+- Never poll the harness's `/private/tmp/…/tasks/*.output`; `bgrun.sh run`.
 
 ## Layers (process.md §A4.4)
 - Core (`codex-tui-core`, no rtwk): models, `apply`, tickets, protocol

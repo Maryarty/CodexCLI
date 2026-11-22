@@ -75,8 +75,9 @@ fn prompt_streams_the_answer_as_plain_text() {
     let commands = h.fake.commands();
     assert!(
         matches!(commands.as_slice(),
-            [Command::Startup { .. }, Command::StartThread { .. }, Command::StartTurn { thread, message, .. }]
-                if *thread == ThreadId::new(FAKE_THREAD) && message.text == "hi"),
+            [Command::Startup { .. }, Command::StartThread { .. }, Command::Popovers { ask, .. }, Command::StartTurn { thread, message, .. }]
+                if *ask == codex_tui_core::screens::popovers::Ask::Append("hi".into())
+                    && *thread == ThreadId::new(FAKE_THREAD) && message.text == "hi"),
         "{commands:?}"
     );
     assert_snapshot(&h.t, "chat", "answer");
@@ -612,7 +613,7 @@ fn running_shell_preview_keeps_its_output_when_completion_omits_it() {
     h.wait_for("full command and intact draft", |s| {
         s.contains("$ printf test") && s.contains("tool output") && s.contains("pending draft")
     });
-    h.press("escape");
+    h.press("ctrl+t");
     h.wait_for("compact command and intact draft", |s| {
         s.contains("Ran printf test") && s.contains("pending draft")
     });

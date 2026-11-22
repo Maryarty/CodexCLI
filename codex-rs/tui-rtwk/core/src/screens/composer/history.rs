@@ -26,6 +26,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use super::mentions::codec::decode_history_mentions_with_at_mentions;
+
 pub use super::super::popovers::Direction;
 
 /// How often a failed batch read is asked again before the search gives up.
@@ -75,8 +77,30 @@ impl HistoryEntry {
     /// The entry of a line of the history file. The file keeps no
     /// attachments or element metadata, so this is where the mention codec
     /// recovers the bindings of a stored line (`new_with_at_mentions`).
-    pub fn persisted(text: &str) -> Self {
-        Self::new(text)
+    pub fn persisted(text: &str, at_mentions_enabled: bool) -> Self {
+        let decoded = decode_history_mentions_with_at_mentions(text, at_mentions_enabled);
+        Self {
+            text: decoded.text,
+            text_elements: decoded
+                .task_mention_ranges
+                .into_iter()
+                .map(|range| TextElement {
+                    start: range.start,
+                    end: range.end,
+                    placeholder: None,
+                })
+                .collect(),
+            mention_bindings: decoded
+                .mentions
+                .into_iter()
+                .map(|mention| MentionBinding {
+                    sigil: mention.sigil,
+                    mention: mention.mention,
+                    path: mention.path,
+                })
+                .collect(),
+            ..Self::default()
+        }
     }
 
     fn is_blank(&self) -> bool {
@@ -254,6 +278,9 @@ pub struct History {
     /// only while the draft still is that text.
     last_history_text: Option<String>,
     search: Option<SearchState>,
+    /// Whether a stored line's `[@name](thread://id)` links come back as
+    /// task mentions (`set_at_mention_restore_enabled`).
+    at_mention_restore_enabled: bool,
 }
 
 /// One active search query.
@@ -365,6 +392,19 @@ impl SearchState {
 impl History {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether stored `[@name](thread://id)` links come back as task
+    /// mentions; turning it on or off drops the cursors and the search, whose
+    /// entries were decoded the other way.
+    pub fn set_at_mention_restore_enabled(&mut self, enabled: bool) {
+        if self.at_mention_restore_enabled == enabled {
+            return;
+        }
+        self.at_mention_restore_enabled = enabled;
+        self.history_cursor = None;
+        self.last_history_text = None;
+        self.search = None;
     }
 
     /// The cursors of an older log are void (`set_metadata`: "every
@@ -633,7 +673,7 @@ impl History {
         let Some(text) = fetched else {
             return Some(Response::Ignored);
         };
-        let entry = HistoryEntry::persisted(text);
+        let entry = HistoryEntry::persisted(text, self.at_mention_restore_enabled);
         if self.persistent_entry_duplicates_local(&entry)
             && let Some(next) = self.next_history_offset(store, offset, direction)
         {
@@ -756,7 +796,7 @@ impl History {
                 .fetched
                 .get(&offset)
                 .and_then(|text| text.as_deref())
-                .map(HistoryEntry::persisted)
+                .map(|text| HistoryEntry::persisted(text, self.at_mention_restore_enabled))
         }
     }
 

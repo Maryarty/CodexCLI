@@ -80,8 +80,13 @@ workspace = true
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 codex-app-server-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/app-server-protocol" }
+codex-config = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/config" }
+codex-file-search = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/file-search" }
+codex-message-history = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/message-history" }
+codex-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/protocol" }
 codex-shell-command = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/shell-command" }
 codex-tui-core = { path = "core" }
+codex-utils-path = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/path-utils" }
 codex-utils-elapsed = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/elapsed" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
@@ -89,16 +94,32 @@ rtwk-render = { workspace = true }
 rtwk-rich = { workspace = true }
 rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }
+# The clipboard image read (services/clipboard/read): the oracle's own features.
+image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+libc = "0.2"
 semver = "1.0"
 serde_json = "1"
 shlex = "1.3"
+# `/export` writes through a temporary file (services/transcript_file).
+tempfile = "3.23.0"
+tracing = "0.1"
 # A feature pin (what cargo-hakari does for a big workspace, by hand), no code of ours uses
 # it: rtwk-test's dev-dependency `insta` turns on similar's `inline` in test builds only, and
 # then codex-core and ~60 crates above it are compiled twice, once for the tests and once
 # for `build -p codex-rtwk --bin codex-rtwk` (docs/rtwk-port/build-speed.md). Naming the
 # feature here makes every build of this workspace resolve similar the same way.
 similar = { version = "2", features = ["inline"] }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "process", "rt-multi-thread", "sync", "time"] }
+
+# The native clipboard (services/clipboard): the oracle's own features, none on Android.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard = { version = "3", features = ["wayland-data-control"] }
+
+# The macOS pasteboard image read (services/clipboard/read/macos): the oracle's own features.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSEnumerator", "NSString"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

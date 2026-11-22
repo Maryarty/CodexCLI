@@ -13,6 +13,13 @@
 pub mod agents;
 pub mod backend;
 pub mod cli_help;
+pub mod clipboard;
+pub mod exec;
+pub mod file_search;
+pub mod history;
 pub mod images;
+pub mod open_url;
+pub mod remote;
 pub mod shell;
 pub mod startup;
+pub mod transcript_file;

@@ -56,24 +56,14 @@ fn model() -> Model {
         "README.md".into(),
     ];
     m.mentions = vec![
-        Mention {
-            kind: MentionKind::App,
-            name: "Shared".into(),
-            description: "Secondary details".into(),
-            insert: "shared".into(),
-        },
-        Mention {
-            kind: MentionKind::Skill,
-            name: "Shared".into(),
-            description: "Secondary details".into(),
-            insert: "shared".into(),
-        },
-        Mention {
-            kind: MentionKind::Plugin,
-            name: "Sample Plugin".into(),
-            description: "Plugin with skills and an MCP server".into(),
-            insert: "sample".into(),
-        },
+        Mention::new(MentionKind::App, "Shared", "Secondary details", "shared"),
+        Mention::new(MentionKind::Skill, "Shared", "Secondary details", "shared"),
+        Mention::new(
+            MentionKind::Plugin,
+            "Sample Plugin",
+            "Plugin with skills and an MCP server",
+            "sample",
+        ),
     ];
     m
 }

@@ -251,7 +251,9 @@ fn escape_on_the_empty_composer_returns_and_primes_the_backtrack() {
     s.keys("esc");
     s.assert_absent("Back to bottom");
     s.assert_contains("row 39");
-    s.assert_contains("edit the previous message");
+    // primed, but the hint is only for a chat with a prompt to edit
+    // (`prime_backtrack`: `has_backtrack_target`); this one has no prompt
+    s.assert_absent("edit the previous message");
 }
 
 #[test]

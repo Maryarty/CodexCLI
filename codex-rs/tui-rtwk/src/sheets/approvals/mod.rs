@@ -32,7 +32,7 @@ pub mod strings;
 
 pub use auto_review::{menu as auto_review_menu, open as open_auto_review};
 pub use banner::PendingThreadApprovals;
-pub use decision_cell::DecisionCell;
+pub use decision_cell::{DecisionCell, ReviewLineCell};
 pub use guardian::{ReviewStatus, review_status, summary as review_summary};
 
 /// What the debug menu lists for this directory: a screen per state worth

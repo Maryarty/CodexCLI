@@ -132,7 +132,7 @@ impl State for PagerState {
 
 /// The pager's default keys (`keymap.rs` `PagerKeymap` defaults), then the
 /// action's.
-pub(super) fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
+pub(in crate::pages::session) fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
     let plain = KeyPress::code;
     let ch = |c: char| KeyPress::char(c);
     let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);

@@ -8,6 +8,13 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use crate::app::theme::Tokens;
 
+use super::strings::Strings;
+
+/// The row's text: the mark and the message.
+pub fn line(message: &str, strings: &Strings) -> String {
+    strings.error_line.replace("{}", message)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ErrorCell {
     pub message: String,
@@ -19,7 +26,7 @@ impl StatelessWidget for ErrorCell {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
-        Text::new(strings.error_line.replace("{}", &self.message))
+        Text::new(line(&self.message, strings))
             .style(tokens.error())
             .into()
     }
