@@ -77,7 +77,8 @@ fn with_banner(presentation: &str) -> Harness {
             },
         )))),
     );
-    h.wait_for("the banner", |s| s.contains("Usage limit reached"));
+    // the title shows a frame before the rows below it: wait for the last of them
+    h.wait_for("the banner", |s| s.contains("View usage"));
     h
 }
 

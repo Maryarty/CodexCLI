@@ -1934,27 +1934,30 @@ fn entered_review(thread: &str, turn: &str, review: &str) -> BackendEv {
 }
 
 /// `thread/goal/updated` with `status` for `turn`.
-fn goal_updated(thread: &str, turn: Option<&str>, status: &str) -> BackendEv {
-    BackendEv::Notification(Box::new(
-        serde_json::from_value(serde_json::json!({
-            "method": "thread/goal/updated",
-            "params": {
-                "threadId": thread,
-                "turnId": turn,
-                "goal": {
-                    "threadId": thread,
-                    "objective": "Run until the token budget is limited",
-                    "status": status,
-                    "tokenBudget": 10000,
-                    "tokensUsed": 10500,
-                    "timeUsedSeconds": 0,
-                    "createdAt": 0,
-                    "updatedAt": 1,
-                },
+fn goal_updated(
+    thread: &str,
+    turn: Option<&str>,
+    status: codex_app_server_protocol::ThreadGoalStatus,
+) -> BackendEv {
+    use codex_app_server_protocol::{
+        ServerNotification, ThreadGoal, ThreadGoalUpdatedNotification,
+    };
+    BackendEv::Notification(Box::new(ServerNotification::ThreadGoalUpdated(
+        ThreadGoalUpdatedNotification {
+            thread_id: thread.into(),
+            turn_id: turn.map(str::to_owned),
+            goal: ThreadGoal {
+                thread_id: thread.into(),
+                objective: "Run until the token budget is limited".into(),
+                status,
+                token_budget: Some(10_000),
+                tokens_used: 10_500,
+                time_used_seconds: 0,
+                created_at: 0,
+                updated_at: 1,
             },
-        }))
-        .expect("a goal update"),
-    ))
+        },
+    )))
 }
 
 /// A plain interruption says so: `new_interruption_notice`.
@@ -1998,7 +2001,14 @@ fn an_interrupt_for_steers_says_the_model_was_interrupted_to_submit_them() {
 #[test]
 fn a_budget_limited_turn_ends_with_the_budget_notice_once() {
     let mut app = running();
-    notification(&mut app, goal_updated(T, Some("turn-1"), "budgetLimited"));
+    notification(
+        &mut app,
+        goal_updated(
+            T,
+            Some("turn-1"),
+            codex_app_server_protocol::ThreadGoalStatus::BudgetLimited,
+        ),
+    );
     notification(&mut app, turn_interrupted(T, "turn-1"));
     assert_eq!(
         items_of(&app).last(),
@@ -2017,8 +2027,22 @@ fn a_budget_limited_turn_ends_with_the_budget_notice_once() {
 #[test]
 fn only_a_budget_limited_goal_marks_the_turn() {
     let mut app = running();
-    notification(&mut app, goal_updated(T, Some("turn-1"), "active"));
-    notification(&mut app, goal_updated(T, None, "budgetLimited"));
+    notification(
+        &mut app,
+        goal_updated(
+            T,
+            Some("turn-1"),
+            codex_app_server_protocol::ThreadGoalStatus::Active,
+        ),
+    );
+    notification(
+        &mut app,
+        goal_updated(
+            T,
+            None,
+            codex_app_server_protocol::ThreadGoalStatus::BudgetLimited,
+        ),
+    );
     notification(&mut app, turn_interrupted(T, "turn-1"));
     assert_eq!(
         items_of(&app).last(),
@@ -2031,20 +2055,29 @@ fn only_a_budget_limited_goal_marks_the_turn() {
 #[test]
 fn the_review_prompt_user_item_adds_no_row_in_review_mode() {
     let mut app = running();
-    notification(&mut app, entered_review(T, "turn-1", "changes against 'main'"));
+    notification(
+        &mut app,
+        entered_review(T, "turn-1", "changes against 'main'"),
+    );
     notification(
         &mut app,
         user_item(T, "turn-1", "review-prompt", "Review the code changes."),
     );
     assert!(
-        !items_of(&app).iter().any(|item| matches!(item, Item::User(_))),
+        !items_of(&app)
+            .iter()
+            .any(|item| matches!(item, Item::User(_))),
         "{:?}",
         items_of(&app)
     );
     // outside review mode the same item is a row
     let mut app = running();
     notification(&mut app, user_item(T, "turn-1", "user-1", "hello"));
-    assert!(items_of(&app).iter().any(|item| matches!(item, Item::User(_))));
+    assert!(
+        items_of(&app)
+            .iter()
+            .any(|item| matches!(item, Item::User(_)))
+    );
 }
 
 /// A steer's echo is the user's own message, drawn even in review mode.
@@ -2054,7 +2087,11 @@ fn the_echo_of_a_steer_is_drawn_in_review_mode() {
     notification(&mut app, entered_review(T, "turn-1", "current changes"));
     submit(&mut app, "follow-up");
     notification(&mut app, user_item(T, "turn-1", "echo", "follow-up"));
-    assert!(items_of(&app).iter().any(|item| matches!(item, Item::User(_))));
+    assert!(
+        items_of(&app)
+            .iter()
+            .any(|item| matches!(item, Item::User(_)))
+    );
 }
 
 /// Esc with a steer waiting during /review does not interrupt: it warns that
@@ -2069,7 +2106,9 @@ fn esc_with_steers_in_review_mode_warns_and_does_not_interrupt() {
     assert_eq!(pending_steers(&app), vec!["review follow-up".to_string()]);
     assert_eq!(
         items_of(&app).last(),
-        Some(&Item::LocalWarning(threads::LocalWarning::ReviewSteerUnavailable))
+        Some(&Item::LocalWarning(
+            threads::LocalWarning::ReviewSteerUnavailable
+        ))
     );
     // a refused steer parked in the rejected list gives the same warning
     let mut app = running();
@@ -2084,6 +2123,8 @@ fn esc_with_steers_in_review_mode_warns_and_does_not_interrupt() {
     assert!(fx.commands().is_empty());
     assert_eq!(
         items_of(&app).last(),
-        Some(&Item::LocalWarning(threads::LocalWarning::ReviewSteerUnavailable))
+        Some(&Item::LocalWarning(
+            threads::LocalWarning::ReviewSteerUnavailable
+        ))
     );
 }
