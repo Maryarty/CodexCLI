@@ -348,6 +348,10 @@ impl State for ViewportState {
                     }
                     .into(),
                 ),
+                Item::Note(note) => cell(
+                    separator,
+                    super::cells::note::NoteCell { note: note.clone() }.into(),
+                ),
                 Item::Plan { text } => cell(
                     separator,
                     super::cells::plan::proposed_plan(

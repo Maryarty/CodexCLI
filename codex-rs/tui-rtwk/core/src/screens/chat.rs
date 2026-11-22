@@ -17,14 +17,13 @@ use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
 use crate::commands::CommandFlags;
-use crate::commands::Notice;
 use crate::commands::ServiceTierCommand;
 use crate::commands::SessionIntent;
 use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
-use crate::threads::ThreadFx;
+use crate::threads::{Note, ThreadFx};
 
 pub const NAME: &str = "chat";
 pub const ID: &str = "S10";
@@ -41,9 +40,9 @@ pub struct Model {
     /// Signed in with a ChatGPT backend (`/usage`). True until session-core
     /// carries the account; a script seeds the signed-out case.
     pub signed_in: bool,
-    /// What the last command answered with: shown above the composer until
-    /// the next submit.
-    pub notice: Option<ChatNotice>,
+    /// What commands answered before any thread existed: shown above the
+    /// composer, where a thread's notes would be in its transcript.
+    pub notes: Vec<Note>,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
 }
@@ -223,16 +222,6 @@ impl StatusFacts {
     }
 }
 
-/// An answer to a command shown in the chat.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ChatNotice {
-    /// Dispatch said no, or what is wrong with the arguments.
-    Command(Notice),
-    /// The command needs the session, which has not been built yet
-    /// (`session-core`): the oracle-style "not available" key.
-    NotAvailable(SlashCommand),
-}
-
 impl Default for Model {
     fn default() -> Self {
         Self {
@@ -247,7 +236,7 @@ impl Default for Model {
             },
             service_tiers: Vec::new(),
             signed_in: true,
-            notice: None,
+            notes: Vec::new(),
             status: Rc::default(),
         }
     }
@@ -278,10 +267,12 @@ pub enum Intent {
         thread: Option<ThreadId>,
         command: String,
     },
-    /// A command dispatch refused.
-    Notice(Notice),
-    /// The next submit starts clean.
-    ClearNotice,
+    /// A command line was answered (refused, or its words): a note of the
+    /// thread shown when it was submitted, else of the screen.
+    Note {
+        thread: Option<ThreadId>,
+        note: Note,
+    },
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -297,13 +288,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::Session { command, .. } => {
-            model.notice = Some(ChatNotice::NotAvailable(command));
-        }
-        // the app routes it to the thread (`apply_app`); the screen keeps nothing
-        Intent::Shell { .. } => {}
-        Intent::Notice(notice) => model.notice = Some(ChatNotice::Command(notice)),
-        Intent::ClearNotice => model.notice = None,
+        // the app routes these to the thread (`apply_app`); the screen keeps nothing
+        Intent::Session { .. } | Intent::Shell { .. } => {}
+        Intent::Note { thread: None, note } => model.notes.push(note),
+        // a thread's note is an entry of its transcript (`session::note`)
+        Intent::Note { .. } => {}
     }
 }
 

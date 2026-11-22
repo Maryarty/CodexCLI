@@ -133,15 +133,12 @@ fn slash_keymap_debug_can_inspect_app_shortcuts() {
 // ORACLE chatwidget/tests/slash_commands.rs:2561 slash_keymap_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_invalid_args_show_usage() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the chat composer has no prompt history: after /keymap nope (draft kept in the composer, usage drawn) and a cleared composer, Up recalls nothing (oracle: \"/keymap nope\", recorded on submit)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/keymap nope");
     s.keys("enter");
     s.assert_contains("Usage: /keymap [debug]");
     // recall_latest_after_clearing: clear the composer (set_composer_text("") there; ctrl+u here), then Up.
+    // (the command took the line: it is recalled, not kept)
     s.keys("ctrl+u");
     s.assert_composer("");
     s.keys("up");
@@ -305,15 +302,12 @@ fn slash_memory_maintenance_reports_stubbed_feature() {
 // ORACLE chatwidget/tests/slash_commands.rs:3041 slash_mcp_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_mcp_invalid_args_show_usage() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the chat composer has no prompt history: after /mcp full (draft kept in the composer, usage drawn) and a cleared composer, Up recalls nothing (oracle: \"/mcp full\", recorded on submit)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/mcp full");
     s.keys("enter");
     s.assert_contains("Usage: /mcp [verbose | login <name>]");
     // recall_latest_after_clearing: clear the composer (set_composer_text("") there; ctrl+u here), then Up.
+    // (the command took the line: it is recalled, not kept)
     s.keys("ctrl+u");
     s.assert_composer("");
     s.keys("up");

@@ -21,6 +21,7 @@ pub mod error;
 pub mod generated_image;
 pub mod hook;
 pub mod markdown;
+pub mod note;
 pub mod notice;
 pub mod one_row;
 pub mod patch;

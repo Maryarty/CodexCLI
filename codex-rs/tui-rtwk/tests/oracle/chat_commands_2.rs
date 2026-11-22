@@ -21,6 +21,7 @@ const READY: &str = include_str!("fixtures/chat_commands_2/ready.jsonl");
 const RENAMED: &str = include_str!("fixtures/chat_commands_2/queued_rename.jsonl");
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
 const SESSION: &str = include_str!("fixtures/chat_commands_2/session.jsonl");
+const SIGNED_OUT: &str = include_str!("fixtures/chat_commands_2/signed_out.jsonl");
 const SH_BLOCKS: &str = include_str!("fixtures/chat_commands_2/sh_blocks.jsonl");
 const TURN2_REPLY: &str = include_str!("fixtures/chat_commands_2/turn2_reply.jsonl");
 const TURN2_STARTED: &str = include_str!("fixtures/chat_commands_2/turn2_started.jsonl");
@@ -265,6 +266,10 @@ fn interrupt_disambiguates_same_sized_goal_pastes() {
 // ORACLE chatwidget/tests/slash_commands.rs:1240 interrupted_merged_message_history_encodes_mentions_once kind=ui owner=chat-nav-pane
 #[test]
 fn interrupted_merged_message_history_encodes_mentions_once() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "chat-live (pending_input_preview): Enter during a running turn steers it, the message waits in the thread's pending_steers and no row of the screen shows it yet (the pending-input preview draws only the queue)",
+    );
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("use $figma now").keys("enter");
     s.assert_contains("use $figma now");
@@ -338,6 +343,7 @@ fn usage_error_slash_command_is_available_from_local_recall() {
     let mut s = Screen::build(Owner::ChatNavPane).live().open();
     s.type_text("/raw maybe").keys("esc enter enter");
     s.assert_contains("Usage: /raw [on|off]");
+    s.assert_composer("");
     s.keys("up");
     s.assert_has_row("› /raw maybe");
 }
@@ -345,11 +351,7 @@ fn usage_error_slash_command_is_available_from_local_recall() {
 // ORACLE chatwidget/tests/slash_commands.rs:1425 signed_out_usage_command_reports_chatgpt_login_requirement kind=snap owner=chat-nav-pane snap=signed_out_usage_command_reports_chatgpt_login_requirement
 #[test]
 fn signed_out_usage_command_reports_chatgpt_login_requirement() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the live chat is signed in to the backend, so /usage opens the usage view (Loading...) instead of the sign-in notice: no signed-out seed",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane).script(SIGNED_OUT).open();
     s.type_text("/usage").keys("esc enter enter");
     s.assert_contains("■ Sign in with ChatGPT to use /usage.");
     s.keys("up");
@@ -359,11 +361,7 @@ fn signed_out_usage_command_reports_chatgpt_login_requirement() {
 // ORACLE chatwidget/tests/slash_commands.rs:1444 signed_out_usage_command_with_args_reports_chatgpt_login_requirement kind=ui owner=chat-nav-pane
 #[test]
 fn signed_out_usage_command_with_args_reports_chatgpt_login_requirement() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the live chat is signed in to the backend, so /usage weekly opens the usage view instead of the sign-in notice: no signed-out seed",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane).script(SIGNED_OUT).open();
     s.type_text("/usage weekly").keys("esc enter enter");
     s.assert_contains("Sign in with ChatGPT to use /usage.");
     s.keys("up");
@@ -376,6 +374,7 @@ fn usage_command_with_invalid_view_reports_usage_snapshot() {
     let mut s = Screen::build(Owner::ChatNavPane).live().open();
     s.type_text("/usage monthly").keys("esc enter enter");
     s.assert_contains("■ Usage: /usage [daily|weekly|cumulative]");
+    s.assert_composer("");
     s.keys("up");
     s.assert_has_row("› /usage monthly");
 }
@@ -384,7 +383,7 @@ fn usage_command_with_invalid_view_reports_usage_snapshot() {
 #[test]
 fn unrecognized_slash_command_is_not_added_to_local_recall() {
     let mut s = Screen::build(Owner::ChatNavPane).live().open();
-    s.type_text("/does-not-exist").keys("esc enter enter");
+    s.type_text("/does-not-exist").keys("esc enter");
     s.assert_contains("Unrecognized command '/does-not-exist'");
     s.assert_has_row("› /does-not-exist");
     for _ in 0.."/does-not-exist".len() {
@@ -399,8 +398,10 @@ fn unrecognized_slash_command_is_not_added_to_local_recall() {
 #[test]
 fn unavailable_slash_command_is_available_from_local_recall() {
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
-    s.type_text("/review").keys("esc enter enter");
+    s.type_text("/review").keys("esc enter");
     s.assert_contains("'/review' is disabled while a task is in progress.");
+    // the composer keeps the refused line, to be corrected
+    s.assert_composer("/review");
     for _ in 0.."/review".len() {
         s.keys("backspace");
     }

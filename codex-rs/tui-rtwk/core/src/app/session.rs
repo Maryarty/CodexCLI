@@ -5,7 +5,7 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat, status};
-use crate::threads::{ThreadAsk, ThreadEv};
+use crate::threads::{Item, Note, ThreadAsk, ThreadEv};
 
 pub(super) fn active_backend(app: &CodexApp) -> BackendId {
     let agents = &app.screens.agents;
@@ -122,13 +122,38 @@ pub(super) fn session_intent(
                 apply_thread(app, &thread, ev, fx);
             }
         }
-        _ => chat::apply_intent(
-            &mut Rc::make_mut(&mut app.screens).chat,
-            chat::Intent::Session {
-                thread: source,
-                command,
-                intent,
+        // Not built yet: the oracle-style "not available" key.
+        _ => session_note(
+            app,
+            source,
+            Note::from(crate::commands::Notice::NotAvailable(command)),
+            fx,
+        ),
+    }
+}
+
+/// What a command line answered with (oracle `add_info_message` /
+/// `add_error_message`): an entry of the thread it was submitted in, so it
+/// stays in the transcript; with no thread yet, a note of the chat screen.
+pub(super) fn session_note(
+    app: &mut CodexApp,
+    thread: Option<ThreadId>,
+    note: Note,
+    fx: &mut AppFx,
+) {
+    match thread.filter(|id| app.threads.get(id).is_some()) {
+        Some(thread) => apply_thread(
+            app,
+            &thread,
+            ThreadEv::Appended {
+                turn: None,
+                item: Item::Note(note),
             },
+            fx,
+        ),
+        None => chat::apply_intent(
+            &mut Rc::make_mut(&mut app.screens).chat,
+            chat::Intent::Note { thread: None, note },
             fx,
         ),
     }

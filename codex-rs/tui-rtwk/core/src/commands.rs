@@ -11,6 +11,34 @@ mod fuzzy;
 pub use dispatch::*;
 pub use fuzzy::fuzzy_match;
 
+impl Notice {
+    /// The composer keeps the line that ended in this notice, as the oracle
+    /// does (`chat_composer.rs`, `try_dispatch_*slash_command*`): a command it
+    /// does not know, a command refused while a task runs, and a command
+    /// dispatch validates before it takes the draft (`/fork`, `/review`). Every
+    /// other answer comes after the line was taken.
+    pub fn keeps_draft(&self) -> bool {
+        match self {
+            Notice::Unrecognized(_) | Notice::InputTooLarge { .. } => true,
+            Notice::DisabledDuringTask(command) => {
+                command.requires_dispatch_validation() || !command.available_during_task()
+            }
+            Notice::UnavailableInSide(command)
+            | Notice::UnavailableInReview(command)
+            | Notice::SessionStarting(command)
+            | Notice::NotAvailable(command) => command.requires_dispatch_validation(),
+            _ => false,
+        }
+    }
+
+    /// The line is in the composer's local recall: an unknown command and a
+    /// message over the limit are not
+    /// (`unrecognized_slash_command_is_not_added_to_local_recall`).
+    pub fn is_recalled(&self) -> bool {
+        !matches!(self, Notice::Unrecognized(_) | Notice::InputTooLarge { .. })
+    }
+}
+
 /// Commands that can be invoked by starting a message with a leading slash.
 /// Enum order is presentation order in the popup (not alphabetical: the more
 /// frequently used first), as in `slash_command.rs`.

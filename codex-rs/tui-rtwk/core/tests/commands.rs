@@ -1387,3 +1387,153 @@ fn only_the_five_pages_are_routes() {
         assert_eq!(target.opens(), Opens::Mode, "{target:?}");
     }
 }
+
+// ---------------------------------------------------------------- notes
+// What a command line answered with is an entry of the thread's transcript
+// (oracle `add_info_message` / `add_error_message`, `new_info_event` /
+// `new_error_event`), through `apply` (ADR-003), not a line of the screen.
+
+mod notes {
+    use std::rc::Rc;
+
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::ids::{ThreadId, Ticket};
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::{ScreenIntent, chat};
+    use codex_tui_core::threads::{Item, Note, NoteKey, ThreadModel, Tone};
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    const T: &str = "thread-1";
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    /// The app with its thread started, as after `Connected` and the reply.
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket: Ticket = fx
+            .commands()
+            .iter()
+            .find_map(|c| match c {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+        app
+    }
+
+    fn say(app: &mut CodexApp, thread: Option<&str>, notice: Notice) {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Note {
+                thread: thread.map(ThreadId::new),
+                note: Note::from(notice),
+            }))),
+        );
+    }
+
+    fn notes_of(thread: &Rc<ThreadModel>) -> Vec<Note> {
+        thread
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Note(note) => Some(note.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `add_info_message` for the two answers the oracle shows as
+    /// information, `add_error_message` for every other.
+    #[test]
+    fn the_oracle_shows_two_answers_as_information() {
+        for (notice, tone) in [
+            (Notice::ModelStartup, Tone::Info),
+            (Notice::ShellHelp, Tone::Info),
+            (Notice::Unrecognized("x".into()), Tone::Error),
+            (Notice::Usage(UsageKey::Raw), Tone::Error),
+            (Notice::UsageNeedsLogin, Tone::Error),
+            (Notice::DisabledDuringTask(SlashCommand::New), Tone::Error),
+        ] {
+            assert_eq!(Note::from(notice.clone()).tone, tone, "{notice:?}");
+        }
+    }
+
+    #[test]
+    fn a_command_answer_becomes_an_entry_of_the_thread_it_was_submitted_in() {
+        let mut app = ready();
+        say(&mut app, Some(T), Notice::Usage(UsageKey::Raw));
+        say(&mut app, Some(T), Notice::ShellHelp);
+        assert_eq!(
+            notes_of(&app.active_thread()),
+            [
+                Note::error(NoteKey::Command(Notice::Usage(UsageKey::Raw))),
+                Note::info(NoteKey::Command(Notice::ShellHelp)),
+            ]
+        );
+    }
+
+    /// With no thread yet the answer is the screen's (the oracle has the
+    /// history above the live area for it; ours has no transcript to put it in).
+    #[test]
+    fn an_answer_with_no_thread_is_a_note_of_the_chat_screen() {
+        let mut app = CodexApp::new();
+        say(&mut app, None, Notice::ModelStartup);
+        assert_eq!(
+            app.screens().chat.notes,
+            [Note::info(NoteKey::Command(Notice::ModelStartup))]
+        );
+        // a thread that does not exist is no thread
+        say(&mut app, Some("thread-9"), Notice::ShellHelp);
+        assert_eq!(app.screens().chat.notes.len(), 2);
+    }
+
+    /// `chat_composer.rs` 3432-3524: the composer keeps the line of an
+    /// unrecognized command (not recalled), a command refused while a task
+    /// runs, and a command that is validated by dispatch (`/fork`, `/review`);
+    /// every other answer has taken the line, and recall holds it.
+    #[test]
+    fn the_composer_keeps_the_line_of_a_refused_command_as_the_oracle_does() {
+        let keeps = |n: Notice| (n.keeps_draft(), n.is_recalled());
+        assert_eq!(keeps(Notice::Unrecognized("x".into())), (true, false));
+        assert_eq!(keeps(Notice::InputTooLarge { provided: 1 }), (true, false));
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::New)),
+            (true, true)
+        );
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::Review)),
+            (true, true)
+        );
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::Cd)),
+            (true, true)
+        );
+        // `/resume` is let through by the composer and blocked by dispatch,
+        // after the composer cleared its text
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::Resume)),
+            (false, true)
+        );
+        assert_eq!(keeps(Notice::Usage(UsageKey::Raw)), (false, true));
+        assert_eq!(keeps(Notice::UsageNeedsLogin), (false, true));
+        assert_eq!(
+            keeps(Notice::UnavailableInSide(SlashCommand::Copy)),
+            (false, true)
+        );
+        assert_eq!(
+            keeps(Notice::UnavailableInSide(SlashCommand::Review)),
+            (true, true)
+        );
+    }
+}

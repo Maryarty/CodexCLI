@@ -21,7 +21,7 @@ use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat};
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::{Note, ThreadModel};
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
@@ -362,8 +362,10 @@ impl State for ChatState {
                 return Rebuild::No;
             }
             ChatMsg::Submit(text) => {
-                // The same Enter may have run it through a popup's pick.
-                if !w.ui.composer.text().is_empty() {
+                // The same Enter may have run it through a popup's pick. A
+                // draft in shell mode has the `!` as its mode, not as text: a
+                // bare `!` is the help line (`submit_shell_command`).
+                if !w.ui.composer.text().is_empty() || w.ui.draft.shell() {
                     run_line(&text, w, cx, &hs, Delivery::Submit);
                     // a command that took the line cleared the composer
                     self.sync_draft(w);
@@ -457,8 +459,14 @@ impl State for ChatState {
             ChatMsg::Action(action) => match action {
                 Action::OpenTranscript => self.detailed_transcript = !self.detailed_transcript,
                 Action::ToggleSide => {
-                    let notice = codex_tui_core::commands::Notice::NotAvailable(SlashCommand::Side);
-                    cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::Notice(notice)));
+                    let note = Note::from(codex_tui_core::commands::Notice::NotAvailable(
+                        SlashCommand::Side,
+                    ));
+                    let thread = read::<SessionSlice, _>(cx).active.clone();
+                    cx.emit(
+                        &hs.screen,
+                        ScreenIntent::from(chat::Intent::Note { thread, note }),
+                    );
                 }
                 Action::OpenWarnings => open_warnings(cx, &hs),
                 other => {

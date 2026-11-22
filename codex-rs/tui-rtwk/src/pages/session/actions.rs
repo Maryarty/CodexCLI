@@ -12,7 +12,7 @@ use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
     ScreenIntent, ScreenStates, ScreenThreadIntent, chat, dialogs, popovers,
 };
-use codex_tui_core::threads::{Failure, ThreadModel, UserMessage};
+use codex_tui_core::threads::{Failure, Note, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
@@ -78,6 +78,14 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     let screen = |cx: &mut Cx<'_, ChatState>, intent: chat::Intent| {
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
+    // What the line answered with is a note of the thread it was sent in.
+    let say = |cx: &mut Cx<'_, ChatState>, notice: Notice| {
+        let intent = chat::Intent::Note {
+            thread: session.active.clone(),
+            note: Note::from(notice),
+        };
+        cx.emit(&hs.screen, ScreenIntent::from(intent));
+    };
     let record = |cx: &mut Cx<'_, ChatState>| {
         let intent = popovers::Intent::Record(line.to_string());
         cx.emit(&hs.screen, ScreenIntent::from(intent));
@@ -85,8 +93,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     // What the model takes whole: nothing over the backend's limit (Enter
     // refuses it and the draft stays, `prepare_submission_text`).
     if let Some(provided) = composer::too_large(line) {
-        let notice = Notice::InputTooLarge { provided };
-        screen(cx, chat::Intent::Notice(notice));
+        say(cx, Notice::InputTooLarge { provided });
         return;
     }
     // A draft in shell mode runs as the user's own shell command (`!cmd`,
@@ -98,13 +105,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         if !facts.thread_started && session.active.is_some() {
             return;
         }
-        if states.chat.notice.is_some() {
-            screen(cx, chat::Intent::ClearNotice);
-        }
         match shell {
             ShellLine::Help => {
                 clear_sent(&w.ui);
-                screen(cx, chat::Intent::Notice(Notice::ShellHelp));
+                say(cx, Notice::ShellHelp);
             }
             ShellLine::Run(command) => {
                 record(cx);
@@ -119,9 +123,6 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         return;
     }
     let outcome = dispatch(line, &facts);
-    if states.chat.notice.is_some() && !matches!(outcome, Outcome::Notice(_)) {
-        screen(cx, chat::Intent::ClearNotice);
-    }
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -185,8 +186,19 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         Outcome::Insert(text) => w.ui.composer.reset(text),
         Outcome::Quit => cx.emit(&hs.quit, ()),
-        // The line stays in the composer to be corrected.
-        Outcome::Notice(notice) => screen(cx, chat::Intent::Notice(notice)),
+        // What the composer does with the line is the oracle's: it keeps an
+        // unknown command and one refused while a task runs, recalls the rest.
+        Outcome::Notice(notice) => {
+            if notice.is_recalled() {
+                record(cx);
+            }
+            match (notice.keeps_draft(), notice.is_recalled()) {
+                (false, _) => clear_sent(&w.ui),
+                (true, true) => w.ui.draft.recorded(&w.ui.composer),
+                (true, false) => {}
+            }
+            say(cx, notice);
+        }
     }
 }
 

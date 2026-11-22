@@ -174,3 +174,83 @@ fn slash_model_before_startup_shows_the_oracles_info_line() {
         "Model selection is disabled until startup completes."
     );
 }
+
+// ---------------------------------------------------------------- notes
+// What a command line answered with is a row of the transcript (oracle
+// `add_info_message`, `add_error_message`): it keeps its place when the
+// conversation goes on, it is not a line under the composer.
+
+fn at(screen: &str, text: &str) -> usize {
+    screen
+        .lines()
+        .position(|row| row.contains(text))
+        .unwrap_or_else(|| panic!("no row with `{text}`:\n{screen}"))
+}
+
+#[test]
+fn a_command_answer_is_a_row_of_the_transcript_and_stays_above_what_follows() {
+    use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    let mut h = chat();
+    send(&mut h, "/raw maybe");
+    h.wait_for("the usage note", |s| s.contains("■ Usage: /raw [on|off]"));
+    h.fake.script_turn(vec![
+        agent_delta(FAKE_THREAD, "turn-2", "msg-2", "Later"),
+        agent_completed(FAKE_THREAD, "turn-2", "msg-2", "Later"),
+        turn_completed(FAKE_THREAD, "turn-2"),
+    ]);
+    send(&mut h, "next");
+    h.wait_for("the later answer", |s| s.contains("• Later"));
+    let screen = h.t.screen();
+    assert!(
+        at(&screen, "• Hello") < at(&screen, "■ Usage: /raw [on|off]")
+            && at(&screen, "■ Usage: /raw [on|off]") < at(&screen, "› next"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn an_information_note_is_a_bullet_row_and_not_an_error() {
+    let mut h = chat();
+    send(&mut h, "!");
+    h.wait_for("the shell help", |s| {
+        s.contains("Prefix a command with ! to run it locally")
+    });
+    let screen = h.t.screen();
+    assert!(
+        !screen.contains("■ Prefix a command"),
+        "an information note has no error mark:\n{screen}"
+    );
+    assert!(
+        screen.contains("• Prefix a command with ! to run it locally"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn a_command_refused_while_a_task_runs_runs_once_and_keeps_its_line_for_recall() {
+    let mut h = start();
+    h.wait_idle();
+    h.fake.script_turn(vec![]);
+    send(&mut h, "work");
+    h.wait_for("working", |s| s.contains("Working"));
+    send(&mut h, "/clear");
+    let message = "'/clear' is disabled while a task is in progress.";
+    h.wait_for(message, |s| s.contains(message));
+    let screen = h.t.screen();
+    assert_eq!(
+        screen.matches(message).count(),
+        1,
+        "the line ran more than once:\n{screen}"
+    );
+    // the composer keeps the line, to be corrected, and recall has it too
+    assert!(screen.contains("› /clear"), "the draft is kept:\n{screen}");
+    h.press("ctrl+u");
+    h.press("up");
+    h.t.pump_for(ms(100));
+    assert!(
+        h.t.screen().contains("› /clear"),
+        "recall lost the line:\n{}",
+        h.t.screen()
+    );
+}

@@ -362,6 +362,14 @@ impl Strings {
         }
     }
 
+    /// The words of a note of the transcript (a command line's answer).
+    pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
+        use codex_tui_core::threads::NoteKey;
+        match key {
+            NoteKey::Command(notice) => self.notice(notice),
+        }
+    }
+
     /// The words of a notice a command line ended in.
     pub fn notice(&self, notice: &Notice) -> String {
         let text =

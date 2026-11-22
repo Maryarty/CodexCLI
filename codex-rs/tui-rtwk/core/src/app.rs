@@ -9,7 +9,7 @@
 mod session;
 pub mod worktree;
 
-use session::{active_backend, open_status, refresh_rates, session_intent};
+use session::{active_backend, open_status, refresh_rates, session_intent, session_note};
 
 use crate::threads::ThreadAsk;
 use std::collections::{BTreeMap, VecDeque};
@@ -1620,6 +1620,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             command,
             intent,
         })) => session_intent(app, thread, command, intent, fx),
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::Note { thread, note })) => {
+            session_note(app, thread, note, fx)
+        }
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Shell { thread, command })) => {
             match thread.or_else(|| app.session.active.clone()) {
                 Some(thread) => run_shell(app, &thread, command, fx),

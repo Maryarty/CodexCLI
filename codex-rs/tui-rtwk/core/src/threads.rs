@@ -14,6 +14,7 @@ pub mod directives;
 pub mod followups;
 pub mod inline_vis;
 mod message;
+mod note;
 pub mod stream_preview;
 mod user_prompt;
 
@@ -25,6 +26,7 @@ pub use cells::{
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use message::{LocalImage, UserMessage};
+pub use note::{Note, NoteKey, Tone};
 pub use user_prompt::UserPrompt;
 
 use std::collections::BTreeMap;
@@ -101,6 +103,9 @@ pub enum Item {
         name: String,
     },
     Notice(Notice),
+    /// What a command line answered with (oracle `new_info_event` /
+    /// `new_error_event`): a local entry the session leaves in the thread.
+    Note(Note),
     /// An `update_plan` report: the server has no item for it, so the
     /// transcript mints its key (`Transcript::mint`).
     PlanUpdate(Arc<PlanUpdate>),
