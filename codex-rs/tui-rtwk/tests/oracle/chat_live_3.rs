@@ -65,10 +65,6 @@ fn safety_buffering(turn: &str) -> String {
 // ORACLE chatwidget/tests/mcp_startup.rs:95 mcp_startup_dedupes_same_round_duplicate_failure_warning kind=ui owner=chat-live
 #[test]
 fn mcp_startup_dedupes_same_round_duplicate_failure_warning() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen: mcpServer/startupStatus/updated is not applied, so no failure warning cell and no startup summary are drawn",
-    );
     // oracle: beta starts, alpha starts and fails twice in the same round: one warning cell; then beta ready gives the summary.
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
@@ -89,7 +85,7 @@ fn mcp_startup_dedupes_same_round_duplicate_failure_warning() {
 fn mcp_startup_header_booting_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no MCP startup state on the chat screen: the starting alpha server does not make the chat busy, so the bottom pane shows no status indicator",
+        "the rows equal the oracle's but the footer: the oracle's idle footer is the status line (model, directory) and 'for shortcuts', ours the agents hint (chat-status owns the footer)",
     );
     // oracle: a turn-less starting server makes the bottom pane task-running with no status indicator (the snapshot shows none).
     let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
@@ -276,7 +272,7 @@ fn pending_mcp_startup_does_not_unblock_foreground_shell() {
 fn app_server_mcp_startup_failure_renders_warning_history() {
     kit::pending(
         Owner::ChatLive,
-        "no MCP startup state on the chat screen: the failure and summary cells are not drawn from mcpServer/startupStatus/updated",
+        "the two warning cells equal the oracle's but the footer is chat-status's (status line row) and the transcript puts a blank separator between two startup warnings where the oracle's cells touch (transcript_pane.rs separator rule, transcript owner)",
     );
     // oracle: a 120-wide terminal of max(ui height + 1, 10) rows; both warning cells then the idle composer.
     let mut s = Screen::build(Owner::ChatLive).size(120, 10).live().open();
@@ -293,10 +289,6 @@ fn app_server_mcp_startup_failure_renders_warning_history() {
 // ORACLE chatwidget/tests/mcp_startup.rs:609 mcp_startup_failure_restores_running_status_header kind=snap owner=chat-live
 #[test]
 fn mcp_startup_failure_restores_running_status_header() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen: the 'Starting MCP servers' header and the warning cells are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         turn_note("turn/started", "turn-1", "inProgress"),
@@ -408,7 +400,7 @@ fn app_server_mcp_startup_after_lag_can_settle_without_starting_updates() {
 fn app_server_mcp_startup_late_failure_does_not_reopen_the_next_round() {
     kit::pending(
         Owner::ChatLive,
-        "no MCP startup state on the chat screen, and the script has no step for the app-server lag (finish_mcp_startup_after_lag): kit gap",
+        "the oracle runs the app-server lag between the steps (finish_mcp_startup_after_lag): the script has no lagged step and core/src/app.rs no BackendEv::Lagged arm for the chat thread (keymap holds both); ThreadEv::McpLagged is built",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
@@ -436,10 +428,6 @@ fn app_server_mcp_startup_late_failure_does_not_reopen_the_next_round() {
 // ORACLE chatwidget/tests/mcp_startup.rs:890 app_server_mcp_startup_completed_failure_does_not_carry_into_the_next_round kind=ui owner=chat-live
 #[test]
 fn app_server_mcp_startup_completed_failure_does_not_carry_into_the_next_round() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen, and the script has no step for the app-server lag (finish_mcp_startup_after_lag): kit gap",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     // oracle: the lag runs first (a settled round with nothing started).
     s.feed(&mcp("alpha", "starting"));
@@ -457,10 +445,6 @@ fn app_server_mcp_startup_completed_failure_does_not_carry_into_the_next_round()
 // ORACLE chatwidget/tests/mcp_startup.rs:927 app_server_mcp_startup_next_reported_start_reactivates_progress kind=ui owner=chat-live
 #[test]
 fn app_server_mcp_startup_next_reported_start_reactivates_progress() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen: the runtime start after a settled round is not tracked and its failure summary is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         mcp("initial", "starting"),

@@ -1067,7 +1067,6 @@ fn live_app_server_turn_completion_repairs_dropped_message_deltas() {
 // ORACLE chatwidget/tests/app_server.rs:1881 live_app_server_stream_recovery_restores_previous_status_header kind=snap owner=chat-live
 #[test]
 fn live_app_server_stream_recovery_restores_previous_status_header() {
-    kit::pending(Owner::ChatLive, STATUS_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&error_note(
@@ -1110,7 +1109,6 @@ fn live_app_server_errors_render_upstream_message() {
 // ORACLE chatwidget/tests/app_server.rs:1979 live_app_server_server_overloaded_error_renders_error kind=snap owner=chat-live
 #[test]
 fn live_app_server_server_overloaded_error_renders_error() {
-    kit::pending(Owner::ChatLive, ERR_PENDING);
     for (message, info, expected) in [
         (
             "server overloaded",

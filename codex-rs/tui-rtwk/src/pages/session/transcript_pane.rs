@@ -330,7 +330,7 @@ impl State for ViewportState {
                     }
                     .into(),
                 ),
-                Item::Warning { message } => cell(
+                Item::Warning { message } | Item::StartupWarning { message } => cell(
                     separator,
                     super::cells::warning::WarningCell {
                         message: message.clone(),

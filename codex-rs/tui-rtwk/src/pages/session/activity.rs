@@ -136,13 +136,16 @@ impl StatelessWidget for StatusSlot {
                 show_interrupt: run.can_interrupt,
                 spinner: facts.animations && facts.progress_effect,
                 shimmer: facts.animations && facts.shimmer_effect,
-                header: if compacting {
-                    strings.chat.compacting
-                } else if run.chat.activity == chat::ActivityPhase::Thinking {
-                    strings.chat.thinking
-                } else {
-                    strings.chat.working
-                },
+                header: run.chat.header().unwrap_or_else(|| {
+                    if compacting {
+                        strings.chat.compacting
+                    } else if run.chat.activity == chat::ActivityPhase::Thinking {
+                        strings.chat.thinking
+                    } else {
+                        strings.chat.working
+                    }
+                    .to_string()
+                }),
                 step: run.chat.step.clone(),
                 offset_seconds,
             })
@@ -168,7 +171,7 @@ pub(super) struct Activity {
     pub show_interrupt: bool,
     pub spinner: bool,
     pub shimmer: bool,
-    pub header: &'static str,
+    pub header: String,
     pub step: Option<String>,
     pub offset_seconds: u64,
 }
@@ -221,7 +224,7 @@ impl ActivityState {
             })
             .into();
         }
-        Text::line(w.header).style(tokens.accent()).into()
+        Text::line(w.header.clone()).style(tokens.accent()).into()
     }
 }
 

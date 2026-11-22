@@ -1201,3 +1201,185 @@ fn restored_messages_merge_with_renumbered_image_placeholders() {
     assert_eq!(merged.images.len(), 2);
     assert_eq!(merged.images[1].range, 17..27);
 }
+
+// ---- MCP startup (oracle chatwidget/mcp_startup.rs), the retry header and the
+// high-load error
+
+fn mcp(name: &str, status: &str, error: Option<&str>) -> BackendEv {
+    use codex_app_server_protocol::{
+        McpServerStartupState, McpServerStatusUpdatedNotification, ServerNotification,
+    };
+    BackendEv::Notification(Box::new(ServerNotification::McpServerStatusUpdated(
+        McpServerStatusUpdatedNotification {
+            thread_id: Some(T.to_string()),
+            name: name.to_string(),
+            status: match status {
+                "starting" => McpServerStartupState::Starting,
+                "ready" => McpServerStartupState::Ready,
+                "cancelled" => McpServerStartupState::Cancelled,
+                _ => McpServerStartupState::Failed,
+            },
+            error: error.map(str::to_string),
+            failure_reason: None,
+        },
+    )))
+}
+
+fn startup_warnings(app: &CodexApp) -> Vec<String> {
+    thread(app)
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::StartupWarning { message } => Some(message.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn header(app: &CodexApp) -> Option<String> {
+    thread(app).screen_slots().chat.header()
+}
+
+#[test]
+fn mcp_startup_header_names_the_servers_still_starting() {
+    let mut app = ready();
+    notification(&mut app, mcp("beta", "starting", None));
+    assert_eq!(header(&app).as_deref(), Some("Booting MCP server: beta"));
+    notification(&mut app, mcp("alpha", "starting", None));
+    assert_eq!(
+        header(&app).as_deref(),
+        Some("Starting MCP servers (0/2): alpha, beta")
+    );
+    notification(&mut app, mcp("alpha", "ready", None));
+    assert_eq!(
+        header(&app).as_deref(),
+        Some("Starting MCP servers (1/2): beta")
+    );
+    notification(&mut app, mcp("beta", "ready", None));
+    assert_eq!(header(&app), None);
+    assert!(startup_warnings(&app).is_empty());
+}
+
+#[test]
+fn mcp_startup_reports_a_failure_once_and_the_round_incomplete() {
+    let mut app = ready();
+    for ev in [
+        mcp("beta", "starting", None),
+        mcp("alpha", "starting", None),
+        mcp("alpha", "failed", Some("handshake failed")),
+        mcp("alpha", "failed", Some("handshake failed")),
+    ] {
+        notification(&mut app, ev);
+    }
+    assert_eq!(startup_warnings(&app), vec!["handshake failed".to_string()]);
+    notification(&mut app, mcp("beta", "ready", None));
+    assert_eq!(
+        startup_warnings(&app),
+        vec![
+            "handshake failed".to_string(),
+            "MCP startup incomplete (failed: alpha)".to_string()
+        ]
+    );
+}
+
+#[test]
+fn mcp_cancelled_servers_are_summarised_before_failed_ones() {
+    let mut app = ready();
+    for ev in [
+        mcp("a", "starting", None),
+        mcp("b", "starting", None),
+        mcp("a", "cancelled", None),
+        mcp("b", "ready", None),
+    ] {
+        notification(&mut app, ev);
+    }
+    assert_eq!(
+        startup_warnings(&app),
+        vec!["MCP startup interrupted. The following servers were not initialized: a".to_string()]
+    );
+}
+
+#[test]
+fn an_outcome_without_a_start_is_reported_at_once() {
+    let mut app = ready();
+    notification(&mut app, mcp("alpha", "failed", Some("late")));
+    assert_eq!(
+        startup_warnings(&app),
+        vec![
+            "late".to_string(),
+            "MCP startup incomplete (failed: alpha)".to_string()
+        ]
+    );
+    assert_eq!(header(&app), None);
+}
+
+#[test]
+fn a_message_sent_while_mcp_servers_start_waits_and_goes_out_when_they_settle() {
+    let mut app = ready();
+    notification(&mut app, mcp("slow", "starting", None));
+    let fx = submit(&mut app, "hello");
+    assert!(start_turns(&fx).is_empty(), "{:?}", fx.commands());
+    assert_eq!(queued(&app), vec!["hello".to_string()]);
+    let fx = notification(&mut app, mcp("slow", "ready", None));
+    assert_eq!(
+        start_turns(&fx)
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect::<Vec<_>>(),
+        vec!["hello".to_string()]
+    );
+}
+
+#[test]
+fn a_lag_settles_the_round_and_forgets_the_reported_failures() {
+    use codex_tui_core::screens::chat::{McpStartup, McpStatus};
+    let failed = || McpStatus::Failed {
+        error: "handshake failed".to_string(),
+    };
+    let mut round = McpStartup::default();
+    round.update("beta".to_string(), McpStatus::Starting);
+    round.update("alpha".to_string(), McpStatus::Starting);
+    assert_eq!(
+        round.update("alpha".to_string(), failed()),
+        vec!["handshake failed".to_string()]
+    );
+    // the lag settles the round: the summary
+    assert_eq!(
+        round.finish_after_lag(),
+        vec!["MCP startup incomplete (failed: alpha)".to_string()]
+    );
+    assert!(!round.is_starting());
+    // a failure the lag made us forget is a new one
+    assert_eq!(round.update("alpha".to_string(), failed()).len(), 2);
+}
+
+#[test]
+fn a_retrying_error_sets_the_header_until_the_next_notification() {
+    use codex_app_server_protocol::{
+        CodexErrorInfo, ErrorNotification, ServerNotification, TurnError,
+    };
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    notification(
+        &mut app,
+        BackendEv::Notification(Box::new(ServerNotification::Error(ErrorNotification {
+            thread_id: T.to_string(),
+            turn_id: "turn-1".to_string(),
+            will_retry: true,
+            error: TurnError {
+                message: "Reconnecting... 2/5".to_string(),
+                codex_error_info: Some(CodexErrorInfo::ResponseStreamDisconnected {
+                    http_status_code: Some(429),
+                }),
+                additional_details: None,
+                misalignment: None,
+            },
+        }))),
+    );
+    assert_eq!(
+        header(&app).as_deref(),
+        Some("Server is busy, reconnecting 2/5")
+    );
+    notification(&mut app, agent_delta(T, "turn-1", "msg", "hello"));
+    assert_eq!(header(&app), None);
+}

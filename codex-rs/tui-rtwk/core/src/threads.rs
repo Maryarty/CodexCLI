@@ -117,6 +117,11 @@ pub enum Item {
     Warning {
         message: String,
     },
+    /// A startup warning (an MCP server failed, a round settled incomplete):
+    /// a `⚠` row of the main transcript (oracle `StartupWarningsCell`).
+    StartupWarning {
+        message: String,
+    },
     /// A deprecation notice; shown only in the detailed transcript (oracle
     /// `DeprecationNoticeCell`: no display lines, a `⚠ ` summary and details).
     Deprecation {
@@ -695,6 +700,36 @@ pub enum ThreadEv {
         turn: TurnId,
         message: String,
     },
+    /// An MCP server's start or outcome (`mcpServer/startupStatus/updated`).
+    Mcp {
+        server: String,
+        status: screens::chat::McpStatus,
+    },
+    /// The app server's event stream lagged (`BackendEv::Lagged`).
+    McpLagged,
+}
+
+impl ThreadEv {
+    /// The thread's server notifications: any of them but a retrying error
+    /// ends the retry header (oracle `restore_retry_status_header_if_present`).
+    fn is_notification(&self) -> bool {
+        match self {
+            Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
+            Self::TurnStarted { .. }
+            | Self::ItemStarted { .. }
+            | Self::ItemUpsert { .. }
+            | Self::PlanUpdated { .. }
+            | Self::Appended { .. }
+            | Self::AgentDelta { .. }
+            | Self::CommandOutputDelta { .. }
+            | Self::TurnEnded { .. }
+            | Self::TurnCompleted { .. }
+            | Self::TurnError { .. }
+            | Self::Mcp { .. }
+            | Self::Screen(_) => true,
+            _ => false,
+        }
+    }
 }
 
 /// The payload of a terminal notification may be a full history or a summary.
@@ -1314,16 +1349,25 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 },
                 snapshot: turn_snapshot(&n.turn),
                 timing: TurnTiming::from_turn(&n.turn),
-                error: n.turn.error.as_ref().map(|error| error.message.clone()),
+                error: n.turn.error.as_ref().map(error_text),
             },
         )),
         ServerNotification::Error(n) if !n.will_retry => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::TurnError {
                 turn: TurnId::new(&n.turn_id),
-                message: n.error.message.clone(),
+                message: error_text(&n.error),
             },
         )),
+        ServerNotification::McpServerStatusUpdated(n) => n.thread_id.as_deref().map(|thread| {
+            (
+                ThreadId::new(thread),
+                ThreadEv::Mcp {
+                    server: n.name.clone(),
+                    status: screens::chat::McpStatus::of(n),
+                },
+            )
+        }),
         ServerNotification::Warning(n) => n.thread_id.as_deref().map(|thread| {
             (
                 ThreadId::new(thread),
@@ -1398,9 +1442,31 @@ pub fn project_unrouted(notification: &ServerNotification) -> Option<ThreadEv> {
             summary: n.summary.clone(),
             details: n.details.clone(),
         },
+        // The server tells no thread: the one on screen starts its servers.
+        ServerNotification::McpServerStatusUpdated(n) if n.thread_id.is_none() => {
+            return Some(ThreadEv::Mcp {
+                server: n.name.clone(),
+                status: screens::chat::McpStatus::of(n),
+            });
+        }
         _ => return None,
     };
     Some(ThreadEv::Appended { turn: None, item })
+}
+
+/// The row's wording (oracle `on_server_overloaded_error`): an overloaded
+/// server that said nothing is high load.
+fn error_text(error: &codex_app_server_protocol::TurnError) -> String {
+    use codex_app_server_protocol::CodexErrorInfo;
+    if matches!(
+        error.codex_error_info,
+        Some(CodexErrorInfo::ServerOverloaded | CodexErrorInfo::PolicyCapacityUnavailable)
+    ) && error.message.trim().is_empty()
+    {
+        "Codex is currently experiencing high load.".to_string()
+    } else {
+        error.message.clone()
+    }
 }
 
 fn turn_end(status: &TurnStatus) -> Option<TurnEnd> {
@@ -1490,7 +1556,18 @@ pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
 }
 
 fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
+    if ev.is_notification() {
+        model.slots.chat.clear_retry();
+    }
     match ev {
+        ThreadEv::Mcp { server, status } => {
+            let warnings = model.slots.chat.mcp.update(server, status);
+            add_startup_warnings(model, warnings, fx);
+        }
+        ThreadEv::McpLagged => {
+            let warnings = model.slots.chat.mcp.finish_after_lag();
+            add_startup_warnings(model, warnings, fx);
+        }
         ThreadEv::DeferredSubmit => model.last_submit = Some(fx.mint()),
         ThreadEv::ConnectionLost if model.has_writer() => {
             model.writer = Writer::Detached;
@@ -1556,7 +1633,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.last_submit = Some(steer(fx, turn, false, message));
                 return;
             }
-            if starting || !model.queue.is_empty() {
+            // MCP servers still starting hold the message (oracle
+            // `maybe_send_next_queued_input`).
+            if starting || model.slots.chat.mcp.is_starting() || !model.queue.is_empty() {
                 enqueue(model, message, fx);
                 return;
             }
@@ -1746,17 +1825,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.transcript.upsert(key, Item::PlanUpdate(update));
             apply_ev(model, ThreadEv::Screen(status), fx);
         }
-        ThreadEv::Appended { turn, item } => {
-            let turn = turn
-                .or_else(|| match &model.turn {
-                    TurnState::Running(running) => Some(running.turn.clone()),
-                    TurnState::Idle => None,
-                })
-                .or_else(|| model.transcript.last_turn().cloned())
-                .unwrap_or_default();
-            let key = model.transcript.mint(turn);
-            model.transcript.upsert(key, item);
-        }
+        ThreadEv::Appended { turn, item } => apply_appended(model, turn, item),
         ThreadEv::AgentDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
                 model.transcript.append_agent(key, &delta);
@@ -2035,6 +2104,9 @@ fn renumbered(placeholder: &str, number: usize) -> String {
 
 /// The next queued message becomes the next turn (one per turn end).
 fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
+    if model.slots.chat.mcp.is_starting() {
+        return;
+    }
     // Steers the server refused go first, as one message
     // (`pop_next_queued_user_message`).
     if !model.rejected_steers.is_empty() {
@@ -2051,6 +2123,31 @@ fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
 
 fn is_start_turn(ctx: &ThreadCtx) -> bool {
     matches!(ctx, ThreadCtx::StartTurn { .. })
+}
+
+fn apply_appended(model: &mut ThreadModel, turn: Option<TurnId>, item: Item) {
+    let turn = turn
+        .or_else(|| match &model.turn {
+            TurnState::Running(running) => Some(running.turn.clone()),
+            TurnState::Idle => None,
+        })
+        .or_else(|| model.transcript.last_turn().cloned())
+        .unwrap_or_default();
+    let key = model.transcript.mint(turn);
+    model.transcript.upsert(key, item);
+}
+
+/// The warnings a startup update made, then what the settled round held back.
+fn add_startup_warnings(model: &mut ThreadModel, warnings: Vec<String>, fx: &mut ThreadFx<'_>) {
+    for message in warnings {
+        apply_appended(model, None, Item::StartupWarning { message });
+    }
+    if !model.slots.chat.mcp.is_starting()
+        && !model.is_running()
+        && !model.outgoing.any(is_start_turn)
+    {
+        send_next(model, fx);
+    }
 }
 
 fn start_turn(model: &mut ThreadModel, turn: TurnId) {

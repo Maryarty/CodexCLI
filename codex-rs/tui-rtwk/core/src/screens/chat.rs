@@ -5,10 +5,12 @@
 //! grows.
 
 mod banner;
+mod mcp;
 
 use std::rc::Rc;
 
 pub use banner::{Banner, BannerOccurrence};
+pub use mcp::{McpStartup, McpStatus};
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
@@ -321,6 +323,11 @@ pub struct ThreadPart {
     live_compaction: bool,
     pub progress: Option<(usize, usize)>,
     pub step: Option<String>,
+    /// MCP startup of this thread (oracle `mcp_startup_status`).
+    pub mcp: McpStartup,
+    /// A retrying error's header, until the thread's next notification
+    /// (oracle `retry_status_header`).
+    retry_header: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -340,6 +347,18 @@ impl ThreadPart {
 
     pub(crate) fn end_turn(&mut self) {
         self.live_compaction = false;
+        self.retry_header = None;
+    }
+
+    /// The status row's header when something other than the phase owns it:
+    /// a retry, else MCP startup (oracle `set_status_header`).
+    pub fn header(&self) -> Option<String> {
+        self.retry_header.clone().or_else(|| self.mcp.header())
+    }
+
+    /// Any notification of the thread but a retrying error ends the retry header.
+    pub(crate) fn clear_retry(&mut self) {
+        self.retry_header = None;
     }
 
     pub fn is_compacting(&self) -> bool {
@@ -391,12 +410,17 @@ pub enum ThreadEv {
     Compaction { turn: TurnId, running: bool },
     Name(Option<String>),
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
+    /// The server retries the turn's request: the header says so.
+    Retry { turn: TurnId, message: String },
 }
 
 impl ThreadEv {
     pub(crate) fn turn(&self) -> Option<&TurnId> {
         match self {
-            Self::Plan { turn, .. } | Self::Phase { turn, .. } | Self::Compaction { turn, .. } => Some(turn),
+            Self::Plan { turn, .. }
+            | Self::Phase { turn, .. }
+            | Self::Compaction { turn, .. }
+            | Self::Retry { turn, .. } => Some(turn),
             _ => None,
         }
     }
@@ -442,6 +466,20 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
                 provider: settings.model_provider.clone(),
                 service_tier: settings.service_tier.clone(),
             })
+        }
+        ServerNotification::Error(note) if note.will_retry => {
+            // `Reconnecting... 2/5` after a 429 reads as the server being busy.
+            let busy = matches!(
+                note.error.codex_error_info,
+                Some(codex_app_server_protocol::CodexErrorInfo::ResponseStreamDisconnected {
+                    http_status_code: Some(429)
+                })
+            );
+            let message = match note.error.message.strip_prefix("Reconnecting... ") {
+                Some(attempt) if busy => format!("Server is busy, reconnecting {attempt}"),
+                _ => note.error.message.clone(),
+            };
+            (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), message })
         }
         ServerNotification::ReasoningSummaryPartAdded(note) => (&note.thread_id, ThreadEv::Phase {
             turn: TurnId::new(&note.turn_id),
@@ -544,6 +582,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         ThreadEv::Phase { phase, .. } => part.activity = phase,
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
         ThreadEv::Name(name) => part.name = name,
+        ThreadEv::Retry { message, .. } => part.retry_header = Some(message),
         ThreadEv::Plan { completed, total, step, .. } => {
             part.progress = (total > 0).then_some((completed, total));
             part.step = step;
