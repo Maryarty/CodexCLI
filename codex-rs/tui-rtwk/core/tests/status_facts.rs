@@ -451,6 +451,7 @@ mod footer {
                 provider: "openai".into(),
                 daybreak: None,
                 resumed,
+                fresh: !resumed,
             })),
             &mut AppFx::default(),
         );

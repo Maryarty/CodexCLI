@@ -15,11 +15,23 @@ pub struct LocalImage {
     pub range: Range<usize>,
 }
 
-/// A message of the user: text and the images its placeholders stand for.
+/// A skill, plugin or app the message names: what the turn carries beside the text so the
+/// model gets the tool itself (`UserInput::Skill` / `UserInput::Mention`). The composer
+/// resolves its bound mentions against its catalog (`mentions::tool_mentions`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolMention {
+    /// A skill: its name and the path of its file.
+    Skill { name: String, path: String },
+    /// A plugin or an app: its display name and its `plugin://` / `app://` path.
+    Mention { name: String, path: String },
+}
+
+/// A message of the user: text, the images its placeholders stand for and the tools it names.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserMessage {
     pub text: String,
     pub images: Vec<LocalImage>,
+    pub mentions: Vec<ToolMention>,
 }
 
 impl UserMessage {
@@ -27,6 +39,7 @@ impl UserMessage {
         Self {
             text: text.into(),
             images: Vec::new(),
+            mentions: Vec::new(),
         }
     }
 
@@ -46,7 +59,11 @@ impl UserMessage {
                 })
             })
             .collect();
-        Self { text, images }
+        Self {
+            text,
+            images,
+            mentions: self.mentions,
+        }
     }
 
     /// Nothing to send: no text and no image.
@@ -71,6 +88,7 @@ mod tests {
         let message = UserMessage {
             text: "  [Image #1] hi\n".into(),
             images: vec![image(2, 12)],
+            mentions: Vec::new(),
         };
         let message = message.trimmed();
         assert_eq!(message.text, "[Image #1] hi");
@@ -82,6 +100,7 @@ mod tests {
         let message = UserMessage {
             text: String::new(),
             images: vec![image(0, 0)],
+            mentions: Vec::new(),
         };
         assert!(!message.is_empty());
         assert!(UserMessage::text("").is_empty());

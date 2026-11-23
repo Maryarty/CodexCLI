@@ -37,7 +37,7 @@ pub use codex_protocol::models::MessagePhase;
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
-pub use message::{LocalImage, UserMessage};
+pub use message::{LocalImage, ToolMention, UserMessage};
 pub use note::{CdRefusal, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use user_prompt::{Shown, UserPrompt};
 
@@ -671,6 +671,9 @@ pub enum TurnState {
 pub struct RunningTurn {
     pub turn: TurnId,
     pub started_at: Option<i64>,
+    /// The app's clock when the client saw the turn start (epoch seconds, 0 unknown): the
+    /// oracle's status timer, the elapsed time of a turn the server timed no duration for.
+    began: i64,
     interrupt_sent: bool,
 }
 
@@ -1076,8 +1079,11 @@ impl ThreadSet {
     /// fresh one; `ForeignWriter` marks it read-only).
     pub(crate) fn open(&mut self, id: &ThreadId, origin: Origin) -> &mut ThreadModel {
         if origin == Origin::Started {
-            self.held
-                .insert(id.clone(), Rc::new(ThreadModel::new(id.clone())));
+            // A thread this process just started has run nothing (the composer sparkle's
+            // "fresh task"); the server's `thread/started` confirms or ends that.
+            let mut fresh = ThreadModel::new(id.clone());
+            fresh.slots.chat.mark_fresh(true);
+            self.held.insert(id.clone(), Rc::new(fresh));
         }
         let model = Rc::make_mut(
             self.held
@@ -1667,6 +1673,9 @@ pub struct ThreadFx<'a> {
     /// How the Daybreak setting words a cyber refusal at this moment (the app's fact, stamped
     /// per event by `apply_thread`).
     daybreak: Daybreak,
+    /// The app's clock, epoch seconds (0 until the host has said): what a live completion falls
+    /// back to when the server's turn carries no duration or completion time.
+    now: i64,
 }
 
 impl<'a> ThreadFx<'a> {
@@ -1677,7 +1686,18 @@ impl<'a> ThreadFx<'a> {
             mint,
             registered: Vec::new(),
             daybreak: Daybreak::Apply,
+            now: 0,
         }
+    }
+
+    /// The same, at the app's clock `now` (epoch seconds).
+    pub(crate) fn at(mut self, now: i64) -> Self {
+        self.now = now;
+        self
+    }
+
+    fn now(&self) -> i64 {
+        self.now
     }
 
     /// The same, with the wording of a cyber refusal at this moment.
@@ -2168,7 +2188,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         Rc::make_mut(&mut model.authoritative_turns).insert(snapshot.turn.clone());
                     }
                 } else {
-                    start_turn(model, snapshot.turn.clone());
+                    start_turn(model, snapshot.turn.clone(), fx.now());
                     if let TurnState::Running(running) = &mut model.turn
                         && running.turn == snapshot.turn
                         && running.started_at.is_none()
@@ -2286,7 +2306,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     // seen before this reply: nothing will end it again, so
                     // the next queued message goes out now.
                     let over = model.finished_turns.contains(&turn);
-                    start_turn(model, turn);
+                    start_turn(model, turn, fx.now());
                     if over {
                         send_next(model, fx);
                     } else if interrupt {
@@ -2438,7 +2458,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.transcript.report_error(&turn, &fault, fx.daybreak());
         }
         ThreadEv::TurnStarted { turn, started_at } => {
-            start_turn(model, turn.clone());
+            start_turn(model, turn.clone(), fx.now());
             if let TurnState::Running(running) = &mut model.turn
                 && running.turn == turn
                 && started_at.is_some()
@@ -2550,6 +2570,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 _ => {}
             }
+            let timing = live_timing(model, &turn, end, timing, fx.now());
             model.transcript.remember_timings([(turn.clone(), timing)]);
             if let Some(fault) = &error {
                 model.transcript.report_error(&turn, fault, fx.daybreak());
@@ -2592,6 +2613,39 @@ fn track_terminal(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
     } else {
         model.terminals.retain(|terminal| terminal.key != key);
     }
+}
+
+/// A live completion the server timed only in part (oracle `FinalMessageSeparator::from_turn_once`):
+/// the elapsed time falls back to the status timer (the clock since the turn was seen to start),
+/// the completion time to the local clock.
+fn live_timing(
+    model: &ThreadModel,
+    turn: &TurnId,
+    end: TurnEnd,
+    timing: Option<TurnTiming>,
+    now: i64,
+) -> Option<TurnTiming> {
+    if end != TurnEnd::Completed {
+        return timing;
+    }
+    // A completion of a turn the client never saw start is a restored one (no status timer ran);
+    // with no clock yet (the host has not said) no time is invented either.
+    let elapsed = match &model.turn {
+        TurnState::Running(running) if running.turn == *turn && now > 0 => {
+            let since = running.started_at.filter(|at| *at > 0).unwrap_or(running.began);
+            Some(now.saturating_sub(since).max(0) * 1_000)
+        }
+        _ => return timing,
+    };
+    let known = timing.unwrap_or(TurnTiming {
+        duration_ms: None,
+        completed_at: None,
+    });
+    let merged = TurnTiming {
+        duration_ms: known.duration_ms.or(elapsed),
+        completed_at: known.completed_at.or((now > 0).then_some(now)),
+    };
+    (merged.duration_ms.is_some() || merged.completed_at.is_some()).then_some(merged)
 }
 
 fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut ThreadFx<'_>) {
@@ -2819,6 +2873,11 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
         if index > 0 {
             merged.text.push('\n');
         }
+        for mention in message.mentions {
+            if !merged.mentions.contains(&mention) {
+                merged.mentions.push(mention);
+            }
+        }
         let mut images = message.images;
         images.sort_by_key(|image| image.range.start);
         let mut cursor = 0;
@@ -2926,7 +2985,7 @@ fn add_startup_warnings(
     }
 }
 
-fn start_turn(model: &mut ThreadModel, turn: TurnId) {
+fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
     // A turn that already ended is never revived by a late start.
     if model.finished_turns.contains(&turn) {
         return;
@@ -2937,6 +2996,7 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId) {
             model.turn = TurnState::Running(RunningTurn {
                 turn,
                 started_at: None,
+                began: now,
                 interrupt_sent: false,
             })
         }

@@ -114,6 +114,46 @@ pub fn permissions_patch(selection: &permissions::Selection) -> SettingsPatch {
     }
 }
 
+/// `app_scoped_key_path`: `apps."<id>".<key>`, the id quoted as TOML needs it.
+fn app_key(id: &str, key: &str) -> String {
+    let quoted = serde_json::Value::String(id.to_owned()).to_string();
+    ["apps", quoted.as_str(), key].join(".")
+}
+
+/// `SetAppEnabled`: an app switched on clears its `enabled` and `disabled_reason`
+/// keys; one switched off writes `enabled = false` and `disabled_reason = "user"`.
+pub fn app_enabled_edits(id: &str, enabled: bool) -> Vec<ConfigEdit> {
+    let edit = |key: &str, value: serde_json::Value| ConfigEdit {
+        key_path: app_key(id, key),
+        value,
+        merge_strategy: MergeStrategy::Replace,
+    };
+    if enabled {
+        vec![
+            edit("enabled", serde_json::Value::Null),
+            edit("disabled_reason", serde_json::Value::Null),
+        ]
+    } else {
+        vec![
+            edit("enabled", serde_json::Value::Bool(false)),
+            edit("disabled_reason", serde_json::Value::String("user".to_owned())),
+        ]
+    }
+}
+
+/// `config/batchWrite` of the app `id` switched (`SetAppEnabled`).
+pub fn app_enabled_request(id: &str, enabled: bool, request: RequestId) -> ClientRequest {
+    ClientRequest::ConfigBatchWrite {
+        request_id: request,
+        params: ConfigBatchWriteParams {
+            edits: app_enabled_edits(id, enabled),
+            file_path: None,
+            expected_version: None,
+            reload_user_config: true,
+        },
+    }
+}
+
 /// `config/batchWrite` of `edits` (`write_config_batch`).
 pub fn write_request(edits: &[Edit], id: RequestId) -> ClientRequest {
     ClientRequest::ConfigBatchWrite {
