@@ -65,12 +65,13 @@ pub(super) fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress
 }
 
 /// Brings the popups in line with the draft (`sync_popups`): none in history
-/// search, the Vim `/` query, while the history is walked, or in a bare
-/// field. The file search the
+/// search, the Vim `/` query, while the history is walked, or in a bare or
+/// plain-text field. The file search the
 /// popup asks for goes to the app; the popup is drawn again.
 pub(super) fn sync(w: &Composer, states: &ScreenStates, cx: &mut Cx<'_, ComposerState>) {
     let (draft, c) = (&w.ui.draft, &w.ui.composer);
     let closes = w.bare
+        || w.plain.is_some()
         || draft.searching()
         || vim::mode(draft).searching
         || draft.history_browsing(c, &states.popovers.history);

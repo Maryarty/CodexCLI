@@ -62,6 +62,23 @@ fn a_question_mark_is_text() {
 }
 
 #[test]
+fn an_at_and_a_dollar_are_text_and_ask_for_no_file_search() {
+    let mut s = plain(80, 24);
+    s.type_text("@src/ma $sk");
+    s.assert_row(prompt(&s), "› @src/ma $sk");
+    // nothing but the prompt and the footer: no mention popup rows
+    let rows = s.rows();
+    let below = rows.len() - prompt(&s) - 1;
+    assert!(
+        rows[prompt(&s) + 1..]
+            .iter()
+            .take(below.saturating_sub(1))
+            .all(|r| r.trim().is_empty()),
+        "{rows:?}"
+    );
+}
+
+#[test]
 fn a_paste_that_starts_with_a_bang_is_text() {
     let mut s = plain(80, 24);
     s.paste("!echo hi");
