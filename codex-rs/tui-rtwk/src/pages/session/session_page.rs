@@ -99,6 +99,8 @@ pub struct ChatState {
     search_rev: u64,
     /// The composer is in shell mode: the footer label, no submit by the queue key.
     draft_shell: bool,
+    /// The footer's modal-editing label this page drew (none with it off).
+    draft_vim: Option<&'static str>,
     /// The composer's focus node: the page sees `?` and `←` before the field
     /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
     node: FocusNode,
@@ -192,6 +194,7 @@ impl StatefulWidget for Chat {
             draft_empty: self.ui.composer.text().is_empty(),
             search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
+            draft_vim: self.ui.draft.vim_label(),
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
@@ -228,6 +231,7 @@ impl ChatState {
     fn sync_draft(&mut self, w: &Chat) {
         self.search_rev = w.ui.draft.search_rev();
         self.draft_shell = w.ui.draft.shell();
+        self.draft_vim = w.ui.draft.vim_label();
         self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
     }
 }
@@ -480,6 +484,7 @@ impl State for ChatState {
             modes.primed(),
             self.draft_empty,
             self.draft_shell,
+            self.draft_vim,
             self.search_rev,
             modes.detailed(),
         );
@@ -786,6 +791,7 @@ impl State for ChatState {
                 modes.primed(),
                 self.draft_empty,
                 self.draft_shell,
+                self.draft_vim,
                 self.search_rev,
                 modes.detailed(),
             )

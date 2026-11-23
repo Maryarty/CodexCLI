@@ -104,8 +104,13 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     // held character became after it (`after_sparkle_key`: a character held
     // back that the key dropped changed the draft with no change of its text)
     let held = data.draft.in_burst();
+    let mode = data.draft.vim_label();
     data.sparkle.before_key(&sparkle_key(data, c, key));
     let took = take_key_inner(data, c, key);
+    // the footer's `Vim: <mode>` is the page's: it hears of a mode the key changed
+    if data.draft.vim_label() != mode {
+        (data.tell)(ComposerMsg::VimMode);
+    }
     if held && !data.draft.in_burst() && !data.draft.searching() {
         data.sparkle.replaced(&c.text());
     }

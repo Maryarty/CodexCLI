@@ -35,6 +35,9 @@ pub struct TuiSettings {
     pub show_tooltips: bool,
     /// `tui.rendering`.
     pub rendering: Rendering,
+    /// `tui.vim_mode_default`: a new draft starts in Vim Insert mode (oracle `constructor`
+    /// `enable_vim_in_insert_mode`).
+    pub vim_mode_default: bool,
 }
 
 impl Default for TuiSettings {
@@ -43,6 +46,7 @@ impl Default for TuiSettings {
             collapse_turn_details: false,
             show_tooltips: true,
             rendering: Rendering::default(),
+            vim_mode_default: false,
         }
     }
 }

@@ -168,7 +168,8 @@ impl UiApp {
     /// Makes the controllers of the active thread if it has none.
     pub(crate) fn follow_core(&mut self) {
         if let Some(active) = self.core.session().active.clone() {
-            self.ui.thread_ui.ensure(&active);
+            let vim_default = self.core.tui().vim_mode_default;
+            self.ui.thread_ui.ensure(&active, vim_default);
             // An empty conversation moved to another backend: its draft goes
             // with it (oracle: `NewBackendSession::CarryDraft`).
             let switches = self.core.session().switches;

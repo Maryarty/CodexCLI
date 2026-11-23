@@ -39,7 +39,7 @@ pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
-pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Tone};
+pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
 pub use user_prompt::{Shown, UserPrompt};

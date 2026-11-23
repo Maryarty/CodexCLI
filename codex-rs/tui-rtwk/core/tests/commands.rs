@@ -1543,7 +1543,7 @@ mod effects {
     use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent};
     use codex_tui_core::ids::ThreadId;
     use codex_tui_core::screens::{ScreenCommand, ScreenIntent, chat};
-    use codex_tui_core::threads::{Note, NoteKey, Stub, Tone, UserMessage};
+    use codex_tui_core::threads::{Note, NoteKey, Stub, Toggle, Tone, UserMessage};
     use pretty_assertions::assert_eq;
 
     use super::notes::{T, notes_of, ready, run};
@@ -1602,7 +1602,7 @@ mod effects {
             (NoteKey::Rollout(Some("/tmp/r.jsonl".into())), Tone::Info),
             (NoteKey::DesktopOpened, Tone::Info),
             (NoteKey::StoppingTerminals, Tone::Info),
-            (NoteKey::RawOutput(true), Tone::Info),
+            (NoteKey::Toggled(Toggle::RawOutput, true), Tone::Info),
             (NoteKey::Stub(Stub::MemoryMaintenance), Tone::Error),
             (NoteKey::ParentOwned, Tone::Error),
         ] {
@@ -1791,7 +1791,8 @@ mod effects {
         assert!(raw(&app));
         assert_eq!(
             notes(&app),
-            [true, false, false, true].map(|on| Note::from(NoteKey::RawOutput(on)))
+            [true, false, false, true]
+                .map(|on| Note::from(NoteKey::Toggled(Toggle::RawOutput, on)))
         );
     }
 

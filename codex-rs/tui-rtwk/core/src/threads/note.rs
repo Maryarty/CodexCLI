@@ -23,6 +23,15 @@ pub enum Stub {
     MemoryMaintenance,
 }
 
+/// A setting a command turns on or off, and says so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Toggle {
+    /// `/raw`: the transcript shown as text for selection.
+    RawOutput,
+    /// `/vim` (or the toggle key): modal editing of the draft.
+    Vim,
+}
+
 /// Why `/cd` did not change the directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CdRefusal {
@@ -62,8 +71,8 @@ pub enum NoteKey {
     StoppingTerminals,
     /// A feature the TUI does not carry.
     Stub(Stub),
-    /// `/raw`: the transcript is shown as text for selection, or as before.
-    RawOutput(bool),
+    /// `/raw`, `/vim`: the setting is on or off now.
+    Toggled(Toggle, bool),
     /// The thread is controlled by its parent: it takes no direct input.
     ParentOwned,
     /// A switch of the collaboration mode while a turn runs
@@ -118,7 +127,7 @@ impl NoteKey {
             | NoteKey::Rollout(_)
             | NoteKey::DesktopOpened
             | NoteKey::StoppingTerminals
-            | NoteKey::RawOutput(_)
+            | NoteKey::Toggled(..)
             | NoteKey::Mode(_)
             | NoteKey::Server(_) => Tone::Info,
         }

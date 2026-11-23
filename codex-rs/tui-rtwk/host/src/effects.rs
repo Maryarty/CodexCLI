@@ -49,6 +49,7 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
     TuiSettings {
         collapse_turn_details: config.tui_collapse_turn_details,
         show_tooltips: config.show_tooltips,
+        vim_mode_default: config.tui_vim_mode_default,
         rendering: Rendering {
             mermaid: rendering.mermaid,
             math: rendering.math,

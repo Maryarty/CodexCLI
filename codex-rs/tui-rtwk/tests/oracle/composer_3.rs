@@ -312,13 +312,10 @@ fn history_navigation_leaves_cursor_at_end_of_line() {
 // ORACLE bottom_pane/chat_composer.rs:11168 vim_normal_operator_pending_consumes_submit_key kind=ui owner=chat-live
 #[test]
 fn vim_normal_operator_pending_consumes_submit_key() {
-    kit::pending(
-        Owner::ChatLive,
-        "no vim editing mode on the chat composer: 'd' leaves an operator pending, Enter is consumed (the draft stays), and the footer shows 'Vim: Normal'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    // oracle: 'hello' typed, vim on, Normal mode, 'd' pending
-    s.type_text("hello");
+    // oracle: 'hello' typed, vim on, Normal mode, 'd' pending (`/vim` turns Vim on)
+    s.type_text("/vim").keys("enter");
+    s.keys("i").type_text("hello");
     s.keys("esc d");
     s.keys("enter");
     s.assert_row(prompt(&s), "› hello");
@@ -361,17 +358,15 @@ fn history_navigation_from_start_of_bang_command_recalls_older_entry() {
 // ORACLE bottom_pane/chat_composer.rs:11266 vim_normal_history_navigation_from_start_of_bang_command_recalls_older_entry kind=ui owner=chat-live
 #[test]
 fn vim_normal_history_navigation_from_start_of_bang_command_recalls_older_entry() {
-    kit::pending(
-        Owner::ChatLive,
-        "no vim normal mode or prompt history on the chat composer: 'k' from the start of '!git' recalls 'first'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    s.type_text("first").keys("enter");
+    s.type_text("/vim").keys("enter");
+    s.keys("i").type_text("first").keys("enter");
     s.type_text("!git").keys("enter");
     s.keys("esc");
     // oracle: 'k' in vim normal mode recalls '!git' with the cursor on its last character
+    // (shell mode draws its `!` in the prompt's place)
     s.keys("k");
-    s.assert_row(prompt(&s), "› !git");
+    s.assert_row(prompt(&s), "! git");
     s.keys("k");
     s.assert_row(prompt(&s), "› first");
 }

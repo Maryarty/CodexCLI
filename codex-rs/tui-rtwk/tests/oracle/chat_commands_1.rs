@@ -5,6 +5,7 @@
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
 use crate::kit::{self, Owner, Screen};
+use codex_tui_core::app::facts::TuiSettings;
 
 const SESSION: &str = include_str!("fixtures/chat_commands_2/session.jsonl");
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
@@ -530,12 +531,15 @@ fn startup_draft_handoff_preserves_cleared_history_across_session_configuration(
 // ORACLE chatwidget/tests/composer_submission.rs:1598 startup_draft_handoff_keeps_vim_insert_mode_for_nonempty_drafts kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_handoff_keeps_vim_insert_mode_for_nonempty_drafts() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for vim mode on (vim_mode_default) with a startup draft restored into it",
-    );
     for (text, expected) in [("draft", "draftx"), ("", "")] {
-        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .live()
+            .tui(TuiSettings {
+                vim_mode_default: true,
+                ..TuiSettings::default()
+            })
+            .open();
         s.type_text(text);
         s.keys("x right");
         if !expected.is_empty() {

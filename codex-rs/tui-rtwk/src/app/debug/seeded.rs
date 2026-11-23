@@ -68,7 +68,7 @@ impl StatefulWidget for SeededScope {
             .as_ref()
             .and_then(|sandbox| sandbox.app().session().active.clone())
         {
-            thread_ui.ensure(&active);
+            thread_ui.ensure(&active, false);
         }
         SeededScopeState { sandbox, thread_ui }
     }
@@ -110,7 +110,7 @@ impl State for SeededScopeState {
         };
         sandbox.send(AppEv::Intent(intent));
         if let Some(active) = sandbox.app().session().active.clone() {
-            self.thread_ui.ensure(&active);
+            self.thread_ui.ensure(&active, false);
         }
         Rebuild::Yes
     }

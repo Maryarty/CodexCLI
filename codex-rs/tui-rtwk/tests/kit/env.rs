@@ -31,6 +31,7 @@
 //!   account and the catalog's `(model, standard, daybreak)` programs) that words a refusal.
 //! - `raw_reasoning()`: the config's `show_raw_agent_reasoning` is on (a reasoning block also
 //!   shows the model's raw reasoning).
+//! - `tui(settings)`: the `[tui]` settings the host tells the app (`vim_mode_default`).
 //! - `startup(first_run, tooltip)` / `tooltips_off()`: how the run started as the host tells
 //!   the app (the user's first run, the model-availability notice) and `tui.show_tooltips`
 //!   off; the conversation then opens with the oracle's session card. Without `startup` no
@@ -106,6 +107,8 @@ pub(super) struct Env {
     startup: Option<Startup>,
     /// `tui.show_tooltips` is off.
     tooltips_off: bool,
+    /// The `[tui]` settings the host tells the app (`Open::tui`).
+    tui: Option<TuiSettings>,
 }
 
 impl Env {
@@ -146,6 +149,7 @@ impl Env {
             || self.raw_reasoning
             || self.startup.is_some()
             || self.tooltips_off
+            || self.tui.is_some()
     }
 
     /// Delivers what is an app event rather than a terminal's property, once
@@ -167,12 +171,13 @@ impl Env {
             h.connect();
             h.inject([AppEv::Screen(ScreenEv::Cells(CellsEv::RawReasoning(true)))]);
         }
-        if self.tooltips_off {
+        if self.tooltips_off || self.tui.is_some() {
             h.connect();
-            h.inject([AppEv::Tui(TuiSettings {
-                show_tooltips: false,
-                ..TuiSettings::default()
-            })]);
+            let mut tui = self.tui.unwrap_or_default();
+            if self.tooltips_off {
+                tui.show_tooltips = false;
+            }
+            h.inject([AppEv::Tui(tui)]);
         }
         if let Some(startup) = &self.startup {
             h.connect();
@@ -371,6 +376,12 @@ impl Open {
     /// `tui.show_tooltips` is off.
     pub fn tooltips_off(mut self) -> Open {
         self.env.tooltips_off = true;
+        self
+    }
+
+    /// The `[tui]` settings of the config as the host tells the app (`vim_mode_default`, ...).
+    pub fn tui(mut self, settings: TuiSettings) -> Open {
+        self.env.tui = Some(settings);
         self
     }
 

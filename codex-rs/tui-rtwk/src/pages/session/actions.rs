@@ -15,7 +15,7 @@ use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
     ScreenIntent, ScreenStates, ScreenThreadIntent, chat, dialogs, popovers,
 };
-use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
+use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, Toggle, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
@@ -301,6 +301,18 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             } else {
                 open(cx, opened.target);
             }
+        }
+        // `/vim`: modal editing is the draft's own state, toggled here and said
+        // (`toggle_vim_mode_and_notify`); the composer clears with the line.
+        Outcome::Session {
+            intent: SessionIntent::Vim,
+            ..
+        } => {
+            record(cx);
+            clear_sent(&w.ui);
+            let on = !w.ui.draft.vim_enabled();
+            w.ui.draft.set_vim_enabled(on);
+            say(cx, Note::from(NoteKey::Toggled(Toggle::Vim, on)));
         }
         Outcome::Session { command, intent } => {
             record(cx);
