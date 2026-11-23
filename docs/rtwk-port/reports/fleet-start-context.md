@@ -118,8 +118,10 @@ filler; the list itself is for the tm owner.
 
 - Computer-use MCP instructions (~2.3k per desktop agent): sent to every
   subagent even when its tools are denied (easel is denied in
-  `settings.local.json` and its instructions still arrive). Off only by the
-  desktop's computer-use setting or by disabling the server for this project.
+  `settings.local.json` and its instructions still arrive), and
+  `disabledMcpServers: ["computer-use"]` for the project in `~/.claude.json`
+  does not stop the desktop's built-in server either (tried 2026-11-23, a new
+  session still had it). Off only by the desktop's computer-use setting.
 - The 16 side-session directories and the orchestrator's gitStatus in every
   agent's environment block: the desktop app.
 - tm (the tm owner): `task_start` returning the description; the cd hook
