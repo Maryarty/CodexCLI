@@ -4,10 +4,13 @@
 
 use std::ops::Range;
 
-use super::motions::{self, bol, bol_of, eol, eol_of, expand_to_elements, next_atomic, prev_atomic};
+use super::motions::{
+    self, bol, bol_of, eol, eol_of, expand_to_elements, next_atomic, prev_atomic,
+};
 use super::{
-    VimDirection, EditorAction, Find, Input, VimMode, Motion, Normal, Object, Operator, OperatorKey,
-    VimPending, RegisterKind, VimScope, SearchQuery, VimText, is_command_target, matching_ranges,
+    EditorAction, Find, Input, Motion, Normal, Object, Operator, OperatorKey, RegisterKind,
+    SearchQuery, VimDirection, VimMode, VimPending, VimScope, VimText, is_command_target,
+    matching_ranges,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -117,7 +120,11 @@ impl Vim {
         self.searching = None;
         self.last_search = SearchQuery::default();
         self.commands = Commands::default();
-        self.mode = if enabled { VimMode::Normal } else { VimMode::Insert };
+        self.mode = if enabled {
+            VimMode::Normal
+        } else {
+            VimMode::Insert
+        };
     }
 
     pub fn mode(&self) -> VimMode {
@@ -280,7 +287,8 @@ impl Vim {
         {
             pending.push_str(text);
         } else {
-            c.pending_change.push(VimEdit(EditStep::Text(text.to_owned())));
+            c.pending_change
+                .push(VimEdit(EditStep::Text(text.to_owned())));
         }
         c.changed = true;
     }
@@ -314,10 +322,11 @@ impl Vim {
         if !self.apply_action(t, recorded.clone()) {
             return false;
         }
-        let changed =
-            t.text().len() != prior_len || matches!(action, EditorAction::Yank);
+        let changed = t.text().len() != prior_len || matches!(action, EditorAction::Yank);
         if recording && (changed || !deletion) {
-            self.commands.pending_change.push(VimEdit(EditStep::VimAction(recorded)));
+            self.commands
+                .pending_change
+                .push(VimEdit(EditStep::VimAction(recorded)));
         }
         self.commands.changed |= recording && changed;
         true
@@ -386,7 +395,10 @@ impl Vim {
 
     fn restore_replaced(&mut self, t: &mut dyn VimText) -> bool {
         let steps = &mut self.commands.replace_steps;
-        let Some(step) = steps.pop().filter(|s| t.cursor() == s.start + s.inserted_len) else {
+        let Some(step) = steps
+            .pop()
+            .filter(|s| t.cursor() == s.start + s.inserted_len)
+        else {
             steps.clear();
             return false;
         };
@@ -403,7 +415,8 @@ impl Vim {
             self.commands.pending_change.clear();
             return false;
         }
-        self.commands.changed = t.text().len() != prior_len || matches!(action, VimAction::Replace(_));
+        self.commands.changed =
+            t.text().len() != prior_len || matches!(action, VimAction::Replace(_));
         if self.mode == VimMode::Normal {
             self.finish_pending_change();
         }
@@ -474,13 +487,21 @@ impl Vim {
                         let e = eol(t);
                         let insert_at = if e < prior_len { e + 1 } else { e };
                         t.replace(insert_at..insert_at, "\n");
-                        t.set_cursor(if e < prior_len { insert_at } else { insert_at + 1 });
+                        t.set_cursor(if e < prior_len {
+                            insert_at
+                        } else {
+                            insert_at + 1
+                        });
                     }
                 }
                 self.mode = VimMode::Insert;
             }
-            VimAction::Delete(target) => return self.operate(t, Operator::Delete, target, prior_len),
-            VimAction::Change(target) => return self.operate(t, Operator::Change, target, prior_len),
+            VimAction::Delete(target) => {
+                return self.operate(t, Operator::Delete, target, prior_len);
+            }
+            VimAction::Change(target) => {
+                return self.operate(t, Operator::Change, target, prior_len);
+            }
             VimAction::Replace(ch) => {
                 if t.cursor() >= eol(t) {
                     return false;
@@ -728,7 +749,11 @@ impl Vim {
     fn apply_operator(&mut self, t: &mut dyn VimText, op: Operator, motion: Motion) {
         if op == Operator::Change && motion == Motion::WordForward {
             let doc = t.text();
-            let target = if doc[t.cursor()..].chars().next().is_some_and(|ch| !ch.is_whitespace()) {
+            let target = if doc[t.cursor()..]
+                .chars()
+                .next()
+                .is_some_and(|ch| !ch.is_whitespace())
+            {
                 motions::end_of_next_word(t)
             } else {
                 motions::beginning_of_next_word(t).min(eol(t))
@@ -749,8 +774,7 @@ impl Vim {
         };
         if op == Operator::Change && matches!(motion, Motion::Up | Motion::Down) {
             let doc = t.text();
-            if motion == Motion::Up && bol(t) == 0
-                || motion == Motion::Down && eol(t) == doc.len()
+            if motion == Motion::Up && bol(t) == 0 || motion == Motion::Down && eol(t) == doc.len()
             {
                 return;
             }
@@ -859,7 +883,13 @@ impl Vim {
 
     // ---- find, jumps, search ---------------------------------------------------------
 
-    fn find(&mut self, t: &mut dyn VimText, motion: Find, op: Option<Operator>, target: char) -> bool {
+    fn find(
+        &mut self,
+        t: &mut dyn VimText,
+        motion: Find,
+        op: Option<Operator>,
+        target: char,
+    ) -> bool {
         let origin = t.cursor();
         let doc = t.text();
         let clusters = |from: usize, to: usize| -> Vec<Range<usize>> {
@@ -873,7 +903,8 @@ impl Vim {
                 })
                 .collect()
         };
-        let hit = |g: &Range<usize>| doc[g.start..].starts_with(target) && is_command_target(t, g.start);
+        let hit =
+            |g: &Range<usize>| doc[g.start..].starts_with(target) && is_command_target(t, g.start);
         let found = match motion {
             Find::Forward | Find::TillForward => {
                 let line_end = eol_of(&doc, origin);
@@ -885,7 +916,10 @@ impl Vim {
             }
             Find::Backward | Find::TillBackward => {
                 let line_start = bol_of(&doc, origin);
-                clusters(line_start, origin).into_iter().rev().find(|g| hit(g))
+                clusters(line_start, origin)
+                    .into_iter()
+                    .rev()
+                    .find(|g| hit(g))
             }
         };
         let Some(position) = found else { return false };
@@ -921,7 +955,11 @@ impl Vim {
         let doc = t.text();
         if let Some(op) = op {
             let current = motions::current_line_with_newline(t);
-            let range = if last { current.start..doc.len() } else { 0..current.end };
+            let range = if last {
+                current.start..doc.len()
+            } else {
+                0..current.end
+            };
             match op {
                 Operator::Delete => self.kill(t, range, RegisterKind::Linewise),
                 Operator::Yank => self.yank(t, range, RegisterKind::Linewise),
@@ -952,7 +990,9 @@ impl Vim {
 
     /// The query is accepted; an empty one searches the last text again.
     pub fn accept_search(&mut self, t: &mut dyn VimText, text: &str) {
-        let Some(direction) = self.searching.take() else { return };
+        let Some(direction) = self.searching.take() else {
+            return;
+        };
         let text = if text.is_empty() {
             self.last_search.text.clone()
         } else {
@@ -1061,7 +1101,11 @@ fn linewise_range(t: &dyn VimText, motion: Motion) -> Option<Range<usize>> {
                 current.end
             } else {
                 let next_eol = eol_of(&doc, current.end);
-                if next_eol < doc.len() { next_eol + 1 } else { next_eol }
+                if next_eol < doc.len() {
+                    next_eol + 1
+                } else {
+                    next_eol
+                }
             };
             current.start..end
         }

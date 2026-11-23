@@ -18,12 +18,12 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 use super::editing::KeyData;
 use super::vim;
 use super::{Composer, ComposerMsg, ComposerState};
+use crate::app::view::Hs;
 use crate::keymap::pressed;
 use codex_tui_core::keymap::fixed::{
     DISMISS, POPUP_ACCEPT, POPUP_COMPLETE, POPUP_NEXT, POPUP_PREVIOUS, POPUP_TAB_NEXT,
     POPUP_TAB_PREVIOUS,
 };
-use crate::app::view::Hs;
 
 /// Whether the popup takes `key`: Up and Down (Ctrl+P, Ctrl+N) move the
 /// highlight, Left and Right switch the `@` popup's tab while the caret is
@@ -48,8 +48,7 @@ pub(super) fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress
         }
         mentions.switch_search_mode(is(POPUP_TAB_NEXT));
     } else if is(DISMISS) {
-        data.draft
-            .dismiss_mentions(c, &data.popovers.sources());
+        data.draft.dismiss_mentions(c, &data.popovers.sources());
     } else if is(POPUP_COMPLETE) {
         if let Some(at) = mentions.cursor() {
             (data.tell)(ComposerMsg::MentionPick(at));

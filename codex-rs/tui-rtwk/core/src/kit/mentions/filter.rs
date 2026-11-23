@@ -3,8 +3,8 @@
 
 use super::search_mode::SearchMode;
 use crate::commands::fuzzy_match;
-use crate::data::mention::{Candidate, MentionType, Row, Selection};
 use crate::data::files::{FileMatch, MatchType};
+use crate::data::mention::{Candidate, MentionType, Row, Selection};
 
 pub fn filtered_candidates(
     candidates: &[Candidate],

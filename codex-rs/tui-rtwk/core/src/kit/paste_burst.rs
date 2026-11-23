@@ -381,7 +381,7 @@ pub fn retro_start_index(before: &str, retro_chars: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     /// Behavior: for ASCII input we "hold" the first fast char briefly. If no burst follows,
     /// that held char should eventually flush as normal typed input (not as a paste).
     #[test]

@@ -21,16 +21,16 @@ use std::rc::Rc;
 
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
-use codex_tui_core::kit::paste as paste_rules;
-use codex_tui_core::kit::history::{
-    PromptWalk as Prompts, HistoryEntry, MentionBinding, TextElement,
-};
 use codex_tui_core::data::history::{Lookup, Store};
 use codex_tui_core::data::mention::Mention;
 use codex_tui_core::data::task::valid_thread_path;
-use codex_tui_core::kit::mentions::tool_mentions;
+use codex_tui_core::kit::history::{
+    HistoryEntry, MentionBinding, PromptWalk as Prompts, TextElement,
+};
 use codex_tui_core::kit::mentions::rebind::find_next_mention_token_range;
 use codex_tui_core::kit::mentions::session::ComposerBinding;
+use codex_tui_core::kit::mentions::tool_mentions;
+use codex_tui_core::kit::paste as paste_rules;
 use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::threads::{LocalImage, UserMessage};
 
@@ -320,7 +320,12 @@ impl ComposerDraft {
     /// Puts the mention `text` (`$skill`, `@plugin`) in place of the
     /// selection as one atomic element, the caret after it; `binding` is
     /// what it stands for on submit (`insert_selected_mention`).
-    pub fn insert_mention(&self, c: &TextEditingController, text: &str, binding: Option<ComposerBinding>) {
+    pub fn insert_mention(
+        &self,
+        c: &TextEditingController,
+        text: &str,
+        binding: Option<ComposerBinding>,
+    ) {
         self.insert_with(c, text, text, None, binding);
     }
 

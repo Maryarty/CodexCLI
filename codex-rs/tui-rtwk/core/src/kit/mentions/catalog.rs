@@ -195,14 +195,17 @@ fn title_case_plugin_name(plugin_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::mention::plugin_capabilities;
     use super::*;
+    use crate::data::mention::{Capability, plugin_capabilities};
     use crate::ids::ThreadId;
     use pretty_assertions::assert_eq;
 
     #[test]
     fn plugin_mention_name_uses_display_segments_when_they_match_plugin_name() {
-        assert_eq!(plugin_mention_name("mcp-search", "MCP Search"), "MCP-Search");
+        assert_eq!(
+            plugin_mention_name("mcp-search", "MCP Search"),
+            "MCP-Search"
+        );
         assert_eq!(
             plugin_mention_name("google_calendar", "Google Calendar"),
             "Google_Calendar"
@@ -222,7 +225,14 @@ mod tests {
         for display_name in ["Postman", "foo-bar_baz", &"a".repeat(64)] {
             assert_eq!(plugin_mention_name(plugin_name, display_name), display_name);
         }
-        for display_name in ["", "Foo Bar", "Café", "PATH", "XDG_CONFIG_HOME", &"a".repeat(65)] {
+        for display_name in [
+            "",
+            "Foo Bar",
+            "Café",
+            "PATH",
+            "XDG_CONFIG_HOME",
+            &"a".repeat(65),
+        ] {
             assert_eq!(
                 plugin_mention_name(plugin_name, display_name),
                 "App-6a6b12e06c5c8191ac5d5252fa5f92c8"
@@ -233,7 +243,10 @@ mod tests {
     #[test]
     fn plugin_mention_name_falls_back_to_title_cased_plugin_name() {
         assert_eq!(plugin_mention_name("sample", "Sample Plugin"), "Sample");
-        assert_eq!(plugin_mention_name("browser-use", "Browser Use"), "Browser-Use");
+        assert_eq!(
+            plugin_mention_name("browser-use", "Browser Use"),
+            "Browser-Use"
+        );
         for (plugin_name, expected) in [
             ("1vault", "1vault"),
             ("app-short", "App-Short"),
@@ -267,7 +280,10 @@ mod tests {
             cwd: "/repo".to_string(),
             snippet: String::new(),
         };
-        let catalog = build_search_catalog(&[owned, free, plugin("Sample Plugin", "sample@debug")], &[task]);
+        let catalog = build_search_catalog(
+            &[owned, free, plugin("Sample Plugin", "sample@debug")],
+            &[task],
+        );
         let names: Vec<_> = catalog.iter().map(|c| c.display_name.as_str()).collect();
         assert_eq!(names, ["Free", "Sample Plugin", "fix the bug"]);
         assert_eq!(catalog[0].description, None);
@@ -296,7 +312,11 @@ mod tests {
         assert_eq!(catalog[0].description, None);
         assert_eq!(
             catalog[0].capabilities,
-            [Capability::Skills, Capability::McpServers(2), Capability::Apps(1)]
+            [
+                Capability::Skills,
+                Capability::McpServers(2),
+                Capability::Apps(1)
+            ]
         );
     }
 }

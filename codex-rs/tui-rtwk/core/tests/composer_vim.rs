@@ -7,8 +7,8 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use codex_tui_core::kit::vim::{
-    VimDirection, EditorAction, Find, Input, Motion, Normal, Object, Operator, OperatorKey, VimPending,
-    Register, RegisterKind, VimScope, Vim, VimText,
+    EditorAction, Find, Input, Motion, Normal, Object, Operator, OperatorKey, Register,
+    RegisterKind, Vim, VimDirection, VimPending, VimScope, VimText,
 };
 
 /// A draft of plain text: a char is a grapheme, and `elements` are atomic.

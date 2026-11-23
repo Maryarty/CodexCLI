@@ -58,7 +58,11 @@ impl FileSearch {
 
     /// What an empty list says: the search is still running, or found nothing.
     pub fn empty(&self) -> Empty {
-        if self.waiting { Empty::Loading } else { Empty::NoMatches }
+        if self.waiting {
+            Empty::Loading
+        } else {
+            Empty::NoMatches
+        }
     }
 }
 

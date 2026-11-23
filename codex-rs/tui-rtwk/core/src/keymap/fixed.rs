@@ -135,11 +135,26 @@ const CTRL: Mods = Mods::CTRL;
 const ALT: Mods = Mods::ALT;
 
 pub const TABLE: &[Fixed] = &[
-    Fixed { id: ENTER, bindings: &[any(Key::Enter)] },
-    Fixed { id: TAB, bindings: &[any(Key::Tab)] },
-    Fixed { id: DISMISS, bindings: &[any(Key::Esc)] },
-    Fixed { id: HISTORY_PREVIOUS, bindings: &[any(Key::Up)] },
-    Fixed { id: HISTORY_NEXT, bindings: &[any(Key::Down)] },
+    Fixed {
+        id: ENTER,
+        bindings: &[any(Key::Enter)],
+    },
+    Fixed {
+        id: TAB,
+        bindings: &[any(Key::Tab)],
+    },
+    Fixed {
+        id: DISMISS,
+        bindings: &[any(Key::Esc)],
+    },
+    Fixed {
+        id: HISTORY_PREVIOUS,
+        bindings: &[any(Key::Up)],
+    },
+    Fixed {
+        id: HISTORY_NEXT,
+        bindings: &[any(Key::Down)],
+    },
     Fixed {
         id: POPUP_PREVIOUS,
         bindings: &[any(Key::Up), exact(Key::Char('p'), CTRL)],
@@ -148,10 +163,22 @@ pub const TABLE: &[Fixed] = &[
         id: POPUP_NEXT,
         bindings: &[any(Key::Down), exact(Key::Char('n'), CTRL)],
     },
-    Fixed { id: POPUP_ACCEPT, bindings: &[any(Key::Enter)] },
-    Fixed { id: POPUP_COMPLETE, bindings: &[any(Key::Tab)] },
-    Fixed { id: POPUP_TAB_PREVIOUS, bindings: &[any(Key::Left)] },
-    Fixed { id: POPUP_TAB_NEXT, bindings: &[any(Key::Right)] },
+    Fixed {
+        id: POPUP_ACCEPT,
+        bindings: &[any(Key::Enter)],
+    },
+    Fixed {
+        id: POPUP_COMPLETE,
+        bindings: &[any(Key::Tab)],
+    },
+    Fixed {
+        id: POPUP_TAB_PREVIOUS,
+        bindings: &[any(Key::Left)],
+    },
+    Fixed {
+        id: POPUP_TAB_NEXT,
+        bindings: &[any(Key::Right)],
+    },
     Fixed {
         id: PASTE_IMAGE,
         bindings: &[
@@ -161,8 +188,14 @@ pub const TABLE: &[Fixed] = &[
             has(Key::Char('V'), ALT),
         ],
     },
-    Fixed { id: CLEAR_FOR_CTRL_C, bindings: &[exact(Key::Char('c'), CTRL)] },
-    Fixed { id: SEARCH_ACCEPT, bindings: &[any(Key::Enter)] },
+    Fixed {
+        id: CLEAR_FOR_CTRL_C,
+        bindings: &[exact(Key::Char('c'), CTRL)],
+    },
+    Fixed {
+        id: SEARCH_ACCEPT,
+        bindings: &[any(Key::Enter)],
+    },
     Fixed {
         id: SEARCH_CANCEL,
         bindings: &[any(Key::Esc), exact(Key::Char('c'), CTRL)],
@@ -171,18 +204,54 @@ pub const TABLE: &[Fixed] = &[
         id: SEARCH_ERASE,
         bindings: &[any(Key::Backspace), exact(Key::Char('h'), CTRL)],
     },
-    Fixed { id: SEARCH_CLEAR, bindings: &[exact(Key::Char('u'), CTRL)] },
-    Fixed { id: DEBUG_KEY, bindings: &[any(Key::F(12))] },
-    Fixed { id: FIELD_LEFT, bindings: &[any(Key::Left)] },
-    Fixed { id: FIELD_RIGHT, bindings: &[any(Key::Right)] },
-    Fixed { id: FIELD_UP, bindings: &[any(Key::Up)] },
-    Fixed { id: FIELD_DOWN, bindings: &[any(Key::Down)] },
-    Fixed { id: FIELD_WORD_LEFT, bindings: &[exact(Key::Left, ALT)] },
-    Fixed { id: FIELD_WORD_RIGHT, bindings: &[exact(Key::Right, ALT)] },
-    Fixed { id: FIELD_LINE_START, bindings: &[any(Key::Home)] },
-    Fixed { id: FIELD_LINE_END, bindings: &[any(Key::End)] },
-    Fixed { id: FIELD_DELETE_BACKWARD, bindings: &[any(Key::Backspace)] },
-    Fixed { id: FIELD_DELETE_FORWARD, bindings: &[any(Key::Delete)] },
+    Fixed {
+        id: SEARCH_CLEAR,
+        bindings: &[exact(Key::Char('u'), CTRL)],
+    },
+    Fixed {
+        id: DEBUG_KEY,
+        bindings: &[any(Key::F(12))],
+    },
+    Fixed {
+        id: FIELD_LEFT,
+        bindings: &[any(Key::Left)],
+    },
+    Fixed {
+        id: FIELD_RIGHT,
+        bindings: &[any(Key::Right)],
+    },
+    Fixed {
+        id: FIELD_UP,
+        bindings: &[any(Key::Up)],
+    },
+    Fixed {
+        id: FIELD_DOWN,
+        bindings: &[any(Key::Down)],
+    },
+    Fixed {
+        id: FIELD_WORD_LEFT,
+        bindings: &[exact(Key::Left, ALT)],
+    },
+    Fixed {
+        id: FIELD_WORD_RIGHT,
+        bindings: &[exact(Key::Right, ALT)],
+    },
+    Fixed {
+        id: FIELD_LINE_START,
+        bindings: &[any(Key::Home)],
+    },
+    Fixed {
+        id: FIELD_LINE_END,
+        bindings: &[any(Key::End)],
+    },
+    Fixed {
+        id: FIELD_DELETE_BACKWARD,
+        bindings: &[any(Key::Backspace)],
+    },
+    Fixed {
+        id: FIELD_DELETE_FORWARD,
+        bindings: &[any(Key::Delete)],
+    },
     Fixed {
         id: FIELD_DELETE_BACKWARD_WORD,
         bindings: &[
@@ -199,14 +268,26 @@ pub const TABLE: &[Fixed] = &[
             exact(Key::Delete, CTRL),
         ],
     },
-    Fixed { id: FIELD_KILL_LINE_START, bindings: &[exact(Key::Char('u'), CTRL)] },
-    Fixed { id: FIELD_KILL_LINE_END, bindings: &[exact(Key::Char('k'), CTRL)] },
-    Fixed { id: FIELD_YANK, bindings: &[exact(Key::Char('y'), CTRL)] },
+    Fixed {
+        id: FIELD_KILL_LINE_START,
+        bindings: &[exact(Key::Char('u'), CTRL)],
+    },
+    Fixed {
+        id: FIELD_KILL_LINE_END,
+        bindings: &[exact(Key::Char('k'), CTRL)],
+    },
+    Fixed {
+        id: FIELD_YANK,
+        bindings: &[exact(Key::Char('y'), CTRL)],
+    },
 ];
 
 /// The keys of a fixed action; none for an action of the catalogue.
 pub fn bindings_of(id: ActionId) -> Option<&'static [FixedBinding]> {
-    TABLE.iter().find(|fixed| fixed.id == id).map(|fixed| fixed.bindings)
+    TABLE
+        .iter()
+        .find(|fixed| fixed.id == id)
+        .map(|fixed| fixed.bindings)
 }
 
 #[cfg(test)]

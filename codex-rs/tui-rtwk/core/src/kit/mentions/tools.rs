@@ -14,13 +14,19 @@ pub fn tool_mentions(bindings: &[ComposerBinding], catalog: &[Mention]) -> Vec<T
     let mut out = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for binding in bindings {
-        let path = binding.path.strip_prefix("skill://").unwrap_or(&binding.path);
+        let path = binding
+            .path
+            .strip_prefix("skill://")
+            .unwrap_or(&binding.path);
         if path.contains("://") {
             continue;
         }
         let skill = catalog.iter().find(|m| {
             m.kind == MentionKind::Skill
-                && m.path.as_deref().map(|p| p.strip_prefix("skill://").unwrap_or(p)) == Some(path)
+                && m.path
+                    .as_deref()
+                    .map(|p| p.strip_prefix("skill://").unwrap_or(p))
+                    == Some(path)
         });
         if let Some(skill) = skill
             && seen.insert(path)
@@ -31,10 +37,17 @@ pub fn tool_mentions(bindings: &[ComposerBinding], catalog: &[Mention]) -> Vec<T
             });
         }
     }
-    for (scheme, kind) in [("plugin://", MentionKind::Plugin), ("app://", MentionKind::App)] {
+    for (scheme, kind) in [
+        ("plugin://", MentionKind::Plugin),
+        ("app://", MentionKind::App),
+    ] {
         let mut taken: HashSet<&str> = HashSet::new();
         for binding in bindings {
-            let Some(id) = binding.path.strip_prefix(scheme).filter(|id| !id.is_empty()) else {
+            let Some(id) = binding
+                .path
+                .strip_prefix(scheme)
+                .filter(|id| !id.is_empty())
+            else {
                 continue;
             };
             if !taken.insert(id) {

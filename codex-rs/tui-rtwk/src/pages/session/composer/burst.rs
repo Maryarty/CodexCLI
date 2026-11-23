@@ -23,8 +23,8 @@ use super::ComposerMsg;
 use super::editing::{KeyData, typed_char};
 use super::vim;
 use crate::keymap::pressed;
-use codex_tui_core::keymap::fixed::{ENTER, TAB};
 use crate::widgets::composer_draft::ComposerDraft;
+use codex_tui_core::keymap::fixed::{ENTER, TAB};
 
 /// What a held first char waits for before it goes in as typing: the burst
 /// interval plus a millisecond (`PasteBurst::recommended_flush_delay`).

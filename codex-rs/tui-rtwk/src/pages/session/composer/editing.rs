@@ -13,6 +13,7 @@ use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, ed
 use rtwk::focus::KeyPress;
 use rtwk::prelude::Mods;
 
+use codex_tui_core::data::history::Store;
 use codex_tui_core::keymap::actions::{
     COMPOSER_QUEUE, COMPOSER_SUBMIT, EDITOR_DELETE_BACKWARD, EDITOR_DELETE_BACKWARD_WORD,
     EDITOR_DELETE_FORWARD, EDITOR_DELETE_FORWARD_WORD, EDITOR_INSERT_NEWLINE, EDITOR_KILL_LINE_END,
@@ -28,9 +29,8 @@ use codex_tui_core::keymap::fixed::{
     TAB,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::data::history::Store;
-use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::kit::vim::{EditorAction, VimPending};
+use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::{Shared, popovers};
 
 use super::ComposerMsg;
@@ -852,11 +852,7 @@ mod tests {
         press(&d, &c, ctrl('w'));
         assert_eq!(state(&c), ("hello   ".into(), 8));
         let c = at("foo bar", 6);
-        press(
-            &d,
-            &c,
-            KeyPress::BACKSPACE.with_mods(Mods::ALT),
-        );
+        press(&d, &c, KeyPress::BACKSPACE.with_mods(Mods::ALT));
         assert_eq!(state(&c), ("foo r".into(), 4));
         let c = at("foo bar", 7);
         press(&d, &c, ctrl('w'));
@@ -1101,15 +1097,9 @@ mod tests {
         let d = data();
         let c = at("abc", 3);
         // Enter is `editor.insert_newline` too, but Composer shadows it: it submits
-        assert_eq!(
-            composer_key(&d, &c, &KeyPress::ENTER),
-            Some(false)
-        );
+        assert_eq!(composer_key(&d, &c, &KeyPress::ENTER), Some(false));
         // the page's own binding queues
-        assert_eq!(
-            composer_key(&d, &c, &KeyPress::TAB),
-            Some(false)
-        );
+        assert_eq!(composer_key(&d, &c, &KeyPress::TAB), Some(false));
         assert_eq!(composer_key(&d, &c, &KeyPress::char('a')), None);
     }
 
@@ -1121,10 +1111,7 @@ mod tests {
         press(&d, &c, KeyPress::ENTER);
         assert_eq!(c.text().as_ref(), "ab\n");
         let d = keyed("composer", "queue", &["f5"]);
-        assert_eq!(
-            composer_key(&d, &c, &KeyPress::TAB),
-            Some(true)
-        );
+        assert_eq!(composer_key(&d, &c, &KeyPress::TAB), Some(true));
     }
 
     #[test]

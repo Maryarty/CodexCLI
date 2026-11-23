@@ -260,8 +260,8 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Instant;
 
-    use codex_tui_core::ids::ThreadId;
     use codex_tui_core::data::history::Lookup;
+    use codex_tui_core::ids::ThreadId;
     use codex_tui_core::screens::transcript::diff;
     use pretty_assertions::assert_eq;
 

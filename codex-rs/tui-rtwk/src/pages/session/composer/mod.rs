@@ -27,10 +27,10 @@ use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
 use codex_tui_core::app::{ConnectionState, SessionSlice};
-use codex_tui_core::ids::BackendId;
-use codex_tui_core::screens::composer;
 use codex_tui_core::data::history::Lookup;
+use codex_tui_core::ids::BackendId;
 use codex_tui_core::kit::paste_burst::PasteBurst;
+use codex_tui_core::screens::composer;
 use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
 use codex_tui_core::threads::{Note, NoteKey, ThreadModel, Toggle};
@@ -493,9 +493,8 @@ impl ComposerState {
         let session = watch::<SessionSlice, _>(cx);
         let thread = read::<ThreadModel, _>(cx);
         let id = thread.id().as_str().to_owned();
-        let backend = select::<ScreenStates, BackendId, _>(cx, move |states| {
-            states.agents.owner_of(&id)
-        });
+        let backend =
+            select::<ScreenStates, BackendId, _>(cx, move |states| states.agents.owner_of(&id));
         matches!(
             session.connections.get(&backend),
             Some(ConnectionState::Reconnecting | ConnectionState::Disconnected)
@@ -843,11 +842,10 @@ impl State for ComposerState {
         // the slice of the app's states the composer draws: what the popups list and the host
         // answered (the file, the clipboard's image), the slash popup's commands
         let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
-        let Drawn { popovers, slash } =
-            select::<ScreenStates, Drawn, _>(cx, move |states| Drawn {
-                popovers: Rc::new(states.popovers.clone()),
-                slash: popup::slash(states, model.as_deref()),
-            });
+        let Drawn { popovers, slash } = select::<ScreenStates, Drawn, _>(cx, move |states| Drawn {
+            popovers: Rc::new(states.popovers.clone()),
+            slash: popup::slash(states, model.as_deref()),
+        });
         let table = strings::of(cx);
         if w.ui.draft.history_waiting() {
             // a read the history waits for may be in the store now
@@ -857,7 +855,10 @@ impl State for ComposerState {
             // the mentions or the file matches may have changed under it
             cx.local_sender()(ComposerMsg::SyncMentions);
         }
-        if w.ui.draft.image_arrived(|n| popovers.pasted.after(n).is_some()) {
+        if w.ui
+            .draft
+            .image_arrived(|n| popovers.pasted.after(n).is_some())
+        {
             // the clipboard's image this draft asked for is in
             cx.local_sender()(ComposerMsg::ImageArrived);
         }

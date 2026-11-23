@@ -41,16 +41,17 @@ use codex_tui_core::keymap::actions::{
 };
 use codex_tui_core::keymap::{ActionId, Binding, Keymap};
 use codex_tui_core::kit::vim::{
-    VimDirection, Find, Input, Motion, Normal, Object, Operator, OperatorKey, VimPending, VimScope, Vim,
+    Find, Input, Motion, Normal, Object, Operator, OperatorKey, Vim, VimDirection, VimPending,
+    VimScope,
 };
 
 use super::ComposerMsg;
 use super::editing::{self, Edit, KeyData, Resolved};
 use crate::keymap::{combo_of, pressed};
+use crate::widgets::composer_draft::{ComposerDraft, VimHost};
 use codex_tui_core::keymap::fixed::{
     DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_FORWARD, SEARCH_ACCEPT, SEARCH_CANCEL, TAB,
 };
-use crate::widgets::composer_draft::{ComposerDraft, VimHost};
 
 /// What the engine is doing, read once per key.
 pub struct Mode {
@@ -296,7 +297,9 @@ fn read(keymap: &Keymap, pending: VimPending, key: &KeyPress, prefix: Option<&Ke
             }
             Read::Unbound
         }
-        VimPending::Replace | VimPending::Find { .. } => Read::Input(Input::Char(command_char(keymap, key))),
+        VimPending::Replace | VimPending::Find { .. } => {
+            Read::Input(Input::Char(command_char(keymap, key)))
+        }
     }
 }
 

@@ -69,14 +69,20 @@ pub(super) fn current_line_with_newline(t: &dyn VimText) -> Range<usize> {
 }
 
 fn element_containing(t: &dyn VimText, pos: usize) -> Option<Range<usize>> {
-    t.elements().into_iter().find(|e| pos > e.start && pos < e.end)
+    t.elements()
+        .into_iter()
+        .find(|e| pos > e.start && pos < e.end)
 }
 
 pub(super) fn prev_atomic(t: &dyn VimText, pos: usize) -> usize {
     if pos == 0 {
         return 0;
     }
-    if let Some(e) = t.elements().into_iter().find(|e| pos > e.start && pos <= e.end) {
+    if let Some(e) = t
+        .elements()
+        .into_iter()
+        .find(|e| pos > e.start && pos <= e.end)
+    {
         return e.start;
     }
     let b = t.prev_grapheme(pos);
@@ -88,7 +94,11 @@ pub(super) fn next_atomic(t: &dyn VimText, pos: usize) -> usize {
     if pos >= len {
         return len;
     }
-    if let Some(e) = t.elements().into_iter().find(|e| pos >= e.start && pos < e.end) {
+    if let Some(e) = t
+        .elements()
+        .into_iter()
+        .find(|e| pos >= e.start && pos < e.end)
+    {
         return e.end;
     }
     let b = t.next_grapheme(pos);
@@ -122,7 +132,10 @@ fn out_of_elements(t: &dyn VimText, pos: usize, prefer_start: bool) -> usize {
 pub(super) fn beginning_of_previous_word(t: &dyn VimText) -> usize {
     let text = t.text();
     let prefix = &text[..t.cursor()];
-    let Some((first_non_ws, ch)) = prefix.char_indices().rev().find(|&(_, ch)| !ch.is_whitespace())
+    let Some((first_non_ws, ch)) = prefix
+        .char_indices()
+        .rev()
+        .find(|&(_, ch)| !ch.is_whitespace())
     else {
         return 0;
     };
@@ -203,7 +216,11 @@ pub(super) fn beginning_of_next_word(t: &dyn VimText) -> usize {
 /// The end an operator's `e` reaches (the last character included).
 pub(super) fn word_end_exclusive(t: &dyn VimText) -> usize {
     let end = end_of_next_word(t);
-    let target = if end > t.cursor() { prev_atomic(t, end) } else { end };
+    let target = if end > t.cursor() {
+        prev_atomic(t, end)
+    } else {
+        end
+    };
     if target == t.cursor() && end < t.text().len() {
         end_of_next_word_from(t, end)
     } else {
@@ -214,7 +231,11 @@ pub(super) fn word_end_exclusive(t: &dyn VimText) -> usize {
 /// Where `e` puts the caret: on the word's last character.
 pub(super) fn word_end_cursor(t: &dyn VimText) -> usize {
     let end = word_end_exclusive(t);
-    if end > t.cursor() { prev_atomic(t, end) } else { end }
+    if end > t.cursor() {
+        prev_atomic(t, end)
+    } else {
+        end
+    }
 }
 
 /// Where `$` puts the caret: on the line's last character.
@@ -225,7 +246,11 @@ pub(super) fn line_end_cursor(t: &dyn VimText) -> usize {
 
 // ---- text objects ----------------------------------------------------------
 
-pub(super) fn object_range(t: &dyn VimText, object: Object, scope: VimScope) -> Option<Range<usize>> {
+pub(super) fn object_range(
+    t: &dyn VimText,
+    object: Object,
+    scope: VimScope,
+) -> Option<Range<usize>> {
     match object {
         Object::Word => word_object(t, scope, false),
         Object::BigWord => word_object(t, scope, true),
@@ -331,7 +356,9 @@ fn paired(t: &dyn VimText, scope: VimScope, open: char, close: char) -> Option<R
         if ch == open {
             stack.push(idx);
         } else if ch == close {
-            let Some(open_idx) = stack.pop() else { continue };
+            let Some(open_idx) = stack.pop() else {
+                continue;
+            };
             if open_idx <= cursor && cursor <= idx {
                 let candidate = match scope {
                     VimScope::Inner => open_idx + open.len_utf8()..idx,
@@ -380,5 +407,11 @@ fn quoted(t: &dyn VimText, scope: VimScope, quote: char) -> Option<Range<usize>>
 }
 
 fn escaped(text: &str, pos: usize) -> bool {
-    text[..pos].chars().rev().take_while(|&ch| ch == '\\').count() % 2 == 1
+    text[..pos]
+        .chars()
+        .rev()
+        .take_while(|&ch| ch == '\\')
+        .count()
+        % 2
+        == 1
 }

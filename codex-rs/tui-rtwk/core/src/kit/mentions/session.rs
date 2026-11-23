@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use super::catalog::build_search_catalog;
 use super::codec::is_mention_name_char;
 use super::dollar::{self, MentionItem, mention_items};
 use super::popup::Popup;
@@ -18,10 +19,9 @@ use super::target::{
     current_prefixed_token_range_with_dollar_predicate, dollar_query_kind,
     prefixed_token_range_is_editable,
 };
-use crate::data::mention::Selection;
-use super::catalog::build_search_catalog;
-use crate::data::mention::{Mention, MentionKind};
 use crate::data::files::{FileMatches, FileSearchAsk};
+use crate::data::mention::Selection;
+use crate::data::mention::{Mention, MentionKind};
 use crate::data::task::{TaskMention, valid_thread_path};
 use crate::data::usage::MentionUsage;
 
@@ -605,9 +605,9 @@ fn dollar_target(doc: &Doc, mentions: &[Mention]) -> Option<MentionTarget> {
 #[allow(clippy::single_range_in_vec_init)] // a draft with one element
 mod tests {
     use super::*;
-    use crate::ids::ThreadId;
-    use crate::data::mention::uri;
     use crate::data::mention::MentionKind;
+    use crate::data::mention::uri;
+    use crate::ids::ThreadId;
     use pretty_assertions::assert_eq;
 
     fn doc<'a>(text: &'a str, cursor: usize, elements: &'a [Range<usize>]) -> Doc<'a> {

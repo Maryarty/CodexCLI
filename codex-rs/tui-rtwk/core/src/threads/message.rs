@@ -17,7 +17,6 @@ pub struct LocalImage {
     pub range: Range<usize>,
 }
 
-
 /// A message of the user: text, the images its placeholders stand for and the tools it names.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserMessage {

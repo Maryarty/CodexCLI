@@ -11,12 +11,12 @@ use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
+use codex_tui_core::data::history::Lookup;
 use codex_tui_core::keymap::actions::{
     COMPOSER_HISTORY_SEARCH_NEXT, COMPOSER_HISTORY_SEARCH_PREVIOUS,
 };
-use codex_tui_core::data::history::Lookup;
+use codex_tui_core::kit::history::{SearchStatus, WalkDirection};
 use codex_tui_core::screens::composer::sanitize_paste;
-use codex_tui_core::kit::history::{WalkDirection, SearchStatus};
 
 use super::ComposerMsg;
 use super::editing::KeyData;

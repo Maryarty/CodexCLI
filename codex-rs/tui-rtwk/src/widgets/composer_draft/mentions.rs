@@ -19,7 +19,7 @@ use rtwk::scroll::ListController;
 use codex_tui_core::data::files::FileSearchAsk;
 use codex_tui_core::kit::mentions::search_mode::SearchMode;
 use codex_tui_core::kit::mentions::session::{
-    Active, MentionPick, PickAction, Separator, MentionSession, Sources, completion_separator,
+    Active, MentionPick, MentionSession, PickAction, Separator, Sources, completion_separator,
     starts_after_element,
 };
 use codex_tui_core::kit::mentions::target::Doc;

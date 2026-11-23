@@ -8,8 +8,8 @@ use rtwk::editing::TextEditingController;
 
 use codex_tui_core::data::history::{Lookup, Store};
 use codex_tui_core::kit::history::SearchResult;
+use codex_tui_core::kit::history::{HistorySearch, SearchPreview, SearchStatus, WalkDirection};
 use codex_tui_core::kit::vim::UndoHistory;
-use codex_tui_core::kit::history::{WalkDirection, HistorySearch, SearchPreview, SearchStatus};
 
 use super::{ComposerDraft, Snapshot};
 

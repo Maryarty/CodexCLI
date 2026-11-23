@@ -11,7 +11,7 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use rtwk::focus::KeyPress;
 
 use codex_tui_core::kit::vim::{
-    EditorAction, UndoHistory, Persistent, Register, RegisterKind, Vim, VimText,
+    EditorAction, Persistent, Register, RegisterKind, UndoHistory, Vim, VimText,
 };
 
 use super::{ComposerDraft, Element};
