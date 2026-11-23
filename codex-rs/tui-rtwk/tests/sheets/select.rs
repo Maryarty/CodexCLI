@@ -657,6 +657,129 @@ fn apps_loading_snapshot() {
     );
 }
 
+/// The app link dialog (oracle `bottom_pane/app_link_view.rs`): the rows of an installed app.
+#[test]
+fn the_link_dialog_of_an_installed_app_is_the_oracle_s() {
+    let h = open(80, "app_link_installed");
+    let rows = rows(&h);
+    let at = rows
+        .iter()
+        .position(|row| row == "  Notion")
+        .expect("title");
+    assert_eq!(rows[at + 1], "  Workspace docs");
+    assert_eq!(rows[at + 2], "");
+    assert_eq!(rows[at + 3], "  Use $ to insert this app into the prompt.");
+    assert_eq!(rows[at + 4], "");
+    assert_eq!(rows[at + 5], "  Manage this app in your browser.");
+    assert_eq!(
+        rows[at + 6],
+        "  Newly installed apps can take a few minutes to appear in /apps."
+    );
+    assert_eq!(rows[at + 7], "");
+    assert_eq!(rows[at + 8], "");
+    assert_eq!(rows[at + 9], "› 1. Manage on ChatGPT");
+    assert_eq!(rows[at + 10], "  2. Disable app");
+    assert_eq!(rows[at + 11], "  3. Back");
+    assert_eq!(rows[at + 12], "  tab / ↑ ↓ move · enter select · esc close");
+}
+
+/// An app that is not installed: Install on ChatGPT and Back, and the install text.
+#[test]
+fn the_link_dialog_of_an_app_to_install_offers_install_and_back() {
+    let h = open(80, "app_link_install");
+    let screen = h.t.screen();
+    assert!(screen.contains("› 1. Install on ChatGPT"), "{screen}");
+    assert!(screen.contains("  2. Back"), "{screen}");
+    assert!(
+        screen.contains("Install this app in your browser, then reload Codex."),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("After installed, use $ to insert this app into the prompt."),
+        "{screen}"
+    );
+    assert!(!screen.contains("Use $ to insert this app"), "{screen}");
+    assert!(!screen.contains("Disable app"), "{screen}");
+}
+
+/// Opening the page of an app that is not installed goes on to the confirmation: the setup URL
+/// (a link), `I already Installed it` and Back, which returns to the first screen.
+#[test]
+fn the_install_page_goes_on_to_the_confirmation_and_back_returns() {
+    let mut h = open(80, "app_link_install");
+    h.press("enter");
+    let screen = h.t.screen();
+    assert!(screen.contains("Finish App Setup"), "{screen}");
+    assert!(
+        screen.contains("Complete app setup on ChatGPT in the browser window that just opened."),
+        "{screen}"
+    );
+    assert!(screen.contains("Setup URL:"), "{screen}");
+    assert!(screen.contains("https://example.test/linear"), "{screen}");
+    assert!(screen.contains("› 1. I already Installed it"), "{screen}");
+    assert!(screen.contains("  2. Back"), "{screen}");
+    h.press("2");
+    let screen = h.t.screen();
+    assert!(screen.contains("› 1. Install on ChatGPT"), "{screen}");
+    assert!(!screen.contains("Finish App Setup"), "{screen}");
+}
+
+/// The digit of an action picks it (`2` is Disable app); Esc closes the dialog.
+#[test]
+fn a_digit_switches_the_app_and_esc_closes_the_dialog() {
+    let mut h = open(80, "app_link_installed");
+    h.press("2");
+    let screen = h.t.screen();
+    assert!(screen.contains("2. Enable app"), "{screen}");
+    assert!(!screen.contains("Disable app"), "{screen}");
+    h.press("esc");
+    assert!(!h.t.screen().contains("Notion"), "{}", h.t.screen());
+}
+
+/// The cursor stops at the ends (the oracle does not wrap), Tab and `j` go on.
+#[test]
+fn the_cursor_stops_at_the_ends_of_the_actions() {
+    let mut h = open(80, "app_link_installed");
+    h.press("up");
+    assert!(h.t.screen().contains("› 1. Manage on ChatGPT"));
+    h.press("tab");
+    h.press("j");
+    assert!(h.t.screen().contains("› 3. Back"), "{}", h.t.screen());
+    h.press("down");
+    assert!(h.t.screen().contains("› 3. Back"), "{}", h.t.screen());
+    h.press("k");
+    assert!(
+        h.t.screen().contains("› 2. Disable app"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011: a tap on a row moves the cursor to it, a tap on the cursor's row does it.
+#[test]
+fn a_tap_on_an_action_moves_the_cursor_and_a_second_tap_does_it() {
+    let mut h = open(80, "app_link_installed");
+    let (x, y) = cell_of(&h, "Disable app");
+    h.t.click(x, y);
+    h.t.pump_for(ms(200));
+    assert!(
+        h.t.screen().contains("› 2. Disable app"),
+        "{}",
+        h.t.screen()
+    );
+    h.t.click(x, y);
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("2. Enable app"), "{}", h.t.screen());
+}
+
+/// Back closes the dialog.
+#[test]
+fn back_closes_the_link_dialog() {
+    let mut h = open(80, "app_link_installed");
+    h.press("3");
+    assert!(!h.t.screen().contains("Notion"), "{}", h.t.screen());
+}
+
 #[test]
 fn worktrees_conversation_snapshot() {
     let h = open(80, "worktrees_conversation");
