@@ -1,7 +1,11 @@
 //! The page the command line starts on (`codex-rtwk agents`, `codex-rtwk
 //! resume`): the session is the navigator's home as ever, and the page is
 //! pushed over it at once with nowhere to go back to but the session it
-//! reveals when it ends.
+//! reveals when it ends. The resume picker stands in for the first thread,
+//! so the chat is not built under it: it mounts once the picker has popped
+//! (Flutter: `await Navigator.push(picker)`, then `setState`), and its
+//! composer takes the focus at mount (`autofocus`), with whatever thread the
+//! pick opened.
 
 use rtwk::Handler;
 use rtwk::layout::SizedBox;
@@ -46,7 +50,10 @@ pub struct StartPage {
     pub start: Start,
 }
 
-pub struct StartPageState;
+/// Whether the chat is built: the resume picker is the page until it pops.
+pub struct StartPageState {
+    shown: bool,
+}
 
 /// What the start page does next.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,7 +68,9 @@ impl StatefulWidget for StartPage {
     type State = StartPageState;
 
     fn create_state(&self) -> StartPageState {
-        StartPageState
+        StartPageState {
+            shown: self.start != Start::Resume,
+        }
     }
 }
 
@@ -88,13 +97,21 @@ impl State for StartPageState {
                     &hs.screen,
                     ScreenIntent::Onboarding(StartupIntent::StartPageLeft),
                 );
+                if !self.shown {
+                    self.shown = true;
+                    return Rebuild::Yes;
+                }
             }
         }
         Rebuild::No
     }
 
     fn build(&self, w: &StartPage, _: &mut Cx<'_, Self>) -> AnyWidget {
-        w.chat.clone()
+        if self.shown {
+            w.chat.clone()
+        } else {
+            SizedBox::shrink().into()
+        }
     }
 }
 
