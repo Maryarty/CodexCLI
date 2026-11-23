@@ -283,6 +283,9 @@ pub enum AppEv {
     /// What the config says of the plugins (the features, the home directory, the marketplaces
     /// the user configured): sent with `Presets`.
     PluginConfig(crate::screens::select::plugins::Config),
+    /// A fact the host sends unasked to a feature slice (ADR-012: `Feature::on_fact`); the
+    /// host builds it with the feature's own `Fact` type and `From`.
+    Feature(crate::features::FeatureFact),
     /// An error the host words for the shown conversation: the browser did not open a page
     /// (`Command::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
     /// no image to paste (`Failed to paste image: {err}`). The conversation keeps it as an error
@@ -840,8 +843,9 @@ impl CodexApp {
         }
     }
 
-    /// The app-scoped state of the feature slices.
-    pub fn features(&self) -> &crate::features::FeatureStates {
+    /// The app-scoped state of the feature slices: provided to the views (a live menu of a
+    /// feature reads its rows from its state), changed only by the features' own steps.
+    pub fn features(&self) -> &Rc<crate::features::FeatureStates> {
         &self.features
     }
 
@@ -1346,6 +1350,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             use crate::screens::select::{Ev, plugins};
             select::event(app, Ev::Plugins(plugins::Ev::Config(config)), fx);
         }
+        AppEv::Feature(fact) => features::fact(app, fact, fx),
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } if effects::is_feature_request(request) => {
             features::effect_done(app, request, done, fx);

@@ -16,7 +16,7 @@ impl FeatureView for Goal {
         strings::note(note)
     }
 
-    fn menu_list(menu: &Menu, _words: &SelectStrings) -> List {
+    fn menu_list(menu: &Menu, _state: &(), _words: &SelectStrings) -> List {
         strings::menu(menu)
     }
 
