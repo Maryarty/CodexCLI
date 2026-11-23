@@ -56,7 +56,7 @@
   `Choose`/`Toggle`/`Cursor`/`Expand`...). No new `Menu`/`Pick`/`Prompt`,
   `FeatureView` or `AppCx` hooks: a feature's visible half is
   `src/features/<f>/` with `open(cx, args)` and its own sheet; sheet pages are
-  a `SheetStack` in `State`. Code you touch in an old family keeps its shape
+  routes of a nested `Navigator` in `IntrinsicHeight` (no own page stack). Code you touch in an old family keeps its shape
   unless your task is its migration step.
 - The rules tests (`--test rules`) check all of this.
 
@@ -75,6 +75,18 @@
    candidate (the person, 2026-11-23). Do not wait for it; hand in.
 5. No new framework doors (AppCx/Feature hooks, kit options) unless the
    feature cannot be built without one: then hold and ask the orchestrator.
+
+## Test commands (speed-order, 2026-11-23: cargo is 55 % of porter time, 90 % of it compile)
+- While writing code: ONLY `acargo check -q --tests` (3-7 s) — no test run after each edit
+  (the person, 2026-11-23: tests once per commit; the machine's CPU is the limit).
+- Before each commit: ONE nextest call that names all the roots you touched with a filter
+  (e.g. `-p codex-tui-core --test oracle --test pages -E 'test(/selection/)'`): one build, one
+  run. A red: fix, `check`, then that same one call again. Never nextest without a root.
+- Before a commit: `--test rules`. Before hand-in: your KEY oracle tests by name through
+  `--test oracle -E 'test(=a)|test(=b)'` (not `summary.py --run`), the feature's pty run, fmt +
+  clippy of what you touched. Never the whole workspace nextest, never land-check.
+- A checkpoint lists `read:` lines (`file:line-range — what is there`) so the next agent does
+  not re-read to orient.
 
 ## Files
 - Your task's area only; a Need for another file goes into your checkpoint.

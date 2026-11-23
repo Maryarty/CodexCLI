@@ -2061,7 +2061,7 @@ mod notice_cells {
     }
 
     #[test]
-    fn the_first_session_card_is_the_help_under_a_blank_row() {
+    fn the_first_session_card_is_the_help() {
         let t = show(
             Notice::SessionInfo(SessionInfo {
                 help: true,
@@ -2072,7 +2072,7 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "help",
             &rows(&t),
-            1,
+            0,
             &expected(&[
                 "  To get started, describe a task or try one of these commands:",
                 "",
@@ -2083,8 +2083,7 @@ mod notice_cells {
                 "  /review - review any changes and find issues",
             ]),
         );
-        assert_eq!(rows(&t)[0], "");
-        let words = t.cell(10, 3);
+        let words = t.cell(10, 2);
         assert!(words.attrs.intersects(Attrs::DIM), "{words:?}");
     }
 
@@ -2101,7 +2100,7 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "tip",
             &rows(&t),
-            1,
+            0,
             &expected(&["  Tip: Model just became available"]),
         );
         // oracle session_info_preserves_styled_tooltip_links (30 columns)
@@ -2118,7 +2117,7 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "styled tip",
             &rows(&styled),
-            1,
+            0,
             &expected(&[
                 "  Tip: Use /copy or ctrl+y;",
                 "  visit the Codex community",
@@ -2139,10 +2138,10 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "model changed",
             &rows(&t),
-            1,
+            0,
             &expected(&["model changed:", "requested: gpt-5", "used: gpt-5-mini"]),
         );
-        let title = t.cell(0, 1);
+        let title = t.cell(0, 0);
         assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
     }
 }
@@ -2198,6 +2197,7 @@ mod raw_mode {
         );
         let reasoning = Item::Reasoning {
             summary: "first thought\n\nsecond thought\n".into(),
+            with_raw: None,
         };
         assert_eq!(
             text(reasoning).unwrap(),
@@ -3346,7 +3346,10 @@ mod text_contract {
                 text: md.into(),
                 phase: None,
             },
-            Item::Reasoning { summary: md.into() },
+            Item::Reasoning {
+                summary: md.into(),
+                with_raw: None,
+            },
             Item::Plan { text: md.into() },
             Item::User(prompt(md)),
         ] {

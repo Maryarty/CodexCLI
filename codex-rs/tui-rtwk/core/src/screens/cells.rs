@@ -87,6 +87,36 @@ pub struct SessionInfo {
     pub model_changed: Option<(String, String)>,
 }
 
+impl SessionInfo {
+    /// What a conversation opens with (oracle `new_session_info`): the getting-started help
+    /// on the user's first run with tooltips on; on a later run the tip (`tip` is asked only
+    /// then, with tooltips on) and the note that the server used another model than the one
+    /// asked for. `None`: the header stands alone (first run with tooltips off, or no tip and
+    /// the same model).
+    pub fn opening(
+        first_run: bool,
+        show_tooltips: bool,
+        tip: impl FnOnce() -> Option<String>,
+        requested: &str,
+        used: &str,
+    ) -> Option<SessionInfo> {
+        let info = if first_run {
+            SessionInfo {
+                help: show_tooltips,
+                ..SessionInfo::default()
+            }
+        } else {
+            SessionInfo {
+                help: false,
+                tip: if show_tooltips { tip() } else { None },
+                model_changed: (requested != used)
+                    .then(|| (requested.to_owned(), used.to_owned())),
+            }
+        };
+        (info != SessionInfo::default()).then_some(info)
+    }
+}
+
 /// How a web link's destination is written in a message (oracle `markdown_render/web_links.rs`
 /// `WebLinkDisplay`): after the label, or not at all because the terminal shows the label as a
 /// hyperlink. The oracle reads this once from the terminal (identity, multiplexer, `TERM`, a
@@ -110,6 +140,24 @@ pub struct Model {
     pub clock: ViewerClock,
     /// The runtime metrics of a turn (its id), as the host last reported them.
     pub runtime_metrics: BTreeMap<TurnId, RuntimeMetrics>,
+    /// `show_raw_agent_reasoning` of the config: a reasoning block also shows the model's raw
+    /// reasoning after its summary (off, as the oracle's default, until the host says).
+    pub show_raw_reasoning: bool,
+    /// How this run started, as the host found out; none until it says, and then no
+    /// conversation opens with a startup card.
+    pub startup: Option<Startup>,
+}
+
+/// What the host knows of how this run started, for the card a conversation opens with (oracle
+/// `ChatWidget::show_welcome_banner` and `startup_tooltip_override`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Startup {
+    /// The project's trust level was never set: the run is the user's first, and every
+    /// conversation opens with the getting-started help instead of a tip (oracle `is_first_run`).
+    pub first_run: bool,
+    /// The model-availability notice that replaces the tip of the first conversation (oracle
+    /// `prepare_startup_tooltip_override`); the first conversation takes it.
+    pub tooltip: Option<String>,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -120,6 +168,10 @@ pub enum Ev {
     LinkDisplay(LinkDisplay),
     /// What the host found out about the viewer's clock.
     Clock(ViewerClock),
+    /// `show_raw_agent_reasoning` of the config.
+    RawReasoning(bool),
+    /// How the run started.
+    Startup(Startup),
     /// The totals so far of one turn's runtime metrics (they replace the earlier ones).
     RuntimeMetrics {
         turn: TurnId,
@@ -136,6 +188,8 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::LinkDisplay(display) => model.link_display = display,
         Ev::Clock(clock) => model.clock = clock,
+        Ev::RawReasoning(show) => model.show_raw_reasoning = show,
+        Ev::Startup(startup) => model.startup = Some(startup),
         Ev::RuntimeMetrics { turn, metrics } => {
             model.runtime_metrics.insert(turn, metrics);
         }

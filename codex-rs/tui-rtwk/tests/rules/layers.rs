@@ -7,8 +7,9 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+// shared with adr013.rs: a file is one module of the binary (clippy::duplicate_mod)
 #[path = "../srcscan/mod.rs"]
-mod srcscan;
+pub(crate) mod srcscan;
 
 use srcscan::{code_lines, crate_dir, scan, sources, sources_of};
 
@@ -307,45 +308,10 @@ fn the_ui_model_is_the_core_model_plus_ui_state() {
     }
 }
 
-/// UI-only state belongs to the view (widget state, controllers) or `UiApp.ui`
-/// (process.md §2, A4.4), never to a screen's model in core. A denylist of the
-/// names such state goes by; the query a search runs and the persisted
-/// grouping are domain and are not on it.
-#[test]
-fn core_screen_models_hold_no_ui_state_fields() {
-    const DENIED: &[&str] = &[
-        "help",
-        "cursor",
-        "selected",
-        "scroll",
-        "focus",
-        "confirm",
-        "searching",
-        "draft",
-    ];
-    let mut found = Vec::new();
-    for (name, text) in sources_of("core/src/screens") {
-        let mut in_model = false;
-        for (index, line) in text.lines().enumerate() {
-            let line = line.trim();
-            if line.starts_with("pub struct Model {") && !line.ends_with("{}") {
-                in_model = true;
-            } else if in_model && line == "}" {
-                in_model = false;
-            } else if in_model
-                && !line.starts_with("//")
-                && let Some(field) = line.strip_prefix("pub ").and_then(|l| l.split(':').next())
-                && DENIED.contains(&field)
-            {
-                found.push(format!("{name}:{}: {field}", index + 1));
-            }
-        }
-    }
-    assert!(
-        found.is_empty(),
-        "UI-only state in a core model: {found:#?}"
-    );
-}
+// `core_screen_models_hold_no_ui_state_fields` (a denylist over `pub struct Model` of the screens) is
+// `adr013_domain_types_hold_no_draw_state` now (tests/rules/adr013.rs): the same words and more, over
+// every type the app's, a thread's, a screen's and a feature's state reaches, with the families
+// that still hold drawn state as a ratchet.
 
 /// The view reads what core projects (`RowData`, `Usage` methods), never the
 /// protocol type behind it (VS1 review L2): a field access through a core
@@ -716,8 +682,9 @@ fn names_feature_path(line: &str, feature: &str) -> bool {
 }
 
 /// The files that route the oracle's slash list (`SessionIntent`) into a feature's intent:
-/// the one place besides a feature's own files that may name `features::<f>::Intent`, and
-/// nothing else of the feature.
+/// the one place besides a feature's own files that may name `features::<f>::Intent` (and
+/// `ThreadIntent`, for what a command asks of the thread it starts: `/new <name>`), and nothing
+/// else of the feature.
 const SLASH_ROUTERS: &[&str] = &["core/src/app/session.rs"];
 
 /// The file that sends a fact the host read, unasked, to a feature (`AppEv::Feature`): the one
@@ -750,11 +717,12 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
                 continue;
             }
             let intent = format!("features::{feature}::Intent");
+            let thread_intent = format!("features::{feature}::ThreadIntent");
             let fact = format!("features::{feature}::Fact");
             for (index, line) in code_lines(text) {
                 let mut line_left = line.to_string();
                 if SLASH_ROUTERS.contains(&name.as_str()) {
-                    line_left = line_left.replace(&intent, "");
+                    line_left = line_left.replace(&intent, "").replace(&thread_intent, "");
                 }
                 if FACT_SENDERS.contains(&name.as_str()) {
                     line_left = line_left.replace(&fact, "");
@@ -908,7 +876,18 @@ fn the_feature_naming_scan_bites() {
         found("core/src/app/session.rs", "features::goal::Fact::Seen"),
         1
     );
-    // the slash router builds an intent and names nothing else
+    // the slash router builds an intent, or a thread intent, and names nothing else
+    assert_eq!(
+        found(
+            "core/src/app/session.rs",
+            "features::goal::ThreadIntent::Set(name).into()"
+        ),
+        0
+    );
+    assert_eq!(
+        found("core/src/app.rs", "features::goal::ThreadIntent::Set(name)"),
+        1
+    );
     assert_eq!(
         found("core/src/app/session.rs", "features::goal::Intent::Open"),
         0

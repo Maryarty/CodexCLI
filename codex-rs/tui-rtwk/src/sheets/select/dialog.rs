@@ -16,6 +16,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::select::models::Heading;
 use codex_tui_core::screens::select::plugins as plugin_model;
 use codex_tui_core::screens::select::review::Menu as ReviewMenu;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
@@ -58,6 +59,8 @@ fn head(states: &ScreenStates) -> Option<Head> {
 
 pub struct MenuDialogState {
     shown: bool,
+    /// The intents the model had applied when the dialog first looked.
+    applied: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,7 +78,10 @@ impl StatefulWidget for MenuDialog {
     type State = MenuDialogState;
 
     fn create_state(&self) -> MenuDialogState {
-        MenuDialogState { shown: false }
+        MenuDialogState {
+            shown: false,
+            applied: None,
+        }
     }
 }
 
@@ -92,8 +98,16 @@ impl State for MenuDialogState {
     // and empty over the chat. Watching tells it of every change; `build`
     // watches too, so the registration is kept whichever of the two ran last.
     fn did_change_dependencies(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
-        let present = watch::<ScreenStates, _>(cx).select.menu().is_some();
-        if !present && self.shown {
+        let states = watch::<ScreenStates, _>(cx);
+        let present = states.select.menu().is_some();
+        // The opener emits the intent and shows the dialog in one handler: the dialog's first
+        // build comes before the model has applied the intent. An intent applied since that
+        // left no menu (a note for the history instead: `/model` blocked or with nothing to
+        // pick) is not one the dialog waits for: it closes instead of trapping the keys over
+        // an empty sheet.
+        let applied = states.select.applied();
+        let before = *self.applied.get_or_insert(applied);
+        if !present && (self.shown || applied > before) {
             close_dialog::<_, ()>(cx, None);
         }
         self.shown = present;
@@ -193,7 +207,32 @@ impl State for MenuDialogState {
             .into(),
             _ => picker.into(),
         };
-        picker.with_key(u32::try_from(head.depth).unwrap_or(0))
+        // Another page of the family (the quick menu a refresh made of the model list) is a new
+        // picker with its own start; a refresh of the same page keeps cursor and scroll.
+        let shape = match &head.page {
+            Some(Page::Model(page)) => shape(&page.heading),
+            _ => 0,
+        };
+        picker.with_key(
+            u32::try_from(head.depth)
+                .unwrap_or(0)
+                .saturating_mul(8)
+                .saturating_add(shape),
+        )
+    }
+}
+
+/// Which page of the `/model` family a heading is; the reasoning menus of two models are the
+/// same page (they sit at different depths).
+fn shape(heading: &Heading) -> u32 {
+    match heading {
+        Heading::Loading => 1,
+        Heading::Quick => 2,
+        Heading::All => 3,
+        Heading::Reasoning { .. } => 4,
+        Heading::Advanced => 5,
+        Heading::PlanScope { .. } => 6,
+        Heading::Reserve => 7,
     }
 }
 

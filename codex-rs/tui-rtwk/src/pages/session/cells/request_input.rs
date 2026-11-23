@@ -1,7 +1,7 @@
 //! A `request_user_input` exchange that ended (oracle
 //! history_cell/request_user_input.rs `RequestUserInputResultCell`): the
 //! header `• Questions n/m answered` (and ` (interrupted)` in the accent),
-//! each question after a dim `  • ` (` (unanswered)` dim at its end when it
+//! each question after a plain `  • ` (` (unanswered)` dim at its end when it
 //! has no answer), the answers under it (`answer: ` and `note: ` dim labels,
 //! the text in the accent, a secret one as bullets), and for an interrupted
 //! exchange `  ↳ interrupted with N unanswered`.
@@ -62,13 +62,15 @@ fn rows(
     tokens: &Tokens,
     strings: &Strings,
 ) -> Vec<Row> {
-    let dim = tokens.dim().attrs(Attrs::DIM);
-    let accent = tokens.accent();
+    let dim = Style::new().attrs(Attrs::DIM);
+    // the oracle's `accent_color()` (blue on the terminal's own background), not the theme's accent
+    let accent = tokens.accent_on(&Style::new());
     let mut rows = Vec::new();
     for question in questions {
         rows.push(Row {
             first: strings.question_first,
-            prefix_style: dim.clone(),
+            // oracle `wrap_with_prefix(.., "  • ".into(), ..)`: the question's bullet is plain
+            prefix_style: Style::new(),
             text: question.question.clone(),
             suffix: (!question.answered()).then_some(strings.unanswered),
             text_style: Style::new(),
@@ -134,9 +136,13 @@ pub fn cell(
     tokens: &Tokens,
     strings: &Strings,
 ) -> AnyWidget {
-    let dim = tokens.dim().attrs(Attrs::DIM);
+    // The oracle's `.dim()` is the modifier alone (the terminal's own foreground, dimmed), and
+    // only the mark of the bullet is dim: its blank is plain.
+    let dim = Style::new().attrs(Attrs::DIM);
+    let (mark, gap) = strings.bullet.split_at(strings.bullet.trim_end().len());
     let mut header = vec![
-        Span::styled(strings.bullet, dim.clone()),
+        Span::styled(mark, dim.clone()),
+        Span::new(gap),
         Span::styled(strings.questions_title, tokens.bold()),
         Span::styled(
             strings.fill(
@@ -150,7 +156,10 @@ pub fn cell(
         ),
     ];
     if interrupted {
-        header.push(Span::styled(strings.questions_interrupted, tokens.accent()));
+        header.push(Span::styled(
+            strings.questions_interrupted,
+            tokens.accent_on(&Style::new()),
+        ));
     }
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)

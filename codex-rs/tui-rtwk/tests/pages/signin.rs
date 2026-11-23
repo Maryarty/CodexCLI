@@ -37,9 +37,10 @@ fn ev(ev: Ev) -> AppEv {
     AppEv::Screen(ScreenEv::Onboarding(ev))
 }
 
-/// The app launched on a sign-in due, offering `offer`.
+/// The app launched on a sign-in due, offering `offer`, on a driven harness
+/// (a settle on the real clock sleeps 100 ms).
 fn launch(offer: Offer) -> (Harness, ConnEpoch) {
-    let mut h = crate::common::start();
+    let mut h = crate::common::start_driven(false, crate::common::WIDTH, crate::common::HEIGHT);
     h.settle();
     let Some(epoch) = h.fake.epoch() else {
         panic!("the app attached no backend");

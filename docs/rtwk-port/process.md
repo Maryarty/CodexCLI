@@ -425,6 +425,17 @@ A review returns FIX only for:
 3. a user-visible difference from the oracle with no open gap row;
 4. work outside the area, or codex-tui / the codex-rs workspace touched.
 
+Checklist line of every review of a diff that adds a field, a variant or a type to core's domain
+(`CodexApp`, `ThreadModel`, a screen's or a feature's state): the semantic half of ADR-013's IO
+test, which no scan can decide (the rules `adr013_*` see names and types, not the question).
+For each added value ask in order, as full §1.3 does: is it a server/host fact or derived from one
+(core); the key of a request or the status of an operation (core, by domain key); a lifecycle step or a
+one-shot domain signal (core); an interest counter (core)? If none: is it a *key or a cursor* — the
+parameter a late answer is matched by (`query`, `PluginKey`, `cwd`), or a position that only the
+gestures of one surface write (`cursor`, `selected`, `tab`, `page`, `expanded`, `open`, the text of a
+field before submit)? The second is the widget's `State`, a rtwk controller or `ThreadUi`; in core it
+is a finding under item 2, even when the scan passes it (a renamed `cursor` is still a cursor).
+
 Everything else is a note: structure no rule catches yet, pack or gap-row
 wording, style. A note goes to the page's next task or to the wave's
 follow-up. A structural finding a rules test could catch also goes to the

@@ -29,15 +29,23 @@
 //!   other-version notice of the connected service.
 //! - `daybreak(models)`: what the host knows of the account's cyber access (an eligible
 //!   account and the catalog's `(model, standard, daybreak)` programs) that words a refusal.
+//! - `raw_reasoning()`: the config's `show_raw_agent_reasoning` is on (a reasoning block also
+//!   shows the model's raw reasoning).
+//! - `startup(first_run, tooltip)` / `tooltips_off()`: how the run started as the host tells
+//!   the app (the user's first run, the model-availability notice) and `tui.show_tooltips`
+//!   off; the conversation then opens with the oracle's session card. Without `startup` no
+//!   conversation has a card.
 //!
 //! Files of the session: `kit::image_file(name)` writes a tiny PNG, `Open::cwd`
 //! (markdown seeds) names the session's directory.
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev as AgentsEv, Page};
+use codex_tui_core::screens::cells::{Ev as CellsEv, Startup};
 use codex_tui_core::screens::settings::{Ev as SettingsEv, Facts};
 use codex_tui_core::threads::Notice;
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
@@ -92,6 +100,12 @@ pub(super) struct Env {
     announced: Vec<Notice>,
     /// What the host knows of the account's cyber access.
     daybreak: Option<Access>,
+    /// `show_raw_agent_reasoning` is on.
+    raw_reasoning: bool,
+    /// How the run started, as the host says.
+    startup: Option<Startup>,
+    /// `tui.show_tooltips` is off.
+    tooltips_off: bool,
 }
 
 impl Env {
@@ -129,6 +143,9 @@ impl Env {
             || self.replay.is_some()
             || !self.announced.is_empty()
             || self.daybreak.is_some()
+            || self.raw_reasoning
+            || self.startup.is_some()
+            || self.tooltips_off
     }
 
     /// Delivers what is an app event rather than a terminal's property, once
@@ -145,6 +162,23 @@ impl Env {
         if let Some(access) = &self.daybreak {
             h.connect();
             h.inject([AppEv::Daybreak(access.clone())]);
+        }
+        if self.raw_reasoning {
+            h.connect();
+            h.inject([AppEv::Screen(ScreenEv::Cells(CellsEv::RawReasoning(true)))]);
+        }
+        if self.tooltips_off {
+            h.connect();
+            h.inject([AppEv::Tui(TuiSettings {
+                show_tooltips: false,
+                ..TuiSettings::default()
+            })]);
+        }
+        if let Some(startup) = &self.startup {
+            h.connect();
+            h.inject([AppEv::Screen(ScreenEv::Cells(CellsEv::Startup(
+                startup.clone(),
+            )))]);
         }
         if !self.announced.is_empty() {
             h.connect();
@@ -314,6 +348,29 @@ impl Open {
                 })
                 .collect(),
         });
+        self
+    }
+
+    /// The config's `show_raw_agent_reasoning` is on.
+    pub fn raw_reasoning(mut self) -> Open {
+        self.env.raw_reasoning = true;
+        self
+    }
+
+    /// How the run started, as the host tells the app: `first_run` (the project's trust was
+    /// never set: the card is the getting-started help) and the model-availability notice that
+    /// takes the tip's place in the first conversation.
+    pub fn startup(mut self, first_run: bool, tooltip: Option<&str>) -> Open {
+        self.env.startup = Some(Startup {
+            first_run,
+            tooltip: tooltip.map(str::to_owned),
+        });
+        self
+    }
+
+    /// `tui.show_tooltips` is off.
+    pub fn tooltips_off(mut self) -> Open {
+        self.env.tooltips_off = true;
         self
     }
 
