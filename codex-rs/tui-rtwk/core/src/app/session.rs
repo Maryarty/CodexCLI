@@ -346,10 +346,22 @@ pub(super) fn session_intent(
         }
         // `/vim`: modal editing of the draft is UI state (the page toggles it and says so).
         S::Vim => {}
+        // `/worktree`: the sheet of the worktree pickers (`show_managed_worktree_picker`), over
+        // the thread's working directory. A local Git repository is what the host knows (the
+        // flag that lists the command stands for it until the host says).
+        S::Worktree => {
+            let cwd = working_directory(app, source.as_ref());
+            let available = app.screens.chat.flags.worktrees_enabled;
+            let open = crate::screens::select::Intent::OpenWorktrees {
+                available,
+                cwd,
+                thread: source,
+            };
+            super::select::intent(app, open, fx);
+        }
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
-        | S::Worktree
         | S::Side { .. }
         | S::Copy
         | S::Tui

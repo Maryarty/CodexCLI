@@ -65,9 +65,6 @@ pub enum Menu {
     /// `/apps`: the directory of apps, its rows `Model::apps` (loading, the
     /// failure with its Retry row, or the list).
     Apps,
-    /// A menu of the worktree pickers (`worktree.rs`): the checkout choice of `/new` and `/fork`,
-    /// `/worktree`, the browser, a worktree's actions and the delete confirmation.
-    Worktree(Box<worktree::Menu>),
     /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
     /// settings, the editor and the confirmation of a change.
     Quick(Box<quick_dials::Menu>),
@@ -91,6 +88,10 @@ pub enum Opening {
     /// `/review`: the presets, and over them the lists of the host (`review.rs`); the pages and
     /// what Esc does on each are the sheet's.
     Review,
+    /// The worktree pickers (`worktree.rs`): the sheet opens on this page, the checkout choice of
+    /// `/new` and `/fork` or `/worktree`'s; the browser, a worktree's actions and the delete
+    /// confirmation follow as the sheet's own pages.
+    Worktree(worktree::Menu),
 }
 
 /// The shows nobody has shown yet.
@@ -348,8 +349,7 @@ impl Model {
             Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Worktree(_)
-            | Menu::Quick(_) => None,
+            Menu::Quick(_) => None,
         }
     }
 
@@ -519,13 +519,6 @@ impl Model {
     fn dismiss_stale_models(&mut self) {
         self.catalog.pending = None;
         self.stack.retain(|menu| !matches!(menu, Menu::Model(_)));
-    }
-
-    /// Forgets what the menus that are gone were waiting for.
-    fn tidy(&mut self) {
-        if !self.stack.iter().any(|menu| matches!(menu, Menu::Worktree(_))) {
-            self.worktree.forget();
-        }
     }
 
     /// Whether the app directory knows the app `id` as installed (the setup of a plugin's apps
@@ -895,6 +888,8 @@ pub enum Intent {
     Review(crate::threads::ReviewTarget),
     /// A page of `/review` asks for a list of the host (the base branches, the commit log).
     ReviewList(review::Git),
+    /// What a page of the worktree sheet settled on or asked for (`worktree::Verb`).
+    Worktree(worktree::Verb),
     /// The app directory is read again (`apps.refresh(true)`): a surface that waited for an app
     /// to be installed asks for it.
     RefreshApps,
@@ -932,7 +927,6 @@ pub enum Intent {
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     apply_ev(model, ev, fx);
-    model.tidy();
 }
 
 fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -940,25 +934,11 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Loaded(presets) => model.accept(presets),
+        // The list stays as a fact under its request (`Worktree::listing`): the loading page
+        // replaces itself with the browser, or closes; a failure is said unless it was given up.
         Ev::Worktrees { request, result } => {
-            if !model.worktree.answered(request) {
-                return;
-            }
-            let loading = matches!(
-                model.stack.last(),
-                Some(Menu::Worktree(menu)) if **menu == worktree::Menu::Loading
-            );
-            if !loading {
-                return;
-            }
-            match result {
-                Ok(entries) => {
-                    model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Browser(entries)))];
-                }
-                Err(error) => {
-                    model.stack.clear();
-                    model.notes.push(Note::WorktreeListFailed(error));
-                }
+            if let Some(error) = model.worktree.answered(request, result) {
+                model.notes.push(Note::WorktreeListFailed(error));
             }
         }
         Ev::WorktreeRemoved { request, result } => {
@@ -1007,9 +987,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             // `invalidate_permission_discovery`: an inline pick waiting on the old scope is given up.
             model.abandon_inline();
             model.apps.invalidate();
-            model.worktree.forget();
+            model.worktree.rescope();
             model.stack.retain(|menu| match menu {
-                Menu::Apps | Menu::Worktree(_) => false,
+                Menu::Apps => false,
                 Menu::Permissions(menu) => !matches!(
                     **menu,
                     Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. }
@@ -1062,7 +1042,6 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     model.applied += 1;
     apply_choice(model, intent, fx);
-    model.tidy();
 }
 
 fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
@@ -1124,9 +1103,9 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenCheckout { mode, name, available, cwd, thread } => {
             model.worktree.open(cwd, thread);
             if available {
-                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Checkout { mode, name }))];
+                let menu = worktree::Menu::Checkout { mode, name };
+                model.shows.push(Opening::Worktree(menu));
             } else {
-                model.stack.clear();
                 model.picked.push(Picked::Worktree(worktree::Pick::Current { mode, name }));
             }
         }
@@ -1134,7 +1113,7 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenWorktrees { available, cwd, thread } => {
             if available {
                 model.worktree.open(cwd, thread);
-                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Worktrees))];
+                model.shows.push(Opening::Worktree(worktree::Menu::Worktrees));
             } else {
                 model.notes.push(Note::WorktreesUnavailable);
             }
@@ -1143,6 +1122,12 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // host (the answer is `Ev::Reviewed`).
         Intent::Review(target) => model.picked.push(Picked::Review(target)),
         Intent::ReviewList(git) => model.review.want(git),
+        // What a page of the worktree sheet said (`worktree::Verb`).
+        Intent::Worktree(verb) => {
+            if let Some(pick) = model.worktree.say(verb) {
+                model.picked.push(Picked::Worktree(pick));
+            }
+        }
         Intent::RefreshApps => {
             model.apps.refresh(true);
         }
@@ -1193,40 +1178,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                         model.stack.clear();
                         model.quick_write(slot, dial);
                     }
-                    None => {}
-                }
-            }
-            Some(Menu::Worktree(menu)) => {
-                use worktree::Chosen;
-                match menu.choose(&id) {
-                    Some(Chosen::Pick(worktree::Pick::Remove { root })) => {
-                        model.stack.clear();
-                        if model.worktree.removable(&root) {
-                            model.worktree.want(worktree::Want::Remove { root });
-                        }
-                    }
-                    Some(Chosen::Pick(pick)) => {
-                        model.stack.clear();
-                        model.picked.push(Picked::Worktree(pick));
-                    }
-                    Some(Chosen::Browse) => {
-                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Loading))];
-                        model.worktree.want(worktree::Want::List);
-                    }
-                    Some(Chosen::Actions(entry)) => {
-                        let can_delete = model.worktree.can_delete(&entry);
-                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Actions {
-                            entry,
-                            can_delete,
-                        }))];
-                    }
-                    Some(Chosen::Confirm { root }) => {
-                        if model.worktree.removable(&root) {
-                            model.stack =
-                                vec![Menu::Worktree(Box::new(worktree::Menu::Confirm { root }))];
-                        }
-                    }
-                    Some(Chosen::Close) => model.stack.clear(),
                     None => {}
                 }
             }

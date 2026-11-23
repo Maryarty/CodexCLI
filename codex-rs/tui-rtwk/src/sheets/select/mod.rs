@@ -12,6 +12,7 @@ mod lists;
 pub(crate) mod prompt;
 mod review;
 mod review_sheet;
+mod worktree;
 
 use std::rc::Rc;
 
@@ -509,6 +510,7 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
             confirm::options(),
         ),
         Opening::Review => (review_sheet::sheet(), review_sheet::options()),
+        Opening::Worktree(menu) => (worktree::sheet(menu.clone()), worktree::options()),
     }
 }
 
