@@ -152,28 +152,19 @@ impl Dispatched {
     }
 }
 
-/// The chat intents that are the queue's: `apply` runs them (the views' door stays
-/// `chat::ThreadIntent`; the queue is the thread's own, not a feature's: ADR-012 "thread
-/// lifecycle state").
-pub(super) fn takes(intent: &ScreenThreadIntent) -> bool {
-    use screens::chat::ThreadIntent as Chat;
-    matches!(
-        intent,
-        ScreenThreadIntent::Chat(
-            Chat::Queue(_)
-                | Chat::QueueRan(_)
-                | Chat::QueueResume
-                | Chat::HoldQueue
-                | Chat::EditQueued
-        )
-    )
-}
-
-/// One of the queue's intents on a thread this process writes.
-pub(super) fn apply(model: &mut ThreadModel, intent: ScreenThreadIntent, fx: &mut ThreadFx<'_>) {
+/// One chat intent on a thread this process writes: the queue's five (Tab, the screen's report of
+/// a command it ran, what stopped the queue is over, the hold and the edit key) are applied here
+/// (the views' door stays `chat::ThreadIntent`; the queue is the thread's own, not a feature's:
+/// ADR-012 "thread lifecycle state"); any other intent is given back, untouched, to the caller
+/// (`Err`), so an intent that is nobody's is never dropped here.
+pub(super) fn apply(
+    model: &mut ThreadModel,
+    intent: ScreenThreadIntent,
+    fx: &mut ThreadFx<'_>,
+) -> Result<(), ScreenThreadIntent> {
     use screens::chat::ThreadIntent as Chat;
     let ScreenThreadIntent::Chat(intent) = intent else {
-        return;
+        return Err(intent);
     };
     match intent {
         // Tab: the line waits behind the running turn.
@@ -182,7 +173,7 @@ pub(super) fn apply(model: &mut ThreadModel, intent: ScreenThreadIntent, fx: &mu
         // it opened (`submit_queued_slash_prompt`).
         Chat::QueueRan(ran) => {
             if model.due.take().is_none() {
-                return;
+                return Ok(());
             }
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             let stop = match ran {
@@ -220,8 +211,9 @@ pub(super) fn apply(model: &mut ThreadModel, intent: ScreenThreadIntent, fx: &mu
             }
             model.recovered &= !model.queue.is_empty() || !model.rejected_steers.is_empty();
         }
-        _ => {}
+        other => return Err(ScreenThreadIntent::Chat(other)),
     }
+    Ok(())
 }
 
 /// A message to the queue, behind the running turn; with none running and
@@ -248,17 +240,31 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     {
         return;
     }
+    // a start said in this step goes first: what waits stays in the queue, for the next turn end
+    if fx.start_said() {
+        return;
+    }
     // Steers the server refused go first, as one message
     // (`pop_next_queued_user_message`).
     if !model.rejected_steers.is_empty() {
         let merged = merge_messages(std::mem::take(&mut model.rejected_steers));
-        fx.start_turn(merged);
+        if let Err(merged) = fx.start_turn(merged) {
+            model.rejected_steers.push(merged);
+        }
         return;
     }
     while !model.queue.is_empty() {
         match model.queue.remove(0) {
-            Queued::Message(message) | Queued::Literal(message) => {
-                fx.start_turn(message);
+            Queued::Message(message) => {
+                if let Err(message) = fx.start_turn(message) {
+                    model.queue.insert(0, Queued::Message(message));
+                }
+                return;
+            }
+            Queued::Literal(message) => {
+                if let Err(message) = fx.start_turn(message) {
+                    model.queue.insert(0, Queued::Literal(message));
+                }
                 return;
             }
             // `submit_queued_slash_prompt`: the screen dispatches it; the queue goes on when it

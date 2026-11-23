@@ -6,11 +6,14 @@
 //! its own, which a menu row or a note leads to and which are not routed here.
 //!
 //! The generic places call in: `Strings::note` words a `NoteKey::Feature` through
-//! `note_words`, the select sheet turns a `Menu::Feature` into its list through `menu_list`,
+//! `note_words`, the select sheet turns a `Menu::Feature` into its list through `menu_list`
+//! (from the feature's state, which the app provides to the views like the screens'),
 //! the prompt dialog words a `PromptKind::Feature` through `prompt_words`.
 
 use codex_tui_core::feature_list;
-use codex_tui_core::features::{Feature, FeatureMenu, FeatureNote, FeaturePrompt};
+use codex_tui_core::features::{
+    Feature, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates,
+};
 use codex_tui_core::screens::select::list::List;
 
 use crate::pages::session::strings::Strings as SessionStrings;
@@ -31,8 +34,11 @@ pub trait FeatureView: Feature {
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
     fn note_words(note: &Self::Note, words: &SessionStrings) -> String;
 
-    /// The generic list one of the feature's menus is shown as.
-    fn menu_list(menu: &Self::Menu, words: &SelectStrings) -> List;
+    /// The generic list one of the feature's menus is shown as. The menu says which page it is;
+    /// the rows come from the feature's `state`, read again at every build, so a menu whose rows
+    /// change while it is open (install progress, a stale answer) shows them without being
+    /// opened again: the picker keeps its cursor, tab and query.
+    fn menu_list(menu: &Self::Menu, state: &Self::State, words: &SelectStrings) -> List;
 
     /// The title and placeholder of one of the feature's text prompts.
     fn prompt_words(prompt: &Self::Prompt, words: &DialogStrings) -> PromptWords;
@@ -66,12 +72,20 @@ macro_rules! view_dispatch {
             }
         }
 
-        /// The generic list a feature's menu is shown as.
+        /// The generic list a feature's menu is shown as, from the feature's state.
         #[allow(unused_variables)]
-        pub fn menu_list(menu: &FeatureMenu, words: &SelectStrings) -> List {
+        pub fn menu_list(
+            menu: &FeatureMenu,
+            states: &FeatureStates,
+            words: &SelectStrings,
+        ) -> List {
             match *menu {
                 $(FeatureMenu::$variant(ref menu) => {
-                    <codex_tui_core::features::$name::$variant as FeatureView>::menu_list(menu, words)
+                    <codex_tui_core::features::$name::$variant as FeatureView>::menu_list(
+                        menu,
+                        &states.$name,
+                        words,
+                    )
                 })*
             }
         }

@@ -82,6 +82,7 @@ macro_rules! probe {
                 type Pick = Pick;
                 type Prompt = Prompt;
                 type Note = Note;
+                type Fact = Fact;
 
                 fn intent(state: &mut u32, intent: Intent, _cx: &mut AppCx<'_>) {
                     *state += intent.0;
@@ -169,6 +170,8 @@ macro_rules! probe {
         pub struct Prompt(pub &'static str);
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub struct Note(pub &'static str);
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct Fact(pub u32);
     };
     // and of one that has none
     (@components $marker:ident, bare) => {
@@ -176,6 +179,7 @@ macro_rules! probe {
         pub type Pick = Never<$marker>;
         pub type Prompt = Never<$marker>;
         pub type Note = Never<$marker>;
+        pub type Fact = Never<$marker>;
     };
     (@steps full) => {
         fn choose(menu: &Menu, row: &str) -> Choice<Menu, Pick> {
@@ -198,6 +202,10 @@ macro_rules! probe {
         fn note_tone(note: &Note) -> Tone {
             if note.0 == "error" { Tone::Error } else { Tone::Info }
         }
+
+        fn on_fact(state: &mut u32, fact: Fact, _cx: &mut AppCx<'_>) {
+            *state += fact.0;
+        }
     };
     (@steps bare) => {};
 }
@@ -215,10 +223,10 @@ mod probe_list {
 }
 
 use probe_list::{
-    FeatureCommand, FeatureCtx, FeatureIntent, FeatureMenu, FeatureNote, FeaturePick,
+    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureMenu, FeatureNote, FeaturePick,
     FeaturePrompt, FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha,
     answered, apply_intent, apply_thread_intent, apply_thread_reply, beta, choose, decode,
-    effect_done, names, note_tone, on_interrupted, on_resumed, on_turn_end, picked,
+    effect_done, names, note_tone, on_fact, on_interrupted, on_resumed, on_turn_end, picked,
     prompt_submitted, wire,
 };
 
@@ -251,7 +259,7 @@ fn with_thread_after(
     let (mut out, mut mint) = (AppFx::default(), TicketMint::default());
     let mut fx = ThreadFx::new(&id, &mut out, &mut mint);
     said(&mut fx);
-    let mut cx = ThreadCx::new(model.view(), &mut fx).expect("a thread this process writes");
+    let mut cx = ThreadCx::new(model.view(), &mut fx);
     step(&mut cx);
 }
 
@@ -410,6 +418,17 @@ fn a_menu_row_settles_in_the_features_own_terms_and_a_pick_and_prompt_reach_it()
     );
 }
 
+/// A fact the host sends unasked goes to the feature it is for, as that feature's own `Fact`
+/// (the host builds it with `From`), and to no other: the probes' door for the config feed
+/// and the presets.
+#[test]
+fn a_host_fact_reaches_its_feature_and_only_its_feature() {
+    let mut states = FeatureStates::default();
+    app_step(|cx| on_fact(&mut states, FeatureFact::from(alpha::Fact(4)), cx));
+    app_step(|cx| on_fact(&mut states, FeatureFact::Alpha(alpha::Fact(3)), cx));
+    assert_eq!((*states.alpha, *states.beta), (7, 0));
+}
+
 #[test]
 fn app_hooks_run_in_list_order() {
     let mut states = FeatureStates::default();
@@ -463,7 +482,7 @@ fn every_hook_sees_a_turn_start_that_was_said_before_it() {
     );
     with_thread_after(
         |fx| {
-            fx.start_turn(UserMessage::text("next"));
+            fx.start_turn(UserMessage::text("next")).expect("the first start");
         },
         |cx| on_turn_end(&mut parts, TurnEnd::Completed, cx),
     );
@@ -476,28 +495,120 @@ fn every_hook_sees_a_turn_start_that_was_said_before_it() {
     );
 }
 
-/// ADR-003: the features change a thread's part and its effects under the thread's writer.
+/// ADR-003: the effects of a feature's step are the writer's; the news is everyone's. A thread
+/// this process does not write (another process writes it, the connection was lost, the server
+/// refused it for its provider) still tells its features what happened, so a part that waits
+/// for a reply or a turn's end does not stay stuck, but it opens no RPC there and a feature's
+/// ask (`thread_intent`) is not delivered.
 #[test]
-fn a_thread_this_process_does_not_write_gets_no_feature_context() {
+fn a_thread_this_process_does_not_write_hears_the_news_and_has_no_effects() {
     let id = ThreadId::new("t1");
+    let refused = ThreadEv::Screen(crate::screens::ScreenThreadEv::Chat(
+        crate::screens::chat::ThreadEv::ProviderError(
+            codex_app_server_protocol::ModelProviderError::ModelProviderNotConfigured {
+                model_provider: "old-provider".into(),
+            },
+        ),
+    ));
     let (mut out, mut mint) = (AppFx::default(), TicketMint::default());
-    for (origin, connection_lost, has_context) in [
-        (Origin::Resumed, false, true),
-        (Origin::ForeignWriter, false, false),
-        (Origin::Resumed, true, false),
+    for (what, origin, then, writes) in [
+        ("a thread this process writes", Origin::Resumed, None, true),
+        ("another process writes it", Origin::ForeignWriter, None, false),
+        (
+            "the connection was lost",
+            Origin::Resumed,
+            Some(ThreadEv::ConnectionLost),
+            false,
+        ),
+        (
+            "the server refused it for its provider",
+            Origin::Resumed,
+            Some(refused.clone()),
+            false,
+        ),
     ] {
         let mut threads = ThreadSet::default();
         let model = threads.open(&id, origin);
         let mut fx = ThreadFx::new(&id, &mut out, &mut mint);
-        if connection_lost {
-            crate::threads::apply(model, ThreadEv::ConnectionLost, &mut fx);
+        if let Some(ev) = then {
+            crate::threads::apply(model, ev, &mut fx);
         }
+        let mut parts = FeatureThreadParts::default();
+        logged();
+        let mut cx = ThreadCx::new(model.view(), &mut fx);
+        assert_eq!(cx.view.has_writer(), writes, "{what}");
+        // the effect door is the writer's (typed with the real list's roots: a goal ask)
+        let ticket = cx.request(
+            crate::features::goal::Ctx {
+                thread: id.clone(),
+                flow: crate::features::goal::Flow::Show,
+            },
+            crate::features::goal::Ask::Get,
+        );
+        assert_eq!(ticket.is_some(), writes, "{what}: request");
+        // the news is everyone's: a reply, a turn's end, what held the input back
+        apply_thread_reply(
+            &mut parts,
+            FeatureCtx::from(alpha::Ctx("x")),
+            Ok(FeatureReply::from(alpha::Reply(4))),
+            &mut cx,
+        );
+        on_turn_end(&mut parts, TurnEnd::Completed, &mut cx);
+        apply_thread_intent(&mut parts, FeatureThreadIntent::Settled, &mut cx);
         assert_eq!(
-            ThreadCx::new(model.view(), &mut fx).is_some(),
-            has_context,
-            "{origin:?}, connection lost: {connection_lost}"
+            logged(),
+            [
+                ("alpha", Hook::TurnEnd(TurnEnd::Completed, false)),
+                ("beta", Hook::TurnEnd(TurnEnd::Completed, false)),
+                ("alpha", Hook::Settled),
+                ("beta", Hook::Settled),
+            ],
+            "{what}: the hooks run"
+        );
+        assert_eq!(
+            (parts.alpha, parts.beta),
+            (4 + 1, 1),
+            "{what}: the reply reached the part, and both turn-end hooks counted"
+        );
+        // an ask is the writer's
+        apply_thread_intent(
+            &mut parts,
+            FeatureThreadIntent::from(beta::ThreadIntent(10)),
+            &mut cx,
+        );
+        assert_eq!(
+            parts.beta,
+            if writes { 11 } else { 1 },
+            "{what}: a feature's ask"
         );
     }
+}
+
+/// One turn start per step (ADR-012, `ThreadFx::start_turn`): A starts, B's start in the same
+/// step is refused and its message given back, and only one `StartTurn` goes out.
+#[test]
+fn a_second_turn_start_in_one_step_is_refused() {
+    let id = ThreadId::new("t1");
+    let (mut out, mut mint) = (AppFx::default(), TicketMint::default());
+    let mut fx = ThreadFx::new(&id, &mut out, &mut mint);
+    assert!(!fx.start_said());
+    let first = fx.start_turn(UserMessage::text("A"));
+    assert!(first.is_ok(), "the first start goes out");
+    assert!(fx.start_said());
+    assert_eq!(
+        fx.start_turn(UserMessage::text("B")),
+        Err(UserMessage::text("B")),
+        "the second is refused, and the caller keeps its message"
+    );
+    let starts: Vec<_> = out
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            crate::app::Command::StartTurn { message, .. } => Some(message.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(starts, ["A"]);
 }
 
 #[test]
