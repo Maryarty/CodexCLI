@@ -5,6 +5,7 @@
 
 pub mod files;
 pub mod history;
+pub mod links;
 pub mod mention;
 pub mod task;
 pub mod usage;

@@ -20,9 +20,9 @@ use rtwk::{
 };
 
 use codex_tui_core::app::SessionSlice;
-use codex_tui_core::ids::{BackendId, Ticket};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::keymap::actions::{LIST_ACCEPT, LIST_CANCEL};
-use codex_tui_core::screens::cells::ClockFormat;
+use codex_tui_core::screens::cells::{ClockFormat, ViewerClock};
 use codex_tui_core::screens::select::list::{Columns, Item, List};
 use codex_tui_core::screens::status::reset_time;
 use codex_tui_core::screens::{ScreenStates, chat};
@@ -47,14 +47,14 @@ impl_widget!(stateless eq NoticeLine);
 
 impl StatelessWidget for NoticeLine {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
-        let states = watch::<ScreenStates, _>(cx);
-        if states.chat.notes.is_empty() {
+        let notes = select::<ScreenStates, _, _>(cx, |states| states.chat.notes.clone());
+        if notes.is_empty() {
             return SizedBox::shrink().into();
         }
         let mut column = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .main_axis_size(MainAxisSize::Min);
-        for note in &states.chat.notes {
+        for note in &notes {
             column = column.child(super::cells::note::NoteCell { note: note.clone() });
         }
         column.into()
@@ -84,12 +84,30 @@ impl BannerHint {
     }
 }
 
+/// The banner on screen: the backend it is of and its occurrence's ticket, which together are the
+/// banner's id (the entity is keyed by the request that raised it). The page carries it between the
+/// number key and the app's answer without reading either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BannerId(BackendId, Ticket);
+
+impl BannerId {
+    /// The app's pick of the banner's row `row`.
+    pub(crate) fn picked(self, row: usize) -> (BackendId, Ticket, usize) {
+        (self.0, self.1, row)
+    }
+
+    /// The app's dismissal of the banner.
+    pub(crate) fn dismissed(self) -> (BackendId, Ticket) {
+        (self.0, self.1)
+    }
+}
+
 /// What the banner shows now, for the page's key handler (a `ValueNotifier`
 /// the widget writes while it builds): the numbers it takes and whether Esc
 /// dismisses it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct BannerKeys {
-    pub backend: Option<(BackendId, Ticket)>,
+    pub backend: Option<BannerId>,
     pub actions: usize,
     pub dismissible: bool,
 }
@@ -145,8 +163,8 @@ pub(super) struct BackendBannersState;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum BannerMsg {
-    /// The user chose row `row` of the banner `Ticket` (a tap).
-    Pick(BackendId, Ticket, usize),
+    /// The user chose row `row` of the banner `BannerId` names (a tap).
+    Pick(BannerId, usize),
 }
 
 impl State for BackendBannersState {
@@ -154,9 +172,9 @@ impl State for BackendBannersState {
     type Msg = BannerMsg;
 
     fn update(&mut self, msg: BannerMsg, _: &BackendBanners, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let BannerMsg::Pick(backend, ticket, row) = msg;
+        let BannerMsg::Pick(banner, row) = msg;
         let hs = read::<Hs, _>(cx);
-        cx.emit(&hs.pick_banner, (backend, ticket, row));
+        cx.emit(&hs.pick_banner, banner.picked(row));
         Rebuild::No
     }
 
@@ -165,7 +183,6 @@ impl State for BackendBannersState {
         let strings = l10n::of(cx);
         let words = chat_strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
-        let states = watch::<ScreenStates, _>(cx);
         let reset_words = status_strings::of(cx);
         let (id, model) = select::<ThreadModel, _, _>(cx, |thread| {
             (
@@ -173,8 +190,9 @@ impl State for BackendBannersState {
                 thread.screen_slots().chat.model.clone(),
             )
         });
-        let backend = states.agents.owner_of(id.as_str());
-        let active_model = model.as_deref().or(states.chat.status.model.as_deref());
+        let place = place_of(cx, &id);
+        let backend = place.backend;
+        let active_model = model.as_deref().or(place.status_model.as_deref());
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
@@ -194,7 +212,7 @@ impl State for BackendBannersState {
                     strings.chat.usage_limit_detail.to_owned(),
                 )
             } else {
-                let when = reset_when(banner, &states, reset_words);
+                let when = reset_when(banner, &place.clock, reset_words);
                 (
                     with_time(banner.title(), when.as_deref()),
                     with_time(banner.description(), when.as_deref()),
@@ -208,7 +226,7 @@ impl State for BackendBannersState {
                 .collect();
             let ticket = occurrence.ticket;
             keys = BannerKeys {
-                backend: Some((backend, ticket)),
+                backend: Some(BannerId(backend, ticket)),
                 actions: labels.len().min(9),
                 dismissible: occurrence.is_dismissible(),
             };
@@ -237,10 +255,9 @@ impl State for BackendBannersState {
                         })
                         .collect::<Vec<_>>(),
                 );
-                let options = widget
-                    .gate
-                    .options
-                    .on_accept(cx.map(move |row: usize| BannerMsg::Pick(backend, ticket, row)));
+                let options = widget.gate.options.on_accept(
+                    cx.map(move |row: usize| BannerMsg::Pick(BannerId(backend, ticket), row)),
+                );
                 let styles = OptionStyles {
                     cursor: tokens.accent().attrs(Attrs::BOLD),
                     label: Style::new(),
@@ -279,23 +296,49 @@ impl State for BackendBannersState {
     }
 }
 
+/// The viewer's clock and the host's zone and time, which the banner's `{time}` is read in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Clock {
+    viewer: ViewerClock,
+    utc_offset_secs: i32,
+    now: i64,
+}
+
+/// What the banners draw of the screens' states (a slice, ADR-013): the backend that owns the
+/// thread, the model the status line shows and the clock.
+#[derive(Clone, Debug, PartialEq)]
+struct Place {
+    backend: BackendId,
+    status_model: Option<String>,
+    clock: Clock,
+}
+
+fn place_of<S: 'static>(cx: &mut Cx<'_, S>, thread: &ThreadId) -> Place {
+    let thread = thread.clone();
+    select::<ScreenStates, _, _>(cx, move |states| Place {
+        backend: states.agents.owner_of(thread.as_str()),
+        status_model: states.chat.status.model.clone(),
+        clock: Clock {
+            viewer: states.cells.clock,
+            utc_offset_secs: states.status.utc_offset_secs,
+            now: states.status.now,
+        },
+    })
+}
+
 /// The banner's `{time}`: when the limit resets, in the viewer's clock and zone, with its day
 /// when that is not the day of the read (oracle `actionable_banner`, `format_reset_timestamp`).
 /// The zone is the host's (`status.utc_offset_secs`) unless the viewer's clock fixes one; a
 /// clock the host has not read yet (`now` 0) counts the reset as today.
 fn reset_when(
     banner: &chat::Banner,
-    states: &ScreenStates,
+    clock: &Clock,
     words: &status_strings::Strings,
 ) -> Option<String> {
     let at = banner.reset_at()?;
-    let clock = states.cells.clock;
-    let offset = clock.utc_offset.unwrap_or(states.status.utc_offset_secs);
-    let read_at = if states.status.now > 0 {
-        states.status.now
-    } else {
-        at
-    };
+    let offset = clock.viewer.utc_offset.unwrap_or(clock.utc_offset_secs);
+    let read_at = if clock.now > 0 { clock.now } else { at };
+    let clock = clock.viewer;
     let hour24 = clock.format == ClockFormat::TwentyFourHour;
     Some(words.when(&reset_time(at, read_at, offset), hour24))
 }
@@ -313,12 +356,12 @@ fn with_time(text: &str, when: Option<&str>) -> String {
 /// (`show_selection_view`), not as the inline banner.
 pub(super) fn reserve_of<'a>(
     session: &'a SessionSlice,
-    states: &ScreenStates,
+    backend: BackendId,
+    status_model: Option<&str>,
     thread: &ThreadModel,
 ) -> Option<(BackendId, &'a chat::BannerOccurrence)> {
-    let backend = states.agents.owner_of(thread.id().as_str());
     let model = thread.screen_slots().chat.model.clone();
-    let active = model.as_deref().or(states.chat.status.model.as_deref());
+    let active = model.as_deref().or(status_model);
     session
         .backend_banners
         .get(&backend)
@@ -360,9 +403,14 @@ impl State for ReserveSelectorState {
         let ReserveMsg::Event(event) = msg;
         let hs = read::<Hs, _>(cx);
         let session = read::<SessionSlice, _>(cx);
-        let states = read::<ScreenStates, _>(cx);
         let thread = read::<ThreadModel, _>(cx);
-        let Some((backend, occurrence)) = reserve_of(&session, &states, &thread) else {
+        let place = place_of(cx, thread.id());
+        let Some((backend, occurrence)) = reserve_of(
+            &session,
+            place.backend,
+            place.status_model.as_deref(),
+            &thread,
+        ) else {
             return Rebuild::No;
         };
         let ticket = occurrence.ticket;
@@ -383,15 +431,15 @@ impl State for ReserveSelectorState {
         let words = chat_strings::of(cx);
         let keys = keymap(cx);
         let session = watch::<SessionSlice, _>(cx);
-        let states = watch::<ScreenStates, _>(cx);
         let (id, model) = select::<ThreadModel, _, _>(cx, |thread| {
             (
                 thread.id().clone(),
                 thread.screen_slots().chat.model.clone(),
             )
         });
-        let backend = states.agents.owner_of(id.as_str());
-        let active = model.as_deref().or(states.chat.status.model.as_deref());
+        let place = place_of(cx, &id);
+        let backend = place.backend;
+        let active = model.as_deref().or(place.status_model.as_deref());
         let Some(banner) = session
             .backend_banners
             .get(&backend)

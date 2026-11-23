@@ -13,7 +13,7 @@ use rtwk::gestures::SelectionAreaController;
 use rtwk::scroll::ListController;
 
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::backtrack::{Backtrack, EscStep, Selection, Targets};
+use codex_tui_core::kit::backtrack::{Backtrack, Chosen as Selection, EscStep, Targets};
 
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::SparkleController;

@@ -19,6 +19,7 @@ pub mod open;
 pub mod popovers;
 mod popup;
 mod session_page;
+mod slice;
 pub mod status;
 mod status_surfaces;
 pub mod transcript;
