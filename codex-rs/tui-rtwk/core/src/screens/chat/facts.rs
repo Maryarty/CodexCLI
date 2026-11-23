@@ -26,8 +26,10 @@ use serde::Deserialize;
 
 use super::{Model, StatusFacts, ThreadPart};
 use crate::commands::ServiceTierCommand;
+use crate::format::{format_goal_elapsed_seconds, format_tokens_compact};
 use crate::screens::select::models::Catalog;
 use crate::screens::ThreadSlots;
+use crate::threads::{Goal, GoalStatus, ThreadModel, TurnState};
 
 /// How long a workspace headline is kept before it is read again
 /// (`WORKSPACE_HEADLINE_REFRESH_INTERVAL`), in seconds.
@@ -508,5 +510,149 @@ pub fn footer(chat: &Model, slots: &ThreadSlots) -> Footer {
         agent_label: chat.facts.agent_label.clone(),
         agents_navigation: chat.facts.agents_navigation,
         usage_pending: usage_pending(slots),
+    }
+}
+
+/// What the footer says of the thread's goal (`GoalStatusIndicator`); the words are the footer's,
+/// the usage is the compact figure the oracle builds (`40K / 50K`, `3m`, `40K / 50K tokens`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GoalIndicator {
+    Active { usage: Option<GoalUsage> },
+    Paused,
+    Blocked,
+    UsageLimited,
+    BudgetLimited { usage: Option<GoalUsage> },
+    Complete { usage: Option<GoalUsage> },
+}
+
+/// The figure in a goal line's parentheses: `40K / 50K`, `40K` or `3m`; `tokens` says the footer
+/// names the unit after it (`Goal unmet (40K / 50K tokens)`, `Goal achieved (40K tokens)`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GoalUsage {
+    pub figure: String,
+    pub tokens: bool,
+}
+
+impl GoalUsage {
+    fn plain(figure: String) -> Self {
+        Self { figure, tokens: false }
+    }
+
+    fn of_tokens(figure: String) -> Self {
+        Self { figure, tokens: true }
+    }
+}
+
+impl GoalIndicator {
+    /// `goal_status_indicator_from_app_goal`; `running_secs` is the time an active goal has run
+    /// since it was last seen (`GoalStatusState::indicator`).
+    pub fn of(goal: &Goal, running_secs: i64) -> Self {
+        let elapsed = goal.time_used_seconds.saturating_add(running_secs.max(0));
+        match goal.status {
+            GoalStatus::Active => Self::Active {
+                usage: Some(GoalUsage::plain(match goal.token_budget {
+                    Some(budget) => format!(
+                        "{} / {}",
+                        format_tokens_compact(goal.tokens_used),
+                        format_tokens_compact(budget)
+                    ),
+                    None => format_goal_elapsed_seconds(elapsed),
+                })),
+            },
+            GoalStatus::Paused => Self::Paused,
+            GoalStatus::Blocked => Self::Blocked,
+            GoalStatus::UsageLimited => Self::UsageLimited,
+            GoalStatus::BudgetLimited => Self::BudgetLimited {
+                usage: goal.token_budget.map(|budget| {
+                    GoalUsage::of_tokens(format!(
+                        "{} / {}",
+                        format_tokens_compact(goal.tokens_used),
+                        format_tokens_compact(budget)
+                    ))
+                }),
+            },
+            GoalStatus::Complete => Self::Complete {
+                usage: Some(if goal.token_budget.is_some() {
+                    GoalUsage::of_tokens(format_tokens_compact(goal.tokens_used))
+                } else {
+                    GoalUsage::plain(format_goal_elapsed_seconds(elapsed))
+                }),
+            },
+        }
+    }
+}
+
+/// The goal indicator of the thread at `now` (epoch seconds, 0 while the clock is unknown): an
+/// active goal counts the seconds of the running turn since the goal was last updated or the turn
+/// began, whichever is later (`active_turn_started_at`).
+pub fn goal_indicator(thread: &ThreadModel, now: i64) -> Option<GoalIndicator> {
+    let goal = thread.goal()?;
+    let running = match thread.turn() {
+        TurnState::Running(turn) if goal.status == GoalStatus::Active && now > 0 => {
+            let since = goal.updated_at.max(turn.started_at.unwrap_or(0));
+            now.saturating_sub(since)
+        }
+        _ => 0,
+    };
+    Some(GoalIndicator::of(goal, running))
+}
+
+#[cfg(test)]
+mod goal_tests {
+    use super::*;
+
+    fn goal(status: GoalStatus, budget: Option<i64>, used: i64, secs: i64) -> Goal {
+        Goal {
+            objective: "ship it".into(),
+            status,
+            token_budget: budget,
+            tokens_used: used,
+            time_used_seconds: secs,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    /// `goal_status_indicator_line_formats_goal_text`: the usage of each status.
+    #[test]
+    fn the_usage_of_each_status_is_the_oracles() {
+        let usage = |goal: Goal| GoalIndicator::of(&goal, 0);
+        assert_eq!(
+            usage(goal(GoalStatus::Active, Some(50_000), 40_000, 0)),
+            GoalIndicator::Active { usage: Some(GoalUsage::plain("40K / 50K".into())) }
+        );
+        assert_eq!(
+            usage(goal(GoalStatus::Active, None, 0, 125)),
+            GoalIndicator::Active { usage: Some(GoalUsage::plain("2m".into())) }
+        );
+        assert_eq!(
+            usage(goal(GoalStatus::BudgetLimited, Some(50_000), 50_000, 0)),
+            GoalIndicator::BudgetLimited { usage: Some(GoalUsage::of_tokens("50K / 50K".into())) }
+        );
+        assert_eq!(
+            usage(goal(GoalStatus::BudgetLimited, None, 5, 0)),
+            GoalIndicator::BudgetLimited { usage: None }
+        );
+        assert_eq!(
+            usage(goal(GoalStatus::Complete, None, 0, 3_700)),
+            GoalIndicator::Complete { usage: Some(GoalUsage::plain("1h 1m".into())) }
+        );
+        assert_eq!(
+            usage(goal(GoalStatus::Complete, Some(100), 70, 9)),
+            GoalIndicator::Complete { usage: Some(GoalUsage::of_tokens("70".into())) }
+        );
+        assert_eq!(usage(goal(GoalStatus::Paused, None, 0, 0)), GoalIndicator::Paused);
+    }
+
+    /// The seconds a running turn adds count only for an active goal.
+    #[test]
+    fn a_running_turn_adds_its_seconds_to_an_active_goal() {
+        let active = goal(GoalStatus::Active, None, 0, 10);
+        assert_eq!(
+            GoalIndicator::of(&active, 5),
+            GoalIndicator::Active { usage: Some(GoalUsage::plain("15s".into())) }
+        );
+        let paused = goal(GoalStatus::Paused, None, 0, 10);
+        assert_eq!(GoalIndicator::of(&paused, 5), GoalIndicator::Paused);
     }
 }

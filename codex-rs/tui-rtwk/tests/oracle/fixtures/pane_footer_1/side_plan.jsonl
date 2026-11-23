@@ -1,0 +1,9 @@
+# A side conversation in Plan mode with two warnings (status_surface_tests.rs
+# active_side_action_keeps_plan_expanded_on_the_other_row): the side label is the last row,
+# Plan mode sits on the row above it.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":true,"side_conversation_active":true}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"side_label":"Side from main thread · ctrl+/ to switch · ctrl+c to close"}}}
+{"step":"notify","message":{"method":"thread/settings/updated","params":{"threadId":"thread-1","threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,"model":"gpt-5.4","modelProvider":"openai","serviceTier":null,"effort":null,"summary":null,"collaborationMode":{"mode":"plan","settings":{"model":"gpt-5.4","reasoning_effort":null,"developer_instructions":null}},"personality":null}}}}
+{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"First warning"}}}
+{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Second warning"}}}

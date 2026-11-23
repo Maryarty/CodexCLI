@@ -17,18 +17,28 @@ use crate::screens::{ScreenCommand, ScreenReply};
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx) {
     if let select::Intent::SetApp { id, enabled } = &intent {
+        let (id, enabled) = (id.clone(), *enabled);
+        // The dialog shows the switch at once; the directory follows the saved write.
+        select::apply_intent(&mut Rc::make_mut(&mut app.screens).select, intent, fx);
         ask(
             app,
             select::Command::SetApp {
                 id: id.clone(),
-                enabled: *enabled,
+                enabled,
             },
-            select::Ctx::App {
-                id: id.clone(),
-                enabled: *enabled,
-            },
+            select::Ctx::App { id, enabled },
             fx,
         );
+        return;
+    }
+    // `AppEvent::OpenUrlInBrowser`: the page of the app the link dialog shows.
+    if let select::Intent::Choose(id) = &intent
+        && id == apps::LINK_OPEN
+    {
+        if let Some(link) = &app.screens.select.apps.link {
+            let url = link.url.clone();
+            fx.commands.push(Command::OpenUrl { url });
+        }
         return;
     }
     let screens = Rc::make_mut(&mut app.screens);
@@ -567,7 +577,16 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         (select::Ctx::App { id, enabled }, Ok(select::Reply::Written { .. })) => {
             event(app, select::Ev::AppSwitched { id, enabled }, fx);
         }
-        (select::Ctx::App { .. }, _) => {}
+        // `SetAppEnabled` refused: said as an error line; the dialog keeps its switch (the oracle's
+        // view does too).
+        (select::Ctx::App { id, .. }, Err(error)) => notes(
+            app,
+            [select::Note::SaveFailed {
+                setting: select::Setting::App(id),
+                error: text(error),
+            }],
+        ),
+        (select::Ctx::App { .. }, Ok(_)) => {}
         // `save_quick_dial`: the slot follows a saved write; a refused one is said, with the
         // editor shown again.
         (select::Ctx::Preset { slot, dial }, result) => {

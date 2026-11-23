@@ -310,7 +310,7 @@ fn call_details(tool: &ToolActivity, tokens: &Tokens) -> AnyWidget {
 }
 
 /// The script of a `bash -lc` command line, the line itself otherwise.
-fn command_text(command: &str) -> Cow<'_, str> {
+pub fn command_text(command: &str) -> Cow<'_, str> {
     let Some(argv) = shlex::split(command) else {
         return Cow::Borrowed(command);
     };

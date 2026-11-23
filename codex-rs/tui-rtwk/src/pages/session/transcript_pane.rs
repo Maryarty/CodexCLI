@@ -4,7 +4,6 @@
 use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hasher};
-use std::ops::Range;
 use std::rc::Rc;
 
 use rtwk::gestures::SelectionArea;
@@ -14,6 +13,7 @@ use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::nth_user;
@@ -27,6 +27,10 @@ use crate::widgets::thread_ui::Follow;
 use super::cells::strings as cells_strings;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
+use super::transcript::strings as transcript_strings;
+use super::transcript::turn_details::{
+    Anchor, FoldRow, Kind, Plan, PromptFold, Row, Unfolded, Words, arrow, prompt_label,
+};
 
 /// The transcript with a prompt marked (Flutter: a `ListView` whose item
 /// `selected: true` is drawn highlighted and scrolled into view when it
@@ -40,6 +44,9 @@ pub(super) struct Pane {
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
+    /// The folds the reader opened, and a counter that tells the rows it changed.
+    open: Unfolded,
+    opened: u64,
     /// The prompt the list was last scrolled to show.
     shown: RefCell<Option<ItemKey>>,
     /// The last visible row the reader's thread had (a fingerprint of it, not
@@ -52,14 +59,30 @@ struct RowLayout {
     thread: ThreadId,
     revision: u64,
     detailed: bool,
-    rows: Rc<[Range<usize>]>,
+    collapse: bool,
+    opened: u64,
+    shown: Shown,
+}
+
+/// The rows of the list and the plan of the folds they were made from.
+#[derive(Clone)]
+struct Shown {
+    rows: Rc<[Row]>,
+    plan: Rc<Plan>,
+}
+
+/// What the list's state is told: older history is wanted, or a fold was tapped.
+pub(super) enum Msg {
+    Load(ThreadId),
+    Toggle(Vec<ItemKey>),
 }
 
 impl ViewportState {
     /// The visible rows: runs of explorations share one, and the reasoning
     /// summary and the warnings show only in the detailed transcript (oracle
-    /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`).
-    fn rows(&self, thread: &ThreadModel, detailed: bool) -> Rc<[Range<usize>]> {
+    /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`). With the
+    /// turn details collapsed the plan of the folds decides instead.
+    fn rows(&self, thread: &ThreadModel, detailed: bool, collapse: bool) -> Shown {
         let mut cache = self.layout.borrow_mut();
         let transcript = thread.transcript();
         let revision = transcript.layout_revision();
@@ -67,34 +90,59 @@ impl ViewportState {
             && layout.thread == *thread.id()
             && layout.revision == revision
             && layout.detailed == detailed
+            && layout.collapse == collapse
+            && layout.opened == self.opened
         {
-            return layout.rows.clone();
+            return layout.shown.clone();
         }
-        let mut rows: Vec<Range<usize>> = Vec::new();
-        let mut run = None;
-        for (index, (key, item)) in transcript.iter().enumerate() {
-            if !detailed && (item.is_detailed_only() || is_terminal_interaction(item)) {
-                continue;
+        let hidden = |index: usize| {
+            !detailed
+                && transcript.get(index).is_some_and(|(_, item)| {
+                    item.is_detailed_only() || is_terminal_interaction(item)
+                })
+        };
+        let shown = if collapse && !detailed {
+            let plan = Plan::of(transcript);
+            let rows = plan.rows(transcript, &self.open, hidden);
+            Shown {
+                rows: rows.into(),
+                plan: Rc::new(plan),
             }
-            let kind = item.group().map(|group| (group, &key.turn));
-            if kind.is_some()
-                && kind == run
-                && let Some(group) = rows.last_mut()
-            {
-                group.end = index + 1;
-            } else {
-                rows.push(index..index + 1);
+        } else {
+            let mut rows: Vec<Row> = Vec::new();
+            let mut run = None;
+            for (index, (key, item)) in transcript.iter().enumerate() {
+                if hidden(index) {
+                    continue;
+                }
+                let kind = item.group().map(|group| (group, &key.turn));
+                if kind.is_some()
+                    && kind == run
+                    && let Some(group) = rows.last_mut()
+                {
+                    group.range.end = index + 1;
+                } else {
+                    rows.push(Row {
+                        range: index..index + 1,
+                        kind: Kind::Cell,
+                    });
+                }
+                run = kind;
             }
-            run = kind;
-        }
-        let rows: Rc<[_]> = rows.into();
+            Shown {
+                rows: rows.into(),
+                plan: Rc::new(Plan::default()),
+            }
+        };
         *cache = Some(RowLayout {
             thread: thread.id().clone(),
             revision,
             detailed,
-            rows: rows.clone(),
+            collapse,
+            opened: self.opened,
+            shown: shown.clone(),
         });
-        rows
+        shown
     }
 }
 
@@ -105,7 +153,7 @@ impl ViewportState {
         &self,
         marked: &Option<ItemKey>,
         thread: &ThreadModel,
-        rows: &[Range<usize>],
+        rows: &[Row],
         has_header: bool,
         reverse: bool,
         widget: &Pane,
@@ -120,7 +168,7 @@ impl ViewportState {
         let Some(position) = transcript.iter().position(|(key, _)| key == marked) else {
             return;
         };
-        let Some(row) = rows.iter().position(|range| range.contains(&position)) else {
+        let Some(row) = rows.iter().position(|row| row.range.contains(&position)) else {
             return;
         };
         let count = rows.len() + usize::from(has_header);
@@ -160,6 +208,8 @@ impl StatefulWidget for Pane {
     fn create_state(&self) -> Self::State {
         ViewportState {
             layout: RefCell::default(),
+            open: Unfolded::default(),
+            opened: 0,
             shown: RefCell::default(),
             tail: None,
         }
@@ -168,19 +218,21 @@ impl StatefulWidget for Pane {
 
 impl State for ViewportState {
     type Widget = Pane;
-    type Msg = ThreadId;
+    type Msg = Msg;
 
     fn did_change_dependencies(&mut self, widget: &Pane, cx: &mut Cx<'_, Self>) {
         // The end of the transcript changed while the reader is away (a new
         // row, or the last one grew): news for the control and the footer
         // (`sync_history_tail`). A thread the reader has just opened has none.
         let thread = watch::<ThreadModel, _>(cx);
-        let rows = self.rows(&thread, widget.detailed);
+        let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
+        let shown = self.rows(&thread, widget.detailed, collapse);
         let transcript = thread.transcript();
-        let tail = rows
+        let tail = shown
+            .rows
             .last()
-            .and_then(|range| transcript.get(range.end - 1))
-            .map(|(_, item)| (thread.id().clone(), rows.len(), fingerprint(item)));
+            .and_then(|row| transcript.get(row.range.end - 1))
+            .map(|(_, item)| (thread.id().clone(), shown.rows.len(), fingerprint(item)));
         if let (Some(before), Some(now)) = (&self.tail, &tail)
             && before.0 == now.0
             && before != now
@@ -190,10 +242,19 @@ impl State for ViewportState {
         self.tail = tail;
     }
 
-    fn update(&mut self, thread: ThreadId, _: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let handlers = read::<Hs, _>(cx);
-        cx.emit(&handlers.load_history, thread);
-        Rebuild::No
+    fn update(&mut self, msg: Msg, _: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            Msg::Load(thread) => {
+                let handlers = read::<Hs, _>(cx);
+                cx.emit(&handlers.load_history, thread);
+                Rebuild::No
+            }
+            Msg::Toggle(ids) => {
+                self.open.toggle(&ids);
+                self.opened += 1;
+                Rebuild::Yes
+            }
+        }
     }
 
     fn build(&self, widget: &Pane, cx: &mut Cx<'_, Self>) -> AnyWidget {
@@ -226,7 +287,8 @@ impl State for ViewportState {
         let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
         let show_raw_reasoning =
             select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
-        let rows = self.rows(&thread, detailed);
+        let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
+        let Shown { rows, plan } = self.rows(&thread, detailed, collapse);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
         let count = rows.len() + usize::from(header.is_some());
@@ -236,6 +298,10 @@ impl State for ViewportState {
             .map(|(key, _)| key.clone());
         self.show(&marked, &thread, &rows, header.is_some(), reverse, widget);
         let cells = cells_strings::of(cx);
+        let folds = transcript_strings::of(cx);
+        let toggled = cx.map(Msg::Toggle);
+        let open = self.open.clone();
+        let control = tokens.dim().attrs(Attrs::DIM);
         let cwd = cwd.map(str::to_owned);
         let list = ListView::builder(count, move |index| {
             let index = if reverse { count - 1 - index } else { index };
@@ -244,7 +310,8 @@ impl State for ViewportState {
             {
                 return header.clone();
             }
-            let range = &rows[index - usize::from(header.is_some())];
+            let row = &rows[index - usize::from(header.is_some())];
+            let range = &row.range;
             let index = range.start;
             let transcript = thread.transcript();
             let Some((key, item)) = transcript.get(index) else {
@@ -265,37 +332,89 @@ impl State for ViewportState {
                     })
                     .collect(),
             };
-            let row = cell(
-                item,
-                &CellEnv {
-                    tokens: &tokens,
-                    markdown: &markdown,
-                    prompt_surface: &prompt_surface,
-                    chat: table,
-                    cells,
-                    bullet: &bullet,
-                    bullet_style: &agent_style,
-                    cwd: cwd.as_deref(),
-                    detailed,
-                    raw,
-                    show_raw_reasoning,
-                },
-                &place,
-            );
+            let words = Words {
+                table: folds,
+                cells,
+            };
+            let timing_facts = |turn| super::cells::separator::Facts {
+                now,
+                clock,
+                metrics: metrics.get(turn),
+            };
+            let fold = match &row.kind {
+                Kind::Tools(group) if !group.is_lone_search(transcript) => {
+                    let calls = group.calls(transcript, words);
+                    let open = open.is_open(&group.ids);
+                    let search = calls
+                        .last()
+                        .is_some_and(|call| call.starts_with(folds.search_prefix));
+                    let label = group.label(transcript, &calls, words);
+                    Some(
+                        FoldRow {
+                            anchor: Anchor::Calls,
+                            control: format!("{} {label}", arrow(open, search, words)),
+                            calls: if open { calls } else { Vec::new() },
+                            ids: group.ids.clone(),
+                            style: control.clone(),
+                            toggled: toggled.clone(),
+                        }
+                        .into(),
+                    )
+                }
+                _ => None,
+            };
+            let row_cell: AnyWidget = match fold {
+                Some(fold) => fold,
+                None => cell(
+                    item,
+                    &CellEnv {
+                        tokens: &tokens,
+                        markdown: &markdown,
+                        prompt_surface: &prompt_surface,
+                        chat: table,
+                        cells,
+                        bullet: &bullet,
+                        bullet_style: &agent_style,
+                        cwd: cwd.as_deref(),
+                        detailed,
+                        raw,
+                        show_raw_reasoning,
+                    },
+                    &place,
+                ),
+            };
             // The cell is always the first child of one column, so a timing row
             // arriving below it does not rebuild the cell's state (the patch
             // disclosure's `expanded`).
             let mut column = Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(row);
-            if let Some(timing) = transcript.timing_after(range.end - 1) {
-                let facts = super::cells::separator::Facts {
-                    now,
-                    clock,
-                    metrics: metrics.get(&key.turn),
-                };
-                column = column.children(super::cells::separator::completion(timing, facts, cells));
+                .child(row_cell);
+            if let Kind::Prompt(PromptFold { id, hidden, last }) = &row.kind {
+                let timing = transcript.timing_after(*last).and_then(|timing| {
+                    let turn = transcript.get(*last).map(|(key, _)| &key.turn)?;
+                    super::cells::separator::label(timing, timing_facts(turn), cells)
+                });
+                let open = open.is_open(std::slice::from_ref(id));
+                let label = prompt_label(*hidden, timing, words);
+                column = column.child(FoldRow {
+                    anchor: Anchor::Turn,
+                    control: format!("{} {label}", arrow(open, false, words)),
+                    calls: Vec::new(),
+                    ids: vec![id.clone()],
+                    style: control.clone(),
+                    toggled: toggled.clone(),
+                });
+            }
+            let last = range.end - 1;
+            if !plan.folds_timing(last)
+                && let Some(timing) = transcript.timing_after(last)
+            {
+                column = column.children(super::cells::separator::completion(
+                    timing,
+                    timing_facts(&key.turn),
+                    cells,
+                ));
             }
             let row: AnyWidget = column.into();
             row.with_key(Key::value(key.clone()))
@@ -314,7 +433,7 @@ impl State for ViewportState {
                     metrics.pixels
                 };
                 if can_load && scroll.depth() == 0 && distance <= 3 {
-                    send(thread_id.clone());
+                    send(Msg::Load(thread_id.clone()));
                 }
                 // back at the last row: the news is seen
                 if follow.at_tail() {

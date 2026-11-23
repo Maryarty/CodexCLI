@@ -1,0 +1,7 @@
+# A paused goal with the status line off (status_surface_tests.rs
+# oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled): the hints show
+# `? for shortcuts` at 18 columns, the context meter at 20, the goal when it fits.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"notify","message":{"method":"thread/goal/updated","params":{"threadId":"thread-1","turnId":null,"goal":{"threadId":"thread-1","objective":"Keep improving the benchmark","status":"paused","tokenBudget":null,"tokensUsed":0,"timeUsedSeconds":0,"createdAt":0,"updatedAt":0}}}}

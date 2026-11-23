@@ -4,6 +4,7 @@
 //! projection; the dialog returns a pick as an intent (ids, not data).
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
+mod app_link;
 mod dialog;
 mod lists;
 mod plugins;
@@ -24,7 +25,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 81] = [
+    let entries: [(&'static str, &'static str, &'static str); 83] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -259,6 +260,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "apps_loading",
             "the apps list while it loads: one disabled row",
             include_str!("fixtures/apps_loading.jsonl"),
+        ),
+        (
+            "app_link_installed",
+            "the link dialog of an installed app: its page, the switch and Back",
+            include_str!("fixtures/app_link_installed.jsonl"),
+        ),
+        (
+            "app_link_install",
+            "the link dialog of an app that is not installed: install, then the confirmation",
+            include_str!("fixtures/app_link_install.jsonl"),
         ),
         (
             "worktrees_conversation",

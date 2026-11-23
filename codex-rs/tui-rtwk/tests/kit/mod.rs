@@ -24,6 +24,7 @@ mod labels;
 mod markdown_gutter;
 mod probe;
 mod seed;
+mod settings;
 mod verdict;
 
 #[allow(unused_imports)]

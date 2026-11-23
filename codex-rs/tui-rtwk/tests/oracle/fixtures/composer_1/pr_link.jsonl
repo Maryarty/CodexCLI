@@ -1,0 +1,5 @@
+# The status line is `pull-request-number`; the probe answered PR 20252 (chat_composer.rs:5631).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":["pull-request-number"]}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"cwd":"/w"}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"git_summary":{"request":1,"summary":{"pull_request":{"number":20252,"url":"https://github.com/openai/codex/pull/20252"}}}}}}

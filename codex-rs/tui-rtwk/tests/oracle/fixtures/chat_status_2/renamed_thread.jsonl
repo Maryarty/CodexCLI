@@ -1,5 +1,6 @@
 # A renamed thread, the status line `model-with-reasoning` and `thread-title` (renamed_thread_footer_title_snapshot).
 # Oracle data: chatwidget/tests/status_and_layout.rs:4471 model gpt-5.2, effort high, name Roadmap cleanup.
 {"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
 {"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.2","effort":"high","items":["model-with-reasoning","thread-title"]}}}
 {"step":"notify","message":{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"Roadmap cleanup"}}}
