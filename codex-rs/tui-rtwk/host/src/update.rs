@@ -4,8 +4,15 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
+use codex_core::config::Config;
+use codex_tui_core::protocol::onboarding::VersionCache;
+use codex_tui_core::threads::Notice;
+use codex_tui_rtwk::services::agents::version::{Kind, kind};
 use codex_tui_rtwk::services::startup::UpdateAction;
+use codex_tui_rtwk::services::startup::read_version_cache;
 use codex_tui_rtwk::services::startup::run_update_process;
+
+use crate::startup::Updates;
 
 /// Where an update runs: the CLI keeps project config and hooks out of the
 /// package manager's reach.
@@ -93,6 +100,63 @@ fn normalize_for_wsl(value: &str) -> String {
     }
 }
 
+/// `updates.rs::get_upgrade_version`: the latest release the cache holds when it is newer than the
+/// running build. A debug build, a source build (`0.0.0`) and `check_for_update_on_startup = false`
+/// have none; a dismissed version still counts (only the startup offer skips it).
+pub fn upgrade_version(
+    enabled: bool,
+    check: bool,
+    current: &str,
+    cache: Option<&VersionCache>,
+) -> Option<String> {
+    let current = parse_version(current).filter(|&version| version != (0, 0, 0))?;
+    if !(enabled && check) {
+        return None;
+    }
+    let cache = cache?;
+    (parse_version(&cache.latest)? > current).then(|| cache.latest.clone())
+}
+
+/// `update_versions.rs::parse_version`: `major.minor.patch`, all numbers.
+fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = version.trim().split('.');
+    let parsed = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(parsed)
+}
+
+/// The notice the app opens its first conversation with (oracle `app/startup.rs`, before the loop:
+/// `InsertHistoryCell(UpdateAvailableHistoryCell::new(latest, get_update_action()))`).
+pub fn update_available(config: &Config, updates: &Updates) -> Option<Notice> {
+    let cache = read_version_cache(&crate::startup::version_file(config));
+    let latest = upgrade_version(
+        updates.enabled,
+        config.check_for_update_on_startup,
+        &updates.version,
+        cache.as_ref(),
+    )?;
+    Some(Notice::UpdateAvailable {
+        current: updates.version.clone(),
+        latest,
+        command: updates.action.map(UpdateAction::command_str),
+    })
+}
+
+/// The words of the first conversation's other-version notice (oracle `remote_connection.rs`
+/// `server_version_notice`): the connected service's version against this client's.
+pub fn server_version_message(client: &str, server: &str) -> Option<String> {
+    let comparison = match kind(client, server)? {
+        Kind::Older => "older than",
+        Kind::Different => "different from",
+    };
+    Some(format!(
+        "A background Codex service is running v{server}, {comparison} your Codex CLI v{client}."
+    ))
+}
+
 /// The CLI's `run_update_action`: after the terminal is restored, the update
 /// runs where no project config steers it.
 pub fn run_update(action: UpdateAction) -> Result<(), String> {
@@ -122,6 +186,77 @@ mod tests {
             std::os::unix::fs::symlink("/bin/sh", dir.path().join(name)).expect("link");
         }
         dir
+    }
+
+    fn cache(latest: &str) -> VersionCache {
+        VersionCache {
+            latest: latest.to_owned(),
+            dismissed: None,
+        }
+    }
+
+    #[test]
+    fn a_newer_cached_release_is_the_upgrade_version() {
+        let newer = cache("0.171.0");
+        assert_eq!(
+            upgrade_version(true, true, "0.170.0", Some(&newer)).as_deref(),
+            Some("0.171.0")
+        );
+        // ... dismissed or not: the banner of the first conversation ignores the dismissal.
+        let dismissed = VersionCache {
+            dismissed: Some("0.171.0".to_owned()),
+            ..newer
+        };
+        assert!(upgrade_version(true, true, "0.170.0", Some(&dismissed)).is_some());
+    }
+
+    #[test]
+    fn no_upgrade_for_the_same_or_an_older_release_or_without_a_cache() {
+        assert_eq!(
+            upgrade_version(true, true, "0.170.0", Some(&cache("0.170.0"))),
+            None
+        );
+        assert_eq!(
+            upgrade_version(true, true, "0.170.0", Some(&cache("0.169.9"))),
+            None
+        );
+        assert_eq!(upgrade_version(true, true, "0.170.0", None), None);
+        assert_eq!(
+            upgrade_version(true, true, "0.170.0", Some(&cache("nightly"))),
+            None
+        );
+    }
+
+    #[test]
+    fn a_debug_build_a_source_build_and_the_off_switch_have_no_upgrade() {
+        let newer = cache("0.171.0");
+        assert_eq!(upgrade_version(false, true, "0.170.0", Some(&newer)), None);
+        assert_eq!(upgrade_version(true, false, "0.170.0", Some(&newer)), None);
+        assert_eq!(upgrade_version(true, true, "0.0.0", Some(&newer)), None);
+    }
+
+    #[test]
+    fn the_server_version_message_words_an_older_or_a_different_service() {
+        assert_eq!(
+            server_version_message("0.153.0", "0.152.1").as_deref(),
+            Some(
+                "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0."
+            )
+        );
+        assert_eq!(
+            server_version_message("0.155.0-alpha.12", "0.156.0").as_deref(),
+            Some(
+                "A background Codex service is running v0.156.0, different from your Codex CLI v0.155.0-alpha.12."
+            )
+        );
+        assert_eq!(
+            server_version_message("0.0.0", "0.156.0").as_deref(),
+            Some(
+                "A background Codex service is running v0.156.0, different from your Codex CLI v0.0.0."
+            )
+        );
+        assert_eq!(server_version_message("0.153.0", "0.153.0"), None);
+        assert_eq!(server_version_message("0.153.0", "0.154.0"), None);
     }
 
     #[test]
