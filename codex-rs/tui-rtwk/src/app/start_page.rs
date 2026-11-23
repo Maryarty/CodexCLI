@@ -5,7 +5,9 @@
 //! picker, the command center), so the chat is not built under it: it mounts
 //! once the page has popped (Flutter: `await Navigator.push(page)`, then
 //! `setState`), and its composer takes the focus at mount (`autofocus`), with
-//! whatever thread the page opened.
+//! whatever thread the page opened. The trust prompt cancelled at launch
+//! opens the command center in place of the startup page: it is the start page
+//! then, whatever the command line said.
 
 use rtwk::Handler;
 use rtwk::layout::SizedBox;
@@ -79,8 +81,17 @@ impl State for StartPageState {
     type Msg = StartMsg;
 
     fn init_state(&mut self, _: &StartPage, cx: &mut Cx<'_, Self>) {
-        let push = cx.send(StartMsg::Push);
-        cx.emit(&push, ());
+        // The command center the cancelled trust prompt opened was the page
+        // and is gone: the chat is mounted at once, as after any start page.
+        let overview = onboarding::overview(&read::<ScreenStates, _>(cx).onboarding);
+        let msg = if overview {
+            self.shown = true;
+            StartMsg::Left
+        } else {
+            StartMsg::Push
+        };
+        let next = cx.send(msg);
+        cx.emit(&next, ());
     }
 
     fn update(&mut self, msg: StartMsg, w: &StartPage, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -119,15 +130,16 @@ impl State for StartPageState {
 /// after the first frame, so the gate watches the model; it pushes once.
 /// With `awaits_facts` the home shows nothing until the facts are read, and
 /// then the chat or, with a step due, the page alone: the oracle draws no
-/// chat before its prompt. A start page of the command line (`--agents`,
-/// `resume`) pushes its route as it mounts, so with `holds_child` the home
-/// mounts only once the startup page has popped (Flutter: `await
-/// Navigator.push(..)`, then `setState`): the prompts go first.
+/// chat before its prompt. The home mounts only once the startup page is gone
+/// (Flutter: `await Navigator.push(..)`, then `setState`): the prompts go
+/// first, a start page of the command line (`--agents`, `resume`) pushes its
+/// route as it mounts, and the composer takes the focus at mount, not under a
+/// route that is still on top (the trust prompt cancelled at launch replaces
+/// the page with the command center: the page is gone when that pops).
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupGate {
     pub child: AnyWidget,
     pub awaits_facts: bool,
-    pub holds_child: bool,
 }
 
 /// What the gate does next.
@@ -174,21 +186,22 @@ impl State for StartupGateState {
         }
     }
 
-    fn update(&mut self, msg: GateMsg, w: &StartupGate, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: GateMsg, _: &StartupGate, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             GateMsg::Push => {
+                let left = onboarding::Left {
+                    page: cx.send(GateMsg::Popped),
+                    center: cx.map(|_: PopInvoked| GateMsg::Popped),
+                };
                 let step = onboarding::Step::Update;
-                if w.holds_child {
-                    let left = cx.send(GateMsg::Popped);
-                    drop(Navigator::of(cx).push::<()>(onboarding::route_then(step, left)));
-                    return Rebuild::No;
-                }
-                drop(Navigator::of(cx).push::<()>(onboarding::route(step)));
+                drop(Navigator::of(cx).push::<()>(onboarding::route_then(step, left)));
+                Rebuild::No
             }
-            GateMsg::Popped => {}
+            GateMsg::Popped => {
+                self.open = true;
+                Rebuild::Yes
+            }
         }
-        self.open = true;
-        Rebuild::Yes
     }
 
     fn build(&self, w: &StartupGate, _: &mut Cx<'_, Self>) -> AnyWidget {
