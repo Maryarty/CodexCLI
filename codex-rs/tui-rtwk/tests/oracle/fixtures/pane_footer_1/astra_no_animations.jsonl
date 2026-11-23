@@ -1,0 +1,3 @@
+# A fresh thread on an Astra model with `tui.animations` off: the oracle's `focus_startup_work_and_configuration...` settings.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"astra","animations":false}}}

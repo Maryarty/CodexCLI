@@ -1,0 +1,5 @@
+# A fresh thread on a model that is no Astra (`gpt-5.5`), animations and the starfield effect on: the
+# oracle's `composer_with_sparkle` of sparkle_tests.rs (`mark_fresh_task_for_sparkle("gpt-5.5", ..)`), where
+# the dots wait for `select_sparkle_model("gpt-6-astra", ..)`.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5"}}}

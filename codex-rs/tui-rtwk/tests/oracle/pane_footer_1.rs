@@ -9,10 +9,61 @@ use crate::kit::{self, Owner, Screen};
 /// The braille starfield dots of the oracle's sparkle (`sparkle_field.rs`, `DOTS`).
 const DOTS: [&str; 8] = ["⠁", "⠂", "⠄", "⠈", "⠐", "⠠", "⡀", "⢀"];
 
+/// The dots as chars.
+const DOT_CHARS: [char; 8] = ['⠁', '⠂', '⠄', '⠈', '⠐', '⠠', '⡀', '⢀'];
+
 /// No starfield dot is on the screen (each glyph is absent).
 fn assert_no_dots(s: &Screen) {
     for dot in DOTS {
         s.assert_absent(dot);
+    }
+}
+
+/// No starfield dot is in `text`.
+fn assert_no_dots_in(text: &str) {
+    for dot in DOTS {
+        assert!(!text.contains(dot), "a dot `{dot}` in `{text}`");
+    }
+}
+
+/// A dot of the starfield on the screen: `(x, y, glyph, contrast)`, the contrast being the distance
+/// of its foreground from the cell's true-colour background (what the fade takes away).
+fn lit_dots(s: &Screen) -> Vec<(usize, usize, String, u32)> {
+    let channels = |name: &str| -> [u32; 3] {
+        assert!(
+            name.starts_with("Rgb(") && name.ends_with(')'),
+            "a true colour, not `{name}`"
+        );
+        let mut out = [0u32; 3];
+        for (slot, part) in out.iter_mut().zip(name[4..name.len() - 1].split(", ")) {
+            *slot = part.parse().unwrap_or(u32::MAX);
+        }
+        out
+    };
+    let grid = s.grid();
+    let mut out = Vec::new();
+    for (y, row) in s.rows().iter().enumerate() {
+        for (x, glyph) in row.chars().enumerate() {
+            if DOTS.contains(&glyph.to_string().as_str()) {
+                let style = grid.style(x, y);
+                let (fg, bg) = (channels(&style.fg), channels(&style.bg));
+                let contrast = fg.iter().zip(bg).map(|(a, b)| a.abs_diff(b)).sum();
+                out.push((x, y, glyph.to_string(), contrast));
+            }
+        }
+    }
+    out
+}
+
+/// The draft is empty, whether or not a star sits in the prompt row's gap (`›⠁Ask Codex ..`): the
+/// placeholder shows exactly while the draft is empty.
+fn assert_empty_draft(s: &Screen) {
+    let placeholder = s
+        .rows()
+        .iter()
+        .any(|row| row.starts_with('›') && row.contains("Ask Codex to do anything"));
+    if !placeholder {
+        s.assert_composer("");
     }
 }
 
@@ -24,9 +75,166 @@ fn row_of(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+const ASTRA: &str = include_str!("fixtures/pane_footer_1/astra.jsonl");
+const PLAIN: &str = include_str!("fixtures/pane_footer_1/plain.jsonl");
+const ASTRA_HISTORY: &str = include_str!("fixtures/pane_footer_1/astra_history.jsonl");
+const PLAIN_HISTORY: &str = include_str!("fixtures/pane_footer_1/plain_history.jsonl");
+const ASTRA_NO_STARFIELD: &str = include_str!("fixtures/pane_footer_1/astra_no_starfield.jsonl");
+const ASTRA_NO_ANIMATIONS: &str = include_str!("fixtures/pane_footer_1/astra_no_animations.jsonl");
+
+/// Enter on the typed command, and the dialog some commands open (`/status` and `/diff` show a card
+/// that traps the keys, where the oracle adds a transcript cell) closed again with Esc.
+fn run_typed_command(s: &mut Screen) {
+    s.keys("enter");
+    if s.grid().cursor.is_none() {
+        s.keys("esc");
+    }
+}
+
+/// `/model` run and Astra chosen (the screen is told the model the status line then names); the
+/// model sheet the command opens is closed.
+fn model_command_selects_astra(s: &mut Screen) {
+    s.type_text("/model");
+    s.keys("enter");
+    s.feed(&model_is("gpt-6-astra"));
+    if s.grid().cursor.is_none() {
+        s.keys("esc");
+    }
+}
+
+/// The chat screen's status facts for a model switch (`select_sparkle_model`): the model the
+/// status line names.
+fn model_is(model: &str) -> String {
+    format!(r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}"}}}}}}"#)
+}
+
+/// The oracle's sparkle palette (`palette()`: foreground `(230, 216, 255)`, background `(36, 27, 53)`).
+const FOREGROUND: u32 = 0xe6_d8_ff;
+const BACKGROUND: u32 = 0x24_1b_35;
+
+/// A fresh thread on an Astra model, in the palette the oracle's sparkle tests draw in.
+fn astra(width: u16, height: u16) -> Screen {
+    Screen::build(Owner::UiPane)
+        .size(width, height)
+        .script(ASTRA)
+        .terminal_colors(FOREGROUND, BACKGROUND)
+        .open()
+}
+
+/// A fresh thread on a model that is no Astra, in the same palette: no dots until the model is one.
+fn plain(width: u16, height: u16) -> Screen {
+    Screen::build(Owner::UiPane)
+        .size(width, height)
+        .script(PLAIN)
+        .terminal_colors(FOREGROUND, BACKGROUND)
+        .open()
+}
+
+/// The composer's three rows (the blank row above the prompt, the prompt and the blank row below it),
+/// trailing blanks cut: where the sparkle's dots are.
+fn composer_rows(rows: &[String]) -> Vec<String> {
+    let prompt = rows
+        .iter()
+        .position(|row| row.contains("Ask Codex") || row.starts_with("› ") || row.starts_with('›'))
+        .unwrap_or(usize::MAX);
+    rows[prompt.saturating_sub(1)..=(prompt + 1).min(rows.len() - 1)]
+        .iter()
+        .map(|row| row.trim_end().to_string())
+        .collect()
+}
+
+/// The composer's rows of the oracle's snapshot `name` after its row `marker` (`""`: from the start):
+/// the snapshots of these tests join several screens, each under a label row.
+fn oracle_composer(name: &str, marker: &str) -> Vec<String> {
+    // the frames of the snapshot, each under its own label row (a bare label first in the snapshot is
+    // a frame's name, the later ones are rows)
+    let rows: Vec<String> = Screen::snap_frame_names(name)
+        .into_iter()
+        .flat_map(|frame| {
+            let rows = kit::snap_rows(name, &frame);
+            (!frame.is_empty())
+                .then(|| frame.clone())
+                .into_iter()
+                .chain(rows)
+        })
+        .collect();
+    // `marker`: the label rows to find one after the other (`\n` between them), for a snapshot
+    // that repeats its labels
+    let mut from = 0;
+    for part in marker.split('\n').filter(|part| !part.is_empty()) {
+        from += rows[from..]
+            .iter()
+            .position(|row| row.trim_end() == part)
+            .map_or_else(|| panic!("{name}: no row `{part}`"), |at| at + 1);
+    }
+    composer_rows(&rows[from..])
+}
+
+/// The composer's rows of the screen are the oracle's off the dots (the rows of both are returned):
+/// for a frame the oracle draws at an instant the test's keys cannot reach with the clock.
+fn assert_layout(s: &Screen, name: &str, marker: &str) -> (Vec<String>, Vec<String>) {
+    let want = oracle_composer(name, marker);
+    let got = composer_rows(&s.rows());
+    let bare = |rows: &[String]| -> Vec<String> {
+        rows.iter()
+            .map(|row| {
+                row.chars()
+                    .map(|c| if DOT_CHARS.contains(&c) { ' ' } else { c })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    };
+    pretty_assertions::assert_eq!(
+        bare(&want).join("\n"),
+        bare(&got).join("\n"),
+        "{name} / {marker}: ours (right) differs from the oracle (left) off the dots\n{}",
+        s.text()
+    );
+    (want, got)
+}
+
+/// The dots of the screen are the oracle's (the composer's rows after the label row `marker`):
+/// everything but the dots is the same cell for cell. The oracle draws its snapshots at an exact
+/// instant (the unit `frame` of footer/sparkle.rs matches them exactly, in its tests), the screen
+/// at the last tick of the app's 150 ms clock before the capture, so a dot at the edge of its
+/// twinkle may have come or gone: at most a fifth of the dots may differ, and any that is in
+/// both is the same glyph.
+fn assert_stars(s: &Screen, name: &str, marker: &str) {
+    let (want, got) = assert_layout(s, name, marker);
+    let cells = |rows: &[String]| -> Vec<(usize, usize, char)> {
+        rows.iter()
+            .enumerate()
+            .flat_map(|(y, row)| {
+                row.chars()
+                    .enumerate()
+                    .filter(|(_, c)| DOT_CHARS.contains(c))
+                    .map(move |(x, c)| (x, y, c))
+            })
+            .collect()
+    };
+    let (want_dots, got_dots) = (cells(&want), cells(&got));
+    let differing = want_dots
+        .iter()
+        .filter(|d| !got_dots.contains(d))
+        .chain(got_dots.iter().filter(|d| !want_dots.contains(d)))
+        .count();
+    assert!(
+        differing * 5 <= want_dots.len() + got_dots.len(),
+        "{name} / {marker}: {differing} dots differ of {} and {}\nwant {:?}\ngot  {:?}",
+        want_dots.len(),
+        got_dots.len(),
+        want_dots,
+        got_dots
+    );
+}
+
 const FIND_REASON: &str = "the transcript Find footer (`Find: needle` above the composer, its cursor, the copy flash) is not built: the chat footer draws only the history-search row, and no key or seed opens a find footer";
-const SPARKLE_REASON: &str = "the composer sparkle (braille starfield dots in the placeholder of a fresh Astra task, with its 15 s idle deadline and 1 s fade) is not built: the chat draws no dots and no seed marks a fresh task";
-const HELP_REASON: &str = "the help itself is built (the `?` overlay above the composer); what these two wait for is the composer sparkle under it (braille dots in the placeholder, step 7 of chunk-status: no sparkle yet)";
+const HISTORY_IMAGES_REASON: &str = "the history entry that carries a local and a remote image (`HistoryEntry::local_image_paths`, `remote_image_urls`, the attachment previews of a searched entry): the popovers history event holds text only (`{\"history\": [..]}`), so no seed makes the search preview an attachment";
+const REPLACE_REASON: &str = "the draft replaced from outside while the history search is open (`ChatComposer::set_text_content`): no seed, key or fact replaces the composer's text from the host's side (the queued-draft restore and the external editor's result do it, with no search open)";
+const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkle_terminal_focus`, crossterm's FocusLost/FocusGained): rtwk reports no terminal focus-in/out events (rtwk-gaps.md), so the deadline's behaviour across a focus loss cannot be driven; a running turn on a fresh task (`set_task_running`) has no seed either: a turn that ran ends the fresh task";
+const CARET_REASON: &str = "the terminal cursor on the history search's own row (`reverse-i-search: query▮`): the search row is static text under the composer, and the composer's TextArea (focused, it takes the search's keys) keeps its caret on the prompt row (row 3 of 6, the oracle puts it on row 5); a caret at the query's end needs the query as an editing field that holds the focus (a restructure of composer/search.rs: footer field, Up/Down/Enter/Esc as its shortcuts) or a custom RenderObject calling `rtwk::editing::show_caret` (R15 forbids hand-made render objects in the app), and the TextArea has no way to hide its caret while it has the focus";
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_REASON: &str = "the status line of this test is a ui_tree `extension` (a `FooterContent` that only the oracle's tests and previews build; no native item makes such a row): the person decides (brief section 7), the behaviour it checks is re-expressed with native items in tests/pages/chat_status.rs";
 const PROVIDER_REASON: &str = "a provider status (the bold `codex-internal`, an extension row) beside Plan mode: no collaboration-mode fact in StatusFacts (core/src/screens/chat.rs, chunk-live's) and no extension status";
@@ -91,267 +299,619 @@ fn interactive_query_keeps_focus_over_underlying_hints_but_empty_override_wins()
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:114 sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor kind=snap owner=ui-pane snap=sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor
 #[test]
 fn sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
     // a fresh Astra task: the dots fill the free cells of the composer, never the placeholder or
     // the cursor; the first typed character clears them (the oracle draws at 40 and 80 columns)
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_snap("sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor");
+    let name = "sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor";
+    let mut s = astra(80, 24);
+    assert_stars(&s, name, "80 columns, cursor Some((2, 1))");
     let plain = s.shot();
     s.wait(2_000);
     s.assert_rows_differ(&plain);
     s.type_text("x");
     assert_no_dots(&s);
+    let mut narrow = astra(40, 24);
+    assert_stars(&narrow, name, "40 columns, cursor Some((2, 1))");
+    narrow.type_text("x");
+    assert_no_dots(&narrow);
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:176 sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds kind=snap owner=ui-pane snap=sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds
 #[test]
 fn sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
     // a fresh Astra task: the last frame before the fade (14 s), the fading frame (14.5 s) and
-    // the finished frame (15 s); the fade adds no dot, and no dot is left at the deadline
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.wait(14_000);
-    s.wait(500);
-    s.wait(500);
+    // the finished frame (15 s); the fade adds no dot, dims the ones it keeps, and no dot is left
+    // at the deadline; a second selection of the model does not bring them back
+    let name = "sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds";
+    let mut s = astra(80, 24);
+    s.wait(13_700);
+    let last = lit_dots(&s);
+    assert_stars(&s, name, "before fade:");
+    s.wait(700);
+    let fading = lit_dots(&s);
+    assert!(!fading.is_empty(), "the fading frame has dots");
+    assert_stars(&s, name, "fading:");
+    for (x, y, glyph, contrast) in &fading {
+        if let Some((_, _, _, before)) = last
+            .iter()
+            .find(|d| d.0 == *x && d.1 == *y && d.2 == *glyph)
+        {
+            assert!(
+                contrast < before,
+                "the dot at ({x}, {y}) fades: {contrast} against {before}"
+            );
+        }
+    }
+    s.wait(800);
     assert_no_dots(&s);
-    s.assert_snap("sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds");
+    assert_stars(&s, name, "finished:");
+    s.wait(1_000);
+    assert_no_dots(&s);
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:227 the_first_buffered_character_and_empty_escape_clear_visible_stars kind=ui owner=ui-pane
 #[test]
 fn the_first_buffered_character_and_empty_escape_clear_visible_stars() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
     // on a fresh Astra task each of these keys clears the visible dots: `x`, `?`, Esc, Left
+    // (the draft stays empty; the oracle's `Dismissed` / `Untouched` tell `x` from the others:
+    // the dots of the others come back with nothing, the screen shows none of either)
     for key in ["x", "?", "esc", "left"] {
-        let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+        let mut s = astra(80, 24);
+        assert!(
+            !lit_dots(&s).is_empty(),
+            "{key}: the dots are shown before the key"
+        );
         s.keys(key);
         assert_no_dots(&s);
+        // (Esc and Left on an empty draft leave the chat for the command center: no composer is left)
+        if key == "?" {
+            s.assert_composer("");
+        }
     }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:256 shortcut_help_preserves_an_unused_sparkle_but_literal_question_marks_do_not kind=snap owner=ui-pane snap=shortcut_help_preserves_an_unused_sparkle_but_literal_question_marks_do_not
 #[test]
 fn shortcut_help_preserves_an_unused_sparkle_but_literal_question_marks_do_not() {
-    kit::pending(Owner::UiPane, HELP_REASON);
-    // an unused Astra sparkle: `?` opens the shortcut help (dots hidden), `?` again closes it;
-    // the literal `?` of a paste does not end the sparkle; then `/model` selects Astra
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    // a fresh task on `gpt-5.5`: `?` opens the shortcut help (no dots yet, the draft stays
+    // untouched), `/model` then selects Astra and the dots come; a literal `?` (a paste) ends the
+    // opportunity for good, so Astra brings none
+    let name = "shortcut_help_preserves_an_unused_sparkle_but_literal_question_marks_do_not";
+    let mut s = plain(80, 24);
     s.keys("?");
-    s.assert_snap("shortcut_help_preserves_an_unused_sparkle_but_literal_question_marks_do_not");
-    s.keys("?");
+    s.assert_contains("Keyboard shortcuts");
+    assert_no_dots(&s);
+    assert_stars(&s, name, "shortcut help:");
+    s.type_text("/model");
+    s.keys("enter");
+    s.feed(&model_is("gpt-6-astra"));
+    s.keys("esc");
+    assert!(!lit_dots(&s).is_empty(), "Astra selected: the dots come");
+    assert_stars(&s, name, "after /model selects Astra:");
+
+    // the help closes with the same key and keeps the opportunity too
+    let mut s = plain(80, 24);
+    s.keys("? ?");
+    s.assert_absent("Keyboard shortcuts");
+    s.type_text("/model");
+    s.keys("enter");
+    s.feed(&model_is("gpt-6-astra"));
+    s.keys("esc");
+    assert!(!lit_dots(&s).is_empty(), "closed help: the dots come");
+
+    let mut s = plain(80, 24);
     s.paste("?");
-    s.assert_contains("?");
+    s.assert_composer("?");
+    assert_stars(&s, name, "literal pasted question mark:");
     s.keys("backspace");
     s.type_text("/model");
     s.keys("enter");
+    s.feed(&model_is("gpt-6-astra"));
+    s.keys("esc");
+    assert_no_dots(&s);
+    assert_stars(&s, name, "after clearing and selecting Astra:");
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:372 shortcut_help_hides_visible_sparkles_without_restarting_their_deadline kind=snap owner=ui-pane snap=shortcut_help_hides_visible_sparkles_without_restarting_their_deadline
 #[test]
 fn shortcut_help_hides_visible_sparkles_without_restarting_their_deadline() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // a visible Astra sparkle: `?` at 4 s hides it and opens the help; the 15 s deadline is not
-    // restarted, so the dots stay hidden after the help closes at 15 s
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.wait(4_000);
-    s.keys("?");
+    // restarted, so the dots come back when the help closes at 4 s and stay gone when it closes
+    // at 15 s; a literal `?` (a paste) ends the sparkle
+    let name = "shortcut_help_hides_visible_sparkles_without_restarting_their_deadline";
+    for expires in [false, true] {
+        let scenario = format!("expires during help: {expires}");
+        let mut s = astra(80, 24);
+        assert_stars(&s, name, &format!("{scenario}\ninitial:"));
+        s.wait(3_700);
+        assert!(!lit_dots(&s).is_empty());
+        s.keys("?");
+        s.assert_contains("Keyboard shortcuts");
+        assert_no_dots(&s);
+        assert_stars(&s, name, &format!("{scenario}\nshortcut help:"));
+        if expires {
+            s.wait(11_000);
+            s.assert_contains("Keyboard shortcuts");
+            assert_no_dots(&s);
+        }
+        s.keys("?");
+        s.assert_absent("Keyboard shortcuts");
+        if expires {
+            assert_no_dots(&s);
+        } else {
+            assert!(
+                !lit_dots(&s).is_empty(),
+                "the dots come back with the help closed"
+            );
+        }
+        assert_stars(&s, name, &format!("{scenario}\nafter closing:"));
+    }
+
+    let mut s = astra(80, 24);
+    s.wait(3_700);
+    assert!(!lit_dots(&s).is_empty());
+    s.paste("?");
+    s.assert_composer("?");
+    s.keys("backspace");
     assert_no_dots(&s);
-    s.wait(11_000);
-    s.keys("?");
-    assert_no_dots(&s);
-    s.assert_snap("shortcut_help_hides_visible_sparkles_without_restarting_their_deadline");
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:459 disconnected_sparkle_edits_are_tracked_between_renders kind=snap owner=ui-pane snap=disconnected_sparkle_edits_are_tracked_between_renders
 #[test]
 fn disconnected_sparkle_edits_are_tracked_between_renders() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // the oracle edits a disconnected composer without rendering (restricted keys) and erases:
-    // the dots return only for an untouched draft; `gpt-5.5` shows none at all
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.type_text("x");
-    s.keys("backspace");
-    s.assert_snap("disconnected_sparkle_edits_are_tracked_between_renders");
+    // the oracle edits a disconnected composer without rendering between the keys (restricted
+    // keys) and erases: the dots return only for a draft that was no more than a command in the
+    // making (`/status`), never after ordinary text or an unknown command, and `gpt-5.5` shows
+    // none until Astra is selected. Ours tells the sparkle of each key and each change of the
+    // text as it happens, so there is no render to wait for; the restricted-input mode (and the
+    // literal `?`, which opens the help here) has no counterpart: the three drafts that remain.
+    let name = "disconnected_sparkle_edits_are_tracked_between_renders";
+    for model in ["gpt-6-astra", "gpt-5.5"] {
+        for (scenario, input, returns) in [
+            ("ordinary", "x", false),
+            ("recognized command", "/status", true),
+            ("unknown command", "/xyz", false),
+        ] {
+            let astra_first = model == "gpt-6-astra";
+            let mut s = if astra_first {
+                astra(80, 24)
+            } else {
+                plain(80, 24)
+            };
+            assert_eq!(lit_dots(&s).is_empty(), !astra_first, "{model}: {scenario}");
+            if scenario == "ordinary" {
+                assert_stars(&s, name, &format!("{model}\nbefore disconnect:"));
+            }
+            s.type_text(input);
+            for _ in input.chars() {
+                s.keys("backspace");
+            }
+            assert_empty_draft(&s);
+            if !astra_first {
+                s.feed(&model_is("gpt-6-astra"));
+            }
+            assert_eq!(lit_dots(&s).is_empty(), !returns, "{model}: {scenario}");
+            if scenario == "ordinary" {
+                assert_stars(
+                    &s,
+                    name,
+                    &format!("{model}\nafter typing and erasing without rendering:"),
+                );
+            }
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:529 a_fresh_astra_response_waits_for_the_pending_command_to_leave kind=snap owner=ui-pane snap=a_fresh_astra_response_waits_for_the_pending_command_to_leave
 #[test]
 fn a_fresh_astra_response_waits_for_the_pending_command_to_leave() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // `/status` typed on a fresh Astra task shows no dots while it is pending; submitting it
-    // (or erasing it) is the completion the oracle snapshots
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.type_text("/status");
-    assert_no_dots(&s);
-    s.keys("enter");
-    assert_no_dots(&s);
-    s.assert_snap("a_fresh_astra_response_waits_for_the_pending_command_to_leave");
+    // `/status` typed before the first response (the model is no Astra yet): when Astra arrives
+    // the dots wait while the command is pending, come when it ran or was erased, and never
+    // when the draft grew past a command
+    let name = "a_fresh_astra_response_waits_for_the_pending_command_to_leave";
+    for completion in ["submit", "erase", "draft"] {
+        let mut s = plain(80, 24);
+        s.type_text("/status");
+        s.feed(&model_is("astra"));
+        assert_no_dots(&s);
+        match completion {
+            "submit" => run_typed_command(&mut s),
+            "erase" => {
+                for _ in "/status".chars() {
+                    s.keys("backspace");
+                }
+            }
+            _ => {
+                s.type_text("-draft");
+                s.keys("ctrl+c");
+            }
+        }
+        assert_eq!(
+            lit_dots(&s).is_empty(),
+            completion == "draft",
+            "{completion}"
+        );
+        if completion == "submit" {
+            assert_stars(&s, name, "after command:");
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:574 an_attachment_ends_the_sparkle_even_after_the_composer_is_cleared kind=ui owner=ui-pane
 #[test]
 fn an_attachment_ends_the_sparkle_even_after_the_composer_is_cleared() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // an attached image (the test attaches it; no key does) ends the sparkle; ctrl+c clears the
-    // composer and the sparkle stays ended after Astra is selected
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    // an attached image ends the sparkle for good: clearing the composer and selecting the model
+    // again brings no dots
+    let mut s = astra(80, 24);
+    assert!(!lit_dots(&s).is_empty());
+    s.attach_image("image.png");
+    assert_no_dots(&s);
     s.keys("ctrl+c");
+    assert_empty_draft(&s);
+    s.feed(&model_is("astra"));
     assert_no_dots(&s);
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:591 history_search_acceptance_and_cancellation_update_sparkles_before_rendering kind=snap owner=ui-pane snap=history_search_acceptance_and_cancellation_update_sparkles_before_rendering
 #[test]
 fn history_search_acceptance_and_cancellation_update_sparkles_before_rendering() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // history `git status` (the test records it; no seed does): ctrl+r then `git`; enter accepts
-    // (the sparkle ends), esc and ctrl+c cancel (it stays)
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.keys("ctrl+r");
-    s.type_text("git");
-    s.keys("enter");
-    s.assert_snap("history_search_acceptance_and_cancellation_update_sparkles_before_rendering");
+    // Ctrl+R and a query previews an entry (not the draft: the dots wait); Enter accepts it (an
+    // ordinary draft: the sparkle ends), Esc and Ctrl+C restore the empty draft (the sparkle is
+    // whole: Astra then brings the dots)
+    let name = "history_search_acceptance_and_cancellation_update_sparkles_before_rendering";
+    for (entry, query) in [("git status", "git"), ("/status", "status")] {
+        for completion in ["accept", "escape", "control-c"] {
+            let mut s = Screen::build(Owner::UiPane)
+                .size(80, 24)
+                .script(PLAIN_HISTORY)
+                .terminal_colors(FOREGROUND, BACKGROUND)
+                .open();
+            s.keys("ctrl+r");
+            s.type_text(query);
+            s.assert_contains(&format!("› {entry}"));
+            match completion {
+                "accept" => {
+                    s.keys("enter");
+                    s.keys("ctrl+c");
+                }
+                "escape" => {
+                    s.keys("esc");
+                }
+                _ => {
+                    s.keys("ctrl+c");
+                }
+            }
+            s.assert_absent("reverse-i-search");
+            assert_empty_draft(&s);
+            s.feed(&model_is("astra"));
+            assert_eq!(
+                lit_dots(&s).is_empty(),
+                completion == "accept",
+                "{entry}: {completion}"
+            );
+            if entry == "git status" && completion != "control-c" {
+                assert_stars(&s, name, &format!("{completion}:"));
+            }
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:637 canceled_history_search_restores_visible_stars_only_before_the_original_deadline kind=snap owner=ui-pane snap=canceled_history_search_restores_visible_stars_only_before_the_original_deadline
 #[test]
 fn canceled_history_search_restores_visible_stars_only_before_the_original_deadline() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // ctrl+r, `st` then a pasted `ored` over `stored draft`; esc at 4 s restores the dots, and
-    // when the 15 s deadline passes while the search is open they do not come back
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.wait(4_000);
-    s.keys("ctrl+r");
-    s.type_text("st");
-    s.paste("ored");
-    assert_no_dots(&s);
-    s.keys("esc");
-    s.assert_snap(
-        "canceled_history_search_restores_visible_stars_only_before_the_original_deadline",
-    );
+    // the dots are hidden while the search previews an entry; cancelling it (Esc, Ctrl+C) brings them
+    // back unless their 15 s ran out meanwhile, and accepting the entry ends the sparkle
+    let name = "canceled_history_search_restores_visible_stars_only_before_the_original_deadline";
+    for (cancel, expires_while_open) in [
+        ("escape", false),
+        ("control-c", false),
+        ("escape", true),
+        ("accept", false),
+    ] {
+        let label = format!("expires while open: {expires_while_open}");
+        let mut s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .script(ASTRA_HISTORY)
+            .terminal_colors(FOREGROUND, BACKGROUND)
+            .open();
+        if cancel == "escape" {
+            assert_stars(&s, name, &format!("{label}\ninitial:"));
+        }
+        s.wait(3_300);
+        assert!(!lit_dots(&s).is_empty());
+        s.keys("ctrl+r");
+        s.type_text("st");
+        s.paste("ored");
+        s.assert_contains("› stored draft");
+        assert_no_dots(&s);
+        if cancel == "escape" {
+            assert_stars(&s, name, &format!("{label}\nsearching:"));
+        }
+        if expires_while_open {
+            s.wait(11_000);
+            assert_no_dots(&s);
+        }
+        match cancel {
+            "escape" => {
+                s.keys("esc");
+            }
+            "accept" => {
+                s.keys("enter");
+            }
+            _ => {
+                s.keys("ctrl+c");
+            }
+        }
+        if cancel == "accept" {
+            s.assert_composer("stored draft");
+        } else {
+            assert_empty_draft(&s);
+        }
+        let back = !(expires_while_open || cancel == "accept");
+        assert_eq!(!lit_dots(&s).is_empty(), back, "{cancel}, {label}");
+        if cancel == "escape" {
+            assert_stars(&s, name, &format!("{label}\nafter escape:"));
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:701 history_search_preserves_a_held_sparkle_command_without_reclassifying_it kind=snap owner=ui-pane snap=history_search_preserves_a_held_sparkle_command_without_reclassifying_it
 #[test]
 fn history_search_preserves_a_held_sparkle_command_without_reclassifying_it() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // a held `/` (paste burst) then ctrl+r and a pasted `history`: the command is kept, not
-    // reclassified; esc (or ctrl+c) then backspace leaves the `/`, and `/model` selects Astra
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.keys("/");
-    s.keys("ctrl+r");
-    s.paste("history");
-    assert_no_dots(&s);
-    s.keys("esc");
-    s.keys("backspace");
-    s.type_text("/model");
-    s.keys("enter");
-    s.assert_snap("history_search_preserves_a_held_sparkle_command_without_reclassifying_it");
+    // a `/` is a command in the making; Ctrl+R and a pasted query preview an entry (the draft is
+    // still `/`); cancelling restores `/`, and erasing it makes the opportunity whole again, so
+    // `/model` and Astra bring the dots
+    let name = "history_search_preserves_a_held_sparkle_command_without_reclassifying_it";
+    for model in ["gpt-6-astra", "gpt-5.5"] {
+        for cancel in ["escape", "control-c"] {
+            let astra_first = model == "gpt-6-astra";
+            let mut s = Screen::build(Owner::UiPane)
+                .size(80, 24)
+                .script(if astra_first {
+                    ASTRA_HISTORY
+                } else {
+                    PLAIN_HISTORY
+                })
+                .terminal_colors(FOREGROUND, BACKGROUND)
+                .open();
+            assert_eq!(lit_dots(&s).is_empty(), !astra_first);
+            // the oracle draws the dots of the later frames 4 s after the first (`during`): the keys
+            // below take 0.54 s of the fake clock
+            if astra_first {
+                s.wait(3_460);
+            }
+            s.type_text("/");
+            s.keys("ctrl+r");
+            s.paste("history");
+            s.assert_contains("› history prompt");
+            assert_no_dots(&s);
+            if cancel == "escape" {
+                assert_stars(
+                    &s,
+                    name,
+                    &format!("{model}\nsearching with an explicit pasted query:"),
+                );
+                s.keys("esc");
+            } else {
+                s.keys("ctrl+c");
+            }
+            s.assert_composer("/");
+            s.keys("backspace");
+            assert_empty_draft(&s);
+            assert_eq!(lit_dots(&s).is_empty(), !astra_first, "{model}: {cancel}");
+            if cancel == "escape" {
+                assert_stars(
+                    &s,
+                    name,
+                    &format!("{model}\nafter canceling and erasing the slash:"),
+                );
+            }
+            model_command_selects_astra(&mut s);
+            assert!(
+                !lit_dots(&s).is_empty(),
+                "{model}: {cancel}: Astra selected"
+            );
+            if cancel == "escape" && astra_first {
+                // (the oracle draws it at the same instant as the frame before, the typed `/model`
+                // takes 0.4 s of the fake clock: the layout only)
+                assert_layout(&s, name, &format!("{model}\nafter /model selects Astra:"));
+            } else if cancel == "escape" {
+                assert_stars(&s, name, &format!("{model}\nafter /model selects Astra:"));
+            }
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:762 cancelling_history_search_preserves_a_typed_command_despite_attachment_previews kind=ui owner=ui-pane
 #[test]
 fn cancelling_history_search_preserves_a_typed_command_despite_attachment_previews() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // `/status` typed, ctrl+r, `history` (an entry with an image: the test records it); esc
-    // restores `/status` with no previews, and enter runs the Status command
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    kit::pending(Owner::UiPane, HISTORY_IMAGES_REASON);
+    // `/status` is typed; the search previews an entry that has a local and a remote image
+    // (their previews show over the composer); Esc restores `/status` and drops the previews, and
+    // Enter runs the command: the sparkle then comes with Astra
+    let mut s = plain(80, 24);
     s.type_text("/status");
     s.keys("ctrl+r");
     s.type_text("history");
     s.keys("esc");
-    s.assert_contains("/status");
+    s.assert_composer("/status");
     s.keys("enter");
+    s.feed(&model_is("astra"));
+    assert!(!lit_dots(&s).is_empty());
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:791 fresh_draft_replacement_ends_search_and_dismisses_sparkles kind=ui owner=ui-pane
 #[test]
 fn fresh_draft_replacement_ends_search_and_dismisses_sparkles() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // ctrl+r opens the search; the test replaces the draft with `external draft` (no key does),
-    // which ends the search; esc then leaves `external draft` in the composer
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    kit::pending(Owner::UiPane, REPLACE_REASON);
+    // the history search is open when the draft is replaced from outside (`set_text_content`): the
+    // search ends, the sparkle is dismissed, and Esc leaves the replacement in the composer
+    let mut s = plain(80, 24);
     s.keys("ctrl+r");
+    s.assert_contains("reverse-i-search");
+    // (the host replaces the draft with `external draft` here: nothing does)
+    s.assert_absent("reverse-i-search");
     s.keys("esc");
-    s.assert_contains("external draft");
+    s.assert_composer("external draft");
+    s.feed(&model_is("astra"));
+    assert_no_dots(&s);
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:806 arbitrary_commands_preserve_a_never_used_fresh_opportunity kind=ui owner=ui-pane
 #[test]
 fn arbitrary_commands_preserve_a_never_used_fresh_opportunity() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // a fresh Astra task: `/status`, `/diff`, `/pwd` run and keep the opportunity; `/model`
-    // (or `/mo` completed by tab) selects Astra and the sparkle shows again
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    for command in ["/status", "/diff", "/pwd"] {
-        s.type_text(command);
+    // commands that ran (typed whole, or completed with Tab) leave the opportunity whole, with Vim
+    // mode on or off: Astra then brings the dots; drafts that are no command (`hello`, `/status
+    // extra`, `/other`, a wide character, a path) end it even when the composer is cleared again
+    for (completion, vim) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .script(PLAIN)
+            .terminal_colors(FOREGROUND, BACKGROUND)
+            .keymap(&[("global.toggle_vim_mode", "f9")])
+            .open();
+        if vim {
+            s.keys("f9");
+        }
+        assert_no_dots(&s);
+        for command in ["/status", "/diff", "/pwd"] {
+            s.type_text(command);
+            run_typed_command(&mut s);
+        }
+        s.type_text(if completion { "/mo" } else { "/model" });
+        if completion {
+            s.keys("tab");
+        }
         s.keys("enter");
+        s.feed(&model_is("gpt-6-astra"));
+        if s.grid().cursor.is_none() {
+            s.keys("esc");
+        }
+        assert!(
+            !lit_dots(&s).is_empty(),
+            "completion {completion}, vim {vim}"
+        );
+    }
+    for input in ["hello", "/status extra", "/other", "漢", "/tmp/file"] {
+        let mut s = plain(80, 24);
+        s.type_text(input);
+        s.keys("ctrl+c");
+        s.feed(&model_is("gpt-6-astra"));
         assert_no_dots(&s);
     }
-    s.type_text("/mo");
-    s.keys("tab");
-    s.keys("enter");
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:855 canceled_commands_remain_eligible_but_inserted_content_and_ordinary_paste_do_not kind=snap owner=ui-pane snap=cleared_recovered_draft_keeps_sparkle_dismissed
 #[test]
 fn canceled_commands_remain_eligible_but_inserted_content_and_ordinary_paste_do_not() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // a canceled `/sta` (four backspaces) keeps the sparkle eligible for Astra; an inserted
-    // `/mention` (enter, then `@`) and an ordinary paste do not; the recovered draft (the test
-    // appends it, no key does) keeps the sparkle dismissed after clearing
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    // a typed `x` erased again ends the opportunity (the oracle hands it to the next pane: the
+    // draft is the thread's here); a canceled `/sta` keeps it; a paste, content a command
+    // inserted (`/mention` puts `@`) and a large pasted draft end it even when cleared
+    let name = "cleared_recovered_draft_keeps_sparkle_dismissed";
+    let mut s = plain(80, 24);
+    s.type_text("x");
+    s.keys("backspace");
+    s.feed(&model_is("astra"));
+    assert_no_dots(&s);
+
+    let mut s = plain(80, 24);
     s.type_text("/sta");
-    s.keys("backspace backspace backspace backspace");
-    s.type_text("/mention");
-    s.keys("enter");
-    s.type_text("@");
-    s.assert_snap("cleared_recovered_draft_keeps_sparkle_dismissed");
+    for _ in 0..4 {
+        s.keys("backspace");
+    }
+    s.feed(&model_is("astra"));
+    assert!(!lit_dots(&s).is_empty());
+
+    for input in ["paste draft", "inserted", "recovered"] {
+        let mut s = plain(80, 24);
+        match input {
+            "inserted" => {
+                s.type_text("/mention");
+                s.keys("enter");
+            }
+            "recovered" => {
+                s.paste(&"x".repeat(1_001));
+            }
+            _ => {
+                s.paste(input);
+            }
+        }
+        s.keys("ctrl+c");
+        assert_empty_draft(&s);
+        s.feed(&model_is("astra"));
+        assert_no_dots(&s);
+        if input == "recovered" {
+            assert_stars(&s, name, "");
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:913 review_regression_canceling_a_held_slash_restores_sparkle_command_tracking kind=snap owner=ui-pane snap=review_regression_canceling_a_held_slash_restores_sparkle_command_tracking
 #[test]
 fn review_regression_canceling_a_held_slash_restores_sparkle_command_tracking() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // a held `/` canceled at once by backspace restores the sparkle tracking; `/model` then
-    // selects Astra and the dots show (for gpt-6-astra, not for gpt-5.5)
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.keys("/");
-    s.keys("backspace");
-    s.assert_snap("review_regression_canceling_a_held_slash_restores_sparkle_command_tracking");
-    s.type_text("/model");
-    s.keys("enter");
+    // a `/` held by the paste burst is a command in the making; Backspace cancels it and the
+    // dots are as before (or still wait for Astra); `/model` then brings them
+    let name = "review_regression_canceling_a_held_slash_restores_sparkle_command_tracking";
+    for model in ["gpt-6-astra", "gpt-5.5"] {
+        let astra_first = model == "gpt-6-astra";
+        let mut s = if astra_first {
+            astra(80, 24)
+        } else {
+            plain(80, 24)
+        };
+        s.type_text("/");
+        s.keys("backspace");
+        assert_empty_draft(&s);
+        assert_eq!(lit_dots(&s).is_empty(), !astra_first, "{model}");
+        assert_stars(
+            &s,
+            name,
+            &format!("{model}\nafter immediately canceling the held slash:"),
+        );
+        model_command_selects_astra(&mut s);
+        assert!(!lit_dots(&s).is_empty(), "{model}");
+        if astra_first {
+            // (the oracle draws it at the instant of the first frame; typing `/model` takes more
+            // than a second of the fake clock: the layout only)
+            assert_layout(&s, name, &format!("{model}\nafter /model:"));
+        } else {
+            assert_stars(&s, name, &format!("{model}\nafter /model:"));
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:954 buffered_commands_and_read_only_inline_arguments_preserve_eligibility kind=ui owner=ui-pane
 #[test]
 fn buffered_commands_and_read_only_inline_arguments_preserve_eligibility() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // a buffered `/status` (flushed after 1 s) runs with enter; the inline `/rename task name`
-    // runs too; the test then selects Astra and the dots show again
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    // `/status` typed and run leaves the opportunity whole; `/rename task name` (a command with
+    // inline arguments) is a command too, so Astra brings the dots once it ran
+    let mut s = plain(80, 24);
     s.type_text("/status");
-    s.wait(1_000);
-    s.keys("enter");
+    run_typed_command(&mut s);
+    s.feed(&model_is("astra"));
+    assert!(!lit_dots(&s).is_empty());
+
+    let mut s = plain(80, 24);
     s.type_text("/rename task name");
-    s.keys("enter");
+    run_typed_command(&mut s);
+    s.feed(&model_is("astra"));
+    assert!(!lit_dots(&s).is_empty());
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:992 commands_hide_a_started_sparkle_without_restarting_its_deadline kind=ui owner=ui-pane
 #[test]
 fn commands_hide_a_started_sparkle_without_restarting_its_deadline() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // a started Astra sparkle: typing `/status` at 5 s hides it, enter at 6 s shows it again
-    // (a command does not restart the deadline); `/diff` hides it at 15 s and enter ends it
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.wait(5_000);
+    let mut s = astra(80, 24);
+    assert!(!lit_dots(&s).is_empty());
     s.type_text("/status");
+    s.wait(4_000);
     assert_no_dots(&s);
-    s.keys("enter");
-    s.wait(1_000);
+    run_typed_command(&mut s);
+    s.wait(600);
+    assert!(!lit_dots(&s).is_empty(), "the command ran: the dots return");
     s.type_text("/diff");
     s.wait(9_000);
     assert_no_dots(&s);
-    s.keys("enter");
+    run_typed_command(&mut s);
     s.wait(1_000);
     assert_no_dots(&s);
 }
@@ -359,17 +919,27 @@ fn commands_hide_a_started_sparkle_without_restarting_its_deadline() {
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:1046 focus_startup_work_and_configuration_do_not_extend_a_started_deadline kind=ui owner=ui-pane
 #[test]
 fn focus_startup_work_and_configuration_do_not_extend_a_started_deadline() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // a task running hides the dots; once it ends at 15 s they show; the terminal focus loss at
-    // 16 s hides them and the focus back at 30 s does not restart the deadline; a narrow composer
-    // (25 columns) keeps the dots off the draft
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    assert_no_dots(&s);
-    s.wait(15_000);
-    s.wait(1_000);
-    assert_no_dots(&s);
-    s.wait(14_000);
-    assert_no_dots(&s);
+    kit::pending(Owner::UiPane, FOCUS_REASON);
+    // (a running turn hides the dots and its end shows them at 15 s; the terminal losing focus at
+    // 16 s hides them and the focus back at 30 s does not restart the deadline: neither can be
+    // driven, see the reason); the starfield off, the animations off and a narrow composer
+    // (25 columns) draw no dots in the draft
+    for script in [ASTRA_NO_STARFIELD, ASTRA_NO_ANIMATIONS] {
+        let s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .script(script)
+            .terminal_colors(FOREGROUND, BACKGROUND)
+            .open();
+        assert_no_dots(&s);
+    }
+    let s = astra(25, 24);
+    let rows = s.rows();
+    let prompt = rows
+        .iter()
+        .position(|row| row.starts_with('›'))
+        .expect("the prompt row");
+    let draft: String = rows[prompt].chars().skip(2).take(22).collect();
+    assert_no_dots_in(&draft);
 }
 
 // ---- oracle: bottom_pane/chat_composer/status_surface_tests.rs (26 screen-level tests here; 0 state tests left to ui-pane)
@@ -751,11 +1321,22 @@ fn transcript_search_keeps_status_and_query_cursor() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1098 input_history_search_uses_the_final_row kind=ui owner=ui-pane
 #[test]
 fn input_history_search_uses_the_final_row() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
-    // ctrl+r at 48 columns puts the cursor on the final row of the screen; the kit has no
-    // row-only cursor assert, so the row is the last one of `rows()` (a kit gap, see the report)
+    kit::pending(Owner::UiPane, CARET_REASON);
+    // Ctrl+R at 48 columns puts the cursor on the final row of the screen (the search's own row,
+    // under the preview): the oracle asserts the row only
     let mut s = Screen::build(Owner::UiPane).size(48, 6).live().open();
     s.keys("ctrl+r");
+    s.assert_contains("reverse-i-search");
+    let (_, row) = s
+        .grid()
+        .cursor
+        .expect("the cursor is shown in the history search");
+    assert_eq!(
+        row,
+        s.rows().len() - 1,
+        "the cursor is on the final row:\n{}",
+        s.text()
+    );
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1109 slash_suggestions_take_space_before_status_expands kind=snap owner=ui-pane snap=slash_suggestions_take_space_before_status_expands

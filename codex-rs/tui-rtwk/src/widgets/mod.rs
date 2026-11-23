@@ -2,6 +2,7 @@
 
 pub mod age;
 pub mod composer_draft;
+pub mod composer_sparkle;
 pub mod dots;
 pub mod key_guard;
 pub mod markdown;

@@ -776,6 +776,7 @@ impl State for ComposerState {
             suggest: self.suggest.clone(),
             keymap: crate::keymap::keymap(cx),
             states: states.clone(),
+            sparkle: w.ui.sparkle.clone(),
         };
         let env = data.burst.clone();
         let searching = data.clone();
@@ -797,6 +798,7 @@ impl State for ComposerState {
         }
         let tell = cx.local_sender();
         let (draft, pasted_into) = (w.ui.draft.clone(), c.clone());
+        let sparkle = w.ui.sparkle.clone();
         let area = area.on_paste(move |text| {
             // a real paste first lets what a burst holds go in, and ends the
             // burst's window (`handle_paste`, `apply_paste`)
@@ -814,6 +816,15 @@ impl State for ComposerState {
                 tell(ComposerMsg::Redraw);
                 return true;
             }
+            // the sparkle hears of the paste before the field takes it
+            // (`note_sparkle_paste`)
+            let current = pasted_into.text();
+            sparkle.pasted(
+                text,
+                &current,
+                pasted_into.selection().extent_offset,
+                current.is_empty() && !draft.shell(),
+            );
             draft.vim_begin_edit(&pasted_into);
             let mut took = draft.paste(
                 &pasted_into,
