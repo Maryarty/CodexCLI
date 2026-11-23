@@ -1806,8 +1806,14 @@ impl<'a> ThreadFx<'a> {
         self.mint.next()
     }
 
-    /// Asks the backend to start a turn with `message`.
-    pub fn start_turn(&mut self, message: UserMessage) -> Ticket {
+    /// Asks the backend to start a turn with `message`: one start per step. A second start in the
+    /// same step (two features' hooks after the thread's own work) is refused and the message is
+    /// given back, so the caller keeps it (ADR-012: one turn start at a time). Whether the model
+    /// is busy is the caller's to ask, it holds the model (`ThreadView::busy` for a feature).
+    pub fn start_turn(&mut self, message: UserMessage) -> Result<Ticket, UserMessage> {
+        if self.start_said() {
+            return Err(message);
+        }
         let ticket = self.mint.next();
         self.registered.push((
             ticket,
@@ -1821,7 +1827,7 @@ impl<'a> ThreadFx<'a> {
             thread: self.thread.clone(),
             message,
         });
-        ticket
+        Ok(ticket)
     }
 
     fn interrupt(&mut self, turn: TurnId, retried: bool) {
@@ -2374,7 +2380,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 return;
             }
             model.last_error = None;
-            model.last_submit = Some(fx.start_turn(message));
+            match fx.start_turn(message) {
+                Ok(ticket) => model.last_submit = Some(ticket),
+                // a start was said in this step already: the message waits behind it
+                Err(message) => enqueue(model, Queued::Message(message), fx),
+            }
         }
         ThreadEv::Submit { .. } => {}
         ThreadEv::Interrupt if model.can_interrupt() => {
@@ -2496,11 +2506,6 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 _ => {}
             }
         }
-        // The queue's five intents (Tab, the screen's report of a command it ran, what stopped
-        // the queue is over, the hold and the edit key): `threads/queue.rs` owns them.
-        ThreadEv::ScreenIntent(intent) if model.has_writer() && queue::takes(&intent) => {
-            queue::apply(model, intent, fx);
-        }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::InterruptForSteers,
         )) if model.has_writer() => {
@@ -2577,9 +2582,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::FeatureIntent(intent) => with_features(model, fx, |parts, cx| {
             features::apply_thread_intent(parts, intent, cx);
         }),
+        // The queue's five intents (Tab, the screen's report of a command it ran, what stopped
+        // the queue is over, the hold and the edit key) are `threads/queue.rs`'s; it gives back
+        // the others, which are the screens'.
         ThreadEv::ScreenIntent(intent) if model.has_writer() => {
-            let busy = model.is_running() || model.outgoing.any(is_start_turn);
-            screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
+            if let Err(intent) = queue::apply(model, intent, fx) {
+                let busy = model.is_running() || model.outgoing.any(is_start_turn);
+                screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
+            }
         }
         ThreadEv::ScreenIntent(_) => {}
         ThreadEv::Preview(texts) => {
@@ -2764,19 +2774,18 @@ fn feature_interrupted(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     with_features(model, fx, features::on_interrupted);
 }
 
-/// Runs one step of the features over this thread: their parts `&mut`, the rest read-only,
-/// and only where this process writes the thread (ADR-003: a feature changes its part and
-/// the thread's effects under the writer; `ThreadCx::new` is none elsewhere, and the step
-/// is not run).
+/// Runs one step of the features over this thread: their parts `&mut`, the rest read-only.
+/// A reply or a lifecycle fact reaches the features whether or not this process still writes
+/// the thread (a part that waits for it must not stay stuck when a provider refusal took the
+/// writer); the effects a step has are the writer's (ADR-003: `ThreadCx::request` is shut
+/// without it, and an ask, `Feature::thread_intent`, is not delivered).
 fn with_features(
     model: &mut ThreadModel,
     fx: &mut ThreadFx<'_>,
     step: impl FnOnce(&mut features::FeatureThreadParts, &mut ThreadCx<'_, '_>),
 ) {
     let (parts, view) = model.split_features();
-    if let Some(mut cx) = ThreadCx::new(view, fx) {
-        step(parts, &mut cx);
-    }
+    step(parts, &mut ThreadCx::new(view, fx));
 }
 
 /// A unified-exec command that runs is a background terminal until its item
@@ -2913,7 +2922,10 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
     apply_appended(model, Some(turn.clone()), Item::Notice(notice));
     if submit && !mine.is_empty() {
         let merged = merge_messages(mine.into_iter().map(|steer| steer.message).collect());
-        fx.start_turn(merged);
+        if let Err(merged) = fx.start_turn(merged) {
+            // refused (a start was said in this step): the next `send_next` sends it first
+            model.rejected_steers.push(merged);
+        }
     } else {
         let mut messages = std::mem::take(&mut model.rejected_steers);
         messages.extend(mine.into_iter().map(|steer| steer.message));
@@ -3079,7 +3091,10 @@ fn steer_reply(
             if let Some(index) = position {
                 model.pending_steers.remove(index);
             }
-            fx.start_turn(message);
+            if let Err(message) = fx.start_turn(message) {
+                // refused (a start was said in this step): the next `send_next` sends it first
+                model.rejected_steers.push(message);
+            }
         }
         Refusal::Changed(actual) if !retried && actual != turn => {
             if let TurnState::Running(running) = &mut model.core.turn

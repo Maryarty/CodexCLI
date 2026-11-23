@@ -140,6 +140,7 @@ pub fn cell(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             separator,
             web::WebCell {
                 activity: activity.clone(),
+                detailed: env.detailed,
             }
             .into(),
         ),
