@@ -645,7 +645,10 @@ fn model_reasoning_selection_popup_snapshot() {
         "gpt-5.5",
         &[
             ("low", "Fast responses with lighter reasoning"),
-            ("medium", "Balances speed and reasoning depth for everyday tasks"),
+            (
+                "medium",
+                "Balances speed and reasoning depth for everyday tasks",
+            ),
             ("max", "Maximum available reasoning"),
             ("high", "Greater reasoning depth for complex problems"),
             ("xhigh", "Extra high reasoning depth for complex problems"),
@@ -665,9 +668,13 @@ fn model_reasoning_selection_popup_snapshot() {
 #[test]
 fn model_advanced_reasoning_selection_popup_snapshot() {
     let mut model = bundled_model("gpt-5.5");
-    let efforts = model["supportedReasoningEfforts"].as_array_mut().expect("efforts");
+    let efforts = model["supportedReasoningEfforts"]
+        .as_array_mut()
+        .expect("efforts");
     efforts.push(serde_json::json!({"reasoningEffort": "ultra", "description": "Ultra reasoning"}));
-    efforts.push(serde_json::json!({"reasoningEffort": "max", "description": "Maximum available reasoning"}));
+    efforts.push(
+        serde_json::json!({"reasoningEffort": "max", "description": "Maximum available reasoning"}),
+    );
     let mut s = on_startup_catalog(80, 9, "gpt-5.5", &[model]);
     on_effort(&mut s, "gpt-5.5", "ultra");
     s.type_text("/model");
@@ -1247,7 +1254,9 @@ fn provider_switch_blocks_cached_choices_in_old_and_new_chats() {
     s.type_text("/model");
     s.keys("enter");
     // (the notice wraps at 80 columns)
-    s.assert_has_row("• The model list may be out of date. Restart the app server and TUI to refresh");
+    s.assert_has_row(
+        "• The model list may be out of date. Restart the app server and TUI to refresh",
+    );
     s.assert_has_row("/model.");
     s.assert_absent("Select Model");
     // the composer is free again: no dialog stays over it

@@ -16,8 +16,8 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::select::plugins as plugin_model;
 use codex_tui_core::screens::select::models::Heading;
+use codex_tui_core::screens::select::plugins as plugin_model;
 use codex_tui_core::screens::select::review::Menu as ReviewMenu;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
 
