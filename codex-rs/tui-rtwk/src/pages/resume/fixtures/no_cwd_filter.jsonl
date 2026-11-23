@@ -1,0 +1,4 @@
+# `status_changes_when_directory_filter_is_unavailable`: two rows, no directory the picker is scoped to (no `Cwd` filter).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777393800}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-4000-8000-000000000200","preview":"item-0","created":1777393800,"updated":1777393800,"path":"/tmp/0.jsonl"},{"id":"00000000-0000-4000-8000-000000000201","preview":"item-1","created":1777390200,"updated":1777393500,"path":"/tmp/1.jsonl"}]}}}

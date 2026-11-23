@@ -1,0 +1,5 @@
+# `footer_cwd_truncates_to_responsive_column`: one row under a very long worktree directory.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"agents","ev":{"home":"/Users/felipe.coury"}}
+{"step":"screen","dir":"resume","ev":{"clock":1777723200}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"019dabc1-0ef5-7431-b81c-03037f51f62c","preview":"Footer row","created":1777705200,"updated":1777708800,"cwd":"/Users/felipe.coury/code/codex.owner-extremely-long-worktree-name-that-needs-truncating/codex-rs","branch":"owner/branch","path":"/tmp/a.jsonl"}]}}}

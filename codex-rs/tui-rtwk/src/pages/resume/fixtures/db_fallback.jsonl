@@ -1,0 +1,4 @@
+# `local_db_first_falls_back_when_initial_db_page_is_empty`: the three rows of the store fallback, a day old.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1735948800}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-00000000000b","preview":"first store result","created":1735862400,"updated":1735862400,"path":"/tmp/first.jsonl"},{"id":"00000000-0000-0000-0000-00000000000c","preview":"repaired store result","created":1735862400,"updated":1735862400,"path":"/tmp/repaired.jsonl"},{"id":"00000000-0000-0000-0000-00000000000d","preview":"third store result","created":1735862400,"updated":1735862400,"path":"/tmp/third.jsonl"}]}}}

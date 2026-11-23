@@ -1,0 +1,4 @@
+# `archived_status_preserves_directory_filter_and_hides_archive_shortcut`: one row under the directory filter /tmp/project; the status moves to Archived.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/tmp/project","repo_cwds":[]}}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-00000000002a","preview":"Selected session","cwd":"/tmp/project"}]}}}

@@ -459,6 +459,8 @@ enum AppCtx {
     },
     /// An RPC of an app-scoped screen (the agents command center).
     Agents(agents::Ctx),
+    /// An RPC of the resume picker (its pages, previews, archive).
+    Resume(resume::Ctx),
     /// `model/list` and the permission profiles for the pickers of S14.
     Select(crate::screens::select::Ctx),
     RateLimits {
@@ -765,6 +767,10 @@ impl CodexApp {
                 command: ScreenCommand::Agents(command),
                 ..
             } => agents::backend_of(agents, command),
+            Command::Screen {
+                command: ScreenCommand::Resume(command),
+                ..
+            } => command.backend(),
             Command::StartTurn { thread, .. } | Command::InterruptTurn { thread, .. } => {
                 agents.owner_of(thread.as_str())
             }
@@ -902,7 +908,6 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
     if lists && !app.outgoing.any(is_attach) {
         app.attaching_events.clear();
     }
-    sync_picker(app);
     if lists && agents::wants_dirs(&app.screens.agents) {
         let cwds = agents::wanted_dirs(&mut Rc::make_mut(&mut app.screens).agents);
         if !cwds.is_empty() {
@@ -1324,6 +1329,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         app.attaching_events
                             .retain(|(backend, ..)| *backend != origin);
                         let owners = &app.screens.agents;
+                        let lost = std::cell::RefCell::new(Vec::new());
                         app.outgoing.retain(|ctx| match ctx {
                             AppCtx::Worktree { backend, .. }
                             | AppCtx::OpenThread { backend, .. }
@@ -1331,6 +1337,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             | AppCtx::Nudge { backend, .. }
                             | AppCtx::RateLimits { backend } => *backend != origin,
                             AppCtx::SessionRead => origin != BackendId::default(),
+                            AppCtx::Resume(ctx) if ctx.backend() == origin => {
+                                lost.borrow_mut().push(ctx.clone());
+                                false
+                            }
                             AppCtx::Agents(agents::Ctx::History { thread }) => {
                                 owners.owner_of(thread) != origin
                             }
@@ -1339,6 +1349,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             }
                             _ => true,
                         });
+                        // The picker's pages the lost connection owed fail.
+                        for ctx in lost.into_inner() {
+                            let error = RpcError::Remote("connection lost".to_owned());
+                            let model = &mut Rc::make_mut(&mut app.screens).resume;
+                            resume::apply_answer(model, ctx, Err(error));
+                        }
                         // An older page that will never come is a failed one: asking again
                         // retries it.
                         let unanswered: Vec<_> = app
@@ -1547,6 +1563,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
             }
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
+            AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend } => {
                 if let Answer::RateLimits {
@@ -2092,20 +2109,79 @@ fn cancel_requests(app: &mut CodexApp, fx: &mut AppFx) {
     }
 }
 
-/// The resume picker on the live backend: opening it lists the sessions again,
-/// a pick resumes that task (the center's resume, hidden tasks included).
+/// The resume picker: opening it lists the sessions of every connected
+/// backend, the toolbar and the search ask for new listings, a pick opens
+/// that thread through `OpenThread` (ADR-003: the picker never resumes).
 fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
+    let opening = matches!(intent, resume::Intent::Open);
     let screens = Rc::make_mut(&mut app.screens);
-    let outs = match &intent {
-        resume::Intent::Open => agents::update(&mut screens.agents, agents::Intent::Refresh),
-        resume::Intent::Resume(id) => {
-            resume::apply_intent(&mut screens.resume, intent.clone(), fx);
-            let id = id.clone();
-            return open_thread(app, &id, fx);
+    if opening {
+        let agents = &screens.agents;
+        let mut sources: Vec<BackendId> = agents.clouds.iter().copied().collect();
+        sources.push(BackendId::default());
+        sources.push(agents.displayed);
+        sources.sort();
+        sources.dedup();
+        screens.resume.sources = sources;
+    }
+    let outs = resume::update(&mut screens.resume, intent);
+    send_resume(app, outs, fx);
+    let model = &mut Rc::make_mut(&mut app.screens).resume;
+    if let Some(id) = model.resuming.take().or_else(|| model.restored.take()) {
+        let backend = app
+            .screens
+            .resume
+            .row(&id)
+            .map_or(app.screens.agents.displayed, |row| row.backend);
+        Rc::make_mut(&mut app.screens)
+            .agents
+            .observe(backend, id.as_str());
+        open_thread(app, &id, fx);
+    }
+}
+
+/// Mints a ticket for each RPC the picker asks for and sends it.
+fn send_resume(app: &mut CodexApp, outs: Vec<resume::Out>, fx: &mut AppFx) {
+    for out in outs {
+        let ticket = app.mint.next();
+        let command = match out.ask {
+            resume::Ask::Rpc(command) => ScreenCommand::Resume(command),
+            // A thread's turns are the thread's own RPC (ADR-003): asked as
+            // its history, on the backend that owns the thread.
+            resume::Ask::Turns { backend, thread } => {
+                Rc::make_mut(&mut app.screens)
+                    .agents
+                    .observe(backend, thread.as_str());
+                ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::History {
+                    thread: thread.to_string(),
+                    cursor: None,
+                }))
+            }
+        };
+        app.outgoing.insert(ticket, AppCtx::Resume(out.ctx));
+        fx.commands.push(Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command,
+        });
+    }
+}
+
+/// The reply of an RPC of the picker.
+fn resume_answer(app: &mut CodexApp, ctx: resume::Ctx, answer: Answer, fx: &mut AppFx) {
+    let result = match answer {
+        Answer::Screen(ScreenReply::Resume(reply)) => Ok(reply),
+        Answer::Screen(ScreenReply::Agents(agents::Reply::History { turns, .. })) => {
+            Ok(resume::Reply::Turns(turns))
         }
+        Answer::Failed(error) => Err(error),
+        _ => Err(RpcError::Mismatch),
     };
-    resume::apply_intent(&mut screens.resume, intent, fx);
-    send_agents(app, outs, fx);
+    let outs = resume::apply_answer(&mut Rc::make_mut(&mut app.screens).resume, ctx, result);
+    send_resume(app, outs, fx);
+    if let Some(id) = Rc::make_mut(&mut app.screens).resume.restored.take() {
+        open_thread(app, &id, fx);
+    }
 }
 
 /// The sole decision to use a held writer, await an existing resume or
@@ -2120,6 +2196,7 @@ fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
         .get(id)
         .is_some_and(|thread| thread.has_writer());
     if !app.threads.contains(id)
+        && app.screens.resume.row(id).is_none()
         && !model
             .threads
             .iter()
@@ -2194,20 +2271,6 @@ fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx
         }],
         fx,
     );
-}
-
-/// While the picker is live its rows follow the list the backend filled.
-fn sync_picker(app: &mut CodexApp) {
-    let model = &app.screens.resume;
-    if !model.live {
-        return;
-    }
-    let (rows, load) = resume::listing(&app.screens.agents);
-    if model.rows != rows || model.load != load {
-        let model = &mut Rc::make_mut(&mut app.screens).resume;
-        model.rows = rows;
-        model.load = load;
-    }
 }
 
 /// Mints a ticket for each RPC the agents screen asks for and sends it. The

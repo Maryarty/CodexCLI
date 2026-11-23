@@ -1,0 +1,4 @@
+# `paste_uses_existing_search_loading_path`: one row and a next cursor (a search reads more pages).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777393800}}
+{"step":"screen","dir":"resume","ev":{"paged":{"rows":[{"id":"00000000-0000-4000-8000-000000000200","preview":"row 0","created":1777393800,"updated":1777393800,"path":"/tmp/0.jsonl"}],"next":"cursor-1"}}}

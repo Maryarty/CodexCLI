@@ -1,0 +1,3 @@
+# `thread_colors_and_selection_contrast_in_both_picker_layouts`: an unread row named `Named task` (thread id 42).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-00000000002a","preview":"Original prompt","thread_name":"Named task","unread":true}]}}}

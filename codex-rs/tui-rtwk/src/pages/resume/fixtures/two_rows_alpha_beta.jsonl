@@ -1,0 +1,4 @@
+# `esc_with_query_clears_search_and_preserves_selected_result`: rows alpha and beta.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777393800}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-4000-8000-000000000200","preview":"alpha","created":1735862400,"updated":1735862400,"path":"/tmp/alpha.jsonl"},{"id":"00000000-0000-4000-8000-000000000201","preview":"beta","created":1735776000,"updated":1735776000,"path":"/tmp/beta.jsonl"}]}}}

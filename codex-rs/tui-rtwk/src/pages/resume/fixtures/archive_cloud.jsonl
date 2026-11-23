@@ -1,0 +1,7 @@
+# `archive_cloud_preserves_same_id_current_local_row_and_transcript`: a local and a cloud copy of one thread, each with its own preview.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777393800}}
+{"step":"screen","dir":"resume","ev":{"paged":{"backend":0,"rows":[{"id":"00000000-0000-0000-0000-00000000001f","preview":"Selected session","created":1735776000,"updated":1735776000}],"next":null}}}
+{"step":"screen","dir":"resume","ev":{"paged":{"backend":1,"rows":[{"id":"00000000-0000-0000-0000-00000000001f","preview":"Selected session","created":1735776000,"updated":1735775999,"cloud":true}],"next":null}}}
+{"step":"screen","dir":"resume","ev":{"preview":{"id":"00000000-0000-0000-0000-00000000001f","backend":0,"lines":[{"speaker":"user","text":"Local preview"}]}}}
+{"step":"screen","dir":"resume","ev":{"preview":{"id":"00000000-0000-0000-0000-00000000001f","backend":1,"lines":[{"speaker":"user","text":"Cloud preview"}]}}}
