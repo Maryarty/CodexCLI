@@ -161,6 +161,8 @@ pub struct Strings {
     // (`model_defaults.rs`, `config_persistence.rs`, `connectors.rs`).
     pub note_no_models: &'static str,
     pub note_models_not_loaded: &'static str,
+    pub note_model_list_stale: &'static str,
+    pub note_model_provider_saving: &'static str,
     pub note_model_changed: Msg<1>,
     pub note_session_only: &'static str,
     pub note_default_effort: &'static str,
@@ -289,6 +291,8 @@ pub const EN: Strings = Strings {
     picker: &crate::sheets::select::strings::EN,
     note_no_models: "No additional models are available right now.",
     note_models_not_loaded: "Could not load models. Try /model again.",
+    note_model_list_stale: "The model list may be out of date. Restart the app server and TUI to refresh /model.",
+    note_model_provider_saving: "Saving the default provider. Try /model after the save finishes.",
     note_model_changed: msg!("Model changed to {0}"),
     note_session_only: " for this session only",
     note_default_effort: "default",
@@ -510,13 +514,17 @@ impl Strings {
     /// The words of what a picker said (`select::Note`).
     fn picker_note(&self, note: &codex_tui_core::screens::select::Note) -> String {
         use codex_tui_core::screens::select::permissions::{Label, Preset, Reviewer};
-        use codex_tui_core::screens::select::{Note, Setting};
+        use codex_tui_core::screens::select::{Note, Provider, Setting};
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
         let picker = self.picker;
         match note {
             Note::NoAdditionalModels => self.note_no_models.to_string(),
             Note::ModelsNotLoaded => self.note_models_not_loaded.to_string(),
+            Note::ModelPickerUnavailable(Provider::Saving) => {
+                self.note_model_provider_saving.to_string()
+            }
+            Note::ModelPickerUnavailable(_) => self.note_model_list_stale.to_string(),
             Note::ModelChanged {
                 model,
                 effort,

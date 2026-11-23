@@ -22,7 +22,7 @@ pub mod persist;
 pub mod reasoning;
 pub mod review;
 pub use list::List;
-pub use models::{Catalog, Current, ModelMenu, Preset, Selection};
+pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
 use models::{Effort, PlanSource, Step};
 pub use permissions::{PermissionsMenu, Profiles};
 
@@ -159,6 +159,10 @@ pub enum Note {
     NoApps,
     /// The directory failed before: the error as an error cell.
     AppsFailed(String),
+    /// `/model` is blocked (`model_picker_unavailable`): `The model list may be out of date.
+    /// Restart the app server and TUI to refresh /model.` after a provider write, or `Saving the
+    /// default provider. Try /model after the save finishes.` while it runs.
+    ModelPickerUnavailable(Provider),
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
@@ -299,6 +303,12 @@ impl Model {
             self.kept.insert(self.stack.len() - 1, id);
         }
         self.step(step);
+    }
+
+    /// `dismiss_stale_model_picker`: the model menus go, with the request they waited for.
+    fn dismiss_stale_models(&mut self) {
+        self.catalog.pending = None;
+        self.stack.retain(|menu| !matches!(menu, Menu::Model(_)));
     }
 
     /// Forgets the rows kept for menus that are gone.
@@ -444,6 +454,10 @@ pub enum Ev {
     Opened(Menu),
     /// The catalog the app started with.
     Loaded(Vec<Preset>),
+    /// The default provider's write state changed (`provider_write`): a write in flight or
+    /// committed dismisses the model menus and drops the answer in flight
+    /// (`dismiss_stale_model_picker`), and blocks `/model` until the restart.
+    Provider(Provider),
     /// The permission catalog the app holds; menus open on it show it in
     /// place.
     Listed(permissions::Discovery),
@@ -538,6 +552,12 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Loaded(presets) => model.accept(presets),
+        Ev::Provider(provider) => {
+            model.catalog.provider = provider;
+            if provider != Provider::Settled {
+                model.dismiss_stale_models();
+            }
+        }
         Ev::Reviewed { request, listing } => {
             let over_presets = matches!(
                 model.stack.last(),
@@ -617,6 +637,10 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     match intent {
         Intent::Open(menu) => model.stack = vec![menu],
         Intent::OpenModels(current) => {
+            if let Some(why) = model.catalog.unavailable() {
+                model.notes.push(Note::ModelPickerUnavailable(why));
+                return;
+            }
             model.stack.clear();
             model.catalog.request();
             if model.catalog.presets.is_empty() {
@@ -628,7 +652,9 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::LoadModels => {
-            model.catalog.request();
+            if model.catalog.unavailable().is_none() {
+                model.catalog.request();
+            }
         }
         Intent::OpenPermissions(current) => model.open_permissions(current),
         Intent::ServiceTier { id, current } => {
