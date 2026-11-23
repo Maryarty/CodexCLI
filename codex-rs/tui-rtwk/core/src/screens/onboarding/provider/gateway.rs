@@ -431,7 +431,7 @@ mod tests {
             Stage::Picking(picker) => picker.list.create_row(),
             _ => panic!("not picking"),
         };
-        assert_eq!(create, gateway_rows(&gateway));
+        assert_eq!(create, gateway_rows(gateway));
         gateway.apply(Intent::Create, &mut || 0);
     }
 
