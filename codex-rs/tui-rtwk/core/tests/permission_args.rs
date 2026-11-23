@@ -14,8 +14,8 @@ use codex_tui_core::rpc::{Reply, RpcError};
 use codex_tui_core::screens::select::permission_args::{self, Args, Error, Inline, Refusal};
 use codex_tui_core::screens::select::permission_shortcuts;
 use codex_tui_core::screens::select::permissions::{
-    self, Approval, Current, Disabled, Discovery, Failure, Label, PermissionsMenu, Preset,
-    Profile, Requirements, Reviewer, Selection,
+    self, Approval, Current, Disabled, Discovery, Failure, Label, PermissionsMenu, Preset, Profile,
+    Requirements, Reviewer, Selection,
 };
 use codex_tui_core::screens::select::{self, Intent as SelectIntent, Menu};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, chat};
@@ -100,10 +100,15 @@ fn profile(id: &str) -> Profile {
 }
 
 fn catalog() -> Vec<Profile> {
-    [":read-only", ":workspace", ":danger-full-access", "server-only"]
-        .into_iter()
-        .map(profile)
-        .collect()
+    [
+        ":read-only",
+        ":workspace",
+        ":danger-full-access",
+        "server-only",
+    ]
+    .into_iter()
+    .map(profile)
+    .collect()
 }
 
 fn current() -> Current {
@@ -153,14 +158,16 @@ fn only_profile(id: &str, allowed: bool) -> Requirements {
 
 /// The patch of the one `Settings` command in `fx`: the profile, the policy and the reviewer.
 fn settings(fx: &AppFx) -> Option<(Option<String>, Option<Approval>, Option<Reviewer>)> {
-    asked(fx).into_iter().find_map(|(_, command)| match command {
-        select::Command::Settings { patch, .. } => Some((
-            patch.permissions,
-            patch.approval_policy,
-            patch.approvals_reviewer,
-        )),
-        _ => None,
-    })
+    asked(fx)
+        .into_iter()
+        .find_map(|(_, command)| match command {
+            select::Command::Settings { patch, .. } => Some((
+                patch.permissions,
+                patch.approval_policy,
+                patch.approvals_reviewer,
+            )),
+            _ => None,
+        })
 }
 
 fn notes(app: &CodexApp) -> Vec<(select::Note, Tone)> {
@@ -267,7 +274,10 @@ fn bad_arguments_are_typed_errors() {
             Error::Approval("sometimes".into()),
         ),
         ("a --reviewer robot", Error::Reviewer("robot".into())),
-        ("a --reviewer", Error::Args(ArgError::NeedsValue("--reviewer".into()))),
+        (
+            "a --reviewer",
+            Error::Args(ArgError::NeedsValue("--reviewer".into())),
+        ),
         ("a --nope", Error::Args(ArgError::Unknown("--nope".into()))),
     ] {
         assert_eq!(permission_args::parse(line), Err(error), "{line}");
@@ -369,7 +379,9 @@ fn approve_for_me_needs_the_guardian_feature() {
             "{line}"
         );
     }
-    assert!(permission_args::resolve(&args(":workspace --reviewer auto_review"), &found, true).is_ok());
+    assert!(
+        permission_args::resolve(&args(":workspace --reviewer auto_review"), &found, true).is_ok()
+    );
 }
 
 #[test]
@@ -446,7 +458,10 @@ fn a_catalog_still_being_read_is_waited_for() {
             next: None,
         },
     );
-    assert!(app.screens().select.stack.is_empty(), "the pick replaces the menu");
+    assert!(
+        app.screens().select.stack.is_empty(),
+        "the pick replaces the menu"
+    );
     assert_eq!(
         settings(&fx),
         Some((Some("server-only".into()), None, None))
@@ -461,7 +476,10 @@ fn a_retry_after_a_failed_read_keeps_the_profile() {
     let (ticket, _) = asked(&fx).remove(0);
     run(
         &mut app,
-        AppEv::Reply(ticket, Reply::error(RpcError::Remote("disconnected".into()))),
+        AppEv::Reply(
+            ticket,
+            Reply::error(RpcError::Remote("disconnected".into())),
+        ),
     );
     assert!(matches!(
         app.screens().select.stack.last(),
@@ -498,7 +516,7 @@ fn a_refused_profile_is_said_and_holds_the_queue() {
             message: UserMessage::text("go"),
         }),
     );
-    let intent = chat::ThreadIntent::Queue(UserMessage::text("follow-up"));
+    let intent = chat::ThreadIntent::Queue(UserMessage::text("follow-up").into());
     run(
         &mut app,
         AppEv::Intent(Intent::ThreadScreen {
@@ -520,7 +538,10 @@ fn a_refused_profile_is_said_and_holds_the_queue() {
         )]
     );
     assert!(!app.screens().select.hold_queue, "the app took the flag");
-    assert!(app.active_thread().queue_held(), "the follow-up stays unsent");
+    assert!(
+        app.active_thread().queue_held(),
+        "the follow-up stays unsent"
+    );
 }
 
 #[test]
@@ -622,9 +643,7 @@ fn escaping_the_full_access_confirmation_gives_the_pick_up() {
 
 fn chosen(current: &Current, found: &Discovery, forward: bool) -> Option<(String, Reviewer)> {
     permission_shortcuts::next(current, found, forward).map(|selection| match selection {
-        Selection::Profile {
-            id, reviewer, ..
-        } => (id, reviewer.expect("a reviewer")),
+        Selection::Profile { id, reviewer, .. } => (id, reviewer.expect("a reviewer")),
         Selection::Preset { .. } => panic!("a catalog mode"),
     })
 }
@@ -647,9 +666,18 @@ fn the_shortcuts_cycle_the_builtin_modes() {
         ..user.clone()
     };
     let cycle = |current: &Current, forward| chosen(current, &found, forward);
-    assert_eq!(cycle(&user, true), Some((":workspace".into(), Reviewer::AutoReview)));
-    assert_eq!(cycle(&auto, true), Some((":read-only".into(), Reviewer::User)));
-    assert_eq!(cycle(&read_only, true), Some((":workspace".into(), Reviewer::User)));
+    assert_eq!(
+        cycle(&user, true),
+        Some((":workspace".into(), Reviewer::AutoReview))
+    );
+    assert_eq!(
+        cycle(&auto, true),
+        Some((":read-only".into(), Reviewer::User))
+    );
+    assert_eq!(
+        cycle(&read_only, true),
+        Some((":workspace".into(), Reviewer::User))
+    );
     assert_eq!(
         cycle(&read_only, false),
         Some((":workspace".into(), Reviewer::AutoReview))
@@ -732,7 +760,11 @@ fn a_shortcut_picks_once_and_waits_for_its_answer() {
     let (ticket, _) = asked(&fx).remove(0);
     answer(&mut app, ticket, select::Reply::Updated);
     assert!(!app.screens().select.profiles.shortcut);
-    assert_eq!(asked(&key(&mut app)).len(), 1, "after the answer the key works again");
+    assert_eq!(
+        asked(&key(&mut app)).len(),
+        1,
+        "after the answer the key works again"
+    );
 }
 
 #[test]

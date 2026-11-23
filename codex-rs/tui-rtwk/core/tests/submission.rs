@@ -109,9 +109,9 @@ fn a_follow_up_waits_after_a_failed_preparation_and_the_next_submit_goes_first()
         &mut app,
         AppEv::Intent(Intent::ThreadScreen {
             thread: ThreadId::new(T),
-            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(UserMessage::text(
-                "follow-up",
-            ))),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(
+                UserMessage::text("follow-up").into(),
+            )),
         }),
     );
     // an image steer fails to prepare

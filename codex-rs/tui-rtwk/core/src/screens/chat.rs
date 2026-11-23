@@ -573,9 +573,14 @@ pub enum ThreadIntent {
     /// `!cmd` from the composer: a user shell command (the oracle's
     /// `AppCommand::RunUserShellCommand`), run while a turn runs too.
     Shell(String),
-    /// Tab: the message waits behind the running turn (the oracle's
+    /// Tab: the line waits behind the running turn (the oracle's
     /// `InputResult::Queued`); `threads::apply` owns the queue.
-    Queue(crate::threads::UserMessage),
+    Queue(crate::threads::Queued),
+    /// The screen ran the queued command it was handed (`ThreadModel::due_command`): what the
+    /// queue does next reads what it opened.
+    QueueRan(crate::threads::Ran),
+    /// What stopped the queue is over (the sheet closed): the next item goes on.
+    QueueResume,
     /// Esc while steers are pending: interrupt the turn, then send the
     /// steers as one message (`submit_pending_steers_after_interrupt`).
     InterruptForSteers,

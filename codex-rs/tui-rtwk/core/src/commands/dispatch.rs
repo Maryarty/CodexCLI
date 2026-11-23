@@ -361,6 +361,45 @@ pub fn dispatch_with_tiers(line: &str, cx: &DispatchCx, tiers: &[ServiceTierComm
     }
 }
 
+/// A queued line dispatched when its turn comes (`submit_queued_slash_prompt`): what the
+/// outcome is and the command that was found, for the rule of the next item.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueuedDispatch {
+    pub outcome: Outcome,
+    pub command: Option<SlashCommand>,
+}
+
+/// Dispatches a queued line. As a live line, except that a command which takes no arguments,
+/// given some, is a message for the model (the line is submitted whole).
+pub fn dispatch_queued(
+    line: &str,
+    cx: &DispatchCx,
+    tiers: &[ServiceTierCommand],
+) -> QueuedDispatch {
+    let found = parse_slash_name(line)
+        .filter(|(name, _, _)| !name.contains('/'))
+        .and_then(|(name, rest, _)| {
+            find_slash_command(name, cx.flags, tiers).map(|item| (item, rest))
+        });
+    let command = match &found {
+        Some((SlashCommandItem::Builtin(command), _)) => Some(*command),
+        _ => None,
+    };
+    if let Some((SlashCommandItem::Builtin(command), rest)) = &found
+        && !rest.trim().is_empty()
+        && !command.supports_inline_args()
+    {
+        return QueuedDispatch {
+            outcome: Outcome::NotACommand,
+            command: None,
+        };
+    }
+    QueuedDispatch {
+        outcome: dispatch_with_tiers(line, cx, tiers),
+        command,
+    }
+}
+
 fn open(target: Target, command: SlashCommand, args: &str) -> Outcome {
     Outcome::Open(Open {
         target,

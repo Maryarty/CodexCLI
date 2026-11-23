@@ -2003,7 +2003,9 @@ mod directory {
             app,
             AppEv::Intent(Intent::ThreadScreen {
                 thread: ThreadId::new(T),
-                intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(UserMessage::text("q"))),
+                intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(
+                    UserMessage::text("q").into(),
+                )),
             }),
         );
     }

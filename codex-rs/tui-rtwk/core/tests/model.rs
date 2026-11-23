@@ -123,7 +123,10 @@ fn chat_intent(app: &mut CodexApp, intent: chat::ThreadIntent) -> AppFx {
 
 /// Tab: the message waits behind the running turn instead of steering it.
 fn tab(app: &mut CodexApp, text: &str) -> AppFx {
-    chat_intent(app, chat::ThreadIntent::Queue(UserMessage::text(text)))
+    chat_intent(
+        app,
+        chat::ThreadIntent::Queue(UserMessage::text(text).into()),
+    )
 }
 
 /// The `(ticket, turn, text)` of every `turn/steer` in `fx`.
@@ -1235,8 +1238,11 @@ fn restored_messages_merge_with_renumbered_image_placeholders() {
         images: vec![image(0, 10)],
         mentions: Vec::new(),
     };
-    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image.clone()));
-    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image));
+    chat_intent(
+        &mut app,
+        chat::ThreadIntent::Queue(with_image.clone().into()),
+    );
+    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image.into()));
     notification(&mut app, turn_interrupted(T, "turn-1"));
     let restore = thread(&app).restore().cloned().expect("restore");
     let merged = restore.merged();

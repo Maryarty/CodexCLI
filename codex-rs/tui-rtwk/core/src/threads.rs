@@ -19,6 +19,7 @@ pub mod goal;
 pub mod inline_vis;
 mod message;
 mod note;
+pub mod queue;
 pub mod replay;
 pub mod stream_preview;
 mod user_prompt;
@@ -39,6 +40,7 @@ pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
 pub use note::{CdRefusal, CopyLabel, ExportNote, Note, NoteKey, RemoveNote, Stub, Tone};
+pub use queue::{DueCommand, Queued, Ran};
 pub use user_prompt::{Shown, UserPrompt};
 
 use std::collections::BTreeMap;
@@ -76,6 +78,7 @@ use codex_app_server_protocol::TurnStatus;
 
 use crate::app::AppFx;
 use crate::app::Command;
+use crate::commands::QueueDrain;
 use crate::ids::ItemId;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
@@ -995,8 +998,14 @@ pub struct ThreadModel {
     /// The ticket of the last submit `apply` accepted: the composer clears
     /// when it changes, never before.
     last_submit: Option<Ticket>,
-    /// Messages sent while a turn runs: one goes out per turn end, in order.
-    queue: Vec<UserMessage>,
+    /// Lines the queue key set aside while a turn runs: one message goes out per turn end, in
+    /// order; a command or a shell line is run when its turn comes.
+    queue: Vec<Queued>,
+    /// A queued command the screen has to run (and report with `ThreadIntent::QueueRan`): the
+    /// queue waits for the answer.
+    due: Option<DueCommand>,
+    /// Counts the queued commands handed to the screen.
+    due_seq: u64,
     /// Steers sent to the running turn and not yet echoed, oldest first.
     pending_steers: Vec<PendingSteer>,
     /// Steers the server refused (a review or compact turn): they go out first
@@ -1170,6 +1179,8 @@ impl ThreadModel {
             outgoing: Pending::default(),
             last_submit: None,
             queue: Vec::new(),
+            due: None,
+            due_seq: 0,
             pending_steers: Vec::new(),
             rejected_steers: Vec::new(),
             steers_after_interrupt: false,
@@ -1237,8 +1248,14 @@ impl ThreadModel {
         self.last_submit
     }
 
-    pub fn queue(&self) -> &[UserMessage] {
+    pub fn queue(&self) -> &[Queued] {
         &self.queue
+    }
+
+    /// The queued command the screen runs now: it dispatches the line (`dispatch_queued`) and
+    /// answers `ThreadIntent::QueueRan`. A change of `seq` is a new command.
+    pub fn due_command(&self) -> Option<&DueCommand> {
+        self.due.as_ref()
     }
 
     /// What waits in the queue is held back: it goes out only when the user sends again
@@ -2273,7 +2290,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // The plan's text streams: Enter queues the message behind the turn
             // (`is_plan_streaming_in_tui`).
             if model.slots.chat.plan.streaming() && model.is_running() {
-                enqueue(model, message, fx);
+                enqueue(model, Queued::Message(message), fx);
                 return;
             }
             if let (TurnState::Running(running), false) = (&model.turn, starting) {
@@ -2290,7 +2307,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // `maybe_send_next_queued_input`).
             let behind = !model.queue.is_empty() && !model.recovered;
             if starting || model.slots.chat.mcp.is_starting() || behind {
-                enqueue(model, message, fx);
+                enqueue(model, Queued::Message(message), fx);
                 return;
             }
             model.last_error = None;
@@ -2355,7 +2372,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     ThreadCtx::StartTurn { message, .. },
                     Answer::Failed(RpcError::Provider(error)),
                 ) => {
-                    model.queue.insert(0, message);
+                    model.queue.insert(0, Queued::Message(message));
                     model.slots.chat.provider_error = Some(error);
                 }
                 // Its images could not be prepared: the message never left, it goes back
@@ -2413,6 +2430,32 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Queue(
             message,
         ))) if model.has_writer() => enqueue(model, message, fx),
+        // The screen ran the queued command it was handed: the rule of the next item reads what
+        // it opened (`submit_queued_slash_prompt`).
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::QueueRan(ran),
+        )) if model.has_writer() => {
+            if model.due.take().is_none() {
+                return;
+            }
+            let busy = model.is_running() || model.outgoing.any(is_start_turn);
+            let stop = match ran {
+                Ran::Submitted => true,
+                Ran::Dispatched(ran) => ran.drain(busy) == QueueDrain::Stop,
+            };
+            if !stop {
+                send_next(model, fx);
+            }
+        }
+        // What stopped the queue is over (the sheet closed, a settings pick was applied): the
+        // next item goes on (`maybe_send_next_queued_input`).
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::QueueResume,
+        )) if model.has_writer() => {
+            if !model.is_running() && !model.outgoing.any(is_start_turn) {
+                send_next(model, fx);
+            }
+        }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::InterruptForSteers,
         )) if model.has_writer() => {
@@ -2465,7 +2508,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::EditQueued,
         )) if model.has_writer() => {
-            let message = model.queue.pop().or_else(|| model.rejected_steers.pop());
+            let message = model
+                .queue
+                .pop()
+                .map(Queued::into_message)
+                .or_else(|| model.rejected_steers.pop());
             if let Some(message) = message {
                 give_back(model, vec![message], true);
             }
@@ -2502,7 +2549,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 })
                 .collect();
             model.rejected_steers = texts.rejected.into_iter().map(UserMessage::text).collect();
-            model.queue = texts.queued.into_iter().map(UserMessage::text).collect();
+            model.queue = texts
+                .queued
+                .into_iter()
+                .map(|text| Queued::Message(UserMessage::text(text)))
+                .collect();
         }
         ThreadEv::Screen(ev) => {
             if let ScreenThreadEv::Chat(ref ev) = ev
@@ -2781,7 +2832,7 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
     } else {
         let mut messages = std::mem::take(&mut model.rejected_steers);
         messages.extend(mine.into_iter().map(|steer| steer.message));
-        messages.append(&mut model.queue);
+        messages.extend(model.queue.drain(..).map(Queued::into_message));
         give_back(model, messages, false);
     }
     model.pending_steers = later;
@@ -2789,7 +2840,7 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
 
 /// A message to the queue, behind the running turn; with none running and
 /// nothing older waiting it goes out at once.
-fn enqueue(model: &mut ThreadModel, message: UserMessage, fx: &mut ThreadFx<'_>) {
+fn enqueue(model: &mut ThreadModel, message: Queued, fx: &mut ThreadFx<'_>) {
     let busy = model.is_running() || model.outgoing.any(is_start_turn);
     model.queue.push(message);
     model.last_submit = Some(fx.mint());
@@ -3011,12 +3062,16 @@ fn renumbered(placeholder: &str, number: usize) -> String {
     format!("{head}{number}{}", &placeholder[body.len()..])
 }
 
-/// The next queued message becomes the next turn (one per turn end).
+/// The next queued message becomes the next turn (one per turn end); a queued command is
+/// handed to the screen and a shell line runs, after which the queue goes on or stops by the
+/// command's rule (`maybe_send_next_queued_input`).
 fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
-    // a refused thread keeps what waits (oracle `suppress_queue_autosend`)
+    // a refused thread keeps what waits (oracle `suppress_queue_autosend`); a command the screen
+    // runs is waited for
     if model.slots.chat.mcp.is_starting()
         || model.slots.chat.provider_error.is_some()
         || model.recovered
+        || model.due.is_some()
     {
         return;
     }
@@ -3027,11 +3082,42 @@ fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
         fx.start_turn(merged);
         return;
     }
-    if model.queue.is_empty() {
-        return;
+    while !model.queue.is_empty() {
+        match model.queue.remove(0) {
+            Queued::Message(message) | Queued::Literal(message) => {
+                fx.start_turn(message);
+                return;
+            }
+            // `submit_queued_slash_prompt`: the screen dispatches it; the queue goes on when it
+            // reports (`ThreadIntent::QueueRan`).
+            Queued::Command(line) => {
+                model.due_seq += 1;
+                model.due = Some(DueCommand::handed(model.due_seq, line));
+                return;
+            }
+            // `submit_queued_shell_prompt`: a bare `!` says how to use it and the queue goes
+            // on; a command runs, and the turn it makes stops the queue.
+            Queued::Shell(line) => {
+                let command = line.text.strip_prefix('!').unwrap_or(&line.text).trim();
+                if command.is_empty() {
+                    apply_appended(
+                        model,
+                        None,
+                        Item::Note(Note::from(crate::commands::Notice::ShellHelp)),
+                    );
+                    continue;
+                }
+                let intent = screens::chat::ThreadIntent::Shell(command.to_string());
+                screens::apply_thread_intent(
+                    &mut model.slots,
+                    ScreenThreadIntent::Chat(intent),
+                    false,
+                    fx,
+                );
+                return;
+            }
+        }
     }
-    let message = model.queue.remove(0);
-    fx.start_turn(message);
 }
 
 fn is_start_turn(ctx: &ThreadCtx) -> bool {

@@ -211,7 +211,7 @@ fn no_question_without_a_plan_a_plan_mode_or_a_completed_turn() {
     let mut app = planning();
     chat_intent(
         &mut app,
-        chat::ThreadIntent::Queue(UserMessage::text("next")),
+        chat::ThreadIntent::Queue(UserMessage::text("next").into()),
     );
     notification(&mut app, turn_completed(T, "turn-1"));
     assert!(!prompt_open(&app), "a queued message goes first");

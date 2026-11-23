@@ -40,6 +40,7 @@ mod plan_mode;
 mod plugins;
 mod popovers;
 mod provider_error;
+mod queue;
 mod quick_dials;
 mod rename_prompt;
 mod resume;
