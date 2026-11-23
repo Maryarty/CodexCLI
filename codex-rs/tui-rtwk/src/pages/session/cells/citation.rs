@@ -74,6 +74,17 @@ struct Cited {
     theme: MarkdownTheme,
 }
 
+// a strings table is a `'static` constant: the same table is the same address
+impl PartialEq for Cited {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+            && self.live == other.live
+            && self.cwd == other.cwd
+            && std::ptr::eq(self.strings, other.strings)
+            && self.theme == other.theme
+    }
+}
+
 struct CitedState;
 
 impl StatefulWidget for Cited {
@@ -84,7 +95,7 @@ impl StatefulWidget for Cited {
     }
 }
 
-impl_widget!(stateful Cited);
+impl_widget!(stateful eq Cited);
 
 impl State for CitedState {
     type Widget = Cited;
