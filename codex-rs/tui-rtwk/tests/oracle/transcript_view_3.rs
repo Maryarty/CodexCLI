@@ -460,7 +460,7 @@ fn folding_a_reasoning_only_page_retains_its_find_and_copy_revision() {
 fn prompt_header_tracks_reading_and_yields_to_visible_prompts_and_short_screens() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no pinned prompt header (S10 transcript header) yet; the joined snapshot has bare label lines the kit's snapshot reader does not parse, so each state is compared row by row",
+        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned prompt header (S10 transcript header) yet; the joined snapshot has bare label lines the kit's snapshot reader does not parse, so each state is compared row by row",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 5)
@@ -497,7 +497,7 @@ fn prompt_header_tracks_reading_and_yields_to_visible_prompts_and_short_screens(
 fn header_sanitizes_controls_and_truncates_by_display_width() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no pinned header row, so the sanitized and truncated header line (the oracle's line helper) is not on any screen yet",
+        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned header row, so the sanitized and truncated header line (the oracle's line helper) is not on any screen yet",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(18, 4)
@@ -514,7 +514,7 @@ fn header_sanitizes_controls_and_truncates_by_display_width() {
 fn pinned_prompt_matches_the_original_prompt_style() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no pinned prompt header, and the kit cannot compare the style of two cells: the header's style is written as the oracle's prompt style",
+        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned prompt header, and the kit cannot compare the style of two cells: the header's style is written as the oracle's prompt style",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 7)
@@ -531,7 +531,7 @@ fn pinned_prompt_matches_the_original_prompt_style() {
 fn mouse_selection_preserves_header_reservation_at_turn_boundaries() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no pinned header and no header reservation at a turn boundary; a mouse selection of the header row is not built",
+        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned header and no header reservation at a turn boundary; a mouse selection of the header row is not built",
     );
     for (width, height) in [(40, 6), (40, 7), (40, 8), (15, 6), (15, 7), (15, 8)] {
         let mut s = Screen::build(Owner::ChatLive)

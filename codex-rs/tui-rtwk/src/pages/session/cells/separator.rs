@@ -49,8 +49,9 @@ pub fn completion(timing: TurnTiming, facts: Facts<'_>, strings: &Strings) -> Op
     )
 }
 
-/// The text of the separator: the parts that are known, joined.
-fn label(timing: TurnTiming, facts: Facts<'_>, strings: &Strings) -> Option<String> {
+/// The text of the separator: the parts that are known, joined (a folded turn's disclosure
+/// row reads it too, oracle `FinalMessageSeparator::display_label`).
+pub fn label(timing: TurnTiming, facts: Facts<'_>, strings: &Strings) -> Option<String> {
     let mut parts = Vec::new();
     if let Some(millis) = timing.duration_ms {
         let elapsed = elapsed(u64::try_from(millis / 1_000).unwrap_or(0), strings);
