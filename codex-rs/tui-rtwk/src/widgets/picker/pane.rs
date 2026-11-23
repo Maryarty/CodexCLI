@@ -45,6 +45,19 @@ pub struct Pane {
     pub preview: Option<String>,
     pub note: Option<String>,
     pub hint: Option<(String, Style)>,
+    /// What the pane keeps for the tallest tab (`reserve_result_rows`).
+    pub reserved: Option<Reserved>,
+}
+
+/// The sizes a pane holds at whatever tab it shows: nothing jumps when the tab or the search
+/// changes (the oracle's `header_height`, `footer_hint_lines`, `result_area_height`).
+pub struct Reserved {
+    /// The rows the result area keeps.
+    pub rows: usize,
+    /// The paragraphs (texts) of the header of each tab.
+    pub headers: Vec<Vec<String>>,
+    /// The texts a footer hint may be.
+    pub hints: Vec<String>,
 }
 
 impl Pane {
@@ -76,23 +89,40 @@ impl Pane {
                 lines(&text, inner)
             })
             .collect();
-        let subtitle: u16 = rows_of.iter().sum();
+        let mut subtitle: u16 = rows_of.iter().sum();
+        if let Some(reserved) = &self.reserved {
+            let tallest = reserved
+                .headers
+                .iter()
+                .map(|header| header.iter().map(|text| lines(text, inner)).sum::<u16>())
+                .max()
+                .unwrap_or(0);
+            subtitle = subtitle.max(tallest);
+        }
         // The rows sit beside a preview when the pane is wide enough.
         let rooms = self
             .side
             .as_ref()
             .map_or(width, |(side, _)| side::body_width(side, width));
         let measured = self.rows.as_ref().map(|rows| rows.measure(seg, rooms));
-        let wanted = match (&self.rows, &measured) {
+        let mut wanted = match (&self.rows, &measured) {
             (Some(rows), Some(layout)) => u16::try_from(rows.wanted(layout)).unwrap_or(u16::MAX),
             _ => 1,
         };
+        if let Some(reserved) = &self.reserved {
+            wanted = wanted.max(u16::try_from(reserved.rows).unwrap_or(u16::MAX));
+        }
         let note = self.note.as_ref().map_or(0, |text| lines(text, inner));
         let preview = u16::from(self.preview.is_some());
-        let hint = self
+        let mut hint = self
             .hint
             .as_ref()
             .map_or(0, |(text, _)| lines(text, width.saturating_sub(2)));
+        if let (Some(reserved), true) = (&self.reserved, self.hint.is_some()) {
+            for text in &reserved.hints {
+                hint = hint.max(lines(text, width.saturating_sub(2)));
+            }
+        }
         let sizes = Sizes {
             header: title + subtitle,
             header_gap: 1,
@@ -136,6 +166,10 @@ impl Pane {
                 ));
             }
         }
+        if left > 0 {
+            // A tab with a shorter header keeps the room of the tallest.
+            body = body.child(gap(left));
+        }
         if at.header_gap > 0 {
             body = body.child(gap(at.header_gap));
         }
@@ -154,9 +188,16 @@ impl Pane {
         if at.rows > 0 {
             body = body.child(match (&self.rows, &measured) {
                 (Some(rows), Some(layout)) => rows.list(layout, i32::from(at.rows)),
-                _ => Text::line(self.empty.0.clone())
-                    .style(self.empty.1.clone())
-                    .into(),
+                _ => SizedBox::new(
+                    None,
+                    Some(i32::from(if self.reserved.is_some() { at.rows } else { 1 })),
+                    Some(
+                        Text::line(self.empty.0.clone())
+                            .style(self.empty.1.clone())
+                            .into(),
+                    ),
+                )
+                .into(),
             });
         }
         if at.below > 0 {
@@ -204,6 +245,9 @@ impl Pane {
         }
         if let Some((text, style)) = &self.hint {
             pane = foot(pane, text, hint, style, TextWrap::Word, true);
+            if self.reserved.is_some() && left > 0 {
+                pane = pane.child(gap(left));
+            }
         }
         pane.into()
     }

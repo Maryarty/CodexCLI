@@ -6,6 +6,8 @@
 
 mod dialog;
 mod lists;
+mod plugins;
+mod prompt;
 mod review;
 
 use rtwk::AnyWidget;
