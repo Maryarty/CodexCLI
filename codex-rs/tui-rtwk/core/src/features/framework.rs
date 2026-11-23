@@ -482,7 +482,8 @@ fn every_hook_sees_a_turn_start_that_was_said_before_it() {
     );
     with_thread_after(
         |fx| {
-            fx.start_turn(UserMessage::text("next")).expect("the first start");
+            fx.start_turn(UserMessage::text("next"))
+                .expect("the first start");
         },
         |cx| on_turn_end(&mut parts, TurnEnd::Completed, cx),
     );
@@ -513,7 +514,12 @@ fn a_thread_this_process_does_not_write_hears_the_news_and_has_no_effects() {
     let (mut out, mut mint) = (AppFx::default(), TicketMint::default());
     for (what, origin, then, writes) in [
         ("a thread this process writes", Origin::Resumed, None, true),
-        ("another process writes it", Origin::ForeignWriter, None, false),
+        (
+            "another process writes it",
+            Origin::ForeignWriter,
+            None,
+            false,
+        ),
         (
             "the connection was lost",
             Origin::Resumed,
