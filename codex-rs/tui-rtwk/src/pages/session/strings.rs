@@ -70,6 +70,8 @@ pub struct Strings {
     pub stopping_terminals: &'static str,
     pub raw_output_on: &'static str,
     pub raw_output_off: &'static str,
+    pub vim_on: &'static str,
+    pub vim_off: &'static str,
     /// `add_app_server_stub_message`: the feature, then the message.
     pub stub: Msg<1>,
     pub stub_memory_maintenance: &'static str,
@@ -261,6 +263,8 @@ pub const EN: Strings = Strings {
     stopping_terminals: "Stopping all background terminals.",
     raw_output_on: "Raw output mode on: transcript text is shown for clean terminal selection.",
     raw_output_off: "Raw output mode off: rich transcript rendering restored.",
+    vim_on: "Vim mode enabled.",
+    vim_off: "Vim mode disabled.",
     stub: msg!("{0}: Not available in TUI yet."),
     stub_memory_maintenance: "Memory maintenance",
     parent_owned: "This sub-agent is controlled by its parent. Direct input is disabled.",
@@ -622,7 +626,7 @@ impl Strings {
     /// The words of a note of the transcript (a command line's answer).
     pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
         use codex_tui_core::screens::agents::Action;
-        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, Stub};
+        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, Stub, Toggle};
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
@@ -633,8 +637,10 @@ impl Strings {
             NoteKey::DesktopOpened => self.desktop_opened.to_string(),
             NoteKey::StoppingTerminals => self.stopping_terminals.to_string(),
             NoteKey::Stub(Stub::MemoryMaintenance) => text(self.stub, self.stub_memory_maintenance),
-            NoteKey::RawOutput(true) => self.raw_output_on.to_string(),
-            NoteKey::RawOutput(false) => self.raw_output_off.to_string(),
+            NoteKey::Toggled(Toggle::RawOutput, true) => self.raw_output_on.to_string(),
+            NoteKey::Toggled(Toggle::RawOutput, false) => self.raw_output_off.to_string(),
+            NoteKey::Toggled(Toggle::Vim, true) => self.vim_on.to_string(),
+            NoteKey::Toggled(Toggle::Vim, false) => self.vim_off.to_string(),
             NoteKey::ParentOwned => self.parent_owned.to_string(),
             NoteKey::ModeBusy => self.mode_busy.to_string(),
             NoteKey::CdRefused(CdRefusal::NotStarted) => self.cd_not_started.to_string(),

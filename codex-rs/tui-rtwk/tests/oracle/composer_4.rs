@@ -64,6 +64,22 @@ fn cell(row: usize) -> u16 {
     u16::try_from(row).unwrap_or(u16::MAX)
 }
 
+/// A double click inside the label `text` (on its fourth cell, not on the bracket): the
+/// oracle double-clicks inside a placeholder, which selects the whole atomic element.
+fn double_click_in(s: &mut Screen, text: &str) {
+    let rows = s.rows();
+    let Some((row, at)) = rows
+        .iter()
+        .enumerate()
+        .find_map(|(row, r)| Some((row, r.find(text)?)))
+    else {
+        panic!("no `{text}` on the screen:\n{}", s.text());
+    };
+    // the column counts chars, not the bytes before the label
+    let col = rows[row][..at].chars().count() + 3;
+    s.double_click(u16::try_from(col).unwrap_or(u16::MAX), cell(row));
+}
+
 /// The empty composer's placeholder, as the oracle draws it.
 const PLACEHOLDER: &str = "› Ask Codex to do anything";
 
@@ -285,10 +301,6 @@ fn embedded_composer_shows_validation_error_without_losing_draft() {
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:24 composer_mouse_edits_flush_typing_and_reconcile_placeholders kind=ui owner=chat-live
 #[test]
 fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
-    kit::pending(
-        Owner::ChatLive,
-        "no kit seed for remote image URLs (the page draws the rows, tests/pages/composer_images.rs): the double click on a placeholder and the attached image rows are not drawn (composer_mouse holds the click, the shards the large paste)",
-    );
     let mut s = chat(80, 24);
     s.type_text("hello");
     s.paste("\nworld");
@@ -299,6 +311,29 @@ fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
     draft_rows(&s, "Xhello\nworld");
     s.paste(&"z".repeat(1001));
     s.assert_contains("[Pasted Content 1001 chars]");
+    // a double click inside a placeholder selects the whole atomic element; the next edit
+    // replaces it (an image) or takes it away with the pasted content it stood for (a letter)
+    double_click_in(&mut s, "[Pasted Content 1001 chars]");
+    let first = s.attach_image("first.png");
+    s.assert_absent("[Pasted Content");
+    draft_rows(&s, "X[Image #1]hello\nworld");
+    double_click_in(&mut s, "[Image #1]");
+    let second = s.attach_image("second.png");
+    draft_rows(&s, "X[Image #1]hello\nworld");
+    double_click_in(&mut s, "[Image #1]");
+    s.type_text("\u{e9}");
+    draft_rows(&s, "X\u{e9}hello\nworld");
+    // nothing is attached any more: the draft sends no image
+    s.keys("enter");
+    s.wait_for("› Ask Codex to do anything");
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "{:?}", s.commands());
+    assert!(
+        turns[0].images.is_empty(),
+        "{:?} {first:?} {second:?}",
+        turns[0]
+    );
+    assert_eq!(turns[0].text, "X\u{e9}hello\nworld");
 }
 
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:62 recovery_keeps_unselected_text_after_a_held_replace_key kind=ui owner=chat-live

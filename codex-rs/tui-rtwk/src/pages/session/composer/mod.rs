@@ -31,8 +31,8 @@ use codex_tui_core::screens::composer;
 use codex_tui_core::screens::composer::history::Lookup;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::screens::composer::restricted::Restricted;
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
+use codex_tui_core::threads::{Note, NoteKey, ThreadModel, Toggle};
 
 use crate::app::debug::seeded::Seeded;
 use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
@@ -85,6 +85,21 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: include_str!("fixtures/alone.jsonl"),
             open: EntryOpen::Route(|seeded: &Seeded| {
                 let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_remote",
+            description: "the composer with its key footer and two remote images above the draft",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                // the oracle's `set_remote_image_urls` of its remote-rows snapshots
+                let urls = ["https://example.com/one.png", "https://example.com/two.png"]
+                    .map(String::from)
+                    .to_vec();
+                ui.draft
+                    .set_remote_images(&ui.composer, urls, |n| strings::EN.image(n));
                 alone::Alone::new(ui).into()
             }),
         },
@@ -346,6 +361,10 @@ pub enum ComposerMsg {
     Refresh,
     /// The popup's highlight moved: draw it again.
     Redraw,
+    /// Modal editing was turned on or off by its key: the transcript says so.
+    VimToggled(bool),
+    /// A key changed the Vim mode: the page's footer names it.
+    VimMode,
     /// The pointer or the wheel is over row `i` of the popup.
     Highlight(i32),
     /// A click on row `i` of the popup.
@@ -613,6 +632,12 @@ impl State for ComposerState {
                 }
                 return rtwk::Rebuild::Yes;
             }
+            ComposerMsg::VimMode => {
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
             ComposerMsg::ClearForCtrlC => {
                 clear_cancelled(&w.ui);
                 if let Some(h) = &w.on_changed {
@@ -733,6 +758,14 @@ impl State for ComposerState {
                 // the popup draws itself again: the composer stays as it is
                 let states = read::<ScreenStates, _>(cx);
                 mentions::sync(w, &states, cx);
+            }
+            ComposerMsg::VimToggled(on) => {
+                let hs = read::<Hs, _>(cx);
+                let thread = read::<SessionSlice, _>(cx).active.clone();
+                let note = Note::from(NoteKey::Toggled(Toggle::Vim, on));
+                let intent = chat::Intent::Note { thread, note };
+                cx.emit(&hs.screen, ScreenIntent::from(intent));
+                return rtwk::Rebuild::Yes;
             }
             ComposerMsg::PasteImage => {
                 let hs = read::<Hs, _>(cx);

@@ -85,7 +85,7 @@ fn run<R>(
 pub fn toggle(data: &KeyData) {
     let on = !data.draft.vim_enabled();
     data.draft.set_vim_enabled(on);
-    (data.tell)(ComposerMsg::Redraw);
+    (data.tell)(ComposerMsg::VimToggled(on));
 }
 
 // ---- reading a key ----------------------------------------------------------
@@ -418,6 +418,8 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
         && key.mods == Mods::NONE
     {
         draft.set_shell(true);
+        // the command is typed next: Insert mode (`enter_vim_insert_mode`)
+        run(data, c, |v, host| v.enter_insert(host));
         (data.tell)(ComposerMsg::Shell);
         return true;
     }
