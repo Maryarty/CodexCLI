@@ -473,6 +473,9 @@ pub enum Intent {
     /// `/apps` (`enabled`: the apps feature is on): the directory, asked for
     /// again (`Apps::pending` is the request).
     OpenApps { enabled: bool },
+    /// The link dialog of an app switched it on or off (`SetAppEnabled`): the app writes
+    /// the config and, once it is saved, tells the directory (`Ev::AppSwitched`).
+    SetApp { id: String, enabled: bool },
     /// The item with this id (`List::id_of`, or a row of `Page`) was
     /// accepted.
     Choose(String),
@@ -605,6 +608,8 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::OpenApps { enabled } => model.open_apps(enabled),
+        // The app writes the config (`app/select.rs`); the directory follows the saved write.
+        Intent::SetApp { .. } => {}
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
@@ -716,6 +721,8 @@ pub enum Command {
     },
     /// `config/batchWrite`: the defaults a pick saves.
     Write { edits: Vec<persist::Edit> },
+    /// `config/batchWrite` of the `apps.<id>` keys: the app switched on or off.
+    SetApp { id: String, enabled: bool },
 }
 
 /// The replies of those RPCs, decoded by `decode`.
@@ -767,6 +774,8 @@ pub enum Ctx {
         setting: Setting,
         then: Option<Note>,
     },
+    /// The write of an app's switch: the directory takes it once it is saved.
+    App { id: String, enabled: bool },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).
@@ -797,6 +806,7 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         }
         .wire(id),
         Command::Write { edits } => persist::write_request(edits, id),
+        Command::SetApp { id: app, enabled } => persist::app_enabled_request(app, *enabled, id),
         Command::Models { .. } => models::list_request(id),
         Command::Apps { force, thread, .. } => apps::list_request(id, *force, thread.clone()),
         Command::Requirements { .. } => permissions::requirements_request(id),
@@ -810,7 +820,7 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     match command {
         Command::Settings { .. } => Ok(Reply::Updated),
-        Command::Write { .. } => {
+        Command::Write { .. } | Command::SetApp { .. } => {
             persist::written(result).map(|overridden| Reply::Written { overridden })
         }
         Command::Models { .. } => models::presets(result).map(Reply::Models),

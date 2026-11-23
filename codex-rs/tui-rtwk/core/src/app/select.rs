@@ -16,6 +16,21 @@ use crate::screens::{ScreenCommand, ScreenReply};
 
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx) {
+    if let select::Intent::SetApp { id, enabled } = &intent {
+        ask(
+            app,
+            select::Command::SetApp {
+                id: id.clone(),
+                enabled: *enabled,
+            },
+            select::Ctx::App {
+                id: id.clone(),
+                enabled: *enabled,
+            },
+            fx,
+        );
+        return;
+    }
     let screens = Rc::make_mut(&mut app.screens);
     let before = (
         screens.select.catalog.pending,
@@ -350,6 +365,12 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
                 }],
             ),
         },
+        // `SetAppEnabled`: the directory takes the switch once the config has it; a refused
+        // write leaves it as it was.
+        (select::Ctx::App { id, enabled }, Ok(select::Reply::Written { .. })) => {
+            event(app, select::Ev::AppSwitched { id, enabled }, fx);
+        }
+        (select::Ctx::App { .. }, _) => {}
         (select::Ctx::Apps { request }, result) => {
             let result = match result {
                 Ok(select::Reply::Apps(apps)) => Ok(apps),
