@@ -244,7 +244,7 @@ impl CyberPolicy {
     /// Oracle `daybreak_account_eligible`: the feature is on (for an API key only with its own
     /// flag too), the provider supports the programs, and the account is a ChatGPT sign-in or an
     /// API key.
-    fn eligible(&self, account: Option<&Account>) -> bool {
+    fn eligible(self, account: Option<&Account>) -> bool {
         let chatgpt = matches!(account, Some(Account::Chatgpt { .. }));
         let api_key = matches!(account, Some(Account::ApiKey {}));
         self.feature
