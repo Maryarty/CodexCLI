@@ -136,7 +136,7 @@ pub enum Response {
 
 /// One composer's walk through the history.
 #[derive(Clone, Debug, Default)]
-pub struct History {
+pub struct PromptWalk {
     /// The store epoch the cursors below belong to.
     epoch: u64,
     /// What this composer sent or cleared, newest last, with the whole draft
@@ -146,7 +146,7 @@ pub struct History {
     replay_seeded_history: Vec<HistoryEntry>,
     /// Where Up/Down stands in the combined space; none: not browsing.
     history_cursor: Option<isize>,
-    pending_navigation_direction: Option<Direction>,
+    pending_navigation_direction: Option<WalkDirection>,
     /// The text the last recall put in the draft: the next Up/Down walks
     /// only while the draft still is that text.
     last_history_text: Option<String>,
@@ -189,7 +189,7 @@ struct UniqueMatch {
 enum Awaiting {
     Entry {
         offset: usize,
-        direction: Direction,
+        direction: WalkDirection,
         boundary_if_exhausted: bool,
     },
     Batch {
@@ -218,17 +218,17 @@ impl SearchState {
         }
     }
 
-    fn is_exhausted(&self, direction: Direction) -> bool {
+    fn is_exhausted(&self, direction: WalkDirection) -> bool {
         match direction {
-            Direction::Older => self.exhausted_older,
-            Direction::Newer => self.exhausted_newer,
+            WalkDirection::Older => self.exhausted_older,
+            WalkDirection::Newer => self.exhausted_newer,
         }
     }
 
-    fn mark_exhausted(&mut self, direction: Direction) {
+    fn mark_exhausted(&mut self, direction: WalkDirection) {
         match direction {
-            Direction::Older => self.exhausted_older = true,
-            Direction::Newer => self.exhausted_newer = true,
+            WalkDirection::Older => self.exhausted_older = true,
+            WalkDirection::Newer => self.exhausted_newer = true,
         }
     }
 
@@ -262,7 +262,7 @@ impl SearchState {
     }
 }
 
-impl History {
+impl PromptWalk {
     pub fn new() -> Self {
         Self::default()
     }
@@ -397,7 +397,7 @@ impl History {
             Some(at) => at - 1,
         };
         self.history_cursor = Some(next);
-        self.populate_history_at_index(store, next as usize, Direction::Older, fx)
+        self.populate_history_at_index(store, next as usize, WalkDirection::Older, fx)
     }
 
     /// Down: one entry newer, or past the newest an empty entry (the draft
@@ -417,7 +417,7 @@ impl History {
         match next {
             Some(at) => {
                 self.history_cursor = Some(at);
-                self.populate_history_at_index(store, at as usize, Direction::Newer, fx)
+                self.populate_history_at_index(store, at as usize, WalkDirection::Newer, fx)
             }
             None => {
                 self.history_cursor = None;
@@ -438,7 +438,7 @@ impl History {
         &mut self,
         store: &Store,
         query: &str,
-        direction: Direction,
+        direction: WalkDirection,
         restart: bool,
         fx: &mut Vec<Lookup>,
     ) -> SearchResult {
@@ -449,10 +449,7 @@ impl History {
             return SearchResult::NotFound;
         }
         let query_changed = self.search.as_ref().is_none_or(|s| s.query != query);
-        if !query_changed
-            && !restart
-            && self.search.as_ref().and_then(|s| s.awaiting).is_some()
-        {
+        if !query_changed && !restart && self.search.as_ref().and_then(|s| s.awaiting).is_some() {
             return SearchResult::Pending;
         }
         if query_changed || restart || self.search.is_none() {
@@ -536,10 +533,7 @@ impl History {
                 Awaiting::Entry { .. } => None,
             };
         }
-        let (cursor, direction) = (
-            self.history_cursor?,
-            self.pending_navigation_direction?,
-        );
+        let (cursor, direction) = (self.history_cursor?, self.pending_navigation_direction?);
         let offset = usize::try_from(cursor).ok()?;
         let fetched = store.fetched.get(&offset)?;
         self.pending_navigation_direction = None;
@@ -572,19 +566,19 @@ impl History {
     fn search_start_offset(
         &self,
         total: usize,
-        direction: Direction,
+        direction: WalkDirection,
         restart: bool,
     ) -> Option<usize> {
         let selected = self.search.as_ref().and_then(|s| s.selected_offset);
         match direction {
-            Direction::Older => {
+            WalkDirection::Older => {
                 if restart {
                     total.checked_sub(1)
                 } else {
                     selected.and_then(|offset| offset.checked_sub(1))
                 }
             }
-            Direction::Newer => {
+            WalkDirection::Newer => {
                 if restart {
                     Some(0)
                 } else {
@@ -600,7 +594,7 @@ impl History {
         &mut self,
         store: &Store,
         offset: usize,
-        direction: Direction,
+        direction: WalkDirection,
         boundary_if_exhausted: bool,
         fx: &mut Vec<Lookup>,
     ) -> SearchResult {
@@ -619,7 +613,7 @@ impl History {
         &mut self,
         store: &Store,
         mut offset: usize,
-        direction: Direction,
+        direction: WalkDirection,
         boundary_if_exhausted: bool,
         fx: &mut Vec<Lookup>,
     ) -> SearchResult {
@@ -630,7 +624,7 @@ impl History {
                     return self.search_match(offset, entry);
                 }
             } else if !store.fetched.contains_key(&offset) && offset < store.entry_count {
-                if direction == Direction::Older
+                if direction == WalkDirection::Older
                     && let Some(end_offset) = self.search.as_ref().and_then(|s| s.next_older)
                     && end_offset == offset
                 {
@@ -699,16 +693,16 @@ impl History {
         SearchResult::Found(entry)
     }
 
-    fn select_cached_unique_match(&mut self, direction: Direction) -> Option<SearchResult> {
+    fn select_cached_unique_match(&mut self, direction: WalkDirection) -> Option<SearchResult> {
         let next = {
             let search = self.search.as_ref()?;
             let selected = search.selected_match_index?;
             match direction {
-                Direction::Older => {
+                WalkDirection::Older => {
                     let next = selected + 1;
                     (next < search.unique_matches.len()).then_some(next)?
                 }
-                Direction::Newer => selected.checked_sub(1)?,
+                WalkDirection::Newer => selected.checked_sub(1)?,
             }
         };
         let found = self.search.as_ref()?.unique_matches[next].clone();
@@ -722,7 +716,7 @@ impl History {
 
     fn exhausted_search_result(
         &mut self,
-        direction: Direction,
+        direction: WalkDirection,
         boundary_if_exhausted: bool,
     ) -> SearchResult {
         if let Some(search) = self.search.as_mut() {
@@ -742,7 +736,7 @@ impl History {
         &mut self,
         store: &Store,
         mut at: usize,
-        direction: Direction,
+        direction: WalkDirection,
         fx: &mut Vec<Lookup>,
     ) -> Option<HistoryEntry> {
         loop {
@@ -765,10 +759,7 @@ impl History {
             }
             if let Some(log_id) = store.log_id {
                 self.pending_navigation_direction = Some(direction);
-                fx.push(Lookup::Entry {
-                    log_id,
-                    offset: at,
-                });
+                fx.push(Lookup::Entry { log_id, offset: at });
             }
             return None;
         }
@@ -778,20 +769,20 @@ impl History {
         &self,
         store: &Store,
         offset: usize,
-        direction: Direction,
+        direction: WalkDirection,
     ) -> Option<usize> {
         match direction {
-            Direction::Older => offset.checked_sub(1),
-            Direction::Newer => offset
+            WalkDirection::Older => offset.checked_sub(1),
+            WalkDirection::Newer => offset
                 .checked_add(1)
                 .filter(|next| *next < self.total_entries(store)),
         }
     }
 
     fn persistent_entry_duplicates_local(&self, entry: &HistoryEntry) -> bool {
-        self.replay_seeded_history
-            .iter()
-            .any(|local| local.text == entry.text && local.mention_bindings == entry.mention_bindings)
+        self.replay_seeded_history.iter().any(|local| {
+            local.text == entry.text && local.mention_bindings == entry.mention_bindings
+        })
     }
 
     // The entry the search awaited is in the store (`on_entry_response`).
@@ -799,7 +790,7 @@ impl History {
         &mut self,
         store: &Store,
         offset: usize,
-        direction: Direction,
+        direction: WalkDirection,
         boundary_if_exhausted: bool,
         fx: &mut Vec<Lookup>,
     ) -> SearchResult {
@@ -810,10 +801,10 @@ impl History {
             return self.search_match(offset, entry);
         }
         match direction {
-            Direction::Older => {
+            WalkDirection::Older => {
                 self.advance_older_search_after_entry_miss(store, offset, boundary_if_exhausted, fx)
             }
-            Direction::Newer => {
+            WalkDirection::Newer => {
                 self.advance_search_after(store, offset, direction, boundary_if_exhausted, fx)
             }
         }
@@ -830,7 +821,7 @@ impl History {
         fx: &mut Vec<Lookup>,
     ) -> SearchResult {
         let Some(next) = offset.checked_sub(1) else {
-            return self.exhausted_search_result(Direction::Older, boundary_if_exhausted);
+            return self.exhausted_search_result(WalkDirection::Older, boundary_if_exhausted);
         };
         self.advance_older_search_with_batches_from(store, next, boundary_if_exhausted, fx)
     }
@@ -853,7 +844,7 @@ impl History {
                 return self.request_older_search_batch(store, offset, boundary_if_exhausted, fx);
             }
             let Some(next) = offset.checked_sub(1) else {
-                return self.exhausted_search_result(Direction::Older, boundary_if_exhausted);
+                return self.exhausted_search_result(WalkDirection::Older, boundary_if_exhausted);
             };
             offset = next;
         }
@@ -867,7 +858,7 @@ impl History {
         fx: &mut Vec<Lookup>,
     ) -> SearchResult {
         let Some(log_id) = store.log_id else {
-            return self.exhausted_search_result(Direction::Older, boundary_if_exhausted);
+            return self.exhausted_search_result(WalkDirection::Older, boundary_if_exhausted);
         };
         if let Some(search) = self.search.as_mut() {
             search.awaiting = Some(Awaiting::Batch {
@@ -953,7 +944,7 @@ pub enum SearchStatus {
 
 /// What the draft shows after a search step.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Preview {
+pub enum SearchPreview {
     /// The entry that was found.
     Show(HistoryEntry),
     /// The draft as it was when the search opened.
@@ -974,7 +965,7 @@ pub struct HistorySearch {
 
 /// Which way the search walks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Direction {
+pub enum WalkDirection {
     Older,
     Newer,
 }
@@ -989,7 +980,9 @@ impl HistorySearch {
     /// The query as the footer shows it: a newline and a tab as marks
     /// (`display_query`); matching keeps the query as it is.
     pub fn display_query(&self) -> String {
-        self.query.replace('\n', "\u{21b5}").replace('\t', "\u{21e5}")
+        self.query
+            .replace('\n', "\u{21b5}")
+            .replace('\t', "\u{21e5}")
     }
 
     /// The query changed (`update_history_search_query`): the draft goes
@@ -998,21 +991,21 @@ impl HistorySearch {
     pub fn set_query(
         &mut self,
         query: String,
-        history: &mut History,
+        history: &mut PromptWalk,
         store: &Store,
         fx: &mut Vec<Lookup>,
-    ) -> Preview {
+    ) -> SearchPreview {
         self.query = query;
         self.status = SearchStatus::Searching;
         if self.query.is_empty() {
             history.reset_search();
             self.status = SearchStatus::Idle;
-            return Preview::Original;
+            return SearchPreview::Original;
         }
-        let result = history.search(store, &self.query, Direction::Older, true, fx);
+        let result = history.search(store, &self.query, WalkDirection::Older, true, fx);
         match self.apply(result) {
-            Preview::Show(entry) => Preview::Show(entry),
-            _ => Preview::Original,
+            SearchPreview::Show(entry) => SearchPreview::Show(entry),
+            _ => SearchPreview::Original,
         }
     }
 
@@ -1020,15 +1013,15 @@ impl HistorySearch {
     /// end of the matches the current one stays (no "no match" flicker).
     pub fn step(
         &mut self,
-        direction: Direction,
-        history: &mut History,
+        direction: WalkDirection,
+        history: &mut PromptWalk,
         store: &Store,
         fx: &mut Vec<Lookup>,
-    ) -> Preview {
+    ) -> SearchPreview {
         if self.query.is_empty() {
             history.reset_search();
             self.status = SearchStatus::Idle;
-            return Preview::Original;
+            return SearchPreview::Original;
         }
         let result = history.search(store, &self.query, direction, false, fx);
         self.apply(result)
@@ -1038,27 +1031,27 @@ impl HistorySearch {
     /// `Found` previews, `Pending` waits, `AtBoundary` keeps the match,
     /// `NotFound` puts the original back with "no match" and `Unavailable`
     /// with nothing said.
-    pub fn apply(&mut self, result: SearchResult) -> Preview {
+    pub fn apply(&mut self, result: SearchResult) -> SearchPreview {
         match result {
             SearchResult::Found(entry) => {
                 self.status = SearchStatus::Match;
-                Preview::Show(entry)
+                SearchPreview::Show(entry)
             }
             SearchResult::Pending => {
                 self.status = SearchStatus::Searching;
-                Preview::Keep
+                SearchPreview::Keep
             }
             SearchResult::AtBoundary => {
                 self.status = SearchStatus::Match;
-                Preview::Keep
+                SearchPreview::Keep
             }
             SearchResult::NotFound => {
                 self.status = SearchStatus::NoMatch;
-                Preview::Original
+                SearchPreview::Original
             }
             SearchResult::Unavailable => {
                 self.status = SearchStatus::Idle;
-                Preview::Original
+                SearchPreview::Original
             }
         }
     }

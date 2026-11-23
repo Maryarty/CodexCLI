@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 
-use super::{Object, Scope, VimText};
+use super::{Object, VimScope, VimText};
 
 const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
@@ -225,7 +225,7 @@ pub(super) fn line_end_cursor(t: &dyn VimText) -> usize {
 
 // ---- text objects ----------------------------------------------------------
 
-pub(super) fn object_range(t: &dyn VimText, object: Object, scope: Scope) -> Option<Range<usize>> {
+pub(super) fn object_range(t: &dyn VimText, object: Object, scope: VimScope) -> Option<Range<usize>> {
     match object {
         Object::Word => word_object(t, scope, false),
         Object::BigWord => word_object(t, scope, true),
@@ -264,7 +264,7 @@ fn at_end(cursor: usize, range: &Range<usize>) -> bool {
     range.start < range.end && cursor == range.end
 }
 
-fn word_object(t: &dyn VimText, scope: Scope, big: bool) -> Option<Range<usize>> {
+fn word_object(t: &dyn VimText, scope: VimScope, big: bool) -> Option<Range<usize>> {
     let text = t.text();
     let cursor = t.cursor();
     let inner = if big {
@@ -275,8 +275,8 @@ fn word_object(t: &dyn VimText, scope: Scope, big: bool) -> Option<Range<usize>>
         small_word(&text, cursor)
     }?;
     Some(match scope {
-        Scope::Inner => inner,
-        Scope::Around => {
+        VimScope::Inner => inner,
+        VimScope::Around => {
             let following = text[inner.end..]
                 .char_indices()
                 .take_while(|(_, ch)| ch.is_whitespace())
@@ -318,7 +318,7 @@ fn small_word(text: &str, cursor: usize) -> Option<Range<usize>> {
     None
 }
 
-fn paired(t: &dyn VimText, scope: Scope, open: char, close: char) -> Option<Range<usize>> {
+fn paired(t: &dyn VimText, scope: VimScope, open: char, close: char) -> Option<Range<usize>> {
     let text = t.text();
     let cursor = t.cursor();
     let elements = t.elements();
@@ -334,8 +334,8 @@ fn paired(t: &dyn VimText, scope: Scope, open: char, close: char) -> Option<Rang
             let Some(open_idx) = stack.pop() else { continue };
             if open_idx <= cursor && cursor <= idx {
                 let candidate = match scope {
-                    Scope::Inner => open_idx + open.len_utf8()..idx,
-                    Scope::Around => open_idx..idx + ch.len_utf8(),
+                    VimScope::Inner => open_idx + open.len_utf8()..idx,
+                    VimScope::Around => open_idx..idx + ch.len_utf8(),
                 };
                 if candidate.start <= candidate.end
                     && best.as_ref().is_none_or(|b| candidate.len() < b.len())
@@ -348,7 +348,7 @@ fn paired(t: &dyn VimText, scope: Scope, open: char, close: char) -> Option<Rang
     best
 }
 
-fn quoted(t: &dyn VimText, scope: Scope, quote: char) -> Option<Range<usize>> {
+fn quoted(t: &dyn VimText, scope: VimScope, quote: char) -> Option<Range<usize>> {
     let text = t.text();
     let cursor = t.cursor();
     let elements = t.elements();
@@ -363,8 +363,8 @@ fn quoted(t: &dyn VimText, scope: Scope, quote: char) -> Option<Range<usize>> {
         if let Some(open_idx) = open.take() {
             if open_idx <= cursor && cursor <= idx {
                 let candidate = match scope {
-                    Scope::Inner => open_idx + quote.len_utf8()..idx,
-                    Scope::Around => open_idx..idx + quote.len_utf8(),
+                    VimScope::Inner => open_idx + quote.len_utf8()..idx,
+                    VimScope::Around => open_idx..idx + quote.len_utf8(),
                 };
                 if candidate.start <= candidate.end
                     && best.as_ref().is_none_or(|b| candidate.len() < b.len())

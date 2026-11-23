@@ -66,17 +66,35 @@ mod tests {
 
     #[test]
     fn a_token_is_found_as_a_word_of_its_own() {
-        assert_eq!(find_next_mention_token_range("use $sample now", "$sample", 0), Some(4..11));
-        assert_eq!(find_next_mention_token_range("$sample", "$sample", 0), Some(0..7));
+        assert_eq!(
+            find_next_mention_token_range("use $sample now", "$sample", 0),
+            Some(4..11)
+        );
+        assert_eq!(
+            find_next_mention_token_range("$sample", "$sample", 0),
+            Some(0..7)
+        );
         // a longer name is another mention
-        assert_eq!(find_next_mention_token_range("$sample-x", "$sample", 0), None);
+        assert_eq!(
+            find_next_mention_token_range("$sample-x", "$sample", 0),
+            None
+        );
     }
 
     #[test]
     fn an_at_token_is_no_email_address_or_path() {
-        assert_eq!(find_next_mention_token_range("a@sample.com", "@sample", 0), None);
-        assert_eq!(find_next_mention_token_range("@sample/pkg", "@sample", 0), None);
-        assert_eq!(find_next_mention_token_range("see @sample.", "@sample", 0), Some(4..11));
+        assert_eq!(
+            find_next_mention_token_range("a@sample.com", "@sample", 0),
+            None
+        );
+        assert_eq!(
+            find_next_mention_token_range("@sample/pkg", "@sample", 0),
+            None
+        );
+        assert_eq!(
+            find_next_mention_token_range("see @sample.", "@sample", 0),
+            Some(4..11)
+        );
     }
 
     #[test]

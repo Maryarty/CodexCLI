@@ -6,9 +6,9 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
+use crate::commands::fuzzy_match;
 use crate::screens::composer::mentions::candidate::uri;
 use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
-use crate::commands::fuzzy_match;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MentionItem {
@@ -120,7 +120,11 @@ pub fn mention_items(mentions: &[Mention]) -> Vec<MentionItem> {
                     display_name: mention.name.clone(),
                     description: (!description.is_empty()).then(|| description.to_string()),
                     insert_text: format!("${}", mention.insert),
-                    search_terms: vec![mention.name.clone(), id.to_string(), mention.insert.clone()],
+                    search_terms: vec![
+                        mention.name.clone(),
+                        id.to_string(),
+                        mention.insert.clone(),
+                    ],
                     path: mention.path.clone().or_else(|| Some(uri("app", id))),
                     kind: MentionKind::App,
                     sort_rank: 1,
@@ -132,7 +136,11 @@ pub fn mention_items(mentions: &[Mention]) -> Vec<MentionItem> {
 }
 
 /// The rows `query` leaves of `items`, best first (`SkillPopup::filtered`).
-pub fn filtered(items: &[MentionItem], frequencies: &HashMap<String, usize>, query: &str) -> Vec<Match> {
+pub fn filtered(
+    items: &[MentionItem],
+    frequencies: &HashMap<String, usize>,
+    query: &str,
+) -> Vec<Match> {
     let filter = query.trim();
     let lowercase_filter = filter.to_lowercase();
     let mut out: Vec<Match> = Vec::new();
@@ -204,7 +212,11 @@ mod tests {
         }
     }
 
-    fn order(items: &[MentionItem], frequencies: &HashMap<String, usize>, query: &str) -> Vec<String> {
+    fn order(
+        items: &[MentionItem],
+        frequencies: &HashMap<String, usize>,
+        query: &str,
+    ) -> Vec<String> {
         filtered(items, frequencies, query)
             .into_iter()
             .map(|m| items[m.index].display_name.clone())
@@ -219,7 +231,10 @@ mod tests {
             item("Calendar", "calendar", "p/calendar", 1),
         ];
         let frequencies = HashMap::from([("p/calendar".to_string(), 9)]);
-        assert_eq!(order(&items, &frequencies, "cal"), ["cal", "Calendar", "Fuzzy Cal"]);
+        assert_eq!(
+            order(&items, &frequencies, "cal"),
+            ["cal", "Calendar", "Fuzzy Cal"]
+        );
     }
 
     #[test]
@@ -243,7 +258,12 @@ mod tests {
         let mut app = Mention::new(MentionKind::App, "Google Calendar", "", "google_calendar");
         app.path = Some("app://cal".to_string());
         let items = mention_items(&[
-            Mention::new(MentionKind::Skill, "Google Calendar", "plan", "google-calendar-skill"),
+            Mention::new(
+                MentionKind::Skill,
+                "Google Calendar",
+                "plan",
+                "google-calendar-skill",
+            ),
             app,
             Mention::new(MentionKind::Plugin, "p", "", "p"),
         ]);
@@ -251,6 +271,9 @@ mod tests {
         assert_eq!(items[0].insert_text, "$google-calendar-skill");
         assert_eq!(items[0].kind, MentionKind::Skill);
         assert_eq!(items[1].path.as_deref(), Some("app://cal"));
-        assert_eq!(items[1].search_terms, ["Google Calendar", "cal", "google_calendar"]);
+        assert_eq!(
+            items[1].search_terms,
+            ["Google Calendar", "cal", "google_calendar"]
+        );
     }
 }

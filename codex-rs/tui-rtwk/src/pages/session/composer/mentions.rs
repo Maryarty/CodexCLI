@@ -12,7 +12,7 @@ use rtwk::focus::KeyPress;
 use rtwk::prelude::Mods;
 use rtwk::provider::read;
 
-use codex_tui_core::kit::mentions::session::{Active, Pick, PickAction};
+use codex_tui_core::kit::mentions::session::{Active, MentionPick, PickAction};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 
 use super::editing::KeyData;
@@ -122,7 +122,7 @@ pub(super) fn pick(
 }
 
 /// The path an element pick binds.
-fn element_path(pick: &Pick) -> Option<&str> {
+fn element_path(pick: &MentionPick) -> Option<&str> {
     match &pick.action {
         PickAction::Element {
             binding: Some(binding),

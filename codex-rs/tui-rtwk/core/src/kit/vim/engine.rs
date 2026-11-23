@@ -6,8 +6,8 @@ use std::ops::Range;
 
 use super::motions::{self, bol, bol_of, eol, eol_of, expand_to_elements, next_atomic, prev_atomic};
 use super::{
-    Direction, EditorAction, Find, Input, VimMode, Motion, Normal, Object, Operator, OperatorKey,
-    Pending, RegisterKind, Scope, SearchQuery, VimText, is_command_target, matching_ranges,
+    VimDirection, EditorAction, Find, Input, VimMode, Motion, Normal, Object, Operator, OperatorKey,
+    VimPending, RegisterKind, VimScope, SearchQuery, VimText, is_command_target, matching_ranges,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -21,24 +21,24 @@ enum InsertAt {
 }
 
 #[derive(Clone, Debug)]
-enum Target {
+enum VimTarget {
     Character,
     Line,
     LineEnd,
     Motion(Motion),
     Search(SearchQuery),
-    Object { scope: Scope, object: Object },
+    Object { scope: VimScope, object: Object },
     Find { motion: Find, target: char },
     BufferJump { last: bool },
 }
 
 #[derive(Clone, Debug)]
-enum Action {
+enum VimAction {
     Insert(InsertAt),
     EnterReplace,
     RestoreReplaced,
-    Delete(Target),
-    Change(Target),
+    Delete(VimTarget),
+    Change(VimTarget),
     Replace(char),
     PasteAfter,
     /// The register as it was when the yank key was pressed.
@@ -48,11 +48,11 @@ enum Action {
 
 /// One step of a change `.` repeats.
 #[derive(Clone, Debug)]
-pub struct Edit(EditStep);
+pub struct VimEdit(EditStep);
 
 #[derive(Clone, Debug)]
 enum EditStep {
-    Action(Action),
+    VimAction(VimAction),
     Text(String),
 }
 
@@ -67,8 +67,8 @@ struct ReplaceStep {
 
 #[derive(Debug, Default)]
 struct Commands {
-    pending_change: Vec<Edit>,
-    last_change: Vec<Edit>,
+    pending_change: Vec<VimEdit>,
+    last_change: Vec<VimEdit>,
     changed: bool,
     replaying: bool,
     replace_steps: Vec<ReplaceStep>,
@@ -87,9 +87,9 @@ pub struct Persistent {
 pub struct Vim {
     enabled: bool,
     mode: VimMode,
-    pending: Pending,
+    pending: VimPending,
     /// A `/` or `?` query is being typed (its text is the view's).
-    searching: Option<Direction>,
+    searching: Option<VimDirection>,
     last_search: SearchQuery,
     commands: Commands,
     /// The single-line field: no line is opened and no newline is typed.
@@ -113,7 +113,7 @@ impl Vim {
     /// Turning it on enters Normal mode, off Insert; a command waiting does not survive.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
-        self.pending = Pending::None;
+        self.pending = VimPending::None;
         self.searching = None;
         self.last_search = SearchQuery::default();
         self.commands = Commands::default();
@@ -129,7 +129,7 @@ impl Vim {
         self.enabled.then(|| self.mode.label())
     }
 
-    pub fn pending(&self) -> Pending {
+    pub fn pending(&self) -> VimPending {
         self.pending
     }
 
@@ -161,7 +161,7 @@ impl Vim {
 
     /// A command, a query or a text object waits for its next key.
     pub fn is_operator_pending(&self) -> bool {
-        self.searching.is_some() || self.pending != Pending::None
+        self.searching.is_some() || self.pending != VimPending::None
     }
 
     /// Escape is the editor's, not the turn's: Insert/Replace mode or a command waiting.
@@ -169,7 +169,7 @@ impl Vim {
         self.enabled && (self.mode != VimMode::Normal || self.is_operator_pending())
     }
 
-    pub fn searching(&self) -> Option<Direction> {
+    pub fn searching(&self) -> Option<VimDirection> {
         self.searching
     }
 
@@ -179,7 +179,7 @@ impl Vim {
 
     /// The text was replaced as a whole: what waited and what `.` recorded is gone.
     pub fn text_replaced(&mut self) {
-        self.pending = Pending::None;
+        self.pending = VimPending::None;
         self.searching = None;
         self.last_search = SearchQuery::default();
         self.commands = Commands::default();
@@ -196,22 +196,22 @@ impl Vim {
             return;
         }
         match std::mem::take(&mut self.pending) {
-            Pending::None => {
+            VimPending::None => {
                 if let Input::Normal(command) = input {
                     self.normal(t, command);
                 }
             }
-            Pending::Operator(op) => {
+            VimPending::Operator(op) => {
                 if let Input::Operator(key) = input {
                     self.operator(t, op, key);
                 }
             }
-            Pending::TextObject { operator, scope } => {
+            VimPending::TextObject { operator, scope } => {
                 if let Input::Object(object) = input {
                     self.object(t, operator, scope, object);
                 }
             }
-            pending @ (Pending::Replace | Pending::Find { .. }) => {
+            pending @ (VimPending::Replace | VimPending::Find { .. }) => {
                 if let Input::Char(ch) = input {
                     self.pending_char(t, pending, ch);
                 }
@@ -245,18 +245,18 @@ impl Vim {
             return;
         }
         self.mode = VimMode::Insert;
-        self.pending = Pending::None;
+        self.pending = VimPending::None;
         self.commands.replace_steps.clear();
         self.searching = None;
         if self.commands.pending_change.is_empty() && !self.commands.replaying {
-            self.start_edit(t, Action::Insert(InsertAt::Cursor));
+            self.start_edit(t, VimAction::Insert(InsertAt::Cursor));
         }
     }
 
     pub fn enter_normal(&mut self, _t: &mut dyn VimText) {
         if self.enabled {
             self.mode = VimMode::Normal;
-            self.pending = Pending::None;
+            self.pending = VimPending::None;
             self.searching = None;
             self.commands.replace_steps.clear();
         }
@@ -276,11 +276,11 @@ impl Vim {
             return;
         }
         if self.mode == VimMode::Insert
-            && let Some(Edit(EditStep::Text(pending))) = c.pending_change.last_mut()
+            && let Some(VimEdit(EditStep::Text(pending))) = c.pending_change.last_mut()
         {
             pending.push_str(text);
         } else {
-            c.pending_change.push(Edit(EditStep::Text(text.to_owned())));
+            c.pending_change.push(VimEdit(EditStep::Text(text.to_owned())));
         }
         c.changed = true;
     }
@@ -307,9 +307,9 @@ impl Vim {
             && !self.commands.pending_change.is_empty();
         let prior_len = t.text().len();
         let recorded = if matches!(action, EditorAction::Yank) {
-            Action::Yank(t.register().text)
+            VimAction::Yank(t.register().text)
         } else {
-            Action::Editor(action)
+            VimAction::Editor(action)
         };
         if !self.apply_action(t, recorded.clone()) {
             return false;
@@ -317,7 +317,7 @@ impl Vim {
         let changed =
             t.text().len() != prior_len || matches!(action, EditorAction::Yank);
         if recording && (changed || !deletion) {
-            self.commands.pending_change.push(Edit(EditStep::Action(recorded)));
+            self.commands.pending_change.push(VimEdit(EditStep::VimAction(recorded)));
         }
         self.commands.changed |= recording && changed;
         true
@@ -345,13 +345,13 @@ impl Vim {
 
     fn insert_action_restore(&mut self, t: &mut dyn VimText) -> bool {
         let recording = !self.commands.replaying && !self.commands.pending_change.is_empty();
-        if !self.apply_action(t, Action::RestoreReplaced) {
+        if !self.apply_action(t, VimAction::RestoreReplaced) {
             return false;
         }
         if recording {
             self.commands
                 .pending_change
-                .push(Edit(EditStep::Action(Action::RestoreReplaced)));
+                .push(VimEdit(EditStep::VimAction(VimAction::RestoreReplaced)));
             self.commands.changed = true;
         }
         true
@@ -395,15 +395,15 @@ impl Vim {
         true
     }
 
-    fn start_edit(&mut self, t: &mut dyn VimText, action: Action) -> bool {
+    fn start_edit(&mut self, t: &mut dyn VimText, action: VimAction) -> bool {
         let prior_len = t.text().len();
-        self.commands.pending_change = vec![Edit(EditStep::Action(action.clone()))];
+        self.commands.pending_change = vec![VimEdit(EditStep::VimAction(action.clone()))];
         self.commands.changed = false;
         if !self.apply_action(t, action.clone()) {
             self.commands.pending_change.clear();
             return false;
         }
-        self.commands.changed = t.text().len() != prior_len || matches!(action, Action::Replace(_));
+        self.commands.changed = t.text().len() != prior_len || matches!(action, VimAction::Replace(_));
         if self.mode == VimMode::Normal {
             self.finish_pending_change();
         }
@@ -426,9 +426,9 @@ impl Vim {
         }
         let edits = self.commands.last_change.clone();
         self.commands.replaying = true;
-        for Edit(step) in edits {
+        for VimEdit(step) in edits {
             let done = match step {
-                EditStep::Action(action) => self.apply_action(t, action),
+                EditStep::VimAction(action) => self.apply_action(t, action),
                 EditStep::Text(text) => {
                     if self.mode == VimMode::Normal {
                         false
@@ -445,21 +445,21 @@ impl Vim {
         if self.mode != VimMode::Normal {
             self.leave_insert(t);
         }
-        self.pending = Pending::None;
+        self.pending = VimPending::None;
         self.commands.replaying = false;
     }
 
     // ---- the actions ----------------------------------------------------------
 
-    fn apply_action(&mut self, t: &mut dyn VimText, action: Action) -> bool {
-        if !matches!(action, Action::RestoreReplaced | Action::Yank(_)) {
+    fn apply_action(&mut self, t: &mut dyn VimText, action: VimAction) -> bool {
+        if !matches!(action, VimAction::RestoreReplaced | VimAction::Yank(_)) {
             self.commands.replace_steps.clear();
         }
         let prior_len = t.text().len();
         match action {
-            Action::EnterReplace => self.mode = VimMode::Replace,
-            Action::RestoreReplaced => return self.restore_replaced(t),
-            Action::Insert(at) => {
+            VimAction::EnterReplace => self.mode = VimMode::Replace,
+            VimAction::RestoreReplaced => return self.restore_replaced(t),
+            VimAction::Insert(at) => {
                 match at {
                     InsertAt::Cursor => {}
                     InsertAt::AfterCursor => t.set_cursor(next_atomic(t, t.cursor())),
@@ -479,9 +479,9 @@ impl Vim {
                 }
                 self.mode = VimMode::Insert;
             }
-            Action::Delete(target) => return self.operate(t, Operator::Delete, target, prior_len),
-            Action::Change(target) => return self.operate(t, Operator::Change, target, prior_len),
-            Action::Replace(ch) => {
+            VimAction::Delete(target) => return self.operate(t, Operator::Delete, target, prior_len),
+            VimAction::Change(target) => return self.operate(t, Operator::Change, target, prior_len),
+            VimAction::Replace(ch) => {
                 if t.cursor() >= eol(t) {
                     return false;
                 }
@@ -490,11 +490,11 @@ impl Vim {
                 t.replace(range, &ch.to_string());
                 t.set_cursor(start + usize::from(ch == '\n'));
             }
-            Action::PasteAfter => {
+            VimAction::PasteAfter => {
                 self.paste_after(t);
                 return t.text().len() != prior_len;
             }
-            Action::Yank(text) => {
+            VimAction::Yank(text) => {
                 if text.is_empty() {
                     return true;
                 }
@@ -502,7 +502,7 @@ impl Vim {
                 self.insert_str(t, &text);
                 self.commands.replaying = replaying;
             }
-            Action::Editor(action) => {
+            VimAction::Editor(action) => {
                 t.editor(action);
             }
         }
@@ -513,11 +513,11 @@ impl Vim {
         &mut self,
         t: &mut dyn VimText,
         op: Operator,
-        target: Target,
+        target: VimTarget,
         prior_len: usize,
     ) -> bool {
         match target {
-            Target::Character => {
+            VimTarget::Character => {
                 if t.cursor() < eol(t) {
                     let cursor = t.cursor();
                     let end = next_atomic(t, cursor);
@@ -527,7 +527,7 @@ impl Vim {
                     self.mode = VimMode::Insert;
                 }
             }
-            Target::Line => {
+            VimTarget::Line => {
                 if op == Operator::Delete {
                     let range = motions::current_line_with_newline(t);
                     self.kill(t, range, RegisterKind::Linewise);
@@ -537,7 +537,7 @@ impl Vim {
                     self.mode = VimMode::Insert;
                 }
             }
-            Target::LineEnd => {
+            VimTarget::LineEnd => {
                 let line_end = eol(t);
                 if t.cursor() < line_end {
                     let cursor = t.cursor();
@@ -547,24 +547,24 @@ impl Vim {
                     self.mode = VimMode::Insert;
                 }
             }
-            Target::Motion(motion) => self.apply_operator(t, op, motion),
-            Target::Search(query) => {
+            VimTarget::Motion(motion) => self.apply_operator(t, op, motion),
+            VimTarget::Search(query) => {
                 if !self.search(t, &query, Some(op)) {
                     return false;
                 }
             }
-            Target::Object { scope, object } => {
+            VimTarget::Object { scope, object } => {
                 let Some(range) = motions::object_range(t, object, scope) else {
                     return false;
                 };
                 self.operate_range(t, op, range);
             }
-            Target::Find { motion, target } => {
+            VimTarget::Find { motion, target } => {
                 if !self.find(t, motion, Some(op), target) {
                     return false;
                 }
             }
-            Target::BufferJump { last } => self.jump_to_line(t, last, Some(op)),
+            VimTarget::BufferJump { last } => self.jump_to_line(t, last, Some(op)),
         }
         if op == Operator::Change {
             return self.mode == VimMode::Insert;
@@ -576,7 +576,7 @@ impl Vim {
 
     fn normal(&mut self, t: &mut dyn VimText, command: Normal) {
         let edit = |s: &mut Vim, t: &mut dyn VimText, at| {
-            s.start_edit(t, Action::Insert(at));
+            s.start_edit(t, VimAction::Insert(at));
         };
         match command {
             Normal::EnterInsert => edit(self, t, InsertAt::Cursor),
@@ -587,7 +587,7 @@ impl Vim {
             Normal::OpenLineAbove if !self.single_line => edit(self, t, InsertAt::OpenAbove),
             Normal::OpenLineBelow | Normal::OpenLineAbove => {}
             Normal::EnterReplaceMode => {
-                self.start_edit(t, Action::EnterReplace);
+                self.start_edit(t, VimAction::EnterReplace);
             }
             Normal::MoveLeft => t.set_cursor(prev_atomic(t, t.cursor())),
             Normal::MoveRight => t.set_cursor(next_atomic(t, t.cursor())),
@@ -599,34 +599,34 @@ impl Vim {
             Normal::MoveLineStart => t.set_cursor(bol(t)),
             Normal::MoveLineEnd => t.set_cursor(motions::line_end_cursor(t)),
             Normal::DeleteChar => {
-                self.start_edit(t, Action::Delete(Target::Character));
+                self.start_edit(t, VimAction::Delete(VimTarget::Character));
             }
             Normal::SubstituteChar => {
-                self.start_edit(t, Action::Change(Target::Character));
+                self.start_edit(t, VimAction::Change(VimTarget::Character));
             }
             Normal::DeleteToLineEnd => {
-                self.start_edit(t, Action::Delete(Target::LineEnd));
+                self.start_edit(t, VimAction::Delete(VimTarget::LineEnd));
             }
             Normal::ChangeToLineEnd => {
-                self.start_edit(t, Action::Change(Target::LineEnd));
+                self.start_edit(t, VimAction::Change(VimTarget::LineEnd));
             }
             Normal::YankLine => self.yank_current_line(t),
             Normal::PasteAfter => {
-                self.start_edit(t, Action::PasteAfter);
+                self.start_edit(t, VimAction::PasteAfter);
             }
-            Normal::StartOperator(op) => self.pending = Pending::Operator(op),
+            Normal::StartOperator(op) => self.pending = VimPending::Operator(op),
             Normal::CancelOperator => {
-                self.pending = Pending::None;
+                self.pending = VimPending::None;
                 self.searching = None;
             }
             Normal::ReplaceChar => {
                 if t.cursor() < eol(t) {
-                    self.pending = Pending::Replace;
+                    self.pending = VimPending::Replace;
                 }
             }
             Normal::RepeatLastChange => self.repeat(t),
             Normal::Find(motion) => {
-                self.pending = Pending::Find {
+                self.pending = VimPending::Find {
                     motion,
                     operator: None,
                 };
@@ -640,31 +640,31 @@ impl Vim {
         match key {
             OperatorKey::Line => match op {
                 Operator::Delete => {
-                    self.start_edit(t, Action::Delete(Target::Line));
+                    self.start_edit(t, VimAction::Delete(VimTarget::Line));
                 }
                 Operator::Yank => self.yank_current_line(t),
                 Operator::Change => {
-                    self.start_edit(t, Action::Change(Target::Line));
+                    self.start_edit(t, VimAction::Change(VimTarget::Line));
                 }
             },
             OperatorKey::Cancel => {}
-            OperatorKey::Scope(scope) => {
-                self.pending = Pending::TextObject {
+            OperatorKey::VimScope(scope) => {
+                self.pending = VimPending::TextObject {
                     operator: op,
                     scope,
                 };
             }
             OperatorKey::Motion(motion) => match op {
                 Operator::Delete => {
-                    self.start_edit(t, Action::Delete(Target::Motion(motion)));
+                    self.start_edit(t, VimAction::Delete(VimTarget::Motion(motion)));
                 }
                 Operator::Change => {
-                    self.start_edit(t, Action::Change(Target::Motion(motion)));
+                    self.start_edit(t, VimAction::Change(VimTarget::Motion(motion)));
                 }
                 Operator::Yank => self.apply_operator(t, op, motion),
             },
             OperatorKey::Find(motion) => {
-                self.pending = Pending::Find {
+                self.pending = VimPending::Find {
                     motion,
                     operator: Some(op),
                 };
@@ -673,10 +673,10 @@ impl Vim {
                 let last = key == OperatorKey::JumpBottom;
                 match op {
                     Operator::Delete => {
-                        self.start_edit(t, Action::Delete(Target::BufferJump { last }));
+                        self.start_edit(t, VimAction::Delete(VimTarget::BufferJump { last }));
                     }
                     Operator::Change => {
-                        self.start_edit(t, Action::Change(Target::BufferJump { last }));
+                        self.start_edit(t, VimAction::Change(VimTarget::BufferJump { last }));
                     }
                     Operator::Yank => self.jump_to_line(t, last, Some(op)),
                 }
@@ -684,13 +684,13 @@ impl Vim {
         }
     }
 
-    fn object(&mut self, t: &mut dyn VimText, op: Operator, scope: Scope, object: Object) {
+    fn object(&mut self, t: &mut dyn VimText, op: Operator, scope: VimScope, object: Object) {
         match op {
             Operator::Delete => {
-                self.start_edit(t, Action::Delete(Target::Object { scope, object }));
+                self.start_edit(t, VimAction::Delete(VimTarget::Object { scope, object }));
             }
             Operator::Change => {
-                self.start_edit(t, Action::Change(Target::Object { scope, object }));
+                self.start_edit(t, VimAction::Change(VimTarget::Object { scope, object }));
             }
             Operator::Yank => {
                 if let Some(range) = motions::object_range(t, object, scope) {
@@ -700,20 +700,20 @@ impl Vim {
         }
     }
 
-    fn pending_char(&mut self, t: &mut dyn VimText, pending: Pending, ch: Option<char>) {
+    fn pending_char(&mut self, t: &mut dyn VimText, pending: VimPending, ch: Option<char>) {
         let Some(ch) = ch else { return };
         match pending {
-            Pending::Replace => {
+            VimPending::Replace => {
                 if !(self.single_line && matches!(ch, '\r' | '\n')) {
-                    self.start_edit(t, Action::Replace(ch));
+                    self.start_edit(t, VimAction::Replace(ch));
                 }
             }
-            Pending::Find { motion, operator } => match operator {
+            VimPending::Find { motion, operator } => match operator {
                 Some(Operator::Delete) => {
-                    self.start_edit(t, Action::Delete(Target::Find { motion, target: ch }));
+                    self.start_edit(t, VimAction::Delete(VimTarget::Find { motion, target: ch }));
                 }
                 Some(Operator::Change) => {
-                    self.start_edit(t, Action::Change(Target::Find { motion, target: ch }));
+                    self.start_edit(t, VimAction::Change(VimTarget::Find { motion, target: ch }));
                 }
                 Some(Operator::Yank) | None => {
                     self.find(t, motion, operator, ch);
@@ -937,8 +937,8 @@ impl Vim {
     }
 
     /// A `/` or `?` query starts (its text is the view's).
-    pub fn begin_search(&mut self, direction: Direction) {
-        if self.is_normal() && matches!(self.pending, Pending::None | Pending::Operator(_)) {
+    pub fn begin_search(&mut self, direction: VimDirection) {
+        if self.is_normal() && matches!(self.pending, VimPending::None | VimPending::Operator(_)) {
             self.searching = Some(direction);
         }
     }
@@ -946,7 +946,7 @@ impl Vim {
     /// The query is dropped (Escape, Ctrl+C, Backspace on an empty query).
     pub fn abort_search(&mut self) {
         if self.searching.take().is_some() {
-            self.pending = Pending::None;
+            self.pending = VimPending::None;
         }
     }
 
@@ -974,13 +974,13 @@ impl Vim {
 
     fn run_search(&mut self, t: &mut dyn VimText, query: SearchQuery) {
         match std::mem::take(&mut self.pending) {
-            Pending::Operator(Operator::Delete) => {
-                self.start_edit(t, Action::Delete(Target::Search(query)));
+            VimPending::Operator(Operator::Delete) => {
+                self.start_edit(t, VimAction::Delete(VimTarget::Search(query)));
             }
-            Pending::Operator(Operator::Change) => {
-                self.start_edit(t, Action::Change(Target::Search(query)));
+            VimPending::Operator(Operator::Change) => {
+                self.start_edit(t, VimAction::Change(VimTarget::Search(query)));
             }
-            Pending::Operator(Operator::Yank) => {
+            VimPending::Operator(Operator::Yank) => {
                 self.search(t, &query, Some(Operator::Yank));
             }
             _ => {
@@ -996,8 +996,8 @@ impl Vim {
             .map(|r| r.start)
             .filter(|&start| is_command_target(t, start))
             .min_by_key(|&pos| match query.direction {
-                Direction::Forward => (pos <= origin, pos),
-                Direction::Backward => (pos >= origin, usize::MAX - pos),
+                VimDirection::Forward => (pos <= origin, pos),
+                VimDirection::Backward => (pos >= origin, usize::MAX - pos),
             });
         let Some(target) = target else { return false };
         let Some(op) = op else {

@@ -11,7 +11,7 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use rtwk::focus::KeyPress;
 
 use codex_tui_core::kit::vim::{
-    EditorAction, History, Persistent, Register, RegisterKind, Vim, VimText,
+    EditorAction, UndoHistory, Persistent, Register, RegisterKind, Vim, VimText,
 };
 
 use super::{ComposerDraft, Element};
@@ -49,7 +49,7 @@ impl Snapshot {
 #[derive(Default)]
 pub(super) struct Modal {
     pub(super) vim: Vim,
-    pub(super) history: History<Snapshot>,
+    pub(super) history: UndoHistory<Snapshot>,
     pub(super) register_kind: RegisterKind,
     /// The first key of a chord (`g` of `g g`) waiting for its second.
     pub(super) chord: Option<KeyPress>,
@@ -95,7 +95,7 @@ impl ComposerDraft {
     }
 
     /// Runs `f` on the undo history (same rule as `with_vim`).
-    pub fn with_vim_history<R>(&self, f: impl FnOnce(&mut History<Snapshot>) -> R) -> R {
+    pub fn with_vim_history<R>(&self, f: impl FnOnce(&mut UndoHistory<Snapshot>) -> R) -> R {
         let mut history = std::mem::take(&mut self.0.borrow_mut().vim.history);
         let out = f(&mut history);
         self.0.borrow_mut().vim.history = history;

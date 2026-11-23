@@ -9,11 +9,8 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::screens::composer::mentions::candidate::Selection;
-use crate::screens::composer::mentions::catalog::{Mention, MentionKind, build_search_catalog};
 use super::codec::is_mention_name_char;
 use super::dollar::{self, MentionItem, mention_items};
-use crate::screens::composer::mentions::files::{FileMatches, FileSearchAsk};
 use super::popup::Popup;
 use super::search_mode::SearchMode;
 use super::target::{
@@ -21,6 +18,9 @@ use super::target::{
     current_prefixed_token_range_with_dollar_predicate, dollar_query_kind,
     prefixed_token_range_is_editable,
 };
+use crate::screens::composer::mentions::candidate::Selection;
+use crate::screens::composer::mentions::catalog::{Mention, MentionKind, build_search_catalog};
+use crate::screens::composer::mentions::files::{FileMatches, FileSearchAsk};
 use crate::screens::composer::mentions::task::{TaskMention, valid_thread_path};
 use crate::screens::composer::mentions::usage::MentionUsage;
 
@@ -135,19 +135,19 @@ pub enum Active {
 
 /// The mention popups' state in one composer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Session {
+pub struct MentionSession {
     active: Active,
     dismissed: Option<Dismissed>,
     current_file_query: Option<String>,
 }
 
 /// A token the caret is on.
-struct Target {
+struct MentionTarget {
     range: Range<usize>,
     query: String,
 }
 
-impl Session {
+impl MentionSession {
     pub fn active(&self) -> &Active {
         &self.active
     }
@@ -207,11 +207,11 @@ impl Session {
                 at = None;
             }
         }
-        if let Some(Target { range, query }) = at {
+        if let Some(MentionTarget { range, query }) = at {
             return self.sync_at(doc, src, range, query);
         }
         let mut asks = self.end_file_search();
-        if let Some(Target { range, query }) = dollar {
+        if let Some(MentionTarget { range, query }) = dollar {
             self.sync_dollar(doc, src, range, query);
             return asks;
         }
@@ -331,7 +331,7 @@ impl Session {
             Active::Dollar(_) => dollar_target(doc, src.mentions),
             Active::None => None,
         };
-        if let Some(Target { range, query }) = target {
+        if let Some(MentionTarget { range, query }) = target {
             self.dismissed = Some(Dismissed::new(doc, range, query));
         }
         self.active = Active::None;
@@ -340,22 +340,23 @@ impl Session {
     /// What picking row `position` of the popup puts in the draft; `None`
     /// when there is no such row or the caret left the token. The popup is
     /// closed by the caller through [`Session::finish_pick`].
-    pub fn pick(&self, position: usize, doc: &Doc, src: &Sources) -> Option<Pick> {
+    pub fn pick(&self, position: usize, doc: &Doc, src: &Sources) -> Option<MentionPick> {
         match &self.active {
             Active::At(popup) => {
                 let (range, _) = at_token_range(doc)?;
                 let row = popup.rows().get(position)?;
                 Some(match &row.selection {
-                    Selection::File(path) => Pick::file(range, path),
+                    Selection::File(path) => MentionPick::file(range, path),
                     Selection::Tool { insert_text, path } => {
-                        Pick::mention(range, insert_text, path.as_deref())
+                        MentionPick::mention(range, insert_text, path.as_deref())
                     }
                 })
             }
             Active::Dollar(popup) => {
                 let target = dollar_target(doc, src.mentions)?;
                 let item = popup.item_at(position)?;
-                let mut pick = Pick::mention(target.range, &item.insert_text, item.path.as_deref());
+                let mut pick =
+                    MentionPick::mention(target.range, &item.insert_text, item.path.as_deref());
                 pick.usage = item.path.clone();
                 Some(pick)
             }
@@ -365,7 +366,7 @@ impl Session {
 
     /// The pick was applied (`doc` is the draft after it): the popup closes
     /// and the completed token stays dismissed until its text changes.
-    pub fn finish_pick(&mut self, pick: &Pick, inserted: Range<usize>, doc: &Doc) {
+    pub fn finish_pick(&mut self, pick: &MentionPick, inserted: Range<usize>, doc: &Doc) {
         self.active = Active::None;
         let text = pick.inserted_text();
         if let Some(sigil) = text.chars().next().filter(|c| matches!(c, '$' | '@')) {
@@ -391,7 +392,7 @@ impl Session {
 
 /// The binding a mention element carries (`ComposerMentionBinding`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Binding {
+pub struct ComposerBinding {
     pub sigil: char,
     pub mention: String,
     pub path: String,
@@ -399,7 +400,7 @@ pub struct Binding {
 
 /// What a pick puts in the draft in place of the token at `range`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Pick {
+pub struct MentionPick {
     pub range: Range<usize>,
     pub action: PickAction,
     /// The skill whose pick the usage file keeps (by its path).
@@ -416,11 +417,11 @@ pub enum PickAction {
     /// A mention as one atomic element with its binding.
     Element {
         text: String,
-        binding: Option<Binding>,
+        binding: Option<ComposerBinding>,
     },
 }
 
-impl Pick {
+impl MentionPick {
     fn file(range: Range<usize>, path: &str) -> Self {
         // A path with whitespace is quoted so an argument parser takes it whole; one that
         // holds a quote already is left alone.
@@ -455,7 +456,7 @@ impl Pick {
             } else {
                 mention_token_from_insert_text(insert_text)
             };
-            token.map(|(sigil, mention)| Binding {
+            token.map(|(sigil, mention)| ComposerBinding {
                 sigil,
                 mention,
                 path: path.to_string(),
@@ -538,7 +539,10 @@ pub fn completion_separator(text: &str, cursor: usize) -> Separator {
         .map(char::len_utf8);
     if let Some(len) = existing {
         let after = cursor + len;
-        let precedes_suffix = text[after..].chars().next().is_some_and(|c| !c.is_whitespace());
+        let precedes_suffix = text[after..]
+            .chars()
+            .next()
+            .is_some_and(|c| !c.is_whitespace());
         if !precedes_suffix {
             return Separator::MoveCaretTo(after);
         }
@@ -549,7 +553,9 @@ pub fn completion_separator(text: &str, cursor: usize) -> Separator {
 /// Whether a completion starting at `range` follows an atomic element
 /// directly: a space then goes before it (`separate_completion_from_adjacent_element`).
 pub fn starts_after_element(doc: &Doc, range: &Range<usize>) -> bool {
-    doc.elements.iter().any(|element| element.end == range.start)
+    doc.elements
+        .iter()
+        .any(|element| element.end == range.start)
 }
 
 fn at_token_range(doc: &Doc) -> Option<(Range<usize>, String)> {
@@ -557,13 +563,13 @@ fn at_token_range(doc: &Doc) -> Option<(Range<usize>, String)> {
     prefixed_token_range_is_editable(doc, '@', &range, &token).then_some((range, token))
 }
 
-fn at_target(doc: &Doc) -> Option<Target> {
-    at_token_range(doc).map(|(range, query)| Target { range, query })
+fn at_target(doc: &Doc) -> Option<MentionTarget> {
+    at_token_range(doc).map(|(range, query)| MentionTarget { range, query })
 }
 
 /// The `$` token at the caret: definite shell syntax is refused, an ambiguous
 /// shell-like query only when a bindable mention matches it.
-fn dollar_target(doc: &Doc, mentions: &[Mention]) -> Option<Target> {
+fn dollar_target(doc: &Doc, mentions: &[Mention]) -> Option<MentionTarget> {
     if mentions.is_empty() {
         return None;
     }
@@ -591,16 +597,16 @@ fn dollar_target(doc: &Doc, mentions: &[Mention]) -> Option<Target> {
     if !prefixed_token_range_is_editable(doc, '$', &range, &query) || !completable(&query) {
         return None;
     }
-    Some(Target { range, query })
+    Some(MentionTarget { range, query })
 }
 
 #[cfg(test)]
 #[allow(clippy::single_range_in_vec_init)] // a draft with one element
 mod tests {
-    use crate::screens::composer::mentions::candidate::uri;
-    use crate::screens::composer::mentions::catalog::MentionKind;
     use super::*;
     use crate::ids::ThreadId;
+    use crate::screens::composer::mentions::candidate::uri;
+    use crate::screens::composer::mentions::catalog::MentionKind;
     use pretty_assertions::assert_eq;
 
     fn doc<'a>(text: &'a str, cursor: usize, elements: &'a [Range<usize>]) -> Doc<'a> {
@@ -633,7 +639,10 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             Self {
-                mentions: vec![plugin("Sample Plugin", "sample@debug"), skill("Fig", "fig", "/s/fig")],
+                mentions: vec![
+                    plugin("Sample Plugin", "sample@debug"),
+                    skill("Fig", "fig", "/s/fig"),
+                ],
                 tasks: Vec::new(),
                 usage: MentionUsage::default(),
                 matches: FileMatches::default(),
@@ -653,11 +662,14 @@ mod tests {
     #[test]
     fn a_new_at_popup_resets_the_search_before_it_asks_the_query() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         let asks = session.sync(&doc("@fo", 3, &[]), &fx.sources());
         assert_eq!(
             asks,
-            vec![FileSearchAsk::Query(String::new()), FileSearchAsk::Query("fo".into())]
+            vec![
+                FileSearchAsk::Query(String::new()),
+                FileSearchAsk::Query("fo".into())
+            ]
         );
         assert!(session.at_popup().is_some());
         // the same query again asks nothing
@@ -678,7 +690,7 @@ mod tests {
     #[test]
     fn reopening_an_identical_mention_restarts_the_search() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         let text = "@foo @foo";
         // the caret on the first token (Esc closes it), then at the end on the second,
         // the same text: a fresh popup, so the search is reset and asked again
@@ -688,14 +700,17 @@ mod tests {
         let asks = session.sync(&doc(text, 9, &[]), &fx.sources());
         assert_eq!(
             asks,
-            vec![FileSearchAsk::Query(String::new()), FileSearchAsk::Query("foo".into())]
+            vec![
+                FileSearchAsk::Query(String::new()),
+                FileSearchAsk::Query("foo".into())
+            ]
         );
     }
 
     #[test]
     fn a_dismissed_token_stays_closed_until_its_text_changes() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         session.sync(&doc("@fo", 3, &[]), &fx.sources());
         session.dismiss(&doc("@fo", 3, &[]), &fx.sources());
         assert!(session.sync(&doc("@fo", 3, &[]), &fx.sources()).is_empty());
@@ -709,7 +724,7 @@ mod tests {
     #[test]
     fn a_bound_mention_does_not_open_the_popup() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         let elements = [0..7usize];
         session.sync(&doc("@sample", 7, &elements), &fx.sources());
         assert!(!session.is_open());
@@ -720,7 +735,7 @@ mod tests {
     #[test]
     fn left_and_right_switch_the_tab_only_on_a_token() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         session.sync(&doc("@fo", 3, &[]), &fx.sources());
         assert!(session.can_switch_search_mode(&doc("@fo", 3, &[])));
         assert!(!session.can_switch_search_mode(&doc("@fo x", 5, &[])));
@@ -734,21 +749,23 @@ mod tests {
     #[test]
     fn dollar_lists_skills_and_a_pick_binds_the_skill_path() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         let asks = session.sync(&doc("use $fi", 7, &[]), &fx.sources());
         assert!(asks.is_empty());
         let Active::Dollar(popup) = session.active() else {
             panic!("the $ popup is up")
         };
         assert_eq!(popup.rows().len(), 1);
-        let pick = session.pick(0, &doc("use $fi", 7, &[]), &fx.sources()).unwrap();
+        let pick = session
+            .pick(0, &doc("use $fi", 7, &[]), &fx.sources())
+            .unwrap();
         assert_eq!(pick.range, 4..7);
         assert_eq!(pick.usage.as_deref(), Some("/s/fig"));
         assert_eq!(
             pick.action,
             PickAction::Element {
                 text: "$fig".into(),
-                binding: Some(Binding {
+                binding: Some(ComposerBinding {
                     sigil: '$',
                     mention: "fig".into(),
                     path: "/s/fig".into()
@@ -760,7 +777,7 @@ mod tests {
     #[test]
     fn shell_variables_do_not_open_the_dollar_popup() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         session.sync(&doc("echo $HOME", 10, &[]), &fx.sources());
         assert!(!session.is_open());
     }
@@ -774,15 +791,17 @@ mod tests {
             cwd: String::new(),
             snippet: String::new(),
         }];
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         session.sync(&doc("@migr", 5, &[]), &fx.sources());
-        let pick = session.pick(0, &doc("@migr", 5, &[]), &fx.sources()).unwrap();
+        let pick = session
+            .pick(0, &doc("@migr", 5, &[]), &fx.sources())
+            .unwrap();
         assert!(pick.is_task());
         assert_eq!(
             pick.action,
             PickAction::Element {
                 text: "@migrate db".into(),
-                binding: Some(Binding {
+                binding: Some(ComposerBinding {
                     sigil: '@',
                     mention: "migrate db".into(),
                     path: "thread://t1".into()
@@ -790,11 +809,11 @@ mod tests {
             }
         );
         assert_eq!(
-            Pick::file(0..1, "my dir/a b.rs").action,
+            MentionPick::file(0..1, "my dir/a b.rs").action,
             PickAction::Path("\"my dir/a b.rs\"".into())
         );
         assert!(matches!(
-            Pick::file(0..1, "shot.PNG").action,
+            MentionPick::file(0..1, "shot.PNG").action,
             PickAction::Image { .. }
         ));
     }
@@ -802,7 +821,7 @@ mod tests {
     #[test]
     fn a_completed_token_is_dismissed_where_it_stands() {
         let fx = Fixture::new();
-        let mut session = Session::default();
+        let mut session = MentionSession::default();
         session.sync(&doc("@sa", 3, &[]), &fx.sources());
         let pick = session.pick(0, &doc("@sa", 3, &[]), &fx.sources()).unwrap();
         // the draft after the pick: the element `@Sample` and a space after it
@@ -823,7 +842,10 @@ mod tests {
         assert_eq!(completion_separator("@a", 2), Separator::InsertSpaceAt(2));
         assert_eq!(completion_separator("@a b", 2), Separator::InsertSpaceAt(2));
         // a line break is never reused
-        assert_eq!(completion_separator("@a\nb", 2), Separator::InsertSpaceAt(2));
+        assert_eq!(
+            completion_separator("@a\nb", 2),
+            Separator::InsertSpaceAt(2)
+        );
     }
 
     #[test]
@@ -835,9 +857,16 @@ mod tests {
         let first_start = first_bound.len();
         let second_start = text.rfind(token).expect("second token");
         let second_bound_start = text.find(second_bound).expect("second bound mention");
-        let elements = [0..first_start, second_bound_start..second_bound_start + second_bound.len()];
+        let elements = [
+            0..first_start,
+            second_bound_start..second_bound_start + second_bound.len(),
+        ];
         let d = doc(&text, 0, &elements);
-        let dismissed = Dismissed::new(&d, first_start..first_start + token.len(), "other".to_string());
+        let dismissed = Dismissed::new(
+            &d,
+            first_start..first_start + token.len(),
+            "other".to_string(),
+        );
         assert!(!dismissed.matches(&d, &(second_start..second_start + token.len()), "other"));
     }
 

@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
+use crate::kit::history::TextElement;
 use crate::screens::composer::mentions::task;
-use crate::screens::composer::history::TextElement;
 
 /// Default plaintext sigil for tools (`codex_utils_plugins::mention_syntax`).
 pub const TOOL_MENTION_SIGIL: char = '$';
@@ -66,9 +66,7 @@ pub fn encode_history_mentions_at_elements(
         ) {
             let sigil = bytes[index] as char;
             if sigil == PLUGIN_TEXT_MENTION_SIGIL
-                && let Some(element) = elements
-                    .iter()
-                    .find(|element| element.start == index)
+                && let Some(element) = elements.iter().find(|element| element.start == index)
                 && let Some(name) = text.get(index + 1..element.end)
                 && mentions_by_token
                     .get(&(sigil, name))
@@ -99,9 +97,7 @@ pub fn encode_history_mentions_at_elements(
                         && mentions_by_token
                             .get(&(sigil, name))
                             .and_then(VecDeque::front)
-                            .is_some_and(|path| {
-                                task::valid_thread_path(path).is_none()
-                            })
+                            .is_some_and(|path| task::valid_thread_path(path).is_none())
                         && let Some(path) = mentions_by_token
                             .get_mut(&(sigil, name))
                             .and_then(VecDeque::pop_front)
@@ -141,8 +137,7 @@ pub fn decode_history_mentions_with_at_mentions(
 
     while index < bytes.len() {
         if at_mentions_enabled
-            && let Some((name, path, end_index)) =
-                task::parse_task_link(text, index)
+            && let Some((name, path, end_index)) = task::parse_task_link(text, index)
         {
             let start = out.len();
             out.push('@');

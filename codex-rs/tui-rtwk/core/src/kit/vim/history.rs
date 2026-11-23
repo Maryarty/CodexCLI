@@ -14,15 +14,15 @@ pub const MAX_BYTES: usize = 1024 * 1024;
 /// The undo and redo stacks of one draft, and the snapshot of the command
 /// being typed (`S`: the caller's snapshot of its whole draft).
 #[derive(Debug)]
-pub struct History<S> {
+pub struct UndoHistory<S> {
     undo: VecDeque<(S, usize)>,
     redo: VecDeque<(S, usize)>,
     pending: Option<(S, usize)>,
 }
 
-impl<S> Default for History<S> {
-    fn default() -> History<S> {
-        History {
+impl<S> Default for UndoHistory<S> {
+    fn default() -> UndoHistory<S> {
+        UndoHistory {
             undo: VecDeque::new(),
             redo: VecDeque::new(),
             pending: None,
@@ -30,7 +30,7 @@ impl<S> Default for History<S> {
     }
 }
 
-impl<S: Clone> History<S> {
+impl<S: Clone> UndoHistory<S> {
     /// A command or an insert session is under way (its snapshot is held).
     pub fn has_pending(&self) -> bool {
         self.pending.is_some()
@@ -38,7 +38,7 @@ impl<S: Clone> History<S> {
 
     /// Everything forgotten (Vim turned on or off, a draft put in whole).
     pub fn reset(&mut self) {
-        *self = History::default();
+        *self = UndoHistory::default();
     }
 
     fn trim(&mut self) {
@@ -111,14 +111,14 @@ impl<S: Clone> History<S> {
 mod tests {
     use super::*;
 
-    fn step(h: &mut History<&'static str>, before: &'static str) {
+    fn step(h: &mut UndoHistory<&'static str>, before: &'static str) {
         h.begin(before, before.len());
         h.commit(|s| *s == "same");
     }
 
     #[test]
     fn undo_and_redo_swap_the_draft() {
-        let mut h = History::default();
+        let mut h = UndoHistory::default();
         step(&mut h, "a");
         step(&mut h, "ab");
         assert_eq!(h.undo("abc", 3), Some("ab"));
@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn a_new_edit_ends_redo_and_an_unchanged_one_is_no_step() {
-        let mut h = History::default();
+        let mut h = UndoHistory::default();
         step(&mut h, "a");
         assert!(h.undo("ab", 2).is_some());
         assert!(h.can_redo());
@@ -143,14 +143,14 @@ mod tests {
 
     #[test]
     fn steps_and_bytes_are_bounded() {
-        let mut h: History<usize> = History::default();
+        let mut h: UndoHistory<usize> = UndoHistory::default();
         for i in 0..100 {
             h.begin(i, 1);
             h.commit(|_| false);
         }
         assert_eq!(h.undo.len(), MAX_STEPS);
         assert_eq!(h.undo.front().map(|(s, _)| *s), Some(36));
-        let mut h: History<u8> = History::default();
+        let mut h: UndoHistory<u8> = UndoHistory::default();
         h.begin(0, MAX_BYTES + 1);
         assert!(!h.has_pending(), "a draft over the budget has no history");
         h.begin(0, MAX_BYTES);

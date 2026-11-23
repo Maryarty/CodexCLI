@@ -1,10 +1,10 @@
 //! Which rows a query leaves of the catalog and the file matches, in what
 //! order (`mentions_v2/filter.rs`, carried).
 
-use crate::screens::composer::mentions::candidate::{Candidate, MentionType, Row, Selection};
-use crate::screens::composer::mentions::files::{FileMatch, MatchType};
 use super::search_mode::SearchMode;
 use crate::commands::fuzzy_match;
+use crate::screens::composer::mentions::candidate::{Candidate, MentionType, Row, Selection};
+use crate::screens::composer::mentions::files::{FileMatch, MatchType};
 
 pub fn filtered_candidates(
     candidates: &[Candidate],
@@ -167,7 +167,11 @@ mod tests {
     fn a_query_keeps_matches_and_a_name_match_beats_a_term_match() {
         let mut by_term = tool("Zed", MentionType::Skill);
         by_term.search_terms.push("alpha-tool".to_string());
-        let candidates = vec![by_term, tool("alpha", MentionType::Skill), tool("beta", MentionType::Skill)];
+        let candidates = vec![
+            by_term,
+            tool("alpha", MentionType::Skill),
+            tool("beta", MentionType::Skill),
+        ];
         let rows = filtered_candidates(&candidates, &[], "alpha", SearchMode::Results, false);
         assert_eq!(names(&rows), ["alpha", "Zed"]);
         assert!(rows[0].match_indices.is_some() && rows[1].match_indices.is_none());

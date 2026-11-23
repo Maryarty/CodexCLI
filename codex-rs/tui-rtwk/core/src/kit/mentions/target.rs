@@ -33,7 +33,9 @@ impl<'a> Doc<'a> {
         &self,
         range: Range<usize>,
     ) -> impl Iterator<Item = &'a Range<usize>> {
-        let first = self.elements.partition_point(|element| element.end <= range.start);
+        let first = self
+            .elements
+            .partition_point(|element| element.end <= range.start);
         self.elements[first..]
             .iter()
             .take_while(move |element| element.start < range.end)
@@ -62,7 +64,9 @@ pub fn ends_plaintext_at_mention(bytes: &[u8], index: usize) -> bool {
 
 /// Whether a plain-text `$` mention ends at `index`.
 pub fn ends_plaintext_at_dollar_mention(bytes: &[u8], index: usize) -> bool {
-    bytes.get(index).is_none_or(|byte| !is_mention_name_char(*byte))
+    bytes
+        .get(index)
+        .is_none_or(|byte| !is_mention_name_char(*byte))
 }
 
 /// Narrows one whitespace-delimited candidate to the editable segment around `anchor`.
@@ -219,13 +223,8 @@ pub fn current_prefixed_token_range_with_dollar_predicate(
         None
     };
 
-    let left_prefixed = prefixed_candidate_range(
-        doc,
-        start_left..end_left,
-        safe_cursor,
-        prefix,
-        allow_empty,
-    );
+    let left_prefixed =
+        prefixed_candidate_range(doc, start_left..end_left, safe_cursor, prefix, allow_empty);
     let right_prefixed = prefixed_candidate_range(
         doc,
         start_right..end_right,
@@ -241,12 +240,7 @@ pub fn current_prefixed_token_range_with_dollar_predicate(
                 matches!(prefix, '$' | '@').then_some((prefix, &token[prefix.len_utf8()..]))
             })
             .is_some_and(|(prefix, query)| {
-                !prefixed_token_range_is_editable(
-                    doc,
-                    prefix,
-                    &(start_right..end_right),
-                    query,
-                )
+                !prefixed_token_range_is_editable(doc, prefix, &(start_right..end_right), query)
             });
         return if right_is_bound {
             left_prefixed
@@ -448,7 +442,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn current_prefixed_token_affinity_does_not_cross_line_break() {
         for (text, prefix, allow_empty) in [
@@ -634,8 +627,9 @@ mod tests {
         textarea.add_element_range(0..bound.len());
         textarea.set_cursor(text.len());
 
-        let (range, token) = current_prefixed_token_range(&textarea.doc(), '$', /*allow_empty*/ true)
-            .expect("dollar token should be present");
+        let (range, token) =
+            current_prefixed_token_range(&textarea.doc(), '$', /*allow_empty*/ true)
+                .expect("dollar token should be present");
         assert_eq!((range.clone(), token.as_str()), (0..text.len(), &text[1..]));
         assert!(!prefixed_token_range_is_editable(
             &textarea.doc(),
@@ -667,5 +661,4 @@ mod tests {
             );
         }
     }
-    
 }

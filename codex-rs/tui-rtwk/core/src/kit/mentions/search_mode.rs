@@ -35,7 +35,6 @@ impl SearchMode {
             Self::Tools => matches!(mention_type, MentionType::Plugin | MentionType::Skill),
         }
     }
-
 }
 
 #[cfg(test)]

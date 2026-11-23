@@ -23,7 +23,7 @@ use codex_tui_core::keymap::actions::{
 use codex_tui_core::keymap::{ActionId, Keymap};
 use codex_tui_core::kit::history::Store;
 use codex_tui_core::screens::composer::restricted::Restricted;
-use codex_tui_core::kit::vim::{EditorAction, Pending};
+use codex_tui_core::kit::vim::{EditorAction, VimPending};
 use codex_tui_core::screens::{Shared, popovers};
 
 use super::ComposerMsg;
@@ -210,7 +210,7 @@ fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> 
         return true;
     }
     // a command waiting for its next key takes Enter too (it is no submit)
-    let waiting = mode.normal && mode.pending != Pending::None;
+    let waiting = mode.normal && mode.pending != VimPending::None;
     if free
         && !waiting
         && let Some(took) = composer_key(data, c, key)

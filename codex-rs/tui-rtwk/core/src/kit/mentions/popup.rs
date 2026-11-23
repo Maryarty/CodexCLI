@@ -4,10 +4,10 @@
 //! (`SelectionController`, `ListController`); [`Popup::position_of`] lets
 //! the view keep a highlight on the same pick when rows change.
 
-use crate::screens::composer::mentions::candidate::{Candidate, Row, Selection};
-use crate::screens::composer::mentions::files::{Empty, FileMatch, FileSearch};
 use super::filter::filtered_candidates;
 use super::search_mode::SearchMode;
+use crate::screens::composer::mentions::candidate::{Candidate, Row, Selection};
+use crate::screens::composer::mentions::files::{Empty, FileMatch, FileSearch};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Popup {
@@ -101,9 +101,9 @@ impl Popup {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::screens::composer::mentions::candidate::MentionType;
     use crate::screens::composer::mentions::files::MatchType;
-    use super::*;
 
     fn skill(name: &str) -> Candidate {
         Candidate {
@@ -140,10 +140,20 @@ mod tests {
         assert_eq!(popup.rows().len(), 1);
         assert_eq!(popup.empty(), Empty::Loading);
         popup.set_file_matches("fo", Vec::new());
-        assert!(popup.rows().iter().all(|row| !row.mention_type.is_filesystem()));
+        assert!(
+            popup
+                .rows()
+                .iter()
+                .all(|row| !row.mention_type.is_filesystem())
+        );
         popup.set_file_matches("fo", vec![found("b/fo.rs")]);
         popup.set_query("");
-        assert!(popup.rows().iter().all(|row| !row.mention_type.is_filesystem()));
+        assert!(
+            popup
+                .rows()
+                .iter()
+                .all(|row| !row.mention_type.is_filesystem())
+        );
     }
 
     #[test]

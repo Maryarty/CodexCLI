@@ -16,7 +16,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 pub use engine::{Persistent, Vim};
-pub use history::History;
+pub use history::UndoHistory;
 
 /// What Vim mode the draft is in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -49,7 +49,7 @@ pub enum Operator {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scope {
+pub enum VimScope {
     Inner,
     Around,
 }
@@ -91,13 +91,13 @@ pub enum Find {
 
 /// What the next key completes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Pending {
+pub enum VimPending {
     #[default]
     None,
     Operator(Operator),
     TextObject {
         operator: Operator,
-        scope: Scope,
+        scope: VimScope,
     },
     Replace,
     Find {
@@ -107,17 +107,17 @@ pub enum Pending {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Direction {
+pub enum VimDirection {
     #[default]
     Forward,
     Backward,
 }
 
-impl Direction {
-    pub fn reversed(self) -> Direction {
+impl VimDirection {
+    pub fn reversed(self) -> VimDirection {
         match self {
-            Direction::Forward => Direction::Backward,
-            Direction::Backward => Direction::Forward,
+            VimDirection::Forward => VimDirection::Backward,
+            VimDirection::Backward => VimDirection::Forward,
         }
     }
 }
@@ -126,7 +126,7 @@ impl Direction {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SearchQuery {
     pub text: String,
-    pub direction: Direction,
+    pub direction: VimDirection,
 }
 
 /// How the register's text pastes: after the character, or as lines.
@@ -186,7 +186,7 @@ pub enum OperatorKey {
     /// `dd` / `yy` / `cc`: the operator's own line.
     Line,
     Cancel,
-    Scope(Scope),
+    VimScope(VimScope),
     Motion(Motion),
     Find(Find),
     JumpTop,

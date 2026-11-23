@@ -23,11 +23,11 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
 use codex_tui_core::kit::paste as paste_rules;
 use codex_tui_core::kit::history::{
-    History as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
+    PromptWalk as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
 };
 use codex_tui_core::kit::mentions::{Mention, tool_mentions, valid_thread_path};
 use codex_tui_core::kit::mentions::rebind::find_next_mention_token_range;
-use codex_tui_core::kit::mentions::session::Binding;
+use codex_tui_core::kit::mentions::session::ComposerBinding;
 use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::threads::{LocalImage, UserMessage};
 
@@ -59,7 +59,7 @@ pub struct Element {
     pub seq: u64,
     /// What a picked `$skill`, `@plugin` or task mention stands for
     /// (`ComposerMentionBinding`), `None` for a paste or an image.
-    pub binding: Option<Binding>,
+    pub binding: Option<ComposerBinding>,
 }
 
 #[derive(Default)]
@@ -317,7 +317,7 @@ impl ComposerDraft {
     /// Puts the mention `text` (`$skill`, `@plugin`) in place of the
     /// selection as one atomic element, the caret after it; `binding` is
     /// what it stands for on submit (`insert_selected_mention`).
-    pub fn insert_mention(&self, c: &TextEditingController, text: &str, binding: Option<Binding>) {
+    pub fn insert_mention(&self, c: &TextEditingController, text: &str, binding: Option<ComposerBinding>) {
         self.insert_with(c, text, text, None, binding);
     }
 
@@ -344,7 +344,7 @@ impl ComposerDraft {
         label: &str,
         payload: &str,
         image: Option<Rc<PathBuf>>,
-        binding: Option<Binding>,
+        binding: Option<ComposerBinding>,
     ) {
         self.sync(c);
         let selection = c.selection();
@@ -493,7 +493,7 @@ impl ComposerDraft {
     ) -> UserMessage {
         self.relabel_images(c, image);
         let (text, placed) = self.expand(c);
-        let bindings: Vec<Binding> = placed
+        let bindings: Vec<ComposerBinding> = placed
             .iter()
             .filter_map(|(_, e)| e.binding.clone())
             .collect();
@@ -1005,7 +1005,7 @@ fn bind_mentions(text: &str, entry: &HistoryEntry, skip: usize, elements: &mut V
                 payload: Rc::from(token.as_str()),
                 image: None,
                 seq: 0,
-                binding: Some(Binding {
+                binding: Some(ComposerBinding {
                     sigil: binding.sigil,
                     mention: binding.mention.clone(),
                     path: binding.path.clone(),

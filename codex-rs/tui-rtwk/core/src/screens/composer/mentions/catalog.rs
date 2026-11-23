@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use super::candidate::{Candidate, Capability, MentionType, Selection, uri};
 use crate::kit::mentions::codec::{is_common_env_var, is_mention_name_char};
-use crate::kit::mentions::session::Binding;
+use crate::kit::mentions::session::ComposerBinding;
 use super::task::{MAX_TASK_TITLE_CHARS, TaskMention};
 use crate::threads::ToolMention;
 
@@ -66,7 +66,7 @@ impl Mention {
 /// `skill://` and that), then the plugins (`plugin://<config name>`), then the apps
 /// (`app://<id>`), each once, in the order bound, and only those the catalog lists. The
 /// turn carries each beside the text (`UserInput::Skill` / `UserInput::Mention`).
-pub fn tool_mentions(bindings: &[Binding], catalog: &[Mention]) -> Vec<ToolMention> {
+pub fn tool_mentions(bindings: &[ComposerBinding], catalog: &[Mention]) -> Vec<ToolMention> {
     let mut out = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for binding in bindings {
@@ -405,8 +405,8 @@ mod tests {
         );
     }
 
-    fn bound(sigil: char, mention: &str, path: &str) -> Binding {
-        Binding {
+    fn bound(sigil: char, mention: &str, path: &str) -> ComposerBinding {
+        ComposerBinding {
             sigil,
             mention: mention.into(),
             path: path.into(),

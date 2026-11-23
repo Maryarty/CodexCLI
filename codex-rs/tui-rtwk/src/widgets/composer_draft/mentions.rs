@@ -19,7 +19,7 @@ use rtwk::scroll::ListController;
 use codex_tui_core::kit::mentions::FileSearchAsk;
 use codex_tui_core::kit::mentions::search_mode::SearchMode;
 use codex_tui_core::kit::mentions::session::{
-    Active, Pick, PickAction, Separator, Session, Sources, completion_separator,
+    Active, MentionPick, PickAction, Separator, MentionSession, Sources, completion_separator,
     starts_after_element,
 };
 use codex_tui_core::kit::mentions::target::Doc;
@@ -32,7 +32,7 @@ use crate::services::images;
 pub struct Mentions(Rc<Shared>);
 
 struct Shared {
-    session: RefCell<Session>,
+    session: RefCell<MentionSession>,
     /// The highlighted row, by its position among the popup's rows.
     cursor: SelectionController<usize>,
     /// The scroll of the rows: the `↑` and `↓` marks follow it.
@@ -75,7 +75,7 @@ impl Mentions {
     }
 
     /// Reads the session (the popup that is up and its rows).
-    pub fn read<R>(&self, f: impl FnOnce(&Session) -> R) -> R {
+    pub fn read<R>(&self, f: impl FnOnce(&MentionSession) -> R) -> R {
         f(&self.0.session.borrow())
     }
 
@@ -212,13 +212,13 @@ impl Mentions {
     }
 
     /// What picking row `position` puts in the draft.
-    pub fn pick(&self, position: usize, doc: &Doc, src: &Sources) -> Option<Pick> {
+    pub fn pick(&self, position: usize, doc: &Doc, src: &Sources) -> Option<MentionPick> {
         self.0.session.borrow().pick(position, doc, src)
     }
 
     /// The pick was applied: the popup closes, the completed token stays
     /// dismissed (`doc` is the draft after it).
-    pub fn finish_pick(&self, pick: &Pick, inserted: std::ops::Range<usize>, doc: &Doc) {
+    pub fn finish_pick(&self, pick: &MentionPick, inserted: std::ops::Range<usize>, doc: &Doc) {
         self.0.session.borrow_mut().finish_pick(pick, inserted, doc);
         self.settle(true);
     }
@@ -317,7 +317,7 @@ impl ComposerDraft {
         c: &TextEditingController,
         position: usize,
         src: &Sources,
-    ) -> Option<Pick> {
+    ) -> Option<MentionPick> {
         let now = self.mention_doc(c);
         self.mentions().pick(position, &now.doc(), src)
     }
@@ -333,7 +333,7 @@ impl ComposerDraft {
     pub fn apply_pick(
         &self,
         c: &TextEditingController,
-        pick: &Pick,
+        pick: &MentionPick,
         image: impl Fn(usize) -> String,
         skill: bool,
     ) {

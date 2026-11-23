@@ -5,7 +5,9 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
-use codex_tui_core::kit::history::{History, Lookup, Store};
+use codex_tui_core::kit::history::{
+    WalkDirection, PromptWalk, HistorySearch, Lookup, SearchPreview, SearchStatus, Store,
+};
 use codex_tui_core::screens::composer::{Trigger, TriggerKind, trigger};
 use codex_tui_core::screens::popovers::*;
 use pretty_assertions::assert_eq;
@@ -62,7 +64,7 @@ fn model_with_history() -> Model {
 /// preview a step put in, `None` for the draft as it was.
 struct Walk {
     s: HistorySearch,
-    history: History,
+    history: PromptWalk,
     store: Store,
     fx: Vec<Lookup>,
     shown: Option<String>,
@@ -72,18 +74,18 @@ impl Walk {
     fn new() -> Self {
         Walk {
             s: HistorySearch::new(),
-            history: History::new(),
+            history: PromptWalk::new(),
             store: (*model_with_history().history).clone(),
             fx: Vec::new(),
             shown: None,
         }
     }
 
-    fn show(&mut self, preview: Preview) {
+    fn show(&mut self, preview: SearchPreview) {
         match preview {
-            Preview::Show(entry) => self.shown = Some(entry.text),
-            Preview::Original => self.shown = None,
-            Preview::Keep => {}
+            SearchPreview::Show(entry) => self.shown = Some(entry.text),
+            SearchPreview::Original => self.shown = None,
+            SearchPreview::Keep => {}
         }
     }
 
@@ -94,7 +96,7 @@ impl Walk {
         self.show(preview);
     }
 
-    fn step(&mut self, direction: Direction) {
+    fn step(&mut self, direction: WalkDirection) {
         let preview = self
             .s
             .step(direction, &mut self.history, &self.store, &mut self.fx);
@@ -112,12 +114,12 @@ fn history_search_shows_the_newest_match_and_walks_older_and_newer() {
     assert_eq!(w.s.status, SearchStatus::Idle);
     w.set_query("c");
     assert_eq!(w.preview(), Some("cargo test"));
-    w.step(Direction::Older);
+    w.step(WalkDirection::Older);
     assert_eq!(w.preview(), Some("cargo build"));
-    w.step(Direction::Older);
+    w.step(WalkDirection::Older);
     assert_eq!(w.preview(), Some("cargo build"), "the end stays");
     assert_eq!(w.s.status, SearchStatus::Match, "no flicker at the end");
-    w.step(Direction::Newer);
+    w.step(WalkDirection::Newer);
     assert_eq!(w.preview(), Some("cargo test"));
 }
 

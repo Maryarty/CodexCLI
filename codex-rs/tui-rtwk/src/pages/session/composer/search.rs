@@ -16,7 +16,7 @@ use codex_tui_core::keymap::actions::{
 };
 use codex_tui_core::kit::history::Lookup;
 use codex_tui_core::screens::composer::sanitize_paste;
-use codex_tui_core::kit::history::{Direction, SearchStatus};
+use codex_tui_core::kit::history::{WalkDirection, SearchStatus};
 
 use super::ComposerMsg;
 use super::editing::KeyData;
@@ -50,11 +50,11 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_PREVIOUS, key)
         || (key.fixed() == Fixed::Up && plain)
     {
-        draft.search_step(c, store, Direction::Older, &mut asks);
+        draft.search_step(c, store, WalkDirection::Older, &mut asks);
     } else if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_NEXT, key)
         || (key.fixed() == Fixed::Down && plain)
     {
-        draft.search_step(c, store, Direction::Newer, &mut asks);
+        draft.search_step(c, store, WalkDirection::Newer, &mut asks);
     } else if key.fixed() == Fixed::Escape
         || ctrl('c')
         || (key.mods.is_empty() && key.text() == Some("\u{3}"))
