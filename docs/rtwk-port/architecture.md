@@ -47,7 +47,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | # | decision | in one line |
 |---|---|---|
 | ADR-001 | crate and pins | `codex-rs/tui-rtwk` (crate `codex-tui-rtwk`), its own Cargo workspace passing codex-rs manifest policy; codex-rs `[patch]` copied, lockfile seeded from codex-rs; rtwk by path at `RTWK_REF` with a pin check; codex-rs workspace, lockfile and Bazel untouched |
-| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, inline views as the chat page's bottom-pane slot over a core view stack (amendment 2026-11-18), centered views and dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
+| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, inline views as the chat page's bottom-pane slot (amendment 2026-11-18's core view stack withdrawn by ADR-013: `SheetStack` in `State`, docked `SheetHost`), centered views and dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
 | ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)` per thread and `apply_app(&mut CodexApp, AppEv, &mut AppFx)` for app-scoped state, tickets on replies, derived values via `ViewCx::memo`; per-thread UI controllers in `ThreadUi`, kept in the UI model (`UiApp.ui`), never in the core model; entities+notify as reserve; chosen on per-approach trade-offs |
 | ADR-004 | screens and content | 24 screen-map rows (§1) as pushed routes, dialogs and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
 | ADR-005 | screen modes | owned full screen first (the oracle's default), inline last |
@@ -58,6 +58,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | ADR-010 | localization | the app's strings are typed `const` tables (rtwk-l10n's form), one `strings.rs` per screen directory plus `src/l10n/`; English is the oracle's text byte for byte; the locale is negotiated once and reaches the tree as rtwk's `TwkLocalizations`; a rules test bans user-visible literals in widget code |
 | ADR-011 | mouse | mouse support is added though codex-tui has none (the person, 2026-11-18): capture on, wheel scrolls, click selects, click on the selected row or double click accepts, tabs and buttons clickable; tested with rtwk_test mouse events |
 | ADR-012 | core feature slices | a feature of the core that is a flow, not a screen (`/goal`, `/export`, `/rename`, `/plugins`) is a slice (thread lifecycle state, the queue and the turn starts, stays the thread's own): `core/src/features/<f>/` and `src/features/<f>/`, registered by one line in `feature_list!`, which generates the root enums and their dispatch as `screen_list!` does for screens; it reads the app through `AppView` / `ThreadView` and acts through an `AppCx` outbox, never names `CodexApp` or `ThreadModel`; hooks run in list order; the hub enums only shrink (ratchet) |
+| ADR-013 | core/UI boundary | accepted 2026-11-23 (option C): a value lives in core only if IO needs it — server/host facts (Д), request records and op status by domain key (З), lifecycle and one-shot domain signals (Ж), interest counters (И); everything drawn (cursor, tab, sheet page stack, expanded, density, open, field text) is UI state (Н) in `State`/`ThreadUi`; `Feature` loses `Menu/Pick/Prompt`; supersedes ADR-002 amendment 2026-11-18 (core view stack) |
 
 ## 1. What we build (facts and the screen map)
 
@@ -970,6 +971,50 @@ their own: dispatch to the feature's own state, an answer of another shape is
 oracle's tests do: apply the intent, read the `AppFx` commands and the outbox's result (a
 menu on the select screen, a prompt in the dialogs, a note in the thread), feed the reply,
 check the state. `acargo nextest run -p codex-tui-core`, the `rules` root, your oracle shard.
+
+## ADR-013 — The core/UI boundary by the IO test
+
+Accepted by the person 2026-11-23 ("по рекомендациям, максимально архитектурно правильно").
+The full document is the normative text:
+[research/arch-boundary/full/architecture.md](research/arch-boundary/full/architecture.md)
+(17 sections; diagrams d1-d15 in `full/diagrams.md`; adversarial review F1-F17 in
+`full/review.md`, blockers F1-F4 resolved in the document). This section is its summary;
+where they differ, the full document wins.
+
+**Decision (option C).** Where a value lives is decided by the IO test (full §1.3), first
+"yes" wins: (1) a server/host fact or derived from one → core, domain (Д); (2) a request
+parameter or op status a reply attaches to → core, record (З), kept as a cache by key
+(`Map<Key, Remote<T>>`), never "the current X"; (3) a lifecycle step or a one-shot signal the
+domain sends a surface (`SurfaceWish`, `Directive<T>` with `seq`) → core (Ж); (4) whether
+data is wanted now → `Interest` counter in core, the open fact in UI (И); (5) otherwise →
+drawn state (Н) in the UI: `State` of the widget or `ThreadUi`. Field text is always Н; core
+gets it only in a verb (`Submit`, `Search{query}`). "Who writes it" decides, not "who reads".
+
+**Recommendations taken (full §16).** O1 sheet pages are a `SheetStack<P>` in `State` (no
+nested `Navigator`); O2 bottom-pane views stand in a docked `SheetHost` slot of the session
+page (check the oracle snapshot first; until then the modal routes stay); O3 pure helpers in
+`core::kit`; O4 ops keyed by a domain key (+ `gen`), never a UI correlation id; O5 the rules
+first (`adr013-rules`), then the `/plugins` pilot; O6 the 9 doors of WIP `6cafa8de1` are not
+merged, its domain goes into the pilot; O7 `Rc`/`Arc` left to `session-core`.
+`95826e191` (/rename, /export) lands as is.
+
+**What changes in earlier ADRs** (full §14): ADR-001 core holds the domain of screens and
+features, `kit` is a core module; ADR-002 amendment 2026-11-18 ("core view stack") is
+withdrawn; ADR-003 gets the IO test, the five kinds, `SurfaceWish`/`Directive`/`Interest`/
+`OpKey`; ADR-006 adds `KeyCode` only in the keymap; ADR-010 feature menu/prompt words move to
+`src/features/<f>/strings.rs`; ADR-012 `Feature` has no UI forms (`Menu`, `Pick`, `Prompt`,
+`choose`, `picked`, `prompt_submitted`, `AppCx::open/prompt` go), gains `Wish`, `Interest`,
+`on_interest`; the visible half of a feature is `open(cx, args)` and its own sheet.
+
+**Enforced by** the rules of full §13 (`adr013_*`, ratchets where migration goes in steps),
+written by tm `adr013-rules` before the pilot. Until then and for any family not yet moved:
+no NEW `Menu/Pick/Prompt`, gesture intents (`Choose`, `Toggle`, `Cursor`, `Expand`, ...) or
+`FeatureView` hooks; new drawn state goes to the UI.
+
+**Departures while migrating** (process.md A4.1): the `select::Menu` families, `settings`,
+`dialogs`, `resume` (density, expanded), `pets` (highlight) keep Н in core until their
+migration step (full §15 steps 2-4); the semantic half of the IO test (key vs cursor) is a
+review checklist item and a debt task.
 
 ## Skeleton (tm `port-skeleton`, layered by `skeleton-layers`)
 

@@ -45,6 +45,19 @@
   only through `apply`; thread RPCs live in `ThreadFx`; a screen asks the app
   (`OpenThread(id)`).
 - Mock and fixture state: a JSONL event script applied through core `apply`.
+- ADR-013 (accepted 2026-11-23; architecture.md "ADR-013", full text
+  docs/rtwk-port/research/arch-boundary/full/architecture.md §1.3, §2, §6):
+  a value lives in core only if IO needs it — server/host facts, request
+  records and op status by a DOMAIN key, lifecycle steps and one-shot domain
+  signals (`SurfaceWish`, `Directive`), interest counters. Everything drawn —
+  cursor, selection, scroll, tab, sheet page stack, expanded, density, open,
+  field text before submit — is UI state: `State` of the widget, a rtwk
+  controller, or `ThreadUi`. Core intents are verbs, never gestures (no new
+  `Choose`/`Toggle`/`Cursor`/`Expand`...). No new `Menu`/`Pick`/`Prompt`,
+  `FeatureView` or `AppCx` hooks: a feature's visible half is
+  `src/features/<f>/` with `open(cx, args)` and its own sheet; sheet pages are
+  a `SheetStack` in `State`. Code you touch in an old family keeps its shape
+  unless your task is its migration step.
 - The rules tests (`--test rules`) check all of this.
 
 ## Done (the person, 2026-11-23: function first, the full test sweep after)
@@ -56,7 +69,10 @@
    "sweep: <shard>::<test>..." — a filler batch un-pends them later. Do not
    spend a round chasing a snapshot of a secondary form.
 3. Mouse on every selectable view (tap, double tap, wheel) with rtwk_test tests.
-4. Rules tests green.
+4. Rules tests green. Run scoped checks only (your crate's tests, your
+   oracle shard, `--test rules`, fmt, clippy on what you touched): the full
+   land-check is run ONCE per landing by the orchestrator on the merge
+   candidate (the person, 2026-11-23). Do not wait for it; hand in.
 5. No new framework doors (AppCx/Feature hooks, kit options) unless the
    feature cannot be built without one: then hold and ask the orchestrator.
 
