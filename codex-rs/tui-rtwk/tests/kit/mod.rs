@@ -321,7 +321,15 @@ impl Screen {
         } else {
             width
         };
-        self.h.t.resize(width, height);
+        // A terminal asked for the size it has is not resized (the oracle's
+        // `Buffer::empty(area)` of that size changes nothing either).
+        let (now_width, now_height) = self
+            .h
+            .t
+            .with_screen(|screen| (screen.width(), screen.height()));
+        if (usize::from(width), usize::from(height)) != (now_width, now_height) {
+            self.h.t.resize(width, height);
+        }
         self.h.advance(100);
         self
     }
@@ -391,6 +399,7 @@ impl Screen {
             name,
             frame: "",
             at: None,
+            dialog: false,
         }
     }
 
@@ -602,6 +611,7 @@ pub struct Snap<'a> {
     name: &'a str,
     frame: &'a str,
     at: Option<(usize, usize)>,
+    dialog: bool,
 }
 
 impl<'a> Snap<'a> {
@@ -618,15 +628,27 @@ impl<'a> Snap<'a> {
         self
     }
 
+    /// The frame is a view the oracle drew into the whole area (spare rows
+    /// above the footer on its last row); ours is a dialog as tall as its
+    /// content: the rows are compared from the blank row above its first text
+    /// on, one blank row above the footer.
+    pub fn dialog(mut self) -> Snap<'a> {
+        self.dialog = true;
+        self
+    }
+
     pub fn assert(self) {
-        compare::assert_snap(
-            &self.screen.grid(),
-            &compare::Want {
-                name: self.name,
-                frame: self.frame,
-                at: self.at,
-            },
-        );
+        let grid = self.screen.grid();
+        let want = compare::Want {
+            name: self.name,
+            frame: self.frame,
+            at: self.at,
+        };
+        if self.dialog {
+            compare::assert_dialog(&grid, &want);
+        } else {
+            compare::assert_snap(&grid, &want);
+        }
     }
 }
 

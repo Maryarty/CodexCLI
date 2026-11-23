@@ -1046,6 +1046,29 @@ fn ctrl_p_and_ctrl_n_follow_the_keymap_under_a_search_line() {
     assert!(screen_of(&h).contains("› Second"), "{}", screen_of(&h));
 }
 
+/// The oracle's search query takes plain characters and Backspace only: the
+/// text field's own chords (Ctrl+U to the start, Ctrl+K, Ctrl+W, Alt+B ...) leave
+/// it as it is, unless the keymap binds them.
+#[test]
+fn a_search_line_ignores_the_text_fields_edit_chords() {
+    let mut h = keyed(60, 6, "first_second_searchable", &[]);
+    h.t.type_text("fir");
+    for chord in ["ctrl+u", "ctrl+k", "ctrl+w", "ctrl+a", "alt+b", "alt+d"] {
+        h.press(chord);
+        assert!(
+            rows_of(&h).contains(&"  fir".to_string()),
+            "{chord} edited the query:\n{}",
+            screen_of(&h)
+        );
+    }
+    h.press("backspace");
+    assert!(
+        rows_of(&h).contains(&"  fi".to_string()),
+        "{}",
+        screen_of(&h)
+    );
+}
+
 /// `list_selection_view.rs:2969`: page and jump keys are the keymap's.
 #[test]
 fn page_and_jump_keys_follow_the_keymap() {
