@@ -11,7 +11,8 @@ use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
 };
 use crate::threads::{
-    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, ThreadModel, UserMessage,
+    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, ThreadModel, Toggle,
+    UserMessage,
 };
 
 /// The Desktop app's link to a thread (`desktop_thread_deeplink`), the thread's
@@ -315,7 +316,12 @@ pub(super) fn session_intent(
                 chat::Intent::RawOutput(enabled),
                 fx,
             );
-            session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
+            session_note(
+                app,
+                source,
+                Note::from(NoteKey::Toggled(Toggle::RawOutput, enabled)),
+                fx,
+            );
         }
         S::Plan { prompt } => plan(app, source, command, prompt, fx),
         // `/export` (the destination picker) and `/export <path>` (written there): `features/export`.
@@ -335,6 +341,8 @@ pub(super) fn session_intent(
             let current = Current::from_facts(&app.screens.chat.status);
             super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
         }
+        // `/vim`: modal editing of the draft is UI state (the page toggles it and says so).
+        S::Vim => {}
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
@@ -346,7 +354,6 @@ pub(super) fn session_intent(
         | S::Apps
         | S::Plugins
         | S::Logout
-        | S::Vim
         | S::Ide { .. }
         | S::Daybreak
         | S::ElevateSandbox

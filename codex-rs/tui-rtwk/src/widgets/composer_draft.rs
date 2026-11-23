@@ -481,8 +481,8 @@ impl ComposerDraft {
         self.submission_with(c, image, &[])
     }
 
-    /// What a submit sends: the expanded text, the images its placeholders
-    /// stand for, in the order they were attached, each with the placeholder's
+    /// What a submit sends: the expanded text, the remote images above the draft, the images
+    /// its placeholders stand for, in the order they were attached, each with the placeholder's
     /// range in that text, and the tools its bound mentions name that the
     /// `catalog` lists (`prepare_submission_text`,
     /// `prune_local_images_for_submission`, `input_submission.rs`).
@@ -515,6 +515,7 @@ impl ComposerDraft {
         UserMessage {
             text,
             images: images.into_iter().map(|(_, image)| image).collect(),
+            remote_images: self.remote_images(),
             mentions: tool_mentions(&bindings, catalog),
         }
     }
@@ -598,9 +599,23 @@ impl ComposerDraft {
 
     /// A caret the field or the mouse put inside an element moves to its
     /// nearer end (`clamp_pos_to_nearest_boundary`), the start on a tie.
+    /// A selection that cuts an element (a double click in its label, a drag
+    /// or Shift+arrows across it) grows to hold the element whole: the
+    /// elements are atomic.
     pub fn snap_caret(&self, c: &TextEditingController) {
         let selection = c.selection();
         if !selection.is_collapsed() {
+            let (from, to) = (selection.start(), selection.end());
+            let from = self.inside(c, from).map_or(from, |e| e.start);
+            let to = self.inside(c, to).map_or(to, |e| e.end);
+            let grown = if selection.base_offset <= selection.extent_offset {
+                TextSelection::new(from, to)
+            } else {
+                TextSelection::new(to, from)
+            };
+            if grown != selection {
+                c.set_selection(grown);
+            }
             return;
         }
         let caret = selection.extent_offset;
@@ -1048,5 +1063,38 @@ mod tests {
         assert_eq!(d.expanded(&c), format!("hi {}", "x".repeat(1001)));
         c.replace(5, 6, "");
         assert!(d.elements(&c).is_empty());
+    }
+
+    /// A double click in a label, a drag or Shift+arrows across its edge
+    /// select the element whole: the elements are atomic.
+    #[test]
+    fn a_selection_that_cuts_an_element_grows_to_hold_it() {
+        let c = TextEditingController::new("");
+        let d = ComposerDraft::default();
+        c.insert("ab ");
+        assert!(d.paste(
+            &c,
+            &"x".repeat(1001),
+            |n| format!("[{n}]"),
+            |n| format!("<{n}>")
+        ));
+        c.insert(" cd");
+        assert_eq!(&*c.text(), "ab [1001] cd");
+        // inside the label: both ends go out to its edges
+        c.set_selection(TextSelection::new(5, 7));
+        d.snap_caret(&c);
+        assert_eq!((c.selection().start(), c.selection().end()), (3, 9));
+        // one end in the label, the other in the text: only the cut end moves
+        c.set_selection(TextSelection::new(1, 6));
+        d.snap_caret(&c);
+        assert_eq!((c.selection().start(), c.selection().end()), (1, 9));
+        // the direction of a drag is kept
+        c.set_selection(TextSelection::new(11, 6));
+        d.snap_caret(&c);
+        assert_eq!(c.selection(), TextSelection::new(11, 3));
+        // a selection that cuts nothing stays as it is
+        c.set_selection(TextSelection::new(0, 3));
+        d.snap_caret(&c);
+        assert_eq!(c.selection(), TextSelection::new(0, 3));
     }
 }

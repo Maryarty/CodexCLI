@@ -105,6 +105,7 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
         deselect_after_copy: config.tui_copy_on_select_clear_selection,
         collapse_turn_details: config.tui_collapse_turn_details,
         show_tooltips: config.show_tooltips,
+        vim_mode_default: config.tui_vim_mode_default,
         rendering: Rendering {
             mermaid: rendering.mermaid,
             math: rendering.math,
