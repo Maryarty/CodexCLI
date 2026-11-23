@@ -9,19 +9,16 @@
 //! In Flutter this is `showModalBottomSheet` with a `Navigator` as the body (the nested-navigator
 //! recipe for a flow inside a sheet), `PopScope` per page, and a provider the pages select from.
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use rtwk::layout::IntrinsicHeight;
-use rtwk::navigation::{Navigator, NavigatorState};
+use rtwk::navigation::Navigator;
 use rtwk::overlay::close_dialog;
-use rtwk::provider::{InheritedProvider, Provider, select};
+use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::plugins::{Interest as Wanted, PluginKey};
 
-use super::pages::{Home, auth_route};
+use super::pages::Home;
 use crate::widgets::interest::Interest;
 use crate::widgets::sheet::Sheet;
 
@@ -32,47 +29,6 @@ pub enum Start {
     Browser,
     /// The setup of the apps of an installed plugin, over the browser (the feature's `Wish`).
     Auth(PluginKey),
-}
-
-/// What an open sheet leaves for whoever wants a page shown in it: where it is and how to reach
-/// its navigator. Written by the browser, the sheet's first route, and cleared when it goes.
-#[derive(Clone)]
-pub struct Opened {
-    pub cwd: String,
-    pub nav: NavigatorState,
-}
-
-/// The place an open sheet leaves its `Opened` in. The presenter keeps the door and the view
-/// provides it (never notifying: a reader looks when it needs to).
-#[derive(Default)]
-pub struct Door(RefCell<Option<Opened>>);
-
-impl Door {
-    pub fn set(&self, opened: Opened) {
-        *self.0.borrow_mut() = Some(opened);
-    }
-
-    pub fn clear(&self) {
-        self.0.borrow_mut().take();
-    }
-
-    pub fn get(&self) -> Option<Opened> {
-        self.0.borrow().clone()
-    }
-
-    /// Shows the setup page of `key` in the sheet that is open for `cwd`; false when none is.
-    pub fn show_auth(&self, cwd: &str, key: &PluginKey) -> bool {
-        let Some(opened) = self.get().filter(|opened| opened.cwd == cwd) else {
-            return false;
-        };
-        drop(opened.nav.push::<()>(auth_route(key.clone())));
-        true
-    }
-
-    /// The provider of the door, for the view's `MultiProvider`.
-    pub fn provider(door: Rc<Door>) -> InheritedProvider<Door> {
-        Provider::value_shared(door).update_should_notify(|_, _| false)
-    }
 }
 
 /// The sheet of the plugins of `cwd`.

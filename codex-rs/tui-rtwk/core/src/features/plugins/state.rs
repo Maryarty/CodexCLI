@@ -296,7 +296,7 @@ impl State {
     }
 
     /// `op` is done when `cue` comes in; at once when nothing is on its way.
-    fn follow(&mut self, cue: Cue, op: OpKey, at: Gen, outcome: Outcome) {
+    fn track(&mut self, cue: Cue, op: OpKey, at: Gen, outcome: Outcome) {
         let coming = match &cue {
             Cue::List(cwd) => self
                 .lists
@@ -566,7 +566,7 @@ impl State {
                     cx.note(None, Say::Uninstalled { name });
                     let cwd = key.cwd.clone();
                     self.prefetch(&cwd, cx);
-                    self.follow(Cue::List(cwd), OpKey::Uninstall(key), at, Outcome::Nothing);
+                    self.track(Cue::List(cwd), OpKey::Uninstall(key), at, Outcome::Nothing);
                 }
                 Err(error) => self.settle(&OpKey::Uninstall(key), at, Status::Failed(error)),
             },
@@ -582,7 +582,7 @@ impl State {
                     );
                     self.prefetch(&cwd, cx);
                     let outcome = Outcome::Added { root, already };
-                    self.follow(Cue::List(cwd.clone()), OpKey::Add { cwd }, at, outcome);
+                    self.track(Cue::List(cwd.clone()), OpKey::Add { cwd }, at, outcome);
                 }
                 Ok(_) => {}
                 Err(error) => self.settle(&OpKey::Add { cwd }, at, Status::Failed(error)),
@@ -608,7 +608,7 @@ impl State {
                             },
                         );
                         self.prefetch(&cwd, cx);
-                        self.follow(Cue::List(cwd), key, at, Outcome::Removed);
+                        self.track(Cue::List(cwd), key, at, Outcome::Removed);
                     }
                     Ok(_) => {}
                     Err(error) => self.settle(&key, at, Status::Failed(error)),
@@ -630,7 +630,7 @@ impl State {
                     }
                 };
                 self.prefetch(&cwd, cx);
-                self.follow(Cue::List(cwd), key, at, outcome);
+                self.track(Cue::List(cwd), key, at, outcome);
             }
             Ctx::Enable { cwd, id, enabled } => self.enable_done(&cwd, id, enabled, result, cx),
         }
@@ -786,7 +786,7 @@ impl State {
                         request,
                     };
                     self.ask(cx, request, Want::Read(target), &cwd, ctx);
-                    self.follow(Cue::Read(key), op, at, Outcome::Nothing);
+                    self.track(Cue::Read(key), op, at, Outcome::Nothing);
                 } else {
                     self.setups.insert(key.clone(), Setup { plugin: name, apps });
                     cx.wish(cwd, Wish::Auth(key));

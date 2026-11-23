@@ -388,6 +388,7 @@ macro_rules! feature_dirs {
 
         /// The wishes of every feature: `SurfaceWish` (`AppCx::wish`).
         #[derive(Clone, Debug, PartialEq, Eq)]
+        #[allow(dead_code)]
         pub enum FeatureWish {
             $($variant(<$name::$variant as Feature>::Wish),)*
         }

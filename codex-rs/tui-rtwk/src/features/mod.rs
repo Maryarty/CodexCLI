@@ -10,13 +10,18 @@
 //! (from the feature's state, which the app provides to the views like the screens'),
 //! the prompt dialog words a `PromptKind::Feature` through `prompt_words`.
 
-use rtwk::Cx;
+use std::rc::Rc;
+
+use rtwk::navigation::NavigatorState;
+use rtwk::overlay::DialogOptions;
 use rtwk::provider::read;
+use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::Intent;
 use codex_tui_core::feature_list;
+use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::features::{
-    Feature, FeatureIntent, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates,
+    Feature, FeatureIntent, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates, FeatureWish,
 };
 use codex_tui_core::screens::select::list::List;
 
@@ -34,9 +39,35 @@ pub struct PromptWords {
     pub placeholder: String,
 }
 
+/// How a wish of a feature is shown (ADR-013 Ж): in the sheet of its kind that is open for its
+/// scope, else in a sheet opened at it. The presenter (`app::presenters`) is the only one that
+/// shows it, and says so.
+pub struct Shown {
+    /// The kind of sheet the wish belongs to, and the scope (a directory) it is open for.
+    pub sheet: &'static str,
+    pub scope: String,
+    /// Puts the page of the wish on the navigator of the open sheet.
+    pub push: Box<dyn Fn(&NavigatorState)>,
+    /// The sheet that opens at the wish when none is open for its scope.
+    pub open: Rc<dyn Fn() -> AnyWidget>,
+    pub options: DialogOptions,
+}
+
 /// What the view of a feature says: the words of its notes, the rows of its menus and the
-/// words of its text prompt.
+/// words of its text prompt; and how it shows its wishes and what opens it.
 pub trait FeatureView: Feature {
+    /// The slash command that opens the feature's sheet, if it has one.
+    const SHEET: Option<SlashCommand> = None;
+
+    /// Opens the feature's sheet for `scope` (the working directory): the feature is told, the
+    /// sheet shows what it holds. Called for `SHEET`.
+    fn open_sheet<S: 'static>(_cx: &mut Cx<'_, S>, _scope: &str) {}
+
+    /// How one of the feature's wishes is shown; none for a feature that has no wishes.
+    fn shown(_wish: &Self::Wish, _scope: &str) -> Option<Shown> {
+        None
+    }
+
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
     fn note_words(note: &Self::Note, words: &SessionStrings) -> String;
 
@@ -106,5 +137,34 @@ macro_rules! view_dispatch {
     };
 }
 
+macro_rules! view_wishes {
+    ($($name:ident => $variant:ident;)*) => {
+        /// How a wish of a feature is shown: the sheet it belongs to and the page of it.
+        #[allow(unused_variables)]
+        pub fn shown(wish: &FeatureWish, scope: &str) -> Option<Shown> {
+            match *wish {
+                $(FeatureWish::$variant(ref wish) => {
+                    <codex_tui_core::features::$name::$variant as FeatureView>::shown(wish, scope)
+                })*
+            }
+        }
+
+        /// Whether `command` opens a feature's sheet.
+        pub fn opens_sheet(command: SlashCommand) -> bool {
+            false $(|| <codex_tui_core::features::$name::$variant as FeatureView>::SHEET == Some(command))*
+        }
+
+        /// Opens the sheet `command` belongs to, for `scope` (the working directory).
+        pub fn open_sheet<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand, scope: &str) {
+            $(
+                if <codex_tui_core::features::$name::$variant as FeatureView>::SHEET == Some(command) {
+                    <codex_tui_core::features::$name::$variant as FeatureView>::open_sheet(cx, scope);
+                }
+            )*
+        }
+    };
+}
+
 feature_list!(view_mods);
 feature_list!(view_dispatch);
+feature_list!(view_wishes);

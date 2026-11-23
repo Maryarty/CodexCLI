@@ -19,7 +19,7 @@ use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
-use crate::features::plugins;
+use crate::features;
 use crate::pages::session::open::{note_opened, open, open_confirmation};
 
 /// The chat screen of one thread's controllers.
@@ -306,20 +306,12 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 open(cx, opened.target);
             }
         }
-        // `/plugins` is a feature's sheet (`features/plugins`): the feature is told which
-        // directory, the sheet shows what it holds.
-        Outcome::Session {
-            command: SlashCommand::Plugins,
-            ..
-        } => {
+        // A feature's sheet (`/plugins`): the feature is told which directory, the sheet shows
+        // what it holds.
+        Outcome::Session { command, .. } if features::opens_sheet(command) => {
             record(cx);
             clear_sent(&w.ui);
-            plugins::open(
-                cx,
-                plugins::Args {
-                    cwd: review_cwd(&states, &thread),
-                },
-            );
+            features::open_sheet(cx, command, &review_cwd(&states, &thread));
             note_opened(Target::Select);
         }
         Outcome::Session { command, intent } => {

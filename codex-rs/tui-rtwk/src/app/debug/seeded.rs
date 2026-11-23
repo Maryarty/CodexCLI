@@ -22,7 +22,7 @@ use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
 
 use crate::app::view::Hs;
-use crate::features::plugins::sheet::Door;
+use crate::widgets::sheet::Door;
 use crate::pages::session::transcript::copy::{self, CopyJob, Shown};
 use crate::widgets::thread_ui::ThreadUiMap;
 

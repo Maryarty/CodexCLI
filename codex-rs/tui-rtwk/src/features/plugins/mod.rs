@@ -15,21 +15,59 @@ pub mod pages;
 pub mod sheet;
 pub mod strings;
 
-use rtwk::Cx;
+use std::rc::Rc;
+
 use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::read;
+use rtwk::{AnyWidget, Cx};
 
-use codex_tui_core::features::plugins::{Intent, Plugins, Say, State};
+use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::features::plugins::{Intent, Plugins, Say, State, Wish};
 use codex_tui_core::features::{FeatureStates, Never};
 use codex_tui_core::screens::select::list::List;
 
 use self::sheet::{PluginsSheet, Start};
-use super::{FeatureView, PromptWords, verb};
+use super::{FeatureView, PromptWords, Shown, verb};
 use crate::pages::session::strings::Strings as SessionStrings;
 use crate::sheets::dialogs::strings::Strings as DialogStrings;
 use crate::sheets::select::strings::Strings as SelectStrings;
 
+/// The kind of sheet the plugins feature shows (what its open sheet leaves in the `Door`).
+pub const KIND: &str = "plugins";
+
 impl FeatureView for Plugins {
+    const SHEET: Option<SlashCommand> = Some(SlashCommand::Plugins);
+
+    fn open_sheet<S: 'static>(cx: &mut Cx<'_, S>, scope: &str) {
+        open(
+            cx,
+            Args {
+                cwd: scope.to_owned(),
+            },
+        );
+    }
+
+    /// The setup of the apps of an installed plugin: a page of the open sheet of its directory,
+    /// else the sheet opens at it.
+    fn shown(wish: &Wish, scope: &str) -> Option<Shown> {
+        let Wish::Auth(key) = wish;
+        let (page, start) = (key.clone(), key.clone());
+        let cwd = scope.to_owned();
+        Some(Shown {
+            sheet: KIND,
+            scope: cwd.clone(),
+            push: Box::new(move |nav| drop(nav.push::<()>(pages::auth_route(page.clone())))),
+            open: Rc::new(move || -> AnyWidget {
+                PluginsSheet {
+                    cwd: cwd.clone(),
+                    start: Start::Auth(start.clone()),
+                }
+                .into()
+            }),
+            options: sheet_options(),
+        })
+    }
+
     fn note_words(note: &Say, _words: &SessionStrings) -> String {
         strings::note(note)
     }

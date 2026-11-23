@@ -28,13 +28,14 @@ use codex_tui_core::screens::select::list::List;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::lists::{self, AuthStep};
-use super::sheet::{Door, Opened, Start};
+use super::sheet::Start;
 use super::strings;
 use crate::app::view::Hs;
 use crate::features::verb;
 use crate::keymap::keymap;
 use crate::sheets::select::prompt::Answer;
 use crate::widgets::picker::{Event, Picker};
+use crate::widgets::sheet::{Door, Opened};
 
 // ---------------------------------------------------------------------------------- reading
 
@@ -156,7 +157,7 @@ pub struct HomeState {
     /// The tab of the marketplace just added, until the user leaves it.
     fresh: Option<String>,
     /// The op a page over the browser waits for: what it did to the list sets the tab when done.
-    following: Option<(OpKey, Gen)>,
+    awaiting: Option<(OpKey, Gen)>,
     door: Option<Rc<Door>>,
 }
 
@@ -174,7 +175,7 @@ impl StatefulWidget for Home {
         HomeState {
             tab: ALL.to_owned(),
             fresh: None,
-            following: None,
+            awaiting: None,
             door: None,
         }
     }
@@ -184,8 +185,8 @@ impl_widget!(stateful eq Home);
 
 impl HomeState {
     /// What the op a page over the browser did to the list is the tab the browser shows.
-    fn followed(&mut self, state: &Domain) {
-        let Some((key, before)) = self.following.clone() else {
+    fn waited(&mut self, state: &Domain) {
+        let Some((key, before)) = self.awaiting.clone() else {
             return;
         };
         let Some(op) = state.op(&key).filter(|op| op.at > before) else {
@@ -207,13 +208,13 @@ impl HomeState {
             Outcome::Upgraded { root: Some(root) } => self.tab = tab_id_of_root(root),
             Outcome::Upgraded { root: None } | Outcome::Nothing => {}
         }
-        self.following = None;
+        self.awaiting = None;
     }
 
     /// The op of `key` is what the next page over the browser waits for.
-    fn follow(&mut self, state: &Domain, key: OpKey) -> Gen {
+    fn await_op(&mut self, state: &Domain, key: OpKey) -> Gen {
         let before = state.op_at(&key);
-        self.following = Some((key, before));
+        self.awaiting = Some((key, before));
         before
     }
 
@@ -222,7 +223,7 @@ impl HomeState {
         let cwd = w.cwd.clone();
         match event {
             Event::Choose(id) if id == lists::ADD_ROW => {
-                self.follow(&state, OpKey::Add { cwd: cwd.clone() });
+                self.await_op(&state, OpKey::Add { cwd: cwd.clone() });
                 push(cx, add_route(cwd));
             }
             Event::Choose(row) => {
@@ -260,7 +261,7 @@ impl HomeState {
                         cwd: cwd.clone(),
                         name: market.name.clone(),
                     };
-                    self.follow(&state, key);
+                    self.await_op(&state, key);
                     push(cx, remove_route(cwd, market.name, market.label));
                 }
             }
@@ -272,7 +273,7 @@ impl HomeState {
                         cwd: cwd.clone(),
                         name: Some(market.name.clone()),
                     };
-                    let before = self.follow(&state, key);
+                    let before = self.await_op(&state, key);
                     verb(
                         cx,
                         Intent::UpgradeMarketplace {
@@ -300,7 +301,8 @@ impl State for HomeState {
             // Whoever wants a page shown in the open sheet finds the navigator here.
             let door = read::<Door, _>(cx);
             door.set(Opened {
-                cwd: w.cwd.clone(),
+                kind: super::KIND,
+                scope: w.cwd.clone(),
                 nav: Navigator::of(cx),
             });
             self.door = Some(door);
@@ -308,7 +310,7 @@ impl State for HomeState {
                 soon(cx, HomeMsg::Setup(key.clone()));
             }
         }
-        self.followed(&state);
+        self.waited(&state);
     }
 
     fn update(&mut self, msg: HomeMsg, w: &Home, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -323,7 +325,7 @@ impl State for HomeState {
 
     fn dispose(&mut self) {
         if let Some(door) = &self.door {
-            door.clear();
+            door.clear(super::KIND);
         }
     }
 

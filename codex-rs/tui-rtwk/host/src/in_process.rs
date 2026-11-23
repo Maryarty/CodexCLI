@@ -383,10 +383,7 @@ async fn run(
     emit(
         &ingress,
         epoch,
-        AppEv::Feature(
-            codex_tui_core::features::plugins::Fact::Config(crate::effects::plugin_config(&config))
-                .into(),
-        ),
+        AppEv::Feature(plugins_fact(&config).into()),
     );
     if !warnings.is_empty() {
         emit(
@@ -564,6 +561,42 @@ async fn run(
         )));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
+}
+
+/// What `/plugins` reads of the config: the features it depends on, the home directory the
+/// personal marketplace is under, and the marketplaces the user configured (the ones a tab can
+/// remove; the git ones it can upgrade).
+fn plugins_fact(config: &Config) -> codex_tui_core::features::plugins::Fact {
+    use codex_features::Feature;
+    let stack = &config.config_layer_stack;
+    let user = stack.effective_user_config();
+    let git = |name: &str| {
+        stack
+            .get_active_user_layer()
+            .and_then(|layer| layer.config.get("marketplaces"))
+            .and_then(|marketplaces| marketplaces.get(name))
+            .and_then(|marketplace| marketplace.get("source_type"))
+            .and_then(|kind| kind.as_str())
+            .is_some_and(|kind| kind == "git")
+    };
+    let configured: Vec<(String, bool)> = user
+        .as_ref()
+        .and_then(|user| user.get("marketplaces"))
+        .and_then(|marketplaces| marketplaces.as_table())
+        .map(|table| {
+            table
+                .keys()
+                .map(|name| (name.clone(), git(name)))
+                .collect()
+        })
+        .unwrap_or_default();
+    codex_tui_core::features::plugins::Fact::config(
+        config.features.enabled(Feature::Plugins),
+        config.features.enabled(Feature::RemotePlugin),
+        config.features.enabled(Feature::PluginSharing),
+        std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned()),
+        configured,
+    )
 }
 
 /// The reads of the facts the status card shows (`/status`): the account and the model catalog.

@@ -84,6 +84,29 @@ pub enum Fact {
     Config(Config),
 }
 
+impl Fact {
+    /// The config as the host read it: the three switches, the home directory and the
+    /// marketplaces of the user's config as (name, is a git one).
+    pub fn config(
+        enabled: bool,
+        remote: bool,
+        sharing: bool,
+        home: Option<String>,
+        configured: impl IntoIterator<Item = (String, bool)>,
+    ) -> Fact {
+        Fact::Config(Config {
+            enabled,
+            remote,
+            sharing,
+            home,
+            configured: configured
+                .into_iter()
+                .map(|(name, git)| Configured { name, git })
+                .collect(),
+        })
+    }
+}
+
 /// What an ask was for, given back with its answer: the key the answer is filed under and the
 /// number that tells it from an older ask of the same key.
 #[derive(Clone, Debug, PartialEq, Eq)]
