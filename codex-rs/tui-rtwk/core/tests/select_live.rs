@@ -238,7 +238,11 @@ fn the_model_catalog_is_warmed_for_the_cyber_warning() {
     }))
     .expect("preset");
     answer(&mut app, models[0], select::Reply::Models(vec![cyber]));
-    assert_eq!(phase(&app), Phase::Loading, "the answer is not for a picker");
+    assert_eq!(
+        phase(&app),
+        Phase::Loading,
+        "the answer is not for a picker"
+    );
     let (ticket, _) = asked(&fx);
     let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
     let (ticket, _) = asked(&fx);
@@ -252,14 +256,17 @@ fn the_model_catalog_is_warmed_for_the_cyber_warning() {
     );
     // the pick asks first; the confirmation reads the model catalog for its warning
     let select = &app.screens().select;
-    let Some(Chosen::Menu(confirm)) = permissions_menu(&app).choose(&select.profiles, ":danger-full-access")
+    let Some(Chosen::Menu(confirm)) =
+        permissions_menu(&app).choose(&select.profiles, ":danger-full-access")
     else {
         panic!("expected the confirmation");
     };
     assert!(matches!(confirm, PermissionsMenu::FullAccess { .. }));
     assert_eq!(
         confirm.page(&select.profiles, &select.catalog).heading,
-        Heading::FullAccess { cyber: Some(Recommend::Ask) }
+        Heading::FullAccess {
+            cyber: Some(Recommend::Ask)
+        }
     );
 }
 

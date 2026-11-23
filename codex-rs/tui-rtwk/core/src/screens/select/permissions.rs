@@ -384,6 +384,13 @@ impl Profiles {
     pub fn inline_pending(&self) -> bool {
         self.inline.is_some()
     }
+
+    /// An inline pick waits on the catalog: the sheet that shows the wait is the one it waits on,
+    /// and is gone when the catalog took the pick (to apply it, to ask the confirmation, or to
+    /// refuse it).
+    pub fn inline_waits(&self) -> bool {
+        matches!(self.inline, Some(super::permission_args::Inline::Discovering { .. }))
+    }
 }
 
 /// `configRequirements/read`.

@@ -3,21 +3,25 @@
 //! built-in modes and profiles, or the `Retry` page of a read that failed), and the question
 //! `Enable full access?` a pick of full access asks first (ADR-013 O1).
 //!
-//! What the sheet is on is its own state: the menu it opened with, replaced by the one a pick
-//! leads to (the oracle dismisses the popup and opens the confirmation as a new view, so Esc on
-//! it just closes, and a declined confirmation opens the permissions menu again from the start).
-//! Which row leads where is the model's pure `PermissionsMenu::choose`; what a pick means to the
-//! app is a verb (`SetPermissions`, `LoadProfiles`, `AbandonPermissions`). What the model holds
-//! the sheet reads as facts through one projection: the page's rows (the catalog of profiles and
-//! the model catalog are the model's, the answer of the server arrives while the sheet is open),
-//! the scope the catalog was read under (a change dismisses the pages that wait on it or show
-//! it, `invalidate_permission_discovery`) and whether an inline `/permissions <profile>` pick
-//! waits on the sheet (the catalog takes it, and the sheet that showed the wait is gone). In
-//! Flutter this is the `showModalBottomSheet` builder of a step-by-step flow whose step is
-//! `State` and whose data are `ref.watch(provider.select(..))`.
+//! The pages are the routes of a nested `Navigator`, the menu each shows its widget's own: the
+//! one the sheet opened with, replaced by the one a pick leads to (the oracle dismisses the popup
+//! and opens the confirmation as a new view, so Esc on it just closes, and a declined
+//! confirmation opens the permissions menu again from the start). Which row leads where is the
+//! model's pure `PermissionsMenu::choose`; what a pick means to the app is a verb
+//! (`SetPermissions`, `LoadProfiles`, `AbandonPermissions`). What the model holds the page reads
+//! as facts through one projection: its rows (the catalog of profiles and the model catalog are
+//! the model's, the answer of the server arrives while the sheet is open), the scope the catalog
+//! was read under (a change dismisses the pages that wait on it or show it,
+//! `invalidate_permission_discovery`) and whether an inline `/permissions <profile>` pick waits
+//! on the sheet (the catalog takes it, and the sheet that showed the wait is gone). In Flutter
+//! this is the `showModalBottomSheet` builder of a step-by-step flow, each step a
+//! `ConsumerStatefulWidget` that `ref.watch`es `provider.select(..)` and `pushReplacement`s the
+//! next.
 
 use std::rc::Rc;
 
+use rtwk::layout::{Align, Alignment};
+use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -34,9 +38,14 @@ use crate::app::view::Hs;
 use crate::widgets::picker::list::{Item, List, Role, Span};
 use crate::widgets::picker::{Event, Picker};
 
-/// The sheet of a menu the model asked for (`Opening::Permissions`).
+/// The sheet of a menu the model asked for (`Opening::Permissions`): a navigator as tall as the
+/// sheet's cap whose home is the page of the menu, each page at the bottom edge of it (where the
+/// oracle's pane is; `features/plugins/sheet.rs`).
 pub fn sheet(menu: PermissionsMenu) -> AnyWidget {
-    Sheet { menu }.into()
+    Navigator::new()
+        .home(bottom(Step { menu }))
+        .back_key(None)
+        .into()
 }
 
 /// The options the sheet is shown with: the bottom pane, built under the providers of the page
@@ -63,28 +72,36 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
         .unwrap_or_default()
 }
 
+fn bottom(page: impl Into<AnyWidget>) -> AnyWidget {
+    Align::new(Alignment::BOTTOM_CENTER, page).into()
+}
+
+fn route(menu: PermissionsMenu) -> PageRoute<()> {
+    PageRoute::new(move |_| bottom(Step { menu: menu.clone() }))
+}
+
+/// One page of the sheet: the menu it shows.
 #[derive(Clone, Debug, PartialEq)]
-struct Sheet {
+struct Step {
     menu: PermissionsMenu,
 }
 
-struct SheetState {
-    /// The page the sheet is on: the menu it opened with, then what a pick replaced it with.
-    menu: PermissionsMenu,
-    /// The scope the catalog pages were first seen under.
+struct StepState {
+    /// The scope the catalog was first seen under (the page began under it).
     scope: Option<u64>,
     /// An inline pick waited on the catalog while the page showed the wait: once the catalog
-    /// came and the pick was taken, the sheet is gone.
+    /// came and took the pick, the sheet is gone.
     waited_inline: bool,
     closed: bool,
 }
 
-/// What the sheet reads of the model.
+/// What the page reads of the model.
 #[derive(Clone, Debug, PartialEq)]
 struct Facts {
     page: Page,
     phase: Phase,
     scope: u64,
+    /// An inline pick waits on the catalog (`Profiles::inline_waits`).
     inline: bool,
 }
 
@@ -93,12 +110,11 @@ enum Msg {
     Picked(Event),
 }
 
-impl StatefulWidget for Sheet {
-    type State = SheetState;
+impl StatefulWidget for Step {
+    type State = StepState;
 
-    fn create_state(&self) -> SheetState {
-        SheetState {
-            menu: self.menu.clone(),
+    fn create_state(&self) -> StepState {
+        StepState {
             scope: None,
             waited_inline: false,
             closed: false,
@@ -106,20 +122,20 @@ impl StatefulWidget for Sheet {
     }
 }
 
-impl_widget!(stateful eq Sheet);
+impl_widget!(stateful eq Step);
 
-impl SheetState {
+impl StepState {
     /// The projection both `did_change_dependencies` and `build` register: the same selector, so
     /// whichever ran last leaves the registration right.
-    fn facts(&self, cx: &mut Cx<'_, Self>) -> Facts {
-        let menu = self.menu.clone();
+    fn facts(&self, w: &Step, cx: &mut Cx<'_, Self>) -> Facts {
+        let menu = w.menu.clone();
         select::<ScreenStates, Facts, _>(cx, move |states| {
             let select = &states.select;
             Facts {
                 page: menu.page(&select.profiles, &select.catalog),
                 phase: menu.phase(&select.profiles),
                 scope: select.profiles.scope,
-                inline: select.profiles.inline_pending(),
+                inline: select.profiles.inline_waits(),
             }
         })
     }
@@ -133,21 +149,21 @@ impl SheetState {
 }
 
 /// Says a verb to the model.
-fn say(cx: &mut Cx<'_, SheetState>, intent: Intent) {
+fn say(cx: &mut Cx<'_, StepState>, intent: Intent) {
     let hs = read::<Hs, _>(cx);
     cx.emit(&hs.screen, ScreenIntent::Select(intent));
 }
 
-impl State for SheetState {
-    type Widget = Sheet;
+impl State for StepState {
+    type Widget = Step;
     type Msg = Msg;
 
     // The pages of the catalog go when the scope changes, and the sheet that showed the wait of
     // an inline pick goes when the catalog took the pick. Esc, a pick and the rest are `update`.
-    fn did_change_dependencies(&mut self, _: &Sheet, cx: &mut Cx<'_, Self>) {
-        let facts = self.facts(cx);
+    fn did_change_dependencies(&mut self, w: &Step, cx: &mut Cx<'_, Self>) {
+        let facts = self.facts(w, cx);
         let scope = *self.scope.get_or_insert(facts.scope);
-        if !matches!(self.menu, PermissionsMenu::Catalog(_)) {
+        if !matches!(w.menu, PermissionsMenu::Catalog(_)) {
             return;
         }
         let gone = facts.scope != scope
@@ -159,22 +175,19 @@ impl State for SheetState {
         }
     }
 
-    fn update(&mut self, msg: Msg, _: &Sheet, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, w: &Step, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Picked(event) = msg;
         match event {
             Event::Choose(id) => {
                 let profiles = read::<ScreenStates, _>(cx).select.profiles.clone();
-                match self.menu.choose(&profiles, &id) {
+                match w.menu.choose(&profiles, &id) {
                     Some(Chosen::Done(selection)) => {
                         say(cx, Intent::SetPermissions(selection));
                         self.close(cx);
                     }
+                    // The page that replaces this one begins under the scope of now.
                     Some(Chosen::Menu(next)) => {
-                        // The page that replaces this one starts under the scope of now.
-                        self.menu = next;
-                        self.scope = Some(profiles.scope);
-                        self.waited_inline = false;
-                        return Rebuild::Yes;
+                        drop(Navigator::of(cx).push_replacement::<()>(route(next)));
                     }
                     Some(Chosen::Retry) => say(cx, Intent::LoadProfiles),
                     None => {}
@@ -196,13 +209,13 @@ impl State for SheetState {
         Rebuild::No
     }
 
-    fn build(&self, _: &Sheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let facts = self.facts(cx);
+    fn build(&self, w: &Step, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let facts = self.facts(w, cx);
         let words = strings::of(cx);
         let picker: AnyWidget =
             Picker::new(Rc::new(list(&facts.page, words)), cx.map(Msg::Picked)).into();
-        // Another page (the catalog that came, the confirmation a pick asked for) is a new
-        // picker with its own cursor; a refresh of the same page keeps cursor and scroll.
+        // The catalog that came is a new picker with its own cursor; a refresh of the same page
+        // keeps cursor and scroll.
         picker.with_key(shape(facts.phase))
     }
 }

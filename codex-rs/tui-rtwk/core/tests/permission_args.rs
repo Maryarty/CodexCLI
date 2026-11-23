@@ -103,7 +103,10 @@ fn presented(app: &mut CodexApp) -> Vec<PermissionsMenu> {
 /// What a sheet on `menu` says to the model for the row `id` (a page change says nothing).
 fn pick(app: &mut CodexApp, menu: &PermissionsMenu, id: &str) -> AppFx {
     let profiles = app.screens().select.profiles.clone();
-    match menu.choose(&profiles, id).expect("a row that can be chosen") {
+    match menu
+        .choose(&profiles, id)
+        .expect("a row that can be chosen")
+    {
         Chosen::Done(selection) => select_intent(app, SelectIntent::SetPermissions(selection)),
         Chosen::Retry => select_intent(app, SelectIntent::LoadProfiles),
         Chosen::Menu(_) => AppFx::default(),
@@ -648,6 +651,7 @@ fn a_failed_read_keeps_the_pick_waiting_until_the_sheet_is_left() {
         Some(Failure::Other("down".into()))
     );
     assert!(app.screens().select.profiles.inline_pending());
+    assert!(app.screens().select.profiles.inline_waits());
     assert_eq!(notes(&app), vec![]);
     select_intent(&mut app, SelectIntent::AbandonPermissions);
     assert!(!app.screens().select.profiles.inline_pending());
@@ -660,7 +664,9 @@ fn full_access_by_argument_asks_first_and_declining_gives_the_pick_up() {
     assert_eq!(settings(&fx), None, "full access is confirmed first");
     let [menu] = presented(&mut app).try_into().expect("one menu asked for");
     assert!(matches!(menu, PermissionsMenu::FullAccess { .. }));
+    // the pick waits on the confirmation, no longer on the catalog: the sheet of the wait is gone
     assert!(app.screens().select.profiles.inline_pending());
+    assert!(!app.screens().select.profiles.inline_waits());
     let fx = pick(&mut app, &menu, permissions::CONTINUE);
     assert_eq!(
         settings(&fx),
