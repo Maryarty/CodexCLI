@@ -139,6 +139,15 @@ pub fn start_clipping(debug: bool, width: u16, height: u16) -> Harness {
     )
 }
 
+/// `start_clipping` on a driven runtime (`start_driven`): no real pause
+/// anywhere, so a test of many keys at many sizes costs its frames only.
+pub fn start_driven_clipping(debug: bool, width: u16, height: u16) -> Harness {
+    start_driven_with(
+        debug,
+        Options::new().size(width, height).fail_on_overflow(false),
+    )
+}
+
 fn start_at(debug: bool, width: u16, height: u16) -> Harness {
     start_with_options(debug, Options::new().size(width, height))
 }
@@ -478,11 +487,23 @@ impl Harness {
         self.inject([AppEv::Keymap(Box::new(Keymap::resolve_unchecked(&spec)))]);
     }
 
+    /// `times` presses of a key that moves a widget's own cursor (a list's
+    /// `down`): nothing goes through the shell, so the keys go to the terminal
+    /// as they are, with the frames between them, and one `applied` after the
+    /// run. A `press` each waited for the shell, a real pause per key: the
+    /// debug menu's 450 rows were 3 s.
+    pub fn move_cursor(&mut self, key: &str, times: usize) {
+        for _ in 0..times {
+            self.t.press(key);
+        }
+        self.t.pump_for(ms(100));
+        self.applied();
+    }
+
     /// Opens a row of the debug menu (the menu is the home, nothing above it).
     pub fn open_debug_row(&mut self, dir: &str, entry: Option<&str>) {
-        for _ in 0..debug_row(dir, entry) {
-            self.press("down");
-        }
+        // The menu is one list whose cursor the SelectionList owns.
+        self.move_cursor("down", debug_row(dir, entry));
         self.press("enter");
     }
 

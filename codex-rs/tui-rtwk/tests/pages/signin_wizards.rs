@@ -47,9 +47,11 @@ fn launch() -> (Harness, ConnEpoch) {
     })
 }
 
-/// The same, offering these wizards.
+/// The same, offering these wizards. On a driven harness: every step here
+/// settles, and a settle on the real clock is 100 ms of sleeping (the 31
+/// tests were 45 s; driven, 1.6 s).
 fn launch_offering(providers: Providers) -> (Harness, ConnEpoch) {
-    let mut h = crate::common::start();
+    let mut h = crate::common::start_driven(false, crate::common::WIDTH, crate::common::HEIGHT);
     h.settle();
     let Some(epoch) = h.fake.epoch() else {
         panic!("the app attached no backend");
@@ -1653,7 +1655,7 @@ mod gateway_device {
     /// The app at the oracle's 80x16 with the launch's facts read (no step
     /// due): the host is asked for the gateway's device code (request 2).
     fn asked() -> (Harness, ConnEpoch) {
-        let mut h = crate::common::start();
+        let mut h = crate::common::start_driven(false, crate::common::WIDTH, crate::common::HEIGHT);
         h.settle();
         let Some(epoch) = h.fake.epoch() else {
             panic!("the app attached no backend");

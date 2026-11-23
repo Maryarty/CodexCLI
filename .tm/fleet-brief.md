@@ -77,9 +77,11 @@
    feature cannot be built without one: then hold and ask the orchestrator.
 
 ## Test commands (speed-order, 2026-11-23: cargo is 55 % of porter time, 90 % of it compile)
-- After an edit: `acargo check -q --tests` (3-7 s). Edit loop: ONE named root with a filter
-  (`--test oracle -E 'test(=name)'`, `--test pages`, `--test screens`, `-p codex-tui-core`);
-  never nextest without a root (7 binaries).
+- While writing code: ONLY `acargo check -q --tests` (3-7 s) — no test run after each edit
+  (the person, 2026-11-23: tests once per commit; the machine's CPU is the limit).
+- Before each commit: ONE nextest call that names all the roots you touched with a filter
+  (e.g. `-p codex-tui-core --test oracle --test pages -E 'test(/selection/)'`): one build, one
+  run. A red: fix, `check`, then that same one call again. Never nextest without a root.
 - Before a commit: `--test rules`. Before hand-in: your KEY oracle tests by name through
   `--test oracle -E 'test(=a)|test(=b)'` (not `summary.py --run`), the feature's pty run, fmt +
   clippy of what you touched. Never the whole workspace nextest, never land-check.
