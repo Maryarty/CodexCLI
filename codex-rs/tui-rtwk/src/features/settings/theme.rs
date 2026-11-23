@@ -37,15 +37,15 @@ use rtwk::{Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
 use crate::widgets::picker::list::{SIDE_GAP, Side, SideWidth};
-use codex_tui_core::keymap::Keymap;
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::{Edit, Intent, Offer, ThemePicker, Which};
+use codex_tui_core::keymap::Keymap;
 
 use super::keys::{Keys, ListKey, list_key};
-use crate::features::{verb, verb_by};
 use super::strings::{self, Change, PreviewRow, Strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::features::{verb, verb_by};
 use crate::widgets::session_list::{Move, Scrolled, page_rows, target};
 
 /// Rows of the list shown at once (`MAX_POPUP_ROWS`).
@@ -263,7 +263,9 @@ impl State for ThemeState {
     /// The sheet left the tree without a decision (a click on the barrier): the preview is over,
     /// the theme in force is the config's again (`Intent::SyntaxTheme(None)`).
     fn dispose_with(&mut self, cx: &mut Cx<'_, Self>) {
-        if !self.settled.get() && let Some(hs) = &self.hs {
+        if !self.settled.get()
+            && let Some(hs) = &self.hs
+        {
             verb_by(cx, hs, Intent::SyntaxTheme(None));
         }
         self.dispose();

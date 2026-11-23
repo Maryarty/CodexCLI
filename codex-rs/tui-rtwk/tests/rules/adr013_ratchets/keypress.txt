@@ -25,3 +25,4 @@ ratchet adr006_keycode_only_in_keymap src/sheets/dialogs/warnings.rs 3
 ratchet adr006_keycode_only_in_keymap src/sheets/pets/mod.rs 3
 ratchet adr006_keycode_only_in_keymap src/sheets/select/app_link.rs 6
 ratchet adr006_keycode_only_in_keymap src/sheets/select/prompt.rs 1
+ratchet adr006_keycode_only_in_keymap src/sheets/select/quick/editor.rs 1

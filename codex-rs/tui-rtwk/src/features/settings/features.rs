@@ -28,9 +28,9 @@ use rtwk::style::Style;
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::Keymap;
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::{Experimental, FeaturesStatus, Offer, Which};
+use codex_tui_core::keymap::Keymap;
 
 use super::draft::{FeaturesDraft, Saving};
 use super::keys::{Keys, ListKey, is_interrupt, is_space, list_key};

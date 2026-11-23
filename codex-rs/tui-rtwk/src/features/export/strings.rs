@@ -2,9 +2,9 @@
 //! `show_copy_result`): its transcript notes, the rows of its destination picker and its
 //! filename prompt. The wording is the oracle's English until the catalog has these entries.
 
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::features::export::Note;
-use crate::widgets::picker::list::{Columns, Item, List};
 
 /// The row ids of the destination picker, in order (oracle: "Copy to clipboard", "Save to
 /// file").

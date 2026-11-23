@@ -20,6 +20,7 @@ use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
+use crate::widgets::picker::list::List;
 use codex_tui_core::features::plugins::catalog::{ALL, RowKey, tab_id_of_root};
 use codex_tui_core::features::plugins::{
     Action, Detail as DetailData, Gen, Intent, OpKey, Outcome, PluginKey, SetupEnd,
@@ -29,7 +30,6 @@ use codex_tui_core::features::{FeatureStates, Remote};
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::select::Intent as SelectIntent;
-use crate::widgets::picker::list::List;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::lists::{self, AuthStep};

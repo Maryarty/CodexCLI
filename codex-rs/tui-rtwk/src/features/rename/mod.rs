@@ -10,9 +10,9 @@ use std::rc::Rc;
 
 use rtwk::{AnyWidget, Cx};
 
+use codex_tui_core::features::rename::{Note, Rename, Wish};
 use codex_tui_core::features::{Never, Scope};
 use codex_tui_core::ids::{Cwd, ThreadId};
-use codex_tui_core::features::rename::{Note, Rename, Wish};
 
 use self::prompt::NamePrompt;
 use super::{FeatureView, Shown};

@@ -15,9 +15,9 @@ use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::features::settings::{Edit, ID, Intent, KIND, Settings, Which};
 use codex_tui_core::features::{FeatureStates, Never};
 use codex_tui_core::ids::{Cwd, ThreadId};
-use codex_tui_core::features::settings::{Edit, ID, Intent, KIND, Settings, Which};
 
 use super::FeatureView;
 use crate::app::debug::seeded::Seeded;
@@ -48,7 +48,10 @@ impl FeatureView for Settings {
         open(cx, args)
     }
 
-    fn note_words(note: &codex_tui_core::features::settings::Note, _words: &SessionStrings) -> String {
+    fn note_words(
+        note: &codex_tui_core::features::settings::Note,
+        _words: &SessionStrings,
+    ) -> String {
         strings::note(note)
     }
 
@@ -283,7 +286,14 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 
 /// The dialog a seeded entry shows: the kind the script offered (a script offers one).
 fn debug_screen(seeded: &Seeded<'_>, confirm_reset: bool) -> AnyWidget {
-    let which = seeded.core.features().settings.offers.keys().next().copied();
+    let which = seeded
+        .core
+        .features()
+        .settings
+        .offers
+        .keys()
+        .next()
+        .copied();
     Screen {
         which,
         confirm_reset,
@@ -399,10 +409,12 @@ impl State for ScreenState {
             // skeleton's empty-slot line.
             None | Some(Shown::Other) => {
                 let shared = crate::l10n::strings::of(cx);
-                Dialog::bare(Text::new(shared.empty_slot(
-                    <Settings as codex_tui_core::features::Feature>::NAME,
-                    ID,
-                ).to_string())).into()
+                Dialog::bare(Text::new(
+                    shared
+                        .empty_slot(<Settings as codex_tui_core::features::Feature>::NAME, ID)
+                        .to_string(),
+                ))
+                .into()
             }
         }
     }

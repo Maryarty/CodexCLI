@@ -37,12 +37,12 @@ use rtwk::style::{Attrs, Style};
 use rtwk::text::{Text, TextAlign, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::Keymap;
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::hooks::{
     EventRow, Hook, HookEvent, HookHandler, HookSource, HookTrust, Hooks,
 };
 use codex_tui_core::features::settings::{Offer, Which};
+use codex_tui_core::keymap::Keymap;
 
 use super::draft::{HooksDraft, HooksView};
 use super::keys::{Keys, ListKey, is_interrupt, is_letter, is_space, list_key};

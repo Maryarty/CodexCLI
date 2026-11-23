@@ -346,9 +346,9 @@ impl Model {
     }
 
     /// The rows of the menu shown now, if it is one of the typed families.
+    /// Every family is a sheet of its own now (`Menu` is empty until adr013-select-finish).
     pub fn page(&self) -> Option<Page> {
-        match self.menu()? {
-        }
+        None
     }
 
     /// `/apps` (`add_connectors_output`): the directory is asked for again,
@@ -1022,9 +1022,8 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // The page of the app is opened by the app (`app/select.rs`); the screen keeps no record.
         Intent::OpenAppPage(_) => {}
         Intent::AppUnlinked(id) => model.app_unlinked(&id),
-        Intent::Choose(id) => match model.stack.last_mut() {
-            None => {}
-        },
+        // No family is on the stack any more (adr013-select-finish deletes the gesture).
+        Intent::Choose(_) => {}
         // No menu of the stack has a secondary action any more (`s` of `/model` is the sheet's).
         Intent::Secondary(_) => {}
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.

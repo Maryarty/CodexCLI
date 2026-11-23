@@ -33,11 +33,11 @@ use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::widgets::picker::list::normalize_paste;
-use codex_tui_core::keymap::Keymap;
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::{
     Offer, Setup, SetupItem, SetupKind, USE_THEME_COLORS, Which,
 };
+use codex_tui_core::keymap::Keymap;
 
 use super::draft::SetupDraft;
 use super::keys::{Keys, ListKey, is_space, list_key};

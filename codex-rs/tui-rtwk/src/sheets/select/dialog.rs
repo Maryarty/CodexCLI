@@ -36,12 +36,9 @@ struct Head {
 }
 
 fn head(states: &ScreenStates) -> Option<Head> {
-    let select = &states.select;
-    Some(Head {
-        menu: select.menu()?.clone(),
-        page: select.page(),
-        depth: select.stack.len(),
-    })
+    // No family is on the stack any more: `Menu` is empty until adr013-select-finish deletes the
+    // dialog with it.
+    match *states.select.menu()? {}
 }
 
 pub struct MenuDialogState {

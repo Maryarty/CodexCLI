@@ -10,8 +10,8 @@ mod confirm;
 mod dialog;
 mod generic;
 mod lists;
-mod permissions;
 mod models;
+mod permissions;
 pub(crate) mod prompt;
 mod quick;
 mod review;
@@ -35,18 +35,6 @@ use crate::widgets::picker::list::List;
 pub mod strings;
 
 pub use generic::{Purpose, pick};
-
-/// A debug entry of a typed menu: its script makes the model the menu reads, the dialog shows it.
-macro_rules! entry {
-    ($name:literal, $description:literal, $file:literal) => {
-        DebugEntry {
-            name: $name,
-            description: $description,
-            script: include_str!(concat!($file, ".jsonl")),
-            open: EntryOpen::Dialog(|_| dialog::MenuDialog.into()),
-        }
-    };
-}
 
 /// A debug entry of a `/permissions` page: the script's model has asked for the menu, the sheet
 /// of the show is built from it (`permissions::seeded`).
