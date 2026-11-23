@@ -6,18 +6,28 @@
 
 use crate::kit::{self, Owner, Screen};
 
-const EXEC_CELL: &str = "no exec cell in S11: the cells slot is an empty form and the transcript draws a command as plain text (no branch, gutter, wrap or stderr preview of the ran cell)";
+const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws the agent exec cell's `display_lines` (command under `  │ `, output under `  └ ` with its stderr tail); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Ran <first line> …` and the last three output rows), which the port's exec cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
 const REASONING_CELL: &str = "no reasoning-summary cell in S11: the transcript does not split the summary header from its body, drop the HTML-comment parts or show the transcript-only variant (Ctrl+T)";
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
 const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
 const WARNING_CELL: &str = "the visible usage warning is the rate-limit snapshot's (rate_limits.rs `new_visible_warning_event`), which the port does not derive from `account/rateLimits/updated` yet; a `warning` notification is the hidden diagnostic (WarningCell, Ctrl+T only), while the kit feeds one and expects it on the chat screen";
 
+/// The row of the transcript's first cell: the oracle's snapshot is the bare cell, the chat
+/// draws its bottom pane under the transcript, so the cell is looked up by its bullet.
+fn first_cell_row(screen: &Screen) -> usize {
+    screen
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("• ") && !row.starts_with("• Working"))
+        .unwrap_or_else(|| panic!("missing cell row:\n{}", screen.text()))
+}
+
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE history_cell/tests.rs:2205 multiline_command_without_wrap_uses_branch_then_eight_spaces kind=snap owner=chat-live snap=multiline_command_without_wrap_uses_branch_then_eight_spaces
 #[test]
 fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
-    kit::pending(Owner::ChatLive, EXEC_CELL);
+    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -26,7 +36,7 @@ fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
         .open();
     s.assert_snap_region(
         "multiline_command_without_wrap_uses_branch_then_eight_spaces",
-        0,
+        first_cell_row(&s),
         0,
     );
 }
@@ -34,7 +44,7 @@ fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
 // ORACLE history_cell/tests.rs:2228 multiline_command_both_lines_wrap_with_correct_prefixes kind=snap owner=chat-live snap=multiline_command_both_lines_wrap_with_correct_prefixes
 #[test]
 fn multiline_command_both_lines_wrap_with_correct_prefixes() {
-    kit::pending(Owner::ChatLive, EXEC_CELL);
+    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 24)
         .script(include_str!(
@@ -43,7 +53,7 @@ fn multiline_command_both_lines_wrap_with_correct_prefixes() {
         .open();
     s.assert_snap_region(
         "multiline_command_both_lines_wrap_with_correct_prefixes",
-        0,
+        first_cell_row(&s),
         0,
     );
 }
@@ -51,27 +61,27 @@ fn multiline_command_both_lines_wrap_with_correct_prefixes() {
 // ORACLE history_cell/tests.rs:2252 stderr_tail_more_than_five_lines_snapshot kind=snap owner=chat-live snap=stderr_tail_more_than_five_lines_snapshot
 #[test]
 fn stderr_tail_more_than_five_lines_snapshot() {
-    kit::pending(Owner::ChatLive, EXEC_CELL);
+    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
             "fixtures/cells_5/stderr_tail_more_than_five_lines_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("stderr_tail_more_than_five_lines_snapshot", 0, 0);
+    s.assert_snap_region("stderr_tail_more_than_five_lines_snapshot", first_cell_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:2294 ran_cell_multiline_with_stderr_snapshot kind=snap owner=chat-live snap=ran_cell_multiline_with_stderr_snapshot
 #[test]
 fn ran_cell_multiline_with_stderr_snapshot() {
-    kit::pending(Owner::ChatLive, EXEC_CELL);
+    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 24)
         .script(include_str!(
             "fixtures/cells_5/ran_cell_multiline_with_stderr_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("ran_cell_multiline_with_stderr_snapshot", 0, 0);
+    s.assert_snap_region("ran_cell_multiline_with_stderr_snapshot", first_cell_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:2339 user_history_cell_wraps_and_prefixes_each_line_snapshot kind=snap owner=chat-live snap=user_history_cell_wraps_and_prefixes_each_line_snapshot

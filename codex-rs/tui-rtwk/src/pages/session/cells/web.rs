@@ -1,6 +1,9 @@
-//! The web activity cell (oracle history_cell/search.rs `WebSearchCell`).
+//! The web activity cell (oracle history_cell/search.rs `WebSearchCell`): one clipped row in
+//! the chat (`display_lines`), the wrapped rows under a `• ` gutter in the detailed transcript
+//! (`transcript_lines`, a `PrefixedWrappedHistoryCell`).
 
 use rtwk::style::Span;
+use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use codex_tui_core::threads::{WebAction, WebActivity};
@@ -8,11 +11,15 @@ use codex_tui_core::threads::{WebAction, WebActivity};
 use crate::app::theme::Tokens;
 
 use super::one_row::one_row;
+use super::text::Part;
 use super::strings::Strings;
+use super::tool_rows::glyph_row;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebCell {
     pub activity: WebActivity,
+    /// The detailed transcript (Ctrl+T): the summary wraps.
+    pub detailed: bool,
 }
 
 impl_widget!(stateless eq WebCell);
@@ -56,14 +63,19 @@ fn words(activity: &WebActivity, strings: &Strings) -> (&'static str, &'static s
     (header, separator, detail)
 }
 
-/// The row's text: the bullet is the row's first span.
-pub fn text(activity: &WebActivity, strings: &Strings) -> String {
+/// The texts of the row: the bullet is the row's first span in the chat, a gutter of its own in
+/// the detailed transcript.
+pub fn texts(activity: &WebActivity, strings: &Strings, detailed: bool) -> Vec<Part> {
     let (header, separator, detail) = words(activity, strings);
-    let mut text = [strings.bullet, header].concat();
+    let mut text = String::from(header);
     if !detail.is_empty() {
         text.extend([separator, &detail]);
     }
-    text
+    if detailed {
+        vec![Part::gutter("• "), Part::text(text)]
+    } else {
+        vec![Part::text([strings.bullet, &text].concat())]
+    }
 }
 
 impl StatelessWidget for WebCell {
@@ -71,13 +83,17 @@ impl StatelessWidget for WebCell {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
         let (header, separator, detail) = words(&self.activity, strings);
-        let mut spans = vec![
-            Span::styled(strings.bullet, tokens.dim()),
-            Span::styled(header, tokens.bold()),
-        ];
+        let mut spans = Vec::new();
+        if !self.detailed {
+            spans.push(Span::styled(strings.bullet, tokens.dim()));
+        }
+        spans.push(Span::styled(header, tokens.bold()));
         if !detail.is_empty() {
             spans.push(Span::new(separator));
             spans.push(Span::new(detail));
+        }
+        if self.detailed {
+            return glyph_row("• ", Text::rich(spans).into(), tokens.dim());
         }
         one_row(spans)
     }
