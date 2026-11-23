@@ -313,4 +313,6 @@ macro_rules! core_dirs {
     };
 }
 
+pub mod tips;
+
 screen_list!(core_dirs);

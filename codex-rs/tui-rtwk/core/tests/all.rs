@@ -55,6 +55,7 @@ mod status;
 mod status_data;
 mod status_facts;
 mod submission;
+mod tips;
 mod transcript_diff;
 mod usage;
 mod worked_for;

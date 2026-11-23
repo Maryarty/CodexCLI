@@ -9,7 +9,7 @@ use codex_core::config::Config;
 use codex_terminal_detection::{TerminalInfo, TerminalName, terminal_info};
 use codex_tui_core::app::AppEv;
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::cells::{ClockFormat, Ev, LinkDisplay, ViewerClock};
+use codex_tui_core::screens::cells::{ClockFormat, Ev, LinkDisplay, Startup, ViewerClock};
 
 /// A terminal that shows a hyperlink as its label alone writes the label; one that does not
 /// (a multiplexer, `TERM=dumb`/`screen*`/`tmux*`, an unknown one) keeps the destination in
@@ -41,9 +41,10 @@ fn link_display(info: &TerminalInfo, term: Option<&str>) -> LinkDisplay {
     }
 }
 
-/// The facts as events of the cells screen: the terminal's links, the clock and the config's
-/// `show_raw_agent_reasoning`.
-pub fn events(config: &Config) -> [AppEv; 3] {
+/// The facts as events of the cells screen: the terminal's links, the clock, the config's
+/// `show_raw_agent_reasoning` and how the run started (the project's trust was never set: the
+/// user's first run, oracle `is_first_run`; the model-availability notice is not found yet).
+pub fn events(config: &Config) -> [AppEv; 4] {
     let display = if !std::io::stdout().is_terminal() || std::env::var_os("STY").is_some() {
         LinkDisplay::WithDestination
     } else {
@@ -63,6 +64,10 @@ pub fn events(config: &Config) -> [AppEv; 3] {
         AppEv::Screen(ScreenEv::Cells(Ev::RawReasoning(
             config.show_raw_agent_reasoning,
         ))),
+        AppEv::Screen(ScreenEv::Cells(Ev::Startup(Startup {
+            first_run: config.active_project.trust_level.is_none(),
+            tooltip: None,
+        }))),
     ]
 }
 

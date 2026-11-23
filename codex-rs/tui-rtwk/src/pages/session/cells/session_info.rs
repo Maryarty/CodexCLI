@@ -2,8 +2,9 @@
 //! `new_session_info`): the first session's help (the getting-started line
 //! and five commands, the command plain and its words dim), else the tip
 //! (`Tip:` in Markdown, two columns in) and, when the server used another
-//! model, the `model changed:` block. The parts are one blank row apart and
-//! the card starts with one (the composite's separator under the header).
+//! model, the `model changed:` block. The parts are one blank row apart; the
+//! transcript's separator row (under the session header) stands where the oracle's
+//! composite puts its blank after the header.
 //!
 //! Flutter: a `Column` of `Text`s, `Padding(left: 2)` around a
 //! `MarkdownBody` for the tip.
@@ -77,35 +78,52 @@ pub fn cell(
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let mut first = true;
+    let mut part = |column: Column, widget: AnyWidget| {
+        let column = if first { column } else { column.child(blank()) };
+        first = false;
+        column.child(widget)
+    };
     if help {
-        column = column
-            .child(blank())
+        let mut lines = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(Text::new(strings.help_intro).style(dim.clone()))
             .child(blank());
         for (command, words) in strings.help_commands {
-            column = column.child(Text::rich(vec![
+            lines = lines.child(Text::rich(vec![
                 Span::new([strings.help_indent, command].concat()),
                 Span::styled(words, dim.clone()),
             ]));
         }
+        column = part(column, lines.into());
     }
     if let Some(tip) = tip {
-        column = column.child(blank()).child(Padding::new(
-            EdgeInsets::only(TIP_INDENT, 0, 0, 0),
-            crate::widgets::markdown::themed(
-                crate::widgets::markdown::view(&strings.fill(strings.tip_label, &[tip])),
-                markdown,
-            ),
-        ));
+        column = part(
+            column,
+            Padding::new(
+                EdgeInsets::only(TIP_INDENT, 0, 0, 0),
+                crate::widgets::markdown::themed(
+                    crate::widgets::markdown::view(&strings.fill(strings.tip_label, &[tip])),
+                    markdown,
+                ),
+            )
+            .into(),
+        );
     }
     if let Some((requested, used)) = changed {
-        column = column
-            .child(blank())
-            .child(Text::new(strings.model_changed).style(tokens.accent().attrs(Attrs::BOLD)))
-            .child(Text::new(
-                strings.fill(strings.model_requested, &[requested]),
-            ))
-            .child(Text::new(strings.fill(strings.model_used, &[used])));
+        column = part(
+            column,
+            Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(Text::new(strings.model_changed).style(tokens.accent().attrs(Attrs::BOLD)))
+                .child(Text::new(
+                    strings.fill(strings.model_requested, &[requested]),
+                ))
+                .child(Text::new(strings.fill(strings.model_used, &[used])))
+                .into(),
+        );
     }
     column.into()
 }

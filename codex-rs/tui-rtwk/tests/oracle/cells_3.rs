@@ -428,33 +428,51 @@ fn ps_output_empty_snapshot() {
 // ORACLE history_cell/tests.rs:758 session_info_uses_availability_nux_tooltip_override kind=ui owner=chat-live
 #[test]
 fn session_info_uses_availability_nux_tooltip_override() {
-    kit::pending(
-        Owner::ChatLive,
-        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .startup(false, Some("Model just became available"))
+        .open();
     s.assert_contains("Model just became available");
 }
 
 // ORACLE history_cell/tests.rs:780 session_info_availability_nux_tooltip_snapshot kind=snap owner=chat-live snap=session_info_availability_nux_tooltip_snapshot
 #[test]
 fn session_info_availability_nux_tooltip_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.assert_snap_region("session_info_availability_nux_tooltip_snapshot", 0, 0);
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .startup(false, Some("Model just became available"))
+        .cwd("/tmp/project")
+        .open();
+    // The oracle's snapshot, row by row: its header reads `(v0.0.0)` where ours reads the
+    // running build's version (`transcript_header.rs` drops the source build's 0.0.0).
+    let rows = s.rows();
+    let Some(y) = rows.iter().position(|row| row.contains(">_ OpenAI Codex")) else {
+        panic!("no session header:\n{}", s.text());
+    };
+    let at = |row: usize| rows.get(row).map_or("", |row| row.trim_end());
+    assert_eq!(at(y.saturating_sub(1)), "", "a blank row above the header");
+    s.assert_row_starts_with(y, "  >_ OpenAI Codex (v");
+    assert!(at(y).ends_with(')'), "{}", at(y));
+    assert_eq!(at(y + 1), "     /tmp/project");
+    assert_eq!(at(y + 2), "");
+    assert_eq!(at(y + 3), "  Tip: Model just became available");
 }
 
 // ORACLE history_cell/tests.rs:799 session_info_preserves_styled_tooltip_links kind=snap owner=chat-live snap=session_info_preserves_styled_tooltip_links
 #[test]
 fn session_info_preserves_styled_tooltip_links() {
-    kit::pending(
-        Owner::ChatLive,
-        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive).size(30, 24).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(30, 24)
+        .live()
+        .startup(
+            false,
+            Some(
+                "Use **/copy** or `ctrl+y`; visit the [Codex community forum](https://example.com).",
+            ),
+        )
+        .open();
     s.assert_in_order(&[
         "  Tip: Use /copy or ctrl+y;",
         "  visit the Codex community",
@@ -467,13 +485,23 @@ fn session_info_preserves_styled_tooltip_links() {
 // ORACLE history_cell/tests.rs:851 session_info_first_event_respects_tooltip_preference kind=ui owner=chat-live
 #[test]
 fn session_info_first_event_respects_tooltip_preference() {
-    kit::pending(
-        Owner::ChatLive,
-        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
-    );
-    // show_tooltips = true: the tip is shown, the availability notice is not.
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // The first run: the help shows (tooltips on) and the availability notice is taken unseen.
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .startup(true, Some("Model just became available"))
+        .open();
     s.assert_contains("To get started");
+    s.assert_absent("Model just became available");
+    s.assert_absent("model changed:");
+    // show_tooltips = false: the header alone.
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .tooltips_off()
+        .startup(true, Some("Model just became available"))
+        .open();
+    s.assert_absent("To get started");
     s.assert_absent("Model just became available");
     s.assert_absent("model changed:");
 }
@@ -481,11 +509,13 @@ fn session_info_first_event_respects_tooltip_preference() {
 // ORACLE history_cell/tests.rs:875 session_info_hides_tooltips_when_disabled kind=ui owner=chat-live
 #[test]
 fn session_info_hides_tooltips_when_disabled() {
-    kit::pending(
-        Owner::ChatLive,
-        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .tooltips_off()
+        .startup(false, Some("Model just became available"))
+        .cwd("/tmp/project")
+        .open();
     // The session banner is drawn without the tip: its header line is the oracle's.
     s.assert_contains("OpenAI Codex");
     s.assert_absent("Model just became available");
