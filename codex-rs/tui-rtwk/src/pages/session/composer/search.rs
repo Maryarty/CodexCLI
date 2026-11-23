@@ -5,7 +5,7 @@
 
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
-use rtwk::layout::{Row, SizedBox};
+use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
@@ -125,6 +125,10 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, query: String, status: SearchStatus) -> Any
     }
     Row::new()
         .child(SizedBox::new(Some(2), None, None))
-        .child(Text::rich(spans))
+        // one row, clipped at the edge (a long query is not wrapped)
+        .child(Expanded::new(
+            1,
+            Text::rich_line(spans).overflow(rtwk_core::unicode::TextOverflow::Clip),
+        ))
         .into()
 }

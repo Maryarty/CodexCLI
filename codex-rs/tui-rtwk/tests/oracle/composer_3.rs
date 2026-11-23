@@ -534,12 +534,11 @@ fn slash_with_leading_space_submits_as_text() {
 // ORACLE bottom_pane/chat_composer.rs:11903 shortcut_modified_input_does_not_enter_paste_bursts kind=snap owner=chat-live snap=shortcut_modified_space_is_not_rendered
 #[test]
 fn shortcut_modified_input_does_not_enter_paste_bursts() {
-    kit::pending(
-        Owner::ChatLive,
-        "screen feature (chat-status): the oracle's footer after `ab` reads `100% context left` (ours: `← for agents · ? for shortcuts`); the typed `ab` with no space (a SUPER+space between) is equal",
-    );
     // oracle snapshot shortcut_modified_space_is_not_rendered: 'a', SUPER+space, 'b' typed fast, then the flush
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .entry("composer", "alone")
+        .open();
     s.keys("a");
     s.keys("super+space");
     s.keys("b");
@@ -549,12 +548,11 @@ fn shortcut_modified_input_does_not_enter_paste_bursts() {
 // ORACLE bottom_pane/chat_composer.rs:11949 plain_and_shift_spaces_insert_normally kind=snap owner=chat-live snap=plain_space_is_rendered
 #[test]
 fn plain_and_shift_spaces_insert_normally() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat screen is not the composer alone: the oracle's snapshot is the composer's region with its own footer ('100% context left'); the typing itself ('a b' typed fast reads as typing, the space kept) is the page test composer_burst a_space_inside_a_burst_is_kept",
-    );
     // oracle snapshot plain_space_is_rendered: 'a', ' ', 'b' typed fast, then the flush
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .entry("composer", "alone")
+        .open();
     s.type_burst("a b");
     s.wait(50);
     s.assert_snap("plain_space_is_rendered");

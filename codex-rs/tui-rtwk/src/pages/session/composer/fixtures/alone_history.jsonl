@@ -1,0 +1,6 @@
+# The composer with its footer, alone, with two entries of prompt history, oldest
+# first (`git status`, `git log`), for the reverse search of the oracle's
+# history_search_paste_tests.rs (`composer_with_history`).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"history":["git status","git log"]}}

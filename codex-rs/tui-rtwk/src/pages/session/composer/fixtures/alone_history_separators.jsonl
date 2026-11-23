@@ -1,0 +1,6 @@
+# As alone_history, with the entries the separators test records:
+# history_search_paste_shows_separators_and_matches_original_query (a pasted
+# `foo\nbar\tbaz` matches none of them as typed).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"history":["git status","git log","foobarbaz","foo↵bar⇥baz"]}}

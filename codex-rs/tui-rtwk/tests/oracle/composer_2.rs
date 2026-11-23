@@ -24,6 +24,15 @@ fn ready(width: u16, height: u16) -> Screen {
     s
 }
 
+/// The composer alone with its footer at `width` by `height`: the oracle's
+/// composer harness (`snapshot_composer_state_with_width`).
+fn alone(width: u16, height: u16) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(width, height)
+        .entry("composer", "alone")
+        .open()
+}
+
 /// The composer with an empty draft: the placeholder of the oracle's composer.
 const PLACEHOLDER: &str = "› Ask Codex to do anything";
 
@@ -377,28 +386,24 @@ fn edit_clears_pending_paste() {
 // ORACLE bottom_pane/chat_composer.rs:9289 ui_snapshots kind=snap owner=chat-live snap=backspace_after_pastes snap=empty snap=large snap=multiple_pastes snap=short snap=small
 #[test]
 fn ui_snapshots() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat screen is not the composer alone at 100x10: the oracle's rows are the composer's region only",
-    );
-    let s = ready(100, 10);
+    let s = alone(100, 10);
     s.assert_snap("empty");
 
-    let mut s = ready(100, 10);
+    let mut s = alone(100, 10);
     s.paste("short");
     s.assert_snap("small");
 
-    let mut s = ready(100, 10);
+    let mut s = alone(100, 10);
     s.paste(&"z".repeat(1005));
     s.assert_snap("large");
 
-    let mut s = ready(100, 10);
+    let mut s = alone(100, 10);
     s.paste(&"x".repeat(1003));
     s.paste(&"y".repeat(1007));
     s.paste(" another short paste");
     s.assert_snap("multiple_pastes");
 
-    let mut s = ready(100, 10);
+    let mut s = alone(100, 10);
     s.paste(&"a".repeat(1002));
     s.paste(&"b".repeat(1004));
     s.paste(&"c".repeat(1006));
@@ -409,19 +414,15 @@ fn ui_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:9352 image_placeholder_snapshots kind=snap owner=chat-live snap=image_placeholder_multiple snap=image_placeholder_single
 #[test]
 fn image_placeholder_snapshots() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle's snapshot is the composer alone, with its own `100% context left` footer; the chat draws the page's footer (pane-footer). The prompt rows below are what the port draws",
-    );
     // attach_image(/tmp/image1.png), kill (ctrl+u), restore (ctrl+y)
-    let mut s = ready(100, 9);
+    let mut s = alone(100, 9);
     s.attach_image("image1.png");
     s.keys("ctrl+u ctrl+y");
     s.assert_row(prompt(&s), "› [Image #1]");
     s.assert_snap("image_placeholder_single");
 
     // attach_image(/tmp/image1.png) and attach_image(/tmp/image2.png)
-    let mut s = ready(100, 9);
+    let mut s = alone(100, 9);
     s.attach_image("image1.png");
     s.attach_image("image2.png");
     s.assert_row(prompt(&s), "› [Image #1][Image #2]");

@@ -15,6 +15,15 @@ const NO_PLUGINS: &str = "no seed for plugin mentions: the chat screen has no pl
 const NO_FILES: &str = "no seed for file search: the chat screen has no file index, so the `@` file popup has no rows; the skill catalog these tests set is not built either";
 const NO_LAYOUT: &str = "the composer footer collapse by width, the collaboration-mode indicator (Plan), the context-window percent and a running task with a queued draft are not built";
 
+/// The composer alone with its footer at `width` by `height`: the oracle's
+/// composer harness (`snapshot_composer_state_with_width`).
+fn alone(width: u16, height: u16) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(width, height)
+        .entry("composer", "alone")
+        .open()
+}
+
 /// Types `text`, then moves the cursor left `back` chars (the oracle's `set_cursor`).
 /// The composer's prompt row, `›` or shell mode's `!` (the oracle's
 /// composer rect sits there on the chat screen).
@@ -61,11 +70,7 @@ fn light_terminal_palette_renders_light_composer_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:5119 footer_hint_row_is_separated_from_composer kind=ui owner=chat-live
 #[test]
 fn footer_hint_row_is_separated_from_composer() {
-    kit::pending(
-        Owner::ChatLive,
-        "the composer footer is not built: the `? for shortcuts` hint row on the bottom line, with a blank spacing row above it, is not drawn",
-    );
-    let s = Screen::build(Owner::ChatLive).size(40, 6).live().open();
+    let s = alone(40, 6);
     s.assert_row_starts_with(5, "  ? for shortcuts");
     s.assert_row(4, "");
 }
@@ -493,8 +498,7 @@ fn vim_insert_uses_bar_cursor_style() {
 // ORACLE bottom_pane/chat_composer.rs:6756 question_mark_only_toggles_on_first_char kind=ui owner=chat-live
 #[test]
 fn question_mark_only_toggles_on_first_char() {
-    kit::pending(Owner::ChatLive, NO_FOOTER);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = alone(100, 9);
     let prompt = s.shot();
     s.keys("?");
     s.assert_rows_differ(&prompt);
@@ -509,10 +513,10 @@ fn question_mark_only_toggles_on_first_char() {
 // ORACLE bottom_pane/chat_composer.rs:6796 shift_question_mark_toggles_shortcut_overlay_when_empty kind=ui owner=chat-live
 #[test]
 fn shift_question_mark_toggles_shortcut_overlay_when_empty() {
-    kit::pending(Owner::ChatLive, NO_FOOTER);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = alone(100, 9);
     let prompt = s.shot();
-    s.keys("shift+?");
+    // a shifted `?` is the character `?` (the kit names the key by its text)
+    s.keys("?");
     s.assert_rows_differ(&prompt);
 }
 
