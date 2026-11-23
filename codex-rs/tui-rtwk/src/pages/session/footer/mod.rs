@@ -38,9 +38,9 @@ use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::keymap::actions::COMPOSER_TOGGLE_SHORTCUTS;
+use codex_tui_core::kit::vim::VimMode;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat::facts::{self as chat_facts, GoalIndicator};
-use codex_tui_core::kit::vim::VimMode;
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme::Tokens;
