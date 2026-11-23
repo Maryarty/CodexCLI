@@ -20,16 +20,13 @@ pub struct Look<'a> {
     pub bullet: &'a str,
     pub bullet_style: Style,
     pub markdown: &'a MarkdownTheme,
-    pub cells: &'a Strings,
+    pub cells: &'static Strings,
 }
 
 /// The cell of an assistant message; `live` while it streams, `cwd` the
 /// session's directory (file directives read against it).
 pub fn message(source: &str, live: bool, cwd: Option<&str>, look: &Look<'_>) -> AnyWidget {
-    let markdown = crate::widgets::markdown::themed(
-        citation::view(source, live, cwd, look.cells),
-        look.markdown.clone(),
-    );
+    let markdown = citation::cited(source, live, cwd, look.cells, look.markdown.clone());
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .spacing(1)

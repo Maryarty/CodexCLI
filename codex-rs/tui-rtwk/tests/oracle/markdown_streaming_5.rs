@@ -4,6 +4,8 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use codex_tui_core::app::facts::Rendering;
+
 use crate::kit::{self, Owner, Screen};
 
 /// A table draws as its plain text: no table renderer (separators, wrapping, held tail).
@@ -53,6 +55,17 @@ fn chat_chunks(width: u16, height: u16, chunks: &[&str]) -> Screen {
         .markdown(width, height)
         .live()
         .open();
+    s.feed(&answer_chunks(chunks));
+    s
+}
+
+/// `chat_chunks` with the `tui.rendering` preferences set before the answer streams.
+fn chat_chunks_under(rendering: Rendering, width: u16, height: u16, chunks: &[&str]) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(width, height)
+        .live()
+        .open();
+    s.rendering(rendering);
     s.feed(&answer_chunks(chunks));
     s
 }
@@ -1151,27 +1164,45 @@ fn empty_list_item_stays_mutable_until_finalization() {
 // ORACLE streaming/rendering_preferences_tests.rs:62 lists_match_incremental_and_emitted_responses kind=ui owner=chat-live
 #[test]
 fn lists_match_incremental_and_emitted_responses() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let chunks = [
         "- [ ] First task with enough words to wrap\n  - [x] Nested task\n- [X] Done\n\n",
         "> 9. [ ] [link](https://example.com)\n> 10. [x] Done\n\n",
         "After.\n\nOne.\n\nTwo.\n\nThree.\n",
     ];
-    // The oracle's `lists` preference on and off; the chat has every renderer on, so the on case.
-    let s = chat_chunks(80, 24, &chunks);
-    assert_matches_whole(&s, 80, 24, &chunks);
+    // the oracle's `lists` preference on and off: the streamed screen is the whole one
+    for lists in [true, false] {
+        let rendering = Rendering {
+            lists,
+            ..Rendering::default()
+        };
+        let s = chat_chunks_under(rendering, 80, 24, &chunks);
+        s.assert_same_rows(&chat_chunks_under(rendering, 80, 24, &[&chunks.concat()]).shot());
+    }
+    // the preference changes the drawing: a task's box is its source text only while lists are off
+    let on = chat_chunks_under(Rendering::default(), 80, 24, &chunks);
+    let off = chat_chunks_under(
+        Rendering {
+            lists: false,
+            ..Rendering::default()
+        },
+        80,
+        24,
+        &chunks,
+    );
+    on.assert_rows_differ(&off.shot());
+    off.assert_has_row("• [ ] First task with enough words to wrap");
+    // turning the preference off redraws a message that is already on the screen
+    let mut flipped = chat_chunks_under(Rendering::default(), 80, 24, &chunks);
+    flipped.rendering(Rendering {
+        lists: false,
+        ..Rendering::default()
+    });
+    flipped.assert_same_rows(&off.shot());
 }
 
 // ORACLE streaming/rendering_preferences_tests.rs:108 rendering_preferences_match_incremental_final_and_emitted_responses kind=ui owner=chat-live
 #[test]
 fn rendering_preferences_match_incremental_final_and_emitted_responses() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let chunks = [
         "Before.\n\n",
         "```markdown\n| A | B |\n|---|---|\n| `a` | \\(x_1\\) |\n```\n\n",
@@ -1181,7 +1212,15 @@ fn rendering_preferences_match_incremental_final_and_emitted_responses() {
         "Prose after the table.\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n\n",
         "| **Name** | Value |\n|---|---|\n| `a` | b |\n\nAfter.\n",
     ];
-    // The oracle's eight combinations of mermaid, math and tables; the chat has them all on.
-    let s = chat_chunks(80, 24, &chunks);
-    assert_matches_whole(&s, 80, 24, &chunks);
+    // the oracle's eight combinations of mermaid, math and tables
+    for bits in 0..8u8 {
+        let rendering = Rendering {
+            mermaid: bits & 1 != 0,
+            math: bits & 2 != 0,
+            tables: bits & 4 != 0,
+            lists: true,
+        };
+        let s = chat_chunks_under(rendering, 80, 24, &chunks);
+        s.assert_same_rows(&chat_chunks_under(rendering, 80, 24, &[&chunks.concat()]).shot());
+    }
 }

@@ -4,15 +4,13 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use codex_tui_core::app::facts::Rendering;
+
 use crate::kit::{self, Owner, Screen};
 
 /// The live chat draws an agent message as its plain text: no markdown renderer yet.
 /// The chat draws math as its source text: no unicode math renderer yet.
 const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters) is built in the chat's markdown yet";
-/// A mermaid fence draws as its source: no native mermaid renderer yet.
-/// The rendering preferences (`tui.rendering`) cannot be seeded on the live chat.
-const CONFIG: &str = "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them";
-
 /// `text` as the body of a JSON string.
 fn json_string(text: &str) -> String {
     let mut out = String::new();
@@ -43,6 +41,23 @@ fn chat(width: u16, height: u16, markdown: &str) -> Screen {
         .markdown(width, height)
         .live()
         .open();
+    s.feed(&answer(markdown));
+    s
+}
+
+/// `chat` with one `tui.rendering` renderer off: `Rendering` with the field `off` named false.
+fn chat_without(off: &str, width: u16, height: u16, markdown: &str) -> Screen {
+    let rendering = Rendering {
+        mermaid: off != "mermaid",
+        math: off != "math",
+        tables: off != "tables",
+        lists: off != "lists",
+    };
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(width, height)
+        .live()
+        .open();
+    s.rendering(rendering);
     s.feed(&answer(markdown));
     s
 }
@@ -230,37 +245,49 @@ fn mermaid_fences_use_native_renderer_for_every_family() {
 // ORACLE markdown_render/preferences_tests.rs:10 disabled_renderers_preserve_source_independently kind=snap owner=chat-live snap=disabled_renderers_preserve_source_independently
 #[test]
 fn disabled_renderers_preserve_source_independently() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
-    );
-    // The oracle's snapshot joins four preference states under a Debug header each.
-    // This ports the mermaid-off state (the first section); math, tables and lists
-    // off are the same pattern on their own samples, not yet written.
-    let s = chat(
+    // The oracle's snapshot joins four preference states under a Debug header each: one
+    // renderer off, its sample drawn as the source it was written.
+    let s = chat_without(
+        "mermaid",
         80,
         24,
         "```mermaid\nflowchart LR\nA[Request] --> B[Reply]\n```\n",
     );
     s.assert_in_order(&["flowchart LR", "A[Request] --> B[Reply]"]);
+    // math off: the `$..$` span stays as written (the chat has no math renderer, G61, and the
+    // parser still reads the `\(..\)` and `\[..\]` delimiters as escapes: the rows of those
+    // are the gap of the math renderer, not of the switch)
+    let s = chat_without("math", 80, 24, "Inline $\\alpha_1$ and $x^{2}$.\n");
+    s.assert_in_order(&["Inline $\\alpha_1$ and $x^{2}$."]);
+    // tables off: the table is its source, markup and escapes included
+    let table = "| **Name** | Value |\n|---|---|\n| `a` | path\\_1 &amp; \\* |\n";
+    let s = chat_without("tables", 80, 24, table);
+    s.assert_in_order(&[
+        "| **Name** | Value |",
+        "|---|---|",
+        "| `a` | path\\_1 &amp; \\* |",
+    ]);
+    // and drawn as a table while the renderer is on
+    let on = chat(80, 24, table);
+    on.assert_absent("|---|---|");
+    // lists off: a task item's box is the text it was written
+    let s = chat_without("lists", 80, 24, "- [ ] Pending\n- [x] Done\n- Ordinary\n");
+    s.assert_in_order(&["[ ] Pending", "[x] Done", "Ordinary"]);
 }
 
 // ORACLE markdown_render/preferences_tests.rs:57 disabled_mermaid_keeps_unsupported_source_without_notice kind=ui owner=chat-live
 #[test]
 fn disabled_mermaid_keeps_unsupported_source_without_notice() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     // With mermaid off the fence renders as the unknown fence does: its source lines, no notice.
-    let s = chat(80, 24, "```mermaid\npie\n\"Cats\": 2\n```\n");
-    s.assert_in_order(&["pie", "\"Cats\": 2"]);
+    let source = "```mermaid\npie\n\"Cats\": 2\n```\n";
+    let off = chat_without("mermaid", 80, 24, source);
+    off.assert_in_order(&["pie", "\"Cats\": 2"]);
+    off.assert_same_rows(&chat(80, 24, &source.replacen("mermaid", "unknown", 1)).shot());
 }
 
 // ORACLE markdown_render/preferences_tests.rs:72 disabled_tables_keep_markdown_fences_and_cell_markup kind=snap owner=chat-live snap=disabled_tables_keep_mixed_quote_spacing
 #[test]
 fn disabled_tables_keep_markdown_fences_and_cell_markup() {
-    kit::pending(Owner::ChatLive, CONFIG);
     for fence in [
         "```md",
         "```markdown",
@@ -269,13 +296,24 @@ fn disabled_tables_keep_markdown_fences_and_cell_markup() {
     ] {
         let closer = &fence[..3];
         let source = format!("{fence}\n| A | B |\n|---|---|\n| **a** | $x^2$ |\n{closer}\n");
-        let s = chat(80, 24, &source);
+        let s = chat_without("tables", 80, 24, &source);
         s.assert_in_order(&[fence, "| A | B |", "|---|---|", "| **a** | $x^2$ |", closer]);
     }
     let quoted =
         "> ```md\n> Intro\n>\n>| A | B |\n> |---|---|\n> | a | b |\n>\n>> literal\n> ```\n";
-    let s = chat(80, 24, quoted);
-    s.assert_markdown_snap("disabled_tables_keep_mixed_quote_spacing");
+    // The oracle's snapshot draws the quote with the source's `>` marker (G73 item 3: rtwk's
+    // MarkdownView draws a `│` bar), so the rows are compared by their text: the literal block
+    // keeps the fence, the blank rows of the quote and the nested `> literal` line.
+    let s = chat_without("tables", 80, 24, quoted);
+    s.assert_in_order(&[
+        "```md",
+        "Intro",
+        "| A | B |",
+        "|---|---|",
+        "| a | b |",
+        "> literal",
+        "```",
+    ]);
 }
 
 // ---- oracle: markdown_render/task_list_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
