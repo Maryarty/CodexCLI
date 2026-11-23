@@ -212,7 +212,10 @@ fn a_blocked_model_banner_switches_to_its_first_listed_fallback() {
     assert_eq!(thread, T);
     assert_eq!(patch.model.as_deref(), Some("test-model-c"));
     assert_eq!(
-        patch.effort.as_ref().map(|effort| effort.as_str()),
+        patch
+            .effort
+            .as_ref()
+            .map(codex_protocol::openai_models::ReasoningEffort::as_str),
         Some("low")
     );
     // nothing is said before the server accepts
@@ -243,7 +246,10 @@ fn an_unsupported_effort_falls_back_to_the_models_default() {
     let fx = read_answered(&mut app, &fx, banner_read(blocked_banner()));
     let (_, _, patch) = settings_ask(&fx);
     assert_eq!(
-        patch.effort.as_ref().map(|effort| effort.as_str()),
+        patch
+            .effort
+            .as_ref()
+            .map(codex_protocol::openai_models::ReasoningEffort::as_str),
         Some("medium")
     );
 }
@@ -348,7 +354,10 @@ fn luna_reserve_is_entered_and_left_with_the_saved_return() {
     let (ticket, _, patch) = settings_ask(&fx);
     assert_eq!(patch.model.as_deref(), Some("test-model-a"));
     assert_eq!(
-        patch.effort.as_ref().map(|effort| effort.as_str()),
+        patch
+            .effort
+            .as_ref()
+            .map(codex_protocol::openai_models::ReasoningEffort::as_str),
         Some("low")
     );
     accepted(&mut app, ticket);
