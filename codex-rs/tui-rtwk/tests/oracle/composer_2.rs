@@ -47,13 +47,19 @@ fn times(key: &str, n: usize) -> String {
 fn task_mention_popup_and_selected_composer_snapshots() {
     kit::pending(
         Owner::ChatLive,
-        "no task-mention search on the chat composer: on_task_search_result has no seed, and the '@' popup has no Mentions tabs (All Results, Filesystem Only, Plugins) or Task rows",
+        "mount: no `MentionPopup` in the composer-alone harness or the page, so `@` draws no rows (the Tasks come in as the `tasks` seed and Enter binds the first); G68: the rows float in a different layout from the oracle's; G-new-1: the text area paints a bound mention in no accent (the oracle's cell (2, 1) is cyan)",
     );
-    let mut s = ready(100, 9);
+    let open = || {
+        Screen::build(Owner::ChatLive)
+            .size(100, 9)
+            .entry("popovers", "alone_tasks")
+            .open()
+    };
+    let mut s = open();
     s.type_text("@migr");
     s.assert_snap("task_mention_popup");
 
-    let mut s = ready(100, 9);
+    let mut s = open();
     s.type_text("@migr").keys("enter");
     s.assert_snap("task_mention_selected_composer");
     // the oracle's cell check: the selected mention's first cell is cyan
@@ -63,16 +69,18 @@ fn task_mention_popup_and_selected_composer_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:7855 task_mention_titles_are_normalized_and_bounded_before_insertion kind=ui owner=chat-live
 #[test]
 fn task_mention_titles_are_normalized_and_bounded_before_insertion() {
-    kit::pending(
-        Owner::ChatLive,
-        "no task-mention search result on the chat composer (on_task_search_result has no seed): the '@' popup lists no task, so Enter inserts no mention",
-    );
-    let mut s = ready(100, 24);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_2/tasks_long.jsonl"))
+        .open();
     s.type_text("@task").keys("enter");
-    // the visible half: the inserted mention is one line, `@` then the normalized title;
-    // the binding and the element range the oracle asserts are not rows
+    // the visible half: the inserted mention reads `@task ` and the 155 chars of the title, the
+    // title cut after the first `é` (the wrap takes the long word to the next rows); the
+    // binding the oracle asserts is not a row
     let p = prompt(&s);
-    s.assert_row_starts_with(p, "› @task aaaa");
+    s.assert_row(p, "› @task");
+    s.assert_row(p + 1, &format!("  {}", "a".repeat(97)));
+    s.assert_row(p + 2, &format!("  {}é", "a".repeat(57)));
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7930 reopening_identical_unified_mention_restarts_file_search kind=ui owner=chat-live
@@ -121,12 +129,13 @@ fn shortcut_overlay_persists_while_task_running() {
 // ORACLE bottom_pane/chat_composer.rs:8516 bound_at_mentions_do_not_block_arrow_navigation kind=ui owner=chat-live
 #[test]
 fn bound_at_mentions_do_not_block_arrow_navigation() {
-    kit::pending(
-        Owner::ChatLive,
-        "no bound mention on the chat composer: a mention is bound only by choosing a plugin from the '@' popup, and the kit seeds no binding (set_text_content_with_mention_bindings), so `@figma` is plain text and Right moves one column",
-    );
-    let mut s = ready(100, 24);
-    s.type_text("go @figma now").keys("home right right");
+    // `go @figma now` with `@figma` bound (`plugin://figma@debug`): the pick binds it.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_2/plugins.jsonl"))
+        .open();
+    s.type_text("go @figma").keys("tab");
+    s.type_text("now").keys("home right right");
     let p = prompt(&s);
     s.assert_cursor(4, p); // `go` is 2 cells after the prompt
     s.keys("right");
@@ -142,15 +151,21 @@ fn bound_at_mentions_do_not_block_arrow_navigation() {
 // ORACLE bottom_pane/chat_composer.rs:8561 restored_bound_at_mentions_do_not_open_mention_popup kind=ui owner=chat-live
 #[test]
 fn restored_bound_at_mentions_do_not_open_mention_popup() {
-    kit::pending(
-        Owner::ChatLive,
-        "no restored draft with mention bindings on the chat composer (set_text_content_with_mention_bindings has no seed): the restored `@sample` is typed here, and its '@' opens the popup",
-    );
-    for text in ["@sample", "Please ask @sample."] {
-        let mut s = ready(100, 24);
-        s.type_text(text).keys("enter");
+    // The oracle restores a draft with the `@sample` binding; ours recalls it from the history
+    // (a submitted draft keeps its bindings). The first turn still runs, so a recalled draft the
+    // Enter submits is queued (`↳ ..`); a popup that opened would take the Enter instead.
+    for (typed, tail) in [("@sample", ""), ("Please ask @sample", ".")] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(100, 24)
+            .script(include_str!("fixtures/composer_2/plugins.jsonl"))
+            .open();
+        s.type_text(typed).keys("tab backspace");
+        s.type_text(tail).keys("enter");
         s.assert_row(prompt(&s), PLACEHOLDER);
-        s.assert_contains(text);
+        s.keys("up end");
+        s.keys("enter");
+        s.assert_row(prompt(&s), PLACEHOLDER);
+        s.assert_has_row(&format!("  ↳ {typed}{tail}"));
     }
 }
 

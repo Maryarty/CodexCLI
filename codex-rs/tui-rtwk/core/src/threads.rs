@@ -82,6 +82,7 @@ use codex_app_server_protocol::TurnStatus;
 use crate::app::AppFx;
 use crate::app::Command;
 use crate::commands::QueueDrain;
+use crate::features::{self, FeatureCtx, FeatureThreadIntent, ThreadCx, ThreadView};
 use crate::ids::ItemId;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
@@ -789,6 +790,8 @@ pub enum ThreadCtx {
         retried: bool,
     },
     Screen(ScreenCtx),
+    /// An RPC of a feature slice (`ThreadCx::request`).
+    Feature(FeatureCtx),
 }
 
 /// An event of one thread.
@@ -814,6 +817,9 @@ pub enum ThreadEv {
     /// turns again (oracle `AppEvent::PromptRevert`, `set_session`).
     Reverted,
     ScreenIntent(ScreenThreadIntent),
+    /// An intent for a feature slice's part of the thread (ADR-012), the one door of a
+    /// change of a thread that a feature asks for.
+    FeatureIntent(FeatureThreadIntent),
     /// An event of a screen slot's per-thread part.
     Screen(ScreenThreadEv),
     Reply {
@@ -989,9 +995,25 @@ impl From<RpcError> for Failure {
     }
 }
 
-/// One thread's model.
+/// One thread's model: the thread's own state (`core`, read by the features as a
+/// `ThreadView` beside their own part), the screens' per-thread parts (`slots`) and the
+/// features' (`features`, ADR-012). The three are fields of their own so a feature is
+/// handed `&mut` of its part and `&` of the rest at once.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThreadModel {
+    core: ThreadCore,
+    /// The per-thread parts of the screen slots.
+    slots: ThreadSlots,
+    /// The per-thread parts of the features (`feature_list!`).
+    features: crate::features::FeatureThreadParts,
+    /// Keeps the struct literal inside this module: a `ThreadModel` is made
+    /// only by `ThreadSet::open` (ADR-003).
+    seal: Seal,
+}
+
+/// What a thread is, apart from the parts its screens and features keep.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadCore {
     id: ThreadId,
     transcript: Transcript,
     turn: TurnState,
@@ -1028,8 +1050,6 @@ pub struct ThreadModel {
     terminals: Vec<Terminal>,
     /// The hook runs the server reported started and not yet completed.
     hooks: Vec<RunningHook>,
-    /// The per-thread parts of the screen slots.
-    slots: ThreadSlots,
     last_error: Option<Failure>,
     /// The last turn that ended: a late start of it must not revive it.
     last_ended: Option<TurnId>,
@@ -1046,9 +1066,19 @@ pub struct ThreadModel {
     /// The thread's goal (`thread/goal/updated|cleared`, the answers of `thread/goal/get|set`).
     goal: Option<Goal>,
     writer: Writer,
-    /// Keeps the struct literal inside this module: a `ThreadModel` is made
-    /// only by `ThreadSet::open` (ADR-003).
-    seal: Seal,
+}
+
+impl std::ops::Deref for ThreadModel {
+    type Target = ThreadCore;
+    fn deref(&self) -> &ThreadCore {
+        &self.core
+    }
+}
+
+impl std::ops::DerefMut for ThreadModel {
+    fn deref_mut(&mut self) -> &mut ThreadCore {
+        &mut self.core
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1176,37 +1206,52 @@ impl ThreadModel {
     fn new(id: ThreadId) -> Self {
         Self {
             seal: Seal,
-            id,
-            transcript: Transcript::default(),
-            turn: TurnState::Idle,
-            outgoing: Pending::default(),
-            last_submit: None,
-            queue: Vec::new(),
-            due: None,
-            due_seq: 0,
-            pending_steers: Vec::new(),
-            rejected_steers: Vec::new(),
-            steers_after_interrupt: false,
-            restore: None,
-            recovered: false,
-            terminals: Vec::new(),
-            hooks: Vec::new(),
             slots: ThreadSlots::default(),
-            last_error: None,
-            goal: None,
-            last_ended: None,
-            finished_turns: Rc::default(),
-            authoritative_turns: Rc::default(),
-            completed_items: HashSet::new(),
-            history_next: None,
-            history_ask: HistoryAsk::Idle,
-            submissions: replay::Submissions::default(),
-            writer: Writer::Detached,
+            features: crate::features::FeatureThreadParts::default(),
+            core: ThreadCore {
+                id,
+                transcript: Transcript::default(),
+                turn: TurnState::Idle,
+                outgoing: Pending::default(),
+                last_submit: None,
+                queue: Vec::new(),
+                due: None,
+                due_seq: 0,
+                pending_steers: Vec::new(),
+                rejected_steers: Vec::new(),
+                steers_after_interrupt: false,
+                restore: None,
+                recovered: false,
+                terminals: Vec::new(),
+                hooks: Vec::new(),
+                last_error: None,
+                goal: None,
+                last_ended: None,
+                finished_turns: Rc::default(),
+                authoritative_turns: Rc::default(),
+                completed_items: HashSet::new(),
+                history_next: None,
+                history_ask: HistoryAsk::Idle,
+                submissions: replay::Submissions::default(),
+                writer: Writer::Detached,
+            },
         }
     }
 
-    pub fn id(&self) -> &ThreadId {
-        &self.id
+    /// The thread's own state and the screens' parts, read-only, for a feature (ADR-012).
+    pub fn view(&self) -> ThreadView<'_> {
+        ThreadView::new(&self.core, &self.slots)
+    }
+
+    /// A feature's `&mut` part and everything else of the thread read-only, at once.
+    fn split_features(&mut self) -> (&mut features::FeatureThreadParts, ThreadView<'_>) {
+        let Self {
+            core,
+            slots,
+            features,
+            ..
+        } = self;
+        (features, ThreadView::new(core, slots))
     }
 
     pub(crate) fn history_cursor(&self) -> Option<&str> {
@@ -1343,9 +1388,25 @@ impl ThreadModel {
     pub fn can_interrupt(&self) -> bool {
         self.has_writer() && (self.is_running() || self.outgoing.any(is_start_turn))
     }
+}
+
+impl ThreadCore {
+    pub fn id(&self) -> &ThreadId {
+        &self.id
+    }
 
     pub fn is_running(&self) -> bool {
         matches!(self.turn, TurnState::Running(_))
+    }
+
+    /// A turn runs or its start is in flight.
+    pub fn busy(&self) -> bool {
+        self.is_running() || self.outgoing.any(is_start_turn)
+    }
+
+    /// This process is the thread's writer.
+    pub(crate) fn attached(&self) -> bool {
+        self.writer == Writer::Attached
     }
 }
 
@@ -1825,6 +1886,25 @@ impl<'a> ThreadFx<'a> {
         let ctx = ctx.into();
         self.registered.push((ticket, ThreadCtx::Screen(ctx)));
         self.out.commands.push(Command::Screen {
+            ticket,
+            thread: self.thread.clone(),
+            command: command.into(),
+        });
+        ticket
+    }
+
+    /// An RPC of a feature slice: `ctx` is kept with the ticket and comes back with the
+    /// reply, to `Feature::thread_answered`.
+    #[allow(unreachable_code, unused_variables)]
+    pub fn request_feature(
+        &mut self,
+        ctx: impl Into<FeatureCtx>,
+        command: impl Into<features::FeatureCommand>,
+    ) -> Ticket {
+        let ticket = self.mint.next();
+        self.registered
+            .push((ticket, ThreadCtx::Feature(ctx.into())));
+        self.out.commands.push(Command::Feature {
             ticket,
             thread: self.thread.clone(),
             command: command.into(),
@@ -2412,9 +2492,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     },
                     Answer::InterruptTurnChanged(actual),
                 ) => {
-                    if let TurnState::Running(running) = &mut model.turn
+                    if let TurnState::Running(running) = &mut model.core.turn
                         && running.turn == turn
-                        && !model.finished_turns.contains(&actual)
+                        && !model.core.finished_turns.contains(&actual)
                     {
                         running.turn = actual.clone();
                         fx.interrupt(actual, true);
@@ -2441,6 +2521,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 (ThreadCtx::Screen(ctx), Answer::Failed(error)) => {
                     screens::apply_reply(&mut model.slots, ctx, Err(error), fx);
+                }
+                (ThreadCtx::Feature(ctx), Answer::Feature(reply)) => {
+                    feature_reply(model, ctx, Ok(reply), fx);
+                }
+                (ThreadCtx::Feature(ctx), Answer::Failed(error)) => {
+                    feature_reply(model, ctx, Err(error), fx);
                 }
                 _ => {}
             }
@@ -2567,6 +2653,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Draft(
             text,
         ))) => give_back(model, vec![UserMessage::text(text)], true),
+        ThreadEv::FeatureIntent(intent) if model.has_writer() => {
+            let (parts, view) = model.split_features();
+            features::apply_thread_intent(parts, intent, &mut ThreadCx::new(view, fx));
+        }
+        ThreadEv::FeatureIntent(_) => {}
         ThreadEv::ScreenIntent(intent) if model.has_writer() => {
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
@@ -2734,6 +2825,29 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
 
 /// A unified-exec command that runs is a background terminal until its item
 /// completes (oracle `track_unified_exec_process_begin` / `_end`).
+/// The answer of a feature's RPC on this thread.
+fn feature_reply(
+    model: &mut ThreadModel,
+    ctx: FeatureCtx,
+    result: Result<features::FeatureReply, RpcError>,
+    fx: &mut ThreadFx<'_>,
+) {
+    let (parts, view) = model.split_features();
+    features::apply_thread_reply(parts, ctx, result, &mut ThreadCx::new(view, fx));
+}
+
+/// The lifecycle hooks of the features (ADR-012), in list order, after the thread's own
+/// turn-end work.
+fn feature_turn_ended(model: &mut ThreadModel, end: TurnEnd, fx: &mut ThreadFx<'_>) {
+    let (parts, view) = model.split_features();
+    features::on_turn_end(parts, end, &mut ThreadCx::new(view, fx));
+}
+
+fn feature_interrupted(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
+    let (parts, view) = model.split_features();
+    features::on_interrupted(parts, &mut ThreadCx::new(view, fx));
+}
+
 fn track_terminal(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
     let Item::Tool(tool) = item else {
         return;
@@ -2834,6 +2948,11 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
             interrupted(model, &turn, fx);
         } else if !model.outgoing.any(is_start_turn) {
             send_next(model, fx);
+        }
+        // The features' hooks run after the thread's own work, in list order (ADR-012).
+        feature_turn_ended(model, end, fx);
+        if end == TurnEnd::Interrupted {
+            feature_interrupted(model, fx);
         }
     }
 }
@@ -3041,9 +3160,9 @@ fn steer_reply(
             fx.start_turn(message);
         }
         Refusal::Changed(actual) if !retried && actual != turn => {
-            if let TurnState::Running(running) = &mut model.turn
+            if let TurnState::Running(running) = &mut model.core.turn
                 && running.turn == turn
-                && !model.finished_turns.contains(&actual)
+                && !model.core.finished_turns.contains(&actual)
             {
                 running.turn = actual.clone();
             }

@@ -1,0 +1,502 @@
+//! Core feature slices (ADR-012). A feature is a flow that is not a screen: a slash command
+//! that opens a menu or a prompt, asks the server, says what happened in the transcript
+//! (`/goal`, `/export`, `/rename`, `/plugins`), or thread state that reacts to the turn
+//! lifecycle (the queue). Its code lives in `core/src/features/<f>/` and its words and views in
+//! `src/features/<f>/`; the list in `feature_list!` registers it once and generates the root
+//! enums and their dispatch, as `screen_list!` does for the screens.
+//!
+//! A feature implements `Feature` for a marker type: its own state, per-thread part, intents,
+//! RPCs, menus, prompts and notes are associated types, its steps are methods with default
+//! no-ops. It reads the app through `AppView` / `ThreadView` and changes it only through the
+//! outbox of `AppCx` and the effects of `ThreadCx`; it never names `CodexApp` or
+//! `ThreadModel` (rule `features_hold_no_app`). The hub carries one generic variant per
+//! component (`Intent::Feature`, `Menu::Feature`, `Picked::Feature`, `PromptKind::Feature`,
+//! `NoteKey::Feature`, `ThreadEv::FeatureIntent`, `ThreadCtx::Feature`, `Command::Feature`)
+//! and never a variant per feature (rule `hub_enums_only_shrink`).
+//!
+//! The order of the list is the order of every hook that runs over all features
+//! (`on_resumed`, `on_turn_end`, `on_interrupted`).
+//!
+//! The recipe (files, the one list line, hooks, tests) is the end of ADR-012 in
+//! `docs/rtwk-port/architecture.md`.
+
+use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::RequestId;
+
+use crate::ids::ThreadId;
+use crate::rpc::RpcError;
+use crate::threads::{Tone, TurnEnd};
+
+mod cx;
+
+pub use cx::{AppCx, AppView, Out, ThreadCx, ThreadView};
+
+/// The type of a component feature `F` does not use (no RPCs, no menu, no prompt...): nothing
+/// can be made of it, so a match over it has no arms. It carries the feature, so two features
+/// that both have none still have distinct types and the root enums' `From` impls do not
+/// overlap: a feature says `type Menu = Never<Self>;`.
+pub enum Never<F> {
+    #[doc(hidden)]
+    Void(
+        std::convert::Infallible,
+        std::marker::PhantomData<fn() -> F>,
+    ),
+}
+
+impl<F> Clone for Never<F> {
+    fn clone(&self) -> Self {
+        match self {
+            Never::Void(never, _) => match *never {},
+        }
+    }
+}
+
+impl<F> std::fmt::Debug for Never<F> {
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Never::Void(never, _) => match *never {},
+        }
+    }
+}
+
+impl<F> PartialEq for Never<F> {
+    fn eq(&self, _: &Self) -> bool {
+        match self {
+            Never::Void(never, _) => match *never {},
+        }
+    }
+}
+
+impl<F> Eq for Never<F> {}
+
+/// What a row of a feature's menu settled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Choice<M, P> {
+    /// The row is not the menu's, or does nothing: the menu stays as it is.
+    Stay,
+    /// The menu is dismissed and nothing is picked (`Cancel`, `Leave paused`).
+    Dismiss,
+    /// The menu is dismissed and `P` is picked: `Feature::picked` acts.
+    Pick(P),
+    /// The menu on top is replaced by another (a step of a flow).
+    Replace(M),
+}
+
+impl<M, P> Choice<M, P> {
+    /// The same choice in the root enums' terms.
+    pub fn lift<M2, P2>(
+        self,
+        menu: impl FnOnce(M) -> M2,
+        pick: impl FnOnce(P) -> P2,
+    ) -> Choice<M2, P2> {
+        match self {
+            Choice::Stay => Choice::Stay,
+            Choice::Dismiss => Choice::Dismiss,
+            Choice::Pick(p) => Choice::Pick(pick(p)),
+            Choice::Replace(m) => Choice::Replace(menu(m)),
+        }
+    }
+}
+
+/// A feature of the core. Every associated type that a feature does not need is `Never<Self>`
+/// (or `()` for the two states); every other one is the feature's own type, so the root enums'
+/// `From` impls stay unique. Every method has a default that does nothing, so a feature
+/// writes the steps it has. `wire` and `decode` have no default: a feature with RPCs must
+/// say how they go out and come back, one with none matches on its `Never<Self>` command.
+pub trait Feature: 'static {
+    /// The directory and list name (`goal`).
+    const NAME: &'static str;
+
+    /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
+    /// `intent`, `answered`, `picked`, `prompt_submitted` and `on_resumed`.
+    type State: Clone + std::fmt::Debug + Default + PartialEq + Eq;
+    /// The feature's per-thread state: a field of `ThreadModel`, changed only under the
+    /// thread's writer (`thread_intent`, `thread_answered`, the hooks).
+    type ThreadPart: Clone + std::fmt::Debug + Default + PartialEq + Eq;
+    /// What the user or a view asks of the feature (`Intent::Feature`).
+    type Intent: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// What is asked of one thread's feature part (`ThreadEv::FeatureIntent`), applied by
+    /// `threads::apply`.
+    type ThreadIntent: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// The feature's RPCs: data; `wire` makes the request.
+    type Command: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// The decoded answer of a command.
+    type Reply: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// What an RPC was for, kept with its ticket and given back with the answer.
+    type Ctx: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// A menu the generic selection dialog shows for the feature (`Menu::Feature`).
+    type Menu: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// What a menu settled on (`Picked::Feature`).
+    type Pick: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// A text prompt of the feature (`PromptKind::Feature`).
+    type Prompt: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// A line the feature says in the transcript (`NoteKey::Feature`); its words are
+    /// `src/features/<f>/strings.rs`.
+    type Note: Clone + std::fmt::Debug + PartialEq + Eq;
+
+    /// An intent of the feature.
+    fn intent(state: &mut Self::State, intent: Self::Intent, cx: &mut AppCx<'_>) {
+        let _ = (state, intent, cx);
+    }
+
+    /// The answer of an RPC the feature asked through `AppCx::ask`.
+    fn answered(
+        state: &mut Self::State,
+        ctx: Self::Ctx,
+        result: Result<Self::Reply, RpcError>,
+        cx: &mut AppCx<'_>,
+    ) {
+        let _ = (state, ctx, result, cx);
+    }
+
+    /// The row `row` of the feature's `menu` chosen.
+    fn choose(menu: &Self::Menu, row: &str) -> Choice<Self::Menu, Self::Pick> {
+        let _ = (menu, row);
+        Choice::Stay
+    }
+
+    /// What a menu of the feature settled on.
+    fn picked(state: &mut Self::State, pick: Self::Pick, cx: &mut AppCx<'_>) {
+        let _ = (state, pick, cx);
+    }
+
+    /// The feature's prompt submitted with `text`.
+    fn prompt_submitted(
+        state: &mut Self::State,
+        prompt: Self::Prompt,
+        text: String,
+        cx: &mut AppCx<'_>,
+    ) {
+        let _ = (state, prompt, text, cx);
+    }
+
+    /// Whether the oracle shows the note as information, a success or an error.
+    fn note_tone(note: &Self::Note) -> Tone {
+        let _ = note;
+        Tone::Info
+    }
+
+    /// A resumed thread has been applied and is the one in use (the oracle's
+    /// `maybe_prompt_resume_paused_goal_after_resume` is one).
+    fn on_resumed(state: &mut Self::State, thread: &ThreadId, cx: &mut AppCx<'_>) {
+        let _ = (state, thread, cx);
+    }
+
+    /// An intent for this thread's part, applied under the thread's writer.
+    fn thread_intent(
+        part: &mut Self::ThreadPart,
+        intent: Self::ThreadIntent,
+        cx: &mut ThreadCx<'_, '_>,
+    ) {
+        let _ = (part, intent, cx);
+    }
+
+    /// The answer of an RPC the feature asked through `ThreadCx::request`.
+    fn thread_answered(
+        part: &mut Self::ThreadPart,
+        ctx: Self::Ctx,
+        result: Result<Self::Reply, RpcError>,
+        cx: &mut ThreadCx<'_, '_>,
+    ) {
+        let _ = (part, ctx, result, cx);
+    }
+
+    /// A turn of the thread ended (completed, failed or interrupted): what waited for it
+    /// goes on.
+    fn on_turn_end(part: &mut Self::ThreadPart, end: TurnEnd, cx: &mut ThreadCx<'_, '_>) {
+        let _ = (part, end, cx);
+    }
+
+    /// The thread's running turn was interrupted (right after its `on_turn_end`).
+    fn on_interrupted(part: &mut Self::ThreadPart, cx: &mut ThreadCx<'_, '_>) {
+        let _ = (part, cx);
+    }
+
+    /// The wire request of one of the feature's RPCs.
+    fn wire(command: &Self::Command, thread: &ThreadId, id: RequestId) -> ClientRequest;
+
+    /// Decodes the JSON result of one of the feature's RPCs.
+    fn decode(command: &Self::Command, result: serde_json::Value) -> Result<Self::Reply, RpcError>;
+}
+
+/// The list of the features, in hook order, handed to `callback` as `name => Type;` entries:
+/// `name` is the module `core/src/features/<name>/`, `Type` the marker type in it that
+/// implements `Feature`. The UI crate calls it with its own macro for the view half
+/// (`src/features/<name>/`), so the two lists cannot differ. A slice is one line here.
+#[macro_export]
+macro_rules! feature_list {
+    ($callback:ident) => {
+        $callback! {}
+    };
+}
+
+/// The modules of the features.
+macro_rules! feature_mods {
+    ($($name:ident => $variant:ident;)*) => {
+        $(pub mod $name;)*
+    };
+}
+
+/// Everything the list generates: the states, the root enums with their `From` impls and the
+/// dispatch. Invoked once for the real list (below) and by the framework's own test with a
+/// list of probes, in a module of its own.
+macro_rules! feature_dirs {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The app-scoped state of every feature: part of `CodexApp`.
+        #[derive(Clone, Debug, Default, PartialEq, Eq)]
+        pub struct FeatureStates {
+            $(pub $name: crate::screens::Shared<<$name::$variant as Feature>::State>,)*
+        }
+
+        /// The per-thread part of every feature: part of each `ThreadModel`.
+        #[derive(Clone, Debug, Default, PartialEq, Eq)]
+        pub struct FeatureThreadParts {
+            $(pub $name: <$name::$variant as Feature>::ThreadPart,)*
+        }
+
+        /// The intents of every feature: `Intent::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureIntent {
+            $($variant(<$name::$variant as Feature>::Intent),)*
+        }
+
+        /// The thread intents of every feature: `ThreadEv::FeatureIntent`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureThreadIntent {
+            $($variant(<$name::$variant as Feature>::ThreadIntent),)*
+        }
+
+        /// The RPCs of every feature: `Command::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureCommand {
+            $($variant(<$name::$variant as Feature>::Command),)*
+        }
+
+        /// The replies of every feature's RPCs: `Reply::feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureReply {
+            $($variant(<$name::$variant as Feature>::Reply),)*
+        }
+
+        /// What every feature's RPCs are for: `ThreadCtx::Feature`, `AppCtx::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureCtx {
+            $($variant(<$name::$variant as Feature>::Ctx),)*
+        }
+
+        /// The menus of every feature: `Menu::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureMenu {
+            $($variant(<$name::$variant as Feature>::Menu),)*
+        }
+
+        /// What the menus of every feature settled on: `Picked::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeaturePick {
+            $($variant(<$name::$variant as Feature>::Pick),)*
+        }
+
+        /// The prompts of every feature: `PromptKind::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeaturePrompt {
+            $($variant(<$name::$variant as Feature>::Prompt),)*
+        }
+
+        /// The notes of every feature: `NoteKey::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureNote {
+            $($variant(<$name::$variant as Feature>::Note),)*
+        }
+
+        $(
+        impl From<<$name::$variant as Feature>::Intent> for FeatureIntent {
+            fn from(intent: <$name::$variant as Feature>::Intent) -> Self { Self::$variant(intent) }
+        }
+        impl From<<$name::$variant as Feature>::ThreadIntent> for FeatureThreadIntent {
+            fn from(intent: <$name::$variant as Feature>::ThreadIntent) -> Self { Self::$variant(intent) }
+        }
+        impl From<<$name::$variant as Feature>::Command> for FeatureCommand {
+            fn from(command: <$name::$variant as Feature>::Command) -> Self { Self::$variant(command) }
+        }
+        impl From<<$name::$variant as Feature>::Reply> for FeatureReply {
+            fn from(reply: <$name::$variant as Feature>::Reply) -> Self { Self::$variant(reply) }
+        }
+        impl From<<$name::$variant as Feature>::Ctx> for FeatureCtx {
+            fn from(ctx: <$name::$variant as Feature>::Ctx) -> Self { Self::$variant(ctx) }
+        }
+        impl From<<$name::$variant as Feature>::Menu> for FeatureMenu {
+            fn from(menu: <$name::$variant as Feature>::Menu) -> Self { Self::$variant(menu) }
+        }
+        impl From<<$name::$variant as Feature>::Pick> for FeaturePick {
+            fn from(pick: <$name::$variant as Feature>::Pick) -> Self { Self::$variant(pick) }
+        }
+        impl From<<$name::$variant as Feature>::Prompt> for FeaturePrompt {
+            fn from(prompt: <$name::$variant as Feature>::Prompt) -> Self { Self::$variant(prompt) }
+        }
+        impl From<<$name::$variant as Feature>::Note> for FeatureNote {
+            fn from(note: <$name::$variant as Feature>::Note) -> Self { Self::$variant(note) }
+        }
+        )*
+
+        /// The names of the features, in list (hook) order.
+        #[allow(unused_variables)]
+        pub fn names() -> Vec<&'static str> {
+            vec![$(<$name::$variant as Feature>::NAME,)*]
+        }
+
+        /// Applies an intent to its feature.
+        #[allow(unused_variables)]
+        pub fn apply_intent(states: &mut FeatureStates, intent: FeatureIntent, cx: &mut AppCx<'_>) {
+            match intent {
+                $(FeatureIntent::$variant(intent) => {
+                    <$name::$variant as Feature>::intent(&mut states.$name, intent, cx)
+                })*
+            }
+        }
+
+        /// The answer of a feature's app-scoped RPC.
+        #[allow(unused_variables)]
+        pub fn answered(
+            states: &mut FeatureStates,
+            ctx: FeatureCtx,
+            result: Result<FeatureReply, RpcError>,
+            cx: &mut AppCx<'_>,
+        ) {
+            match ctx {
+                $(FeatureCtx::$variant(ctx) => {
+                    let result = result.and_then(|reply| match reply {
+                        FeatureReply::$variant(reply) => Ok(reply),
+                        #[allow(unreachable_patterns)]
+                        _ => Err(RpcError::Mismatch),
+                    });
+                    <$name::$variant as Feature>::answered(&mut states.$name, ctx, result, cx)
+                })*
+            }
+        }
+
+        /// The row `row` chosen in a feature's menu.
+        #[allow(unused_variables)]
+        pub fn choose(menu: &FeatureMenu, row: &str) -> Choice<FeatureMenu, FeaturePick> {
+            match *menu {
+                $(FeatureMenu::$variant(ref menu) => {
+                    <$name::$variant as Feature>::choose(menu, row)
+                        .lift(FeatureMenu::$variant, FeaturePick::$variant)
+                })*
+            }
+        }
+
+        /// What a feature's menu settled on.
+        #[allow(unused_variables)]
+        pub fn picked(states: &mut FeatureStates, pick: FeaturePick, cx: &mut AppCx<'_>) {
+            match pick {
+                $(FeaturePick::$variant(pick) => {
+                    <$name::$variant as Feature>::picked(&mut states.$name, pick, cx)
+                })*
+            }
+        }
+
+        /// A feature's prompt submitted.
+        #[allow(unused_variables)]
+        pub fn prompt_submitted(
+            states: &mut FeatureStates,
+            prompt: FeaturePrompt,
+            text: String,
+            cx: &mut AppCx<'_>,
+        ) {
+            match prompt {
+                $(FeaturePrompt::$variant(prompt) => {
+                    <$name::$variant as Feature>::prompt_submitted(&mut states.$name, prompt, text, cx)
+                })*
+            }
+        }
+
+        /// How the oracle shows a feature's note.
+        #[allow(unused_variables)]
+        pub fn note_tone(note: &FeatureNote) -> Tone {
+            match *note {
+                $(FeatureNote::$variant(ref note) => <$name::$variant as Feature>::note_tone(note),)*
+            }
+        }
+
+        /// The thread `thread` was resumed and is in use: every feature's hook, in list order.
+        #[allow(unused_variables)]
+        pub fn on_resumed(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
+            $(<$name::$variant as Feature>::on_resumed(&mut states.$name, thread, cx);)*
+        }
+
+        /// An intent for a thread's part of its feature.
+        #[allow(unused_variables)]
+        pub fn apply_thread_intent(
+            parts: &mut FeatureThreadParts,
+            intent: FeatureThreadIntent,
+            cx: &mut ThreadCx<'_, '_>,
+        ) {
+            match intent {
+                $(FeatureThreadIntent::$variant(intent) => {
+                    <$name::$variant as Feature>::thread_intent(&mut parts.$name, intent, cx)
+                })*
+            }
+        }
+
+        /// The answer of a feature's RPC made on a thread (`ThreadCx::request`).
+        #[allow(unused_variables)]
+        pub fn apply_thread_reply(
+            parts: &mut FeatureThreadParts,
+            ctx: FeatureCtx,
+            result: Result<FeatureReply, RpcError>,
+            cx: &mut ThreadCx<'_, '_>,
+        ) {
+            match ctx {
+                $(FeatureCtx::$variant(ctx) => {
+                    let result = result.and_then(|reply| match reply {
+                        FeatureReply::$variant(reply) => Ok(reply),
+                        #[allow(unreachable_patterns)]
+                        _ => Err(RpcError::Mismatch),
+                    });
+                    <$name::$variant as Feature>::thread_answered(&mut parts.$name, ctx, result, cx)
+                })*
+            }
+        }
+
+        /// A turn of the thread ended: every feature's hook, in list order.
+        #[allow(unused_variables)]
+        pub fn on_turn_end(parts: &mut FeatureThreadParts, end: TurnEnd, cx: &mut ThreadCx<'_, '_>) {
+            $(<$name::$variant as Feature>::on_turn_end(&mut parts.$name, end, cx);)*
+        }
+
+        /// The thread's turn was interrupted: every feature's hook, in list order.
+        #[allow(unused_variables)]
+        pub fn on_interrupted(parts: &mut FeatureThreadParts, cx: &mut ThreadCx<'_, '_>) {
+            $(<$name::$variant as Feature>::on_interrupted(&mut parts.$name, cx);)*
+        }
+
+        /// The wire request of a feature's RPC.
+        #[allow(unused_variables)]
+        pub fn wire(command: &FeatureCommand, thread: &ThreadId, id: RequestId) -> ClientRequest {
+            match *command {
+                $(FeatureCommand::$variant(ref command) => {
+                    <$name::$variant as Feature>::wire(command, thread, id)
+                })*
+            }
+        }
+
+        /// Decodes the JSON result of a feature's RPC.
+        #[allow(unused_variables)]
+        pub fn decode(
+            command: &FeatureCommand,
+            result: serde_json::Value,
+        ) -> Result<FeatureReply, RpcError> {
+            match *command {
+                $(FeatureCommand::$variant(ref command) => {
+                    <$name::$variant as Feature>::decode(command, result).map(FeatureReply::$variant)
+                })*
+            }
+        }
+    };
+}
+
+feature_list!(feature_mods);
+feature_list!(feature_dirs);
+
+#[cfg(test)]
+mod framework;

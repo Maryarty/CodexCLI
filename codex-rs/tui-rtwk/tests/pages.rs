@@ -10,6 +10,8 @@ mod common;
 #[path = "kit/mod.rs"]
 mod kit;
 
+#[path = "pages/agents_focus.rs"]
+mod agents_focus;
 #[path = "pages/agents_mouse.rs"]
 mod agents_mouse;
 #[path = "pages/chat_provider_error.rs"]
@@ -36,6 +38,10 @@ mod composer_startup;
 mod composer_suggest;
 #[path = "pages/composer_vim.rs"]
 mod composer_vim;
+#[path = "pages/onboarding_focus.rs"]
+mod onboarding_focus;
+#[path = "pages/resume_focus.rs"]
+mod resume_focus;
 #[path = "pages/review.rs"]
 mod review;
 #[path = "pages/startup_mouse.rs"]

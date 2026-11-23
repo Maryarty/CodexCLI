@@ -92,6 +92,9 @@ pub fn client_request(
         Command::Screen {
             thread, command, ..
         } => Some(screens::wire(command, thread, request_id)),
+        Command::Feature {
+            thread, command, ..
+        } => Some(crate::features::wire(command, thread, request_id)),
         Command::RejectRequest { .. }
         | Command::ResolveRequest { .. }
         | Command::CreateWorktree { .. }
@@ -177,6 +180,18 @@ pub fn reply(
             match result {
                 Ok(json) => match screens::decode(command, json) {
                     Ok(reply) => Reply::screen(reply),
+                    Err(error) => Reply::error(error),
+                },
+                Err(message) => Reply::failed(message),
+            },
+        )),
+        Command::Feature {
+            ticket, command, ..
+        } => Some((
+            *ticket,
+            match result {
+                Ok(json) => match crate::features::decode(command, json) {
+                    Ok(reply) => Reply::feature(reply),
                     Err(error) => Reply::error(error),
                 },
                 Err(message) => Reply::failed(message),

@@ -1,0 +1,5 @@
+# `plugin_mention_popup_snapshot` (chat_composer.rs:7783): `Sample Plugin` of `sample@test` with
+# skills, the sample MCP server and the calendar app.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"plugin","name":"Sample Plugin","description":"Plugin that includes the Figma MCP server and Skills for common workflows","insert":"sample","path":"plugin://sample@test","capabilities":["skills",{"mcp_servers":1},{"apps":1}]}]}}
