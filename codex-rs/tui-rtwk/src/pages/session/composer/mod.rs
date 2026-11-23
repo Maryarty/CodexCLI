@@ -43,6 +43,7 @@ use crate::pages::session::popup;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::thread_ui::ThreadUi;
 
+pub mod alone;
 pub mod burst;
 pub mod editing;
 pub mod footer;
@@ -55,19 +56,30 @@ pub mod vim;
 use burst::BurstEnv;
 use editing::KeyData;
 
-/// What the debug menu lists for the composer: the bare text area, the
-/// composer's editing alone at the screen's size (the oracle's
-/// `textarea.rs` tests draw it so).
+/// What the debug menu lists for the composer: the bare text area (the
+/// oracle's `textarea.rs` tests draw it so) and the composer with its footer
+/// (the oracle's composer harness).
 pub fn debug_entries() -> Vec<DebugEntry> {
-    vec![DebugEntry {
-        name: "textarea",
-        description: "the composer's text area alone, with its editing keys",
-        script: include_str!("fixtures/textarea.jsonl"),
-        open: EntryOpen::Route(|seeded: &Seeded| {
-            let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
-            Composer::bare(ui).into()
-        }),
-    }]
+    vec![
+        DebugEntry {
+            name: "textarea",
+            description: "the composer's text area alone, with its editing keys",
+            script: include_str!("fixtures/textarea.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                Composer::bare(ui).into()
+            }),
+        },
+        DebugEntry {
+            name: "alone",
+            description: "the composer with its key footer and nothing else",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone { ui }.into()
+            }),
+        },
+    ]
 }
 
 /// Opens the bare text area on a blank draft (debug menu), as a page.
