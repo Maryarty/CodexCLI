@@ -42,11 +42,10 @@ search `dri`, detail of a row, install (loading, result, history line), detail a
 (the two known reds, error-context-window and multi-agent), nextest 2986 passed.
 
 Rows that differ from the oracle:
-1. Esc on the plugin detail: the oracle closes `/plugins` (its detail has no `on_cancel`; only the removal
-   confirmation reopens the list), ours returns to the list (core `Plugins::back()` lists `Menu::Detail`,
-   `AddFailed`, `RemoveFailed`, `DetailFailed`). Need for core: `back()` true for `RemoveConfirm` only (the
-   oracle's failure pages offer `Back to plugins` as a row; their Esc closes). The test
-   `plugins_popup_...admin...` presses Esc then Enter to reload a detail; it then reopens `/plugins`.
+1. Esc on the plugin detail: fixed (adr013-pilot-fix). Esc follows the oracle per page: it closes `/plugins` on the
+   detail, loading and failure pages (their way back is the `Back to plugins` row) and goes back only on the
+   removal's confirmation and the add prompt. The old text (ours returned to the list, core `Plugins::back()`) no
+   longer applies; the core `back()` Need is closed.
 2. A one-line cell cut just after a space: the oracle prints `apps …`, ours `apps…` (rtwk's
    `TextOverflow::Ellipsis` drops the blank before the cut): `G-new-ellipsis-1` in rtwk-gaps.md.
 3. Ctrl-U (and the other readline chords) in a picker search edit the query (rtwk `TextField`); the oracle's

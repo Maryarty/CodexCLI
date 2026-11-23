@@ -8,6 +8,10 @@
 //!   `IntrinsicHeight` gives the page none and the page is built for that. Flutter has the same
 //!   rule (its `LayoutBuilder` asserts on an intrinsic query); the probe pins what rtwk does.
 //! - The shape the sheet has: the navigator fills the cap and the page is aligned at the bottom.
+//!
+//! This file is a pin of that behaviour, not of a workaround: a `Navigator` is an `Overlay`, so it
+//! always takes the largest size it is given, and the pattern for a nested navigator in a sheet is a
+//! cap-high navigator with `Align(BOTTOM_CENTER)` pages (`features/plugins/pages.rs::bottom`).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
 
 use rtwk::layout::{Align, Alignment, BoxWidget, IntrinsicHeight};

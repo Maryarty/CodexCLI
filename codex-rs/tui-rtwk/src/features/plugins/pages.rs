@@ -1,6 +1,9 @@
 //! The pages of the sheet of `/plugins`: the routes of its nested `Navigator` (ADR-013 O1). The
 //! home is the browser, the other pages are pushed over it and popped back to it: the home's
-//! `State` keeps its picker (cursor, query, tab) under them, so Esc returns to the same row. A
+//! `State` keeps its picker (cursor, query, tab) under them, so a page that goes back returns to
+//! the same row. Esc follows the oracle page by page: it closes the sheet (the oracle's detail,
+//! loading and failure pages have no `on_cancel`; the way back is their `Back to plugins` row),
+//! and goes back only where the oracle does (the removal's confirmation, the source prompt). A
 //! page that waits for a change the user asked for (an install, an add, a remove, an upgrade) keeps
 //! `awaiting` (the op's key and the generation before it was asked), and reads the feature's op
 //! record under that key: while there is no newer one, or it runs, the page says it loads; when it
@@ -17,25 +20,25 @@ use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::features::plugins::catalog::{ALL, tab_id_of_root};
+use codex_tui_core::features::plugins::catalog::{ALL, RowKey, tab_id_of_root};
 use codex_tui_core::features::plugins::{
     Action, Detail as DetailData, Gen, Intent, OpKey, Outcome, PluginKey, SetupEnd, State as Domain,
     Status, Toggle,
 };
 use codex_tui_core::features::{FeatureStates, Remote};
+use codex_tui_core::ids::Cwd;
+use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::select::Intent as SelectIntent;
 use codex_tui_core::screens::select::list::List;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::lists::{self, AuthStep};
-use super::sheet::Start;
 use super::strings;
 use crate::app::view::Hs;
 use crate::features::verb;
 use crate::keymap::keymap;
 use crate::sheets::select::prompt::Answer;
 use crate::widgets::picker::{Event, Picker};
-use crate::widgets::sheet::{Door, Opened};
 
 // ---------------------------------------------------------------------------------- reading
 
@@ -59,7 +62,7 @@ fn newer<'a>(state: &'a Domain, awaiting: &Option<(OpKey, Gen)>) -> Option<&'a S
 }
 
 /// The tab of the catalog a tab id (a marketplace's root) names now.
-fn resolved(state: &Domain, cwd: &str, saved: String) -> String {
+fn resolved(state: &Domain, cwd: &Cwd, saved: String) -> String {
     state.tab_now(cwd, &saved).unwrap_or(saved)
 }
 
@@ -126,11 +129,11 @@ pub fn detail_route(key: PluginKey) -> PageRoute<()> {
     PageRoute::new(move |_| bottom(Detail { key: key.clone() }))
 }
 
-pub fn add_route(cwd: String) -> PageRoute<()> {
+pub fn add_route(cwd: Cwd) -> PageRoute<()> {
     PageRoute::new(move |_| bottom(Add { cwd: cwd.clone() }))
 }
 
-pub fn remove_route(cwd: String, name: String, label: String) -> PageRoute<()> {
+pub fn remove_route(cwd: Cwd, name: String, label: String) -> PageRoute<()> {
     PageRoute::new(move |_| {
         bottom(Remove {
             cwd: cwd.clone(),
@@ -140,7 +143,7 @@ pub fn remove_route(cwd: String, name: String, label: String) -> PageRoute<()> {
     })
 }
 
-pub fn upgrade_route(cwd: String, name: Option<String>, before: Gen) -> PageRoute<()> {
+pub fn upgrade_route(cwd: Cwd, name: Option<String>, before: Gen) -> PageRoute<()> {
     PageRoute::new(move |_| {
         bottom(Upgrade {
             cwd: cwd.clone(),
@@ -160,8 +163,7 @@ pub fn auth_route(key: PluginKey) -> PageRoute<()> {
 /// The browser: the tabs of the plugins of `cwd`, or the page that stands in while there are none.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Home {
-    pub cwd: String,
-    pub start: Start,
+    pub cwd: Cwd,
 }
 
 pub struct HomeState {
@@ -171,13 +173,15 @@ pub struct HomeState {
     fresh: Option<String>,
     /// The op a page over the browser waits for: what it did to the list sets the tab when done.
     awaiting: Option<(OpKey, Gen)>,
-    door: Option<Rc<Door>>,
+    /// The setups whose page was pushed: a setup the feature holds and the sheet has not shown
+    /// gets its page (the wish to show it only opened this sheet when none was open).
+    shown: Vec<PluginKey>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum HomeMsg {
     Picked(Event),
-    /// Show the setup of the apps over the browser (the sheet was opened for it).
+    /// Show the setup of the apps over the browser.
     Setup(PluginKey),
 }
 
@@ -189,7 +193,7 @@ impl StatefulWidget for Home {
             tab: ALL.to_owned(),
             fresh: None,
             awaiting: None,
-            door: None,
+            shown: Vec::new(),
         }
     }
 }
@@ -198,7 +202,7 @@ impl_widget!(stateful eq Home);
 
 impl HomeState {
     /// What the op a page over the browser did to the list is the tab the browser shows.
-    fn waited(&mut self, state: &Domain, cwd: &str) {
+    fn waited(&mut self, state: &Domain, cwd: &Cwd) {
         let Some((key, before)) = self.awaiting.clone() else {
             return;
         };
@@ -241,19 +245,24 @@ impl HomeState {
                 self.await_op(&state, OpKey::Add { cwd: cwd.clone() });
                 push(cx, add_route(cwd));
             }
-            Event::Choose(row) => {
-                let key = PluginKey { cwd, row };
-                if state.readable(&key) {
-                    verb(cx, Intent::Read { key: key.clone() });
-                    push(cx, detail_route(key));
+            Event::Choose(id) => {
+                if let Some(row) = RowKey::parse(&id) {
+                    let key = PluginKey { cwd, row };
+                    if state.readable(&key) {
+                        verb(cx, Intent::Read { key: key.clone() });
+                        push(cx, detail_route(key));
+                    }
                 }
             }
-            Event::Toggle(row) => {
+            Event::Toggle(id) => {
+                let Some(row) = RowKey::parse(&id) else {
+                    return Rebuild::No;
+                };
                 let switch = state
                     .tabs(&cwd, self.fresh.as_deref())
                     .into_iter()
                     .next()
-                    .and_then(|all| all.rows.into_iter().find(|entry| entry.id == row))
+                    .and_then(|all| all.rows.into_iter().find(|entry| entry.key == row))
                     .map(|entry| entry.toggle);
                 if let Some(Toggle::Switch(on)) = switch {
                     let key = PluginKey { cwd, row };
@@ -312,18 +321,16 @@ impl State for HomeState {
 
     fn did_change_dependencies(&mut self, w: &Home, cx: &mut Cx<'_, Self>) {
         let state = domain(cx);
-        if self.door.is_none() {
-            // Whoever wants a page shown in the open sheet finds the navigator here.
-            let door = read::<Door, _>(cx);
-            door.set(Opened {
-                kind: super::KIND,
-                scope: w.cwd.clone(),
-                nav: Navigator::of(cx),
-            });
-            self.door = Some(door);
-            if let Start::Auth(key) = &w.start {
-                soon(cx, HomeMsg::Setup(key.clone()));
-            }
+        // A setup that ended may come again for the same plugin: it is new then.
+        self.shown.retain(|key| state.setup(key).is_some());
+        let fresh: Vec<PluginKey> = state
+            .setups_in(&w.cwd)
+            .filter(|key| !self.shown.contains(key))
+            .cloned()
+            .collect();
+        for key in fresh {
+            self.shown.push(key.clone());
+            soon(cx, HomeMsg::Setup(key));
         }
         self.waited(&state, &w.cwd);
     }
@@ -335,12 +342,6 @@ impl State for HomeState {
                 Rebuild::No
             }
             HomeMsg::Picked(event) => self.picked(event, w, cx),
-        }
-    }
-
-    fn dispose(&mut self) {
-        if let Some(door) = &self.door {
-            door.clear(super::KIND);
         }
     }
 
@@ -390,18 +391,8 @@ enum Shown<'a> {
     Loading(String),
     Installing(String),
     Uninstalling(String),
-    Failed(String),
+    Failed(RpcError),
     Ready(&'a DetailData),
-}
-
-impl Shown<'_> {
-    /// Esc on a page that waits closes the sheet; on one that shows or failed, it goes back.
-    fn waits(&self) -> bool {
-        matches!(
-            self,
-            Shown::Loading(_) | Shown::Installing(_) | Shown::Uninstalling(_)
-        )
-    }
 }
 
 impl StatefulWidget for Detail {
@@ -483,13 +474,8 @@ impl State for DetailState {
                 }
                 _ => {}
             },
-            Event::Cancel => {
-                if self.shown(&state, &w.key).waits() {
-                    close(cx);
-                } else {
-                    pop(cx);
-                }
-            }
+            // The oracle's detail pages (loading, failed, shown) have no `on_cancel`: Esc closes.
+            Event::Cancel => close(cx),
             _ => {}
         }
         Rebuild::No
@@ -514,7 +500,7 @@ impl State for DetailState {
 /// The prompt of a marketplace source, the wait for it to be added, and the failure.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Add {
-    pub cwd: String,
+    pub cwd: Cwd,
 }
 
 pub struct AddState {
@@ -603,7 +589,7 @@ impl State for AddState {
 /// The question before a marketplace is removed, the wait for it, and the failure.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Remove {
-    pub cwd: String,
+    pub cwd: Cwd,
     pub name: String,
     pub label: String,
 }
@@ -671,11 +657,13 @@ impl State for RemoveState {
                 return Rebuild::Yes;
             }
             Event::Choose(id) if id == lists::BACK => pop(cx),
+            // The confirmation goes back to the list (its `on_cancel`); the pages after it
+            // (loading, failed) have none, so Esc closes.
             Event::Cancel => {
-                if self.awaiting.is_some() && !failed {
-                    close(cx);
-                } else {
+                if self.awaiting.is_none() {
                     pop(cx);
+                } else {
+                    close(cx);
                 }
             }
             _ => {}
@@ -702,7 +690,7 @@ impl State for RemoveState {
 /// The wait for the upgrade of one marketplace, or of all the git ones.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Upgrade {
-    pub cwd: String,
+    pub cwd: Cwd,
     pub name: Option<String>,
     /// The generation of the upgrade's op before it was asked.
     pub before: Gen,

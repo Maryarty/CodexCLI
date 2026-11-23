@@ -9,14 +9,36 @@
 use std::collections::VecDeque;
 
 use super::{FeatureInterest, FeatureWish};
+use crate::ids::{Cwd, ThreadId};
+
+/// What a wish is about, and so who may still want it shown (ADR-013 §3): a directory (the
+/// plugins of a working directory) or a thread. A surface open for another scope is not the
+/// one that shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Scope {
+    Cwd(Cwd),
+    Thread(ThreadId),
+}
+
+impl From<Cwd> for Scope {
+    fn from(cwd: Cwd) -> Self {
+        Scope::Cwd(cwd)
+    }
+}
+
+impl From<ThreadId> for Scope {
+    fn from(thread: ThreadId) -> Self {
+        Scope::Thread(thread)
+    }
+}
 
 /// One thing a feature wants shown, once.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SurfaceWish {
     /// Numbers the wishes in the order they were made; what a presenter says it showed.
     pub seq: u64,
-    /// What the wish is about (a directory): a wish whose scope is gone is shown by no one.
-    pub scope: String,
+    /// What the wish is about: the surface that shows it is the one open for this scope.
+    pub scope: Scope,
     pub wish: FeatureWish,
 }
 
@@ -28,7 +50,7 @@ pub struct Wishes {
 }
 
 impl Wishes {
-    pub(crate) fn push(&mut self, scope: String, wish: FeatureWish) {
+    pub(crate) fn push(&mut self, scope: Scope, wish: FeatureWish) {
         self.seq += 1;
         self.queue.push_back(SurfaceWish {
             seq: self.seq,

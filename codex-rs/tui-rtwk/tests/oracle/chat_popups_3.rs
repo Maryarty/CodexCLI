@@ -572,7 +572,9 @@ fn plugin_detail_popup_distinguishes_admin_installed_from_enabled() {
         held.details
             .insert("figma".to_string(), figma_detail(unmaterialized));
     });
-    s.keys("esc");
+    // the oracle takes the new detail from the app server; here the way back is the row (Esc on a
+    // detail closes the popup, as in the oracle) and Enter reads the detail again
+    s.click_text("Back to plugins");
     s.keys("enter");
     s.assert_contains("Enabled by Admin");
     s.assert_contains("Install plugin");

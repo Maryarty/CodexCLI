@@ -4,6 +4,7 @@
 //! a change of a thread) and the app carries it out after the call, in the order it was said.
 //! It never holds `&mut` of the app or of a thread's model.
 
+use super::surface::Scope;
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
     FeatureWish,
@@ -192,9 +193,7 @@ pub enum Out {
     Settled { thread: ThreadId },
     /// A one-shot for the surface (ADR-013 Ж): it is queued under `scope` (the directory the
     /// feature's data is for) and shown once by the surface's presenter.
-    Wish { scope: String, wish: FeatureWish },
-    /// A page opened in the user's browser (`Command::OpenUrl`).
-    OpenUrl { url: String },
+    Wish { scope: Scope, wish: FeatureWish },
 }
 
 /// The context of an app-scoped step of a feature: the app as a view, and the outbox.
@@ -306,16 +305,11 @@ impl<'a> AppCx<'a> {
     /// Asks the surface to show `wish` once, for `scope`: the presenter of the surface opens
     /// the page or routes to it where the feature is already shown, and says it did
     /// (`Intent::WishShown`); nothing in the feature learns how.
-    pub fn wish(&mut self, scope: impl Into<String>, wish: impl Into<FeatureWish>) {
+    pub fn wish(&mut self, scope: impl Into<Scope>, wish: impl Into<FeatureWish>) {
         self.out.push(Out::Wish {
             scope: scope.into(),
             wish: wish.into(),
         });
-    }
-
-    /// Opens `url` in the user's browser (oracle `AppEvent::OpenUrlInBrowser`).
-    pub fn open_url(&mut self, url: impl Into<String>) {
-        self.out.push(Out::OpenUrl { url: url.into() });
     }
 
     /// What was asked, in order.

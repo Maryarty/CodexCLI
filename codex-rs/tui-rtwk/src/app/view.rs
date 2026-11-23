@@ -23,7 +23,6 @@ use crate::app::start_page::{Start, StartPage, StartupGate};
 use crate::pages;
 use crate::pages::session::transcript::copy::CopyJob;
 use crate::sheets::presenter::home_node;
-use crate::widgets::sheet::Door;
 
 /// The app's handlers, provided to the tree.
 pub struct Hs {
@@ -152,7 +151,6 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         .with(Provider::value(app.core.tui()).update_should_notify(|old, new| old != new))
         .with(Provider::value(app.ui.copies.shown()).update_should_notify(|old, new| old != new))
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
-        .with(Door::provider(app.ui.presenters.door()))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))
         .into();
     super::terminal_effects::TerminalEffects {

@@ -8,22 +8,25 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::catalog::{
-    self, Action, Catalog, Config, Detail, Kind, Part, Sections, SectionError, Tab, Target, Toggle,
+    self, Action, Catalog, Config, Detail, Kind, Part, RowKey, SectionError, Sections, Tab,
+    Target, Toggle,
 };
 use super::wire::{AuthApp, Found, Want, Wanted, add_source};
 use super::{Ctx, Intent, Say, SetupEnd, Wish};
+use crate::app::effects::Ask;
 use crate::features::{AppCx, Remote};
+use crate::ids::Cwd;
 use crate::rpc::RpcError;
 
 /// A number that tells one ask (and the op it made) from the next: the request number of the
 /// ask, so a late reply is told from a current one by it.
 pub type Gen = u64;
 
-/// A plugin as the list of a directory names it: the row id of its catalog.
+/// A plugin as the list of a directory names it: the directory and the row of its catalog.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PluginKey {
-    pub cwd: String,
-    pub row: String,
+    pub cwd: Cwd,
+    pub row: RowKey,
 }
 
 /// What the user asked to change; one at a time per key.
@@ -31,9 +34,9 @@ pub struct PluginKey {
 pub enum OpKey {
     Install(PluginKey),
     Uninstall(PluginKey),
-    Add { cwd: String },
-    Remove { cwd: String, name: String },
-    Upgrade { cwd: String, name: Option<String> },
+    Add { cwd: Cwd },
+    Remove { cwd: Cwd, name: String },
+    Upgrade { cwd: Cwd, name: Option<String> },
 }
 
 /// What came of an op, for the surface that waited for it.
@@ -52,7 +55,8 @@ pub enum Status {
     /// Done, and what the list it changed holds is in (the list is read again behind an op that
     /// changes it, so a surface that waited for the op sees the new list).
     Done(Outcome),
-    Failed(String),
+    /// Why it failed, as the typed error (the words are the UI's).
+    Failed(RpcError),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,7 +106,7 @@ struct Detailed {
 /// What an op waits for beyond the server's answer to it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Cue {
-    List(String),
+    List(Cwd),
     Read(PluginKey),
 }
 
@@ -118,7 +122,7 @@ struct Follow {
 pub struct State {
     config: Config,
     issued: u64,
-    lists: BTreeMap<String, Listing>,
+    lists: BTreeMap<Cwd, Listing>,
     details: BTreeMap<PluginKey, Detailed>,
     ops: BTreeMap<OpKey, Op>,
     follows: Vec<Follow>,
@@ -129,10 +133,13 @@ pub struct State {
     writing: BTreeMap<String, Option<bool>>,
 }
 
-/// The words of a failed ask.
-fn words(error: RpcError) -> String {
+/// What the server said of a failed ask, for the classification of a section's error
+/// (`SectionError::failed`): the words shown are the UI's.
+fn said(error: &RpcError) -> String {
     match error {
-        RpcError::Remote(text) | RpcError::Malformed(text) | RpcError::Prepare(text) => text,
+        RpcError::Remote(text) | RpcError::Malformed(text) | RpcError::Prepare(text) => {
+            text.clone()
+        }
         RpcError::Mismatch => String::new(),
         RpcError::Provider(error) => error.to_string(),
     }
@@ -150,13 +157,13 @@ impl State {
     }
 
     /// The list of the directory: none until someone asked.
-    pub fn catalog(&self, cwd: &str) -> Option<&Remote<Catalog>> {
+    pub fn catalog(&self, cwd: &Cwd) -> Option<&Remote<Catalog>> {
         self.lists.get(cwd).map(|listing| &listing.catalog)
     }
 
     /// The tabs of the list of `cwd`, with the switches as the user left them; `fresh` is the tab
     /// of the marketplace just added.
-    pub fn tabs(&self, cwd: &str, fresh: Option<&str>) -> Vec<Tab> {
+    pub fn tabs(&self, cwd: &Cwd, fresh: Option<&str>) -> Vec<Tab> {
         let Some(listing) = self.lists.get(cwd) else {
             return Vec::new();
         };
@@ -166,7 +173,7 @@ impl State {
         let mut tabs = catalog.tabs(&self.config, &listing.sections, fresh);
         for row in tabs.iter_mut().flat_map(|tab| tab.rows.iter_mut()) {
             if let (Toggle::Switch(on), Some(wanted)) =
-                (&mut row.toggle, self.desired.get(&row.plugin))
+                (&mut row.toggle, self.desired.get(&row.key.plugin))
             {
                 *on = *wanted;
             }
@@ -175,7 +182,7 @@ impl State {
     }
 
     /// The tab of this catalog a tab id saved before a refresh names now.
-    pub fn tab_now(&self, cwd: &str, saved: &str) -> Option<String> {
+    pub fn tab_now(&self, cwd: &Cwd, saved: &str) -> Option<String> {
         self.lists
             .get(cwd)?
             .catalog
@@ -184,7 +191,7 @@ impl State {
     }
 
     /// The marketplace of the tab `tab`, when it is a configured one that can be removed.
-    pub fn market(&self, cwd: &str, tab: &str, fresh: Option<&str>) -> Option<Market> {
+    pub fn market(&self, cwd: &Cwd, tab: &str, fresh: Option<&str>) -> Option<Market> {
         let catalog = self.lists.get(cwd)?.catalog.value()?;
         let tab = self.tabs(cwd, fresh).into_iter().find(|entry| entry.id == tab)?;
         let Kind::Marketplace { name, remove, upgrade, .. } = tab.kind else {
@@ -203,7 +210,7 @@ impl State {
     }
 
     /// The name of a marketplace as its tab says it.
-    pub fn market_label(&self, cwd: &str, name: &str) -> Option<String> {
+    pub fn market_label(&self, cwd: &Cwd, name: &str) -> Option<String> {
         let catalog = self.lists.get(cwd)?.catalog.value()?;
         let entry = catalog.marketplaces.iter().find(|entry| entry.name == name)?;
         Some(entry.display().to_string())
@@ -238,6 +245,12 @@ impl State {
         self.setups.get(key)
     }
 
+    /// The plugins of `cwd` whose installed apps still need signing in: what a sheet open for the
+    /// directory shows the setup page for (the wish to show it only opens a sheet that is not).
+    pub fn setups_in<'a>(&'a self, cwd: &'a Cwd) -> impl Iterator<Item = &'a PluginKey> {
+        self.setups.keys().filter(move |key| key.cwd == *cwd)
+    }
+
     fn target(&self, key: &PluginKey) -> Option<Target> {
         let catalog = self.lists.get(&key.cwd)?.catalog.value()?;
         catalog.row(&key.row)?;
@@ -257,13 +270,13 @@ impl State {
         self.issued
     }
 
-    fn ask(&self, cx: &mut AppCx<'_>, request: u64, want: Want, cwd: &str, ctx: Ctx) {
+    fn ask(&self, cx: &mut AppCx<'_>, request: u64, want: Want, cwd: &Cwd, ctx: Ctx) {
         cx.ask(
             None,
             Wanted {
                 request,
                 want,
-                cwd: cwd.to_owned(),
+                cwd: cwd.to_string(),
                 home: self.config.home.clone(),
             },
             ctx,
@@ -351,7 +364,7 @@ impl State {
                     .and_then(|setup| setup.apps.iter().find(|entry| entry.id == app))
                     .and_then(|entry| entry.url.clone());
                 if let Some(url) = url {
-                    cx.open_url(url);
+                    cx.effect(Ask::OpenUrl { url: url.clone() }, Ctx::Page { url });
                 }
             }
             Intent::EndSetup { key, how } => {
@@ -419,18 +432,18 @@ impl State {
         self.ask(cx, at, Want::Uninstall { id }, &cwd, Ctx::Uninstall { key, at, name });
     }
 
-    fn add(&mut self, cwd: String, source: &str, cx: &mut AppCx<'_>) {
+    fn add(&mut self, cwd: Cwd, source: &str, cx: &mut AppCx<'_>) {
         if source.is_empty() {
             return;
         }
         let Some(at) = self.start(OpKey::Add { cwd: cwd.clone() }) else {
             return;
         };
-        let source = add_source(&cwd, source);
+        let source = add_source(cwd.as_str(), source);
         self.ask(cx, at, Want::Add { source }, &cwd.clone(), Ctx::Add { cwd, at });
     }
 
-    fn remove(&mut self, cwd: String, name: String, cx: &mut AppCx<'_>) {
+    fn remove(&mut self, cwd: Cwd, name: String, cx: &mut AppCx<'_>) {
         let label = self.market_label(&cwd, &name).unwrap_or_else(|| name.clone());
         let key = OpKey::Remove {
             cwd: cwd.clone(),
@@ -448,7 +461,7 @@ impl State {
         self.ask(cx, at, Want::Remove { name }, &cwd, ctx);
     }
 
-    fn upgrade(&mut self, cwd: String, name: Option<String>, cx: &mut AppCx<'_>) {
+    fn upgrade(&mut self, cwd: Cwd, name: Option<String>, cx: &mut AppCx<'_>) {
         let key = OpKey::Upgrade {
             cwd: cwd.clone(),
             name: name.clone(),
@@ -496,7 +509,7 @@ impl State {
 
     /// A surface wants the list of `cwd` (`prefetch_plugins`): asked again, unless it is on its
     /// way; what was known stays on show meanwhile.
-    pub(super) fn prefetch(&mut self, cwd: &str, cx: &mut AppCx<'_>) {
+    pub(super) fn prefetch(&mut self, cwd: &Cwd, cx: &mut AppCx<'_>) {
         if !self.config.enabled
             || self
                 .lists
@@ -525,14 +538,14 @@ impl State {
                 collect: None,
             },
         };
-        self.lists.insert(cwd.to_owned(), listing);
+        self.lists.insert(cwd.clone(), listing);
         self.ask(
             cx,
             request,
             Want::List,
             cwd,
             Ctx::List {
-                cwd: cwd.to_owned(),
+                cwd: cwd.clone(),
                 request,
             },
         );
@@ -545,7 +558,6 @@ impl State {
         result: Result<Found, RpcError>,
         cx: &mut AppCx<'_>,
     ) {
-        let result = result.map_err(words);
         match ctx {
             Ctx::List { cwd, request } => self.listed(&cwd, request, result, cx),
             Ctx::Section {
@@ -633,15 +645,17 @@ impl State {
                 self.track(Cue::List(cwd), key, at, outcome);
             }
             Ctx::Enable { cwd, id, enabled } => self.enable_done(&cwd, id, enabled, result, cx),
+            // an ask of the host, never an RPC: `Feature::effect_done` answers it
+            Ctx::Page { .. } => {}
         }
     }
 
     /// `on_plugins_loaded`.
     fn listed(
         &mut self,
-        cwd: &str,
+        cwd: &Cwd,
         request: u64,
-        result: Result<Found, String>,
+        result: Result<Found, RpcError>,
         cx: &mut AppCx<'_>,
     ) {
         let Some(listing) = self.lists.get_mut(cwd) else {
@@ -666,11 +680,11 @@ impl State {
                 listing.catalog = Remote::Failed(error);
             }
         }
-        self.cued(&Cue::List(cwd.to_owned()));
+        self.cued(&Cue::List(cwd.clone()));
     }
 
     /// `fetch_additional_plugin_remote_sections`: the marketplaces of the remote sections.
-    fn fetch_sections(&mut self, cwd: &str, cx: &mut AppCx<'_>) {
+    fn fetch_sections(&mut self, cwd: &Cwd, cx: &mut AppCx<'_>) {
         let mut collect = Collect::default();
         let mut parts = Vec::new();
         if !self.config.remote {
@@ -689,7 +703,7 @@ impl State {
             let request = self.next();
             collect.waiting.insert(request);
             let ctx = Ctx::Section {
-                cwd: cwd.to_owned(),
+                cwd: cwd.clone(),
                 request,
                 part,
             };
@@ -700,7 +714,7 @@ impl State {
         }
     }
 
-    fn section(&mut self, cwd: &str, request: u64, part: Part, result: Result<Found, String>) {
+    fn section(&mut self, cwd: &Cwd, request: u64, part: Part, result: Result<Found, RpcError>) {
         let Some(listing) = self.lists.get_mut(cwd) else {
             return;
         };
@@ -713,7 +727,7 @@ impl State {
         match result {
             Ok(Found::Catalog(found)) => collect.found.push((part, found.marketplaces)),
             Ok(_) => {}
-            Err(error) => collect.errors.push(SectionError::failed(part, error)),
+            Err(error) => collect.errors.push(SectionError::failed(part, said(&error))),
         }
         if !collect.waiting.is_empty() {
             return;
@@ -732,7 +746,7 @@ impl State {
         listing.sections.errors = collect.errors;
     }
 
-    fn read_answered(&mut self, key: PluginKey, request: u64, result: Result<Found, String>) {
+    fn read_answered(&mut self, key: PluginKey, request: u64, result: Result<Found, RpcError>) {
         let Some(entry) = self.details.get_mut(&key) else {
             return;
         };
@@ -755,7 +769,7 @@ impl State {
         at: Gen,
         name: String,
         target: Target,
-        result: Result<Found, String>,
+        result: Result<Found, RpcError>,
         cx: &mut AppCx<'_>,
     ) {
         let op = OpKey::Install(key.clone());
@@ -793,7 +807,7 @@ impl State {
                     self.settle(&op, at, Status::Done(Outcome::Nothing));
                 }
             }
-            Ok(_) => self.settle(&op, at, Status::Failed(String::new())),
+            Ok(_) => self.settle(&op, at, Status::Failed(RpcError::Mismatch)),
             Err(error) => {
                 self.setups.remove(&key);
                 self.settle(&op, at, Status::Failed(error));
@@ -834,10 +848,10 @@ impl State {
     /// `on_plugin_enabled_set`, and the write queued behind it.
     fn enable_done(
         &mut self,
-        cwd: &str,
+        cwd: &Cwd,
         id: String,
         enabled: bool,
-        result: Result<Found, String>,
+        result: Result<Found, RpcError>,
         cx: &mut AppCx<'_>,
     ) {
         let queued = self.writing.get_mut(&id).and_then(Option::take);
@@ -846,7 +860,7 @@ impl State {
         {
             let request = self.next();
             let ctx = Ctx::Enable {
-                cwd: cwd.to_owned(),
+                cwd: cwd.clone(),
                 id: id.clone(),
                 enabled: next,
             };

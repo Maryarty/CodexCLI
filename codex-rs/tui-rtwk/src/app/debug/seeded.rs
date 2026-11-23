@@ -23,7 +23,6 @@ use codex_tui_core::threads::UserMessage;
 
 use crate::app::view::Hs;
 use crate::pages::session::transcript::copy::{self, CopyJob, Shown};
-use crate::widgets::sheet::Door;
 use crate::widgets::thread_ui::ThreadUiMap;
 
 /// What a debug entry's builder sees of the seeded model.
@@ -173,7 +172,6 @@ impl State for SeededScopeState {
             .with(Provider::value(core.tui()).update_should_notify(|old, new| old != new))
             .with(Provider::value(Shown::default()).update_should_notify(|_, _| false))
             .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
-            .with(Door::provider(Rc::default()))
             .child(child)
             .into()
     }

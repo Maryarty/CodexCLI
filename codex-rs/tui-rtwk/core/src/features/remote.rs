@@ -2,6 +2,8 @@
 //! domain keeps it. A cache by key, never "the current X": the same feature asked about two
 //! directories holds two. The Flutter counterpart is `AsyncValue<T>` of riverpod.
 
+use crate::rpc::RpcError;
+
 /// What is known of one asked thing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Remote<T> {
@@ -10,8 +12,8 @@ pub enum Remote<T> {
     Loading(Option<T>),
     /// The server's answer.
     Ready(T),
-    /// The ask failed: the words of the failure.
-    Failed(String),
+    /// The ask failed: why, as the typed error (the words are the UI's).
+    Failed(RpcError),
 }
 
 impl<T> Remote<T> {
@@ -49,7 +51,7 @@ impl<T> Remote<T> {
     }
 
     /// The failure, when it failed.
-    pub fn failure(&self) -> Option<&str> {
+    pub fn failure(&self) -> Option<&RpcError> {
         match self {
             Remote::Failed(why) => Some(why),
             _ => None,

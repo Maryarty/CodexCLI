@@ -38,7 +38,7 @@ mod surface;
 
 pub use cx::{AppCx, AppView, Out, ThreadCx, ThreadView};
 pub use remote::Remote;
-pub use surface::{InterestStep, Interests, SurfaceWish, Wishes};
+pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
 /// The type of a component feature `F` does not use (no RPCs, no menu, no prompt...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features

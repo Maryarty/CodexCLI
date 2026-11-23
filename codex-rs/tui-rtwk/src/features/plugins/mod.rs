@@ -22,48 +22,39 @@ use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::commands::SlashCommand;
-use codex_tui_core::features::plugins::{Intent, Plugins, Say, State, Wish};
-use codex_tui_core::features::{FeatureStates, Never};
+use codex_tui_core::features::plugins::{Intent, Interest, Plugins, Say, State, Wish};
+use codex_tui_core::features::{FeatureInterest, FeatureStates, Never, Scope};
+use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::select::list::List;
 
-use self::sheet::{PluginsSheet, Start};
+use self::sheet::PluginsSheet;
 use super::{FeatureView, PromptWords, Shown, verb};
 use crate::pages::session::strings::Strings as SessionStrings;
 use crate::sheets::dialogs::strings::Strings as DialogStrings;
 use crate::sheets::select::strings::Strings as SelectStrings;
 
-/// The kind of sheet the plugins feature shows (what its open sheet leaves in the `Door`).
-pub const KIND: &str = "plugins";
-
 impl FeatureView for Plugins {
     const SHEET: Option<SlashCommand> = Some(SlashCommand::Plugins);
 
-    fn open_sheet<S: 'static>(cx: &mut Cx<'_, S>, scope: &str) {
-        open(
-            cx,
-            Args {
-                cwd: scope.to_owned(),
-            },
-        );
+    fn open_sheet<S: 'static>(cx: &mut Cx<'_, S>, scope: &Scope) {
+        if let Scope::Cwd(cwd) = scope {
+            open(cx, Args { cwd: cwd.clone() });
+        }
     }
 
-    /// The setup of the apps of an installed plugin: a page of the open sheet of its directory,
-    /// else the sheet opens at it.
-    fn shown(wish: &Wish, scope: &str) -> Option<Shown> {
-        let Wish::Auth(key) = wish;
-        let (page, start) = (key.clone(), key.clone());
-        let cwd = scope.to_owned();
+    /// The setup of the apps of an installed plugin: the sheet of its directory shows the page
+    /// from the feature's state (`State::setups_in`); the wish only has one opened when none
+    /// is open for the directory, which the sheet's interest tells.
+    fn shown(wish: &Wish, scope: &Scope) -> Option<Shown> {
+        let Wish::Auth(_) = wish;
+        let Scope::Cwd(cwd) = scope else {
+            return None;
+        };
+        let held_by = FeatureInterest::from(Interest::Listing { cwd: cwd.clone() });
+        let cwd = cwd.clone();
         Some(Shown {
-            sheet: KIND,
-            scope: cwd.clone(),
-            push: Box::new(move |nav| drop(nav.push::<()>(pages::auth_route(page.clone())))),
-            open: Rc::new(move || -> AnyWidget {
-                PluginsSheet {
-                    cwd: cwd.clone(),
-                    start: Start::Auth(start.clone()),
-                }
-                .into()
-            }),
+            held_by,
+            open: Rc::new(move || -> AnyWidget { PluginsSheet { cwd: cwd.clone() }.into() }),
             options: sheet_options(),
         })
     }
@@ -85,7 +76,7 @@ impl FeatureView for Plugins {
 /// What opens `/plugins`: the directory the plugins are listed for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Args {
-    pub cwd: String,
+    pub cwd: Cwd,
 }
 
 /// `/plugins` from the widget that asks: the feature is told (it says so in the history when it
@@ -99,11 +90,7 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
         drop(show_dialog::<(), S>(
             cx,
             move |_| {
-                PluginsSheet {
-                    cwd: cwd.clone(),
-                    start: Start::Browser,
-                }
-                .into()
+                PluginsSheet { cwd: cwd.clone() }.into()
             },
             sheet_options(),
         ));

@@ -13,6 +13,7 @@ use rtwk::l10n::msg;
 use codex_tui_core::features::plugins::catalog::{Cause, DetailStatus, Discoverability};
 use codex_tui_core::features::plugins::catalog::{Next, Part, Section};
 use codex_tui_core::features::plugins::{PluginStatus as Status, Product, Say};
+use codex_tui_core::rpc::RpcError;
 
 
 use crate::l10n::Tables;
@@ -592,6 +593,17 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
 }
 
+/// The words of a failed ask: what the server or the decoder said.
+pub fn failure(error: &RpcError) -> String {
+    match error {
+        RpcError::Remote(text) | RpcError::Malformed(text) | RpcError::Prepare(text) => {
+            text.clone()
+        }
+        RpcError::Mismatch => String::new(),
+        RpcError::Provider(error) => error.to_string(),
+    }
+}
+
 /// The words of what the plugin browser said in the history (`Say`); the oracle's English stands
 /// until the catalog has them.
 pub fn note(say: &Say) -> String {
@@ -633,8 +645,9 @@ pub fn note(say: &Say) -> String {
             "You can now continue managing plugins from /plugins.".to_string(),
         ),
         Say::EnableFailed { id, error } => {
-            format!("Failed to update plugin config for {id}: {error}")
+            format!("Failed to update plugin config for {id}: {}", failure(error))
         }
+        Say::PageFailed { url, error } => format!("Failed to open browser for {url}: {error}"),
         Say::MarketAdded {
             name,
             root,
@@ -682,7 +695,7 @@ pub fn note(say: &Say) -> String {
                 .collect::<Vec<_>>()
                 .join("; ")
         ),
-        Say::UpgradeError(error) => error.clone(),
+        Say::UpgradeError(error) => failure(error),
     }
 }
 

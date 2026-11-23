@@ -11,6 +11,8 @@ use codex_tui_core::commands::{
     DispatchCx, Notice, Open, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
     parent_owned_takes,
 };
+use codex_tui_core::features::Scope;
+use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
     ScreenIntent, ScreenStates, ScreenThreadIntent, chat, dialogs, popovers,
@@ -312,7 +314,11 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::Session { command, .. } if features::opens_sheet(command) => {
             record(cx);
             clear_sent(&w.ui);
-            features::open_sheet(cx, command, &review_cwd(&states, &thread));
+            features::open_sheet(
+                cx,
+                command,
+                &Scope::Cwd(Cwd::new(review_cwd(&states, &thread))),
+            );
             note_opened(Target::Select);
         }
         // `/vim`: modal editing is the draft's own state, toggled here and said

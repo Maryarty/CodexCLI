@@ -1,11 +1,14 @@
-//! The sheet of `/plugins` (ADR-013 O1): a modal bottom sheet whose body is a nested `Navigator`
-//! as tall as the sheet's cap, its pages at the bottom of it (`pages::bottom`: `IntrinsicHeight`
-//! cannot size a navigator whose page is built by a `LayoutBuilder`, `tests/rtwk_o1.rs`). The
-//! routes of the navigator are the pages (`pages.rs`);
-//! Esc pops one, and the browser under them keeps its picker (cursor, query, tab) because it is the
-//! first route and is never rebuilt from scratch. The sheet says it wants the plugins of its
-//! directory (`Interest`), so the feature loads them for as long as the sheet is open, and closes
-//! when it has no reason to stay (`Sheet::alive`: the feature was turned off).
+//! The sheet of `/plugins` (ADR-013 O1): a modal bottom sheet whose body is a nested `Navigator`.
+//! A `Navigator` is an `Overlay`, so it always takes the largest size it is given: the sheet gives
+//! it the height of the sheet's cap and each page sits at the bottom edge of it (`pages::bottom`,
+//! `Align(BOTTOM_CENTER)`), which is where the oracle's pane is. That is the pattern for a nested
+//! navigator in a sheet, not a workaround: `tests/rtwk_o1.rs` pins it. The routes of the
+//! navigator are the pages (`pages.rs`). Esc does what the oracle's page does (`pages.rs`: it
+//! closes the sheet, or goes back where the oracle goes back), and the browser under a page that
+//! goes back keeps its picker (cursor, query, tab) because it is the first route and is never
+//! rebuilt from scratch. The sheet says it wants the plugins of its directory (`Interest`), so
+//! the feature loads them for as long as the sheet is open, and closes when it has no reason to
+//! stay (`Sheet::alive`: the feature was turned off).
 //!
 //! In Flutter this is `showModalBottomSheet` with a `Navigator` as the body (the nested-navigator
 //! recipe for a flow inside a sheet), `PopScope` per page, and a provider the pages select from.
@@ -16,26 +19,17 @@ use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::plugins::{Interest as Wanted, PluginKey};
+use codex_tui_core::features::plugins::Interest as Wanted;
+use codex_tui_core::ids::Cwd;
 
 use super::pages::{Home, bottom};
 use crate::widgets::interest::Interest;
 use crate::widgets::sheet::Sheet;
 
-/// Where the sheet opens.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Start {
-    /// The browser: `/plugins`.
-    Browser,
-    /// The setup of the apps of an installed plugin, over the browser (the feature's `Wish`).
-    Auth(PluginKey),
-}
-
 /// The sheet of the plugins of `cwd`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PluginsSheet {
-    pub cwd: String,
-    pub start: Start,
+    pub cwd: Cwd,
 }
 
 pub struct PluginsSheetState;
@@ -71,10 +65,7 @@ impl State for PluginsSheetState {
     }
 
     fn build(&self, w: &PluginsSheet, _: &mut Cx<'_, Self>) -> AnyWidget {
-        let browser = Home {
-            cwd: w.cwd.clone(),
-            start: w.start.clone(),
-        };
+        let browser = Home { cwd: w.cwd.clone() };
         let pages = Navigator::new().home(bottom(browser)).back_key(None);
         Interest::new(Wanted::Listing { cwd: w.cwd.clone() }, pages).into()
     }

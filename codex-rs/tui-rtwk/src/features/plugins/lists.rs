@@ -16,10 +16,12 @@ use codex_tui_core::features::plugins::catalog::{
 use codex_tui_core::features::plugins::{
     self, Action, AuthApp, Detail, Kind, Product, Row, State, Tab, Toggle,
 };
+use codex_tui_core::ids::Cwd;
 use codex_tui_core::keymap::{Key, Keymap, Mods, Stroke};
+use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Span, Tab as ListTab};
 
-use super::strings::Strings;
+use super::strings::{self, Strings};
 use crate::keymap::stroke_label;
 use crate::sheets::select::prompt::Prompt;
 use crate::sheets::select::prompt::Answer;
@@ -71,8 +73,12 @@ pub fn loading_list(s: &Strings) -> List {
 }
 
 /// The list could not be read: the error on a row that is only said.
-pub fn failed_list(error: &str, s: &Strings) -> List {
-    plain(s.failed_subtitle, vec![disabled(s.failed_row, error)], s)
+pub fn failed_list(error: &RpcError, s: &Strings) -> List {
+    plain(
+        s.failed_subtitle,
+        vec![disabled(s.failed_row, &strings::failure(error))],
+        s,
+    )
 }
 
 /// The marketplace source asked for, then waited on.
@@ -131,9 +137,9 @@ pub fn detail_loading(name: &str, s: &Strings) -> List {
 }
 
 /// The read or the change of a plugin failed.
-pub fn detail_failed(error: &str, s: &Strings) -> List {
+pub fn detail_failed(error: &RpcError, s: &Strings) -> List {
     let items = vec![
-        disabled(s.detail_failed_row, error),
+        disabled(s.detail_failed_row, &strings::failure(error)),
         row(BACK, s.back, s.back_description),
     ];
     closing(s.detail_failed_subtitle, items, s)
@@ -385,7 +391,7 @@ fn upgrade_stroke() -> Stroke {
 /// one the user was at; `fresh` is the marketplace just added); none while there is no list.
 pub fn browser(
     state: &State,
-    cwd: &str,
+    cwd: &Cwd,
     tab: &str,
     fresh: Option<&str>,
     keys: &Keymap,
@@ -553,7 +559,7 @@ fn plugin_item(
     let description = parts.join(s.dot);
 
     let installed = catalog
-        .row(&row.id)
+        .row(&row.key)
         .is_some_and(|(_, plugin)| plugin.installed);
     let can_view = row.can_view();
     let tail = match row.toggle {
@@ -579,7 +585,7 @@ fn plugin_item(
     let search = format!(
         "{} {} {} {} {} {}",
         row.name,
-        row.plugin,
+        row.key.plugin,
         row.plugin_name,
         market,
         row.description.as_deref().unwrap_or_default(),
@@ -592,7 +598,7 @@ fn plugin_item(
     };
     let unavailable = !can_view && !installed;
     Item {
-        id: row.id.clone(),
+        id: row.key.to_string(),
         name: row.name.clone(),
         description: Some(description),
         selected_description: Some(selected),

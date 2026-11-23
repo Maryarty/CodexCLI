@@ -111,6 +111,9 @@ pub enum Ask {
     ClipboardText,
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`).
     OpenDesktop { thread: ThreadId },
+    /// Opens a page in the user's browser (oracle `AppEvent::OpenUrlInBrowser`): a feature's
+    /// link (the sign-in page of a plugin's app). Answered by `Done::Opened`.
+    OpenUrl { url: String },
     /// The local branches of the repository in `cwd` (the default branch first) and the one
     /// checked out: the `/review` base-branch picker (oracle `local_git_branches`,
     /// `current_branch_name`). Answered by `Done::GitBranches`; an empty list when it is no
@@ -150,8 +153,9 @@ pub enum Done {
     Config(Result<(), String>),
     /// The clipboard's text, or why it could not be read.
     ClipboardText(Result<String, String>),
-    /// Nothing, or the launch's own failure text.
-    Desktop(Result<(), String>),
+    /// The Desktop app or the browser was asked to open something: nothing, or the launch's own
+    /// failure text.
+    Opened(Result<(), String>),
     /// The branches, and the current one (none: detached HEAD, or no repository).
     GitBranches {
         current: Option<String>,

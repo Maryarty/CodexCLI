@@ -8,7 +8,10 @@
 //! with ids (`plugins::Intent`): the page, the tab and the cursor are the sheet's, so these tests
 //! read data only; the words are the view's.
 
+use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::features::Scope;
+use codex_tui_core::features::plugins::RowKey;
 use codex_tui_core::features::plugins::{
     self, Configured, Fact, Interest, Kind, Op, OpKey, Outcome, PluginKey, PluginStatus, Say,
     Status, Toggle, Want, Wanted, Wish,
@@ -17,13 +20,26 @@ use codex_tui_core::features::{
     self, FeatureCommand, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote, FeatureWish,
     InterestStep, Remote,
 };
-use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::ids::{Cwd, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::rpc::RpcError;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 const CWD: &str = "/work/project";
 const OTHER: &str = "/work/other";
+
+fn cwd() -> Cwd {
+    Cwd::new(CWD)
+}
+
+fn other() -> Cwd {
+    Cwd::new(OTHER)
+}
+
+fn remote(text: &str) -> RpcError {
+    RpcError::Remote(text.to_string())
+}
 
 fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
     let mut fx = AppFx::default();
@@ -86,9 +102,7 @@ fn verb(app: &mut CodexApp, intent: plugins::Intent) -> AppFx {
 }
 
 fn interested(cwd: &str) -> FeatureInterest {
-    FeatureInterest::from(Interest::Listing {
-        cwd: cwd.to_string(),
-    })
+    FeatureInterest::from(Interest::Listing { cwd: Cwd::new(cwd) })
 }
 
 /// A surface shows the plugins of `cwd`.
@@ -110,11 +124,8 @@ fn state(app: &CodexApp) -> &plugins::State {
     &app.features().plugins
 }
 
-fn key(row: &str) -> PluginKey {
-    PluginKey {
-        cwd: CWD.to_string(),
-        row: row.to_string(),
-    }
+fn key(row: RowKey) -> PluginKey {
+    PluginKey { cwd: cwd(), row }
 }
 
 /// The requests of the feature a step left, with their tickets.
@@ -222,7 +233,7 @@ fn browsing() -> CodexApp {
 }
 
 fn tabs(app: &CodexApp) -> Vec<plugins::Tab> {
-    state(app).tabs(CWD, None)
+    state(app).tabs(&cwd(), None)
 }
 
 /// The row of the plugin the list calls `name`, as a key.
@@ -232,9 +243,9 @@ fn row(app: &CodexApp, name: &str) -> PluginKey {
         .iter()
         .find(|row| row.name == name)
         .unwrap_or_else(|| panic!("no row {name}"))
-        .id
+        .key
         .clone();
-    key(&id)
+    key(id)
 }
 
 fn said(app: &CodexApp) -> Vec<Say> {
@@ -280,12 +291,7 @@ const WRITTEN: fn() -> Value =
 #[test]
 fn the_feature_off_says_so() {
     let mut app = ready();
-    verb(
-        &mut app,
-        plugins::Intent::Run {
-            cwd: CWD.to_string(),
-        },
-    );
+    verb(&mut app, plugins::Intent::Run { cwd: cwd() });
     assert_eq!(said(&app), vec![Say::Disabled]);
     // Nothing loads for a surface that asks while it is off.
     assert!(sent(&open(&mut app, CWD)).is_empty());
@@ -298,7 +304,7 @@ fn an_interest_asks_the_list_and_loads() {
     let (_, wanted) = one(&fx);
     assert_eq!(wanted.want, Want::List);
     assert_eq!(wanted.cwd, CWD);
-    assert_eq!(state(&app).catalog(CWD), Some(&Remote::Loading(None)));
+    assert_eq!(state(&app).catalog(&cwd()), Some(&Remote::Loading(None)));
     assert_eq!(app.interests().count(&interested(CWD)), 1);
 }
 
@@ -322,7 +328,10 @@ fn the_list_shows_and_the_sections_follow() {
     let mut app = app(false, true);
     let request = one(&open(&mut app, CWD));
     let fx = answer(&mut app, &request, local_market());
-    assert!(matches!(state(&app).catalog(CWD), Some(Remote::Ready(_))));
+    assert!(matches!(
+        state(&app).catalog(&cwd()),
+        Some(Remote::Ready(_))
+    ));
     // Curated is the section of its own while the remote catalog is off.
     assert_eq!(
         wants(&fx),
@@ -358,7 +367,11 @@ fn rows_are_sorted_installed_first_and_the_hidden_marketplace_is_gone() {
     let names: Vec<_> = all[0].rows.iter().map(|row| row.name.as_str()).collect();
     assert_eq!(names, vec!["alpha", "Beta", "mine", "Zeta"]);
     assert_eq!((all[0].installed, all[0].total), (2, 4));
-    let installed: Vec<_> = all[1].rows.iter().map(|row| row.plugin.as_str()).collect();
+    let installed: Vec<_> = all[1]
+        .rows
+        .iter()
+        .map(|row| row.key.plugin.as_str())
+        .collect();
     assert_eq!(installed, vec!["alpha@curated", "beta@curated"]);
     assert_eq!(all[0].rows[0].status, PluginStatus::Installed);
     assert_eq!(all[0].rows[2].status, PluginStatus::Available);
@@ -393,7 +406,7 @@ fn a_remote_plugin_and_its_local_copy_are_one_row() {
     );
     let all = tabs(&app);
     assert_eq!(all[0].rows.len(), 1);
-    assert_eq!(all[0].rows[0].plugin, "shared@team");
+    assert_eq!(all[0].rows[0].key.plugin, "shared@team");
 }
 
 #[test]
@@ -446,7 +459,7 @@ fn a_failed_read_is_kept_as_failed_and_read_again_on_the_next_verb() {
     fail(&mut app, &request, "no such plugin");
     assert_eq!(
         state(&app).detail(&zeta),
-        Some(&Remote::Failed("no such plugin".to_string()))
+        Some(&Remote::Failed(remote("no such plugin")))
     );
     let again = one(&verb(&mut app, plugins::Intent::Read { key: zeta.clone() }));
     assert_eq!(state(&app).detail(&zeta), Some(&Remote::Loading(None)));
@@ -528,7 +541,7 @@ fn a_failed_install_fails_its_op_and_can_be_pressed_again() {
     fail(&mut app, &request, "no network");
     assert_eq!(
         op(&app, &install).map(|op| op.status),
-        Some(Status::Failed("no network".to_string()))
+        Some(Status::Failed(remote("no network")))
     );
     // The press after a failure is a new op, newer than the one the surface saw before.
     let fx = verb(&mut app, plugins::Intent::Install { key: zeta });
@@ -574,7 +587,7 @@ fn an_install_needing_apps_is_a_wish_and_the_setup_is_in_the_state() {
     );
     let wishes: Vec<_> = app.wishes().pending().cloned().collect();
     assert_eq!(wishes.len(), 1);
-    assert_eq!(wishes[0].scope, CWD);
+    assert_eq!(wishes[0].scope, Scope::Cwd(cwd()));
     assert_eq!(wishes[0].wish, FeatureWish::from(Wish::Auth(zeta.clone())));
     // The surface shows it once and says so.
     run(&mut app, AppEv::Intent(Intent::WishShown(wishes[0].seq)));
@@ -607,10 +620,18 @@ fn a_setup_page_opens_in_the_browser_and_the_end_says_how_it_went() {
             app: "a1".to_string(),
         },
     );
-    assert!(fx.commands().iter().any(|command| matches!(
-        command,
-        Command::OpenUrl { url, .. } if url == "https://x/1"
-    )));
+    let page = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Effect {
+                request,
+                ask: Ask::OpenUrl { url },
+                ..
+            } if url == "https://x/1" => Some(*request),
+            _ => None,
+        })
+        .expect("the page is asked of the host");
     // An app without a page opens nothing.
     let fx = verb(
         &mut app,
@@ -622,7 +643,22 @@ fn a_setup_page_opens_in_the_browser_and_the_end_says_how_it_went() {
     assert!(
         !fx.commands()
             .iter()
-            .any(|command| matches!(command, Command::OpenUrl { .. }))
+            .any(|command| matches!(command, Command::Effect { .. }))
+    );
+    // A browser that did not open it is said in the history.
+    run(
+        &mut app,
+        AppEv::Effect {
+            request: page,
+            done: Done::Opened(Err("no browser".to_string())),
+        },
+    );
+    assert_eq!(
+        said(&app).last(),
+        Some(&Say::PageFailed {
+            url: "https://x/1".to_string(),
+            error: "no browser".to_string()
+        })
     );
     verb(
         &mut app,
@@ -646,7 +682,8 @@ fn a_setup_page_opens_in_the_browser_and_the_end_says_how_it_went() {
             how: plugins::SetupEnd::Skipped,
         },
     );
-    assert_eq!(said(&app).len(), 2);
+    // Installed, the page that did not open, Completed: nothing was added.
+    assert_eq!(said(&app).len(), 3);
 }
 
 #[test]
@@ -722,13 +759,13 @@ fn a_failed_list_is_kept_as_failed_and_asked_again_by_the_next_interest() {
     let request = one(&open(&mut app, CWD));
     fail(&mut app, &request, "boom");
     assert_eq!(
-        state(&app).catalog(CWD),
-        Some(&Remote::Failed("boom".to_string()))
+        state(&app).catalog(&cwd()),
+        Some(&Remote::Failed(remote("boom")))
     );
     close(&mut app, CWD);
     let fx = open(&mut app, CWD);
     assert_eq!(wants(&fx), vec![Want::List]);
-    assert_eq!(state(&app).catalog(CWD), Some(&Remote::Loading(None)));
+    assert_eq!(state(&app).catalog(&cwd()), Some(&Remote::Loading(None)));
 }
 
 #[test]
@@ -737,7 +774,7 @@ fn a_known_list_stays_on_show_while_it_is_read_again() {
     close(&mut app, CWD);
     let fx = open(&mut app, CWD);
     assert_eq!(wants(&fx), vec![Want::List]);
-    let Some(Remote::Loading(Some(_))) = state(&app).catalog(CWD) else {
+    let Some(Remote::Loading(Some(_))) = state(&app).catalog(&cwd()) else {
         panic!("expected the old list under the loading");
     };
     assert!(!tabs(&app).is_empty());
@@ -752,38 +789,42 @@ fn directories_are_listed_apart() {
     fail(&mut app, &there, "unreadable");
     // The one directory failing does not touch the other.
     assert_eq!(
-        state(&app).catalog(OTHER),
-        Some(&Remote::Failed("unreadable".to_string()))
+        state(&app).catalog(&other()),
+        Some(&Remote::Failed(remote("unreadable")))
     );
-    assert_eq!(state(&app).catalog(CWD), Some(&Remote::Loading(None)));
+    assert_eq!(state(&app).catalog(&cwd()), Some(&Remote::Loading(None)));
     answer(&mut app, &here, local_market());
-    assert!(matches!(state(&app).catalog(CWD), Some(Remote::Ready(_))));
-    assert!(state(&app).tabs(OTHER, None).is_empty());
+    assert!(matches!(
+        state(&app).catalog(&cwd()),
+        Some(Remote::Ready(_))
+    ));
+    assert!(state(&app).tabs(&other(), None).is_empty());
     // A plugin is named by directory and row: the other directory has none of this one's.
     let zeta = row(&app, "Zeta");
     let elsewhere = PluginKey {
-        cwd: OTHER.to_string(),
+        cwd: other(),
         row: zeta.row,
     };
     assert!(!state(&app).readable(&elsewhere));
 }
 
 /// A new connection asks again for the interests still held (`reconnected`). The list of `CWD`
-/// is known (it stays on show while the new answer comes); the one of `OTHER` is in flight, and
-/// stays asked once: failing the requests of the connection that went is F6
-/// (`adr003_reconnect_fails_inflight_ops`), after which the interest is asked again, so the
-/// second half of the rule is `pending(F6)`.
+/// is known (it stays on show while the new answer comes); the one of `OTHER` was in flight on the
+/// connection that went: `attach` fails it (F6), so its interest is asked again too.
 #[test]
-fn a_reconnect_asks_again_for_the_interest_whose_list_is_known() {
+fn a_reconnect_asks_again_for_every_interest_held() {
     let mut app = browsing();
     open(&mut app, OTHER);
+    // the new connection: what was in flight on the old one is failed, then it is connected
+    app.attach();
     let fx = run(&mut app, AppEv::Connected);
-    let asked: Vec<_> = sent(&fx)
+    let mut asked: Vec<_> = sent(&fx)
         .into_iter()
         .filter(|(_, wanted)| wanted.want == Want::List)
         .map(|(_, wanted)| wanted.cwd)
         .collect();
-    assert_eq!(asked, vec![CWD.to_string()]);
+    asked.sort();
+    assert_eq!(asked, vec![OTHER.to_string(), CWD.to_string()]);
 }
 
 #[test]
@@ -899,7 +940,7 @@ fn a_refused_switch_is_said() {
         said(&app),
         vec![Say::EnableFailed {
             id: "alpha@curated".to_string(),
-            error: "read only".to_string()
+            error: remote("read only")
         }]
     );
     assert_eq!(tabs(&app)[0].rows[0].toggle, Toggle::Switch(true));
@@ -908,14 +949,12 @@ fn a_refused_switch_is_said() {
 #[test]
 fn a_marketplace_is_added_from_a_source() {
     let mut app = browsing();
-    let add = OpKey::Add {
-        cwd: CWD.to_string(),
-    };
+    let add = OpKey::Add { cwd: cwd() };
     // Nothing typed: nothing asked.
     let fx = verb(
         &mut app,
         plugins::Intent::AddMarketplace {
-            cwd: CWD.to_string(),
+            cwd: cwd(),
             source: "  ".to_string(),
         },
     );
@@ -923,7 +962,7 @@ fn a_marketplace_is_added_from_a_source() {
     let fx = verb(
         &mut app,
         plugins::Intent::AddMarketplace {
-            cwd: CWD.to_string(),
+            cwd: cwd(),
             source: "./local#main".to_string(),
         },
     );
@@ -964,14 +1003,12 @@ fn a_marketplace_is_added_from_a_source() {
 #[test]
 fn a_failed_add_fails_its_op_and_can_be_tried_again() {
     let mut app = browsing();
-    let add = OpKey::Add {
-        cwd: CWD.to_string(),
-    };
+    let add = OpKey::Add { cwd: cwd() };
     let ask = |app: &mut CodexApp| {
         verb(
             app,
             plugins::Intent::AddMarketplace {
-                cwd: CWD.to_string(),
+                cwd: cwd(),
                 source: "owner/repo".to_string(),
             },
         )
@@ -980,7 +1017,7 @@ fn a_failed_add_fails_its_op_and_can_be_tried_again() {
     fail(&mut app, &one(&fx), "no such repo");
     assert_eq!(
         op(&app, &add).map(|op| op.status),
-        Some(Status::Failed("no such repo".to_string()))
+        Some(Status::Failed(remote("no such repo")))
     );
     assert_eq!(sent(&ask(&mut app)).len(), 1);
     assert_eq!(op(&app, &add).map(|op| op.status), Some(Status::Running));
@@ -992,11 +1029,11 @@ fn a_configured_marketplace_can_be_removed() {
     let team = "marketplace:/home/me/team/marketplace.json";
     // The curated tab is not the user's: nothing to remove.
     assert_eq!(
-        state(&app).market(CWD, "marketplace:openai-curated", None),
+        state(&app).market(&cwd(), "marketplace:openai-curated", None),
         None
     );
     let market = state(&app)
-        .market(CWD, team, None)
+        .market(&cwd(), team, None)
         .expect("a configured tab");
     assert_eq!(
         (market.name.as_str(), market.label.as_str()),
@@ -1005,7 +1042,7 @@ fn a_configured_marketplace_can_be_removed() {
     let fx = verb(
         &mut app,
         plugins::Intent::RemoveMarketplace {
-            cwd: CWD.to_string(),
+            cwd: cwd(),
             name: "team".to_string(),
         },
     );
@@ -1035,7 +1072,7 @@ fn a_configured_marketplace_can_be_removed() {
         op(
             &app,
             &OpKey::Remove {
-                cwd: CWD.to_string(),
+                cwd: cwd(),
                 name: "team".to_string()
             }
         )
@@ -1048,11 +1085,11 @@ fn a_configured_marketplace_can_be_removed() {
 fn a_git_marketplace_is_upgraded() {
     let mut app = browsing();
     let team = "marketplace:/home/me/team/marketplace.json";
-    assert!(state(&app).market(CWD, team, None).unwrap().upgrade);
+    assert!(state(&app).market(&cwd(), team, None).unwrap().upgrade);
     let fx = verb(
         &mut app,
         plugins::Intent::UpgradeMarketplace {
-            cwd: CWD.to_string(),
+            cwd: cwd(),
             name: Some("team".to_string()),
         },
     );
@@ -1068,7 +1105,7 @@ fn a_git_marketplace_is_upgraded() {
         sent(&verb(
             &mut app,
             plugins::Intent::UpgradeMarketplace {
-                cwd: CWD.to_string(),
+                cwd: cwd(),
                 name: Some("team".to_string()),
             },
         ))
@@ -1091,7 +1128,7 @@ fn a_git_marketplace_is_upgraded() {
         op(
             &app,
             &OpKey::Upgrade {
-                cwd: CWD.to_string(),
+                cwd: cwd(),
                 name: Some("team".to_string())
             }
         )

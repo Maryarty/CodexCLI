@@ -1732,7 +1732,7 @@ mod host_asks {
         let mut fx = AppFx::default();
         for (request, done) in [
             (1, Done::ClipboardText(Ok("pasted".into()))),
-            (3, Done::Desktop(Err("not installed".into()))),
+            (3, Done::Opened(Err("not installed".into()))),
             (4, Done::Export(Ok("/work/talk.md".into()))),
         ] {
             apply_app(&mut app, AppEv::Effect { request, done }, &mut fx);
@@ -1743,7 +1743,7 @@ mod host_asks {
         );
         assert_eq!(
             app.effect(3),
-            Some(&Done::Desktop(Err("not installed".into())))
+            Some(&Done::Opened(Err("not installed".into())))
         );
     }
 

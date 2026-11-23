@@ -12,7 +12,6 @@
 
 use std::rc::Rc;
 
-use rtwk::navigation::NavigatorState;
 use rtwk::overlay::DialogOptions;
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx};
@@ -21,7 +20,8 @@ use codex_tui_core::app::Intent;
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::feature_list;
 use codex_tui_core::features::{
-    Feature, FeatureIntent, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates, FeatureWish,
+    Feature, FeatureIntent, FeatureInterest, FeatureMenu, FeatureNote, FeaturePrompt,
+    FeatureStates, FeatureWish, Scope,
 };
 use codex_tui_core::screens::select::list::List;
 
@@ -39,16 +39,16 @@ pub struct PromptWords {
     pub placeholder: String,
 }
 
-/// How a wish of a feature is shown (ADR-013 Ж): in the sheet of its kind that is open for its
-/// scope, else in a sheet opened at it. The presenter (`app::presenters`) is the only one that
-/// shows it, and says so.
+/// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope
+/// shows it from its own slice of the feature's state (the data of the wish is the feature's, a
+/// sheet reads it like the rest), else the presenter opens a sheet that does. The presenter
+/// (`app::presenters`) is the only one that says it was shown.
 pub struct Shown {
-    /// The kind of sheet the wish belongs to, and the scope (a directory) it is open for.
-    pub sheet: &'static str,
-    pub scope: String,
-    /// Puts the page of the wish on the navigator of the open sheet.
-    pub push: Box<dyn Fn(&NavigatorState)>,
-    /// The sheet that opens at the wish when none is open for its scope.
+    /// What the sheet that shows the wish is interested in (`Interest`) while it is open: the
+    /// presenter finds an open sheet by the counter core keeps, so no registry of sheets is kept
+    /// and a sheet open for another scope is not mistaken for this one.
+    pub held_by: FeatureInterest,
+    /// The sheet that opens for the wish when none is open for its scope.
     pub open: Rc<dyn Fn() -> AnyWidget>,
     pub options: DialogOptions,
 }
@@ -61,10 +61,10 @@ pub trait FeatureView: Feature {
 
     /// Opens the feature's sheet for `scope` (the working directory): the feature is told, the
     /// sheet shows what it holds. Called for `SHEET`.
-    fn open_sheet<S: 'static>(_cx: &mut Cx<'_, S>, _scope: &str) {}
+    fn open_sheet<S: 'static>(_cx: &mut Cx<'_, S>, _scope: &Scope) {}
 
     /// How one of the feature's wishes is shown; none for a feature that has no wishes.
-    fn shown(_wish: &Self::Wish, _scope: &str) -> Option<Shown> {
+    fn shown(_wish: &Self::Wish, _scope: &Scope) -> Option<Shown> {
         None
     }
 
@@ -139,9 +139,10 @@ macro_rules! view_dispatch {
 
 macro_rules! view_wishes {
     ($($name:ident => $variant:ident;)*) => {
-        /// How a wish of a feature is shown: the sheet it belongs to and the page of it.
+        /// How a wish of a feature is shown: what an open sheet of it is interested in, and the sheet
+        /// that opens for it.
         #[allow(unused_variables)]
-        pub fn shown(wish: &FeatureWish, scope: &str) -> Option<Shown> {
+        pub fn shown(wish: &FeatureWish, scope: &Scope) -> Option<Shown> {
             match *wish {
                 $(FeatureWish::$variant(ref wish) => {
                     <codex_tui_core::features::$name::$variant as FeatureView>::shown(wish, scope)
@@ -155,7 +156,7 @@ macro_rules! view_wishes {
         }
 
         /// Opens the sheet `command` belongs to, for `scope` (the working directory).
-        pub fn open_sheet<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand, scope: &str) {
+        pub fn open_sheet<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand, scope: &Scope) {
             $(
                 if <codex_tui_core::features::$name::$variant as FeatureView>::SHEET == Some(command) {
                     <codex_tui_core::features::$name::$variant as FeatureView>::open_sheet(cx, scope);

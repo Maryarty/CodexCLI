@@ -16,13 +16,14 @@ mod wire;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
-use crate::ids::ThreadId;
+use crate::app::effects::Done;
+use crate::ids::{Cwd, ThreadId};
 use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 pub use catalog::{
     Action, Catalog, Config, Configured, Detail, Kind, Location, Marketplace, Part, Placeholder,
-    Plugin, Product, Row, Section, SectionError, Source, Status as PluginStatus, Tab, Target,
+    Plugin, Product, Row, RowKey, Section, SectionError, Source, Status as PluginStatus, Tab, Target,
     Toggle,
 };
 pub use state::{Gen, Market, Op, OpKey, Outcome, PluginKey, Setup, State, Status};
@@ -35,17 +36,17 @@ pub struct Plugins;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// `/plugins` was run in `cwd`: says so when the feature is off.
-    Run { cwd: String },
+    Run { cwd: Cwd },
     /// The detail of a plugin of the list.
     Read { key: PluginKey },
     Install { key: PluginKey },
     Uninstall { key: PluginKey },
     /// The switch of a plugin of the list set to `enabled` (coalesced while a write runs).
     SetEnabled { key: PluginKey, enabled: bool },
-    AddMarketplace { cwd: String, source: String },
-    RemoveMarketplace { cwd: String, name: String },
+    AddMarketplace { cwd: Cwd, source: String },
+    RemoveMarketplace { cwd: Cwd, name: String },
     /// One marketplace, or all of the configured git ones.
-    UpgradeMarketplace { cwd: String, name: Option<String> },
+    UpgradeMarketplace { cwd: Cwd, name: Option<String> },
     /// The page of one of the apps of the setup (`app` is its id) opens in the browser.
     OpenSetupPage { key: PluginKey, app: String },
     /// The setup of an installed plugin's apps is over.
@@ -74,7 +75,7 @@ pub enum Wish {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Interest {
     /// The list of the plugins of `cwd`.
-    Listing { cwd: String },
+    Listing { cwd: Cwd },
 }
 
 /// What the host tells the feature unasked.
@@ -111,15 +112,18 @@ impl Fact {
 /// number that tells it from an older ask of the same key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
-    List { cwd: String, request: u64 },
-    Section { cwd: String, request: u64, part: Part },
+    List { cwd: Cwd, request: u64 },
+    Section { cwd: Cwd, request: u64, part: Part },
     Read { key: PluginKey, request: u64 },
     Install { key: PluginKey, at: Gen, name: String, target: Target },
     Uninstall { key: PluginKey, at: Gen, name: String },
-    Add { cwd: String, at: Gen },
-    Remove { cwd: String, at: Gen, name: String, label: String },
-    Upgrade { cwd: String, at: Gen, name: Option<String> },
-    Enable { cwd: String, id: String, enabled: bool },
+    Add { cwd: Cwd, at: Gen },
+    Remove { cwd: Cwd, at: Gen, name: String, label: String },
+    Upgrade { cwd: Cwd, at: Gen, name: Option<String> },
+    Enable { cwd: Cwd, id: String, enabled: bool },
+    /// A page opened in the browser (the sign-in page of an app): the host's answer says whether
+    /// it opened.
+    Page { url: String },
 }
 
 /// What the feature says in the history.
@@ -133,7 +137,7 @@ pub enum Say {
     /// The setup of the apps was given up, or went through.
     Skipped { name: String },
     Completed { name: String },
-    EnableFailed { id: String, error: String },
+    EnableFailed { id: String, error: RpcError },
     MarketAdded { name: String, root: String, already: bool },
     MarketRemoved { label: String, name: String, root: Option<String> },
     /// No configured git marketplace to upgrade.
@@ -142,14 +146,19 @@ pub enum Say {
     Upgraded { roots: Vec<String> },
     UpgradeFailed(Vec<(String, String)>),
     /// The request itself failed.
-    UpgradeError(String),
+    UpgradeError(RpcError),
+    /// The browser did not open `url`.
+    PageFailed { url: String, error: String },
 }
 
 impl Say {
     pub fn error(&self) -> bool {
         matches!(
             self,
-            Say::EnableFailed { .. } | Say::UpgradeFailed(_) | Say::UpgradeError(_)
+            Say::EnableFailed { .. }
+                | Say::UpgradeFailed(_)
+                | Say::UpgradeError(_)
+                | Say::PageFailed { .. }
         )
     }
 }
@@ -182,6 +191,12 @@ impl Feature for Plugins {
 
     fn note_tone(note: &Say) -> Tone {
         if note.error() { Tone::Error } else { Tone::Info }
+    }
+
+    fn effect_done(_state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+        if let (Ctx::Page { url }, Done::Opened(Err(error))) = (ctx, done) {
+            cx.note(None, Say::PageFailed { url, error });
+        }
     }
 
     fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {

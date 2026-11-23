@@ -102,7 +102,6 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
         }
         Out::Wish { scope, wish } => Rc::make_mut(&mut app.wishes).push(scope, wish),
-        Out::OpenUrl { url } => fx.commands.push(Command::OpenUrl { url }),
         Out::Settled { thread } => {
             let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);

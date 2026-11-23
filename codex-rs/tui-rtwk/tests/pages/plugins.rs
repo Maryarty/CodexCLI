@@ -1,8 +1,9 @@
 //! `/plugins` as a feature's sheet (ADR-013 pilot): the browser is the first route of a nested
 //! `Navigator` in the sheet and the detail, the prompts and the confirmations are routes over it.
-//! What the page tests pin is the route model: Esc pops one route and the browser under it still
-//! has its cursor, tab and query, because it was never rebuilt; Esc on the browser closes the
-//! sheet; a tap and a key do the same. The oracle's screens of the same pages are the shard
+//! What the page tests pin is the route model: the `Back to plugins` row pops one route and the
+//! browser under it still has its cursor, tab and query, because it was never rebuilt. Esc follows
+//! the oracle page by page: it closes the sheet on the browser and on the detail (the oracle's
+//! detail has no `on_cancel`) and pops only where the oracle goes back. The oracle's screens of the same pages are the shard
 //! `chat_popups_3`; the feature's own rules (the ops, the late reply, the interest) are
 //! `core/tests/plugins.rs`.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -63,20 +64,20 @@ fn reads(s: &Screen) -> usize {
 }
 
 #[test]
-fn esc_on_the_detail_returns_to_the_browser_with_the_cursor_where_it_was() {
+fn back_in_the_detail_returns_to_the_browser_with_the_cursor_where_it_was() {
     let mut s = three();
     s.keys("down").keys("down");
     assert!(cursor(&s).contains("Charlie"), "{}", cursor(&s));
     s.keys("enter");
     s.assert_contains("Back to plugins");
-    s.keys("esc");
+    s.click_text("Back to plugins");
     s.assert_absent("Back to plugins");
     s.assert_contains("Type to search plugins");
     assert!(cursor(&s).contains("Charlie"), "{}", cursor(&s));
 }
 
 #[test]
-fn esc_on_the_detail_keeps_the_tab_and_the_query_of_the_browser() {
+fn back_in_the_detail_keeps_the_tab_and_the_query_of_the_browser() {
     let mut s = three();
     s.keys("right").keys("right");
     s.assert_contains("OpenAI Curated marketplace.");
@@ -84,7 +85,7 @@ fn esc_on_the_detail_keeps_the_tab_and_the_query_of_the_browser() {
     s.assert_absent("Alpha");
     s.keys("enter");
     s.assert_contains("Back to plugins");
-    s.keys("esc");
+    s.click_text("Back to plugins");
     s.assert_contains("OpenAI Curated marketplace.");
     s.assert_contains("brav");
     s.assert_contains("Bravo");
@@ -101,10 +102,19 @@ fn esc_on_the_browser_closes_the_sheet() {
 }
 
 #[test]
-fn a_tap_on_back_in_the_detail_is_esc_and_a_second_esc_closes_the_sheet() {
+fn esc_on_the_detail_closes_the_sheet_as_the_oracle_does() {
     let mut s = three();
     s.click_text("Bravo");
     s.assert_contains("Back to plugins");
+    s.keys("esc");
+    s.assert_absent("Back to plugins");
+    s.assert_absent("Type to search plugins");
+}
+
+#[test]
+fn a_tap_on_back_in_the_detail_goes_back_and_a_following_esc_closes_the_sheet() {
+    let mut s = three();
+    s.click_text("Bravo");
     s.click_text("Back to plugins");
     s.assert_absent("Back to plugins");
     assert!(cursor(&s).contains("Bravo"), "{}", cursor(&s));
@@ -116,7 +126,7 @@ fn a_tap_on_back_in_the_detail_is_esc_and_a_second_esc_closes_the_sheet() {
 fn a_second_visit_to_the_same_detail_shows_it_again() {
     let mut s = three();
     s.keys("enter");
-    s.keys("esc");
+    s.click_text("Back to plugins");
     s.keys("enter");
     s.assert_contains("Back to plugins");
     // `Intent::Read` is the feature's verb: the page says it each time, the feature decides what
@@ -135,7 +145,8 @@ fn the_sheet_loads_the_list_when_it_opens_and_not_again_while_it_stays() {
     };
     let first = lists(&s);
     assert!(first >= 1, "{:?}", seed::wants(&s));
-    s.keys("enter").keys("esc");
+    s.keys("enter");
+    s.click_text("Back to plugins");
     s.keys("right").keys("left");
     assert_eq!(lists(&s), first, "{:?}", seed::wants(&s));
 }
