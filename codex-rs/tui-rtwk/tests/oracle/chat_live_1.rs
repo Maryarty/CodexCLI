@@ -423,18 +423,65 @@ fn external_writer_notice_offers_command_center() {
     }
 }
 
+/// A thread whose rollout file the server named: the saved chat the notice's `c` continues.
+const SAVED_CHAT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
+
+/// The server refused `thread-1` for its model provider (`error` is the failure's JSON).
+fn provider_error(error: &str) -> String {
+    format!(
+        r#"{{"step":"screen","dir":"chat","ev":{{"provider_error":{{"thread":"thread-1","error":{error}}}}}}}"#
+    )
+}
+
 // ORACLE chatwidget/rendering_tests.rs:557 provider_error_preserves_draft_and_survives_thread_navigation kind=snap owner=chat-live snap=provider_errors
 #[test]
 fn provider_error_preserves_draft_and_survives_thread_navigation() {
     kit::pending(
         Owner::ChatLive,
-        "no provider-error state on the chat screen (model provider not configured, mismatch or policy conflict) and no thread navigation that restores the saved draft",
+        "the mismatch frames name the provider the config calls `Team Gateway` and the remote server the connection is to: the app has no fact for the config's model providers or the launch's remote address (StatusFacts of core/src/screens/chat.rs and host/src/facts.rs), so the notice names the id and has no location row",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("unsent draft");
-    // oracle: the draft survives the error and the navigation; each error renders its own notice, one labelled frame per case.
-    s.assert_contains("unsent draft");
-    s.assert_snap_section("provider_errors", "provider_error_local_80");
+    let not_configured = r#"{"type":"modelProviderNotConfigured","modelProvider":"old-provider"}"#;
+    let mismatch = r#"{"type":"modelProviderMismatch","modelProvider":"custom-gateway","currentModelProvider":"amazon-bedrock-runtime"}"#;
+    let policy_provider = r#"{"type":"modelProviderPolicyConflict","modelProvider":"openai","requiredModelProvider":"amazon-bedrock"}"#;
+    let policy_settings = r#"{"type":"modelProviderPolicyConflict","modelProvider":"openai","requiredModelProvider":"openai"}"#;
+    for (frame, width, error) in [
+        ("provider_error_local_80", 80, not_configured),
+        ("provider_error_mismatch_local_80", 80, mismatch),
+        ("provider_error_mismatch_local_40", 40, mismatch),
+        ("provider_error_mismatch_remote_80", 80, mismatch),
+        (
+            "provider_error_policy_provider_local_80",
+            80,
+            policy_provider,
+        ),
+        (
+            "provider_error_policy_settings_local_80",
+            80,
+            policy_settings,
+        ),
+    ] {
+        // the notice's top padding row stands above the frame's first row
+        let rows = kit::snap_rows("provider_errors", frame).len();
+        let height = u16::try_from(rows).unwrap_or(u16::MAX) + 1;
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(width, height)
+            .script(SAVED_CHAT)
+            .open();
+        s.type_text("unsent draft");
+        s.feed(&provider_error(error));
+        // the chat takes no input: typing, a paste and Enter send nothing
+        s.type_text("x");
+        s.paste("ignored paste");
+        s.keys("enter");
+        s.assert_no_turn();
+        s.assert_absent("ignored paste");
+        // oracle: the bottom pane of the notice at this width, in the frame the case names.
+        s.snap("provider_errors").frame(frame).at(1, 0).assert();
+        // the notice survives a visit to the other chats and back
+        s.keys("esc");
+        s.keys("esc");
+        s.snap("provider_errors").frame(frame).at(1, 0).assert();
+    }
 }
 
 // ---- oracle: chatwidget/tests/app_server.rs (40 screen-level tests here; 8 state tests left to chat-live)
