@@ -42,6 +42,8 @@ mod composer_vim;
 mod history_pages;
 #[path = "pages/onboarding_focus.rs"]
 mod onboarding_focus;
+#[path = "pages/permissions.rs"]
+mod permissions;
 #[path = "pages/plugins.rs"]
 mod plugins;
 #[path = "pages/resume_focus.rs"]
