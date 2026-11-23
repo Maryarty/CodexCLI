@@ -1,0 +1,4 @@
+# `/presets` with one preset saved in slot 1 (label `coding`): the slot pickers show it, the confirmations replace or delete it.
+# Oracle: chatwidget/tests/quick_dials_tests.rs `saved_quick_dials_save_and_clear_picker_snapshots`
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"dials","slots":[{"slot":1,"input":"/model gpt-5.5 --reasoning=high --speed=fast","label":"coding"}]}}

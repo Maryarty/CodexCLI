@@ -10,6 +10,7 @@ mod dialog;
 mod generic;
 mod lists;
 pub(crate) mod prompt;
+mod quick;
 mod review;
 mod review_sheet;
 
@@ -67,8 +68,14 @@ fn fixture_sheet(json: &str) -> AnyWidget {
 }
 
 /// What the debug menu lists for this directory: one entry per parameterisation, on the model a
-/// fixture script made.
+/// fixture script made; the families that are sheets of their own list theirs after these.
 pub fn debug_entries() -> Vec<DebugEntry> {
+    let mut entries = fixture_entries();
+    entries.extend(quick::debug_entries());
+    entries
+}
+
+fn fixture_entries() -> Vec<DebugEntry> {
     vec![
         entry!(
             "model_picker",
@@ -509,6 +516,7 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
             confirm::options(),
         ),
         Opening::Review => (review_sheet::sheet(), review_sheet::options()),
+        Opening::Quick(menu) => (quick::sheet(menu), quick::options()),
     }
 }
 

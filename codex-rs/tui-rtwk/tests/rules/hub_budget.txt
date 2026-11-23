@@ -24,8 +24,9 @@ enum core/src/screens/select.rs Picked 9
 # for), `Confirmed` (the answer Yes), `Shown` (the presenter's receipt), `Review` (the target a page
 # settled on) and `ReviewList` (a list asked of the host) are added, `Instructions` goes. The
 # gesture intents (`Choose`, `Secondary`, `Close`) and `Open` leave with the last family, and the
-# line goes below 21 then.
-enum core/src/screens/select.rs Menu 5
+# line goes below 21 then. `Menu::Quick` (`/presets`) is a sheet too (`Opening::Quick`, its pages the
+# routes of a nested navigator); `Draft` is `Preset` (what a page asks of the model).
+enum core/src/screens/select.rs Menu 4
 enum core/src/screens/select.rs Intent 25
 enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
