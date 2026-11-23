@@ -375,6 +375,7 @@ macro_rules! feature_dirs {
         )*
 
         /// The fact a script's `fact` step makes: `value` is read by the feature's own `SEED`.
+        #[allow(dead_code)]
         pub fn seed_fact(
             feature: &str,
             value: serde_json::Value,
