@@ -20,6 +20,10 @@ pub enum RpcError {
     Mismatch,
     /// The result did not decode; the decoder's diagnostic.
     Malformed(String),
+    /// The message never left: its images could not be prepared (oracle
+    /// `prepare_images`), with the text to show. The thread gives the message
+    /// back whole.
+    Prepare(String),
     /// The server refused the turn or steer for the chat's model provider
     /// (`error.data` of a `ModelProviderError`): the chat is read-only.
     Provider(codex_app_server_protocol::ModelProviderError),
@@ -132,6 +136,11 @@ impl Reply {
 
     pub fn failed(message: impl Into<String>) -> Self {
         Self(Answer::Failed(RpcError::Remote(message.into())))
+    }
+
+    /// The images of a turn or steer could not be prepared: nothing was sent.
+    pub fn prepare_failed(message: impl Into<String>) -> Self {
+        Self(Answer::Failed(RpcError::Prepare(message.into())))
     }
 
     pub fn error(error: RpcError) -> Self {

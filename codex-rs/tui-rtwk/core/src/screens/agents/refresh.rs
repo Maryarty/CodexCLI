@@ -458,6 +458,7 @@ fn error_text(error: RpcError) -> String {
     match error {
         RpcError::Remote(message) | RpcError::Malformed(message) => message,
         RpcError::Mismatch => "unexpected reply".to_owned(),
+        RpcError::Prepare(text) => text,
         RpcError::Provider(error) => error.to_string(),
     }
 }

@@ -968,7 +968,9 @@ pub enum Failure {
 impl From<RpcError> for Failure {
     fn from(error: RpcError) -> Self {
         match error {
-            RpcError::Remote(message) | RpcError::Malformed(message) => Failure::Message(message),
+            RpcError::Remote(message) | RpcError::Malformed(message) | RpcError::Prepare(message) => {
+                Failure::Message(message)
+            }
             RpcError::Mismatch => Failure::ReplyMismatch,
             RpcError::Provider(error) => Failure::Message(error.to_string()),
         }
@@ -999,6 +1001,10 @@ pub struct ThreadModel {
     steers_after_interrupt: bool,
     /// The last messages given back to the composer.
     restore: Option<Restore>,
+    /// A message went back to the composer while others wait (a refused image
+    /// preparation): the queue sends nothing on its own until it is empty
+    /// (oracle `recovered_queue`).
+    recovered: bool,
     /// The unified-exec sessions that run in the background (oracle
     /// `unified_exec_processes`), oldest first.
     terminals: Vec<Terminal>,
@@ -1162,6 +1168,7 @@ impl ThreadModel {
             rejected_steers: Vec::new(),
             steers_after_interrupt: false,
             restore: None,
+            recovered: false,
             terminals: Vec::new(),
             hooks: Vec::new(),
             slots: ThreadSlots::default(),
@@ -2270,7 +2277,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             // MCP servers still starting hold the message (oracle
             // `maybe_send_next_queued_input`).
-            if starting || model.slots.chat.mcp.is_starting() || !model.queue.is_empty() {
+            let behind = !model.queue.is_empty() && !model.recovered;
+            if starting || model.slots.chat.mcp.is_starting() || behind {
                 enqueue(model, message, fx);
                 return;
             }
@@ -2338,6 +2346,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 ) => {
                     model.queue.insert(0, message);
                     model.slots.chat.provider_error = Some(error);
+                }
+                // Its images could not be prepared: the message never left, it goes back
+                // whole to the composer and the queue waits (`on_images_prepared`).
+                (ThreadCtx::StartTurn { message, .. }, Answer::Failed(RpcError::Prepare(text))) => {
+                    model.last_error = Some(Failure::Message(text));
+                    recover(model, message);
                 }
                 (ThreadCtx::StartTurn { .. }, Answer::Failed(error)) => {
                     if !model.is_running() {
@@ -2437,6 +2451,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             if let Some(message) = message {
                 give_back(model, vec![message], true);
             }
+            model.recovered &= !model.queue.is_empty() || !model.rejected_steers.is_empty();
         }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::CleanTerminals,
@@ -2769,6 +2784,13 @@ fn steer(fx: &mut ThreadFx<'_>, turn: TurnId, retried: bool, message: UserMessag
     )
 }
 
+/// A message that never left goes back to the composer whole; what waits in
+/// the queue stays there, unsent (oracle `recovered_queue`).
+fn recover(model: &mut ThreadModel, message: UserMessage) {
+    model.recovered |= !model.queue.is_empty() || !model.rejected_steers.is_empty();
+    give_back(model, vec![message], false);
+}
+
 /// Messages back to the composer (`restore_composer_state`).
 fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool) {
     if messages.is_empty() {
@@ -2855,6 +2877,15 @@ fn steer_reply(
             return;
         }
         Answer::Failed(RpcError::Remote(text)) => Failure::Message(text),
+        // the steer never left: it is no pending steer, its message is the composer's again
+        Answer::Failed(RpcError::Prepare(text)) => {
+            if let Some(index) = position {
+                model.pending_steers.remove(index);
+            }
+            model.last_error = Some(Failure::Message(text));
+            recover(model, message);
+            return;
+        }
         // only the refused steer goes back: it is first to go out again
         Answer::Failed(RpcError::Provider(error)) => {
             if let Some(index) = position {
@@ -2957,7 +2988,10 @@ fn renumbered(placeholder: &str, number: usize) -> String {
 /// The next queued message becomes the next turn (one per turn end).
 fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     // a refused thread keeps what waits (oracle `suppress_queue_autosend`)
-    if model.slots.chat.mcp.is_starting() || model.slots.chat.provider_error.is_some() {
+    if model.slots.chat.mcp.is_starting()
+        || model.slots.chat.provider_error.is_some()
+        || model.recovered
+    {
         return;
     }
     // Steers the server refused go first, as one message
