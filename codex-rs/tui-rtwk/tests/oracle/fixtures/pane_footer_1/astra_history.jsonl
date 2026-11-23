@@ -1,0 +1,5 @@
+# A fresh thread on `gpt-6-astra` (animations and the starfield effect on) with four entries of input history, the
+# newest last: the oracle's `record_local_submission` of sparkle_tests.rs.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-6-astra"}}}
+{"step":"screen","dir":"popovers","ev":{"history":["git status","/status","stored draft","history prompt"]}}
