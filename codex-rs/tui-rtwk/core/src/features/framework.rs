@@ -5,8 +5,9 @@
 //! list order; an answer of another feature's shape is a mismatch, not a panic; a feature
 //! without a component says `Never<Self>` and two of them do not overlap.
 //!
-//! The outbox (`AppCx::ask`, `open`, `note`...) is typed with the real list's roots, which
-//! are empty here: it is exercised by the first feature that has a payload.
+//! The outbox (`AppCx::ask`, `effect`, `open`, `note`...) is typed with the real list's
+//! roots, which hold only `goal` here: what a probe's step says is nothing, and the outbox is
+//! exercised with the real roots (`a_feature_asks_the_host_through_the_outbox`).
 
 use std::cell::RefCell;
 
@@ -14,8 +15,9 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
-use super::{AppCx, AppView, Choice, Feature, Never, ThreadCx, Tone, TurnEnd};
+use super::{AppCx, AppView, Choice, Feature, Never, Out, ThreadCx, Tone, TurnEnd};
 use crate::app::AppFx;
+use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
 use crate::ids::{ThreadId, TicketMint};
 use crate::rpc::RpcError;
@@ -96,6 +98,15 @@ macro_rules! probe {
                         Err(RpcError::Mismatch) => *state += 1000,
                         Err(_) => *state += 1,
                     }
+                }
+
+                fn effect_done(state: &mut u32, ctx: Ctx, done: Done, _cx: &mut AppCx<'_>) {
+                    *state += ctx.0.len() as u32
+                        + match done {
+                            Done::Title(Some(title)) => title.len() as u32,
+                            Done::Title(None) => 1,
+                            _ => 1000,
+                        };
                 }
 
                 fn on_resumed(_state: &mut u32, thread: &ThreadId, _cx: &mut AppCx<'_>) {
@@ -206,8 +217,9 @@ mod probe_list {
 use probe_list::{
     FeatureCommand, FeatureCtx, FeatureIntent, FeatureMenu, FeatureNote, FeaturePick,
     FeaturePrompt, FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha,
-    answered, apply_intent, apply_thread_intent, apply_thread_reply, beta, choose, decode, names,
-    note_tone, on_interrupted, on_resumed, on_turn_end, picked, prompt_submitted, wire,
+    answered, apply_intent, apply_thread_intent, apply_thread_reply, beta, choose, decode,
+    effect_done, names, note_tone, on_interrupted, on_resumed, on_turn_end, picked,
+    prompt_submitted, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -289,6 +301,78 @@ fn an_answer_goes_to_its_feature_and_one_of_another_shape_is_a_mismatch() {
         (*states.alpha, *states.beta),
         (1005, 1),
         "right reply applied; wrong shape is a Mismatch to the ctx's feature; error reaches beta"
+    );
+}
+
+/// The host's answer goes to the feature whose ctx the ask carried, as the feature's own
+/// `Ctx`, and to no other.
+#[test]
+fn a_host_answer_reaches_the_feature_that_asked() {
+    let mut states = FeatureStates::default();
+    app_step(|cx| {
+        effect_done(
+            &mut states,
+            FeatureCtx::from(beta::Ctx("bb")),
+            Done::Title(Some("abc".to_owned())),
+            cx,
+        );
+        effect_done(
+            &mut states,
+            FeatureCtx::from(alpha::Ctx("a")),
+            Done::Title(None),
+            cx,
+        );
+        effect_done(
+            &mut states,
+            FeatureCtx::from(beta::Ctx("b")),
+            Done::Export(Err("no".to_owned())),
+            cx,
+        );
+    });
+    assert_eq!(
+        (*states.alpha, *states.beta),
+        (2, (2 + 3) + (1 + 1000)),
+        "each answer is its asker's, with the asker's own ctx"
+    );
+}
+
+/// A feature has no handle on the host: it says what it wants, with the ctx that comes back
+/// with the answer, and the app carries it out after the step (`app/features.rs`). The outbox
+/// is typed with the real list's roots, so the ask is a `goal` one.
+#[test]
+fn a_feature_asks_the_host_through_the_outbox() {
+    let ctx = crate::features::goal::Ctx {
+        thread: ThreadId::new("t1"),
+        flow: crate::features::goal::Flow::Show,
+    };
+    let (threads, screens, tui) = (
+        ThreadSet::default(),
+        ScreenStates::default(),
+        TuiSettings::default(),
+    );
+    let mut cx = AppCx::new(AppView::new(None, &threads, &screens, &tui, &[]));
+    cx.effect(Ask::ClipboardText, ctx.clone());
+    cx.effect(
+        Ask::SuggestTitle {
+            thread: ThreadId::new("t1"),
+        },
+        ctx.clone(),
+    );
+    assert_eq!(
+        cx.into_out(),
+        [
+            Out::Effect {
+                ask: Ask::ClipboardText,
+                ctx: super::FeatureCtx::Goal(ctx.clone()),
+            },
+            Out::Effect {
+                ask: Ask::SuggestTitle {
+                    thread: ThreadId::new("t1"),
+                },
+                ctx: super::FeatureCtx::Goal(ctx),
+            },
+        ],
+        "in the order they were said"
     );
 }
 

@@ -15,7 +15,11 @@
 //! and never a variant per feature (rule `hub_enums_only_shrink`).
 //!
 //! The order of the list is the order of every hook that runs over all features
-//! (`on_resumed`, `on_turn_end`, `on_interrupted`).
+//! (`on_resumed`, `on_turn_end`, `on_interrupted`, `on_settled`).
+//!
+//! A feature reaches the server through `wire` (an RPC) and the host through `AppCx::effect`
+//! (an `effects::Ask`: write a file, suggest a title, copy; the host's list of capabilities,
+//! never a feature's), whose answer comes back to `effect_done`.
 //!
 //! The recipe (files, the one list line, hooks, tests) is the end of ADR-012 in
 //! `docs/rtwk-port/architecture.md`.
@@ -23,6 +27,7 @@
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
+use crate::app::effects::Done;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::{Tone, TurnEnd};
@@ -157,6 +162,13 @@ pub trait Feature: 'static {
         cx: &mut AppCx<'_>,
     ) {
         let _ = (state, ctx, result, cx);
+    }
+
+    /// The host's answer to an ask the feature made through `AppCx::effect`, with the `ctx` it
+    /// gave. A copy answers twice (`Done::Copy(Ok(CopyStatus::Pending(_)))`, then how it
+    /// ended): `Done::is_final` says which one this is.
+    fn effect_done(state: &mut Self::State, ctx: Self::Ctx, done: Done, cx: &mut AppCx<'_>) {
+        let _ = (state, ctx, done, cx);
     }
 
     /// The row `row` of the feature's `menu` chosen.
@@ -392,6 +404,21 @@ macro_rules! feature_dirs {
                         _ => Err(RpcError::Mismatch),
                     });
                     <$name::$variant as Feature>::answered(&mut states.$name, ctx, result, cx)
+                })*
+            }
+        }
+
+        /// The host's answer to an ask a feature made (`AppCx::effect`).
+        #[allow(unused_variables)]
+        pub fn effect_done(
+            states: &mut FeatureStates,
+            ctx: FeatureCtx,
+            done: Done,
+            cx: &mut AppCx<'_>,
+        ) {
+            match ctx {
+                $(FeatureCtx::$variant(ctx) => {
+                    <$name::$variant as Feature>::effect_done(&mut states.$name, ctx, done, cx)
                 })*
             }
         }

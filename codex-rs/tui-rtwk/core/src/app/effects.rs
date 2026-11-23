@@ -7,11 +7,17 @@
 //! request number): the answer comes back under it, a late answer of an earlier request is a
 //! different number. The words of a failure are the UI's string tables'; the texts inside are the
 //! host's own diagnostics.
+//!
+//! `Ask` is the list of what the host can do (a capability each: write a file, suggest a title,
+//! copy), never a feature's: a feature slice asks with `AppCx::effect` (ADR-012) and the app
+//! chooses the request number, `FEATURE_REQUEST_BIT | n`. Its answer goes to the feature's
+//! `Feature::effect_done` and is kept for no screen.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use super::Command;
+use crate::features::FeatureCtx;
 use crate::ids::{RequestKey, ThreadId};
 use crate::screens::approvals::verify::{AttemptId, Cause, Verifications};
 use crate::screens::select::review::Commit;
@@ -20,6 +26,16 @@ use crate::screens::transcript::diff;
 
 /// How many answers are kept: a screen reads the answer to its latest request.
 const KEPT: usize = 32;
+
+/// The bit of the request numbers of the asks a feature makes (`AppCx::effect`): the app mints
+/// them, so they never meet the stamps a screen chooses (`1 << 59` to `1 << 62` are the
+/// screens' own namespaces).
+pub const FEATURE_REQUEST_BIT: u64 = 1 << 58;
+
+/// `request` is the number of an ask a feature made.
+pub fn is_feature_request(request: u64) -> bool {
+    request & FEATURE_REQUEST_BIT != 0
+}
 
 /// Whether copied text also has a rendered HTML form and its Markdown source (oracle
 /// `clipboard_copy.rs` `CopyFormat`).
@@ -138,6 +154,14 @@ pub enum Done {
     WorktreeRemoved(Result<(), String>),
 }
 
+impl Done {
+    /// No answer follows this one: a copy reports `Pending` first and how it ended after, every
+    /// other ask answers once.
+    pub fn is_final(&self) -> bool {
+        !matches!(self, Done::Copy(Ok(CopyStatus::Pending(_))))
+    }
+}
+
 /// The answers kept, and the user-verification controller (ADR-003: the app owns it).
 #[derive(Debug, Default)]
 pub struct Effects {
@@ -146,6 +170,10 @@ pub struct Effects {
     /// Why the last verifications failed (the oracle's warning line of the thread; the words are
     /// the approvals strings' `verification_failure`).
     failures: VecDeque<(RequestKey, Cause)>,
+    /// What each ask a feature made is for, until its last answer comes (`AppCx::effect`).
+    features: BTreeMap<u64, FeatureCtx>,
+    /// The count of the asks features made: the low bits of their request numbers.
+    feature_asks: u64,
 }
 
 impl Effects {
@@ -177,6 +205,30 @@ impl Effects {
         while self.failures.len() > KEPT {
             self.failures.pop_front();
         }
+    }
+
+    /// A feature's ask: its request number, with `ctx` kept until the last answer.
+    pub(super) fn ask_for_feature(&mut self, ctx: FeatureCtx) -> u64 {
+        self.feature_asks += 1;
+        let request = FEATURE_REQUEST_BIT | self.feature_asks;
+        self.features.insert(request, ctx);
+        request
+    }
+
+    /// What the answer `done` to the feature ask `request` is for: none for a number no feature
+    /// waits for (a late answer of an ask that has ended). The last answer ends the ask.
+    pub(super) fn feature_answered(&mut self, request: u64, done: &Done) -> Option<FeatureCtx> {
+        if done.is_final() {
+            self.features.remove(&request)
+        } else {
+            self.features.get(&request).cloned()
+        }
+    }
+
+    /// How many asks of features wait for their last answer.
+    #[cfg(test)]
+    pub(super) fn feature_asks_waiting(&self) -> usize {
+        self.features.len()
     }
 
     /// An answer replaces an earlier one of the same request (a copy reports `Pending` first).

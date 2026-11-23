@@ -52,6 +52,7 @@ reads whether the thread is busy. A feature without RPCs keeps `wire` / `decode`
 | `NoteKey::Goal(..)` + the tone arm in `threads/note.rs` + `goal_note` in `pages/session/strings.rs` | `type Note = goal::Note`; `fn note_tone(note) -> Tone`; the words are `src/features/goal/strings.rs::note` (`FeatureView::note_words`) | `NoteKey::Feature` |
 | a call in `core/src/app.rs` after a resume (`session::goal::after_resume`) | `fn on_resumed(state, thread, cx)` | `features::resumed` (already there) |
 | a step of the hub that waited for the feature's answer | the feature's `answered(state, ctx, result, cx)`; an answer for a thread that is no longer the one in use is dropped there | the generic `features::answer` |
+| a host ask: `Intent::Effect { request, ask }` or `fx.commands.push(effects::command(request, Ask::X))`, and the arm that words `Done::X` (`session::export::settled`, `Done::Export` / `Done::Copy`) | `cx.effect(Ask::X { .. }, ctx)` with the feature's own `Ctx` (what the ask was for); `fn effect_done(state, ctx, done, cx)` words the answer (`cx.note(..)`). A copy answers twice: `Done::Copy(Ok(Pending(_)))`, then how it ended (`done.is_final()` tells which). The request number is the app's (`FEATURE_REQUEST_BIT \| n`), never a stamp the feature chooses | `effects::Ask` / `Done` (the host's list of capabilities: copy, write a file, suggest a title; a new capability is a new variant there, counted in the budget) and the one `AppEv::Effect` arm that routes a feature's request |
 
 Every type in the right column is the feature's own (two features sharing `String` as a note
 fail to compile: the root enums' `From` impls would overlap). The part of the table a feature
@@ -85,6 +86,16 @@ ever tightened.
   transcript of the thread (or the chat before any thread).
 - A change of a thread's feature part from the app's side is `cx.thread(&id, intent)`: a
   queued `ThreadEv::FeatureIntent`, applied by `threads::apply` under the thread's writer.
+- **The host door.** A feature reaches the server through `wire` (an RPC about a thread or the
+  app, `cx.ask` / `ThreadCx::request`) and the host through `cx.effect(ask, ctx)` (`AppCx` only: a
+  host effect is the app's, not a thread's). `app/features.rs` carries `Out::Effect`: the app
+  mints the request number (`Effects::ask_for_feature`), keeps `ctx` against it and pushes the
+  same `Command::Effect { request, ask }` a screen's `Intent::Effect` makes, so the host and
+  `backend_of` see no difference; the answer (`AppEv::Effect`) is dispatched to the feature's
+  `effect_done` and kept for no screen; the last answer ends the ask, a late one is dropped.
+  What a feature reads to build the ask (the text to export, the thread's directory) comes
+  from `AppView` / `ThreadView` methods the feature adds, each a decision. A slice never names
+  `AppEv`, `Intent::Effect` or `Command::Effect` (`feature_slices_ask_only_through_the_outbox`).
 - **A feature that reacts to another feature's end** (the goal was set, so the queue goes
   on) never names the other. `cx.settled(&thread)` says "what held this thread's input back
   is over"; every feature's `on_settled(part, cx)` runs, in list order (the queue resumes).
@@ -109,6 +120,12 @@ NoteKey::Feature(FeatureNote::Goal(note))
 Menu::Feature(FeatureMenu::Goal(goal::Menu::Replace { .. }))
 PromptKind::Feature(FeaturePrompt::Goal(goal::Prompt::Edit { .. }))
 ```
+
+A host ask is tested the same way: the helper that matched `Command::Effect { ask: Ask::X, .. }`
+with the UI's own request number takes the request from the command and answers it with
+`AppEv::Effect { request, done }`, as before; the note it ends in is `NoteKey::Feature(..)`.
+The framework's own test of the door is `core/src/app/features/tests.rs` and
+`framework.rs` (`a_host_answer_reaches_the_feature_that_asked`).
 
 A wire test that lived in `core/tests/app_wiring.rs` for the feature's RPCs moves into the
 feature's file (the `ClientRequest` it builds is the slice's `wire`). Other test files that
@@ -141,9 +158,17 @@ FeatureCommand::Goal(_), .. }`.
    `core/src/threads/`; its five intents moved out of `threads::apply_ev` into
    `threads::queue::{takes, apply}`.
 
+11. (R2) `AppCx::effect(ask, ctx)` and `Feature::effect_done(state, ctx, done, cx)` (step 5,
+   "The host door"): a host effect such as `/export` is `effects::Ask` / `Done`, no
+   `ClientRequest`. The hub keeps `Ask` / `Done` as the host's capabilities; the filler moves
+   the call site and the arm that words the answer. `slice-codemod.py hub` lists the `Ask::X` /
+   `Done::X` sites of the feature, and the variants in `effects.rs` it marks as staying. The
+   hook was added for an app lifecycle fact (the host answered), raising `Out` to 7 and the
+   `Feature` trait to 15 in `hub_budget.txt` (ADR-012).
+
 ## 8. Done when
 
 `hub` lists no line of the feature outside `core/src/features/<f>`, `src/features/<f>` and
-the one list line; the oracle shard of the feature and the rules are green; `hub_budget.txt`
+the one list line (the `Ask` / `Done` variants it marks as host capabilities stay); the oracle shard of the feature and the rules are green; `hub_budget.txt`
 is lower by what moved; `slice-codemod.py hub <f>` prints only the oracle's `SessionIntent`
-and `SlashCommand` rows.
+and `SlashCommand` rows and the host capabilities it marks.
