@@ -32,6 +32,8 @@ mod composer_startup;
 mod composer_suggest;
 #[path = "pages/composer_vim.rs"]
 mod composer_vim;
+#[path = "pages/review.rs"]
+mod review;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
 #[path = "pages/text_mode.rs"]
