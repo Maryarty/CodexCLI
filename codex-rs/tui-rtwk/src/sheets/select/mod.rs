@@ -9,6 +9,7 @@ mod confirm;
 mod dialog;
 mod generic;
 mod lists;
+mod models;
 pub(crate) mod prompt;
 mod review;
 mod review_sheet;
@@ -42,6 +43,19 @@ macro_rules! entry {
     };
 }
 
+/// A debug entry of the `/model` sheet: its script asks for the show (`Ev::Showing`), the sheet is
+/// the one that show opens.
+macro_rules! model_entry {
+    ($name:literal, $description:literal, $file:literal) => {
+        DebugEntry {
+            name: $name,
+            description: $description,
+            script: include_str!(concat!($file, ".jsonl")),
+            open: EntryOpen::Dialog(models::seeded),
+        }
+    };
+}
+
 /// A debug entry of a generic list: the script seeds the session, the list is the sheet's own
 /// (`generic::ListSheet`, read from `<file>.list.json`), so nothing of it is in the model.
 macro_rules! list_entry {
@@ -70,32 +84,32 @@ fn fixture_sheet(json: &str) -> AnyWidget {
 /// fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
     vec![
-        entry!(
+        model_entry!(
             "model_picker",
             "three models, the first in use",
             "fixtures/model_picker"
         ),
-        entry!(
+        model_entry!(
             "models_quick",
             "the quick /model menu: an auto mode and All models",
             "fixtures/models_quick"
         ),
-        entry!(
+        model_entry!(
             "model_reasoning",
             "the reasoning menu of one model, More reasoning… last",
             "fixtures/model_reasoning"
         ),
-        entry!(
+        model_entry!(
             "model_advanced",
             "the advanced reasoning menu: Max and Ultra",
             "fixtures/model_advanced"
         ),
-        entry!(
+        model_entry!(
             "model_plan_scope",
             "where a reasoning change in Plan mode applies",
             "fixtures/model_plan_scope"
         ),
-        entry!(
+        model_entry!(
             "model_loading",
             "the /model menu while the catalog loads",
             "fixtures/model_loading"
@@ -509,6 +523,7 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
             confirm::options(),
         ),
         Opening::Review => (review_sheet::sheet(), review_sheet::options()),
+        Opening::Models(menu) => (models::sheet(menu.clone()), models::options()),
     }
 }
 

@@ -173,6 +173,25 @@ pub enum Provider {
     Changed,
 }
 
+/// How the `model/list` the pickers waited for was answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// The list came (it may be empty).
+    Listed,
+    /// The request failed.
+    Failed,
+}
+
+/// Why a sheet of the family gave up (the sheet decides, because it alone knows whether the user
+/// was still looking at it) and what the history says of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GaveUp {
+    /// `Loading models…` was on screen and the list could not be read.
+    NotLoaded,
+    /// A list with no choice was on screen (`reserve`: the Reserve-only one).
+    Empty { reserve: bool },
+}
+
 /// The models the account can pick from, as the last `model/list` (or the
 /// startup's) answered, and the request the next answer must belong to.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -183,6 +202,9 @@ pub struct Catalog {
     /// The `model/list` the open picker waits for
     /// (`model_popup_request_id`): an answer of another request is dropped.
     pub pending: Option<u64>,
+    /// The last answer of a request of the pickers, by the request it belongs to: a sheet that
+    /// opened on `Loading models…` reads its own there (ADR-013: a fact under a request key).
+    pub answered: Option<(u64, Answer)>,
     issued: u64,
 }
 
@@ -336,12 +358,13 @@ pub struct Selection {
     pub warning: Option<usize>,
 }
 
-/// The menus of the `/model` family on the stack.
+/// The menus (pages) of the `/model` family.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelMenu {
     /// `Loading models…`: the catalog is empty until the first answer; the
     /// quick menu opens on it then.
-    Loading(Current),
+    /// `request` is the `model/list` it waits for (`Catalog::answered` is the answer, by it).
+    Loading { current: Current, request: u64 },
     /// The quick menu: the auto modes and "All models" (the whole list when
     /// the catalog has no auto mode).
     Models(Current),
@@ -416,9 +439,9 @@ pub struct Page {
     pub initial: Option<usize>,
 }
 
-/// What a choice does to the stack.
+/// What a choice does to the pages of the sheet.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Step {
+pub enum Step {
     /// Nothing: the id is not a row, or the row is not for this key.
     None,
     /// A menu on top of this one; this one stays below (Esc comes back).
@@ -435,7 +458,7 @@ impl ModelMenu {
     /// The menu as rows.
     pub fn page(&self, catalog: &Catalog) -> Page {
         match self {
-            ModelMenu::Loading(_) => Page { heading: Heading::Loading, rows: Vec::new(), initial: None },
+            ModelMenu::Loading { .. } => Page { heading: Heading::Loading, rows: Vec::new(), initial: None },
             ModelMenu::Models(current) => quick(catalog, current),
             ModelMenu::AllModels(current) => Page {
                 heading: Heading::All,
@@ -465,7 +488,7 @@ impl ModelMenu {
 
     /// Whether the picker has nothing to offer from `catalog`: it is then
     /// dismissed with a note (`open_all_models_popup_with_view_id`).
-    pub(super) fn is_empty(&self, catalog: &Catalog) -> bool {
+    pub fn is_empty(&self, catalog: &Catalog) -> bool {
         match self {
             ModelMenu::Models(_) | ModelMenu::AllModels(_) => self.page(catalog).rows.is_empty(),
             _ => false,
@@ -473,12 +496,12 @@ impl ModelMenu {
     }
 
     /// The Reserve-only list.
-    pub(super) fn is_reserve(&self) -> bool {
+    pub fn is_reserve(&self) -> bool {
         matches!(self, ModelMenu::Models(current) if current.reserve.is_some())
     }
 
     /// A row was chosen with the primary key, or with `s` (`session`).
-    pub(super) fn choose(&self, catalog: &Catalog, id: &str, session: bool) -> Step {
+    pub fn choose(&self, catalog: &Catalog, id: &str, session: bool) -> Step {
         let page = self.page(catalog);
         let Some(row) = page.rows.iter().find(|row| row.id == id) else {
             return Step::None;
@@ -552,7 +575,7 @@ impl ModelMenu {
             | ModelMenu::AllModels(current)
             | ModelMenu::Reasoning { current, .. }
             | ModelMenu::Advanced { current, .. } => Some(current),
-            ModelMenu::Loading(_) | ModelMenu::PlanScope { .. } => None,
+            ModelMenu::Loading { .. } | ModelMenu::PlanScope { .. } => None,
         }
     }
 }
@@ -562,7 +585,7 @@ fn row_model(menu: &ModelMenu, row: &Choice) -> Option<String> {
     match menu {
         ModelMenu::Models(_) | ModelMenu::AllModels(_) => Some(row.id.clone()),
         ModelMenu::Reasoning { preset, .. } | ModelMenu::Advanced { preset, .. } => Some(preset.model.clone()),
-        ModelMenu::Loading(_) | ModelMenu::PlanScope { .. } => None,
+        ModelMenu::Loading { .. } | ModelMenu::PlanScope { .. } => None,
     }
 }
 
