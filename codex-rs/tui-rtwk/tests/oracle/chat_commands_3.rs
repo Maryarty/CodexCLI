@@ -763,7 +763,11 @@ fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering(
         .terminal_colors(0xe6_d8_ff, 0x24_1b_35)
         .open();
     let shown = |s: &Screen| s.text().chars().any(|c| SPARKLE_DOTS.contains(c));
-    assert!(shown(&s), "the dots show on a fresh Astra thread:\n{}", s.text());
+    assert!(
+        shown(&s),
+        "the dots show on a fresh Astra thread:\n{}",
+        s.text()
+    );
     s.type_text("describe");
     s.keys("enter");
     assert!(!shown(&s), "the submit consumed the sparkle:\n{}", s.text());

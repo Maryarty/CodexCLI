@@ -30,9 +30,7 @@ use rtwk_core::surface::BLANK;
 
 use crate::app::theme::Rgb;
 use crate::app::theme::effort::{Colors, blend, channels, dot_style};
-use crate::widgets::composer_sparkle::{
-    Draft, FRAME_TICK, IDLE_FADE, IDLE_TIMEOUT, Phase,
-};
+use crate::widgets::composer_sparkle::{Draft, FRAME_TICK, IDLE_FADE, IDLE_TIMEOUT, Phase};
 use crate::widgets::thread_ui::ThreadUi;
 
 /// The glyphs of the dots (`DOTS`): one or two of the eight braille points.
@@ -42,7 +40,12 @@ pub const DOTS: [char; 8] = ['⠁', '⠂', '⠄', '⠈', '⠐', '⠠', '⡀', '�
 /// `width` by `height` cells: `(x, y, glyph, brightness)` of each, cell by
 /// cell (`render_stars` without the surface). The hash is the oracle's, so the
 /// same cells twinkle in the same phase.
-pub fn stars(width: i32, height: i32, elapsed: Duration, visibility: f32) -> Vec<(i32, i32, char, f32)> {
+pub fn stars(
+    width: i32,
+    height: i32,
+    elapsed: Duration,
+    visibility: f32,
+) -> Vec<(i32, i32, char, f32)> {
     let time = elapsed.as_secs_f32();
     let mut out = Vec::new();
     for y in 0..height {
@@ -216,7 +219,11 @@ impl SparkleState {
                 .sparkle
                 .listenable()
                 .remove_listener(&listening.poke);
-            listening.ui.composer.listenable().remove_listener(&listening.text);
+            listening
+                .ui
+                .composer
+                .listenable()
+                .remove_listener(&listening.text);
             listening.focus.remove_listener(&listening.poke);
         }
     }
@@ -380,7 +387,10 @@ mod tests {
             .iter()
             .position(|line| *line == label)
             .unwrap_or_else(|| panic!("no row `{label}`"));
-        lines[at + 1..at + 4].iter().map(|line| line.chars().collect()).collect()
+        lines[at + 1..at + 4]
+            .iter()
+            .map(|line| line.chars().collect())
+            .collect()
     }
 
     /// The dots of `frame(width, 3, elapsed, protected)` are the dots of the oracle's
@@ -421,8 +431,18 @@ mod tests {
 
     #[test]
     fn the_fade_is_the_oracles_at_fourteen_and_a_half_seconds() {
-        assert_matches(&oracle_rows(FADE, "before fade:"), 80, Duration::from_secs(14), 24);
-        assert_matches(&oracle_rows(FADE, "fading:"), 80, Duration::from_millis(14_500), 24);
+        assert_matches(
+            &oracle_rows(FADE, "before fade:"),
+            80,
+            Duration::from_secs(14),
+            24,
+        );
+        assert_matches(
+            &oracle_rows(FADE, "fading:"),
+            80,
+            Duration::from_millis(14_500),
+            24,
+        );
         assert_matches(&oracle_rows(FADE, "finished:"), 80, IDLE_TIMEOUT, 24);
     }
 }

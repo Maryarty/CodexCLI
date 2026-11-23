@@ -30,7 +30,10 @@ fn assert_no_dots_in(text: &str) {
 /// of its foreground from the cell's true-colour background (what the fade takes away).
 fn lit_dots(s: &Screen) -> Vec<(usize, usize, String, u32)> {
     let channels = |name: &str| -> [u32; 3] {
-        assert!(name.starts_with("Rgb(") && name.ends_with(')'), "a true colour, not `{name}`");
+        assert!(
+            name.starts_with("Rgb(") && name.ends_with(')'),
+            "a true colour, not `{name}`"
+        );
         let mut out = [0u32; 3];
         for (slot, part) in out.iter_mut().zip(name[4..name.len() - 1].split(", ")) {
             *slot = part.parse().unwrap_or(u32::MAX);
@@ -149,7 +152,10 @@ fn oracle_composer(name: &str, marker: &str) -> Vec<String> {
         .into_iter()
         .flat_map(|frame| {
             let rows = kit::snap_rows(name, &frame);
-            (!frame.is_empty()).then(|| frame.clone()).into_iter().chain(rows)
+            (!frame.is_empty())
+                .then(|| frame.clone())
+                .into_iter()
+                .chain(rows)
         })
         .collect();
     // `marker`: the label rows to find one after the other (`\n` between them), for a snapshot
@@ -171,7 +177,13 @@ fn assert_layout(s: &Screen, name: &str, marker: &str) -> (Vec<String>, Vec<Stri
     let got = composer_rows(&s.rows());
     let bare = |rows: &[String]| -> Vec<String> {
         rows.iter()
-            .map(|row| row.chars().map(|c| if DOT_CHARS.contains(&c) { ' ' } else { c }).collect::<String>().trim_end().to_string())
+            .map(|row| {
+                row.chars()
+                    .map(|c| if DOT_CHARS.contains(&c) { ' ' } else { c })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
             .collect()
     };
     pretty_assertions::assert_eq!(
@@ -195,7 +207,10 @@ fn assert_stars(s: &Screen, name: &str, marker: &str) {
         rows.iter()
             .enumerate()
             .flat_map(|(y, row)| {
-                row.chars().enumerate().filter(|(_, c)| DOT_CHARS.contains(c)).map(move |(x, c)| (x, y, c))
+                row.chars()
+                    .enumerate()
+                    .filter(|(_, c)| DOT_CHARS.contains(c))
+                    .map(move |(x, c)| (x, y, c))
             })
             .collect()
     };
@@ -316,8 +331,14 @@ fn sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds() {
     assert!(!fading.is_empty(), "the fading frame has dots");
     assert_stars(&s, name, "fading:");
     for (x, y, glyph, contrast) in &fading {
-        if let Some((_, _, _, before)) = last.iter().find(|d| d.0 == *x && d.1 == *y && d.2 == *glyph) {
-            assert!(contrast < before, "the dot at ({x}, {y}) fades: {contrast} against {before}");
+        if let Some((_, _, _, before)) = last
+            .iter()
+            .find(|d| d.0 == *x && d.1 == *y && d.2 == *glyph)
+        {
+            assert!(
+                contrast < before,
+                "the dot at ({x}, {y}) fades: {contrast} against {before}"
+            );
         }
     }
     s.wait(800);
@@ -335,7 +356,10 @@ fn the_first_buffered_character_and_empty_escape_clear_visible_stars() {
     // the dots of the others come back with nothing, the screen shows none of either)
     for key in ["x", "?", "esc", "left"] {
         let mut s = astra(80, 24);
-        assert!(!lit_dots(&s).is_empty(), "{key}: the dots are shown before the key");
+        assert!(
+            !lit_dots(&s).is_empty(),
+            "{key}: the dots are shown before the key"
+        );
         s.keys(key);
         assert_no_dots(&s);
         // (Esc and Left on an empty draft leave the chat for the command center: no composer is left)
@@ -414,7 +438,10 @@ fn shortcut_help_hides_visible_sparkles_without_restarting_their_deadline() {
         if expires {
             assert_no_dots(&s);
         } else {
-            assert!(!lit_dots(&s).is_empty(), "the dots come back with the help closed");
+            assert!(
+                !lit_dots(&s).is_empty(),
+                "the dots come back with the help closed"
+            );
         }
         assert_stars(&s, name, &format!("{scenario}\nafter closing:"));
     }
@@ -445,7 +472,11 @@ fn disconnected_sparkle_edits_are_tracked_between_renders() {
             ("unknown command", "/xyz", false),
         ] {
             let astra_first = model == "gpt-6-astra";
-            let mut s = if astra_first { astra(80, 24) } else { plain(80, 24) };
+            let mut s = if astra_first {
+                astra(80, 24)
+            } else {
+                plain(80, 24)
+            };
             assert_eq!(lit_dots(&s).is_empty(), !astra_first, "{model}: {scenario}");
             if scenario == "ordinary" {
                 assert_stars(&s, name, &format!("{model}\nbefore disconnect:"));
@@ -460,7 +491,11 @@ fn disconnected_sparkle_edits_are_tracked_between_renders() {
             }
             assert_eq!(lit_dots(&s).is_empty(), !returns, "{model}: {scenario}");
             if scenario == "ordinary" {
-                assert_stars(&s, name, &format!("{model}\nafter typing and erasing without rendering:"));
+                assert_stars(
+                    &s,
+                    name,
+                    &format!("{model}\nafter typing and erasing without rendering:"),
+                );
             }
         }
     }
@@ -490,7 +525,11 @@ fn a_fresh_astra_response_waits_for_the_pending_command_to_leave() {
                 s.keys("ctrl+c");
             }
         }
-        assert_eq!(lit_dots(&s).is_empty(), completion == "draft", "{completion}");
+        assert_eq!(
+            lit_dots(&s).is_empty(),
+            completion == "draft",
+            "{completion}"
+        );
         if completion == "submit" {
             assert_stars(&s, name, "after command:");
         }
@@ -544,7 +583,11 @@ fn history_search_acceptance_and_cancellation_update_sparkles_before_rendering()
             s.assert_absent("reverse-i-search");
             assert_empty_draft(&s);
             s.feed(&model_is("astra"));
-            assert_eq!(lit_dots(&s).is_empty(), completion == "accept", "{entry}: {completion}");
+            assert_eq!(
+                lit_dots(&s).is_empty(),
+                completion == "accept",
+                "{entry}: {completion}"
+            );
             if entry == "git status" && completion != "control-c" {
                 assert_stars(&s, name, &format!("{completion}:"));
             }
@@ -623,7 +666,11 @@ fn history_search_preserves_a_held_sparkle_command_without_reclassifying_it() {
             let astra_first = model == "gpt-6-astra";
             let mut s = Screen::build(Owner::UiPane)
                 .size(80, 24)
-                .script(if astra_first { ASTRA_HISTORY } else { PLAIN_HISTORY })
+                .script(if astra_first {
+                    ASTRA_HISTORY
+                } else {
+                    PLAIN_HISTORY
+                })
                 .terminal_colors(FOREGROUND, BACKGROUND)
                 .open();
             assert_eq!(lit_dots(&s).is_empty(), !astra_first);
@@ -638,7 +685,11 @@ fn history_search_preserves_a_held_sparkle_command_without_reclassifying_it() {
             s.assert_contains("› history prompt");
             assert_no_dots(&s);
             if cancel == "escape" {
-                assert_stars(&s, name, &format!("{model}\nsearching with an explicit pasted query:"));
+                assert_stars(
+                    &s,
+                    name,
+                    &format!("{model}\nsearching with an explicit pasted query:"),
+                );
                 s.keys("esc");
             } else {
                 s.keys("ctrl+c");
@@ -648,10 +699,17 @@ fn history_search_preserves_a_held_sparkle_command_without_reclassifying_it() {
             assert_empty_draft(&s);
             assert_eq!(lit_dots(&s).is_empty(), !astra_first, "{model}: {cancel}");
             if cancel == "escape" {
-                assert_stars(&s, name, &format!("{model}\nafter canceling and erasing the slash:"));
+                assert_stars(
+                    &s,
+                    name,
+                    &format!("{model}\nafter canceling and erasing the slash:"),
+                );
             }
             model_command_selects_astra(&mut s);
-            assert!(!lit_dots(&s).is_empty(), "{model}: {cancel}: Astra selected");
+            assert!(
+                !lit_dots(&s).is_empty(),
+                "{model}: {cancel}: Astra selected"
+            );
             if cancel == "escape" && astra_first {
                 // (the oracle draws it at the same instant as the frame before, the typed `/model`
                 // takes 0.4 s of the fake clock: the layout only)
@@ -728,7 +786,10 @@ fn arbitrary_commands_preserve_a_never_used_fresh_opportunity() {
         if s.grid().cursor.is_none() {
             s.keys("esc");
         }
-        assert!(!lit_dots(&s).is_empty(), "completion {completion}, vim {vim}");
+        assert!(
+            !lit_dots(&s).is_empty(),
+            "completion {completion}, vim {vim}"
+        );
     }
     for input in ["hello", "/status extra", "/other", "漢", "/tmp/file"] {
         let mut s = plain(80, 24);
@@ -792,12 +853,20 @@ fn review_regression_canceling_a_held_slash_restores_sparkle_command_tracking() 
     let name = "review_regression_canceling_a_held_slash_restores_sparkle_command_tracking";
     for model in ["gpt-6-astra", "gpt-5.5"] {
         let astra_first = model == "gpt-6-astra";
-        let mut s = if astra_first { astra(80, 24) } else { plain(80, 24) };
+        let mut s = if astra_first {
+            astra(80, 24)
+        } else {
+            plain(80, 24)
+        };
         s.type_text("/");
         s.keys("backspace");
         assert_empty_draft(&s);
         assert_eq!(lit_dots(&s).is_empty(), !astra_first, "{model}");
-        assert_stars(&s, name, &format!("{model}\nafter immediately canceling the held slash:"));
+        assert_stars(
+            &s,
+            name,
+            &format!("{model}\nafter immediately canceling the held slash:"),
+        );
         model_command_selects_astra(&mut s);
         assert!(!lit_dots(&s).is_empty(), "{model}");
         if astra_first {
@@ -865,7 +934,10 @@ fn focus_startup_work_and_configuration_do_not_extend_a_started_deadline() {
     }
     let s = astra(25, 24);
     let rows = s.rows();
-    let prompt = rows.iter().position(|row| row.starts_with('›')).expect("the prompt row");
+    let prompt = rows
+        .iter()
+        .position(|row| row.starts_with('›'))
+        .expect("the prompt row");
     let draft: String = rows[prompt].chars().skip(2).take(22).collect();
     assert_no_dots_in(&draft);
 }
@@ -1255,8 +1327,16 @@ fn input_history_search_uses_the_final_row() {
     let mut s = Screen::build(Owner::UiPane).size(48, 6).live().open();
     s.keys("ctrl+r");
     s.assert_contains("reverse-i-search");
-    let (_, row) = s.grid().cursor.expect("the cursor is shown in the history search");
-    assert_eq!(row, s.rows().len() - 1, "the cursor is on the final row:\n{}", s.text());
+    let (_, row) = s
+        .grid()
+        .cursor
+        .expect("the cursor is shown in the history search");
+    assert_eq!(
+        row,
+        s.rows().len() - 1,
+        "the cursor is on the final row:\n{}",
+        s.text()
+    );
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1109 slash_suggestions_take_space_before_status_expands kind=snap owner=ui-pane snap=slash_suggestions_take_space_before_status_expands
