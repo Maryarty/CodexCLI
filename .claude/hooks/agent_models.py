@@ -35,7 +35,7 @@ def porter_prompt_problem(prompt: str) -> str | None:
     if not landing and GATE.search(prompt):
         return ("codex-porter launch prompt orders a rebase / full gate / probe: forbidden (person 2026-11-22). "
                 "Use the launch template (process.md §A4.2): `tm task <alias>; worktree <path>; task_start` - "
-                "the tm task description is the assignment; checks are the fleet brief's.")
+                "the tm task description is the assignment; checks are in .claude/agents/codex-porter.md 'Checks'.")
     if not landing and len(prompt) > 700:
         return ("codex-porter launch prompt over 700 chars: put the assignment into the tm task description "
                 "(task_update) and launch with the template `tm task <alias>; worktree <path>; task_start`.")

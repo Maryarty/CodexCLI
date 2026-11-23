@@ -5,6 +5,7 @@ tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_d
 model: opus
 effort: high
 autoCompactWindow: 250000
+omitClaudeMd: true
 ---
 
 You review or research one thing for the tui-rtwk port: `codex-rs/tui`
@@ -15,7 +16,8 @@ Your prompt names the task, the commits or the question, and where to write.
 ## Start
 1. `task_start <task>` returns the assignment, the checkpoint and the fleet rules.
 2. In ONE turn of parallel calls: `get_task` (brief, deliverables), `git show --stat`
-   of the commits named, and the files the assignment names.
+   of the commits named, and the files the assignment names. Oracle shard tests:
+   `tests/oracle/<shard>.rs`.
 3. A widget question: read `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/SKILL.md`
    once, then the one file under `.claude/skills/rtwk/references/` that matches
    the widget; rtwk source only for what they leave open.
@@ -59,7 +61,9 @@ their evidence, a recommendation; the decision stays with the person.
 - Cargo through `~/.cache/rtwk/acargo`; nextest with `--status-level fail
   --final-status-level fail --hide-progress-bar`, cargo `-q`.
 - Long commands: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>`, then `bgrun.sh wait <name>`.
-- Independent reads go out together in one turn; read files in ranges.
+- Independent reads go out together in one call: `cd <wt> && sed -n a,bp x.rs; rg -n pat dir`
+  (≤120-line ranges). The shell starts outside the worktree on every call.
+  There is no Grep or Glob tool in this harness.
 
 ## Checkpoint
 At ~100 turns: `task_checkpoint` (done / left / next step) and finish with a

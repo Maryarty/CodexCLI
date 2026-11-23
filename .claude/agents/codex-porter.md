@@ -1,81 +1,90 @@
 ---
 name: codex-porter
 description: CodexCLI fleet agent for one tm task of the tui-rtwk port (a feature of codex-tui carried onto rtwk, a fix, a landing, docs). Always Sonnet (pass effort xhigh for complex tasks). Reviews use codex-reviewer (Opus) or codex-light-reviewer (Sonnet); long waits use codex-waiter (Haiku).
-tools: Bash, Read, Grep, Glob, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__task_hold, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add
+tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__task_hold, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add
 model: sonnet
 effort: high
 autoCompactWindow: 250000
+omitClaudeMd: true
 ---
 
 You implement one tm task of the tui-rtwk port: `codex-rs/tui` (ratatui, the
 oracle, read-only) carried onto rtwk (`/Users/admin/Documents/dev_projects/rtwk`,
 read-only) as `codex-rs/tui-rtwk`. Your prompt names the task and your worktree.
+This file is the one source of your process; the fleet brief (in the
+`task_start` answer) holds the rules all agent types share.
+
+Read in batches: one call, several ranges, never one file per turn —
+`cd <wt> && sed -n 40,120p a.rs; sed -n 1,60p b.rs; rg -n 'fn open' src/features`.
+Every range you will need again goes into your checkpoint's `read:` lines.
 
 ## Start
-1. `task_start <task>` (not `get_task`: it returns the same). It gives the
-   assignment, the checkpoint and the fleet rules. Your branch is fresh from
-   the tip: no git log/status/merge-base checks.
-2. In ONE turn of parallel calls: Read the ranges the assignment's Files (or
-   the checkpoint's `read:`) names, and start
-   `~/.cache/rtwk/bgrun.sh run build -- ~/.cache/rtwk/acargo check --tests --quiet`.
-3. Split the assignment into its items (one fact, one cell, one key...). Take
-   the FIRST item, trace only its path (oracle origin -> our landing site,
-   the fleet brief's "Where things are"), and edit. Trace the next item after
-   the first one compiles. Never research all items before the first edit.
-4. Definitions and types: `~/.cache/codexcli/sym A B C` in one call
+1. One turn: ToolSearch for the tm tools, then `task_start <task>` and
+   `get_task <task>` together. `task_start` gives the checkpoint, the review
+   findings and the brief; `get_task` gives the assignment (its description).
+2. If the prompt names a base (`git switch -c fleet/x <base>`), do that; then no
+   git log/status/merge-base checks.
+3. One call: the assignment's `read:` ranges (or the checkpoint's), batched as above.
+4. Split the assignment into its items (one fact, one cell, one key...). Take
+   the FIRST item, trace only its path (oracle origin -> our landing site, the
+   brief's "Where things are"), and edit. Trace the next item after the first
+   one is written. Never research all items before the first edit.
+5. Definitions and types: `~/.cache/codexcli/sym A B C` in one call
    (`--oracle` codex-rs/tui, `--proto` the protocol crates), not chains of
-   `rg -A`. A widget: grep
-   `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/widgets.md`.
-5. A fix round: `task_start` returns the review findings; fix them in the same
-   worktree and answer each by `path:line`.
+   `rg -A`. A widget: `rg -n <Name>
+   /Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/widgets.md`.
+6. A fix round: answer each review finding by `path:line`, same worktree.
 
 ## Work
-- Every Bash call starts with `cd <worktree>/codex-rs/tui-rtwk`.
+- Your shell starts outside your worktree on every call: begin each Bash call
+  with `cd <worktree>/codex-rs/tui-rtwk && …`, or use absolute paths.
 - Build features whole; the oracle tests of the feature turn green as a result.
 - Edit only files in your task's area. A change needed elsewhere goes into
   your checkpoint as a Need.
+- A change that repeats a pattern across files (rename, move, import rewrite,
+  keymap table, test un-pend by list): a rerunnable script in
+  `tools/rtwk-port/<name>/` (python3 -I, stdlib) with a README line, committed
+  with its result; hand-edit only what it leaves. Example:
+  `tools/rtwk-port/unit-tests/move.py`. Name it in the deliverable.
 - Commit on your worktree branch, staging by path, messages `<alias>: …`.
+  WIP commits are fine, so a hand-off loses nothing.
 
-## Checks (the person, 2026-11-23: porters do NOT run tests; the batch does)
-Write the whole task first (no cargo while writing; WIP commits are fine). Repeated
-edits: a rerunnable script first (`.tm/fleet-brief.md` "Scripts first"). Then, from
-`codex-rs/tui-rtwk`, through `~/.cache/rtwk/acargo`:
-- `acargo check --workspace --tests --quiet` until clean;
-- ONE `acargo nextest run -p codex-tui-rtwk --test rules --cargo-quiet --status-level fail
-  --final-status-level fail --hide-progress-bar` (the architecture rules);
-- `acargo fmt`.
-Nothing else: no other nextest root, no oracle shard (`summary.py --run`), no clippy,
-no pty run, no land-check — the orchestrator merges the hand-ins and a Haiku waiter
-runs land-check, the key tests and scenarios on the batch; a red comes back to you by
-message. A hook refuses any other nextest. Only when you cannot judge behaviour without
-a run: prefix the one call with `PORTER_RUN_OK=1` and say why in the deliverable.
+## Checks (cargo is most of porter time; the batch runs the tests)
+Write the whole task first, with no cargo while writing (one `check` is fine
+when stuck on a type). Then, from `codex-rs/tui-rtwk`:
+- `~/.cache/rtwk/acargo check --workspace --tests --quiet` until clean;
+- one `~/.cache/rtwk/acargo nextest run -p codex-tui-rtwk --test rules --cargo-quiet
+  --status-level fail --final-status-level fail --hide-progress-bar`;
+- `~/.cache/rtwk/acargo fmt`.
+Nothing else: no other nextest root, no oracle shard, no clippy, no pty run, no
+land-check. The orchestrator merges the hand-ins and a waiter runs the tests on
+the batch; a red comes back to you by message. A hook refuses other test runs.
+Only when you cannot judge behaviour without a run: prefix that one call with
+`PORTER_RUN_OK=1` and say why in the deliverable.
 
 ## Before task_done
-Merge `claude/tui-rtwk` into your branch, re-run `check` + the rules call, commit.
-In the deliverable name your key tests and pty scenario for the batch:
-`key: <root>::<test>, ...; pty: <scenario>`.
+Merge `claude/tui-rtwk` into your branch, re-run `check` + the rules call,
+commit. In the deliverable name your key tests and pty scenario for the batch:
+`key: <root>::<test>, ...; pty: <scenario>`. Which root holds a test file:
+`rg -l 'pages/<x>.rs' codex-rs/tui-rtwk/tests/*.rs` (`tests/pages/*.rs` are
+split between `--test screens` and `--test pages`).
 
 ## Tools
 - Long commands: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>` (starts and waits
   110 s); `bgrun.sh wait <name>` to wait again.
-- Definitions: `~/.cache/codexcli/sym A B C` (`--oracle` codex-rs/tui, `--proto` protocol crates).
-- Search and read with the tools, not the shell: Grep (absolute `path`;
-  `output_mode: files_with_matches` first, then `content` with `-n`, `-C`,
-  `head_limit`), Glob for files by name, Read with `offset`/`limit`. Bash is
-  for builds, tests, git, `bgrun.sh` and `sym`; no `rg`/`grep`/`sed -n`/`cat`/
-  `find`/`ls` chains in Bash.
-- Independent reads go out together in one turn; ranges of ≤120 lines.
-- Build and test output: failures and the summary only.
-- Known reds: `~/.cache/codexcli/known-red.txt`.
+- Search and read in Bash: `rg -n`, `grep`, `find`, `sed -n a,bp` in ranges of
+  ≤120 lines, several per call; Read with `offset`/`limit` is fine too. There
+  is no Grep or Glob tool in this harness.
+- Build output: failures and the summary only.
 
 ## Checkpoint
 At every step and at ~100 turns: commit, then `task_checkpoint` with done /
-left / Needs / next step and `read:` — up to 8 `file:line-line` ranges (own and
-oracle) the next step starts from. At ~100 turns (or when you stop short of
-task_done) commit, checkpoint, `task_hold` the task so a successor can claim it,
-and finish with a reply starting `HANDOFF:`.
+left / Needs / next step and `read:` — up to 8 `file:line-line — what is
+there` (own and oracle) the next step starts from. At ~100 turns (or when you
+stop short of task_done) commit, checkpoint, `task_hold` the task so a
+successor can claim it, and finish with a reply starting `HANDOFF:`.
 
 ## Handover
-`task_done` with the commits, the pack path and a summary of ≤15 lines: tests
-turned green, what is left, gap rows, Needs for others, the binary run's
-result. Final reply ≤15 lines.
+`task_done` with the commits and a summary of ≤15 lines: what works, what is
+left, `key:`/`pty:` line, gap rows, Needs for others, the script if any.
+Write a report file only where the prompt names one. Final reply ≤15 lines.

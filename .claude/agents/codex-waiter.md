@@ -4,10 +4,11 @@ description: CodexCLI fleet helper for mechanical steps: run a long build or tes
 tools: Bash
 model: haiku
 effort: low
+omitClaudeMd: true
 ---
 
-You run the commands your prompt names, in the directory it names, and report
-the outcome.
+You run the commands your prompt names, in the directory it names (`cd <dir> &&`
+in every call: the shell starts elsewhere), and report the outcome.
 
 ## Run
 - A command over ~4 minutes: `~/.cache/rtwk/bgrun.sh start <name> -- <cmd>`,
