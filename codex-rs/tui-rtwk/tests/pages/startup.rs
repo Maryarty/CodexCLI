@@ -386,15 +386,25 @@ mod session {
     }
 
     impl Run {
+        /// Frames on the fake clock, a real pause between them for the shell's
+        /// thread, until `ready` holds: a real deadline far above a loaded
+        /// machine, not a count of rounds (the backend answers in real time).
+        #[allow(clippy::disallowed_methods)] // a real deadline, as `common::wait`
         fn until(&mut self, what: &str, mut ready: impl FnMut(&mut Run) -> bool) {
-            for _ in 0..400 {
+            let started = std::time::Instant::now();
+            loop {
                 self.t.pump_for(ms(5));
                 std::thread::sleep(ms(2));
                 if ready(self) {
                     return;
                 }
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(30),
+                    "{what} never came in 30 s:\n{}\ncommands: {:?}",
+                    self.t.screen(),
+                    self.fake.commands()
+                );
             }
-            panic!("{what} never came:\n{}", self.t.screen());
         }
 
         fn inject(&self, ev: Ev) {
@@ -425,6 +435,15 @@ mod session {
             self.inject(Ev::GatewayDevice {
                 request: 2,
                 code: None,
+            });
+            // The launch is asked once the session read is answered and the
+            // gateway step is over, on the shell's thread: an answer sent
+            // before the ask is dropped as stale.
+            self.until("the launch ask", |r| {
+                r.fake
+                    .commands()
+                    .iter()
+                    .any(|c| format!("{c:?}").contains("Launch { request: 3 }"))
             });
             self.inject(Ev::Launched {
                 request: 3,

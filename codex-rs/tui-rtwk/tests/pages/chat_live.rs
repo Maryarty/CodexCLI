@@ -142,7 +142,7 @@ fn the_banner_is_the_oracles_numbered_rows_and_hint() {
 fn a_number_key_chooses_the_row_and_the_banner_stays() {
     let mut h = with_banner("dismissible");
     h.press("1");
-    h.settle();
+    h.wait_until("the usage page to open", |h| !opened_urls(h).is_empty());
     assert_eq!(
         opened_urls(&h),
         ["https://chatgpt.com/settings/usage".to_owned()]
@@ -194,7 +194,7 @@ fn a_tap_on_a_row_chooses_it() {
     let mut h = with_banner("dismissible");
     let (x, y) = cell_of(&h, "View usage");
     h.t.click(x, y);
-    h.settle();
+    h.wait_until("the usage page to open", |h| !opened_urls(h).is_empty());
     assert_eq!(
         opened_urls(&h),
         ["https://chatgpt.com/settings/usage".to_owned()]
@@ -318,6 +318,10 @@ fn with_reserve(model: &str, draft: &str) -> Harness {
     let mut h = start();
     h.wait_idle();
     h.t.type_text(draft);
+    // the draft is in the composer before the selector takes the pane
+    if !draft.is_empty() {
+        h.wait_for("the draft", |s| s.contains(draft));
+    }
     h.fake
         .respond(move |request| match request["method"].as_str() {
             Some("account/rateLimits/read") => Some(Ok(json!({
@@ -359,12 +363,12 @@ fn the_reserve_selector_replaces_the_composer_and_gives_the_draft_back() {
     assert!(screen.contains("esc to continue working"), "{screen}");
     assert!(!screen.contains("saved draft"), "{screen}");
     h.press("esc");
-    h.settle();
+    h.wait_for("the draft back", |s| s.contains("saved draft"));
     let screen = h.t.screen();
     assert!(!screen.contains("You\u{2019}re now using Luna"), "{screen}");
     assert!(screen.contains("saved draft"), "{screen}");
     h.t.type_text("!");
-    h.settle();
+    h.wait_for("the key in the draft", |s| s.contains("saved draft!"));
     assert!(h.t.screen().contains("saved draft!"), "{}", h.t.screen());
 }
 
@@ -375,7 +379,9 @@ fn a_tap_on_a_reserve_row_picks_it() {
     let mut h = with_reserve("gpt-reserve", "saved draft");
     let (x, y) = cell_of(&h, "Upgrade");
     h.t.click(x, y);
-    h.settle();
+    h.wait_until("the page and the draft", |h| {
+        !opened_urls(h).is_empty() && h.t.screen().contains("saved draft")
+    });
     assert_eq!(
         opened_urls(&h),
         ["https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing".to_owned()]
@@ -385,6 +391,7 @@ fn a_tap_on_a_reserve_row_picks_it() {
     let mut h = with_reserve("gpt-reserve", "saved draft");
     let (x, y) = cell_of(&h, "Continue with Luna Reserve");
     h.t.click(x, y);
+    h.wait_for("the draft back", |s| s.contains("saved draft"));
     h.settle();
     assert!(opened_urls(&h).is_empty());
     assert!(h.t.screen().contains("saved draft"), "{}", h.t.screen());

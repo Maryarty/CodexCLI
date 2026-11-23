@@ -742,11 +742,17 @@ mod live {
 fn server(request: &Value) -> Option<Result<Value, ServerError>> {
     match request["method"].as_str()? {
         "thread/list" if !request["params"]["sectionId"].is_null() => Some(Ok(page(&[]))),
-        "thread/list" => Some(Ok(if request["params"]["sourceKinds"] == json!([]) {
-            page(&[("Interactive task", 100, "/w/one")])
-        } else {
-            page(&[("Exec task", 90, "/w/two")])
-        })),
+        // The center asks [] (everything) and ["exec","appServer"]; the resume
+        // picker asks ["cli","vscode"] and gets the interactive sessions.
+        "thread/list" => Some(Ok(
+            if request["params"]["sourceKinds"] == json!([])
+                || request["params"]["sourceKinds"] == json!(["cli", "vscode"])
+            {
+                page(&[("Interactive task", 100, "/w/one")])
+            } else {
+                page(&[("Exec task", 90, "/w/two")])
+            },
+        )),
         "thread/start" => {
             let cwd = request["params"]["cwd"].as_str().unwrap_or("/none");
             Some(Ok(json!({"thread": thread_json("wt-1", 500, cwd)})))
@@ -792,9 +798,7 @@ fn the_picker_of_the_center_lists_the_sessions() {
     let before = lists(&h);
     h.t.press("o");
     h.wait_for("the picker with the sessions", |s| {
-        s.contains("Resume a previous session")
-            && s.contains("Interactive task")
-            && s.contains("Exec task")
+        s.contains("Resume a previous session") && s.contains("Interactive task")
     });
     // The listing is asked of the shell: it shows when the backend has it.
     h.wait_until("the sessions listed again", |h| lists(h) > before);
@@ -830,7 +834,7 @@ fn a_pick_in_the_picker_resumes_the_task() {
     h.wait_for("both tasks", |s| s.contains("Exec task"));
     h.t.press("o");
     h.wait_for("the sessions", |s| {
-        s.contains("Resume a previous session") && s.contains("Exec task")
+        s.contains("Resume a previous session") && s.contains("Interactive task")
     });
     h.t.press("enter");
     h.wait_for_request("thread/resume");
@@ -928,6 +932,11 @@ fn typing_a_word_asks_the_server_once() {
     h.t.press("x");
     h.wait_for("the typed text", |s| s.contains("Search \u{203a} ex"));
     assert_eq!(scans(), before, "nothing is asked before the pause");
+    // The fake's loop has taken every search the keys made, and each dropped
+    // the one before it, when the barrier passes: opening the gate earlier
+    // would let a search the loop has not yet dropped through.
+    let mut taken = h.fake.barrier();
+    h.wait_until("the fake's loop to take the searches", |_| taken.passed());
     // The pause ends: only the search that was left asks, once per source.
     // The earlier keystrokes' searches were dropped when the next one came
     // (they never reach the gate's far side), so the two requests of the
@@ -1378,7 +1387,7 @@ fn a_pick_in_the_resume_picker_shows_the_loading_page() {
     h.wait_for("both tasks", |s| s.contains("Exec task"));
     h.t.press("o");
     h.wait_for("the picker", |s| {
-        s.contains("Resume a previous session") && s.contains("Exec task")
+        s.contains("Resume a previous session") && s.contains("Interactive task")
     });
     h.t.press("enter");
     h.wait_for("the loading page", |s| s.contains("Loading task…"));

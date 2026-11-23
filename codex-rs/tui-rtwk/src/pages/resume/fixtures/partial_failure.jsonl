@@ -1,0 +1,5 @@
+# `partial_failure_keeps_healthy_rows_visible`: one healthy row kept after one source failed.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777393800}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-00000000002a","preview":"Healthy session","created":1735776000,"updated":1735776000}]}}}
+{"step":"screen","dir":"resume","ev":{"problem":"one_backend"}}

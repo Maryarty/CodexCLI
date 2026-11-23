@@ -6,63 +6,28 @@
 //! first that fits, `ui::page_keys::footer_fit`). Oracle: `resume_picker.rs`
 //! (`toolbar_for_width`, `hint_line_for_row`, `picker_footer_progress_label`).
 
-use rtwk_core::unicode::{TextMode, string_width};
+use rtwk::layout::{EdgeInsets, Padding, SizedBox};
+use rtwk::style::Style;
+use rtwk::text::{Text, segmenter_of};
+use rtwk::{AnyWidget, LayoutBuilder};
+
+use crate::widgets::measure::Measure;
 
 use crate::widgets::page_keys::Variant;
 
 use super::strings::Strings;
 
-fn width(text: &str) -> usize {
-    string_width(text, TextMode::Graphemes, 1)
-}
-
 /// The three spellings of the footer's progress, widest first, the first
 /// that is narrower than `w` (oracle: `picker_footer_progress_label`).
-pub fn progress_label(position: usize, total: &str, percent: u8, w: usize) -> String {
+pub fn progress_label(seg: Measure, position: usize, total: &str, percent: u8, w: usize) -> String {
     [
         format!(" {position} / {total} · {percent}% "),
         format!(" {position}/{total} · {percent}% "),
         format!(" {percent}% "),
     ]
     .into_iter()
-    .find(|label| width(label) < w)
+    .find(|label| seg.width(label) < w)
     .unwrap_or_default()
-}
-
-/// One run of the toolbar: its text and whether it is the active value.
-pub type Run = (String, bool);
-
-/// The toolbar (oracle: `toolbar_for_width`): the full strip, else the
-/// compact one.
-pub fn toolbar(strings: &super::strings::Strings, w: usize) -> Vec<Run> {
-    let full = |compact: bool| -> Vec<Run> {
-        let value = |text: &str, active: bool| (format!(" {text} "), active);
-        let label = |text: &str, gap: &str| (format!("{text}{gap}"), false);
-        let sep = || ("   ".to_string(), false);
-        let gap = if compact { "" } else { " " };
-        let mut line = vec![
-            label(strings.filter, gap),
-            value(strings.filter_all, true),
-            sep(),
-        ];
-        line.push(label(strings.status, gap));
-        line.push(value(strings.status_active, true));
-        if !compact {
-            line.push(value(strings.status_archived, false));
-        }
-        line.push(sep());
-        line.push(label(strings.sort, gap));
-        line.push(value(strings.sort_updated, true));
-        if !compact {
-            line.push(value(strings.sort_created, false));
-        }
-        line
-    };
-    let wide = full(false);
-    if wide.iter().map(|(text, _)| width(text)).sum::<usize>() <= w {
-        return wide;
-    }
-    full(true)
 }
 
 /// One footer hint (oracle: `PickerFooterHint`).
@@ -115,23 +80,121 @@ pub fn hint_variants(hints: &[Hint]) -> Vec<Variant> {
     out
 }
 
+/// A footer row whose first word is not a key (the loading row's `loading`):
+/// the first of `variants` that fits, its entries as plain text apart by
+/// `separator`, `pad` cells in (`footer_fit` reads every entry's key as a key
+/// the page binds; this row binds none).
+pub fn plain_fit(
+    variants: Vec<Variant>,
+    style: Style,
+    separator: &'static str,
+    pad: i32,
+) -> AnyWidget {
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
+        let room = constraints.max_width;
+        let text = |variant: &Variant| {
+            variant
+                .entries
+                .iter()
+                .map(|(key, hint)| {
+                    if hint.is_empty() {
+                        key.clone()
+                    } else {
+                        [key.as_str(), hint.as_str()].join(" ")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(separator)
+        };
+        let fits = |variant: &Variant| {
+            room >= variant.min_width
+                && i32::try_from(seg.width(&text(variant))).unwrap_or(i32::MAX) + pad <= room
+        };
+        match variants.iter().find(|variant| fits(variant)) {
+            Some(variant) => Padding::new(
+                EdgeInsets::only(pad, 0, 0, 0),
+                Text::line(text(variant)).style(style.clone()),
+            )
+            .into(),
+            None => SizedBox::new(None, Some(1), None).into(),
+        }
+    })
+    .into()
+}
+
+/// What the hint rows depend on (oracle: `footer_hint_lines`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HintFacts {
+    /// A transcript is loading: the rows say so and take nothing else.
+    pub loading: bool,
+    pub fork: bool,
+    pub archived: bool,
+    /// The search has text: esc clears it.
+    pub searching: bool,
+    /// Opened from a running session: esc and ctrl+c leave the picker.
+    pub in_session: bool,
+    pub dense: bool,
+    /// The archive key is offered: rows to act on and active sessions.
+    pub archive: bool,
+}
+
 /// The footer's two hint rows' spellings (oracle: `footer_hint_lines`).
-pub fn hint_rows(strings: &Strings) -> [Vec<Variant>; 2] {
+pub fn hint_rows(strings: &Strings, facts: HintFacts) -> [Vec<Variant>; 2] {
     let hint = |key: &str, wide: &str, compact: &str, priority| Hint {
         key: key.to_string(),
         wide: wide.to_string(),
         compact: compact.to_string(),
         priority,
     };
-    let first = [
-        hint(strings.key_accept, strings.accept, strings.accept, 0),
-        hint(
-            strings.key_cancel,
-            strings.cancel_wide,
-            strings.cancel_compact,
-            1,
-        ),
-        hint(strings.key_quit, strings.quit, strings.quit, 2),
+    if facts.loading {
+        let first = [
+            hint(
+                strings.key_loading,
+                strings.loading_transcript,
+                strings.loading_transcript,
+                0,
+            ),
+            hint(strings.key_quit, strings.quit, strings.quit, 1),
+        ];
+        return [hint_variants(&first), Vec::new()];
+    }
+    let accept = if facts.archived {
+        strings.accept_restore
+    } else if facts.fork {
+        strings.accept_fork
+    } else {
+        strings.accept
+    };
+    let (cancel_wide, cancel_compact) = if facts.searching {
+        (strings.cancel_clear, strings.cancel_clear_compact)
+    } else if facts.in_session {
+        (strings.exit, strings.exit)
+    } else {
+        (strings.cancel_wide, strings.cancel_compact)
+    };
+    let quit = if facts.in_session {
+        strings.exit
+    } else {
+        strings.quit
+    };
+    let (density_wide, density_compact) = if facts.dense {
+        (strings.density_comfy_wide, strings.density_comfy_compact)
+    } else {
+        (strings.density_wide, strings.density_compact)
+    };
+    let mut first = vec![hint(strings.key_accept, accept, accept, 0)];
+    if facts.archive {
+        first.push(hint(
+            strings.key_archive,
+            strings.archive,
+            strings.archive,
+            2,
+        ));
+    }
+    first.extend([
+        hint(strings.key_cancel, cancel_wide, cancel_compact, 1),
+        hint(strings.key_quit, quit, quit, 2),
         hint(
             strings.key_focus,
             strings.focus_wide,
@@ -144,14 +207,9 @@ pub fn hint_rows(strings: &Strings) -> [Vec<Variant>; 2] {
             strings.option_compact,
             8,
         ),
-    ];
+    ]);
     let second = [
-        hint(
-            strings.key_density,
-            strings.density_wide,
-            strings.density_compact,
-            3,
-        ),
+        hint(strings.key_density, density_wide, density_compact, 3),
         hint(
             strings.key_transcript,
             strings.transcript_wide,
@@ -167,4 +225,22 @@ pub fn hint_rows(strings: &Strings) -> [Vec<Variant>; 2] {
         hint(strings.key_browse, strings.browse, strings.browse, 5),
     ];
     [hint_variants(&first), hint_variants(&second)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rtwk_core::unicode::TextSegmenter;
+
+    /// A halfwidth katakana and its sound mark: one cell clustered, two in legacy.
+    const MARKED: &str = "\u{ff76}\u{ff9e}";
+
+    #[test]
+    fn the_progress_label_counts_the_terminals_cells() {
+        // ` 1 / ｶﾞ · 5% ` takes 12 cells clustered, 13 in legacy; it must be narrower than 13
+        let graphemes = progress_label(TextSegmenter::default(), 1, MARKED, 5, 13);
+        let legacy = progress_label(TextSegmenter::legacy(), 1, MARKED, 5, 13);
+        assert_eq!(graphemes, format!(" 1 / {MARKED} \u{b7} 5% "));
+        assert_eq!(legacy, format!(" 1/{MARKED} \u{b7} 5% "));
+    }
 }

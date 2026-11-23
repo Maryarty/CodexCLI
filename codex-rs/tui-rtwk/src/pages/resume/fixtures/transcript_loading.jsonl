@@ -1,0 +1,3 @@
+# `transcript_loading_overlay_snapshot`, `loading_overlay_clears_inherited_selection_colors_and_reversal`: two rows without times.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-000000000001","preview":"Find pending threads and emails"},{"id":"00000000-0000-0000-0000-000000000002","preview":"Plan raw scrollback mode"}]}}}

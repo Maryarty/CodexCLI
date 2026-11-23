@@ -1,0 +1,4 @@
+# `narrow_toolbar_keeps_keyboard_focused_control_visible`: a picker scoped to /tmp/codex (no rows).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/tmp/codex","repo_cwds":[]}}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[]}}}

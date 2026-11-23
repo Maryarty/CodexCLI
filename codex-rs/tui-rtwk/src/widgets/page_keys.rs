@@ -3,6 +3,7 @@
 //! page's `KeyBindings`, so every key shown is bound) and the popup a key
 //! whose action is not built yet opens (`not_yet`), never a silent no-op.
 
+use crate::widgets::measure::Measure;
 use rtwk::LayoutBuilder;
 use rtwk::controls::KeyHintsBar;
 use rtwk::focus::{Focus, KeyCombo, KeyPress};
@@ -11,9 +12,9 @@ use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog_handler, s
 use rtwk::prelude::KeyCode;
 use rtwk::style::Glyphs;
 use rtwk::style::Style;
+use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
-use rtwk_core::unicode::{TextMode, string_width};
 
 use crate::l10n::strings as l10n;
 
@@ -83,8 +84,8 @@ pub struct Variant {
 impl Variant {
     /// The cells the row takes: each key, a blank and its hint, the entries
     /// apart by `separator`.
-    fn width(&self, separator: &str) -> i32 {
-        let cells = |text: &str| string_width(text, TextMode::Graphemes, 1) as i32;
+    pub fn width(&self, seg: Measure, separator: &str) -> i32 {
+        let cells = |text: &str| seg.width(text) as i32;
         let entries: i32 = self
             .entries
             .iter()
@@ -104,11 +105,12 @@ pub fn footer_fit(
     separator: &'static str,
     pad: i32,
 ) -> AnyWidget {
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
         let room = constraints.max_width;
         match variants
             .iter()
-            .find(|v| room >= v.min_width && v.width(separator) + pad <= room)
+            .find(|v| room >= v.min_width && v.width(seg, separator) + pad <= room)
         {
             Some(v) => Padding::new(
                 EdgeInsets::only(pad, 0, 0, 0),

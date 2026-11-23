@@ -1,0 +1,4 @@
+# `paste_appends_to_existing_query`, `whitespace_only_paste_is_ignored`: three rows to search.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777393800}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-4000-8000-000000000200","preview":"resize 0","created":1777393800,"updated":1777393800,"path":"/tmp/0.jsonl"},{"id":"00000000-0000-4000-8000-000000000201","preview":"resize 1","created":1777390200,"updated":1777393500,"path":"/tmp/1.jsonl"},{"id":"00000000-0000-4000-8000-000000000202","preview":"resize 2","created":1777386600,"updated":1777393200,"path":"/tmp/2.jsonl"}]}}}

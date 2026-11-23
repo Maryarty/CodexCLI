@@ -1,0 +1,5 @@
+# `expanded_session_details_include_metadata`: a named thread, 24-hour clock, fixed reference time.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777733299}}
+{"step":"screen","dir":"resume","ev":{"clock24":true}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"019dabc1-0ef5-7431-b81c-03037f51f62c","preview":"first message","thread_name":"feat(tui): add raw scrollback mode","created":1777732268,"updated":1777733299,"cwd":"/Users/felipe.coury/code/codex","branch":"codex/raw-scrollback-mode","path":"/tmp/a.jsonl"}]}}}

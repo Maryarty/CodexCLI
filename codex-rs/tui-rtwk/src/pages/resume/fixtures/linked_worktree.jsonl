@@ -1,0 +1,5 @@
+# `linked_worktree_sessions_follow_directory_scope`: a session under a linked checkout of the repository the picker is scoped to.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1735776000}}
+{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/repo/primary","repo_cwds":["/repo/primary","/repo/linked"]}}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-000000000015","preview":"Linked session","created":1735689600,"updated":1735689600,"cwd":"/repo/linked","path":"session.jsonl"}]}}}

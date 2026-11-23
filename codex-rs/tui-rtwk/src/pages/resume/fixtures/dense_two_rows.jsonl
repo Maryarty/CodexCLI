@@ -1,0 +1,5 @@
+# `dense_session_snapshot_uses_no_blank_lines_between_rows`: two rows under the cwd filter (ctrl+o, then down selects the second).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777399200}}
+{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs","repo_cwds":[]}}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"019dabc1-0ef5-7431-b81c-03037f51f62c","preview":"First dense row","created":1777393800,"updated":1777398300,"cwd":"/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs","branch":"fcoury/session-picker","path":"/tmp/a.jsonl"},{"id":"019dabc1-0ef5-7431-b81c-03037f51f62d","preview":"Second dense row","created":1777393800,"updated":1777398300,"cwd":"/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs","branch":"fcoury/other-branch","path":"/tmp/a.jsonl"}]}}}

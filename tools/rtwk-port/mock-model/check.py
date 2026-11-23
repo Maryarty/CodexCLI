@@ -98,6 +98,7 @@ class Terminal:
     details: bool = False
 
 
+READY_MARK, READY_WAIT = "AskCodextodoanything", 30.0  # the composer's placeholder; seconds to wait for it
 SLOW_BASE, SHORT_BASE = 60.0, 20.0
 SHORT: set[str] = set()  # scenarios run with the short slack (--short-budget): known reds that only wait it out
 
@@ -314,6 +315,17 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
             if sc.sentinel not in re.sub(r"\s+", "", screen_text()):
                 return False, "resumed thread did not show the scenario answer", notes
         else:
+            # Quiet is not ready: under load the app is silent for more than 1.5 s between its
+            # terminal queries and the first paint, and a prompt typed before the composer is
+            # painted never reaches it (the mock then serves 0 requests, "starting…" on screen).
+            # Wait for the composer's placeholder; a build with another opening goes on after
+            # the wait.
+            deadline = time.monotonic() + READY_WAIT
+            while alive() and time.monotonic() < deadline:
+                if READY_MARK in re.sub(r"\s+", "", screen_text()):
+                    quiet_for(0.5, 2)
+                    break
+                pump(0.2)
             checkpoint("ready")
         expected = 0
         for i, turn in enumerate(() if resume else sc.turns):

@@ -1,0 +1,5 @@
+# `narrow_toolbar_keeps_keyboard_focused_control_visible`: a Fork picker scoped to /tmp/codex (no rows).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/tmp/codex","repo_cwds":[]}}}
+{"step":"screen","dir":"resume","ev":{"launched":{"fork":true}}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[]}}}

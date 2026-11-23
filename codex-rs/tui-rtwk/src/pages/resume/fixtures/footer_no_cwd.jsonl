@@ -1,0 +1,6 @@
+# `footer_omits_cwd_when_hidden`: one row under the directory the picker is filtered by (its directory is not repeated).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"agents","ev":{"home":"/Users/felipe.coury"}}
+{"step":"screen","dir":"resume","ev":{"clock":1777723200}}
+{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/Users/felipe.coury/code/codex.owner-worktree/codex-rs","repo_cwds":[]}}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"019dabc1-0ef5-7431-b81c-03037f51f62c","preview":"Footer row","created":1777705200,"updated":1777708800,"cwd":"/Users/felipe.coury/code/codex.owner-worktree/codex-rs","branch":"owner/branch","path":"/tmp/a.jsonl"}]}}}
