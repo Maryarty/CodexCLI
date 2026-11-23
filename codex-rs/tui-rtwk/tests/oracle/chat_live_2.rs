@@ -1270,10 +1270,6 @@ fn thread_snapshot_replayed_turn_started_marks_task_running() {
 // ORACLE chatwidget/tests/history_replay.rs:1723 replayed_in_progress_turn_marks_task_running kind=snap owner=chat-live snap=replayed_in_progress_turn
 #[test]
 fn replayed_in_progress_turn_marks_task_running() {
-    kit::pending(
-        Owner::ChatLive,
-        "a resumed thread whose recorded turn is in progress draws no `• Working (<elapsed> • esc to interrupt)` row: the replayed turn does not leave the thread running with the turn's start time (core replay/resume wiring); the live turn/started case is green",
-    );
     for items_view in ["full", "notLoaded"] {
         let mut turn = turn_ended("turn-1", "inProgress", serde_json::json!([]));
         turn["itemsView"] = serde_json::json!(items_view);
