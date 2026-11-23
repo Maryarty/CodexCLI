@@ -1,0 +1,5 @@
+# ADR-013 ratchets of the session family (format and rules: tests/rules/adr013_ratchets.txt).
+# The directive listener also carries the error of the command center's notice (a fork that ends in an
+# error): it selects `ScreenStates` and names `agents::Notice` (`error_of`). Leaves with the notice
+# becoming a directive of the thread model (or of the app) instead of a field of a screen.
+ratchet adr013_widgets_name_no_screen_half src/widgets/directives.rs 2

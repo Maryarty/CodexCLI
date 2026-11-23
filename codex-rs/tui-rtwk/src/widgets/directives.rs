@@ -41,8 +41,9 @@ pub enum Edge {
     Plan,
     /// A thread was archived or deleted and the page is in front.
     Removed,
-    /// The command center's notice changed (a fork ends with an error of it).
-    Notice(Option<Notice>),
+    /// The error the command center's notice shows changed (a fork ends with an error of it):
+    /// its text, none when the notice is no error.
+    Error(Option<String>),
 }
 
 /// The numbers of a thread the listener compares from one change to the next.
@@ -61,9 +62,17 @@ struct Counters {
 struct Deps {
     counters: Counters,
     removed: u32,
-    notice: Option<Notice>,
+    error: Option<String>,
     /// The page is the route in front: a removal waits until it is.
     current: bool,
+}
+
+/// The text of the error a notice shows (what a fork that failed leaves in the command center).
+pub fn error_of(notice: &Option<Notice>) -> Option<String> {
+    match notice {
+        Some(Notice::Error(text)) => Some(text.clone()),
+        _ => None,
+    }
 }
 
 /// The one list of what the listener selects (asked by its `did_change_dependencies` and its
@@ -81,11 +90,11 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
         }
     });
     let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
-    let notice = select::<ScreenStates, _, _>(cx, |states| states.agents.notice.clone());
+    let error = select::<ScreenStates, _, _>(cx, |states| error_of(&states.agents.notice));
     Deps {
         counters,
         removed,
-        notice,
+        error,
         current: Route::is_current_of(cx),
     }
 }
@@ -101,7 +110,7 @@ pub struct Listener {
 #[derive(Default)]
 pub struct ListenerState {
     seen: Option<Counters>,
-    notice: Option<Option<Notice>>,
+    error: Option<Option<String>>,
     removed: Option<u32>,
 }
 
@@ -137,7 +146,7 @@ impl State for ListenerState {
         let Deps {
             counters: now,
             removed,
-            notice,
+            error,
             current,
         } = deps(cx);
         let before = self.seen.replace(now.clone());
@@ -174,8 +183,12 @@ impl State for ListenerState {
             }
             Some(_) => {}
         }
-        if self.notice.replace(notice.clone()).is_some_and(|seen| seen != notice) {
-            cx.emit(&w.on_edge, Edge::Notice(notice));
+        if self
+            .error
+            .replace(error.clone())
+            .is_some_and(|seen| seen != error)
+        {
+            cx.emit(&w.on_edge, Edge::Error(error));
         }
     }
 

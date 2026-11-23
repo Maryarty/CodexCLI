@@ -19,7 +19,9 @@ pub fn note(note: &Note) -> String {
         Note::NoConversation => "Export failed: No active conversation to export.".to_owned(),
         Note::NoContent => "Export failed: No conversation content to export.".to_owned(),
         Note::Copy(Ok(CopyStatus::Confirmed)) => "Copied conversation to clipboard".to_owned(),
-        Note::Copy(Ok(CopyStatus::Unconfirmed)) => "Copy unconfirmed; /export saves chat".to_owned(),
+        Note::Copy(Ok(CopyStatus::Unconfirmed)) => {
+            "Copy unconfirmed; /export saves chat".to_owned()
+        }
         Note::Copy(Ok(CopyStatus::Pending(_))) => "Copying conversation…".to_owned(),
         Note::Copy(Ok(CopyStatus::Busy)) => "Copy already in progress".to_owned(),
         Note::Copy(Err(error)) => format!("Copy failed: {error}"),

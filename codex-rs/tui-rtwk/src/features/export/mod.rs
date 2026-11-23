@@ -6,8 +6,8 @@
 pub mod sheet;
 pub mod strings;
 
+use rtwk::Cx;
 use rtwk::overlay::show_dialog;
-use rtwk::{Cx};
 
 use codex_tui_core::features::export::{Export, Note};
 use codex_tui_core::ids::ThreadId;

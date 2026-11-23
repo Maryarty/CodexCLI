@@ -22,8 +22,8 @@ use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::plugins::catalog::{ALL, RowKey, tab_id_of_root};
 use codex_tui_core::features::plugins::{
-    Action, Detail as DetailData, Gen, Intent, OpKey, Outcome, PluginKey, SetupEnd, State as Domain,
-    Status, Toggle,
+    Action, Detail as DetailData, Gen, Intent, OpKey, Outcome, PluginKey, SetupEnd,
+    State as Domain, Status, Toggle,
 };
 use codex_tui_core::features::{FeatureStates, Remote};
 use codex_tui_core::ids::Cwd;
@@ -355,8 +355,14 @@ impl State for HomeState {
             None | Some(Remote::Loading(None)) => waiting(),
             Some(Remote::Failed(error)) => picker(lists::failed_list(error, words), on, 1),
             Some(_) => {
-                match lists::browser(&state, &w.cwd, &self.tab, self.fresh.as_deref(), &keys, words)
-                {
+                match lists::browser(
+                    &state,
+                    &w.cwd,
+                    &self.tab,
+                    self.fresh.as_deref(),
+                    &keys,
+                    words,
+                ) {
                     Some((list, extras)) => {
                         AnyWidget::from(Picker::new(Rc::new(list), on).extras(extras)).with_key(2)
                     }

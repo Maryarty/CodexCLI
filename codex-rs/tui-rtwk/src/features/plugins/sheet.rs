@@ -53,18 +53,26 @@ impl Sheet for PluginsSheet {
     }
 }
 
+impl PluginsSheetState {
+    /// What the sheet watches: asked in `did_change_dependencies` and again in `build`, because
+    /// a build forgets the selects of the build before.
+    fn seen(cx: &mut Cx<'_, Self>) -> bool {
+        select::<FeatureStates, bool, _>(cx, |features| features.plugins.enabled())
+    }
+}
+
 impl State for PluginsSheetState {
     type Widget = PluginsSheet;
     type Msg = ();
 
     fn did_change_dependencies(&mut self, w: &PluginsSheet, cx: &mut Cx<'_, Self>) {
-        let enabled = select::<FeatureStates, bool, _>(cx, |features| features.plugins.enabled());
-        if !w.alive(&enabled) {
+        if !w.alive(&Self::seen(cx)) {
             close_dialog::<_, ()>(cx, None);
         }
     }
 
-    fn build(&self, w: &PluginsSheet, _: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, w: &PluginsSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        Self::seen(cx);
         let browser = Home { cwd: w.cwd.clone() };
         let pages = Navigator::new().home(bottom(browser)).back_key(None);
         Interest::new(Wanted::Listing { cwd: w.cwd.clone() }, pages).into()

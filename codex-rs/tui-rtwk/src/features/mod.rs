@@ -1,7 +1,8 @@
 //! The view half of the feature slices (ADR-012, ADR-013): what each feature of
 //! `codex_tui_core::features` shows, one directory per feature (`src/features/<f>/`: its
-//! `strings.rs` and views). The directories are the ones of core's `feature_list!`, which this file
-//! invokes with its own macros, so the two lists cannot differ. A feature implements `FeatureView`
+//! `strings.rs` and views). The directories are the ones of core's `feature_list!`, whose other
+//! lists this file invokes with its own macros (the `mod` lines are written out for rustfmt: a
+//! feature of the list without its directory does not compile). A feature implements `FeatureView`
 //! for its core marker type: the words of its notes and how its wishes are shown. What a feature
 //! asks of the user is its own sheet, prompt or question (`open(cx, args)`, a wish's `shown`), built
 //! of rtwk widgets over controllers and saying the user's decision as a verb (`verb`): core keeps
@@ -28,6 +29,14 @@ use crate::app::view::Hs;
 use crate::pages::session::strings::Strings as SessionStrings;
 
 pub mod prompt;
+
+// One line per directory of `feature_list!`, written out so that rustfmt (which follows `mod`
+// lines, not macro expansions) formats the views too. A feature of the list without its
+// directory does not compile: `view_dispatch!` needs its `FeatureView` impl.
+pub mod export;
+pub mod goal;
+pub mod plugins;
+pub mod rename;
 
 /// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope
 /// shows it from its own slice of the feature's state (the data of the wish is the feature's, a
@@ -89,12 +98,6 @@ pub fn verb<S: 'static>(cx: &mut Cx<'_, S>, intent: impl Into<FeatureIntent>) {
     cx.emit(&hs.intent, Intent::Feature(intent.into()));
 }
 
-macro_rules! view_mods {
-    ($($name:ident => $variant:ident;)*) => {
-        $(pub mod $name;)*
-    };
-}
-
 macro_rules! view_dispatch {
     ($($name:ident => $variant:ident;)*) => {
         /// The words of a feature's note.
@@ -124,6 +127,5 @@ macro_rules! view_wishes {
     };
 }
 
-feature_list!(view_mods);
 feature_list!(view_dispatch);
 feature_list!(view_wishes);

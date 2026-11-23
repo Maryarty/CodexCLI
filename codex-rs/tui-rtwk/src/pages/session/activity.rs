@@ -108,9 +108,9 @@ impl Run {
 /// The status area above the composer (the oracle's bottom pane flex): the
 /// connection lost, the session's or the thread's failure, the session
 /// starting, or the running turn's `Activity`; else the hook line and the
-/// background terminals' line; a blank row, then the pending preview, or a
-/// blank row alone after the activity; nothing when none of them is there (and
-/// a one-row gap above the status row once the transcript has rows).
+/// background terminals' line; a blank row, then the pending preview;
+/// nothing when none of them is there (and a one-row gap above the status
+/// row once the transcript has rows).
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct StatusSlot;
 
@@ -236,11 +236,14 @@ impl StatelessWidget for StatusSlot {
         if terminals_line {
             column = column.child(TerminalsLine);
         }
+        // the preview stands apart from the activity above it; with none, the composer's gap row
+        // (a blank row, or the reader's control after a blank one) is what separates the activity
+        // from the composer (`needs_separator` of the oracle's `ComposerGap`)
         let above = working || hook_line.is_some() || terminals_line;
-        if above {
-            column = column.child(blank());
-        }
         if run.pending {
+            if above {
+                column = column.child(blank());
+            }
             column = column.child(PendingInput);
         }
         column.into()

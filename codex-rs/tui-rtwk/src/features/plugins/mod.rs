@@ -38,7 +38,9 @@ impl FeatureView for Plugins {
         let Scope::Cwd(cwd) = scope else {
             return None;
         };
-        let held_by = Some(FeatureInterest::from(Interest::Listing { cwd: cwd.clone() }));
+        let held_by = Some(FeatureInterest::from(Interest::Listing {
+            cwd: cwd.clone(),
+        }));
         let cwd = cwd.clone();
         Some(Shown {
             held_by,
@@ -68,9 +70,7 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
     if on {
         drop(show_dialog::<(), S>(
             cx,
-            move |_| {
-                PluginsSheet { cwd: cwd.clone() }.into()
-            },
+            move |_| PluginsSheet { cwd: cwd.clone() }.into(),
             sheet_options(),
         ));
     }

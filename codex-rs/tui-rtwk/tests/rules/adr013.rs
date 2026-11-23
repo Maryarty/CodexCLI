@@ -1263,9 +1263,7 @@ fn directives_read_elsewhere(files: &Files) -> Vec<String> {
     found.extend(hits_by_file(
         files,
         |name| name.starts_with("src/pages/") || name.starts_with("src/sheets/"),
-        |tokens, i| {
-            at(tokens, i) == "seq" && matches!(at(tokens, i.wrapping_sub(1)), "." | ":")
-        },
+        |tokens, i| at(tokens, i) == "seq" && matches!(at(tokens, i.wrapping_sub(1)), "." | ":"),
     ));
     found
 }

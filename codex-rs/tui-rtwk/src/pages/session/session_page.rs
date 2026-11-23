@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use rtwk::binding::TerminalTitle;
 use rtwk::editing::TextEditingController;
-use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyCombo, KeyEventResult, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyCombo, KeyEventResult};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack, StackFit};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
@@ -44,7 +44,7 @@ use crate::pages::session::popovers::mention;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::directives::{Edge, Listener};
+use crate::widgets::directives::{Edge, Listener, error_of};
 use crate::widgets::status_line::{Notice, status_spans, with_warning_notice};
 use crate::widgets::thread_ui::{Modes, TextSelection, ThreadUi};
 
@@ -237,12 +237,12 @@ impl StatefulWidget for Chat {
 
 impl_widget!(stateful eq Chat);
 
-/// A fork in flight: the thread it copies and the agents notice standing when
-/// it was asked (a new error notice is its failure).
+/// A fork in flight: the thread it copies and the error the agents notice showed when it was
+/// asked (another error is its failure).
 #[derive(Clone, Debug, PartialEq)]
 struct Forking {
     thread: ThreadId,
-    notice: Option<codex_tui_core::screens::agents::Notice>,
+    error: Option<String>,
 }
 
 /// The chords of `change_host` (the leader's prefix and its completion, `Ctrl+X b` by default),
@@ -329,13 +329,12 @@ impl ChatState {
             }
             // The fork ends with an error of the server (the copy opens in another thread, which
             // `did_update_widget` takes as its end too).
-            Edge::Notice(notice) => {
-                let failed = matches!(notice, Some(codex_tui_core::screens::agents::Notice::Error(_)));
-                if failed
+            Edge::Error(error) => {
+                if error.is_some()
                     && self
                         .forking
                         .as_ref()
-                        .is_some_and(|fork| fork.notice != notice)
+                        .is_some_and(|fork| fork.error != error)
                 {
                     self.forking = None;
                     return Rebuild::Yes;
@@ -642,7 +641,7 @@ impl State for ChatState {
                     cx.emit(&hs.screen, ScreenIntent::from(intent));
                     self.forking = Some(Forking {
                         thread: thread.id().clone(),
-                        notice: read::<ScreenStates, _>(cx).agents.notice.clone(),
+                        error: error_of(&read::<ScreenStates, _>(cx).agents.notice),
                     });
                     return Rebuild::Yes;
                 }
@@ -827,12 +826,11 @@ impl State for ChatState {
         *self.keymap.borrow_mut() = keymap.clone();
         // what the page's shape follows (each build selects anew)
         thread_shape(cx);
-        // the backend control's chord is live while the control shows
-        let offer = select::<ScreenStates, _, _>(cx, |states| states.agents.cycle_offer());
-        self.control.set(
-            session.cycle_label(&thread, offer).is_some() && !w.ui.draft.searching(),
-        );
         let drawn = slice::drawn(cx, thread.id());
+        // the backend control's chord is live while the control shows
+        self.control.set(
+            session.cycle_label(&thread, drawn.offer.clone()).is_some() && !w.ui.draft.searching(),
+        );
         let backend = drawn.owner;
         let connection = session.connections.get(&backend);
         let slots = thread.screen_slots();

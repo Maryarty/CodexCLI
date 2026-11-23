@@ -319,6 +319,31 @@ fn the_edit_queued_key_puts_the_newest_queued_message_back_in_the_composer() {
     assert!(screen.contains("↳ one"), "{screen}");
 }
 
+/// An edge that lands in the flush of a rebuild of the page (the turn's next delta arrives with
+/// the key) is not lost to the rebuild (`widgets/directives.rs`: the listener is a dependent of
+/// its own) and is carried out once: the composer holds the message once, not twice.
+#[test]
+fn an_edge_in_the_flush_of_a_rebuild_is_carried_out_once() {
+    let mut h = running();
+    h.t.type_text("one");
+    h.wait_for("the queue hint", |s| s.contains("tab to queue message"));
+    h.press("tab");
+    h.wait_for("the message queued", |s| s.contains("↳ one"));
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(agent_delta(FAKE_THREAD, "turn-1", "msg-1", " and more")),
+    );
+    h.press("alt+up");
+    h.wait_for("the message back in the composer", |s| {
+        !s.contains("↳ one") && s.contains("› one")
+    });
+    h.advance(300);
+    let screen = h.t.screen();
+    assert_eq!(screen.matches("› one").count(), 1, "{screen}");
+    assert!(!screen.contains("› oneone"), "{screen}");
+}
+
 /// A chat on `model` whose account read carried the Luna Reserve banner; `draft` is typed first.
 fn with_reserve(model: &str, draft: &str) -> Harness {
     let mut h = start();
