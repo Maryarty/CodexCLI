@@ -1,0 +1,5 @@
+# The composer alone after `on_task_search_result("migr", ..)` (oracle chat_composer.rs:7806
+# `task_mention_popup_and_selected_composer_snapshots`): two tasks.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"tasks":[{"thread":"task-123","title":"Review database migration","cwd":"/workspace/project","snippet":"database migration"},{"thread":"task-456","title":"migration","cwd":"/another/project","snippet":"migration"}]}}

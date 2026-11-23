@@ -1,0 +1,4 @@
+# The skill of `submit_captures_recent_mention_bindings_before_clearing_textarea` (chat_composer.rs:11013):
+# `$figma`, the skill file `/tmp/user/figma/SKILL.md`.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"figma","description":"Design files","insert":"figma","path":"/tmp/user/figma/SKILL.md"}]}}
