@@ -949,6 +949,7 @@ fn interrupt_retries_once_when_the_server_names_a_different_active_turn() {
     let refusal = |expected, actual| {
         Err(ServerError {
             code: Some(-32602),
+            data: None,
             message: format!("expected active turn id {expected} but found {actual}"),
         })
     };

@@ -127,6 +127,7 @@ impl Env {
                 (request["method"] == "thread/resume").then(|| {
                     Err(ServerError {
                         code: None,
+                        data: None,
                         message: "thread already has an active writer".to_string(),
                     })
                 })

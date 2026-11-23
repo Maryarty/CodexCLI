@@ -1095,6 +1095,7 @@ mod tests {
     fn refused(message: &str) -> ServerError {
         ServerError {
             code: Some(-32603),
+            data: None,
             message: message.to_owned(),
         }
     }
@@ -1492,6 +1493,7 @@ mod tests {
             |_: ClientRequest| async {
                 Err::<serde_json::Value, _>(ServerError {
                     code: Some(-32603),
+                    data: None,
                     message: "account/gatewayOAuth/read failed: boom (code -32603)".into(),
                 })
             },

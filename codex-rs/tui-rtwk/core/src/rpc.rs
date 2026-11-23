@@ -20,6 +20,9 @@ pub enum RpcError {
     Mismatch,
     /// The result did not decode; the decoder's diagnostic.
     Malformed(String),
+    /// The server refused the turn or steer for the chat's model provider
+    /// (`error.data` of a `ModelProviderError`): the chat is read-only.
+    Provider(codex_app_server_protocol::ModelProviderError),
 }
 
 /// A request's failure as the client reports it: the server's JSON-RPC error
@@ -29,9 +32,17 @@ pub enum RpcError {
 pub struct ServerError {
     pub code: Option<i64>,
     pub message: String,
+    /// The JSON-RPC error's `data`, as the server sent it.
+    pub data: Option<serde_json::Value>,
 }
 
 impl ServerError {
+    /// The structured provider failure the server's `data` carries
+    /// (oracle `model_provider_error`); other data is not one.
+    pub fn model_provider(&self) -> Option<codex_app_server_protocol::ModelProviderError> {
+        serde_json::from_value(self.data.clone()?).ok()
+    }
+
     /// The server refused the request as malformed or unsupported
     /// (JSON-RPC `-32602..=-32600`: invalid request, method not found,
     /// invalid params).
@@ -54,6 +65,7 @@ impl From<String> for ServerError {
         Self {
             code: None,
             message,
+            data: None,
         }
     }
 }

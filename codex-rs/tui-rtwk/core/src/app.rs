@@ -479,6 +479,8 @@ enum AppCtx {
         name: Option<String>,
         /// The approved plan the new thread starts from (the plan prompt's "clear context" row).
         plan: Option<String>,
+        /// A text for the new thread's composer (the provider-error notice's continue key).
+        draft: Option<String>,
     },
     /// `thread/archive` or `thread/delete` of the thread the chat shows
     /// (`/archive`, `/delete` after their confirmation).
@@ -1301,6 +1303,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     )));
                     apply_thread(app, &ThreadId::new(thread), ev, fx);
                 }
+                ScreenEv::Chat(chat::Ev::ProviderError { thread, error }) => {
+                    let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::ProviderError(
+                        error.clone(),
+                    )));
+                    apply_thread(app, &ThreadId::new(thread), ev, fx);
+                }
                 ScreenEv::Chat(chat::Ev::Pending { thread, pending }) => {
                     apply_thread(
                         app,
@@ -1636,6 +1644,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 backend,
                 name,
                 plan,
+                draft,
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread } => Ok((thread, None)),
@@ -1675,6 +1684,16 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                                 &thread,
                                 ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
                                     chat::ThreadIntent::ApprovePlan(markdown),
+                                )),
+                                fx,
+                            );
+                        }
+                        if let Some(text) = draft {
+                            apply_thread(
+                                app,
+                                &thread,
+                                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+                                    chat::ThreadIntent::Draft(text),
                                 )),
                                 fx,
                             );
@@ -2323,6 +2342,16 @@ fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
     }
 }
 
+/// A resume the server refused for the thread's model provider: the thread says why.
+fn provider_refusal(app: &mut CodexApp, thread: &ThreadId, error: &RpcError, fx: &mut AppFx) {
+    if let RpcError::Provider(error) = error {
+        let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::ProviderError(
+            error.clone(),
+        )));
+        apply_thread(app, thread, ev, fx);
+    }
+}
+
 /// The reply of an app-scoped screen RPC.
 fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut AppFx) {
     let result = match answer {
@@ -2348,12 +2377,14 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
     if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
         && agents::is_active_writer(error)
     {
-        // Another process writes the thread: the chat shows it read-only.
+        // Another process writes the thread, or its model provider is refused:
+        // the chat shows it read-only.
         let id = thread.clone();
         app.threads.open(&id, Origin::ForeignWriter);
         let session = Rc::make_mut(&mut app.session);
-        session.active = Some(id);
+        session.active = Some(id.clone());
         session.status = Session::Ready;
+        provider_refusal(app, &id, error, fx);
     }
     if let (agents::Ctx::History { thread }, Ok(agents::Reply::History { turns, next })) =
         (&ctx, &result)
@@ -2433,6 +2464,7 @@ fn session_opened(
         }
         Answer::Failed(error) if action == Action::Resume && agents::is_active_writer(&error) => {
             app.threads.open(&requested, Origin::ForeignWriter);
+            provider_refusal(app, &requested, &error, fx);
             show_held_thread(app, requested.clone(), fx);
             fetch_history(app, &requested, fx);
         }

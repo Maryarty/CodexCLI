@@ -94,6 +94,7 @@ mod tests {
         assert!(
             !answers(Err(ServerError {
                 code: None,
+                data: None,
                 message: "denied".into(),
             }))
             .await

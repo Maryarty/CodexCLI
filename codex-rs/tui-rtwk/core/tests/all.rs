@@ -36,6 +36,7 @@ mod permissions;
 mod pets;
 mod plan_mode;
 mod popovers;
+mod provider_error;
 mod resume;
 mod script;
 mod select;

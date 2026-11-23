@@ -772,7 +772,9 @@ impl Restore {
 /// What an outgoing thread RPC was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadCtx {
-    StartTurn { interrupt: bool },
+    /// A turn start in flight with the message it carries (a provider refusal
+    /// gives it back to the front of the queue).
+    StartTurn { interrupt: bool, message: UserMessage },
     Interrupt { turn: TurnId, retried: bool },
     Screen(ScreenCtx),
 }
@@ -968,6 +970,7 @@ impl From<RpcError> for Failure {
         match error {
             RpcError::Remote(message) | RpcError::Malformed(message) => Failure::Message(message),
             RpcError::Mismatch => Failure::ReplyMismatch,
+            RpcError::Provider(error) => Failure::Message(error.to_string()),
         }
     }
 }
@@ -1286,8 +1289,16 @@ impl ThreadModel {
         self.writer == Writer::Foreign
     }
 
+    /// This process writes the thread and the server has not refused it for its
+    /// model provider (oracle `blocks_direct_input` after `show_provider_error`).
     pub(crate) fn has_writer(&self) -> bool {
-        self.writer == Writer::Attached
+        self.writer == Writer::Attached && self.slots.chat.provider_error.is_none()
+    }
+
+    /// Why the server refused the thread for its model provider; the thread
+    /// takes no input then.
+    pub fn provider_error(&self) -> Option<&codex_app_server_protocol::ModelProviderError> {
+        self.slots.chat.provider_error.as_ref()
     }
 
     pub fn can_interrupt(&self) -> bool {
@@ -1719,7 +1730,13 @@ impl<'a> ThreadFx<'a> {
     pub fn start_turn(&mut self, message: UserMessage) -> Ticket {
         let ticket = self.mint.next();
         self.registered
-            .push((ticket, ThreadCtx::StartTurn { interrupt: false }));
+            .push((
+                ticket,
+                ThreadCtx::StartTurn {
+                    interrupt: false,
+                    message: message.clone(),
+                },
+            ));
         self.out.commands.push(Command::StartTurn {
             ticket,
             thread: self.thread.clone(),
@@ -2267,7 +2284,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     running.interrupt_sent = true;
                     fx.interrupt(running.turn.clone(), false);
                 }
-            } else if let Some(ThreadCtx::StartTurn { interrupt }) =
+            } else if let Some(ThreadCtx::StartTurn { interrupt, .. }) =
                 model.outgoing.find_mut(is_start_turn)
             {
                 *interrupt = true;
@@ -2301,7 +2318,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     },
                     fx,
                 ),
-                (ThreadCtx::StartTurn { interrupt }, Answer::TurnStarted { turn, .. }) => {
+                (ThreadCtx::StartTurn { interrupt, .. }, Answer::TurnStarted { turn, .. }) => {
                     // After a `Lagged` gap the end of this turn can have been
                     // seen before this reply: nothing will end it again, so
                     // the next queued message goes out now.
@@ -2312,6 +2329,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     } else if interrupt {
                         apply_ev(model, ThreadEv::Interrupt, fx);
                     }
+                }
+                // The server refused the thread for its model provider: the message
+                // waits first in the queue, nothing goes out (`show_provider_error`).
+                (
+                    ThreadCtx::StartTurn { message, .. },
+                    Answer::Failed(RpcError::Provider(error)),
+                ) => {
+                    model.queue.insert(0, message);
+                    model.slots.chat.provider_error = Some(error);
                 }
                 (ThreadCtx::StartTurn { .. }, Answer::Failed(error)) => {
                     if !model.is_running() {
@@ -2424,6 +2450,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 fx,
             );
         }
+        // the continue key of a refused thread: the text waits in the fresh thread's composer
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Draft(
+            text,
+        ))) => give_back(model, vec![UserMessage::text(text)], true),
         ThreadEv::ScreenIntent(intent) if model.has_writer() => {
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
@@ -2467,7 +2497,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             if model
                 .outgoing
-                .any(|ctx| matches!(ctx, ThreadCtx::StartTurn { interrupt: true }))
+                .any(|ctx| matches!(ctx, ThreadCtx::StartTurn { interrupt: true, .. }))
             {
                 apply_ev(model, ThreadEv::Interrupt, fx);
             }
@@ -2825,6 +2855,15 @@ fn steer_reply(
             return;
         }
         Answer::Failed(RpcError::Remote(text)) => Failure::Message(text),
+        // only the refused steer goes back: it is first to go out again
+        Answer::Failed(RpcError::Provider(error)) => {
+            if let Some(index) = position {
+                let steer = model.pending_steers.remove(index);
+                model.rejected_steers.push(steer.message);
+            }
+            model.slots.chat.provider_error = Some(error);
+            return;
+        }
         Answer::Failed(error) => Failure::from(error),
         _ => return,
     };
@@ -2917,7 +2956,8 @@ fn renumbered(placeholder: &str, number: usize) -> String {
 
 /// The next queued message becomes the next turn (one per turn end).
 fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
-    if model.slots.chat.mcp.is_starting() {
+    // a refused thread keeps what waits (oracle `suppress_queue_autosend`)
+    if model.slots.chat.mcp.is_starting() || model.slots.chat.provider_error.is_some() {
         return;
     }
     // Steers the server refused go first, as one message

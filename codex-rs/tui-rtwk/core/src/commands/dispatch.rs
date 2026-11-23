@@ -189,6 +189,9 @@ pub enum UsageKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionIntent {
     New { name: Option<String> },
+    /// The provider-error notice's continue key: a new chat whose composer
+    /// holds `message` (the view words it from the saved chat's name and path).
+    ContinueChat { message: String },
     Clear { name: Option<String> },
     Fork { name: Option<String> },
     Compact,

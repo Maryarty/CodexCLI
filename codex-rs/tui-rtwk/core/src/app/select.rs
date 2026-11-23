@@ -313,6 +313,7 @@ fn failure(error: RpcError) -> permissions::Failure {
     match error {
         RpcError::Remote(text) | RpcError::Malformed(text) => permissions::Failure::Other(text),
         RpcError::Mismatch => permissions::Failure::Other(String::new()),
+        RpcError::Provider(error) => permissions::Failure::Other(error.to_string()),
     }
 }
 

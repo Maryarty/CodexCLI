@@ -446,14 +446,18 @@ pub fn attach_loaded(model: &mut Model, thread: &str) {
 }
 
 /// The server refused the resume because another process writes the thread
-/// (oracle: `app_server_session::is_active_writer_error`, by the message).
+/// (oracle: `app_server_session::is_active_writer_error`, by the message), or
+/// because the thread's model provider is refused (`model_provider_error`): the
+/// thread opens read-only, its history shown.
 pub fn is_active_writer(error: &RpcError) -> bool {
-    matches!(error, RpcError::Remote(message) if message.contains("already has an active writer"))
+    matches!(error, RpcError::Provider(_))
+        || matches!(error, RpcError::Remote(message) if message.contains("already has an active writer"))
 }
 
 fn error_text(error: RpcError) -> String {
     match error {
         RpcError::Remote(message) | RpcError::Malformed(message) => message,
         RpcError::Mismatch => "unexpected reply".to_owned(),
+        RpcError::Provider(error) => error.to_string(),
     }
 }

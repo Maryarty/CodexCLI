@@ -708,6 +708,10 @@ pub(crate) fn sender(
                         _ => None,
                     },
                     message: error_text(own_message, &error),
+                    data: match &error {
+                        TypedRequestError::Server { source, .. } => source.data.clone(),
+                        _ => None,
+                    },
                 })
         })
     }

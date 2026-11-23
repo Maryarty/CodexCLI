@@ -119,9 +119,40 @@ pub(super) fn session_intent(
                     backend,
                     name,
                     plan: None,
+                    draft: None,
                 },
             );
             fx.commands.push(request);
+        }
+        // The provider-error notice's continue key: a fresh chat whose composer
+        // holds the text (the view's words); only a refused chat that was saved.
+        S::ContinueChat { message } => {
+            let Some(thread) = source else {
+                return;
+            };
+            let continues = app.threads.get(&thread).is_some_and(|model| {
+                model.provider_error().is_some() && model.screen_slots().chat.path.is_some()
+            });
+            if !continues
+                || app
+                    .outgoing
+                    .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+            {
+                return;
+            }
+            let ticket = app.mint.next();
+            let backend = app.screens.agents.owner_of(thread.as_str());
+            app.outgoing.insert(
+                ticket,
+                AppCtx::NewConversation {
+                    source: Some(thread),
+                    backend,
+                    name: None,
+                    plan: None,
+                    draft: Some(message),
+                },
+            );
+            fx.commands.push(super::start_thread(app, ticket, backend));
         }
         S::Cd { path } => change_directory(app, source, &path, fx),
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
@@ -325,6 +356,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
             backend,
             name: None,
             plan: None,
+            draft: None,
         },
     );
     fx.commands.push(Command::Screen {
@@ -524,6 +556,7 @@ pub(super) fn plan_answer(
                     backend,
                     name: None,
                     plan: Some(markdown),
+                    draft: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));

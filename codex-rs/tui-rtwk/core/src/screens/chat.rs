@@ -282,6 +282,9 @@ pub enum Ev {
     /// What `thread` holds of the user's input during a turn, set as a fixture
     /// does (the app routes it to the thread, which owns the lists).
     Pending { thread: String, pending: PendingTexts },
+    /// `thread` is refused for its model provider, set as a fixture does (the
+    /// app routes it to the thread, which owns the fact).
+    ProviderError { thread: String, error: codex_app_server_protocol::ModelProviderError },
 }
 
 /// The three lists the pending-input preview shows, as texts.
@@ -326,7 +329,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Status(facts) => model.status = Rc::from(facts),
         Ev::Facts(ev) => model.facts.apply(ev),
         // the thread owns it (`apply_app` routes it)
-        Ev::Details { .. } | Ev::Pending { .. } => {}
+        Ev::Details { .. } | Ev::Pending { .. } | Ev::ProviderError { .. } => {}
     }
     // what the configured items need is asked for after every change that may alter it
     model.facts.sync(&model.status, model.signed_in);
@@ -349,6 +352,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 pub struct ThreadPart {
     compact_pending: bool,
     pub error: Option<RpcError>,
+    /// Why the thread is locked: the server refused it for its model provider.
+    /// Set until the thread is attached again.
+    pub provider_error: Option<codex_app_server_protocol::ModelProviderError>,
     pub name: Option<String>,
     pub cwd: Option<String>,
     /// The file the thread's history is written to (`/rollout`), once the
@@ -570,6 +576,9 @@ pub enum ThreadIntent {
     /// Esc Esc found no prompt to edit: the chat says so
     /// (`NO_PREVIOUS_MESSAGE_TO_EDIT`, an info line in the history).
     NoPreviousMessage,
+    /// A text for the composer of a fresh thread (the provider-error notice's
+    /// continue key): given back as a restore, nothing is sent.
+    Draft(String),
     /// The user's switch of the collaboration mode (`/plan`, Shift+Tab, the prompt's Yes):
     /// the thread goes on in `ModeKind` and the server is told.
     SetMode(codex_protocol::config_types::ModeKind),
@@ -618,6 +627,9 @@ pub enum ThreadEv {
     /// What the status row says under its header (oracle `set_status`'s
     /// `details`); `None` clears it.
     Details(Option<StatusDetails>),
+    /// The server refused this thread for its model provider (oracle
+    /// `show_provider_error`): the thread takes no input and the notice says why.
+    ProviderError(codex_app_server_protocol::ModelProviderError),
     /// The thread's goal reached its token budget during `turn`
     /// (`on_thread_goal_updated` with `BudgetLimited`).
     BudgetLimited { turn: TurnId },
@@ -863,6 +875,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.details = details.map(|text| StatusDetails::new(text, STATUS_DETAILS_MAX_LINES));
         }
         ThreadEv::Details(details) => part.details = details,
+        ThreadEv::ProviderError(error) => part.provider_error = Some(error),
         ThreadEv::BudgetLimited { turn } => {
             if !part.budget_limited.contains(&turn) {
                 part.budget_limited.push(turn);
@@ -958,6 +971,7 @@ enum SeedEv {
     Facts(FactEv),
     Details(SeedDetails),
     Pending { thread: String, #[serde(flatten)] pending: PendingTexts },
+    ProviderError { thread: String, error: codex_app_server_protocol::ModelProviderError },
 }
 
 /// `{"details":{"thread":"thread-1","text":"a\nb","max_lines":3,"preserve":true}}`
@@ -1040,6 +1054,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         SeedEv::Status(facts) => Ev::Status(facts),
         SeedEv::Facts(ev) => Ev::Facts(ev),
         SeedEv::Pending { thread, pending } => Ev::Pending { thread, pending },
+        SeedEv::ProviderError { thread, error } => Ev::ProviderError { thread, error },
         SeedEv::Details(d) => {
             let max = d.max_lines.unwrap_or(STATUS_DETAILS_MAX_LINES);
             Ev::Details {
