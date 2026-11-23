@@ -80,7 +80,11 @@ fn prompt_streams_the_answer_as_plain_text() {
                     && *thread == ThreadId::new(FAKE_THREAD) && message.text == "hi"),
         "{commands:?}"
     );
-    assert_snapshot(&h.t, "chat", "answer");
+    // The live completion carries no server timing, so the `Worked for <time> • <clock>`
+    // row (oracle `FinalMessageSeparator::from_turn_once`) is drawn from the app clock: the
+    // golden leaves that row out, the clock time is not repeatable.
+    assert!(h.t.screen().contains("Worked for"), "{}", h.t.screen());
+    assert_snapshot_where(&h.t, "chat", "answer", |line| !line.contains("Worked for"));
 }
 
 #[test]
