@@ -1,0 +1,237 @@
+//! What a feature is handed (ADR-012): the app and a thread as read-only views, and the
+//! ways to change them that a feature has. The context is Flutter's `BuildContext` with an
+//! outbox, or Elm's `Cmd`: the feature says what it wants (an ask, a menu, a prompt, a note,
+//! a change of a thread) and the app carries it out after the call, in the order it was said.
+//! It never holds `&mut` of the app or of a thread's model.
+
+// While the list is empty the root enums are uninhabited, so what is built of them is
+// unreachable; the code is the one every list has.
+#![allow(unreachable_code, unused_variables)]
+
+use super::{
+    FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
+};
+use crate::app::facts::TuiSettings;
+use crate::ids::{ThreadId, Ticket};
+use crate::screens::ScreenStates;
+use crate::screens::ThreadSlots;
+use crate::screens::select::collaboration::Mask;
+use crate::threads::{ThreadCore, ThreadFx, ThreadSet};
+
+/// The app, read-only: the facts a feature decides by. It holds references to parts of the
+/// app, so a feature's own state can be `&mut` at the same time.
+#[derive(Clone, Copy)]
+pub struct AppView<'a> {
+    active: Option<&'a ThreadId>,
+    threads: &'a ThreadSet,
+    screens: &'a ScreenStates,
+    tui: &'a TuiSettings,
+    modes: &'a [Mask],
+}
+
+impl<'a> AppView<'a> {
+    pub(crate) fn new(
+        active: Option<&'a ThreadId>,
+        threads: &'a ThreadSet,
+        screens: &'a ScreenStates,
+        tui: &'a TuiSettings,
+        modes: &'a [Mask],
+    ) -> Self {
+        Self {
+            active,
+            threads,
+            screens,
+            tui,
+            modes,
+        }
+    }
+
+    /// The thread the chat shows (none before the session has started).
+    pub fn active(&self) -> Option<&'a ThreadId> {
+        self.active
+    }
+
+    /// The thread `id` as this process holds it.
+    pub fn thread(&self, id: &ThreadId) -> Option<ThreadView<'a>> {
+        self.threads.get(id).map(|model| model.view())
+    }
+
+    /// The thread the chat shows.
+    pub fn active_thread(&self) -> Option<ThreadView<'a>> {
+        self.active.and_then(|id| self.thread(id))
+    }
+
+    /// The `[tui]` settings.
+    pub fn tui(&self) -> &'a TuiSettings {
+        self.tui
+    }
+
+    /// The screens' models (the select screen's catalog, the composer's...), as facts.
+    pub fn screens(&self) -> &'a ScreenStates {
+        self.screens
+    }
+
+    /// The server's collaboration-mode presets.
+    pub fn modes(&self) -> &'a [Mask] {
+        self.modes
+    }
+}
+
+/// One thread, read-only: its own state and its screens' parts; a feature's own part is
+/// the `&mut` it is handed beside this.
+#[derive(Clone, Copy)]
+pub struct ThreadView<'a> {
+    pub core: &'a ThreadCore,
+    pub slots: &'a ThreadSlots,
+}
+
+impl<'a> ThreadView<'a> {
+    pub fn new(core: &'a ThreadCore, slots: &'a ThreadSlots) -> Self {
+        Self { core, slots }
+    }
+
+    pub fn id(&self) -> &'a ThreadId {
+        self.core.id()
+    }
+
+    /// A turn runs.
+    pub fn is_running(&self) -> bool {
+        self.core.is_running()
+    }
+
+    /// A turn runs or is about to (its start is in flight).
+    pub fn busy(&self) -> bool {
+        self.core.busy()
+    }
+
+    /// This process writes the thread and the server has not refused it for its model
+    /// provider.
+    pub fn has_writer(&self) -> bool {
+        self.core.attached() && self.slots.chat.provider_error.is_none()
+    }
+}
+
+/// What an `AppCx` call asked for, in order; the app carries it out after the call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Out {
+    /// An RPC about `thread` (empty: about the app); its answer comes back to
+    /// `Feature::answered` with `ctx`.
+    Ask {
+        thread: ThreadId,
+        command: FeatureCommand,
+        ctx: FeatureCtx,
+    },
+    /// A menu of the generic selection dialog, replacing the stack.
+    Menu(FeatureMenu),
+    /// A text prompt, prefilled with `initial`.
+    Prompt {
+        prompt: FeaturePrompt,
+        initial: String,
+    },
+    /// A line in the transcript of `thread` (none: the thread in use, or the chat before
+    /// any thread).
+    Note {
+        thread: Option<ThreadId>,
+        note: FeatureNote,
+    },
+    /// A change of one thread's feature part: a queued `ThreadEv::FeatureIntent`.
+    Thread {
+        thread: ThreadId,
+        intent: FeatureThreadIntent,
+    },
+}
+
+/// The context of an app-scoped step of a feature: the app as a view, and the outbox.
+pub struct AppCx<'a> {
+    view: AppView<'a>,
+    out: Vec<Out>,
+}
+
+impl<'a> AppCx<'a> {
+    pub(crate) fn new(view: AppView<'a>) -> Self {
+        Self {
+            view,
+            out: Vec::new(),
+        }
+    }
+
+    /// The app, read-only.
+    pub fn view(&self) -> AppView<'a> {
+        self.view
+    }
+
+    /// Asks the server about `thread` (none: about the app, not a thread); the answer comes
+    /// back to the feature's `answered` with `ctx`.
+    pub fn ask(
+        &mut self,
+        thread: Option<&ThreadId>,
+        command: impl Into<FeatureCommand>,
+        ctx: impl Into<FeatureCtx>,
+    ) {
+        self.out.push(Out::Ask {
+            thread: thread.cloned().unwrap_or_default(),
+            command: command.into(),
+            ctx: ctx.into(),
+        });
+    }
+
+    /// Opens `menu` in the generic selection dialog.
+    pub fn open(&mut self, menu: impl Into<FeatureMenu>) {
+        self.out.push(Out::Menu(menu.into()));
+    }
+
+    /// Opens a text prompt, its field starting with `initial`.
+    pub fn prompt(&mut self, prompt: impl Into<FeaturePrompt>, initial: impl Into<String>) {
+        self.out.push(Out::Prompt {
+            prompt: prompt.into(),
+            initial: initial.into(),
+        });
+    }
+
+    /// Says `note` in the transcript of `thread` (none: the thread in use).
+    pub fn note(&mut self, thread: Option<ThreadId>, note: impl Into<FeatureNote>) {
+        self.out.push(Out::Note {
+            thread,
+            note: note.into(),
+        });
+    }
+
+    /// Changes `thread`'s part of a feature: the change is a thread event, applied by
+    /// `threads::apply` under the thread's writer.
+    pub fn thread(&mut self, thread: &ThreadId, intent: impl Into<FeatureThreadIntent>) {
+        self.out.push(Out::Thread {
+            thread: thread.clone(),
+            intent: intent.into(),
+        });
+    }
+
+    /// What was asked, in order.
+    pub(crate) fn into_out(self) -> Vec<Out> {
+        self.out
+    }
+}
+
+/// The context of a thread-scoped step of a feature: the thread as a view, and the thread's
+/// effects (its RPCs, its tickets).
+pub struct ThreadCx<'a, 'b> {
+    pub view: ThreadView<'a>,
+    /// Private: a feature has the effects this type names (`request`, and what a feature
+    /// that needs more adds here), never the thread's lifecycle RPCs.
+    fx: &'a mut ThreadFx<'b>,
+}
+
+impl<'a, 'b> ThreadCx<'a, 'b> {
+    pub(crate) fn new(view: ThreadView<'a>, fx: &'a mut ThreadFx<'b>) -> Self {
+        Self { view, fx }
+    }
+
+    /// An RPC of the feature on this thread: `ctx` comes back with the answer to the
+    /// feature's `thread_answered`.
+    pub fn request(
+        &mut self,
+        ctx: impl Into<FeatureCtx>,
+        command: impl Into<FeatureCommand>,
+    ) -> Ticket {
+        self.fx.request_feature(ctx, command)
+    }
+}

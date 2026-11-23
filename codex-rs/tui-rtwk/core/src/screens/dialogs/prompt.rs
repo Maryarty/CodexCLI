@@ -28,6 +28,8 @@ pub enum PromptKind {
         status: GoalStatus,
         token_budget: Option<i64>,
     },
+    /// A prompt of a feature slice (ADR-012): the feature owns what its submission does.
+    Feature(crate::features::FeaturePrompt),
 }
 
 /// The generated suggestion of a prompt (`with_text_suggestion`, `apply_text_suggestion`).
@@ -84,6 +86,17 @@ impl Prompt {
                 || "codex-session.md".to_owned(),
                 |thread| ["codex-session-", thread.as_str(), ".md"].concat(),
             ),
+            suggestion: Suggestion::Idle,
+            edited: false,
+            request: None,
+        }
+    }
+
+    /// A feature's prompt, its field starting with `initial`.
+    pub(crate) fn feature(prompt: crate::features::FeaturePrompt, initial: String) -> Self {
+        Prompt {
+            kind: PromptKind::Feature(prompt),
+            initial,
             suggestion: Suggestion::Idle,
             edited: false,
             request: None,

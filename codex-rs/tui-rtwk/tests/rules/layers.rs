@@ -26,8 +26,10 @@ fn is_view(name: &str) -> bool {
         && !matches!(name, "src/app/mod.rs" | "src/app/run.rs" | "src/lib.rs")
 }
 
+/// The view folders that hold no model code: the page, sheet and widget folders and the view
+/// half of the feature slices (ADR-012).
 fn in_pages_sheets_widgets(name: &str) -> bool {
-    ["src/pages/", "src/sheets/", "src/widgets/"]
+    ["src/pages/", "src/sheets/", "src/widgets/", "src/features/"]
         .iter()
         .any(|prefix| name.starts_with(prefix))
 }
@@ -221,12 +223,13 @@ fn screen_dirs_hold_view_files_only() {
 /// The UI crate's top-level folders are Flutter's: `app/` (root, theme,
 /// debug), `pages/` (the `Navigator`'s routes), `sheets/` (dialog and
 /// bottom-sheet bodies), `widgets/` (shared), `services/` (IO, no widget),
-/// `l10n/`, `keymap/`. A core feature module need not mirror a UI folder
-/// (a feature may feed a page, a sheet or a cell).
+/// `l10n/`, `keymap/`, `features/` (the view half of the core's feature slices, ADR-012:
+/// the words and views of `core/src/features/<f>/`). A core feature module need not mirror
+/// a UI folder (a feature may feed a page, a sheet or a cell).
 #[test]
 fn ui_crate_has_only_the_known_folders() {
     let known = [
-        "app", "keymap", "l10n", "pages", "services", "sheets", "widgets",
+        "app", "features", "keymap", "l10n", "pages", "services", "sheets", "widgets",
     ];
     let mut found = Vec::new();
     for (name, _) in sources() {
@@ -415,49 +418,95 @@ fn codex_app_holds_its_threads_privately() {
     }
 }
 
+/// The thread RPCs of the thread's life: resume, fork, start, read, turns, subscribe and the
+/// turn calls (ADR-003). Built in core/src/threads.rs and
+/// core/src/protocol/mod.rs only, whoever asks: a feature slice cannot make them either.
+const LIFECYCLE_RPCS: &[&str] = &[
+    "ClientRequest::ThreadResume",
+    "ClientRequest::ThreadFork",
+    "ClientRequest::ThreadStart",
+    "ClientRequest::ThreadRead",
+    "ClientRequest::ThreadTurnsList",
+    "ClientRequest::ThreadUnsubscribe",
+    "ClientRequest::TurnStart",
+    "ClientRequest::TurnInterrupt",
+    "ClientRequest::TurnSteer",
+    "ThreadResumeParams",
+    "ThreadForkParams",
+    "ThreadStartParams",
+    "ThreadUnsubscribeParams",
+    "TurnInterruptParams",
+    "TurnStartParams",
+    "TurnSteerParams",
+];
+
+/// Thread RPCs that are a feature's, not the lifecycle's (`/compact`, `/rename`, `!cmd`,
+/// `/undo`): until their features are slices they are built in threads.rs too; a slice under
+/// `core/src/features/<f>/` builds its own in `Feature::wire` (ADR-012), and its asks go out
+/// only through `AppCx::ask` / `ThreadCx::request` (`feature_slices_ask_only_through_the_outbox`).
+const FEATURE_RPCS: &[&str] = &[
+    "ClientRequest::ThreadCompactStart",
+    "ClientRequest::ThreadSetName",
+    "ClientRequest::ThreadShellCommand",
+    "ClientRequest::ThreadRevert",
+    "ThreadCompactStartParams",
+    "ThreadSetNameParams",
+    "ThreadShellCommandParams",
+    "ThreadRevertParams",
+];
+
+fn thread_rpcs_outside(files: &[(String, String)]) -> Vec<String> {
+    let mut found = scan(files, LIFECYCLE_RPCS, |name| {
+        name == "core/src/threads.rs" || name == "core/src/protocol/mod.rs"
+    });
+    found.extend(scan(files, FEATURE_RPCS, |name| {
+        name == "core/src/threads.rs"
+            || name == "core/src/protocol/mod.rs"
+            || name.starts_with("core/src/features/")
+    }));
+    found
+}
+
 /// A thread RPC is asked for as data (`threads::ThreadAsk`) and made into a
 /// wire request in core/src/threads.rs only; the two thread commands the app
 /// itself mints (`StartThread`, `StartTurn`) are mapped in protocol/mod.rs.
-/// No screen, view or shell file builds `ClientRequest::Thread*`/`Turn*`.
+/// No screen, view or shell file builds `ClientRequest::Thread*`/`Turn*`. The lifecycle
+/// RPCs stay here whoever asks; the feature RPCs may also be built inside a feature slice.
 #[test]
 fn thread_rpcs_only_in_threads() {
     let mut files = sources_of("core/src");
     files.extend(sources_of("src"));
     files.extend(sources_of("host"));
-    let found = scan(
-        &files,
-        &[
-            "ClientRequest::ThreadResume",
-            "ClientRequest::ThreadFork",
-            "ClientRequest::ThreadCompactStart",
-            "ClientRequest::ThreadSetName",
-            "ClientRequest::ThreadShellCommand",
-            "ClientRequest::ThreadStart",
-            "ClientRequest::ThreadRead",
-            "ClientRequest::ThreadTurnsList",
-            "ClientRequest::ThreadUnsubscribe",
-            "ClientRequest::ThreadRevert",
-            "ClientRequest::TurnStart",
-            "ClientRequest::TurnInterrupt",
-            "ClientRequest::TurnSteer",
-            "ThreadResumeParams",
-            "ThreadForkParams",
-            "ThreadCompactStartParams",
-            "ThreadSetNameParams",
-            "ThreadShellCommandParams",
-            "ThreadStartParams",
-            "ThreadUnsubscribeParams",
-            "ThreadRevertParams",
-            "TurnInterruptParams",
-            "TurnStartParams",
-            "TurnSteerParams",
-        ],
-        |name| name == "core/src/threads.rs" || name == "core/src/protocol/mod.rs",
-    );
+    let found = thread_rpcs_outside(&files);
     assert!(
         found.is_empty(),
         "thread RPC built outside threads.rs: {found:#?}"
     );
+}
+
+/// A feature slice cannot build a lifecycle RPC, but builds its own.
+#[test]
+fn the_thread_rpc_scan_lets_a_slice_build_its_own_and_not_the_lifecycle() {
+    let slice = |text: &str| {
+        vec![(
+            "core/src/features/goal/wire.rs".to_string(),
+            text.to_string(),
+        )]
+    };
+    assert!(thread_rpcs_outside(&slice("ClientRequest::ThreadSetName {")).is_empty());
+    assert_eq!(
+        thread_rpcs_outside(&slice("ClientRequest::TurnStart {")).len(),
+        1
+    );
+    assert_eq!(
+        thread_rpcs_outside(&slice("let p = ThreadResumeParams {")).len(),
+        1
+    );
+    let elsewhere = vec![(
+        "core/src/screens/x.rs".to_string(),
+        "ClientRequest::ThreadSetName {".to_string(),
+    )];
+    assert_eq!(thread_rpcs_outside(&elsewhere).len(), 1);
 }
 
 /// Which thread the chat shows is decided in `apply_app` (core/src/app.rs)
@@ -555,4 +604,571 @@ fn the_widgets_scan_sees_an_upward_import() {
     )];
     let found = scan(&files, &["crate::pages", "super::pages"], |_| false);
     assert_eq!(found.len(), 1, "{found:?}");
+}
+
+// ---- Core feature slices (ADR-012) ----
+
+fn is_ident(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// `word` stands in `line` as a whole word (`ThreadModel` is not `ThreadModels`).
+fn names_word(line: &str, word: &str) -> bool {
+    line.match_indices(word).any(|(at, _)| {
+        let before = line[..at].chars().next_back();
+        let after = line[at + word.len()..].chars().next();
+        !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+    })
+}
+
+/// Every code line of `files` that names one of `words` as a whole word, for the files `skip`
+/// does not exempt.
+fn scan_words(
+    files: &[(String, String)],
+    words: &[&str],
+    skip: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    let mut found = Vec::new();
+    for (name, text) in files {
+        if skip(name) {
+            continue;
+        }
+        for (index, line) in code_lines(text) {
+            if words.iter().any(|word| names_word(line, word)) {
+                found.push(format!("{name}:{}: {}", index + 1, line.trim()));
+            }
+        }
+    }
+    found
+}
+
+/// The `name => Type;` entries of `feature_list!`, in list order, out of the text of
+/// `core/src/features/mod.rs`.
+fn listed_features(mod_rs: &str) -> Vec<String> {
+    let (_, body) = mod_rs
+        .split_once("macro_rules! feature_list {")
+        .expect("macro_rules! feature_list");
+    let (body, _) = body.split_once("\n}\n").expect("end of feature_list!");
+    code_lines(body)
+        .filter_map(|(_, line)| {
+            let (name, rest) = line.trim().split_once(" => ")?;
+            let ty = rest.strip_suffix(';')?;
+            (name.chars().all(is_ident) && ty.chars().all(is_ident)).then(|| name.to_string())
+        })
+        .collect()
+}
+
+fn all_sources() -> Vec<(String, String)> {
+    let mut files = sources_of("core/src");
+    files.extend(sources_of("src"));
+    files.extend(sources_of("host"));
+    files
+}
+
+/// The framework's own files: the list and the generated dispatch, the contexts, the probes
+/// that test them. Every other file of `core/src/features/` belongs to a slice.
+fn is_framework_file(name: &str) -> bool {
+    matches!(
+        name,
+        "core/src/features/mod.rs" | "core/src/features/cx.rs" | "core/src/features/framework.rs"
+    )
+}
+
+/// `core/src/features/<f>/` or `<f>.rs`, and `src/features/<f>/` or `<f>.rs`: both halves of
+/// feature `f`.
+fn is_own(name: &str, feature: &str) -> bool {
+    ["core/src/features/", "src/features/"].iter().any(|root| {
+        name.strip_prefix(root).is_some_and(|rest| {
+            rest == format!("{feature}.rs") || rest.starts_with(&format!("{feature}/"))
+        })
+    })
+}
+
+/// `line` names feature `feature` by path: `features::goal` or `features::{.., goal, ..}`.
+fn names_feature_path(line: &str, feature: &str) -> bool {
+    line.match_indices("features::").any(|(at, pattern)| {
+        let rest = &line[at + pattern.len()..];
+        let tokens = |text: &str| {
+            text.split(|c: char| !is_ident(c))
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        match rest.strip_prefix('{') {
+            Some(group) => tokens(group.split('}').next().unwrap_or_default())
+                .iter()
+                .any(|token| token == feature),
+            None => tokens(rest).first().is_some_and(|token| token == feature),
+        }
+    })
+}
+
+/// The files that route the oracle's slash list (`SessionIntent`) into a feature's intent:
+/// the one place besides a feature's own files that may name `features::<f>::Intent`, and
+/// nothing else of the feature.
+const SLASH_ROUTERS: &[&str] = &["core/src/app/session.rs"];
+
+/// The lines of `files` that name a listed feature by path outside its own files and the two
+/// lists (`core/src/features/mod.rs`, `src/features/mod.rs`).
+fn features_named_outside_the_list(files: &[(String, String)], features: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    for (name, text) in files {
+        if name == "core/src/features/mod.rs" || name == "src/features/mod.rs" {
+            continue;
+        }
+        for feature in features {
+            if is_own(name, feature) {
+                continue;
+            }
+            let intent = format!("features::{feature}::Intent");
+            for (index, line) in code_lines(text) {
+                let line_left = if SLASH_ROUTERS.contains(&name.as_str()) {
+                    line.replace(&intent, "")
+                } else {
+                    line.to_string()
+                };
+                if names_feature_path(&line_left, feature) {
+                    found.push(format!("{name}:{}: {}", index + 1, line.trim()));
+                }
+            }
+        }
+    }
+    found
+}
+
+/// A feature is reached through the list: the generated `FeatureIntent`, `FeatureMenu`...
+/// carry one variant per feature and the dispatch is generated, so no hub, screen, view or
+/// shell file names `features::<f>` (its types, its functions). The feature's own two folders
+/// do; the slash router may build its intent.
+#[test]
+fn features_are_named_only_through_the_list() {
+    let mod_rs = read("core/src/features/mod.rs");
+    let features = listed_features(&mod_rs);
+    for feature in &features {
+        let slice = format!("core/src/features/{feature}");
+        assert!(
+            crate_dir().join(format!("{slice}.rs")).exists()
+                || crate_dir().join(format!("{slice}/mod.rs")).exists(),
+            "{feature} is in feature_list! but has no core/src/features/{feature}"
+        );
+    }
+    let found = features_named_outside_the_list(&all_sources(), &features);
+    assert!(
+        found.is_empty(),
+        "a feature is named outside the list and its own files: {found:#?}"
+    );
+}
+
+#[test]
+fn the_feature_naming_scan_bites() {
+    let list = "#[macro_export]\nmacro_rules! feature_list {\n    ($callback:ident) => {\n        $callback! {\n        goal => Goal;\n        queue => Queue;\n        }\n    };\n}\n";
+    let features = listed_features(list);
+    assert_eq!(features, ["goal", "queue"], "the list is read in order");
+    assert_eq!(
+        listed_features(
+            "macro_rules! feature_list {\n    ($c:ident) => {\n        $c! {}\n    };\n}\n"
+        ),
+        Vec::<String>::new()
+    );
+    let file = |name: &str, text: &str| vec![(name.to_string(), text.to_string())];
+    let found = |name: &str, text: &str| {
+        features_named_outside_the_list(&file(name, text), &features).len()
+    };
+    // outside: a hub, a screen, a view
+    assert_eq!(
+        found("core/src/app.rs", "use crate::features::goal::Model;"),
+        1
+    );
+    assert_eq!(
+        found(
+            "src/pages/session/x.rs",
+            "use codex_tui_core::features::queue::Note;"
+        ),
+        1
+    );
+    assert_eq!(
+        found("core/src/app.rs", "use crate::features::{AppCx, queue};"),
+        1
+    );
+    assert_eq!(
+        found("core/src/app.rs", "let x = crate::features::goal::apply();"),
+        1
+    );
+    // another feature's folder is outside too
+    assert_eq!(
+        found(
+            "core/src/features/queue/mod.rs",
+            "use super::super::goal; use crate::features::goal::Model;"
+        ),
+        1
+    );
+    // inside: the feature's two halves, the framework names, a comment, another word
+    assert_eq!(
+        found(
+            "core/src/features/goal/menu.rs",
+            "use crate::features::goal::Model;"
+        ),
+        0
+    );
+    assert_eq!(
+        found(
+            "src/features/goal/strings.rs",
+            "use codex_tui_core::features::goal::Note;"
+        ),
+        0
+    );
+    assert_eq!(
+        found("core/src/app.rs", "use crate::features::{AppCx, AppView};"),
+        0
+    );
+    assert_eq!(found("core/src/app.rs", "// the features::goal module"), 0);
+    assert_eq!(
+        found("core/src/app.rs", "use crate::features::goalie::X;"),
+        0
+    );
+    assert_eq!(
+        found(
+            "core/src/features/mod.rs",
+            "pub mod goal; features::goal::X"
+        ),
+        0
+    );
+    // the slash router builds an intent and names nothing else
+    assert_eq!(
+        found("core/src/app/session.rs", "features::goal::Intent::Open"),
+        0
+    );
+    assert_eq!(
+        found(
+            "core/src/app/session.rs",
+            "features::goal::Model::default()"
+        ),
+        1
+    );
+    assert_eq!(found("core/src/app.rs", "features::goal::Intent::Open"), 1);
+}
+
+/// A slice reads the app through `AppView` / `ThreadView` and changes it through the outbox:
+/// no file of `core/src/features/` names `CodexApp` or `ThreadModel`.
+#[test]
+fn features_hold_no_app() {
+    let files = sources_of("core/src/features");
+    assert!(!files.is_empty(), "core/src/features has no sources");
+    let found = scan_words(&files, &["CodexApp", "ThreadModel"], |_| false);
+    assert!(
+        found.is_empty(),
+        "a feature names the app or a thread's model: {found:#?}"
+    );
+}
+
+#[test]
+fn the_feature_app_scan_bites() {
+    let files = vec![
+        (
+            "core/src/features/goal/mod.rs".to_string(),
+            "fn go(app: &mut CodexApp) {}\nfn two(m: &ThreadModel) {}\n// CodexApp in a comment\nstruct ThreadModels;\n".to_string(),
+        ),
+        (
+            "core/src/features/cx.rs".to_string(),
+            "use crate::app::CodexApp;\n".to_string(),
+        ),
+    ];
+    let found = scan_words(&files, &["CodexApp", "ThreadModel"], |_| false);
+    assert_eq!(found.len(), 3, "{found:#?}");
+}
+
+/// What a slice must not name: the effects of the app and of a thread (`AppFx`, `ThreadFx`),
+/// the thread's ask enum, the set of models, and the calls that apply an event. Its RPCs go
+/// out through `AppCx::ask` / `ThreadCx::request` and nothing else, so each one is a ticket
+/// with a context the framework routes back (ADR-003: thread RPCs only through `ThreadFx`).
+const OUTBOX_ONLY: &[&str] = &[
+    "AppFx",
+    "ThreadFx",
+    "ThreadAsk",
+    "ThreadSet",
+    "apply_app",
+    "apply_ev",
+];
+
+fn slice_outside_the_outbox(files: &[(String, String)]) -> Vec<String> {
+    let mut found = scan_words(files, OUTBOX_ONLY, |name| {
+        !name.starts_with("core/src/features/") || is_framework_file(name)
+    });
+    found.extend(scan(
+        files,
+        &["threads::apply(", "app::Command", "rpc::Reply"],
+        |name| !name.starts_with("core/src/features/") || is_framework_file(name),
+    ));
+    found
+}
+
+#[test]
+fn feature_slices_ask_only_through_the_outbox() {
+    let found = slice_outside_the_outbox(&sources_of("core/src/features"));
+    assert!(
+        found.is_empty(),
+        "a feature slice reaches the effects directly: {found:#?}"
+    );
+}
+
+#[test]
+fn the_outbox_scan_bites_and_spares_the_framework() {
+    let file = |name: &str, text: &str| vec![(name.to_string(), text.to_string())];
+    for text in [
+        "fn go(fx: &mut ThreadFx<'_>) {}",
+        "fn go(fx: &mut AppFx) {}",
+        "let ask = ThreadAsk::Resume { thread };",
+        "fn go(set: &mut ThreadSet) {}",
+        "threads::apply(model, ev, fx);",
+        "use crate::app::Command;",
+    ] {
+        assert_eq!(
+            slice_outside_the_outbox(&file("core/src/features/goal/mod.rs", text)).len(),
+            1,
+            "{text}"
+        );
+    }
+    assert!(
+        slice_outside_the_outbox(&file("core/src/features/cx.rs", "ThreadFx ThreadSet")).is_empty()
+    );
+    assert!(
+        slice_outside_the_outbox(&file("core/src/threads.rs", "ThreadFx ThreadSet")).is_empty()
+    );
+}
+
+#[test]
+fn the_layer_scans_cover_the_feature_dirs() {
+    // core pure: the scan of core/src reads the feature folder
+    assert!(
+        sources_of("core/src")
+            .iter()
+            .any(|(name, _)| name.starts_with("core/src/features/"))
+    );
+    let core = vec![(
+        "core/src/features/goal/mod.rs".to_string(),
+        "use tokio::sync::mpsc;\nlet t = Instant::now();\n".to_string(),
+    )];
+    assert_eq!(scan(&core, &["tokio", "Instant::now"], |_| false).len(), 2);
+    // views without protocol: the view half is a view, holds no model code, and is a known folder
+    assert!(is_view("src/features/goal/strings.rs"));
+    assert!(is_view("src/features/mod.rs"));
+    assert!(in_pages_sheets_widgets("src/features/goal/strings.rs"));
+    let view = vec![(
+        "src/features/goal/strings.rs".to_string(),
+        "use codex_app_server_protocol::ThreadGoal;\npub struct Model;\n".to_string(),
+    )];
+    assert_eq!(
+        scan(&view, &["codex_app_server_protocol"], |name| !is_view(name)).len(),
+        1
+    );
+    assert_eq!(
+        scan(&view, &["pub struct Model"], |name| {
+            !in_pages_sheets_widgets(name)
+        })
+        .len(),
+        1
+    );
+}
+
+// ---- The hub budget: the hub enums only shrink ----
+
+/// `enum Name {` as the line starts it (after `pub`, `pub(crate)`).
+fn starts_enum(line: &str, name: &str) -> bool {
+    let line = line.trim_start();
+    let line = match line.strip_prefix("pub") {
+        Some(rest) => rest
+            .strip_prefix(|c: char| c == ' ')
+            .or_else(|| rest.split_once(") ").map(|(_, rest)| rest))
+            .unwrap_or(rest),
+        None => line,
+    };
+    line.strip_prefix(&format!("enum {name}"))
+        .is_some_and(|rest| rest.trim_start().starts_with('{'))
+}
+
+/// `line` without its `//` comment and the contents of its string literals.
+fn bare(line: &str) -> String {
+    let mut out = String::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if in_string {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '/' if chars.peek() == Some(&'/') => break,
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// The number of variants of `enum name` in `text`: the lines that start an uppercase
+/// identifier at the enum's own nesting depth.
+fn variants(text: &str, name: &str) -> usize {
+    let mut lines = text.lines().skip_while(|line| !starts_enum(line, name));
+    let header = lines.next().expect("the enum is in the file");
+    let mut depth: i32 = 0;
+    let mut count = 0;
+    let opens = |text: &str| -> i32 {
+        text.chars()
+            .map(|c| match c {
+                '(' | '[' | '{' => 1,
+                ')' | ']' | '}' => -1,
+                _ => 0,
+            })
+            .sum()
+    };
+    depth += opens(&bare(header));
+    for line in lines {
+        if depth <= 0 {
+            break;
+        }
+        let line = bare(line);
+        if depth == 1 && line.trim_start().starts_with(|c: char| c.is_uppercase()) {
+            count += 1;
+        }
+        depth += opens(&line);
+    }
+    count
+}
+
+/// What a ratchet says of `current` against its `budget`: it must not grow, and a shrink is
+/// written down so it cannot come back.
+fn ratchet(what: &str, current: usize, budget: usize) -> Option<String> {
+    match current.cmp(&budget) {
+        std::cmp::Ordering::Equal => None,
+        std::cmp::Ordering::Greater => Some(format!(
+            "{what}: {current} > the budget {budget}; the hub only shrinks, so the new case is a feature slice (ADR-012)"
+        )),
+        std::cmp::Ordering::Less => Some(format!(
+            "{what}: {current} < the budget {budget}; lower its line in tests/rules/hub_budget.txt to {current}"
+        )),
+    }
+}
+
+/// The lines of `tests/rules/hub_budget.txt` of one kind: `enum <file> <Name> <n>` or
+/// `arms <file> <fn> <pattern> <n>`, as the words of the line after the kind.
+fn budget_lines(kind: &str) -> Vec<Vec<String>> {
+    read("tests/rules/hub_budget.txt")
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        .filter_map(|line| {
+            let mut words = line.split_whitespace().map(str::to_owned);
+            (words.next().as_deref() == Some(kind)).then(|| words.collect())
+        })
+        .collect()
+}
+
+/// The hub's enums have one variant per case of every feature that went through them; the
+/// features of ADR-012 add none (`Menu::Feature`, `NoteKey::Feature`... are one variant
+/// each). The budget is the count at the day the framework landed, lowered as features move
+/// into slices; it never rises.
+#[test]
+fn hub_enums_only_shrink() {
+    let lines = budget_lines("enum");
+    assert!(lines.len() >= 15, "the budget lists the hub enums");
+    let mut found = Vec::new();
+    for words in lines {
+        let [file, name, budget] = words.as_slice() else {
+            panic!("`enum <file> <Name> <n>`: {words:?}");
+        };
+        let current = variants(&read(file), name);
+        found.extend(ratchet(
+            &format!("{file} {name}"),
+            current,
+            budget.parse().expect("a count"),
+        ));
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn the_variant_count_and_the_ratchet_bite() {
+    let text = "/// docs\n#[derive(Clone, Debug)]\npub enum Hub {\n    /// one\n    One,\n    Two(u8, Vec<(u8, u8)>), // trailing\n    #[allow(dead_code)]\n    Three {\n        inner: u8,\n        Fake,\n    },\n    #[cfg_attr(\n        test,\n        derive(Debug)\n    )]\n    Four = 4,\n    Five(\"A { \"),\n}\n\npub enum Next {\n    Other,\n}\n";
+    assert_eq!(variants(text, "Hub"), 5);
+    assert_eq!(variants(text, "Next"), 1);
+    assert_eq!(
+        variants("pub(crate) enum Hidden {\n    A,\n    B,\n}\n", "Hidden"),
+        2
+    );
+    assert_eq!(variants("enum Empty {}\n", "Empty"), 0);
+    assert_eq!(
+        variants("pub enum Hub {\n    One,\n    Two,\n    Three,\n}\n", "Hub"),
+        3
+    );
+    assert!(ratchet("Hub", 5, 5).is_none());
+    assert!(ratchet("Hub", 6, 5).is_some_and(|text| text.contains("only shrinks")));
+    assert!(ratchet("Hub", 4, 5).is_some_and(|text| text.contains("lower its line")));
+}
+
+/// The text of `fn name(`, from its header line to the `}` that closes it at column 0.
+fn fn_body<'a>(text: &'a str, name: &str) -> &'a str {
+    let header = format!("fn {name}(");
+    let start = text
+        .lines()
+        .scan(0usize, |at, line| {
+            let this = *at;
+            *at += line.len() + 1;
+            Some((this, line))
+        })
+        .find(|(_, line)| line.contains(&header) && !line.trim_start().starts_with("//"))
+        .map(|(at, _)| at)
+        .expect("the function is in the file");
+    let rest = &text[start..];
+    let end = rest.find("\n}\n").map_or(rest.len(), |end| end + 2);
+    &rest[..end]
+}
+
+/// `threads::apply_ev` matches the thread's own events and hands every intent of a screen or a
+/// feature to that screen's or feature's own function. The arms that still name a screen's
+/// intent by name are the debt of ADR-012 (the queue, the draft, the mask moves out of
+/// `chat::ThreadIntent`): the count only goes down, to zero. A feature's intent is never named
+/// there.
+#[test]
+fn threads_apply_matches_no_screen_or_feature_intent() {
+    let threads = read("core/src/threads.rs");
+    let body = fn_body(&threads, "apply_ev");
+    let lines = budget_lines("arms");
+    assert!(!lines.is_empty(), "the budget lists the arms");
+    let mut found = Vec::new();
+    for words in lines {
+        let [file, function, pattern, budget] = words.as_slice() else {
+            panic!("`arms <file> <fn> <pattern> <n>`: {words:?}");
+        };
+        let text = read(file);
+        let current: usize = code_lines(fn_body(&text, function))
+            .map(|(_, line)| line.matches(pattern.as_str()).count())
+            .sum();
+        found.extend(ratchet(
+            &format!("{file} {function} names {pattern}"),
+            current,
+            budget.parse().expect("a count"),
+        ));
+    }
+    assert!(found.is_empty(), "{found:#?}");
+    assert!(
+        !body.contains("FeatureThreadIntent::"),
+        "threads::apply_ev names a feature's thread intent"
+    );
+}
+
+#[test]
+fn the_function_body_scan_bites() {
+    let text = "fn other() {\n    ScreenThreadIntent::Chat(a);\n}\n\nfn apply_ev(x: u8) {\n    match x {\n        ScreenThreadIntent::Chat(b) => {}\n        // ScreenThreadIntent::Chat(c)\n        ScreenThreadIntent::Backtrack(d) => {}\n    }\n}\n\nfn after() {\n    ScreenThreadIntent::Chat(e);\n}\n";
+    let body = fn_body(text, "apply_ev");
+    let count: usize = code_lines(body)
+        .map(|(_, line)| line.matches("ScreenThreadIntent::").count())
+        .sum();
+    assert_eq!(count, 2);
+    assert!(!body.contains("fn after"));
+    assert!(ratchet("arms", 3, 2).is_some());
 }

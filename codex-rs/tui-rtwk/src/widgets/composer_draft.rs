@@ -79,6 +79,9 @@ struct Inner {
     /// Shell mode (`is_bash_mode`): a `!` typed at the draft's start left
     /// the text and became the prompt; a submit sends it back in front.
     shell: bool,
+    /// The draft of a plain-text composer (`ChatComposerConfig::plain_text`,
+    /// the answers inside question sheets): no shell mode, no image paths.
+    plain: bool,
     /// The separator space a `$skill` completion inserted, while the next
     /// key may still replace it with trailing punctuation
     /// (`skill_completion_space`).
@@ -122,6 +125,22 @@ impl std::fmt::Debug for ComposerDraft {
 }
 
 impl ComposerDraft {
+    /// The draft of a plain-text composer (`ChatComposerConfig::plain_text`):
+    /// `!` stays literal text (shell mode cannot be entered) and a pasted
+    /// path of an image file is text too; the blockquote paste and the large
+    /// paste placeholders stay.
+    pub fn plain() -> ComposerDraft {
+        ComposerDraft(Rc::new(RefCell::new(Inner {
+            plain: true,
+            ..Inner::default()
+        })))
+    }
+
+    /// Whether this is a plain-text composer's draft.
+    pub fn is_plain(&self) -> bool {
+        self.0.borrow().plain
+    }
+
     /// The mention popups of this draft (a handle).
     pub fn mentions(&self) -> Mentions {
         self.0.borrow().mentions.clone()
@@ -267,13 +286,14 @@ impl ComposerDraft {
             let label = self.next_label(c, &label(chars));
             self.insert_element(c, &label, text);
         } else if text.chars().nth(1).is_some()
+            && !self.is_plain()
             && let Some(path) = images::pasted_image(text)
         {
             // a dragged image file: attached, a space after it
             // (`handle_paste_image_path`)
             self.attach_image(c, path, image);
             c.insert(" ");
-        } else if at_start && text.starts_with('!') && !self.shell() {
+        } else if at_start && text.starts_with('!') && !self.shell() && !self.is_plain() {
             c.insert(text);
             self.absorb_shell_prefix(c);
         } else if quoted.is_some() || text != original {
@@ -515,6 +535,10 @@ impl ComposerDraft {
     /// Enters or leaves shell mode; `true` when that changed it.
     pub fn set_shell(&self, on: bool) -> bool {
         let mut inner = self.0.borrow_mut();
+        // a plain-text draft has no shell mode (`shell_commands_enabled`)
+        if inner.plain {
+            return false;
+        }
         let changed = inner.shell != on;
         inner.shell = on;
         changed
@@ -524,7 +548,7 @@ impl ComposerDraft {
     /// (`sync_bash_mode_from_text`): out of the text, the caret kept where
     /// it was in what follows. `true` when it did.
     pub fn absorb_shell_prefix(&self, c: &TextEditingController) -> bool {
-        if self.shell() || !c.text().starts_with('!') {
+        if self.shell() || self.is_plain() || !c.text().starts_with('!') {
             return false;
         }
         let selection = c.selection();

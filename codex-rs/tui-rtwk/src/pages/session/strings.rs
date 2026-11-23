@@ -656,6 +656,7 @@ impl Strings {
             NoteKey::Remove(Action::Archive, RemoveNote::Failed) => self.archive_failed.to_string(),
             NoteKey::Remove(Action::Delete, RemoveNote::Failed) => self.delete_failed.to_string(),
             NoteKey::Select(note) => self.picker_note(note),
+            NoteKey::Feature(note) => crate::features::note_words(note, self),
             // The words of the export notes are the view task's (chunk-commands-export); the
             // oracle's English stands until its catalog entries exist.
             NoteKey::Export(ExportNote::Saved(path)) => format!("Saved conversation to {path}"),
