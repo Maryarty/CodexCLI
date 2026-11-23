@@ -2,25 +2,31 @@
 //! session page, each drawn without a frame at the bottom edge, as the
 //! oracle draws its bottom-pane views (architecture §1, amendment
 //! 2026-11-19b). `Screen` is the one widget the app opens; which dialog it
-//! shows is what the model holds open (`core::screens::settings::Open`).
-//! Their model part, events, intents and RPCs are core's
-//! `codex_tui_core::screens::settings`.
+//! shows is the one a slash command (or a seed) asked for
+//! (`core::screens::settings::Model::requested`), taken once. What each dialog
+//! is before it is saved (its checks, its order, its page) is its sheet's
+//! draft (`draft.rs`); the model keeps what it is offered and what it asked
+//! of the app (`Edit`, ADR-013). Their model part, events, intents and RPCs
+//! are core's `codex_tui_core::screens::settings`.
 
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog, show_dialog};
-use rtwk::provider::select;
+use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
+use rtwk::provider::{read, select};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::settings::{ID, NAME, Open};
+use codex_tui_core::screens::settings::{Edit, ID, Intent, NAME, Which};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
+use crate::app::view::Hs;
 
+pub mod draft;
 pub mod features;
 pub mod hooks;
 pub mod items;
+mod keys;
 pub mod memories;
 pub mod setup;
 pub mod strings;
@@ -207,7 +213,17 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Dialog(|_| Screen.into()),
+            open: if name == "memories_reset_confirmation" {
+                // The dialog opens on the confirmation: the draft's start.
+                EntryOpen::Dialog(|_| {
+                    Screen {
+                        confirm_reset: true,
+                    }
+                    .into()
+                })
+            } else {
+                EntryOpen::Dialog(|_| Screen::default().into())
+            },
         })
         .collect()
 }
@@ -217,7 +233,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(
         cx,
-        move |_| Screen.into(),
+        move |_| Screen::default().into(),
         // Esc is the dialog's own key when one is up; the barrier closes
         // the unseeded slot.
         DialogOptions {
@@ -229,14 +245,19 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
 
 /// Opens the sheet with no seeded model (debug menu): the empty slot.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|_| Screen.into())
+    DebugOpen::Dialog(|_| Screen::default().into())
 }
 
-/// Which dialog the model holds open.
+/// What a dialog asks of the app: a request the model records (`Intent::Request`).
+fn request<S: State + 'static>(cx: &mut Cx<'_, S>, edit: Edit) {
+    let hs = read::<Hs, _>(cx);
+    cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Request(edit)));
+}
+
+/// Which sheet the dialog asked for is drawn with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shown {
-    Nothing,
-    Setup,
+    Setup(Which),
     Theme,
     Features,
     Memories,
@@ -244,37 +265,45 @@ enum Shown {
     Other,
 }
 
-/// The sheet of this slot: the dialog the model holds open. It closes the
-/// slot when the model closes what it held (the sheets are replaced by this
-/// widget's own build in that frame, so none of them sees it).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Screen;
+impl Shown {
+    fn of(which: Which) -> Self {
+        match which {
+            Which::StatusLine | Which::Title | Which::Skills => Shown::Setup(which),
+            Which::Theme => Shown::Theme,
+            Which::Experimental => Shown::Features,
+            Which::Memories => Shown::Memories,
+            Which::Hooks => Shown::Hooks,
+            Which::Config | Which::Keymap => Shown::Other,
+        }
+    }
+}
 
-/// Widget state: whether a dialog was ever held open here.
+/// The sheet of this slot: the dialog that was asked for, taken from the model when it is
+/// first there (the sheet is opened before or after the slash command's intent is applied).
+/// The sheets close themselves when they are done.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Screen {
+    /// The memories dialog opens on its reset confirmation (a debug entry's start).
+    pub confirm_reset: bool,
+}
+
+/// Widget state: the sheet taken, if one was asked for.
 pub struct ScreenState {
-    had: bool,
+    shown: Option<Shown>,
 }
 
 impl StatefulWidget for Screen {
     type State = ScreenState;
 
     fn create_state(&self) -> ScreenState {
-        ScreenState { had: false }
+        ScreenState { shown: None }
     }
 }
 
 impl_widget!(stateful eq Screen);
 
-fn shown_of(cx: &mut Cx<'_, ScreenState>) -> Shown {
-    select::<ScreenStates, Shown, _>(cx, |states| match &states.settings.open {
-        None => Shown::Nothing,
-        Some(Open::Setup(_)) => Shown::Setup,
-        Some(Open::Theme(_)) => Shown::Theme,
-        Some(Open::Experimental(_)) => Shown::Features,
-        Some(Open::Memories(_)) => Shown::Memories,
-        Some(Open::Hooks(_)) => Shown::Hooks,
-        Some(_) => Shown::Other,
-    })
+fn requested(cx: &mut Cx<'_, ScreenState>) -> Option<Which> {
+    select::<ScreenStates, Option<Which>, _>(cx, |states| states.settings.requested)
 }
 
 impl State for ScreenState {
@@ -282,23 +311,29 @@ impl State for ScreenState {
     type Msg = ();
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
-        match shown_of(cx) {
-            Shown::Nothing if self.had => close_dialog::<_, ()>(cx, None),
-            Shown::Nothing => {}
-            _ => self.had = true,
+        if self.shown.is_some() {
+            return;
+        }
+        if let Some(which) = requested(cx) {
+            self.shown = Some(Shown::of(which));
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Taken));
         }
     }
 
-    fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        match shown_of(cx) {
-            Shown::Setup => setup::SetupSheet.into(),
-            Shown::Theme => theme::ThemeSheet.into(),
-            Shown::Features => features::FeaturesSheet.into(),
-            Shown::Memories => memories::MemoriesSheet.into(),
-            Shown::Hooks => hooks::HooksSheet.into(),
+    fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        match self.shown {
+            Some(Shown::Setup(which)) => setup::SetupSheet { which }.into(),
+            Some(Shown::Theme) => theme::ThemeSheet.into(),
+            Some(Shown::Features) => features::FeaturesSheet.into(),
+            Some(Shown::Memories) => memories::MemoriesSheet {
+                confirming: w.confirm_reset,
+            }
+            .into(),
+            Some(Shown::Hooks) => hooks::HooksSheet.into(),
             // No dialog seeded (the debug menu's row): the skeleton's
             // empty-slot line.
-            Shown::Nothing | Shown::Other => {
+            None | Some(Shown::Other) => {
                 let shared = crate::l10n::strings::of(cx);
                 Dialog::bare(Text::new(shared.empty_slot(NAME, ID).to_string())).into()
             }

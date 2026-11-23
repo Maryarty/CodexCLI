@@ -16,7 +16,7 @@ use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::select;
-use crate::screens::settings::{self, Dialog, Ev, Intent, Open, persist};
+use crate::screens::settings::{self, Dialog, Ev, Intent, Offer, persist};
 use crate::screens::{ScreenCommand, ScreenReply, chat};
 
 /// An intent of the settings dialogs, and the writes it left to make.
@@ -30,7 +30,7 @@ pub(super) fn intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         _ => None,
     };
     match built {
-        Some(setup) => settings::apply(&mut screens.settings, Ev::Opened(Open::Setup(setup)), fx),
+        Some(setup) => settings::apply(&mut screens.settings, Ev::Offered(Offer::Setup(setup)), fx),
         None => settings::apply_intent(&mut screens.settings, intent, fx),
     }
     write(app, fx);

@@ -3,14 +3,14 @@
 //! are in `tests/oracle/small_dialogs_2.rs`; here are the behaviours the
 //! snapshots do not show (keys, the filter, the preview, the mouse).
 //! Oracle: `bottom_pane/{multi_select_picker,status_line_setup,title_setup}.rs`.
-//! The state tests of the other dialogs (config, theme, keymap) are in
-//! `core/tests/settings.rs`.
+//! The domain tests of the catalogues are in `core/tests/settings.rs`, those of the drafts
+//! (the checks, the order, the flips) in `src/sheets/settings/draft.rs`.
 
 use rtwk_core::input::{Mods, MouseKind};
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::settings::{Edit, Ev as SettingsEv, Facts, MemoryFacts, Open};
+use codex_tui_core::screens::settings::{Edit, Ev as SettingsEv, Facts, MemoryFacts, Offer, Which};
 use codex_tui_rtwk::app::UiApp;
 
 use crate::common::{HEIGHT, Harness, WIDTH, ms, start_driven, start_sized};
@@ -180,10 +180,10 @@ fn a_click_moves_the_cursor_and_a_second_click_toggles() {
 
 // ---- the theme picker (`ThemeSheet`): oracle `theme_picker.rs`,
 // `bottom_pane/list_selection_view.rs` ----
-// What the intents do to the model (the theme previewed on every move, kept
-// by Enter, restored by Esc) is `core/tests/settings.rs`: a debug entry's
-// model lives in its seeded scope, so these tests see the intents only as
-// the sheet closing.
+// What the model keeps (the theme previewed on every move, kept by Enter,
+// restored by Esc) is read below through `/theme`: a debug entry's model lives
+// in its seeded scope, so these tests see its intents only as the sheet
+// closing.
 
 #[test]
 fn the_theme_picker_in_a_narrow_terminal_stacks_the_preview_below_the_rows() {
@@ -765,8 +765,8 @@ fn slash_theme_opens_the_picker_over_the_bundled_themes() {
     assert!(screen.contains("› 1337"), "{screen}");
     assert!(screen.contains("ansi"), "{screen}");
     let themes =
-        h.t.read_app(|app: &UiApp| match &app.core.screens().settings.open {
-            Some(Open::Theme(picker)) => picker.themes.len(),
+        h.t.read_app(|app: &UiApp| match app.core.screens().settings.offers.get(&Which::Theme) {
+            Some(Offer::Theme(picker)) => picker.themes.len(),
             _ => 0,
         });
     assert_eq!(themes, 32);

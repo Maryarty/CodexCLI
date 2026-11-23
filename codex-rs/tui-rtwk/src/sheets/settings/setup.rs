@@ -7,9 +7,9 @@
 //! `TextField` with a `TextEditingController` (its `FocusNode.onKeyEvent`
 //! takes the keys that are the list's: Space, the arrows), a `ListView`
 //! over a `ListController` with the cursor in a `SelectionController` keyed
-//! by the item's id. What is checked and in which order is the model's
-//! (`Intent::Toggle`, `Intent::Move`, `Intent::Save`, ADR-003); the sheet
-//! keeps the controllers only. The mouse (ADR-011): a tap moves the cursor
+//! by the item's id. What is checked and in which order before Save is the
+//! sheet's draft (`SetupDraft`); what Enter saves is the model's request
+//! (`Edit::SetupSaved`, ADR-013). The mouse (ADR-011): a tap moves the cursor
 //! to a row, a tap on the row the cursor is on toggles it; the wheel is the
 //! `ListView`'s own.
 
@@ -26,23 +26,23 @@ use rtwk::layout::{
     SizedBox,
 };
 use rtwk::overlay::{Dialog, close_dialog};
-use rtwk::prelude::{KeyCode, Mods};
-use rtwk::provider::{read, select};
+use rtwk::provider::select;
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::style::Style;
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::select::list::normalize_paste;
 use codex_tui_core::screens::settings::{
-    Intent, Open, Setup, SetupItem, SetupKind, USE_THEME_COLORS,
+    Offer, Setup, SetupItem, SetupKind, USE_THEME_COLORS, Which,
 };
 
+use super::draft::SetupDraft;
+use super::keys::{Keys, ListKey, is_space, list_key};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
-use crate::app::view::Hs;
 use crate::widgets::dots::dots_end;
 use crate::widgets::session_list::{Move, Scrolled, page_rows, target};
 
@@ -89,13 +89,16 @@ fn name_of<'a>(s: &'a Strings, item: &'a SetupItem) -> &'a str {
     }
 }
 
-/// The sheet of both setups: which one it is, the model says.
+/// The sheet of the setups: the status line, the title, the skills.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SetupSheet;
+pub struct SetupSheet {
+    pub which: Which,
+}
 
-/// Widget state: the controllers (R14).
+/// Widget state: the controllers and the draft (R14).
 pub struct SetupState {
-    shown: bool,
+    keys: Keys,
+    draft: SetupDraft,
     ready: bool,
     node: FocusNode,
     query: TextEditingController,
@@ -123,50 +126,19 @@ pub enum Msg {
     Row(usize),
 }
 
-/// The single character a key types, if it types one.
-pub(super) fn letter_of(key: &KeyPress) -> Option<char> {
-    key.text().and_then(|text| {
-        let mut chars = text.chars();
-        let first = chars.next()?;
-        chars.next().is_none().then_some(first)
-    })
-}
-
-/// How a key moves the cursor of a list (the oracle's list keymap).
-pub(super) fn move_of(key: &KeyPress) -> Option<Move> {
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    match (key.code, letter_of(key), ctrl, alt) {
-        (KeyCode::Up, _, false, false) | (KeyCode::Char, Some('p'), true, false) => {
-            Some(Move::Step(false))
-        }
-        (KeyCode::Down, _, false, false) | (KeyCode::Char, Some('n'), true, false) => {
-            Some(Move::Step(true))
-        }
-        (KeyCode::PageUp, _, false, false) => Some(Move::Page(false)),
-        (KeyCode::PageDown, _, false, false) => Some(Move::Page(true)),
-        (KeyCode::Home, _, false, false) => Some(Move::Edge(false)),
-        (KeyCode::End, _, false, false) => Some(Move::Edge(true)),
-        _ => None,
-    }
-}
-
 /// The act of a key; none: the key is the search field's.
-fn act_of(key: &KeyPress) -> Option<Act> {
-    if let Some(mv) = move_of(key) {
-        return Some(Act::Move(mv));
+fn act_of(keys: &Keymap, key: &KeyPress) -> Option<Act> {
+    if is_space(key) {
+        return Some(Act::Toggle);
     }
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    match (key.code, letter_of(key), ctrl, alt) {
-        // Left and Right reorder; with a search typed they move nothing (the
-        // oracle's search has no caret to move).
-        (KeyCode::Left, _, false, false) => Some(Act::Reorder(-1)),
-        (KeyCode::Right, _, false, false) => Some(Act::Reorder(1)),
-        (KeyCode::Char, Some(' '), false, false) if key.mods.is_empty() => Some(Act::Toggle),
-        (KeyCode::Enter, _, false, false) => Some(Act::Save),
-        (KeyCode::Escape, _, false, false) => Some(Act::Close),
-        _ => None,
+    // Left and Right reorder; with a search typed they move nothing (the
+    // oracle's search has no caret to move).
+    match list_key(keys, key, true)? {
+        ListKey::Move(mv) => Some(Act::Move(mv)),
+        ListKey::Left => Some(Act::Reorder(-1)),
+        ListKey::Right => Some(Act::Reorder(1)),
+        ListKey::Accept => Some(Act::Save),
+        ListKey::Cancel => Some(Act::Close),
     }
 }
 
@@ -175,7 +147,8 @@ impl StatefulWidget for SetupSheet {
 
     fn create_state(&self) -> SetupState {
         SetupState {
-            shown: false,
+            keys: Keys::new(),
+            draft: SetupDraft::default(),
             ready: false,
             node: FocusNode::new(),
             query: TextEditingController::new(""),
@@ -188,11 +161,13 @@ impl StatefulWidget for SetupSheet {
 
 impl_widget!(stateful eq SetupSheet);
 
-/// The setup the model holds open.
-fn open_setup(cx: &mut Cx<'_, SetupState>) -> Option<Setup> {
-    select::<ScreenStates, Option<Setup>, _>(cx, |states| match &states.settings.open {
-        Some(Open::Setup(setup)) => Some(super::items::filled(setup.clone())),
-        _ => None,
+/// The setup the model offers, with the words of its items.
+fn offered(cx: &mut Cx<'_, SetupState>, which: Which) -> Option<Setup> {
+    select::<ScreenStates, Option<Setup>, _>(cx, move |states| {
+        match states.settings.offers.get(&which) {
+            Some(Offer::Setup(setup)) => Some(super::items::filled(setup.clone())),
+            _ => None,
+        }
     })
 }
 
@@ -230,8 +205,15 @@ impl SetupState {
         });
     }
 
-    fn act(&self, act: Act, setup: &Setup, rows: &[Entry], cx: &mut Cx<'_, Self>) {
-        let hs = read::<Hs, _>(cx);
+    /// `offered` is the setup as the model has it, `setup` as the user left it.
+    fn act(
+        &mut self,
+        act: Act,
+        offered: &Setup,
+        setup: &Setup,
+        rows: &[Entry],
+        cx: &mut Cx<'_, Self>,
+    ) {
         let at = self.at(setup, rows);
         let id = at.map(|at| key_of(setup, rows[at]));
         match act {
@@ -241,20 +223,13 @@ impl SetupState {
                     self.put(setup, rows, to);
                 }
             }
-            Act::Toggle => {
-                if let Some(id) = id {
-                    cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Toggle(id)));
-                }
-            }
+            Act::Toggle => self.toggle(offered, id, cx),
             Act::Reorder(delta) => {
                 // Reordering is off while a search is typed, and for the
                 // skills, which have no order.
                 let ordered = setup.kind != SetupKind::Skills && self.query.text().is_empty();
                 if let (Some(id), Some(at), true) = (id, at, ordered) {
-                    cx.emit(
-                        &hs.screen,
-                        ScreenIntent::Settings(Intent::Move { id, delta }),
-                    );
+                    self.draft.shift(offered, &id, delta);
                     if let Some(to) = at.checked_add_signed(delta.signum() as isize)
                         && to < rows.len()
                     {
@@ -264,13 +239,23 @@ impl SetupState {
             }
             // Enter saves the order and the checks; on the skills it flips
             // the row under the cursor like Space (each flip is saved).
-            Act::Save if setup.kind == SetupKind::Skills => {
-                if let Some(id) = id {
-                    cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Toggle(id)));
-                }
+            Act::Save if setup.kind == SetupKind::Skills => self.toggle(offered, id, cx),
+            Act::Save => {
+                super::request(cx, self.draft.save(offered));
+                close_dialog::<_, ()>(cx, None);
             }
-            Act::Save => cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Save)),
-            Act::Close => cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Close)),
+            Act::Close => {
+                super::request(cx, SetupDraft::cancel(offered));
+                close_dialog::<_, ()>(cx, None);
+            }
+        }
+    }
+
+    fn toggle(&mut self, offered: &Setup, id: Option<String>, cx: &mut Cx<'_, Self>) {
+        if let Some(id) = id
+            && let Some(edit) = self.draft.toggle(offered, &id)
+        {
+            super::request(cx, edit);
         }
     }
 }
@@ -281,14 +266,16 @@ impl State for SetupState {
 
     fn init_state(&mut self, _: &SetupSheet, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
-        self.node
-            .set_on_key_event(Some(Rc::new(move |_, key| match act_of(&key) {
+        let keys = self.keys.clone();
+        self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            match act_of(&keys.get(), &key) {
                 Some(act) => {
                     send(Msg::Act(act));
                     KeyEventResult::Handled
                 }
                 None => KeyEventResult::Ignored,
-            })));
+            }
+        })));
     }
 
     fn dispose(&mut self) {
@@ -297,30 +284,27 @@ impl State for SetupState {
         self.cursor.dispose();
     }
 
-    fn did_change_dependencies(&mut self, _: &SetupSheet, cx: &mut Cx<'_, Self>) {
-        let setup = open_setup(cx);
-        if setup.is_none() && self.shown {
-            close_dialog::<_, ()>(cx, None);
-        }
-        self.shown = setup.is_some();
-        if let (Some(setup), false) = (&setup, self.ready) {
+    fn did_change_dependencies(&mut self, w: &SetupSheet, cx: &mut Cx<'_, Self>) {
+        self.keys.refresh(cx);
+        if let (Some(setup), false) = (offered(cx, w.which), self.ready) {
             self.ready = true;
-            let rows = entries(setup, "");
-            self.settle(setup, &rows);
+            let rows = entries(&setup, "");
+            self.settle(&setup, &rows);
         }
     }
 
-    fn update(&mut self, msg: Msg, _: &SetupSheet, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Some(setup) = open_setup(cx) else {
+    fn update(&mut self, msg: Msg, w: &SetupSheet, cx: &mut Cx<'_, Self>) -> Rebuild {
+        let Some(offered) = offered(cx, w.which) else {
             return Rebuild::No;
         };
+        let setup = self.draft.view(&offered);
         let rows = entries(&setup, &self.query.text());
         match msg {
             Msg::Query => self.settle(&setup, &rows),
-            Msg::Act(act) => self.act(act, &setup, &rows, cx),
+            Msg::Act(act) => self.act(act, &offered, &setup, &rows, cx),
             Msg::Row(row) => {
                 if self.at(&setup, &rows) == Some(row) {
-                    self.act(Act::Toggle, &setup, &rows, cx);
+                    self.act(Act::Toggle, &offered, &setup, &rows, cx);
                 } else if matches!(rows.get(row), Some(Entry::Item(_))) {
                     self.put(&setup, &rows, row);
                 }
@@ -329,13 +313,14 @@ impl State for SetupState {
         Rebuild::Yes
     }
 
-    fn build(&self, _: &SetupSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, w: &SetupSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
         let seg = segmenter_of(cx);
-        let Some(setup) = open_setup(cx) else {
+        let Some(offered) = offered(cx, w.which) else {
             return Dialog::bare(Text::new(String::new())).into();
         };
+        let setup = self.draft.view(&offered);
         let (title, subtitle, placeholder, hint) = match setup.kind {
             SetupKind::StatusLine => (
                 s.status_title,
