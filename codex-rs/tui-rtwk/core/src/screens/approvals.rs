@@ -319,6 +319,22 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     }
 }
 
+/// What answering `prompt` with `answer` leaves in the thread's history, if anything: the
+/// decision cell of an approval, the result cell of a user-input exchange (the app's call once
+/// the request is resolved).
+pub fn recorded(prompt: &Prompt, answer: &RequestAnswer) -> Option<ThreadEv> {
+    match (prompt, answer) {
+        (
+            _,
+            RequestAnswer::Choice(decision) | RequestAnswer::Elicitation { decision, .. },
+        ) => decided::Decided::of(prompt, decision).map(ThreadEv::Decided),
+        (Prompt::UserInput(asked), RequestAnswer::UserInput(answers)) => Some(
+            ThreadEv::Questioned(input::answered_questions(&asked.questions, answers)),
+        ),
+        (_, RequestAnswer::UserInput(_)) => None,
+    }
+}
+
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
 /// only by `apply_thread` and `apply_reply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -339,6 +355,8 @@ pub enum ThreadEv {
     /// An answer left a record in the history (`decided::Decided::of`, the app's call once the
     /// request is resolved).
     Decided(decided::Decided),
+    /// A user-input request was answered: the result cell of its questions (`recorded`).
+    Questioned(Vec<crate::screens::cells::AnsweredQuestion>),
     /// A review of the auto-reviewer started, or ended (`guardian::project`).
     Review(Box<guardian::Review>),
     /// The auto-reviewer's warning (`guardian::project`).

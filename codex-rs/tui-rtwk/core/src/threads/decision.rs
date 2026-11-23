@@ -7,7 +7,7 @@
 
 use crate::screens::approvals::guardian::History;
 
-use super::Item;
+use super::{Item, cells::Notice};
 
 /// A line of the history `/auto-review` and the reviewer's paths leave besides a decision.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,6 +27,11 @@ pub enum ReviewLine {
 pub(super) fn item_of(history: History) -> Item {
     match history {
         History::Decided(decided) => Item::Decision(decided),
+        // The oracle's overlay only submits answers, never an interruption: the flag stays false.
+        History::Questioned(questions) => Item::Notice(Notice::Questions {
+            questions,
+            interrupted: false,
+        }),
         // The reviewer's warning is the oracle's `on_warning`: a detail of the long transcript.
         History::Warning(message) => Item::Warning { message },
         History::Unlocalized(error) => Item::Review(ReviewLine::Unlocalized(error)),

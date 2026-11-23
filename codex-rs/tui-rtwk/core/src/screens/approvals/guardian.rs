@@ -189,6 +189,8 @@ impl Denials {
 pub enum History {
     /// An answer or a verdict (`Item::Decision`).
     Decided(Decided),
+    /// A user-input exchange ended: its questions with what was answered (`Notice::Questions`).
+    Questioned(Vec<crate::screens::cells::AnsweredQuestion>),
     /// The server's warning, verbatim.
     Warning(String),
     /// The server's file paths of a review could not be localized: the error text it gave.
@@ -331,6 +333,7 @@ impl ThreadPart {
     pub fn apply(&mut self, ev: ThreadEv) -> Option<Ask> {
         match ev {
             ThreadEv::Decided(decided) => self.outbox.push(History::Decided(decided)),
+            ThreadEv::Questioned(questions) => self.outbox.push(History::Questioned(questions)),
             ThreadEv::Review(review) => self.review(*review),
             ThreadEv::Warning(message) => {
                 if !message.starts_with(APPROVED_WARNING) {

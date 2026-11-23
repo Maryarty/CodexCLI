@@ -2049,3 +2049,169 @@ mod through_the_app {
         assert_eq!((running, kept), (vec!["g1"], vec!["g2"]));
     }
 }
+
+/// What an answered user-input request leaves in the thread's history (oracle
+/// `bottom_pane/request_user_input/mod.rs` `submit_answers` and `submit_empty_auto_resolution`:
+/// a `RequestUserInputResultCell` inserted into history, `interrupted: false`).
+mod question_results {
+    use std::collections::BTreeMap;
+
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::screens::approvals::{Intent as ApprovalIntent, RequestAnswer, input};
+    use codex_tui_core::screens::cells::AnsweredQuestion;
+    use codex_tui_core::threads::{Item, Notice};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    /// The app with its thread started, as after `Connected` and the reply.
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("thread-1"))),
+        );
+        app
+    }
+
+    fn ask(app: &mut CodexApp) {
+        let request = serde_json::from_value(json!({
+            "method": "item/tool/requestUserInput", "id": 1,
+            "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "itemId": "call-1",
+                "isBlocking": true, "autoResolutionMs": null,
+                "questions": [
+                    { "id": "choice", "header": "Approach",
+                      "question": "Which approach should we use for the next step?",
+                      "isOther": true, "isSecret": false,
+                      "options": [{ "label": "Keep it small", "description": "Use the helper" }] },
+                    { "id": "token", "header": "Token", "question": "Paste the token.",
+                      "isOther": false, "isSecret": true, "options": null },
+                    { "id": "skipped", "header": "Notes", "question": "Anything else?",
+                      "isOther": false, "isSecret": false, "options": null }
+                ]
+            }
+        }))
+        .expect("request");
+        run(app, AppEv::Backend(BackendEv::Request(Box::new(request))));
+    }
+
+    fn respond(app: &mut CodexApp, answer: RequestAnswer) {
+        let key = app.requests().head().expect("a request").key.clone();
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Approvals(
+                ApprovalIntent::Respond { key, answer },
+            ))),
+        );
+    }
+
+    fn history(app: &CodexApp) -> Vec<Item> {
+        let thread = app.active_thread();
+        let transcript = thread.transcript();
+        (0..transcript.len())
+            .filter_map(|index| transcript.get(index).map(|(_, item)| item.clone()))
+            .collect()
+    }
+
+    fn question(text: &str, secret: bool, has_options: bool, answers: &[&str]) -> AnsweredQuestion {
+        AnsweredQuestion {
+            question: text.to_owned(),
+            secret,
+            has_options,
+            answers: answers.iter().map(|answer| (*answer).to_owned()).collect(),
+        }
+    }
+
+    /// The submit leaves every question in the history with what it was answered: the option,
+    /// the typed note after it, a secret one as it is (the cell masks it), and an empty list for
+    /// a question the user left alone.
+    #[test]
+    fn a_submitted_exchange_is_recorded_with_its_answers() {
+        let mut app = ready();
+        ask(&mut app);
+        respond(
+            &mut app,
+            RequestAnswer::UserInput(BTreeMap::from([
+                (
+                    "choice".to_owned(),
+                    vec![
+                        "Keep it small".to_owned(),
+                        "user_note: Preserve it".to_owned(),
+                    ],
+                ),
+                ("token".to_owned(), vec!["user_note: hunter2".to_owned()]),
+                ("skipped".to_owned(), Vec::new()),
+            ])),
+        );
+        assert!(app.requests().entries.is_empty());
+        assert_eq!(
+            history(&app),
+            vec![Item::Notice(Notice::Questions {
+                questions: vec![
+                    question(
+                        "Which approach should we use for the next step?",
+                        false,
+                        true,
+                        &["Keep it small", "user_note: Preserve it"],
+                    ),
+                    question("Paste the token.", true, false, &["user_note: hunter2"]),
+                    question("Anything else?", false, false, &[]),
+                ],
+                interrupted: false,
+            })]
+        );
+    }
+
+    /// A request that ran out answers empty (`submit_empty_auto_resolution`): the cell still
+    /// lands, every question unanswered, `interrupted` stays false.
+    #[test]
+    fn an_auto_resolved_request_is_recorded_with_every_question_unanswered() {
+        let mut app = ready();
+        ask(&mut app);
+        respond(&mut app, input::empty_answer());
+        let history = history(&app);
+        let [
+            Item::Notice(Notice::Questions {
+                questions,
+                interrupted,
+            }),
+        ] = history.as_slice()
+        else {
+            panic!("one result cell expected: {history:?}");
+        };
+        assert!(!interrupted);
+        assert_eq!(questions.len(), 3);
+        assert!(questions.iter().all(|question| !question.answered()));
+    }
+
+    /// An answer that does not fit the pending request is dropped: it leaves nothing behind.
+    #[test]
+    fn a_stale_answer_leaves_no_result() {
+        let mut app = ready();
+        ask(&mut app);
+        respond(
+            &mut app,
+            RequestAnswer::UserInput(BTreeMap::from([("choice".to_owned(), Vec::new())])),
+        );
+        assert_eq!(app.requests().entries.len(), 1);
+        assert_eq!(history(&app), Vec::new());
+    }
+}
