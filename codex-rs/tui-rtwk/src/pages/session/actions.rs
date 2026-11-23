@@ -265,6 +265,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 &states.chat.status,
                 states.chat.flags.connectors_enabled,
                 reserve_only(&session, &states, &thread),
+                review_cwd(&states, &thread),
             ) {
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
@@ -328,6 +329,19 @@ fn removal_intent(command: SlashCommand) -> Option<SessionIntent> {
     }
 }
 
+/// The directory `/review` lists branches and commits of (`self.config.cwd`): the thread's own,
+/// else the one the workspace is probed in; none known, the process's.
+fn review_cwd(states: &ScreenStates, thread: &ThreadModel) -> String {
+    thread
+        .screen_slots()
+        .chat
+        .cwd
+        .clone()
+        .filter(|cwd| !cwd.is_empty())
+        .or_else(|| states.chat.facts.cwd().map(str::to_owned))
+        .unwrap_or_else(|| ".".to_owned())
+}
+
 /// `restrict_model_picker_to_luna_reserve`: the thread runs on the Reserve and the last account
 /// read did not say ordinary usage is back.
 fn reserve_only(
@@ -362,6 +376,7 @@ fn select_intent(
     facts: &chat::StatusFacts,
     apps: bool,
     reserve: Option<codex_tui_core::screens::select::models::ReserveOnly>,
+    cwd: String,
 ) -> Option<codex_tui_core::screens::select::Intent> {
     use codex_tui_core::screens::select::{Intent, models, permissions};
     match command {
@@ -373,6 +388,7 @@ fn select_intent(
             permissions::Current::from_facts(facts),
         )),
         SlashCommand::Apps => Some(Intent::OpenApps { enabled: apps }),
+        SlashCommand::Review => Some(Intent::OpenReview { cwd }),
         _ => None,
     }
 }

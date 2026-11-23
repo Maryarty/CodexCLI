@@ -199,6 +199,27 @@ impl Screen {
         self.h.advance(100);
     }
 
+    /// The host answers the effect `command` asked of it (`Command::Effect`: the clipboard, the
+    /// git lists of `/review`) with `done`.
+    pub fn answer_effect(
+        &mut self,
+        command: &codex_tui_core::app::Command,
+        done: codex_tui_core::app::effects::Done,
+    ) {
+        let codex_tui_core::app::Command::Effect { request, .. } = command else {
+            panic!("not an effect: {command:?}");
+        };
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h.fake.inject(
+            epoch,
+            codex_tui_core::app::AppEv::Effect {
+                request: *request,
+                done,
+            },
+        );
+        self.h.advance(100);
+    }
+
     /// Pastes text as a terminal with bracketed paste does.
     pub fn paste(&mut self, text: &str) -> &mut Screen {
         self.h.t.paste(text);
