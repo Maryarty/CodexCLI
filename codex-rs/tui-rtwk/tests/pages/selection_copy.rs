@@ -104,6 +104,22 @@ fn a_drag_asks_the_host_to_copy_the_selected_text() {
     assert_eq!(copies[0].3, CopyDestination::Clipboard);
 }
 
+/// The oracle draws the selection REVERSED over the cells' own style (`rendered_selection`).
+#[test]
+fn the_selection_is_drawn_reversed_and_only_while_it_lasts() {
+    let mut s = chat();
+    let (x, y) = at(&s, "row 03");
+    assert!(!s.reversed(x, y), "{}", s.text());
+    select(&mut s, "row 03");
+    for dx in 0..6 {
+        assert!(s.reversed(x + dx, y), "column {dx}:\n{}", s.text());
+    }
+    assert!(!s.reversed(x + 6, y), "one past the selection");
+    assert!(!s.reversed(x, y - 1), "the row above");
+    s.keys("esc");
+    assert!(!s.reversed(x, y), "{}", s.text());
+}
+
 #[test]
 fn nothing_is_shown_before_the_host_answers() {
     let mut s = chat();

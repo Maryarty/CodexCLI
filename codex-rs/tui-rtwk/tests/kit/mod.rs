@@ -370,6 +370,16 @@ impl Screen {
             .collect()
     }
 
+    /// Whether the cell at column `x`, row `y` is drawn reversed (the oracle's selection and
+    /// the marked prompt are).
+    pub fn reversed(&self, x: u16, y: u16) -> bool {
+        self.h
+            .t
+            .cell(usize::from(x), usize::from(y))
+            .attrs
+            .intersects(rtwk_core::style::Attrs::REVERSE)
+    }
+
     /// The screen as text, for a failure message.
     pub fn text(&self) -> String {
         self.h.t.screen()
