@@ -231,9 +231,7 @@ fn debug_menu_scrolls_to_the_cursor() {
     let mut h = start_sized(true, 80, 12);
     assert!(h.t.screen().contains("chat"));
     let pets = crate::common::debug_row("pets", None);
-    for _ in 0..pets {
-        h.press("down");
-    }
+    h.move_cursor("down", pets);
     let screen = h.t.screen();
     // The cursor is on `pets`; the first rows scrolled off a 12-line screen.
     assert!(screen.contains("pets"), "{screen}");
