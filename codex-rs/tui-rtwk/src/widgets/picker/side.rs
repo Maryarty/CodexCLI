@@ -11,6 +11,8 @@ use rtwk::{AnyWidget, LayoutBuilder};
 
 use codex_tui_core::screens::select::list::{SIDE_GAP, Side};
 
+use crate::app::theme::Tokens;
+
 /// Cells the popup keeps free on either side of its content.
 const INSET: u16 = 2;
 
@@ -26,8 +28,14 @@ pub fn body_width(side: &Side, width: usize) -> usize {
 
 /// `body` with the preview `side` beside or below it.
 pub fn with_preview(body: AnyWidget, side: Side, style: Style) -> AnyWidget {
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
         let width = u16::try_from(constraints.max_width.max(0)).unwrap_or(u16::MAX);
+        // A preview that names a background keeps it (`preserve_side_content_bg`):
+        // the lines are drawn on that tone, not on the dialog's surface.
+        let style = match &side.bg {
+            Some(name) => style.clone().merge(&Tokens::of(cx).tone(name)),
+            None => style.clone(),
+        };
         let lines = |lines: &[String]| -> AnyWidget {
             lines
                 .iter()

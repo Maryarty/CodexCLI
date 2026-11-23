@@ -24,7 +24,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 79] = [
+    let entries: [(&'static str, &'static str, &'static str); 81] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -241,6 +241,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/side_content.jsonl"),
         ),
         (
+            "side_content_blue",
+            "one item with a preview on a blue background beside the rows",
+            include_str!("fixtures/side_content_blue.jsonl"),
+        ),
+        (
             "skills_menu",
             "the skills menu: list skills or enable and disable them",
             include_str!("fixtures/skills_menu.jsonl"),
@@ -354,6 +359,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "description_hide_when_narrow",
             "two rows whose description column hides when narrow",
             include_str!("fixtures/description_hide_when_narrow.jsonl"),
+        ),
+        (
+            "description_hide_numbered",
+            "the same two rows, the blocked one numbered by hand as the oracle's raw rows are",
+            include_str!("fixtures/description_hide_numbered.jsonl"),
         ),
         (
             "shared_menu",
