@@ -758,10 +758,6 @@ fn live_app_server_user_message_omits_unsupported_media() {
 // ORACLE chatwidget/tests/app_server.rs:939 live_app_server_turn_completed_clears_working_status_after_answer_item kind=ui owner=chat-live
 #[test]
 fn live_app_server_turn_completed_clears_working_status_after_answer_item() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `Worked for` line: a live completion the server timed not at all falls back to the status timer and the local clock (FinalMessageSeparator::from_turn_once); the port draws none, and the 8 cells_2/cells_3 completion tests feed the same turn (no duration, no time) through turn/completed and expect no label (completion_without_metadata_has_no_visible_or_raw_lines) or only the duration (completion_without_timestamp_retains_known_elapsed_duration), so the fallback needs those fixtures to say a restored turn first; patch: ~/.cache/codexcli/lw/worked-for-core.patch",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.assert_contains("Working");
