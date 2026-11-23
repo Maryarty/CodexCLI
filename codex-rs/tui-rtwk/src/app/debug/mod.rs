@@ -75,7 +75,17 @@ pub fn dirs() -> Vec<Dir> {
     use crate::pages::session;
     use crate::pages::startup;
     use crate::{pages, sheets};
-    let mut dirs = vec![
+    // The features' slots (`FeatureView::debug_dir`): each takes its place in the screen map
+    // by name (`feature`); one the map does not name yet goes last.
+    let mut features = crate::features::debug_dirs();
+    let mut feature = |name: &str| {
+        features
+            .iter()
+            .position(|dir| dir.name == name)
+            .map(|at| features.remove(at))
+    };
+    let mut dirs: Vec<Dir> = Vec::new();
+    dirs.extend([
         entry!(chat, session),
         entry!(cells, session::cells),
         entry!(composer, session::composer),
@@ -83,6 +93,9 @@ pub fn dirs() -> Vec<Dir> {
         entry!(transcript, session::transcript),
         entry!(select, sheets::select),
         entry!(approvals, sheets::approvals),
+    ]);
+    dirs.extend(feature("settings"));
+    dirs.extend([
         entry!(backtrack, session::backtrack),
         entry!(resume, pages::resume),
         entry!(status, session::cells::status),
@@ -94,8 +107,7 @@ pub fn dirs() -> Vec<Dir> {
         entry!(onboarding, startup::onboarding),
         entry!(startup, startup::prompts),
         entry!(import, startup::import),
-    ];
-    // The features' slots (`FeatureView::debug_dir`), after the screens'.
-    dirs.extend(crate::features::debug_dirs());
+    ]);
+    dirs.extend(features);
     dirs
 }

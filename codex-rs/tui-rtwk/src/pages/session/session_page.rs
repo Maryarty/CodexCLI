@@ -1141,12 +1141,7 @@ impl State for ChatState {
                 SizedBox::shrink().into()
             }
         });
-        let mut body = Stack::new().fit(StackFit::Expand).child(page).child(blank);
-        if let Some(on_edge) = &self.edges {
-            body = body.child(Listener {
-                on_edge: on_edge.clone(),
-            });
-        }
+        let body = Stack::new().fit(StackFit::Expand).child(page).child(blank);
         let mut focus = Focus::new(body);
         for (id, msg) in [
             (fixed::INTERRUPT_OR_QUIT, ChatMsg::CtrlC),
@@ -1193,6 +1188,16 @@ impl State for ChatState {
         let pages = strings.pages;
         let focus =
             AnyWidget::from(focus).with_key(Key::value((thread.read_only(), provider.is_some())));
+        // The listener stands outside the keyed focus: a key that changes in the same flush as a
+        // directive (the continue key ends the lock and gives the words in one step) would end its
+        // state, and the edge with it.
+        let mut shown = Stack::new().fit(StackFit::Expand).child(focus);
+        if let Some(on_edge) = &self.edges {
+            shown = shown.child(Listener {
+                on_edge: on_edge.clone(),
+            });
+        }
+        let focus = AnyWidget::from(shown);
         let mut keys = vec![
             ("left".to_string(), cx.send(ChatMsg::Agents)),
             (pages.key_shortcuts.to_string(), cx.send(ChatMsg::Shortcuts)),
