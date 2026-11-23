@@ -67,3 +67,6 @@ tests/kit/{env.rs,seed.rs}, core/tests/{model.rs,status.rs,status_facts.rs,app_w
 - chat_status_2::status_command_drops_stale_usd_when_updated_usage_has_only_credits
 - chat_status_2::inline_status_surface_commands_are_session_only_and_atomic
 (the thread-usage ones wait for the `account/usage/read` child.)
+
+## Landing
+Landed in batch 3: e1795b779 (the card and this pack) is in claude/tui-rtwk; the batch tip is 0130f3747.

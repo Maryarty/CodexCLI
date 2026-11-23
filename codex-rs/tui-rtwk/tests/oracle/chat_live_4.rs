@@ -5,6 +5,7 @@
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
 use crate::kit::{self, Owner, Screen};
+use codex_tui_core::app::facts::TuiSettings;
 
 const PLAN_ITEM: &str = include_str!("fixtures/chat_live_4/plan_item.jsonl");
 const FOOTER: &str = include_str!("fixtures/chat_live_4/footer.jsonl");
@@ -466,11 +467,14 @@ fn plan_slash_command_with_hidden_shell_paste_queued_before_session_submits_lite
 // ORACLE chatwidget/tests/plan_mode.rs:1579 vim_mode_default_enabled_starts_composer_in_insert_mode kind=ui owner=chat-live
 #[test]
 fn vim_mode_default_enabled_starts_composer_in_insert_mode() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for tui.vim_mode_default: the live chat cannot start with the composer in Vim mode (the StartInVimMode setting is not seeded)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .tui(TuiSettings {
+            vim_mode_default: true,
+            ..TuiSettings::default()
+        })
+        .open();
     s.keys("x right esc .");
     s.assert_has_row("› xx");
 }
