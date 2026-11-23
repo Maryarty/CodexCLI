@@ -376,11 +376,24 @@ fn act_of(key: &KeyPress, flags: Flags, keys: &Keymap) -> Option<Act> {
     if navigates && plain_text && letter.is_some() && letter == flags.secondary {
         return Some(Act::Secondary);
     }
+    // The oracle's query takes plain characters and Backspace only: the text
+    // field's own chords (Ctrl+U to the start, Ctrl+K, Ctrl+W, Ctrl+A, Alt+B ...)
+    // leave the search line as it is.
+    if flags.searchable
+        && (ctrl || alt)
+        && letter.is_some_and(|c| FIELD_CHORDS.contains(c.to_ascii_lowercase()))
+    {
+        return Some(Act::Nothing);
+    }
     if flags.searchable || !plain_text {
         return None;
     }
     letter.map(Act::Shortcut)
 }
+
+/// The letters a text field edits or moves its caret with under Ctrl or Alt
+/// (`TextField`: Ctrl+A, E, K, U, W, D, Y, Z; Alt+B, D, F).
+const FIELD_CHORDS: &str = "aekuwdyzbf";
 
 /// The footer of a list that says what its keys are (`enter select · esc
 /// back`): the first binding of accept and of cancel, as the keymap labels it;

@@ -76,10 +76,6 @@ fn theme_picker_subtitle_uses_fallback_text_in_94x35_terminal() {
 // ORACLE bottom_pane/list_selection_view.rs:2214 preserve_side_content_bg_keeps_rendered_background_colors kind=ui owner=ui-pane
 #[test]
 fn preserve_side_content_bg_keeps_rendered_background_colors() {
-    kit::pending(
-        Owner::UiPane,
-        "the preview keeps the dialog surface; no side-content background colour (a blue-background marker) is carried into the sheet yet",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(120, 35)
         .entry("select", "side_content_blue")
@@ -580,10 +576,6 @@ fn multi_select_picker_page_and_jump_navigation_use_list_keymap() {
 // ORACLE bottom_pane/multi_select_picker.rs:1045 short_picker_preserves_selected_row_when_overflow_spacers_yield kind=snap owner=ui-pane snap=short_picker_preserves_selected_row_when_overflow_spacers_yield
 #[test]
 fn short_picker_preserves_selected_row_when_overflow_spacers_yield() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with twelve orderable fields (field-00 .. field-11) in a multi-select list: the select screen has no multi-select picker; the kit cannot address the `height=N` frames as written by the test",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 7)
         .entry("select", "multi_fields_twelve")
@@ -630,18 +622,16 @@ fn picker_appearance_renders_checkboxes_preview_and_overflow() {
 // ORACLE bottom_pane/selection_picker_tests.rs:62 shared_menu_presentation_at_wide_and_narrow_sizes kind=snap owner=ui-pane snap=codex_tui__bottom_pane__list_selection_view__picker_tests__shared_menu_presentation_at_wide_and_narrow_sizes
 #[test]
 fn shared_menu_presentation_at_wide_and_narrow_sizes() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the shared menu (Choose an option, three items, footer `enter select · esc back`): the select screen has no such menu; the kit cannot address the `80x24` and `40x16` frames (oracle_snap::frames reads no such header)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 24)
         .entry("select", "shared_menu")
         .open();
-    s.assert_snap_section("codex_tui__bottom_pane__list_selection_view__picker_tests__shared_menu_presentation_at_wide_and_narrow_sizes", "80x24");
+    // The oracle draws the view into the whole area (the footer on the last row); the dialog is as tall as its content.
+    const SNAP: &str = "codex_tui__bottom_pane__list_selection_view__picker_tests__shared_menu_presentation_at_wide_and_narrow_sizes";
+    s.snap(SNAP).frame("80x24").dialog().assert();
     s.assert_contains("enter select · esc back");
     s.resize(40, 16);
-    s.assert_snap_section("codex_tui__bottom_pane__list_selection_view__picker_tests__shared_menu_presentation_at_wide_and_narrow_sizes", "40x16");
+    s.snap(SNAP).frame("40x16").dialog().assert();
     s.assert_contains("enter select · esc back");
 }
 
@@ -664,10 +654,6 @@ fn tiny_viewports_preserve_query_and_selection_when_enlarged() {
 // ORACLE bottom_pane/selection_picker_tests.rs:130 short_browser_keeps_header_tabs_search_and_footer kind=snap owner=ui-pane snap=codex_tui__bottom_pane__list_selection_view__picker_tests__short_browser_keeps_header_tabs_search_and_footer
 #[test]
 fn short_browser_keeps_header_tabs_search_and_footer() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the browser list (Keymap, five tabs, search placeholder `Type to search shortcuts`, footer `left/right group · enter edit · esc close`): the select screen has no browser; the kit cannot address the `48×6:` frames (oracle_snap::frames reads no such header)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(48, 6)
         .entry("select", "browser_keymap")
@@ -725,13 +711,9 @@ fn overflow_arrows_follow_the_painted_picker_surface() {
 // ORACLE bottom_pane/selection_popup_common.rs:743 narrow_description_columns_hide_without_stacking kind=snap owner=ui-pane snap=description_column_visibility
 #[test]
 fn narrow_description_columns_hide_without_stacking() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the rows `日本語` (details) and `Blocked` (disabled) at widths 48, 49 and 80: the select screen has no description column layout",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(48, 2)
-        .entry("select", "description_hide_when_narrow")
+        .entry("select", "description_hide_numbered")
         .open();
     for width in [48, 49, 80] {
         s.resize(width, 2);
