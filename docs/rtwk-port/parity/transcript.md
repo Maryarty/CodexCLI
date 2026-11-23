@@ -399,3 +399,47 @@ No new rtwk-gaps row. The tm area note: `tests/pages.rs` left this task's area w
   transcript (no title, status or hint rows), Esc marks the prompt. The oracle has no debug menu and its Ctrl+T
   sheet is not in a mock-model scenario, so no row of the sheet was compared against the oracle binary: the rows the
   page tests assert are those of the oracle's `transcript.rs` render (`render`, `render_hints`), read, not run.
+
+# Block `block-transcript`, child `clipboard-service`: the copy's destination and the HTML flavour
+
+Commits `5bcedad69` (dependencies: `pulldown-cmark` with `html`, `url`; both were already in `Cargo.lock`) and
+`bb35cf755`. `land-check` green on `bb35cf755` (`ALL fail=0`: lint-build, nextest, 39/41 scenarios, the two reds
+are on `known-red.txt`).
+
+## What was already there (found, not built)
+
+The clipboard service of the task text had landed under other names before this child started: core
+`Ask::Copy { text, format }` / `Done::Copy(Result<CopyStatus, String>)` (`core/src/app/effects.rs`), asked with
+`Intent::Effect { request, ask }` and read back with `CodexApp::effect(request)`; `services::clipboard`
+(routes in the oracle's order, the worker with the five second setup budget, `Busy`, the lease, tmux target,
+OSC 52 check, the WSL writer, X11 PRIMARY, `Machine` over arboard) in `src/services/clipboard.rs` and
+`clipboard/{machine,tmux,wsl}.rs`; the host answers in `services/effects.rs` (`Services::effect`), the OSC 52
+sequence goes to the owner of the terminal (`Ran.terminal`). The words of the result are
+`NoteKey::Copy { label, result }` (`threads/note.rs`, `pages/session/strings.rs`).
+
+## Added
+
+- `CopyDestination { Clipboard, Primary, ClipboardAndPrimary(Arc<str>) }` in core, and `Ask::Copy.destination`
+  (oracle `worker::CopyDestination`, used by `selection_clipboard.rs`: copy-on-select publishes PRIMARY). The three
+  existing callers pass `Clipboard`. A PRIMARY-only publication answers `Unconfirmed`, as the oracle's worker does.
+- The HTML flavour of a Markdown copy: `services/clipboard/html.rs` `render_markdown` (oracle `clipboard_html.rs`:
+  raw HTML escaped, images alt text only, a link that is not http(s) with a host stays as ` (destination)` text),
+  and `format_of` offers it for `CopyFormat::Markdown` (of the text) and `MarkdownSelection(source)` (of the
+  semantic source) to the native route. The four oracle tests are carried with their expected strings (the oracle's
+  two snapshots written out).
+- Tests: `html_is_offered_only_for_markdown`, `a_selection_publishes_primary_alone_or_with_the_clipboard`
+  (`services/effects.rs`), `clipboard/html.rs` 5 tests.
+
+## Departures and open rows
+
+- `html.rs` calls `pages::session::cells::markdown::lift_markdown_fences` (the oracle's `unwrap_markdown_fences`
+  of the transcript): services import a pages function. It is a pure string function; moving it to a neutral place
+  (core, or `services`) is a rename and two `use` lines, left to the cells owner.
+- The oracle's worker re-submits a PRIMARY publication that arrived while it was `Busy` once the worker is free
+  (`worker.rs:178-182`, `:357`), tied to the selection's owner `Arc`. Here `Busy` is answered and the asker asks
+  again; the selection's owner (select mode / mouse selection) holds that.
+- `Ask::ClipboardText` has no source: the oracle's middle-click reads PRIMARY (`PasteSource::Primary`,
+  `right_click_paste.rs`). The reader is `services/clipboard/read` (clipboard only); a `source` on the ask and the
+  PRIMARY reader (`primary::read`, arboard `GetExtLinux`) come with the right-click paste, which has no consumer yet.
+- No binary run: nothing in the app asks for a copy yet (`/copy` is `NotAvailable`,
+  `core/src/app/session.rs:278`; the transcript has no selection copy). The first consumer is the next child.

@@ -12,7 +12,7 @@
 use std::rc::Rc;
 
 use super::session_note;
-use crate::app::effects::{Ask, CopyFormat, Done, command};
+use crate::app::effects::{Ask, CopyDestination, CopyFormat, Done, command};
 use crate::app::{AppFx, CodexApp};
 use crate::ids::ThreadId;
 use crate::screens::dialogs::{Open, Prompt};
@@ -78,6 +78,7 @@ pub(in crate::app) fn run(app: &mut CodexApp, destination: Destination, fx: &mut
         Destination::Clipboard => Ask::Copy {
             text: markdown,
             format: CopyFormat::PlainText,
+            destination: CopyDestination::Clipboard,
         },
         Destination::File(path) => Ask::Export {
             cwd: directory(app, &thread),

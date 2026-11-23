@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 -I
+#!/usr/bin/env -S python3 -I
 """The mechanical half of moving a feature into a slice (ADR-012; the steps are
 docs/rtwk-port/refs/feature-slices.md). Run from anywhere; it works on codex-rs/tui-rtwk.
 
@@ -54,6 +54,7 @@ impl Feature for {marker} {{
     type Pick = Never<Self>;
     type Prompt = Never<Self>;
     type Note = Never<Self>;
+    type Fact = Never<Self>;
 
     fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {{
         command.absurd()

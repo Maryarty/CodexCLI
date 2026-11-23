@@ -32,11 +32,13 @@ use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
 
+mod html;
 mod machine;
 pub mod read;
 mod tmux;
 mod wsl;
 
+pub use html::render_markdown;
 pub use machine::Machine;
 pub use machine::environment;
 pub use machine::is_wsl_session;

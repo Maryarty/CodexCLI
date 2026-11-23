@@ -13,6 +13,7 @@ use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, watch};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::select::plugins as plugin_model;
@@ -137,6 +138,10 @@ impl State for MenuDialogState {
 
     fn build(&self, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let states = watch::<ScreenStates, _>(cx);
+        // A feature's menu reads its rows from the feature's state: watched, so a change of the
+        // state while the menu is open rebuilds its rows under the same picker (same depth
+        // key: cursor, tab and query stay).
+        let features = watch::<FeatureStates, _>(cx);
         let Some(head) = head(&states) else {
             return AnyWidget::default();
         };
@@ -154,7 +159,7 @@ impl State for MenuDialogState {
             Menu::Review(menu) => {
                 review::list(menu, head.cursor.as_deref(), review::strings::of(cx))
             }
-            menu => lists::of(menu, head.page.as_ref(), strings::of(cx)),
+            menu => lists::of(menu, head.page.as_ref(), &features, strings::of(cx)),
         };
         let Some(list) = list else {
             return AnyWidget::default();
