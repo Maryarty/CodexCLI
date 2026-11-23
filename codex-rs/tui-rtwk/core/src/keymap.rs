@@ -9,6 +9,7 @@
 
 pub mod actions;
 pub mod catalogue;
+pub mod fixed;
 mod key;
 mod resolve;
 mod spec;

@@ -21,9 +21,12 @@ use codex_tui_core::kit::history::{WalkDirection, SearchStatus};
 use super::ComposerMsg;
 use super::editing::KeyData;
 use super::strings;
-use crate::keymap::fixed::{Fixed, FixedKey};
 use crate::app::theme;
 use crate::keymap::pressed;
+use codex_tui_core::keymap::fixed::{
+    DEBUG_KEY, HISTORY_NEXT, HISTORY_PREVIOUS, SEARCH_ACCEPT, SEARCH_CANCEL, SEARCH_CLEAR,
+    SEARCH_ERASE,
+};
 
 /// Whether `key` opens the search (`is_history_search_key`): only the
 /// Composer context's `history_search_previous` does.
@@ -46,31 +49,29 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let store = &data.history;
     let mut asks = Vec::new();
     let plain = key.mods == Mods::NONE;
-    let ctrl = |ch: char| *key == KeyPress::char(ch).with_mods(Mods::CTRL);
     if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_PREVIOUS, key)
-        || (key.fixed() == Fixed::Up && plain)
+        || (pressed(&data.keymap, HISTORY_PREVIOUS, key) && plain)
     {
         draft.search_step(c, store, WalkDirection::Older, &mut asks);
     } else if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_NEXT, key)
-        || (key.fixed() == Fixed::Down && plain)
+        || (pressed(&data.keymap, HISTORY_NEXT, key) && plain)
     {
         draft.search_step(c, store, WalkDirection::Newer, &mut asks);
-    } else if key.fixed() == Fixed::Escape
-        || ctrl('c')
+    } else if pressed(&data.keymap, SEARCH_CANCEL, key)
         || (key.mods.is_empty() && key.text() == Some("\u{3}"))
     {
         draft.search_cancel(c);
-    } else if key.fixed() == Fixed::Enter && plain {
+    } else if pressed(&data.keymap, SEARCH_ACCEPT, key) && plain {
         draft.search_accept(c);
-    } else if key.fixed() == Fixed::Backspace || ctrl('h') {
+    } else if pressed(&data.keymap, SEARCH_ERASE, key) {
         draft.search_edit(c, store, &mut asks, |query| {
             query.pop();
         });
-    } else if ctrl('u') {
+    } else if pressed(&data.keymap, SEARCH_CLEAR, key) {
         draft.search_edit(c, store, &mut asks, String::clear);
     } else if let Some(text) = key.as_text() {
         draft.search_edit(c, store, &mut asks, |query| query.push_str(text));
-    } else if key.fixed() == Fixed::F12 {
+    } else if pressed(&data.keymap, DEBUG_KEY, key) {
         // the port's own hidden debug key is not the oracle's to swallow
         return false;
     }

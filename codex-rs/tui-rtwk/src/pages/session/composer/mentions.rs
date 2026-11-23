@@ -18,7 +18,11 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 use super::editing::KeyData;
 use super::vim;
 use super::{Composer, ComposerMsg, ComposerState};
-use crate::keymap::fixed::{Fixed, FixedKey};
+use crate::keymap::pressed;
+use codex_tui_core::keymap::fixed::{
+    DISMISS, POPUP_ACCEPT, POPUP_COMPLETE, POPUP_NEXT, POPUP_PREVIOUS, POPUP_TAB_NEXT,
+    POPUP_TAB_PREVIOUS,
+};
 use crate::app::view::Hs;
 
 /// Whether the popup takes `key`: Up and Down (Ctrl+P, Ctrl+N) move the
@@ -32,34 +36,33 @@ pub(super) fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress
         return false;
     }
     let plain = key.mods == Mods::NONE;
-    let ctrl = key.mods == Mods::CTRL;
     let unified = mentions.read(|session| matches!(session.active(), Active::At(_)));
-    match (key.fixed(), key.ch) {
-        (Fixed::Up, _) => mentions.step(false),
-        (Fixed::Char, Some('p')) if ctrl => mentions.step(false),
-        (Fixed::Down, _) => mentions.step(true),
-        (Fixed::Char, Some('n')) if ctrl => mentions.step(true),
-        (Fixed::Left | Fixed::Right, _) if plain => {
-            if !data.draft.can_switch_search_mode(c) {
-                return false;
-            }
-            mentions.switch_search_mode(key.fixed() == Fixed::Right);
+    let is = |id| pressed(&data.keymap, id, key);
+    if is(POPUP_PREVIOUS) {
+        mentions.step(false);
+    } else if is(POPUP_NEXT) {
+        mentions.step(true);
+    } else if (is(POPUP_TAB_PREVIOUS) || is(POPUP_TAB_NEXT)) && plain {
+        if !data.draft.can_switch_search_mode(c) {
+            return false;
         }
-        (Fixed::Escape, _) => data
-            .draft
-            .dismiss_mentions(c, &data.popovers.sources()),
-        (Fixed::Tab, _) => {
-            if let Some(at) = mentions.cursor() {
-                (data.tell)(ComposerMsg::MentionPick(at));
-            }
+        mentions.switch_search_mode(is(POPUP_TAB_NEXT));
+    } else if is(DISMISS) {
+        data.draft
+            .dismiss_mentions(c, &data.popovers.sources());
+    } else if is(POPUP_COMPLETE) {
+        if let Some(at) = mentions.cursor() {
+            (data.tell)(ComposerMsg::MentionPick(at));
         }
-        (Fixed::Enter, _) if plain => match mentions.cursor() {
+    } else if is(POPUP_ACCEPT) && plain {
+        match mentions.cursor() {
             Some(at) => (data.tell)(ComposerMsg::MentionPick(at)),
             // the unified popup closes and the Enter is a submit
             None if unified => return false,
             None => {}
-        },
-        _ => return false,
+        }
+    } else {
+        return false;
     }
     mentions.notify();
     true

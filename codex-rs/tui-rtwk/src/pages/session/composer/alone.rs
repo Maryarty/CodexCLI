@@ -14,7 +14,6 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_wi
 
 use codex_tui_core::threads::ThreadModel;
 
-use crate::keymap::fixed::{Fixed, FixedKey};
 use crate::app::theme;
 use crate::pages::session::footer::{Flash, Footer, Line, Timed};
 use crate::pages::session::popovers::mention;
@@ -118,8 +117,8 @@ impl State for AloneState {
             {
                 return KeyEventResult::Ignored;
             }
-            match (key.fixed(), key.text()) {
-                (Fixed::Char, Some("?")) => send(Msg::Shortcuts),
+            match key.text() {
+                Some("?") => send(Msg::Shortcuts),
                 _ => return KeyEventResult::Ignored,
             }
             KeyEventResult::Handled
