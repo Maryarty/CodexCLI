@@ -26,7 +26,7 @@ const FEEDBACK_LIFE: Duration = Duration::from_secs(5);
 /// longest of its three spellings that fits (`first_fitting_line`), the accent or red for a
 /// failure. Flutter's `SnackBar` with a duration: a timer of the state hides it, and a new
 /// answer (its `version`) starts it again. `fallback` is what the gap shows without it.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(super) struct CopyFeedback {
     pub feedback: Feedback,
     pub lead: bool,
@@ -67,7 +67,7 @@ impl StatefulWidget for CopyFeedback {
     }
 }
 
-impl_widget!(stateful CopyFeedback);
+impl_widget!(stateful eq CopyFeedback);
 
 impl State for CopyFeedbackState {
     type Widget = CopyFeedback;

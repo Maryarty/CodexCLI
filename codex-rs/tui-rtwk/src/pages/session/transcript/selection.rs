@@ -9,9 +9,8 @@
 //! The selection is drawn state: it lives in the area and its controller, which the thread's
 //! `ThreadUi` keeps so that the page's keys can read it too (`key`).
 
-use rtwk::focus::KeyPress;
-use rtwk::gestures::{Listener, PointerEvent, SelectionArea, SelectionAreaController};
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::focus::{KeyCombo, KeyPress};
+use rtwk::gestures::{Listener, PointerEvent, SelectionArea};
 use rtwk::provider::{read, watch};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -20,17 +19,17 @@ use codex_tui_core::app::facts::TuiSettings;
 
 use super::copy::{CopyJob, Shown};
 use crate::app::view::Hs;
-use crate::widgets::thread_ui::Follow;
+use crate::widgets::thread_ui::{Follow, TextSelection};
 
 /// The button a right click is in a `PointerEvent`.
 const RIGHT_BUTTON: u8 = 2;
 
-/// What the reader selects in: `child` (the transcript's list), served by `controller`; `follow`
+/// What the reader selects in: `child` (the transcript's list), served by `selection`; `follow`
 /// is the list's reader, whom a copy by Enter takes back to the last row.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(in crate::pages::session) struct SelectionHost {
     pub child: AnyWidget,
-    pub controller: SelectionAreaController,
+    pub selection: TextSelection,
     pub follow: Follow,
 }
 
@@ -46,24 +45,25 @@ pub(in crate::pages::session) enum Key {
     Clear,
 }
 
+/// The chords of a selection (oracle `handle_selection_key`, `text_selection::is_copy_key`): Kitty
+/// reports Cmd+C as Super+C, and Windows Terminal forwards Ctrl+Insert for its copy action.
+const CHORDS: [(&str, Key); 6] = [
+    ("ctrl+c", Key::Copy),
+    ("super+c", Key::Copy),
+    ("ctrl+shift+c", Key::Copy),
+    ("ctrl+insert", Key::Copy),
+    ("enter", Key::CopyAndFollow),
+    ("esc", Key::Clear),
+];
+
 /// The selection's meaning of `key`, if it has one.
 pub(in crate::pages::session) fn key(key: &KeyPress) -> Option<Key> {
-    let letter = |c: &str| {
-        key.code == KeyCode::Char && key.text().is_some_and(|t| t.eq_ignore_ascii_case(c))
-    };
-    if (letter("c")
-        && (key.mods == Mods::CTRL
-            || key.mods == Mods::SUPER
-            || key.mods == (Mods::CTRL | Mods::SHIFT)))
-        || (key.code == KeyCode::Insert && key.mods == Mods::CTRL)
-    {
-        return Some(Key::Copy);
-    }
-    match key.code {
-        KeyCode::Enter if key.mods.is_empty() => Some(Key::CopyAndFollow),
-        KeyCode::Escape => Some(Key::Clear),
-        _ => None,
-    }
+    CHORDS.iter().find_map(|(spec, step)| {
+        KeyCombo::parse(spec)
+            .ok()
+            .filter(|combo| combo.accepts_press(key))
+            .map(|_| *step)
+    })
 }
 
 pub(in crate::pages::session) enum Msg {
@@ -89,7 +89,7 @@ impl StatefulWidget for SelectionHost {
     }
 }
 
-impl_widget!(stateful SelectionHost);
+impl_widget!(stateful eq SelectionHost);
 
 impl State for HostState {
     type Widget = SelectionHost;
@@ -110,9 +110,9 @@ impl State for HostState {
         }
         // the answer a copy was waiting for: its selection goes, and only that one
         if let Some(text) = &feedback.clear_after
-            && w.controller.text() == *text
+            && w.selection.controller().text() == *text
         {
-            w.controller.clear();
+            w.selection.controller().clear();
         }
         if feedback.follow {
             w.follow.jump_to_latest();
@@ -122,7 +122,9 @@ impl State for HostState {
     fn update(&mut self, msg: Msg, w: &SelectionHost, cx: &mut Cx<'_, Self>) -> Rebuild {
         let (text, explicit) = match msg {
             Msg::Copied(text) => (text, false),
-            Msg::Press(press) if press.button == RIGHT_BUTTON => (w.controller.text(), true),
+            Msg::Press(press) if press.button == RIGHT_BUTTON => {
+                (w.selection.controller().text(), true)
+            }
             Msg::Press(_) => return Rebuild::No,
         };
         if text.is_empty() {
@@ -137,7 +139,7 @@ impl State for HostState {
     fn build(&self, w: &SelectionHost, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let settings = watch::<TuiSettings, _>(cx);
         let area = SelectionArea::new(w.child.clone())
-            .controller(w.controller.clone())
+            .controller(w.selection.controller())
             .copy_on_release(settings.copy_on_select)
             .on_copy(cx.map(Msg::Copied));
         Listener::new()

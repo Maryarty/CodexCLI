@@ -446,7 +446,7 @@ impl State for ViewportState {
             .into();
         SelectionHost {
             child: list,
-            controller: widget.selection.controller(),
+            selection: widget.selection.clone(),
             follow: widget.follow.clone(),
         }
         .into()
