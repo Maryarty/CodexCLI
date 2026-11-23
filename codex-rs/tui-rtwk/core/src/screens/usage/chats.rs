@@ -344,6 +344,8 @@ pub enum Title {
 pub struct Pos {
     pub cursor: usize,
     pub detail: Option<usize>,
+    /// `a`: the details list the groups that cost nothing as well.
+    pub zero_groups: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -661,7 +663,7 @@ impl Model {
             if pos.detail == Some(index)
                 && let Some(estimate) = &row.estimate
             {
-                self.chat_details(row, estimate, &mut lines);
+                self.chat_details(row, estimate, pos.zero_groups, &mut lines);
             }
         }
         lines.push(ChatLine::Blank);
@@ -702,7 +704,13 @@ impl Model {
         lines
     }
 
-    fn chat_details(&self, row: &ChatRow, estimate: &Estimate, lines: &mut Vec<ChatLine>) {
+    fn chat_details(
+        &self,
+        row: &ChatRow,
+        estimate: &Estimate,
+        zero_groups: bool,
+        lines: &mut Vec<ChatLine>,
+    ) {
         lines.push(ChatLine::Rule);
         lines.push(ChatLine::LongTitle(row.title()));
         let zeros = estimate
@@ -713,7 +721,7 @@ impl Model {
         let mut groups = estimate
             .groups
             .iter()
-            .filter(|group| self.show_zero_credit_groups || group.credits_micros != 0)
+            .filter(|group| zero_groups || group.credits_micros != 0)
             .collect::<Vec<_>>();
         groups.sort_by_key(|group| std::cmp::Reverse(group.credits_micros));
         if !groups.is_empty() {
@@ -733,7 +741,7 @@ impl Model {
         if zeros > 0 {
             lines.push(ChatLine::Zeros {
                 count: zeros,
-                shown: self.show_zero_credit_groups,
+                shown: zero_groups,
             });
         }
         lines.push(ChatLine::Blank);

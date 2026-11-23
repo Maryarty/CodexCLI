@@ -465,8 +465,8 @@ fn a_refresh_starts_a_session_and_a_close_drops_every_load() {
             .all(|load| *load == Load::Unavailable)
     );
     assert!(model.profile == Load::Unavailable);
-    step(&mut model, Intent::Close);
-    assert!(!model.open);
+    step(&mut model, Intent::Leave);
+    assert!(!model.live);
     assert!(model.account == Load::Unavailable);
     // An answer arriving after the close finds no load to settle.
     settle(
@@ -530,13 +530,11 @@ fn the_date_range_of_a_section_ends_on_the_session_day() {
 }
 
 #[test]
-fn zero_credit_groups_and_task_metric_toggle_in_the_model() {
+fn the_task_metric_cycles_in_the_model() {
     use codex_tui_core::screens::usage::chats::{
         Amounts, Decimal, Metric, Status, Task, TaskList, TaskRow,
     };
     let (mut model, _) = opened(PlanType::Plus);
-    step(&mut model, Intent::ZeroCreditGroups);
-    assert!(model.show_zero_credit_groups);
     // The metrics offered are the ones some row reports: the balance, then
     // the percentages the rows have.
     model.section = Section::Chats;
