@@ -20,6 +20,11 @@ coming, so a task opened from the center keeps its own thread.
 Tests: agents_focus 2 (red -> green), resume_focus 3; pages+screens+shell agents/start/navigation/resume/startup:
 215 passed; rules 78, clippy clean. Outside the original area: `tests/pages.rs` (one `mod agents_focus;` line).
 
+Binary: a throwaway copy of `check.py` (`--capture-resume`, mock `text-100`; the oracle saves the session, then
+`codex-rtwk agents` lists it, Enter opens it, the answer shows, then it types `zq` and requires it on the screen):
+green ("rtwk restored the saved turn"); the typed-keys check is the one that was red for `resume` before its fix.
+land-check: all fail=0, scenarios 39/41 (known reds error-context-window, multi-agent).
+
 Rows that differ from the oracle: none seen; the center's route is opaque, so the chat not being built under it shows
 nowhere.
 
