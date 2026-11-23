@@ -8,6 +8,7 @@
 
 use std::rc::Rc;
 
+use crate::widgets::measure::Measure;
 use rtwk::controls::SelectionController;
 use rtwk::focus::{Focus, KeyBindings};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
@@ -20,7 +21,7 @@ use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
 use rtwk::scroll::ListController;
 use rtwk::style::{Attrs, Span, Style, Theme};
-use rtwk::text::{Text, TextOverflow, TextWrap};
+use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::resume::{Intent as ResumeIntent, Load, Model, Row as Saved};
@@ -175,7 +176,8 @@ fn screen(
     controls: Controls,
 ) -> AnyWidget {
     let look = cx_look.clone();
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
         let width = usize::try_from(constraints.max_width).unwrap_or(0);
         let height = u16::try_from(constraints.max_height).unwrap_or(0);
         let areas = layout::areas(height);
@@ -184,7 +186,7 @@ fn screen(
         let chrome = |line: AnyWidget| -> AnyWidget {
             Padding::new(EdgeInsets::only(1, 0, 1, 0), line).into()
         };
-        let toolbar: Vec<Span> = chrome::toolbar(strings, width.saturating_sub(2))
+        let toolbar: Vec<Span> = chrome::toolbar(seg, strings, width.saturating_sub(2))
             .into_iter()
             .map(|(text, active)| {
                 Span::styled(
@@ -233,6 +235,7 @@ fn screen(
                 screens.clone(),
                 controls.selection.clone(),
                 controls.scroll.clone(),
+                seg,
                 width,
             ))
             .into()
@@ -247,6 +250,7 @@ fn footer(
     screens: Rc<ScreenStates>,
     selection: SelectionController<usize>,
     scroll: Rc<ValueNotifier<Scrolled>>,
+    seg: Measure,
     width: usize,
 ) -> AnyWidget {
     let look = look.clone();
@@ -273,7 +277,7 @@ fn footer(
                 } else {
                     ((at.pixels as f64 / at.max as f64) * 100.0).round() as u8
                 };
-                let label = chrome::progress_label(position, &total, percent, width);
+                let label = chrome::progress_label(seg, position, &total, percent, width);
                 Row::new()
                     .child(Expanded::new(
                         1,
