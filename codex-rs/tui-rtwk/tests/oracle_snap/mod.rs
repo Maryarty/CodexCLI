@@ -267,6 +267,19 @@ fn header(
     {
         return Some((line.to_string(), None));
     }
+    // `provider_error_local_80`: the test's own name for a render, a snake_case
+    // word of two parts or more with no colon, first in the snapshot or under a
+    // blank row, over the rows of that render.
+    if line.starts_with(|c: char| c.is_ascii_lowercase())
+        && line.contains('_')
+        && line
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && prev.is_none_or(|p| p.trim().is_empty())
+        && next.is_some()
+    {
+        return Some((line.to_string(), None));
+    }
     if next.is_some_and(|n| n.trim_end() == "Buffer {")
         && !line.starts_with(' ')
         && line != "Buffer {"

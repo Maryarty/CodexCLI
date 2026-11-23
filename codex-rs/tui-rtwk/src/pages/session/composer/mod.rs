@@ -27,6 +27,7 @@ use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
 use codex_tui_core::app::{ConnectionState, SessionSlice};
+use codex_tui_core::screens::composer;
 use codex_tui_core::screens::composer::history::Lookup;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::screens::composer::restricted::Restricted;
@@ -49,6 +50,7 @@ pub mod burst;
 pub mod editing;
 pub mod footer;
 pub mod mentions;
+pub mod plain;
 pub mod search;
 pub mod strings;
 pub mod suggest;
@@ -70,6 +72,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
                 Composer::bare(ui).into()
             }),
+        },
+        DebugEntry {
+            name: "plain",
+            description: "the plain-text composer of question sheets, with its footer",
+            script: include_str!("fixtures/plain.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| plain::Embedded { ui: plain::ui() }.into()),
         },
         DebugEntry {
             name: "alone",
@@ -129,6 +137,12 @@ pub struct Composer {
     on_queue: Option<Handler<()>>,
     /// The text area alone: no prompt, no placeholder, no suggestions.
     bare: bool,
+    /// The plain-text composer (`ChatComposerConfig::plain_text`) of the
+    /// answers inside question sheets: no popups, no shell mode, no images,
+    /// no queue; see `plain`.
+    plain: Option<plain::Look>,
+    /// An over-long submit of a plain-text composer (the text is kept).
+    on_too_long: Option<Handler<usize>>,
     /// Shell mode as the page built this widget: the page resets it when
     /// the composer clears, and the prompt follows.
     shell: bool,
@@ -147,6 +161,8 @@ impl PartialEq for Composer {
             && self.on_picked == other.on_picked
             && self.on_queue == other.on_queue
             && self.bare == other.bare
+            && self.plain == other.plain
+            && self.on_too_long == other.on_too_long
             && self.shell == other.shell
             && self.restricted == other.restricted
     }
@@ -164,6 +180,8 @@ impl Composer {
             on_picked: None,
             on_queue: None,
             bare: false,
+            plain: None,
+            on_too_long: None,
             restricted: None,
         }
     }
@@ -179,6 +197,8 @@ impl Composer {
             on_picked: None,
             on_queue: None,
             bare: true,
+            plain: None,
+            on_too_long: None,
             restricted: None,
         }
     }
@@ -374,7 +394,11 @@ impl ComposerState {
         model: Option<&str>,
     ) -> bool {
         let (draft, c) = (&w.ui.draft, &w.ui.composer);
-        if w.bare || draft.shell() || draft.mentions_claim_caret(c, &states.popovers.sources()) {
+        if w.bare
+            || w.plain.is_some()
+            || draft.shell()
+            || draft.mentions_claim_caret(c, &states.popovers.sources())
+        {
             return self.suggest.refresh(c, |_| Vec::new());
         }
         self.suggest.refresh(&w.ui.composer, |before| {
@@ -388,7 +412,7 @@ impl ComposerState {
     /// connection of the thread's backend (`reconnect.offline`: reconnecting
     /// or given up). The bare text area is never.
     fn mode(&self, w: &Composer, cx: &mut Cx<'_, Self>) -> Option<Restricted> {
-        if w.bare {
+        if w.bare || w.plain.is_some() {
             return None;
         }
         if w.restricted.is_some() {
@@ -524,9 +548,19 @@ impl State for ComposerState {
                 }
             }
             ComposerMsg::Submitted(_) => {
+                let text = submission(&w.ui);
+                // a plain-text composer refuses an over-long message whole
+                // and keeps the draft (`prepare_submission_text`)
+                if let Some(h) = &w.on_too_long
+                    && w.plain.is_some()
+                    && let Some(chars) = composer::too_large(&text)
+                {
+                    cx.emit(h, chars);
+                    return rtwk::Rebuild::No;
+                }
                 // the draft clears when the thread takes it (`clear_sent`)
                 if let Some(h) = &w.on_submitted {
-                    cx.emit(h, submission(&w.ui));
+                    cx.emit(h, text);
                 }
             }
             ComposerMsg::Shell => {
@@ -702,7 +736,7 @@ impl State for ComposerState {
             .controller(c.clone())
             .cursor_shape(CursorShape::TerminalDefault)
             .min_lines(1)
-            .autofocus(true)
+            .autofocus(w.plain.as_ref().is_none_or(|look| look.autofocus))
             // the oracle draws the selection REVERSED (`textarea.rs`)
             .selection_style(Style::new().attrs(Attrs::REVERSE))
             .on_changed(cx.map(ComposerMsg::Changed));
@@ -745,9 +779,14 @@ impl State for ComposerState {
         };
         let env = data.burst.clone();
         let searching = data.clone();
+        // a plain-text composer's owner reads its keys first
+        let owner = w.plain.as_ref().and_then(|look| look.keys.clone());
         let keys = |child: AnyWidget| -> AnyWidget {
             EditingKeys::new(
-                move |c, key, kcx| editing::take_key(&data, c, key, kcx),
+                move |c, key, kcx| {
+                    owner.as_ref().is_some_and(|take| take(c, key, kcx))
+                        || editing::take_key(&data, c, key, kcx)
+                },
                 child,
             )
             .controller(c.clone())
@@ -800,7 +839,21 @@ impl State for ComposerState {
             .max_lines(6);
         // shell mode shows its `!` and no placeholder
         if !w.ui.draft.shell() {
-            area = area.placeholder(strings.chat.placeholder);
+            area = area.placeholder(
+                w.plain
+                    .as_ref()
+                    .and_then(|look| look.placeholder)
+                    .unwrap_or(strings.chat.placeholder),
+            );
+        }
+        // the plain-text composer: the prompt and the field, nothing around
+        if let Some(look) = &w.plain {
+            return plain::row(
+                look,
+                &tokens,
+                chat_strings::of(cx).prompt,
+                keys(area.into()),
+            );
         }
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
