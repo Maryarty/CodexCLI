@@ -2527,8 +2527,9 @@ fn an_answered_resume_asks_for_the_history() {
     let mut app = listed_app(vec![task.clone()]);
     let ticket = resume_ticket(&accept_task(&mut app, &target), &target);
     let effects = resumed(&mut app, ticket, Ok(Reply::Resumed(Box::new(task))));
-    // the thread's goal is read after a resume (`/goal`: a stopped goal asks to resume), the
-    // history is asked for besides
+    // the thread's goal is read after a resume (`/goal`: a stopped goal asks to resume), and
+    // the lists the `@` and `$` popups show (skills, plugins) are asked for; the history is
+    // asked for besides
     let asked: Vec<_> = effects
         .commands()
         .iter()
@@ -2537,6 +2538,9 @@ fn an_answered_resume_asks_for_the_history() {
                 command,
                 AppCommand::Feature {
                     command: codex_tui_core::features::FeatureCommand::Goal(_),
+                    ..
+                } | AppCommand::Screen {
+                    command: ScreenCommand::Popovers(_),
                     ..
                 }
             )

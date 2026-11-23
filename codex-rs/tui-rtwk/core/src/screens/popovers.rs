@@ -5,7 +5,9 @@
 //! grows.
 
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::PluginInstalledParams;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::SkillsListParams;
 
 use crate::app::AppFx;
 use crate::ids::ThreadId;
@@ -17,8 +19,10 @@ use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchRes
 use crate::screens::composer::mentions::candidate::Capability;
 use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
 use crate::screens::composer::mentions::session::Sources;
+use crate::screens::composer::mentions::sources;
 use crate::screens::composer::mentions::task::TaskMention;
 use crate::screens::composer::mentions::usage::MentionUsage;
+use crate::screens::select::apps::App;
 pub use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
 use crate::threads::ThreadFx;
 
@@ -34,6 +38,9 @@ pub const KIND: Kind = Kind::Part;
 pub struct Model {
     /// Skills, apps and plugins (`$`, `@`).
     pub mentions: Vec<Mention>,
+    /// What the server's lists were when they last made `mentions` (`Ev::Catalog`): a seed
+    /// stays until the lists change.
+    pub listed: Listed,
     /// The tasks the last task search found (`@`).
     pub tasks: Vec<TaskMention>,
     /// What the file search last answered: the query and its matches.
@@ -48,6 +55,24 @@ pub struct Model {
     /// What the host is asked to do with the history file, drained by
     /// [`Model::take_asks`] after each `apply`.
     asks: Vec<Ask>,
+}
+
+/// What the catalog of the popups was made of: the thread whose lists they are, its skills and
+/// plugins, and the apps of the directory (`app/mentions.rs`). The app compares it with the lists
+/// it holds, event by event, and builds the catalog only when they differ.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Listed {
+    pub thread: Option<ThreadId>,
+    pub skills: Option<Vec<Mention>>,
+    pub plugins: Option<Vec<Mention>>,
+    pub apps: Option<Vec<App>>,
+}
+
+impl Listed {
+    /// The server listed nothing yet.
+    pub fn is_empty(&self) -> bool {
+        self.skills.is_none() && self.plugins.is_none() && self.apps.is_none()
+    }
 }
 
 /// What the composer needs of the host: the history file (`codex-message-history`),
@@ -226,6 +251,12 @@ impl HistorySearch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
     Mentions(Vec<Mention>),
+    /// What the server's lists make of the mentions now (skills, plugins, apps) from `listed`:
+    /// replaces `mentions` (`app/mentions.rs`).
+    Catalog {
+        listed: Listed,
+        mentions: Vec<Mention>,
+    },
     /// The tasks a task search found.
     Tasks(Vec<TaskMention>),
     /// The file search answered `query`.
@@ -279,6 +310,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Mentions(mentions) => model.mentions = mentions,
+        Ev::Catalog { listed, mentions } => {
+            model.listed = listed;
+            model.mentions = mentions;
+        }
         Ev::Tasks(tasks) => model.tasks = tasks,
         Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
         Ev::MentionUsage(recent) => model.usage = MentionUsage::from_recent(recent),
@@ -329,52 +364,115 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
-/// only by `apply_thread` and `apply_reply`.
+/// only by `apply_thread` and `apply_reply`. What the server lists to mention for this thread's
+/// directory: the skills and the installed plugins, asked once when the thread is in use
+/// (the oracle's startup `skills/list` and `plugin/installed`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ThreadPart {}
+pub struct ThreadPart {
+    /// The lists were asked for (once per thread).
+    pub asked: bool,
+    /// `skills/list`'s enabled skills of the thread's directory, once answered.
+    pub skills: Option<Vec<Mention>>,
+    /// `plugin/installed`'s eligible plugins, once answered.
+    pub plugins: Option<Vec<Mention>>,
+}
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadEv {}
+pub enum ThreadEv {
+    /// The thread is in use, in `cwd`: its lists are asked for, once.
+    Load { cwd: String },
+}
 
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    /// `skills/list` of the directory, re-scanned from disk.
+    Skills { cwd: String },
+    /// `plugin/installed` for the directory.
+    Plugins { cwd: String },
+}
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    /// The enabled skills of the asked directory, as mentions.
+    Skills(Vec<Mention>),
+    /// The installed plugins, as mentions.
+    Plugins(Vec<Mention>),
+}
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
-
-pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    let _ = (part, fx);
-    match ev {}
+pub enum Ctx {
+    Skills,
+    Plugins,
 }
 
+pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
+    match ev {
+        ThreadEv::Load { cwd } => {
+            if std::mem::replace(&mut part.asked, true) {
+                return;
+            }
+            fx.request(Ctx::Skills, Command::Skills { cwd: cwd.clone() });
+            fx.request(Ctx::Plugins, Command::Plugins { cwd });
+        }
+    }
+}
+
+/// An answer of the server: its list, or nothing when it failed (the popups then list what they
+/// had; the oracle logs the failure and shows no warning of its own).
 pub fn apply_reply(
     part: &mut ThreadPart,
     ctx: Ctx,
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    let _ = fx;
+    match (ctx, result) {
+        (Ctx::Skills, Ok(Reply::Skills(skills))) => part.skills = Some(skills),
+        (Ctx::Plugins, Ok(Reply::Plugins(plugins))) => part.plugins = Some(plugins),
+        _ => {}
+    }
 }
 
 /// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    let _ = thread;
+    match command {
+        Command::Skills { cwd } => ClientRequest::SkillsList {
+            request_id: id,
+            params: SkillsListParams {
+                cwds: vec![cwd.into()],
+                force_reload: true,
+            },
+        },
+        Command::Plugins { cwd } => ClientRequest::PluginInstalled {
+            request_id: id,
+            // A directory that is not absolute names no repository marketplace.
+            params: serde_json::from_value(serde_json::json!({ "cwds": [cwd] })).unwrap_or(
+                PluginInstalledParams {
+                    cwds: None,
+                    install_suggestion_plugin_names: None,
+                },
+            ),
+        },
+    }
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
+    match command {
+        Command::Skills { cwd } => serde_json::from_value(result)
+            .map(|response| Reply::Skills(sources::skills(response, Some(cwd))))
+            .map_err(malformed),
+        Command::Plugins { .. } => serde_json::from_value(result)
+            .map(|response| Reply::Plugins(sources::plugins(response)))
+            .map_err(malformed),
+    }
 }
 
 /// The seed form of this screen's events:

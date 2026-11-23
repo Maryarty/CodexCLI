@@ -9,6 +9,7 @@
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
+mod mentions;
 mod notices;
 mod select;
 mod session;
@@ -966,6 +967,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     apply_event(app, origin, ev, fx);
+    mentions::sync(app, fx);
     drain_popover_asks(app, fx);
     if lists && !app.outgoing.any(is_attach) {
         app.attaching_events.clear();

@@ -337,7 +337,9 @@ pub struct Mention {
 }
 
 impl Prompt {
-    fn from_inputs(content: &[UserInput]) -> Self {
+    /// The prompt of a stored user message: the revert and the replay's seed of the composer's
+    /// history read it the same way.
+    pub(crate) fn from_inputs(content: &[UserInput]) -> Self {
         let mut prompt = Self::default();
         for input in content {
             match input {

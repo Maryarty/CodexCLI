@@ -13,6 +13,7 @@ pub mod popup;
 pub mod rebind;
 pub mod search_mode;
 pub mod session;
+pub mod sources;
 pub mod target;
 pub mod task;
 pub mod usage;

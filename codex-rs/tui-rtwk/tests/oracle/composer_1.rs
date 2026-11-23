@@ -9,7 +9,7 @@ use crate::kit::{self, Owner, Screen};
 const NO_PARENT: &str = "no seed for a parent-owned thread: the chat screen has no sub-agent view, so the composer never draws its `Viewing sub-agent — direct input is disabled` placeholder";
 const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed sets the esc backtrack hint, the quit shortcut hint, queue submissions, the status line or the shortcut overlay, and the footer draws none of them";
 const NO_VIM: &str = "vim mode is not built: no seed or key turns the composer's vim draft on, so the `Vim: Insert` / `Vim: Normal` / `Vim: Replace` footer label is not drawn";
-const NO_FILES: &str = "the oracle draws these with `Feature::MentionsV2` off, where `@` opens the legacy file popup (a bare `loading...` list under the draft); the port is the default mode (V2 on: the unified popup with its header and tabs) and carries no flag for the legacy popup";
+const NO_FILES: &str = "the oracle draws these with `Feature::MentionsV2` off, where `@` opens the legacy file popup (a bare `loading...` list under the draft); the port is the default mode (V2 on: the unified popup with its header and tabs) and does not carry the legacy popup (decided: MentionsV2 off is not ported)";
 
 /// The composer alone with its footer at `width` by `height`: the oracle's
 /// composer harness (`snapshot_composer_state_with_width`).
@@ -649,29 +649,19 @@ fn unified_completion_replaces_only_middle_adjacent_target() {
 // ORACLE bottom_pane/chat_composer.rs:7312 file_popup_ignores_shell_positional_parameter_snapshot kind=snap owner=chat-live snap=file_popup_ignores_shell_positional_parameter
 #[test]
 fn file_popup_ignores_shell_positional_parameter_snapshot() {
-    kit::pending(Owner::ChatLive, NO_FILES);
-    // `@src  $1_suffix` with the cursor after `@src `: the file popup stays open.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    type_then_back(&mut s, "@src  $1_suffix", 10);
-    s.assert_snap("file_popup_ignores_shell_positional_parameter");
+    kit::na(Owner::ChatLive, NO_FILES);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7328 file_popup_ignores_bare_shell_parameter_with_matching_skill_snapshot kind=snap owner=chat-live snap=file_popup_ignores_bare_shell_parameter_with_matching_skill
 #[test]
 fn file_popup_ignores_bare_shell_parameter_with_matching_skill_snapshot() {
-    kit::pending(Owner::ChatLive, NO_FILES);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    type_then_back(&mut s, "@src  $_", 3);
-    s.assert_snap("file_popup_ignores_bare_shell_parameter_with_matching_skill");
+    kit::na(Owner::ChatLive, NO_FILES);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7377 file_popup_ignores_unbindable_qualified_skill_snapshot kind=snap owner=chat-live snap=file_popup_ignores_unbindable_qualified_skill
 #[test]
 fn file_popup_ignores_unbindable_qualified_skill_snapshot() {
-    kit::pending(Owner::ChatLive, NO_FILES);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    type_then_back(&mut s, "@src  $1plugin:d", 11);
-    s.assert_snap("file_popup_ignores_unbindable_qualified_skill");
+    kit::na(Owner::ChatLive, NO_FILES);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7393 skill_popup_preserves_normal_target_after_ambiguous_probe_snapshot kind=snap owner=chat-live snap=skill_popup_preserves_normal_target_after_ambiguous_probe
@@ -710,15 +700,8 @@ fn skill_popup_closes_between_spaces_before_plain_text_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7783 plugin_mention_popup_snapshot kind=snap owner=chat-live snap=plugin_mention_popup
 #[test]
 fn plugin_mention_popup_snapshot() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle draws this with `Feature::MentionsV2` off, where the `$` list holds plugins; the port is the default mode (V2 on: `$` lists skills and apps, plugins under `@`) and carries no flag for the legacy lists",
+        "the oracle draws this with `Feature::MentionsV2` off, where the `$` list holds plugins; the port is the default mode (V2 on: `$` lists skills and apps, plugins under `@`) and does not carry the legacy lists (decided: MentionsV2 off is not ported)",
     );
-    // The oracle types `$sa` with the `Sample Plugin` mention set (plugin skills and an MCP server).
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(100, 9)
-        .entry("popovers", "alone_plugin_sample")
-        .open();
-    s.type_text("$sa");
-    s.assert_snap("plugin_mention_popup");
 }

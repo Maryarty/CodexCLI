@@ -589,10 +589,6 @@ fn remapped_queue_does_not_fall_back_to_tab() {
 // ORACLE bottom_pane/chat_composer.rs:9889 remapped_history_search_does_not_fall_back_to_ctrl_r kind=ui owner=chat-live
 #[test]
 fn remapped_history_search_does_not_fall_back_to_ctrl_r() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed: the port reads no composer.history_search_previous binding (keymap(..) is missing), so the remapped F2 search cannot be set",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .live()
