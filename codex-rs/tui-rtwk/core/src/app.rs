@@ -6,10 +6,10 @@
 //! effects as data (`AppFx`); the shell runs them (R1). Nothing here touches
 //! the network, the clock or the file system (R12).
 
+mod banners;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
-mod banners;
 mod notices;
 mod select;
 mod session;
@@ -903,7 +903,39 @@ impl CodexApp {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         self.drop_requests_of(backend);
+        self.fail_in_flight(backend);
         epoch
+    }
+
+    /// The app-scoped requests the replaced connection of `backend` still owed an answer for: its
+    /// answer carries the old epoch and never comes, so each is failed here (`Failed`, "connection
+    /// lost") and its operation leaves `Loading` (the one-resume-in-flight rule of `OpenThread`
+    /// would wait for it forever). What the failures would ask next is not sent: the commands of a
+    /// lost connection are not run, and the tickets they minted are spent with them.
+    fn fail_in_flight(&mut self, backend: BackendId) {
+        let lost: Vec<Ticket> = self
+            .outgoing
+            .tickets()
+            .filter(|ticket| {
+                self.outgoing
+                    .get(*ticket)
+                    .is_some_and(|ctx| sent_to(self, ctx) == backend)
+            })
+            .collect();
+        let before: Vec<Ticket> = self.outgoing.tickets().collect();
+        let mut fx = AppFx::default();
+        for ticket in lost {
+            apply_reply(self, ticket, Reply::failed(CONNECTION_LOST), &mut fx);
+        }
+        let asked: Vec<Ticket> = self
+            .outgoing
+            .tickets()
+            .filter(|ticket| !before.contains(ticket))
+            .collect();
+        for ticket in asked {
+            self.outgoing
+                .resolve(ticket, Reply::failed(CONNECTION_LOST));
+        }
     }
 
     fn request_epoch(&self, backend: BackendId) -> ConnEpoch {
@@ -2622,6 +2654,31 @@ fn detach_threads(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
         .collect();
     for id in held {
         apply_thread(app, &id, ThreadEv::ConnectionLost, fx);
+    }
+}
+
+/// What a request that lost its connection fails with: the client's own words for a closed
+/// channel (the ticket's answer is a failure like any the server gives).
+const CONNECTION_LOST: &str = "the connection to the app server was closed";
+
+/// The backend an in-flight request was sent to: the one its context names, else the displayed
+/// one (what a command without a backend goes to).
+fn sent_to(app: &CodexApp, ctx: &AppCtx) -> BackendId {
+    match ctx {
+        AppCtx::StartThread { switch } => switch.unwrap_or_default(),
+        AppCtx::RateLimits { backend }
+        | AppCtx::Nudge { backend, .. }
+        | AppCtx::NewConversation { backend, .. }
+        | AppCtx::OpenThread { backend, .. }
+        | AppCtx::Worktree { backend, .. }
+        | AppCtx::Select(
+            crate::screens::select::Ctx::Fallback { backend }
+            | crate::screens::select::Ctx::Switch { backend, .. },
+        ) => *backend,
+        AppCtx::Removal { thread, .. } | AppCtx::OpenSession { thread, .. } => {
+            app.screens.agents.owner_of(thread.as_str())
+        }
+        _ => active_backend(app),
     }
 }
 

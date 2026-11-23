@@ -430,12 +430,11 @@ fn reconnect_reattaches_the_active_thread_and_ignores_the_lost_rpc() {
 }
 
 /// ADR-013 full §5.3 (b), F6: a new connection (`attach`) fails every app-scoped request still in
-/// flight of the backend it replaces (`Failed(Disconnected)`). The answer of the old connection
+/// flight of the backend it replaces (`CodexApp::attach_backend`). The answer of the old connection
 /// carries the old epoch and never comes, so a request left in `outgoing` would keep its operation
 /// `Loading` for good, and the one-resume-in-flight rule of `OpenThread` would wait for it
 /// forever.
 #[test]
-#[ignore = "pending(F6): CodexApp::attach_backend (core/src/app.rs) drops the queued requests but leaves `outgoing` as it is; the fix resolves each in-flight request Failed(Disconnected) (full §5.3 b). The file was held by another task when this test was written"]
 fn adr003_reconnect_fails_inflight_ops() {
     let mut app = app_with_a_and_b();
     // opening B asks the server to resume it: a request in flight
