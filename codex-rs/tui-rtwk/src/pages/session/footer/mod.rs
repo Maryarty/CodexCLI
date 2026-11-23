@@ -17,6 +17,8 @@ mod effort_frames;
 pub use effort::{Aura, Prompt};
 pub mod entries;
 pub mod hints;
+mod sparkle;
+pub use sparkle::Sparkle;
 mod status_rows;
 pub use status_rows::StatusRows;
 mod strings;

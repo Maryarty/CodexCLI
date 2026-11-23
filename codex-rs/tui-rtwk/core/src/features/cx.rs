@@ -7,6 +7,7 @@
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
 };
+use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
 use crate::ids::{ThreadId, Ticket};
 use crate::screens::ScreenStates;
@@ -130,6 +131,9 @@ pub enum Out {
         command: FeatureCommand,
         ctx: FeatureCtx,
     },
+    /// An ask of the host (write a file, suggest a title, copy): its answer comes back to
+    /// `Feature::effect_done` with `ctx`.
+    Effect { ask: Ask, ctx: FeatureCtx },
     /// A menu of the generic selection dialog, replacing the stack.
     Menu(FeatureMenu),
     /// A text prompt, prefilled with `initial`.
@@ -182,6 +186,15 @@ impl<'a> AppCx<'a> {
         self.out.push(Out::Ask {
             thread: thread.cloned().unwrap_or_default(),
             command: command.into(),
+            ctx: ctx.into(),
+        });
+    }
+
+    /// Asks the host for `ask`, one of its capabilities (`effects::Ask`: write a file, suggest a
+    /// title, copy); the answer comes back to the feature's `effect_done` with `ctx`.
+    pub fn effect(&mut self, ask: Ask, ctx: impl Into<FeatureCtx>) {
+        self.out.push(Out::Effect {
+            ask,
             ctx: ctx.into(),
         });
     }

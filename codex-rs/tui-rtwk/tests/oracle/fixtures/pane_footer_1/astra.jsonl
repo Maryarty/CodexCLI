@@ -1,0 +1,4 @@
+# A fresh thread on an Astra model (`gpt-6-astra`), animations and the starfield effect on: the oracle's
+# `composer_with_sparkle` of sparkle_tests.rs (`mark_fresh_task_for_sparkle("gpt-6-astra", ..)`).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-6-astra"}}}

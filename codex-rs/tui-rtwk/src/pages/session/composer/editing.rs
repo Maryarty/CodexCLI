@@ -34,6 +34,7 @@ use super::suggest::Suggest;
 use super::vim;
 use crate::keymap::pressed;
 use crate::widgets::composer_draft::ComposerDraft;
+use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
 
 /// What the handler reads besides the controller: the draft of the same
 /// thread, the prompts history (newest last), the composer to tell of a
@@ -56,6 +57,8 @@ pub struct KeyData {
     /// Why the composer may only edit and run a few commands (`None`: it is
     /// whole).
     pub restricted: Option<Restricted>,
+    /// The thread's sparkle: told each key before the composer handles it.
+    pub sparkle: SparkleController,
 }
 
 /// Up (`up`) or Down at the draft's ends: the history's entry replaces the
@@ -91,6 +94,44 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     if kcx.read_only {
         return false;
     }
+    // the sparkle hears of the key first (`before_sparkle_key`) and of what a
+    // held character became after it (`after_sparkle_key`: a character held
+    // back that the key dropped changed the draft with no change of its text)
+    let held = data.draft.in_burst();
+    data.sparkle.before_key(&sparkle_key(data, c, key));
+    let took = take_key_inner(data, c, key);
+    if held && !data.draft.in_burst() && !data.draft.searching() {
+        data.sparkle.replaced(&c.text());
+    }
+    took
+}
+
+/// What the sparkle asks of a key: whether it is a plain character, whether
+/// the composer holds nothing, where the caret is, and whether the key is
+/// the history search's (it opens or is inside it: no sparkle's business).
+fn sparkle_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> SparkleKey {
+    let plain = !key.mods.contains(Mods::CTRL)
+        && !key.mods.contains(Mods::ALT)
+        && !key.mods.contains(Mods::SUPER);
+    let plain_char = if plain && key.code == KeyCode::Char {
+        key.text().and_then(|text| text.chars().next())
+    } else {
+        None
+    };
+    let mode = vim::mode(&data.draft);
+    SparkleKey {
+        plain_char,
+        empty: c.text().is_empty() && !data.draft.shell(),
+        cursor: c.selection().extent_offset,
+        text: c.text().to_string(),
+        aside: data.draft.searching() || search::opens(data, key),
+        vim_query: mode.searching,
+        // (`/` on an empty draft goes into Insert mode first: the sparkle hears it as typed)
+        vim_normal: mode.normal && !vim::opens_slash(data, c, key, &mode),
+    }
+}
+
+fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     if let Some(mode) = data.restricted
         && let Some(took) = restricted_key(data, c, key, mode)
     {
@@ -109,14 +150,17 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     if data.restricted.is_none() && data.draft.searching() {
         return search::key(data, c, key);
     }
-    let mode = vim::mode(&data.draft);
+    let mut mode = vim::mode(&data.draft);
     if mode.searching {
         return vim::search_key(data, c, key);
     }
-    if mode.normal
-        && let Some(took) = vim::early(data, c, key, &mode)
-    {
-        return took;
+    if mode.normal {
+        if let Some(took) = vim::early(data, c, key, &mode) {
+            return took;
+        }
+        // `/` on an empty draft went into Insert mode and is typed there: the key is read in the
+        // mode it left behind
+        mode = vim::mode(&data.draft);
     }
     // a `$skill` completion's space lasts for the next key only
     let skill_space = data.draft.take_skill_space();
@@ -768,6 +812,7 @@ mod tests {
             keymap: Rc::new(Keymap::defaults()),
             states: Rc::default(),
             restricted: None,
+            sparkle: SparkleController::default(),
         }
     }
 
