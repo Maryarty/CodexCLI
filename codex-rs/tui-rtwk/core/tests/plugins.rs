@@ -9,7 +9,7 @@ use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::select::plugins::{
-    self, Configured, Kind, Menu as Plugin, Say, Status, Toggle, Wanted, Want,
+    self, Configured, Kind, Menu as Plugin, Say, Status, Toggle, Want, Wanted,
 };
 use codex_tui_core::screens::select::{self, Intent as Select, Menu, Note, Picked};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply};
@@ -50,8 +50,14 @@ fn config(remote: bool, sharing: bool) -> plugins::Config {
         sharing,
         home: Some("/home/me".to_string()),
         configured: vec![
-            Configured { name: "team".to_string(), git: true },
-            Configured { name: "mine".to_string(), git: false },
+            Configured {
+                name: "team".to_string(),
+                git: true,
+            },
+            Configured {
+                name: "mine".to_string(),
+                git: false,
+            },
         ],
     }
 }
@@ -64,7 +70,10 @@ fn app(remote: bool, sharing: bool) -> CodexApp {
 }
 
 fn select(app: &mut CodexApp, intent: Select) -> AppFx {
-    run(app, AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))))
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
+    )
 }
 
 fn choose(app: &mut CodexApp, id: &str) -> AppFx {
@@ -72,7 +81,12 @@ fn choose(app: &mut CodexApp, id: &str) -> AppFx {
 }
 
 fn open(app: &mut CodexApp) -> AppFx {
-    select(app, Select::OpenPlugins { cwd: CWD.to_string() })
+    select(
+        app,
+        Select::OpenPlugins {
+            cwd: CWD.to_string(),
+        },
+    )
 }
 
 fn model(app: &CodexApp) -> &plugins::Plugins {
@@ -104,7 +118,10 @@ fn sent(fx: &AppFx) -> Vec<(Ticket, Wanted)> {
 }
 
 fn wants(fx: &AppFx) -> Vec<Want> {
-    sent(fx).into_iter().map(|(_, wanted)| wanted.want).collect()
+    sent(fx)
+        .into_iter()
+        .map(|(_, wanted)| wanted.want)
+        .collect()
 }
 
 fn one(fx: &AppFx) -> (Ticket, Wanted) {
@@ -171,7 +188,11 @@ fn local_market() -> Value {
             Some("/home/me/team/marketplace.json"),
             vec![plugin("mine@team", "mine", false, json!({}))],
         ),
-        market("openai-bundled", Some("/m/bundled.json"), vec![plugin("b@b", "b", true, json!({}))]),
+        market(
+            "openai-bundled",
+            Some("/m/bundled.json"),
+            vec![plugin("b@b", "b", true, json!({}))],
+        ),
     ])
 }
 
@@ -240,10 +261,11 @@ fn the_list_shows_and_the_sections_follow() {
             Want::Section(plugins::Part::SharedWithMe),
         ]
     );
-    assert!(tabs(&app).iter().any(|tab| matches!(
-        tab.kind,
-        Kind::Curated
-    )));
+    assert!(
+        tabs(&app)
+            .iter()
+            .any(|tab| matches!(tab.kind, Kind::Curated))
+    );
 }
 
 #[test]
@@ -279,9 +301,16 @@ fn a_remote_plugin_and_its_local_copy_are_one_row() {
     let fx = open(&mut app);
     let request = one(&fx);
     let share = json!({"remotePluginId": "remote-1", "discoverability": "LISTED"});
-    let local = plugin("shared@team", "shared", true, json!({"shareContext": share}));
+    let local = plugin(
+        "shared@team",
+        "shared",
+        true,
+        json!({"shareContext": share}),
+    );
     let remote = plugin(
-        "shared-remote", "shared", false,
+        "shared-remote",
+        "shared",
+        false,
         json!({"source": {"type": "remote"}, "remotePluginId": "remote-1"}),
     );
     answer(
@@ -300,13 +329,21 @@ fn a_remote_plugin_and_its_local_copy_are_one_row() {
 #[test]
 fn the_detail_is_read_from_the_marketplace_and_installed() {
     let mut app = browsing();
-    let zeta = tabs(&app)[0].rows.iter().find(|row| row.name == "Zeta").unwrap().id.clone();
+    let zeta = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "Zeta")
+        .unwrap()
+        .id
+        .clone();
     let fx = choose(&mut app, &zeta);
     let request = one(&fx);
     assert_eq!(
         request.1.want,
         Want::Read(plugins::Target {
-            location: plugins::Location::Local { path: "/m/curated.json".to_string() },
+            location: plugins::Location::Local {
+                path: "/m/curated.json".to_string()
+            },
             plugin: "Zeta".to_string(),
         })
     );
@@ -331,15 +368,31 @@ fn the_detail_is_read_from_the_marketplace_and_installed() {
     assert!(matches!(request.1.want, Want::Install(_)));
     assert!(matches!(menu(&app), Plugin::InstallLoading { .. }));
     // Nothing more to sign in: the detail and the list are read again.
-    let fx = answer(&mut app, &request, json!({"authPolicy": "ON_INSTALL", "appsNeedingAuth": []}));
+    let fx = answer(
+        &mut app,
+        &request,
+        json!({"authPolicy": "ON_INSTALL", "appsNeedingAuth": []}),
+    );
     assert!(matches!(&wants(&fx)[..], [Want::List, Want::Read(_)]));
-    assert_eq!(said(&app), vec![Say::Installed { name: "Zeta".to_string(), apps: vec![] }]);
+    assert_eq!(
+        said(&app),
+        vec![Say::Installed {
+            name: "Zeta".to_string(),
+            apps: vec![]
+        }]
+    );
 }
 
 #[test]
 fn an_install_needing_apps_walks_through_their_setup() {
     let mut app = browsing();
-    let zeta = tabs(&app)[0].rows.iter().find(|row| row.name == "Zeta").unwrap().id.clone();
+    let zeta = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "Zeta")
+        .unwrap()
+        .id
+        .clone();
     let read = one(&choose(&mut app, &zeta));
     answer(
         &mut app,
@@ -355,12 +408,19 @@ fn an_install_needing_apps_walks_through_their_setup() {
         {"id": "a1", "name": "First", "installUrl": "https://x/1"},
         {"id": "a2", "name": "Second"},
     ]);
-    let fx = answer(&mut app, &install, json!({"authPolicy": "ON_INSTALL", "appsNeedingAuth": apps}));
+    let fx = answer(
+        &mut app,
+        &install,
+        json!({"authPolicy": "ON_INSTALL", "appsNeedingAuth": apps}),
+    );
     // The list is read again, the detail is not: the setup comes first.
     assert_eq!(wants(&fx), vec![Want::List]);
     assert_eq!(menu(&app), Plugin::Auth);
     let step = app.screens().select.plugin_auth().expect("a step");
-    assert_eq!((step.current, step.total, step.app.name.as_str()), (1, 2, "First"));
+    assert_eq!(
+        (step.current, step.total, step.app.name.as_str()),
+        (1, 2, "First")
+    );
     // The list arriving does not replace the setup.
     let list = (sent(&fx)[0].0, sent(&fx)[0].1.clone());
     answer(&mut app, &list, local_market());
@@ -379,14 +439,22 @@ fn an_install_needing_apps_walks_through_their_setup() {
     assert_eq!(menu(&app), Plugin::List);
     assert_eq!(
         said(&app).last(),
-        Some(&Say::Completed { name: "Zeta".to_string() })
+        Some(&Say::Completed {
+            name: "Zeta".to_string()
+        })
     );
 }
 
 #[test]
 fn skipping_the_setup_says_so() {
     let mut app = browsing();
-    let zeta = tabs(&app)[0].rows.iter().find(|row| row.name == "Zeta").unwrap().id.clone();
+    let zeta = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "Zeta")
+        .unwrap()
+        .id
+        .clone();
     let read = one(&choose(&mut app, &zeta));
     answer(
         &mut app,
@@ -405,18 +473,32 @@ fn skipping_the_setup_says_so() {
     );
     choose(&mut app, plugins::SKIP);
     assert_eq!(menu(&app), Plugin::List);
-    assert_eq!(said(&app).last(), Some(&Say::Skipped { name: "Zeta".to_string() }));
+    assert_eq!(
+        said(&app).last(),
+        Some(&Say::Skipped {
+            name: "Zeta".to_string()
+        })
+    );
 }
 
 #[test]
 fn a_failed_read_offers_the_way_back() {
     let mut app = browsing();
-    let zeta = tabs(&app)[0].rows.iter().find(|row| row.name == "Zeta").unwrap().id.clone();
+    let zeta = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "Zeta")
+        .unwrap()
+        .id
+        .clone();
     let read = one(&choose(&mut app, &zeta));
     fail(&mut app, &read, "no such plugin");
     assert_eq!(
         menu(&app),
-        Plugin::DetailFailed { error: "no such plugin".to_string(), back: true }
+        Plugin::DetailFailed {
+            error: "no such plugin".to_string(),
+            back: true
+        }
     );
     choose(&mut app, plugins::BACK);
     assert_eq!(menu(&app), Plugin::List);
@@ -425,7 +507,13 @@ fn a_failed_read_offers_the_way_back() {
 #[test]
 fn uninstall_says_so_and_reads_the_list_again() {
     let mut app = browsing();
-    let alpha = tabs(&app)[0].rows.iter().find(|row| row.name == "alpha").unwrap().id.clone();
+    let alpha = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "alpha")
+        .unwrap()
+        .id
+        .clone();
     let read = one(&choose(&mut app, &alpha));
     answer(
         &mut app,
@@ -438,10 +526,20 @@ fn uninstall_says_so_and_reads_the_list_again() {
     );
     let fx = choose(&mut app, plugins::UNINSTALL);
     let request = one(&fx);
-    assert_eq!(request.1.want, Want::Uninstall { id: "alpha@curated".to_string() });
+    assert_eq!(
+        request.1.want,
+        Want::Uninstall {
+            id: "alpha@curated".to_string()
+        }
+    );
     let fx = answer(&mut app, &request, json!({}));
     assert_eq!(wants(&fx), vec![Want::List]);
-    assert_eq!(said(&app), vec![Say::Uninstalled { name: "alpha".to_string() }]);
+    assert_eq!(
+        said(&app),
+        vec![Say::Uninstalled {
+            name: "alpha".to_string()
+        }]
+    );
     // The list coming back replaces the loading page.
     let list = one(&fx);
     answer(&mut app, &list, local_market());
@@ -469,7 +567,10 @@ fn section_errors_say_what_to_do() {
     let sections = sent(&fx);
     // Sharing is off: no shared request, and its error says so.
     assert_eq!(
-        sections.iter().map(|(_, wanted)| wanted.want.clone()).collect::<Vec<_>>(),
+        sections
+            .iter()
+            .map(|(_, wanted)| wanted.want.clone())
+            .collect::<Vec<_>>(),
         vec![Want::Section(plugins::Part::Workspace)]
     );
     fail(&mut app, &sections[0], "plugin sharing is disabled");
@@ -477,33 +578,52 @@ fn section_errors_say_what_to_do() {
     let placeholder = all
         .iter()
         .find_map(|tab| match &tab.kind {
-            Kind::Section { state: plugins::Placeholder::Failed(error), .. } => Some(error.clone()),
+            Kind::Section {
+                state: plugins::Placeholder::Failed(error),
+                ..
+            } => Some(error.clone()),
             _ => None,
         })
         .expect("the workspace failed");
     assert_eq!(placeholder.part, plugins::Part::Workspace);
     assert!(matches!(
         placeholder.cause,
-        plugins::catalog::Cause::Failed { next: plugins::catalog::Next::AskAdminToEnable, .. }
+        plugins::catalog::Cause::Failed {
+            next: plugins::catalog::Next::AskAdminToEnable,
+            ..
+        }
     ));
 }
 
 #[test]
 fn a_switch_writes_the_config_and_coalesces() {
     let mut app = browsing();
-    let alpha = tabs(&app)[0].rows.iter().find(|row| row.name == "alpha").unwrap().id.clone();
+    let alpha = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "alpha")
+        .unwrap()
+        .id
+        .clone();
     let fx = select(&mut app, Select::Toggle(alpha.clone()));
     let first = one(&fx);
     assert_eq!(
         first.1.want,
-        Want::Enable { id: "alpha@curated".to_string(), enabled: false }
+        Want::Enable {
+            id: "alpha@curated".to_string(),
+            enabled: false
+        }
     );
     // The list shows the switch as flipped at once.
     assert_eq!(tabs(&app)[0].rows[0].toggle, Toggle::Switch(false));
     // Flipped twice while the write runs: nothing is sent until it is back.
     assert!(sent(&select(&mut app, Select::Toggle(alpha.clone()))).is_empty());
     assert!(sent(&select(&mut app, Select::Toggle(alpha.clone()))).is_empty());
-    let fx = answer(&mut app, &first, json!({"status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null}));
+    let fx = answer(
+        &mut app,
+        &first,
+        json!({"status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null}),
+    );
     // The last value asked for (off) differs from the one written (off)? It is the same: done.
     let _ = fx;
     assert_eq!(tabs(&app)[0].rows[0].toggle, Toggle::Switch(false));
@@ -512,29 +632,55 @@ fn a_switch_writes_the_config_and_coalesces() {
 #[test]
 fn a_queued_switch_is_written_after_the_first() {
     let mut app = browsing();
-    let alpha = tabs(&app)[0].rows.iter().find(|row| row.name == "alpha").unwrap().id.clone();
+    let alpha = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "alpha")
+        .unwrap()
+        .id
+        .clone();
     let first = one(&select(&mut app, Select::Toggle(alpha.clone())));
     // Back on, queued behind the write that turns it off.
     select(&mut app, Select::Toggle(alpha.clone()));
-    let fx = answer(&mut app, &first, json!({"status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null}));
+    let fx = answer(
+        &mut app,
+        &first,
+        json!({"status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null}),
+    );
     let second = one(&fx);
     assert_eq!(
         second.1.want,
-        Want::Enable { id: "alpha@curated".to_string(), enabled: true }
+        Want::Enable {
+            id: "alpha@curated".to_string(),
+            enabled: true
+        }
     );
-    answer(&mut app, &second, json!({"status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null}));
+    answer(
+        &mut app,
+        &second,
+        json!({"status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null}),
+    );
     assert_eq!(tabs(&app)[0].rows[0].toggle, Toggle::Switch(true));
 }
 
 #[test]
 fn a_refused_switch_is_said() {
     let mut app = browsing();
-    let alpha = tabs(&app)[0].rows.iter().find(|row| row.name == "alpha").unwrap().id.clone();
+    let alpha = tabs(&app)[0]
+        .rows
+        .iter()
+        .find(|row| row.name == "alpha")
+        .unwrap()
+        .id
+        .clone();
     let write = one(&select(&mut app, Select::Toggle(alpha)));
     fail(&mut app, &write, "read only");
     assert_eq!(
         said(&app),
-        vec![Say::EnableFailed { id: "alpha@curated".to_string(), error: "read only".to_string() }]
+        vec![Say::EnableFailed {
+            id: "alpha@curated".to_string(),
+            error: "read only".to_string()
+        }]
     );
     assert_eq!(tabs(&app)[0].rows[0].toggle, Toggle::Switch(true));
 }
@@ -542,12 +688,23 @@ fn a_refused_switch_is_said() {
 #[test]
 fn a_marketplace_is_added_from_a_prompt() {
     let mut app = browsing();
-    select(&mut app, Select::Plugins(plugins::Intent::Tab("add-marketplace".to_string())));
+    select(
+        &mut app,
+        Select::Plugins(plugins::Intent::Tab("add-marketplace".to_string())),
+    );
     choose(&mut app, plugins::ADD_ROW);
     assert_eq!(menu(&app), Plugin::AddPrompt);
-    let fx = select(&mut app, Select::Plugins(plugins::Intent::Source("./local#main".to_string())));
+    let fx = select(
+        &mut app,
+        Select::Plugins(plugins::Intent::Source("./local#main".to_string())),
+    );
     let request = one(&fx);
-    assert_eq!(request.1.want, Want::Add { source: "/work/project/local#main".to_string() });
+    assert_eq!(
+        request.1.want,
+        Want::Add {
+            source: "/work/project/local#main".to_string()
+        }
+    );
     assert_eq!(menu(&app), Plugin::AddLoading);
     let fx = answer(
         &mut app,
@@ -570,7 +727,10 @@ fn a_marketplace_is_added_from_a_prompt() {
 fn a_failed_add_offers_to_try_again() {
     let mut app = browsing();
     choose(&mut app, plugins::ADD_ROW);
-    let fx = select(&mut app, Select::Plugins(plugins::Intent::Source("owner/repo".to_string())));
+    let fx = select(
+        &mut app,
+        Select::Plugins(plugins::Intent::Source("owner/repo".to_string())),
+    );
     fail(&mut app, &one(&fx), "no such repo");
     assert_eq!(menu(&app), Plugin::AddFailed);
     assert_eq!(model(&app).tab(), "add-marketplace");
@@ -583,24 +743,45 @@ fn a_configured_marketplace_can_be_removed() {
     let mut app = browsing();
     let team = "marketplace:/home/me/team/marketplace.json".to_string();
     // The curated tab is not the user's: nothing to remove.
-    select(&mut app, Select::Plugins(plugins::Intent::Tab("marketplace:openai-curated".to_string())));
+    select(
+        &mut app,
+        Select::Plugins(plugins::Intent::Tab(
+            "marketplace:openai-curated".to_string(),
+        )),
+    );
     select(&mut app, Select::Plugins(plugins::Intent::Remove));
     assert_eq!(menu(&app), Plugin::List);
     select(&mut app, Select::Plugins(plugins::Intent::Tab(team)));
     select(&mut app, Select::Plugins(plugins::Intent::Remove));
     assert_eq!(
         menu(&app),
-        Plugin::RemoveConfirm { name: "team".to_string(), label: "team".to_string() }
+        Plugin::RemoveConfirm {
+            name: "team".to_string(),
+            label: "team".to_string()
+        }
     );
     let fx = choose(&mut app, plugins::REMOVE);
     let request = one(&fx);
-    assert_eq!(request.1.want, Want::Remove { name: "team".to_string() });
-    let fx = answer(&mut app, &request, json!({"marketplaceName": "team", "installedRoot": null}));
+    assert_eq!(
+        request.1.want,
+        Want::Remove {
+            name: "team".to_string()
+        }
+    );
+    let fx = answer(
+        &mut app,
+        &request,
+        json!({"marketplaceName": "team", "installedRoot": null}),
+    );
     assert_eq!(wants(&fx), vec![Want::List]);
     assert_eq!(model(&app).tab(), "all-plugins");
     assert_eq!(
         said(&app),
-        vec![Say::MarketRemoved { label: "team".to_string(), name: "team".to_string(), root: None }]
+        vec![Say::MarketRemoved {
+            label: "team".to_string(),
+            name: "team".to_string(),
+            root: None
+        }]
     );
 }
 
@@ -611,7 +792,12 @@ fn a_git_marketplace_is_upgraded_and_a_failure_offers_the_confirmation_again() {
     select(&mut app, Select::Plugins(plugins::Intent::Tab(team)));
     let fx = select(&mut app, Select::Plugins(plugins::Intent::Upgrade));
     let request = one(&fx);
-    assert_eq!(request.1.want, Want::Upgrade { name: Some("team".to_string()) });
+    assert_eq!(
+        request.1.want,
+        Want::Upgrade {
+            name: Some("team".to_string())
+        }
+    );
     let fx = answer(
         &mut app,
         &request,
@@ -619,7 +805,12 @@ fn a_git_marketplace_is_upgraded_and_a_failure_offers_the_confirmation_again() {
     );
     assert_eq!(wants(&fx), vec![Want::List]);
     assert_eq!(model(&app).tab(), "marketplace:/home/me/team");
-    assert_eq!(said(&app), vec![Say::Upgraded { roots: vec!["/home/me/team".to_string()] }]);
+    assert_eq!(
+        said(&app),
+        vec![Say::Upgraded {
+            roots: vec!["/home/me/team".to_string()]
+        }]
+    );
 }
 
 #[test]

@@ -811,7 +811,13 @@ fn preset_reason(reason: codex_tui_core::screens::select::quick_dials::Invalid) 
 /// them to the catalog; the oracle's English stands until then.
 fn plugin_say(say: &codex_tui_core::screens::select::plugins::Say) -> String {
     use codex_tui_core::screens::select::plugins::Say;
-    let noun = |count: usize| if count == 1 { "marketplace" } else { "marketplaces" };
+    let noun = |count: usize| {
+        if count == 1 {
+            "marketplace"
+        } else {
+            "marketplaces"
+        }
+    };
     let both = |message: String, hint: String| format!("{message}{INLINE_GAP}{hint}");
     match say {
         Say::Disabled => both(
@@ -845,7 +851,11 @@ fn plugin_say(say: &codex_tui_core::screens::select::plugins::Say) -> String {
         Say::EnableFailed { id, error } => {
             format!("Failed to update plugin config for {id}: {error}")
         }
-        Say::MarketAdded { name, root, already } => both(
+        Say::MarketAdded {
+            name,
+            root,
+            already,
+        } => both(
             if *already {
                 format!("Marketplace {name} is already added.")
             } else {

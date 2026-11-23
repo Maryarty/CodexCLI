@@ -170,9 +170,12 @@ pub(super) fn session_intent(
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
         S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
         S::Rename { name: None } => rename::open(app, source, fx),
-        S::Rename { name: Some(_) } if rename::blocked(app) => {
-            session_note(app, source, Note::from(crate::commands::Notice::SideRename), fx)
-        }
+        S::Rename { name: Some(_) } if rename::blocked(app) => session_note(
+            app,
+            source,
+            Note::from(crate::commands::Notice::SideRename),
+            fx,
+        ),
         S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {

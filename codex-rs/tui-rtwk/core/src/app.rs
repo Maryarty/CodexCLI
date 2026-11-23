@@ -1292,7 +1292,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Tui(settings) => app.tui = settings,
         AppEv::Presets(slots) => select::event(app, crate::screens::select::Ev::Dials(slots), fx),
         AppEv::PluginConfig(config) => {
-            use crate::screens::select::{plugins, Ev};
+            use crate::screens::select::{Ev, plugins};
             select::event(app, Ev::Plugins(plugins::Ev::Config(config)), fx);
         }
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),

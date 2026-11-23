@@ -10,10 +10,10 @@ use crate::app::effects::{Ask, Done, command};
 use crate::app::{AppFx, CodexApp, apply_thread};
 use crate::commands::{Notice, SlashCommand};
 use crate::ids::ThreadId;
+use crate::screens::ScreenThreadIntent;
 use crate::screens::chat;
 use crate::screens::dialogs::prompt::{self, normalize_thread_name};
 use crate::screens::dialogs::{Open, Prompt, PromptKind};
-use crate::screens::ScreenThreadIntent;
 use crate::threads::{Note, ThreadEv};
 
 /// `ensure_thread_rename_allowed`: a side conversation cannot be renamed.

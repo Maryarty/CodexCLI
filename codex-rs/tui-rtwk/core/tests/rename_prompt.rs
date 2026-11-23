@@ -13,7 +13,7 @@ use codex_tui_core::commands::{CommandFlags, Notice, SessionIntent, SlashCommand
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::dialogs::{self, Open, Prompt, PromptKind, Suggestion};
-use codex_tui_core::screens::{ScreenEv, ScreenCommand, ScreenIntent, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, chat};
 use codex_tui_core::threads::{Item, Note, NoteKey};
 use pretty_assertions::assert_eq;
 
@@ -66,7 +66,10 @@ fn rename(app: &mut CodexApp, name: Option<&str>) -> AppFx {
 }
 
 fn dialog(app: &mut CodexApp, intent: dialogs::Intent) -> AppFx {
-    run(app, AppEv::Intent(Intent::Screen(ScreenIntent::Dialogs(intent))))
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Dialogs(intent))),
+    )
 }
 
 fn prompt(app: &CodexApp) -> Prompt {
@@ -127,7 +130,12 @@ fn a_bare_rename_opens_the_prompt_with_the_name_and_asks_for_a_suggestion() {
     named(&mut app, "Old name");
     let fx = rename(&mut app, None);
     let open = prompt(&app);
-    assert_eq!(open.kind, PromptKind::Rename { thread: ThreadId::new(T) });
+    assert_eq!(
+        open.kind,
+        PromptKind::Rename {
+            thread: ThreadId::new(T)
+        }
+    );
     assert_eq!(open.initial, "Old name");
     assert!(open.renaming(), "the title says Rename thread");
     assert_eq!(open.suggestion, Suggestion::Loading);
@@ -151,7 +159,10 @@ fn the_suggestion_fills_the_field_while_the_user_has_not_typed() {
     let request = asked(&rename(&mut app, None));
     answer(&mut app, request, Some("Fix the build"));
     let open = prompt(&app);
-    assert_eq!(open.suggestion, Suggestion::Applied("Fix the build".to_owned()));
+    assert_eq!(
+        open.suggestion,
+        Suggestion::Applied("Fix the build".to_owned())
+    );
     assert!(!open.waits_for(request), "answered once");
 }
 
@@ -196,7 +207,10 @@ fn a_late_answer_after_the_prompt_closed_goes_nowhere() {
 fn a_submit_renames_the_thread_with_the_trimmed_name() {
     let mut app = ready();
     rename(&mut app, None);
-    let fx = dialog(&mut app, dialogs::Intent::Submit("  Fresh name \n".to_owned()));
+    let fx = dialog(
+        &mut app,
+        dialogs::Intent::Submit("  Fresh name \n".to_owned()),
+    );
     assert_eq!(app.screens().dialogs.open, None, "the prompt closes");
     assert_eq!(renamed_to(&fx), Some("Fresh name".to_owned()));
     assert_eq!(app.screens().dialogs.submitted, None, "carried out once");
@@ -224,7 +238,11 @@ fn a_side_conversation_cannot_be_renamed() {
     );
     let fx = rename(&mut app, None);
     assert_eq!(app.screens().dialogs.open, None);
-    assert!(fx.commands().iter().all(|c| !matches!(c, Command::Effect { .. })));
+    assert!(
+        fx.commands()
+            .iter()
+            .all(|c| !matches!(c, Command::Effect { .. }))
+    );
     let fx = rename(&mut app, Some("Name"));
     assert_eq!(renamed_to(&fx), None);
     assert_eq!(notices(&app), [Notice::SideRename, Notice::SideRename]);
