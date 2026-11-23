@@ -1,4 +1,0 @@
-# The experimental features with two features
-# Oracle data: bottom_pane/experimental_features_view_tests.rs:5
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"settings","ev":{"kind":"experimental","features":[{"key":"first","name":"First feature","description":"A description that fits exactly at this boundary.","enabled":true},{"key":"last","name":"Last feature","description":"Keep this choice visible.","enabled":false}]}}

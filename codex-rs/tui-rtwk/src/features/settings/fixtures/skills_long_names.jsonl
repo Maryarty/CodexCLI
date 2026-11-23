@@ -1,0 +1,4 @@
+# The skills toggle with two long display names (polish skills)
+# Oracle data: bottom_pane/skills_toggle_view.rs:398 long_name_items
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"skills","items":[{"id":"polish:superpowers-systematic-debugging","name":"superpowers-systematic-debugging (polish)","description":"Find root causes before fixing bugs","enabled":true},{"id":"polish:superpowers-verification-before-completion","name":"superpowers-verification-before-completion (polish)","description":"Verify completion before claiming success","enabled":false}]}}

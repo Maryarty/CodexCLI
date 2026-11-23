@@ -31,6 +31,7 @@ use codex_app_server_protocol::RequestId;
 use crate::app::effects::Done;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
+use crate::screens::SeedError;
 use crate::threads::{Tone, TurnEnd};
 
 mod cx;
@@ -108,6 +109,11 @@ pub enum FeatureTarget {
 pub trait Feature: 'static {
     /// The directory and list name (`goal`).
     const NAME: &'static str;
+
+    /// How a script's `fact` step makes one of the feature's facts (`seed_fact`): the feature's
+    /// own reading of the JSON, so a slice seeds its facts without editing the shared loader.
+    /// None: the feature has no seedable fact.
+    const SEED: Option<fn(serde_json::Value) -> Result<Self::Fact, SeedError>> = None;
 
     /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
     /// `intent`, `answered`, `effect_done`, `on_fact`, `on_interest` and `on_resumed`.
@@ -251,6 +257,7 @@ macro_rules! feature_list {
             rename => Rename;
             export => Export;
             plugins => Plugins;
+            settings => Settings;
         }
     };
 }
@@ -366,6 +373,20 @@ macro_rules! feature_dirs {
             fn from(fact: <$name::$variant as Feature>::Fact) -> Self { Self::$variant(fact) }
         }
         )*
+
+        /// The fact a script's `fact` step makes: `value` is read by the feature's own `SEED`.
+        pub fn seed_fact(
+            feature: &str,
+            value: serde_json::Value,
+        ) -> Result<FeatureFact, SeedError> {
+            $(if feature == <$name::$variant as Feature>::NAME {
+                return match <$name::$variant as Feature>::SEED {
+                    Some(seed) => seed(value).map(FeatureFact::$variant),
+                    None => Err(SeedError::NoSeeds),
+                };
+            })*
+            Err(SeedError::UnknownDir)
+        }
 
         /// The names of the features, in list (hook) order.
         #[allow(unused_variables)]

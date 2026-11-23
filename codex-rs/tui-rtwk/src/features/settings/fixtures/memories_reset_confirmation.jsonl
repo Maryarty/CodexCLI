@@ -1,0 +1,4 @@
+# The memories reset confirmation
+# Oracle data: bottom_pane/memories_settings_view_tests.rs:6
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"memories","use_memories":true,"generate_memories":true}}

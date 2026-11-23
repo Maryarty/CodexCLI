@@ -1,4 +1,0 @@
-# The hooks browser: two system hooks of PreToolUse
-# Oracle data: bottom_pane/hooks_browser_view.rs:1228
-{"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "settings", "ev": {"kind": "hooks", "hooks": [{"key": "path:managed-1", "event": "pre_tool_use", "handler": "command", "command": "/enterprise/hooks/pre-tool-use-1.sh", "matcher": "Bash", "timeout_sec": 30, "source": "system", "source_path": "/tmp/hooks.json", "enabled": true, "is_managed": true, "trust": "managed"}, {"key": "path:managed-2", "event": "pre_tool_use", "handler": "command", "command": "/enterprise/hooks/pre-tool-use-2.sh", "matcher": "Bash", "timeout_sec": 30, "source": "system", "source_path": "/tmp/hooks.json", "enabled": true, "is_managed": true, "trust": "managed"}]}}

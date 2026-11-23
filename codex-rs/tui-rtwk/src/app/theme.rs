@@ -4,6 +4,7 @@
 use std::rc::Rc;
 
 use codex_tui_core::data::links::LinkDisplay;
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::ScreenStates;
 use rtwk::Cx;
 use rtwk::provider::{Provider, select};
@@ -59,13 +60,13 @@ impl Tokens {
     }
 
     /// The tokens of the theme `cx` is under, with the syntax theme the user
-    /// picked (`settings::Model::syntax_theme`) where the app's models are
+    /// picked (the settings feature's `State::syntax_theme`) where the app's models are
     /// provided.
     pub fn of<S>(cx: &mut Cx<'_, S>) -> Self {
         let data = Theme::of(cx);
         let terminal_bg = TerminalBrightness::background_of(cx);
-        let picked = if Provider::<ScreenStates>::maybe_of(cx, false).is_some() {
-            select::<ScreenStates, _, _>(cx, |states| states.settings.syntax_theme.clone())
+        let picked = if Provider::<FeatureStates>::maybe_of(cx, false).is_some() {
+            select::<FeatureStates, _, _>(cx, |states| states.settings.syntax_theme.clone())
         } else {
             None
         };

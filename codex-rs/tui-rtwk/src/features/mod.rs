@@ -18,12 +18,14 @@ use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::Intent;
+use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::feature_list;
 use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureInterest, FeatureNote, FeatureTarget, FeatureWish, Scope,
 };
 use codex_tui_core::ids::{Cwd, ThreadId};
 
+use crate::app::debug::Dir;
 use crate::app::view::Hs;
 use crate::pages::session::strings::Strings as SessionStrings;
 
@@ -53,6 +55,12 @@ pub trait FeatureView: Feature {
 
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
     fn note_words(note: &Self::Note, words: &SessionStrings) -> String;
+
+    /// The feature's slot in the debug menu (`--debug-screens`): its sheets on made-up data. None
+    /// for a feature whose sheets have no fixture states.
+    fn debug_dir() -> Option<Dir> {
+        None
+    }
 }
 
 /// The typed arguments of a feature's own sheet (`Target::Feature`): ids the page that opens it
@@ -61,9 +69,15 @@ pub trait FeatureView: Feature {
 pub enum OpenArgs {
     Plugins(plugins::Args),
     Export(export::Args),
+    Settings(settings::Args),
 }
 
 impl OpenArgs {
+    /// The arguments of the settings dialog `command` opens (`Target::Settings`).
+    pub fn settings(command: SlashCommand) -> OpenArgs {
+        OpenArgs::Settings(settings::Args::of(command))
+    }
+
     /// The arguments of the sheet `target` names, for the directory and the thread in use.
     pub fn of(target: FeatureTarget, cwd: Cwd, thread: Option<ThreadId>) -> OpenArgs {
         match target {
@@ -78,6 +92,7 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: OpenArgs) {
     match args {
         OpenArgs::Plugins(args) => plugins::open(cx, args),
         OpenArgs::Export(args) => export::open(cx, args),
+        OpenArgs::Settings(args) => settings::open(cx, args),
     }
 }
 
@@ -86,6 +101,12 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: OpenArgs) {
 /// pressed.
 pub fn verb<S: 'static>(cx: &mut Cx<'_, S>, intent: impl Into<FeatureIntent>) {
     let hs = read::<Hs, _>(cx);
+    verb_by(cx, &hs, intent);
+}
+
+/// `verb` through the door a widget kept from above: one that says its verb as it leaves the
+/// tree (`dispose_with`) cannot read the door then.
+pub fn verb_by<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs, intent: impl Into<FeatureIntent>) {
     cx.emit(&hs.intent, Intent::Feature(intent.into()));
 }
 
@@ -109,6 +130,18 @@ macro_rules! view_dispatch {
     };
 }
 
+macro_rules! view_debug {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The slots of the features in the debug menu, in list order.
+        pub fn debug_dirs() -> Vec<Dir> {
+            [$(<codex_tui_core::features::$name::$variant as FeatureView>::debug_dir(),)*]
+                .into_iter()
+                .flatten()
+                .collect()
+        }
+    };
+}
+
 macro_rules! view_wishes {
     ($($name:ident => $variant:ident;)*) => {
         /// How a wish of a feature is shown: what an open sheet of it is interested in, and the sheet
@@ -127,3 +160,4 @@ macro_rules! view_wishes {
 feature_list!(view_mods);
 feature_list!(view_dispatch);
 feature_list!(view_wishes);
+feature_list!(view_debug);

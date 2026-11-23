@@ -1,4 +1,0 @@
-# The skills toggle with no skills
-# Oracle data: bottom_pane/skills_toggle_view.rs:535 footer_hint_uses_list_keymap_accept_and_cancel
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"settings","ev":{"kind":"skills","items":[]}}

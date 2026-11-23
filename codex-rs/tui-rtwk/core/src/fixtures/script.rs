@@ -7,6 +7,9 @@
 //!   (`{"step":"seed","seed":"session","thread":"thread-1"}`).
 //! - `screen`: an event of one screen directory, read by that directory's own
 //!   `seed` (`core/src/screens/<dir>.rs`), so a slice never edits this file.
+//! - `fact`: a fact the host tells a feature unasked, read by that feature's own `SEED`
+//!   (`core/src/features/<f>/`, `Feature::SEED`): `{"step":"fact","feature":"settings",
+//!   "fact":{"kind":"theme_picker",..}}`. It is `AppEv::Feature`, the path the host's facts take.
 //! - `notify`: a server notification, the protocol's own JSON in `message`.
 //! - `request`: a server request, the protocol's own JSON in `message`.
 //! - `lagged`: the app server's event stream dropped `skipped` events
@@ -54,6 +57,12 @@ pub enum Step {
     Screen {
         dir: String,
         ev: serde_json::Value,
+    },
+    /// A fact of a feature, read by the feature's own `SEED`
+    /// (`{"step":"fact","feature":"settings","fact":{..}}`).
+    Fact {
+        feature: String,
+        fact: serde_json::Value,
     },
     Notify {
         message: Box<ServerNotification>,
@@ -295,6 +304,15 @@ impl Script {
                         message: format!("{err:?}"),
                     })?;
                     ingest(app, AppEv::Screen(ev));
+                }
+                Step::Fact { feature, fact } => {
+                    let fact = crate::features::seed_fact(feature, fact.clone()).map_err(|err| {
+                        ScriptError {
+                            line: *line,
+                            message: format!("{err:?}"),
+                        }
+                    })?;
+                    ingest(app, AppEv::Feature(fact));
                 }
                 Step::Notify { message } => {
                     let ev = BackendEv::Notification(message.clone());

@@ -1,4 +1,0 @@
-# The hooks browser: one hook with a command of twenty words and a title
-# Oracle data: bottom_pane/hooks_browser_view.rs:1304
-{"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "settings", "ev": {"kind": "hooks", "hooks": [{"key": "path:long-command", "event": "pre_tool_use", "handler": "command", "command": "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty", "matcher": "Bash", "timeout_sec": 30, "source": "user", "source_path": "/tmp/h.json", "enabled": true, "is_managed": false, "trust": "trusted", "status_message": "Check shell commands before allowing them to execute"}]}}

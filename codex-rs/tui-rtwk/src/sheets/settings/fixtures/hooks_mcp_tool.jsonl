@@ -1,4 +1,0 @@
-# The hooks browser: one plugin hook with an MCP tool handler
-# Oracle data: bottom_pane/hooks_browser_view.rs:1068
-{"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "settings", "ev": {"kind": "hooks", "hooks": [{"key": "plugin:security-scanner", "event": "pre_tool_use", "handler": "mcp_tool", "server": "scanner", "tool": "scan_file", "matcher": "Bash", "timeout_sec": 30, "source": "plugin", "plugin_id": "security-tools@openai-curated", "source_path": "/tmp/hooks.json", "enabled": true, "is_managed": false, "trust": "trusted"}]}}

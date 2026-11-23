@@ -1,4 +1,0 @@
-# The hooks browser: a command holding a URL longer than the details column
-# Oracle data: bottom_pane/hooks_browser_render_tests.rs:59
-{"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "settings", "ev": {"kind": "hooks", "hooks": [{"key": "path:review", "event": "pre_tool_use", "handler": "command", "command": "curl https://github.com/openai/codex/pull/12345?diff=split&review=complete-destination", "matcher": "Bash", "timeout_sec": 30, "source": "user", "source_path": "/tmp/h.json", "enabled": true, "is_managed": false, "trust": "trusted"}]}}

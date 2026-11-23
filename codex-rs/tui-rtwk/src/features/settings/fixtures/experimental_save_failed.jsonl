@@ -1,0 +1,4 @@
+# The experimental features after a write that did not confirm
+# Oracle data: bottom_pane/experimental_features_view_tests.rs:90 (all three were switched off, the write answered an error)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"experimental","features":[{"key":"network_proxy","name":"Server network_proxy","description":"Description supplied by the server.","enabled":false},{"key":"future_feature","name":"Server future_feature","description":"Description supplied by the server.","enabled":false},{"key":"prevent_idle_sleep","name":"Server prevent_idle_sleep","description":"Description supplied by the server.","enabled":false}],"unconfirmed":["network_proxy","future_feature","prevent_idle_sleep"],"failed":"Saved but readback failed"}}

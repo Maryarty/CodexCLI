@@ -49,7 +49,7 @@ use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev as AgentsEv, Page};
 use codex_tui_core::screens::cells::{Ev as CellsEv, Startup};
-use codex_tui_core::screens::settings::{Ev as SettingsEv, Facts};
+use codex_tui_core::features::settings::{Fact as SettingsFact, Facts};
 use codex_tui_core::threads::Notice;
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -165,7 +165,7 @@ impl Env {
                 ..Facts::default()
             };
             h.connect();
-            h.inject([AppEv::Screen(ScreenEv::Settings(SettingsEv::Facts(facts)))]);
+            h.inject([AppEv::Feature(SettingsFact::Facts(facts).into())]);
         }
         if let Some(access) = &self.daybreak {
             h.connect();

@@ -97,7 +97,6 @@ macro_rules! screen_list {
         transcript => Transcript;
         select => Select;
         approvals => Approvals;
-        settings => Settings;
         backtrack => Backtrack;
         resume => Resume;
         status => Status;

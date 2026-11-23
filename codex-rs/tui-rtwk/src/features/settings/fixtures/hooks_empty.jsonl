@@ -1,0 +1,4 @@
+# The hooks browser with no hooks at all
+# Oracle data: bottom_pane/hooks_browser_view.rs:1333
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind": "hooks", "hooks": []}}

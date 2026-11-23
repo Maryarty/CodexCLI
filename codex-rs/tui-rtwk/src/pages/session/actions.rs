@@ -267,13 +267,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits);
                 cx.emit(&hs.screen, intent);
             }
-            // The settings dialogs are built by the model from its facts
-            // (the dialog the command names), then shown by `open`.
-            if let Some(dialog) = settings_dialog(opened.command) {
-                cx.emit(
-                    &hs.screen,
-                    ScreenIntent::Settings(codex_tui_core::screens::settings::Intent::Open(dialog)),
-                );
+            // The settings dialog is opened by the kind the command names (`features::open`):
+            // the feature builds its catalogue from its facts.
+            if opened.target == Target::Settings {
+                features::open(cx, features::OpenArgs::settings(opened.command));
             }
             // The confirmation of `/archive` and `/delete` is the model's
             // question (is a turn running?), then the select sheet shows it.
@@ -432,17 +429,6 @@ fn select_intent(
         )),
         SlashCommand::Apps => Some(Intent::OpenApps { enabled: apps }),
         SlashCommand::Review => Some(Intent::OpenReview { cwd }),
-        _ => None,
-    }
-}
-
-/// The settings dialog a slash command opens, when the model builds it
-/// (the others open their slot empty until their sheet lands).
-fn settings_dialog(command: SlashCommand) -> Option<codex_tui_core::screens::settings::Dialog> {
-    use codex_tui_core::screens::settings::Dialog;
-    match command {
-        SlashCommand::Theme => Some(Dialog::Theme),
-        SlashCommand::Memories => Some(Dialog::Memories),
         _ => None,
     }
 }

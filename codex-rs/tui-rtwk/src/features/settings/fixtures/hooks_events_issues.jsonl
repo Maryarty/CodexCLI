@@ -1,0 +1,4 @@
+# The hooks browser with no hooks, a skipped matcher and a parse error
+# Oracle data: bottom_pane/hooks_browser_view.rs:1002
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind": "hooks", "hooks": [], "warnings": ["skipped invalid matcher for PreToolUse"], "errors": [{"path": "/tmp/hooks.json", "message": "failed to parse hooks config"}]}}

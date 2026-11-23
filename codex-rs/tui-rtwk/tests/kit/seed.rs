@@ -338,6 +338,12 @@ fn feed(h: &mut Harness, text: &str) {
                 Ok(ev) => h.fake.inject(epoch, AppEv::Screen(ev)),
                 Err(err) => panic!("script line {line}: screen `{dir}`: {err:?}"),
             },
+            Step::Fact { feature, fact } => {
+                match codex_tui_core::features::seed_fact(&feature, fact) {
+                    Ok(fact) => h.fake.inject(epoch, AppEv::Feature(fact)),
+                    Err(err) => panic!("script line {line}: fact `{feature}`: {err:?}"),
+                }
+            }
             Step::Notify { message } => {
                 h.fake
                     .inject(epoch, AppEv::Backend(BackendEv::Notification(message)));
