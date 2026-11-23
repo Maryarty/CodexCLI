@@ -93,6 +93,21 @@ pub enum NoteKey {
     Export(ExportNote),
     /// What `/goal` answered with.
     Goal(GoalNote),
+    /// What a switch of the collaboration mode said.
+    Mode(ModeNote),
+}
+
+/// What `/plan` and the mode switches said (`apply_plan_slash_command`,
+/// `set_collaboration_mask`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModeNote {
+    /// `Collaboration modes are disabled.` with `Enable collaboration modes to use /plan.`
+    /// under it.
+    Disabled,
+    /// `Plan mode unavailable right now.`: the server's catalog has no Plan preset.
+    PlanUnavailable,
+    /// `Model changed to {model} {effort} for {mode} mode.`
+    ModelChanged(crate::screens::select::collaboration::ModelChange),
 }
 
 /// What `/goal` answered with (`thread_goal_actions.rs`, `goal_menu.rs`, `slash_dispatch.rs`).
@@ -218,6 +233,7 @@ impl NoteKey {
             | NoteKey::Copy { .. }
             | NoteKey::Export(ExportNote::Saved(_))
             | NoteKey::Goal(_)
+            | NoteKey::Mode(_)
             | NoteKey::Server(_) => Tone::Info,
         }
     }

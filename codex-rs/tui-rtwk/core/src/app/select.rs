@@ -596,6 +596,13 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
             };
             self::event(app, select::Ev::AppsLoaded { request, result }, fx);
         }
+        // `collaboration_modes::list`: discovery is optional, a failed read leaves no presets
+        (select::Ctx::Collaboration, result) => {
+            app.modes = match result {
+                Ok(select::Reply::Collaboration(masks)) => masks,
+                _ => Vec::new(),
+            };
+        }
         (select::Ctx::Models { request }, result) => {
             let result = match result {
                 Ok(select::Reply::Models(presets)) => Ok(presets),

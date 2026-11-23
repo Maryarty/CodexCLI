@@ -14,6 +14,7 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod apps;
+pub mod collaboration;
 pub mod export;
 pub mod goal;
 pub mod layout;
@@ -1363,6 +1364,9 @@ pub enum ThreadEv {}
 pub enum Command {
     /// `model/list` for the request `Catalog::pending` names.
     Models { request: u64 },
+    /// `collaborationMode/list`: the modes `/plan` and Shift+Tab switch between (asked at
+    /// connect; the app keeps the answer).
+    Collaboration,
     /// `configRequirements/read`, the first half of a permission read.
     Requirements { request: u64 },
     /// One page of `permissionProfile/list` (100 per page, at most 10).
@@ -1403,6 +1407,8 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     Models(Vec<Preset>),
+    /// The collaboration-mode presets of the server.
+    Collaboration(Vec<collaboration::Mask>),
     Apps(Vec<apps::App>),
     Requirements(Option<permissions::Requirements>),
     Profiles {
@@ -1429,6 +1435,8 @@ pub enum Ctx {
     Models {
         request: u64,
     },
+    /// The read of the collaboration-mode catalog.
+    Collaboration,
     Apps {
         request: u64,
     },
@@ -1500,6 +1508,7 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         Command::Plugins(wanted) => plugins::wire_request(wanted, id),
         Command::Goal { thread, ask } => ask.thread_ask(thread).wire(id),
         Command::Models { .. } => models::list_request(id),
+        Command::Collaboration => collaboration::list_request(id),
         Command::Apps { force, thread, .. } => apps::list_request(id, *force, thread.clone()),
         Command::Requirements { .. } => permissions::requirements_request(id),
         Command::Profiles { cursor, cwd, .. } => {
@@ -1533,6 +1542,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
             return crate::threads::goal_of_response(result).map(Reply::Goal);
         }
         Command::Models { .. } => models::presets(result).map(Reply::Models),
+        Command::Collaboration => collaboration::masks(result).map(Reply::Collaboration),
         Command::Apps { .. } => apps::apps(result).map(Reply::Apps),
         Command::Requirements { .. } => permissions::requirements(result).map(|wire| {
             Reply::Requirements(wire.as_ref().map(permissions::Requirements::from_wire))

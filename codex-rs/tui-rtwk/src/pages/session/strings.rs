@@ -543,6 +543,9 @@ impl Strings {
             // The words of the goal notes are the view task's (chunk-popups-goal); the oracle's
             // English stands until its catalog entries exist.
             NoteKey::Goal(note) => goal_note(note),
+            // The words of the mode notes are the view task's (chunk-popups-plan); the oracle's
+            // English stands until its catalog entries exist.
+            NoteKey::Mode(note) => mode_note(note),
             NoteKey::Copy { label, result } => {
                 let label = match label {
                     CopyLabel::Conversation => "conversation",
@@ -998,6 +1001,29 @@ fn plugin_say(say: &codex_tui_core::screens::select::plugins::Say) -> String {
 
 /// The oracle's words of the `/goal` notes (`goal_display.rs`, `goal_menu.rs`,
 /// `thread_goal_actions.rs`), until the catalog has them.
+fn mode_note(note: &codex_tui_core::threads::ModeNote) -> String {
+    use codex_tui_core::threads::ModeNote;
+    match note {
+        ModeNote::Disabled => {
+            "Collaboration modes are disabled.\nEnable collaboration modes to use /plan.".to_owned()
+        }
+        ModeNote::PlanUnavailable => "Plan mode unavailable right now.".to_owned(),
+        ModeNote::ModelChanged(change) => {
+            let mode = match change.mode {
+                codex_protocol::config_types::ModeKind::Plan => "Plan",
+                codex_protocol::config_types::ModeKind::Default => "Default",
+            };
+            match &change.effort {
+                Some(effort) => format!(
+                    "Model changed to {} {effort} for {mode} mode.",
+                    change.model
+                ),
+                None => format!("Model changed to {} for {mode} mode.", change.model),
+            }
+        }
+    }
+}
+
 fn goal_note(note: &codex_tui_core::threads::GoalNote) -> String {
     use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
     use codex_tui_core::screens::select::goal::Hint;

@@ -26,6 +26,7 @@ use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
+use crate::screens::select::collaboration::{self, ModelChange};
 use crate::threads::{Note, ThreadFx};
 
 pub const NAME: &str = "chat";
@@ -378,6 +379,9 @@ pub struct ThreadPart {
     pub daybreak: Option<bool>,
     /// The collaboration mode (`thread/settings/updated`, or the user's switch); read through `mode()`.
     mode: codex_protocol::config_types::ModeKind,
+    /// What the thread runs with outside of a mask: its model and effort as last seen in Default
+    /// mode (`current_collaboration_mode`); the mask of a switch lies over it.
+    base: collaboration::Base,
     /// Plan mode: the proposed plan and the question asked when the turn ends.
     pub plan: plan_mode::PlanMode,
     /// Resumed with history: the token usage is pending until `status` counts one.
@@ -541,13 +545,42 @@ impl ThreadPart {
         self.retry_header = None;
     }
 
-    /// The user's switch of the mode: the thread's mode changes at once (the next turn is
-    /// sent in it) and the server's settings follow (`set_collaboration_mask_from_user_action`).
-    pub(crate) fn set_mode(&mut self, kind: codex_protocol::config_types::ModeKind, fx: &mut ThreadFx<'_>) {
-        self.mode = kind;
+    /// The user's switch of the mode (`set_collaboration_mask_from_user_action`): the mask lies
+    /// over the thread's base settings, the thread goes on in what that makes at once (the next
+    /// turn is sent in it) and the server's settings follow. What the switch changed of the
+    /// model and the effort comes back for the line that says so.
+    pub(crate) fn set_mask(
+        &mut self,
+        mask: &collaboration::Mask,
+        fx: &mut ThreadFx<'_>,
+    ) -> Option<ModelChange> {
+        // a thread resumed in Plan mode has not been seen in Default: what it runs with now stands in
+        let base = if self.base.model.is_empty() {
+            collaboration::Base::of(self.model.as_deref(), self.effort.as_deref())
+        } else {
+            self.base.clone()
+        };
+        let effective = collaboration::effective(&base, mask, None);
+        let previous = (self.mode, self.model.clone(), self.effort.clone());
+        self.mode = effective.mode;
         self.error = None;
-        let mode = plan_mode::collaboration_mode(kind, self.model.as_deref());
-        fx.request(Ctx::Mode, Command::Mode(mode));
+        self.model = Some(effective.settings.model.clone());
+        self.effort = effective
+            .settings
+            .reasoning_effort
+            .as_ref()
+            .map(|effort| effort.as_str().to_string());
+        let changed = previous.0 != self.mode && (previous.1 != self.model || previous.2 != self.effort);
+        let change = changed.then(|| ModelChange {
+            model: effective.settings.model.clone(),
+            effort: collaboration::effort_label(
+                &effective.settings.model,
+                effective.settings.reasoning_effort.as_ref(),
+            ),
+            mode: self.mode,
+        });
+        fx.request(Ctx::Mode, Command::Mode(effective));
+        change
     }
 
     pub fn is_compacting(&self) -> bool {
@@ -593,10 +626,13 @@ pub enum ThreadIntent {
     /// A text for the composer of a fresh thread (the provider-error notice's
     /// continue key): given back as a restore, nothing is sent.
     Draft(String),
-    /// The user's switch of the collaboration mode (`/plan`, Shift+Tab, the prompt's Yes):
-    /// the thread goes on in `ModeKind` and the server is told.
-    SetMode(codex_protocol::config_types::ModeKind),
-    /// Shift+Tab: the next mode, only while the thread is idle (`cycle_collaboration_mode`).
+    /// The user's switch of the collaboration mode (`/plan`, the prompt's Yes): the thread goes
+    /// on in the mode `Mask` makes and the server is told; the app chose the mask from the
+    /// server's presets (`select::collaboration`). The switch is `threads::apply`'s, which
+    /// says what it changed.
+    SetMask(collaboration::Mask),
+    /// Shift+Tab: the next preset in the server's list, only while the thread is idle
+    /// (`cycle_collaboration_mode`); `threads::apply` chooses it.
     CycleMode,
     /// The fresh thread of the prompt's "clear context" row takes the approved plan: the server
     /// answers with the prompt that starts the work.
@@ -842,12 +878,10 @@ pub fn apply_thread_intent(
             part.error = None;
             fx.request(Ctx::CleanTerminals, Command::CleanTerminals);
         }
-        ThreadIntent::SetMode(kind) => part.set_mode(kind, fx),
         ThreadIntent::ApprovePlan(markdown) => {
             part.error = None;
             fx.request(Ctx::ApprovePlan, Command::ApprovePlan(markdown));
         }
-        ThreadIntent::CycleMode if !busy => part.set_mode(plan_mode::next(part.mode), fx),
         ThreadIntent::Rename(name) if !name.trim().is_empty() => {
             part.error = None;
             fx.request(Ctx::Rename, Command::Rename(name));
@@ -875,6 +909,9 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.path = path;
             part.parent_owned = parent_owned;
             part.ephemeral = ephemeral;
+            if part.mode == codex_protocol::config_types::ModeKind::Default {
+                part.base = collaboration::Base::of(model.as_deref(), effort.as_deref());
+            }
             part.model = model;
             part.effort = effort;
             part.provider = (!provider.is_empty()).then_some(provider);
@@ -885,6 +922,9 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Settings { cwd, model, effort, provider, service_tier, mode } => {
             part.mode = mode;
+            if mode == codex_protocol::config_types::ModeKind::Default {
+                part.base = collaboration::Base::of(Some(&model), effort.as_deref());
+            }
             part.cwd = Some(cwd);
             part.model = Some(model);
             part.effort = effort;

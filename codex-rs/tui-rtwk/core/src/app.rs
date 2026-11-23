@@ -556,6 +556,9 @@ pub struct CodexApp {
     daybreak: threads::daybreak::Access,
     /// What renders a conversation as the Markdown of `/export` (the cells' text is the UI's).
     transcript_text: Option<TranscriptText>,
+    /// The server's collaboration-mode presets (`collaborationMode/list`, read at connect):
+    /// empty until the server has answered, and when it did not.
+    modes: Vec<crate::screens::select::collaboration::Mask>,
 }
 
 /// When the process's first thread starts.
@@ -617,6 +620,7 @@ impl CodexApp {
             pending_notices: Vec::new(),
             daybreak: threads::daybreak::Access::default(),
             transcript_text: None,
+            modes: Vec::new(),
         }
     }
 
@@ -676,6 +680,11 @@ impl CodexApp {
 
     pub fn keymap(&self) -> &Rc<Keymap> {
         &self.keymap
+    }
+
+    /// The collaboration-mode presets of the server: what `/plan` and Shift+Tab choose from.
+    pub fn collaboration_modes(&self) -> &[crate::screens::select::collaboration::Mask] {
+        &self.modes
     }
 
     /// The `[tui]` settings the host reported.
@@ -987,6 +996,13 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             // the model catalog is read at connect (`refresh_available_models`): the tier
             // commands of the model and the footer's model name come from it
             select::intent(app, crate::screens::select::Intent::LoadModels, fx);
+            // the collaboration modes are discovered at bootstrap (`collaboration_modes::list`)
+            select::ask(
+                app,
+                crate::screens::select::Command::Collaboration,
+                crate::screens::select::Ctx::Collaboration,
+                fx,
+            );
             match app.first_thread {
                 FirstThread::Never => {}
                 FirstThread::OnConnect => start_first_thread(app, fx),
@@ -2715,6 +2731,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
             ev,
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .stamped(daybreak)
+                .with_modes(&app.modes)
                 .at(app.screens.agents.now),
         );
     }

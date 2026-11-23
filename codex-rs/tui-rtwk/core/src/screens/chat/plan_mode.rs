@@ -112,14 +112,6 @@ pub fn collaboration_mode(kind: ModeKind, model: Option<&str>) -> CollaborationM
     }
 }
 
-/// The mode the cycle key goes to from `kind` (`next_mask` over the visible presets).
-pub fn next(kind: ModeKind) -> ModeKind {
-    match kind {
-        ModeKind::Plan => ModeKind::Default,
-        ModeKind::Default => ModeKind::Plan,
-    }
-}
-
 /// How much of the context window the thread has used, as the prompt's clear-context row
 /// says it (`plan_implementation_context_usage_label`): a percent when the window is known,
 /// else the tokens in it; nothing for a fresh or unknown context.

@@ -41,7 +41,7 @@ pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
 pub use note::{
     CdRefusal, CopyLabel, ExportNote, GoalAction, GoalFailure, GoalHint, GoalNote, Note, NoteKey,
-    RemoveNote, Stub, Tone,
+    ModeNote, RemoveNote, Stub, Tone,
 };
 pub use queue::{DueCommand, Queued, Ran};
 pub use user_prompt::{Shown, UserPrompt};
@@ -1723,6 +1723,9 @@ pub struct ThreadFx<'a> {
     /// How the Daybreak setting words a cyber refusal at this moment (the app's fact, stamped
     /// per event by `apply_thread`).
     daybreak: Daybreak,
+    /// The server's collaboration-mode presets at this moment (the app's fact, stamped per
+    /// event by `apply_thread`): what a switch of the mode chooses from.
+    modes: &'a [screens::select::collaboration::Mask],
     /// The app's clock, epoch seconds (0 until the host has said): what a live completion falls
     /// back to when the server's turn carries no duration or completion time.
     now: i64,
@@ -1736,6 +1739,7 @@ impl<'a> ThreadFx<'a> {
             mint,
             registered: Vec::new(),
             daybreak: Daybreak::Apply,
+            modes: &[],
             now: 0,
         }
     }
@@ -1758,6 +1762,17 @@ impl<'a> ThreadFx<'a> {
 
     fn daybreak(&self) -> Daybreak {
         self.daybreak
+    }
+
+    /// The same, with the collaboration-mode presets of the moment.
+    pub(crate) fn with_modes(mut self, modes: &'a [screens::select::collaboration::Mask]) -> Self {
+        self.modes = modes;
+        self
+    }
+
+    /// The server's collaboration-mode presets (empty until read).
+    pub(crate) fn modes(&self) -> &[screens::select::collaboration::Mask] {
+        self.modes
     }
 
     /// A fresh ticket, for an acceptance that sends no RPC.
@@ -2491,15 +2506,30 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 apply_appended(model, None, Item::Note(note));
                 return;
             }
-            let kind = codex_protocol::config_types::ModeKind::Default;
-            screens::apply_thread_intent(
-                &mut model.slots,
-                ScreenThreadIntent::Chat(screens::chat::ThreadIntent::SetMode(kind)),
-                false,
-                fx,
-            );
+            // the row is disabled (`Default mode unavailable`) when the catalog has no Default
+            let Some(mask) = screens::select::collaboration::default_mode_mask(fx.modes()) else {
+                return;
+            };
+            switch_mode(model, &mask, fx);
             let message = UserMessage::text(screens::chat::plan_mode::IMPLEMENT_MESSAGE);
             apply_ev(model, ThreadEv::Submit { message }, fx);
+        }
+        // `/plan`, with the preset the app chose.
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::SetMask(
+            mask,
+        ))) if model.has_writer() => switch_mode(model, &mask, fx),
+        // Shift+Tab (`cycle_collaboration_mode`): the next preset of the server's list, while no
+        // turn runs and none is about to start.
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::CycleMode,
+        )) if model.has_writer() => {
+            let busy = model.is_running() || model.outgoing.any(is_start_turn);
+            let current = Some(model.slots.chat.mode());
+            if !busy
+                && let Some(mask) = screens::select::collaboration::next_mask(fx.modes(), current)
+            {
+                switch_mode(model, &mask, fx);
+            }
         }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::HoldQueue,
@@ -2869,6 +2899,20 @@ fn steer(fx: &mut ThreadFx<'_>, turn: TurnId, retried: bool, message: UserMessag
 fn recover(model: &mut ThreadModel, message: UserMessage) {
     model.recovered |= !model.queue.is_empty() || !model.rejected_steers.is_empty();
     give_back(model, vec![message], false);
+}
+
+/// The user's switch to the mode `mask` makes: the thread goes on in it, the server is told, and
+/// a change of the model or the effort that came with it is said
+/// (`set_collaboration_mask_from_user_action`).
+fn switch_mode(
+    model: &mut ThreadModel,
+    mask: &screens::select::collaboration::Mask,
+    fx: &mut ThreadFx<'_>,
+) {
+    if let Some(change) = model.slots.chat.set_mask(mask, fx) {
+        let note = Note::from(NoteKey::Mode(ModeNote::ModelChanged(change)));
+        apply_appended(model, None, Item::Note(note));
+    }
 }
 
 /// Messages back to the composer (`restore_composer_state`).

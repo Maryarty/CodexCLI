@@ -255,25 +255,7 @@ pub(super) fn session_intent(
             );
             session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
         }
-        // `apply_plan_slash_command`: the thread goes on in Plan mode; with a prompt that
-        // prompt is the first message in it.
-        S::Plan { prompt } => {
-            let Some(thread) = source else {
-                return session_note(
-                    app,
-                    None,
-                    Note::from(crate::commands::Notice::SessionStarting(command)),
-                    fx,
-                );
-            };
-            let kind = codex_protocol::config_types::ModeKind::Plan;
-            let set =
-                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMode(kind)));
-            apply_thread(app, &thread, set, fx);
-            if let Some(prompt) = prompt {
-                super::submit(app, &thread, UserMessage::text(prompt), fx);
-            }
-        }
+        S::Plan { prompt } => plan(app, source, command, prompt, fx),
         // `AppEvent::ExportTranscript` with a path: the conversation is written there. The bare
         // command opens the destination picker, which is the view's list (`select::export`).
         S::Export { path: Some(path) } => export::run(app, Destination::File(path), fx),
@@ -317,6 +299,60 @@ pub(super) fn session_intent(
             Note::from(crate::commands::Notice::NotAvailable(command)),
             fx,
         ),
+    }
+}
+
+/// `/plan` (`apply_plan_slash_command`): the thread goes on in the Plan preset of the server's
+/// catalog. With modes off, or no Plan preset, the note says so; with a prompt, the prompt is
+/// the first message in Plan mode, or, when the switch could not be made, goes back to the
+/// composer as typed (`/plan <text>`).
+fn plan(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    command: crate::commands::SlashCommand,
+    prompt: Option<String>,
+    fx: &mut AppFx,
+) {
+    use crate::screens::select::collaboration::plan_mask;
+    use crate::threads::ModeNote;
+    let Some(thread) = source else {
+        return session_note(
+            app,
+            None,
+            Note::from(crate::commands::Notice::SessionStarting(command)),
+            fx,
+        );
+    };
+    let refusal = if !app.screens.chat.flags.collaboration_modes_enabled {
+        Some(ModeNote::Disabled)
+    } else if plan_mask(&app.modes).is_none() {
+        Some(ModeNote::PlanUnavailable)
+    } else {
+        None
+    };
+    if let Some(note) = refusal {
+        session_note(
+            app,
+            Some(thread.clone()),
+            Note::from(NoteKey::Mode(note)),
+            fx,
+        );
+        if let Some(prompt) = prompt {
+            let draft = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+                chat::ThreadIntent::Draft(format!("/{} {prompt}", command.command())),
+            ));
+            apply_thread(app, &thread, draft, fx);
+        }
+        return;
+    }
+    if let Some(mask) = plan_mask(&app.modes) {
+        let set = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(
+            mask,
+        )));
+        apply_thread(app, &thread, set, fx);
+    }
+    if let Some(prompt) = prompt {
+        super::submit(app, &thread, UserMessage::text(prompt), fx);
     }
 }
 
