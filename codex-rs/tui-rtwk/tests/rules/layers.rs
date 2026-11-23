@@ -1098,12 +1098,18 @@ fn enums_with_variants(text: &str) -> Vec<(String, Vec<String>)> {
 /// `FeatureTarget`, `OpenArgs`...) written by hand. The oracle's slash list is the one that
 /// names commands, not features.
 fn per_feature_enums(files: &[(String, String)], markers: &[String]) -> Vec<String> {
-    const SLASH_LISTS: &[&str] = &["SessionIntent"];
+    // the oracle's slash list (a case per command), and the import screen's kinds of item (its
+    // plugins and settings are things found in another tool's config, not these features)
+    const NAMES_THINGS: &[&str] = &[
+        "core/src/commands.rs:SlashCommand",
+        "core/src/commands/dispatch.rs:SessionIntent",
+        "core/src/screens/import/item.rs:Kind",
+    ];
     let mut found = Vec::new();
     for (file, text) in files {
         for (name, variants) in enums_with_variants(text) {
             let named = variants.iter().filter(|v| markers.contains(v)).count();
-            if named >= 2 && !SLASH_LISTS.contains(&name.as_str()) {
+            if named >= 2 && !NAMES_THINGS.contains(&format!("{file}:{name}").as_str()) {
                 found.push(format!(
                     "{file}: enum {name} has {named} variants named like features"
                 ));
@@ -1139,8 +1145,11 @@ fn the_per_feature_enum_scan_bites() {
     assert_eq!(per_feature_enums(&file(hand), &markers).len(), 1);
     let one = "pub enum Target {\n    Goal(u8),\n    Other,\n}\n";
     assert!(per_feature_enums(&file(one), &markers).is_empty());
-    let slash = "pub enum SessionIntent {\n    Goal,\n    Rename,\n}\n";
-    assert!(per_feature_enums(&file(slash), &markers).is_empty());
+    let slash = vec![(
+        "core/src/commands/dispatch.rs".to_string(),
+        "pub enum SessionIntent {\n    Goal,\n    Rename,\n}\n".to_string(),
+    )];
+    assert!(per_feature_enums(&slash, &markers).is_empty());
     let generated = "pub enum FeatureTarget {\n    $($variant(u8),)*\n}\n";
     assert!(per_feature_enums(&file(generated), &markers).is_empty());
 }
