@@ -5,7 +5,7 @@
 //! parent's picker under it, so Esc shows it again with the cursor on the row that opened the
 //! page (the oracle's parent view keeps its highlight).
 //!
-//! What a row leads to is the model's pure `ModelMenu::choose` (a `Step`: a page over this one, a
+//! What a row leads to is the model's pure `ModelMenu::choose` (an `Onward`: a page over this one, a
 //! page in place of it, a final pick, or the plan scope question alone); the stack of pages is the
 //! navigator's. The facts the pages read are the catalog's: the models themselves, the provider
 //! write state (a write closes the sheet: `dismiss_stale_model_picker`) and the answer of the
@@ -25,7 +25,7 @@ use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::select::models::{Catalog, Heading, ModelMenu, Next, Step};
+use codex_tui_core::screens::select::models::{Catalog, Heading, ModelMenu, Next, Onward};
 use codex_tui_core::screens::select::{Intent, Opening};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
@@ -37,7 +37,10 @@ use crate::widgets::picker::{Event, Picker};
 /// The sheet: a navigator whose home is `menu`, each page at the bottom edge of it (where the
 /// oracle's pane is).
 pub fn sheet(menu: ModelMenu) -> AnyWidget {
-    Navigator::new().home(bottom(Page { menu })).back_key(None).into()
+    Navigator::new()
+        .home(bottom(Page { menu }))
+        .back_key(None)
+        .into()
 }
 
 /// The sheet of a debug entry: the one its script's show opens (`Ev::Showing`), none when the
@@ -80,8 +83,6 @@ struct Page {
 }
 
 struct PageState {
-    /// The catalog this page last looked at (the rows a pick is judged against).
-    catalog: Catalog,
     /// The route this page is, to take it off the navigator when it gives up.
     route: Option<Route>,
     /// The page decided what the catalog means for it (once: it closes, goes on or leaves).
@@ -100,7 +101,6 @@ impl StatefulWidget for Page {
 
     fn create_state(&self) -> PageState {
         PageState {
-            catalog: Catalog::default(),
             route: None,
             decided: false,
         }
@@ -111,6 +111,11 @@ impl_widget!(stateful eq Page);
 
 fn catalog_of<S>(cx: &mut Cx<'_, S>) -> Catalog {
     select::<ScreenStates, Catalog, _>(cx, |states| states.select.catalog.clone())
+}
+
+/// The catalog as it is now: what a pick is judged against (not watched).
+fn catalog_now<S>(cx: &mut Cx<'_, S>) -> Catalog {
+    read::<ScreenStates, _>(cx).select.catalog.clone()
 }
 
 /// Says a verb to the model.
@@ -135,17 +140,17 @@ fn back(cx: &mut Cx<'_, PageState>) {
 
 impl PageState {
     /// What a choice does to the pages.
-    fn step(&self, cx: &mut Cx<'_, Self>, step: Step) {
+    fn step(&self, cx: &mut Cx<'_, Self>, step: Onward) {
         match step {
-            Step::None => {}
-            Step::Push(menu) => drop(Navigator::of(cx).push::<()>(route(menu))),
-            Step::Replace(menu) => drop(Navigator::of(cx).push_replacement::<()>(route(menu))),
-            Step::Done(selection) => {
+            Onward::None => {}
+            Onward::Push(menu) => drop(Navigator::of(cx).push::<()>(route(menu))),
+            Onward::Replace(menu) => drop(Navigator::of(cx).push_replacement::<()>(route(menu))),
+            Onward::Done(selection) => {
                 say(cx, Intent::Settle(selection));
                 close(cx);
             }
             // The plan scope question stands alone: every page under it goes.
-            Step::Prompt(menu) => {
+            Onward::Prompt(menu) => {
                 drop(Navigator::of(cx).push_and_remove_until::<()>(route(menu), |_| false));
             }
         }
@@ -182,18 +187,17 @@ impl State for PageState {
             let go = cx.send(Msg::Next(next));
             cx.emit(&go, ());
         }
-        self.catalog = catalog;
     }
 
     fn update(&mut self, msg: Msg, w: &Page, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Picked(Event::Choose(id)) => {
-                let step = w.menu.choose(&self.catalog, &id, false);
+                let step = w.menu.choose(&catalog_now(cx), &id, false);
                 self.step(cx, step);
             }
             // The `s` key: this session only.
             Msg::Picked(Event::Secondary(id)) => {
-                let step = w.menu.choose(&self.catalog, &id, true);
+                let step = w.menu.choose(&catalog_now(cx), &id, true);
                 self.step(cx, step);
             }
             Msg::Picked(Event::Cancel) => back(cx),
@@ -215,7 +219,8 @@ impl State for PageState {
         let catalog = catalog_of(cx);
         let page = w.menu.page(&catalog);
         let words = strings::of(cx);
-        let picker: AnyWidget = Picker::new(Rc::new(list::of(&page, words)), cx.map(Msg::Picked)).into();
+        let picker: AnyWidget =
+            Picker::new(Rc::new(list::of(&page, words)), cx.map(Msg::Picked)).into();
         // Another page of the family (the quick menu a refresh made the model list of) is a new
         // picker with its own start; a refresh of the same page keeps cursor and scroll.
         picker.with_key(shape(&page.heading))

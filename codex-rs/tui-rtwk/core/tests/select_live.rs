@@ -12,7 +12,7 @@ use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::{Reply, RpcError};
 use codex_tui_core::screens::select::apps::{App, Cache, Status};
 use codex_tui_core::screens::select::models::{
-    Answer, Current as ModelCurrent, ModelMenu, Preset, Step,
+    Answer, Current as ModelCurrent, ModelMenu, Onward, Preset,
 };
 use codex_tui_core::screens::select::permissions::{
     Current as PermsCurrent, Failure, PermissionsMenu, Profile,
@@ -416,10 +416,10 @@ fn threaded() -> CodexApp {
 }
 
 /// A final pick of a row of the quick `/model` page, as the sheet makes it: the model leads from
-/// the row to the `Step` (`ModelMenu::choose`), the page says the pick (`Intent::Settle`).
+/// the row to the `Onward` (`ModelMenu::choose`), the page says the pick (`Intent::Settle`).
 fn settle(app: &mut CodexApp, id: &str, session: bool) -> AppFx {
     let menu = ModelMenu::Models(ModelCurrent::new("gpt-5.5"));
-    let Step::Done(selection) = menu.choose(&app.screens().select.catalog, id, session) else {
+    let Onward::Done(selection) = menu.choose(&app.screens().select.catalog, id, session) else {
         panic!("a final pick of {id}");
     };
     open(app, SelectIntent::Settle(selection))
@@ -1033,7 +1033,11 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
         AppEv::Screen(ScreenEv::Select(select::Ev::Provider(Provider::Changed))),
     );
     assert_eq!(app.screens().select.catalog.provider, Provider::Changed);
-    assert_eq!(model_shows(&app), [], "the sheet not shown yet is forgotten");
+    assert_eq!(
+        model_shows(&app),
+        [],
+        "the sheet not shown yet is forgotten"
+    );
     assert_eq!(app.screens().select.catalog.pending, None);
     // the answer in flight is dropped
     let fx = answer(&mut app, ticket, select::Reply::Models(Vec::new()));

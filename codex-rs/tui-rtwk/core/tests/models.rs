@@ -12,7 +12,7 @@
 use codex_tui_core::app::AppFx;
 use codex_tui_core::screens::select::models::{
     ALL_MODELS, ALL_MODES, Answer, Apply, Current, Effort, GaveUp, Heading, Kind, MORE_REASONING,
-    ModelMenu, Next, PLAN_ONLY, PlanMode, PlanSource, Preset, Step,
+    ModelMenu, Next, Onward, PLAN_ONLY, PlanMode, PlanSource, Preset,
 };
 use codex_tui_core::screens::select::{
     Ev, Intent as SelectIntent, Note, Opening, Picked, Selection,
@@ -126,17 +126,17 @@ fn intent(sandbox: &mut Sandbox, intent: SelectIntent) {
 fn pick(sandbox: &mut Sandbox, id: &str, session: bool) {
     let step = head(sandbox).choose(&sandbox.model.catalog, id, session);
     match step {
-        Step::None => {}
-        Step::Push(menu) => sandbox.pages.push(menu),
-        Step::Replace(menu) => {
+        Onward::None => {}
+        Onward::Push(menu) => sandbox.pages.push(menu),
+        Onward::Replace(menu) => {
             sandbox.pages.pop();
             sandbox.pages.push(menu);
         }
-        Step::Done(selection) => {
+        Onward::Done(selection) => {
             intent(sandbox, SelectIntent::Settle(selection));
             sandbox.pages.clear();
         }
-        Step::Prompt(menu) => sandbox.pages = vec![menu],
+        Onward::Prompt(menu) => sandbox.pages = vec![menu],
     }
 }
 
@@ -861,7 +861,10 @@ fn a_provider_write_closes_every_page_and_drops_the_answer_in_flight() {
     choose(&mut s, "gpt-5.5");
     assert_eq!(depth(&s), 2);
     assert!(model(&s).catalog.pending.is_some());
-    event(&mut s, Ev::Provider(codex_tui_core::screens::select::Provider::Changed));
+    event(
+        &mut s,
+        Ev::Provider(codex_tui_core::screens::select::Provider::Changed),
+    );
     assert_eq!(depth(&s), 0);
     assert_eq!(model(&s).catalog.pending, None);
     assert!(model(&s).notes.is_empty());
@@ -872,20 +875,28 @@ fn a_show_not_shown_yet_is_forgotten_when_the_provider_is_written() {
     let mut s = sandbox(presets());
     intent(&mut s, SelectIntent::OpenModels(Current::new("gpt-5.5")));
     assert_eq!(model(&s).shows.pending().count(), 1);
-    event(&mut s, Ev::Provider(codex_tui_core::screens::select::Provider::Saving));
+    event(
+        &mut s,
+        Ev::Provider(codex_tui_core::screens::select::Provider::Saving),
+    );
     assert_eq!(model(&s).shows.pending().count(), 0);
 }
 
 #[test]
 fn after_a_provider_write_model_opens_no_sheet_and_says_why() {
     let mut s = sandbox(presets());
-    event(&mut s, Ev::Provider(codex_tui_core::screens::select::Provider::Changed));
+    event(
+        &mut s,
+        Ev::Provider(codex_tui_core::screens::select::Provider::Changed),
+    );
     open(&mut s, Current::new("gpt-5.5"));
     assert_eq!(depth(&s), 0);
     assert_eq!(model(&s).shows.pending().count(), 0);
     assert_eq!(
         model(&s).notes,
-        vec![Note::ModelPickerUnavailable(codex_tui_core::screens::select::Provider::Changed)]
+        vec![Note::ModelPickerUnavailable(
+            codex_tui_core::screens::select::Provider::Changed
+        )]
     );
 }
 
@@ -904,7 +915,10 @@ fn a_page_acts_on_the_answer_of_its_own_request_only() {
     catalog.answered = Some((request + 1, Answer::Failed));
     assert_eq!(loading.next(&catalog), None);
     catalog.answered = Some((*request, Answer::Failed));
-    assert_eq!(loading.next(&catalog), Some(Next::GiveUp(GaveUp::NotLoaded)));
+    assert_eq!(
+        loading.next(&catalog),
+        Some(Next::GiveUp(GaveUp::NotLoaded))
+    );
     catalog.answered = Some((*request, Answer::Listed));
     catalog.presets = presets();
     assert_eq!(
@@ -926,7 +940,10 @@ fn only_the_lists_give_themselves_up_when_nothing_is_left_to_offer() {
     catalog.presets = hidden;
     let empty = Some(Next::GiveUp(GaveUp::Empty { reserve: false }));
     assert_eq!(s.pages[0].next(&catalog), empty);
-    assert_eq!(ModelMenu::Models(Current::new("gpt-5.5")).next(&catalog), empty);
+    assert_eq!(
+        ModelMenu::Models(Current::new("gpt-5.5")).next(&catalog),
+        empty
+    );
     // The pages over a list keep the model they were opened on.
     assert_eq!(s.pages[1].next(&catalog), None);
 }
