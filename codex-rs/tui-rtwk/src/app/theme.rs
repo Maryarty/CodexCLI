@@ -3,6 +3,7 @@
 
 use std::rc::Rc;
 
+use codex_tui_core::data::links::LinkDisplay;
 use codex_tui_core::screens::ScreenStates;
 use rtwk::Cx;
 use rtwk::provider::{Provider, select};
@@ -72,6 +73,16 @@ impl Tokens {
             syntax: SyntaxPalette::named(picked.as_deref(), terminal_bg),
             data,
             terminal_bg,
+        }
+    }
+
+    /// How a web link's destination is written (`cells::Model::link_display`, the host's fact about
+    /// the terminal): the slice a message draws, the oracle's default where no app is above.
+    pub fn link_display<S: 'static>(cx: &mut Cx<'_, S>) -> LinkDisplay {
+        if Provider::<ScreenStates>::maybe_of(cx, false).is_some() {
+            select::<ScreenStates, _, _>(cx, |states| states.cells.link_display)
+        } else {
+            LinkDisplay::default()
         }
     }
 

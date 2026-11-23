@@ -15,15 +15,13 @@ mod inlines;
 
 use std::sync::Arc;
 
-use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
     Block, Definitions, LinkDestinations, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock,
     MdInline, MdList, MdListItem,
 };
 
-use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::cells::LinkDisplay;
+use codex_tui_core::data::links::LinkDisplay;
 
 /// A `MarkdownView` of `source` as the oracle draws it, local file links shown as written.
 pub fn view(source: &str) -> MarkdownView {
@@ -80,9 +78,7 @@ impl State for MarkdownState {
         // Read as the oracle reads it, once for the run (a `LazyLock`): the host's fact comes at
         // startup, and a message drawn before it is drawn again as its parent rebuilds. A tree
         // with no app above it (a widget on its own) has the oracle's default.
-        let display = Provider::<ScreenStates>::maybe_of(cx, false)
-            .map_or(LinkDisplay::default(), |states| states.cells.link_display);
-        let destinations = match display {
+        let destinations = match crate::app::theme::Tokens::link_display(cx) {
             LinkDisplay::WithDestination => LinkDestinations::Suffix,
             LinkDisplay::LabelOnly => LinkDestinations::Auto,
         };

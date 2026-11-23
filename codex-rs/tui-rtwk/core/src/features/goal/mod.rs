@@ -2,9 +2,10 @@
 //! `app/thread_goal_actions.rs`, `chatwidget/goal_menu.rs`): the goal of the thread in use,
 //! shown, edited, set, replaced, paused, resumed and cleared. One flow: the asks go out as
 //! the feature's RPCs with the thread named, the step an ask belongs to rides with its ticket
-//! (`Ctx`), and what the answer settles is said as a note of the thread (`Note`) or opened as
-//! a confirmation (`Menu`) or the edit prompt (`Prompt`). The words are
-//! `src/features/goal/strings.rs`.
+//! (`Ctx`), and what the answer settles is said as a note of the thread (`Note`) or asked of the
+//! surface as a one-shot (`Wish`: a confirmation, the edit prompt) whose answer comes back as a
+//! verb (`Intent::Resume`, `Replace`, `Edit`). How the question looks, and what is typed in it,
+//! is the UI half's (`src/features/goal/`); the words are `src/features/goal/strings.rs`.
 //!
 //! An answer for a thread that is no longer the one in use is dropped
 //! (`current_displayed_thread_id`). The composer's pastes (`GoalDraft::pending_pastes`) and the
@@ -14,19 +15,17 @@
 //! The goal itself (`threads::Goal`) is a fact of the thread, projected from the server's
 //! notifications (`ThreadEv::Goal`) and read by the status line: it stays in `threads`.
 
-mod menu;
 mod model;
 mod note;
 mod wire;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Choice, Feature, Never};
+use super::{AppCx, Feature, Never};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::{Goal as GoalFact, GoalStatus, Tone};
 
-pub use menu::{CANCEL, LEAVE, Menu, Pick, REPLACE, RESUME};
 pub use model::{
     CommandsHint, Ctx, Draft, Flow, Mode, confirms_replace, edited_status, offers_resume,
 };
@@ -45,15 +44,36 @@ pub enum Intent {
         source: Option<ThreadId>,
         args: Option<String>,
     },
-}
-
-/// The edit prompt: the objective of `thread`'s goal, which keeps the status and the token
-/// budget it had (oracle `show_goal_edit_prompt`: `Edit goal`, `Type a goal objective and
-/// press Enter`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Prompt {
+    /// `Resume goal` of the question over a paused goal (`AppEvent::SetThreadGoalStatus` with
+    /// `Active`).
+    Resume { thread: ThreadId },
+    /// `Replace current goal` of the question over a new objective
+    /// (`AppEvent::SetThreadGoalDraft` with `ReplaceExisting`).
+    Replace { thread: ThreadId, objective: String },
+    /// The edit prompt submitted: the objective changes, the status and the budget stay.
     Edit {
         thread: ThreadId,
+        objective: String,
+        status: GoalStatus,
+        token_budget: Option<i64>,
+    },
+}
+
+/// What the goal asks the surface to show, once, for the thread it is about (`Scope::Thread`):
+/// the question or the prompt, whose answer is an `Intent`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Wish {
+    /// `Resume paused goal?` over the goal `objective` that stopped: answered by
+    /// `Intent::Resume`.
+    Resume { thread: ThreadId, objective: String },
+    /// `Replace goal?` over the new `objective`: answered by `Intent::Replace`.
+    Replace { thread: ThreadId, objective: String },
+    /// The edit prompt (oracle `show_goal_edit_prompt`: `Edit goal`) over the objective of
+    /// `thread`'s goal, which keeps the status and the token budget it had: answered by
+    /// `Intent::Edit`.
+    Edit {
+        thread: ThreadId,
+        objective: String,
         status: GoalStatus,
         token_budget: Option<i64>,
     },
@@ -181,17 +201,32 @@ impl Feature for Goal {
     type Command = Ask;
     type Reply = Reply;
     type Ctx = Ctx;
-    type Menu = Menu;
-    type Pick = Pick;
-    type Prompt = Prompt;
     type Note = Note;
     type Fact = Never<Self>;
-    type Wish = Never<Self>;
+    type Wish = Wish;
     type Interest = Never<Self>;
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
             Intent::Command { source, args } => command(cx, source, args),
+            Intent::Resume { thread } => set_status(cx, &thread, GoalStatus::Active),
+            Intent::Replace { thread, objective } => replace(cx, &thread, objective),
+            Intent::Edit {
+                thread,
+                objective,
+                status,
+                token_budget,
+            } => {
+                let objective = objective.trim().to_owned();
+                if objective.is_empty() {
+                    return;
+                }
+                let mode = Mode::UpdateExisting {
+                    status,
+                    token_budget,
+                };
+                set_draft(cx, &thread, Draft { objective, mode });
+            }
         }
     }
 
@@ -226,28 +261,31 @@ impl Feature for Goal {
                 said(cx, Some(thread), Note::Usage(UsageHint::NoGoal));
             }
             (Flow::Edit, Ok(Reply::Goal(Some(goal)))) => {
-                let prompt = Prompt::Edit {
-                    thread,
+                let wish = Wish::Edit {
+                    thread: thread.clone(),
+                    objective: goal.objective,
                     status: edited_status(goal.status),
                     token_budget: goal.token_budget,
                 };
-                cx.prompt(prompt, goal.objective);
+                cx.wish(thread, wish);
             }
             (Flow::Edit, Ok(Reply::Goal(None))) => no_goal_to_edit(cx, Some(thread)),
             (Flow::AfterResume, Ok(Reply::Goal(Some(goal)))) => {
                 if offers_resume(&goal) {
-                    cx.open(Menu::Resume {
-                        thread,
+                    let wish = Wish::Resume {
+                        thread: thread.clone(),
                         objective: goal.objective,
-                    });
+                    };
+                    cx.wish(thread, wish);
                 }
             }
             (Flow::Check(draft), Ok(Reply::Goal(Some(goal)))) => {
                 if confirms_replace(&goal) {
-                    cx.open(Menu::Replace {
-                        thread,
+                    let wish = Wish::Replace {
+                        thread: thread.clone(),
                         objective: draft.objective,
-                    });
+                    };
+                    cx.wish(thread, wish);
                 } else {
                     replace(cx, &thread, draft.objective);
                 }
@@ -271,39 +309,6 @@ impl Feature for Goal {
             // An answer of another shape than its ask: nothing to say.
             (_, Ok(_)) => {}
         }
-    }
-
-    fn choose(menu: &Menu, row: &str) -> Choice<Menu, Pick> {
-        menu.choose(row)
-    }
-
-    /// What a confirmation settled.
-    fn picked(_state: &mut (), pick: Pick, cx: &mut AppCx<'_>) {
-        match pick {
-            Pick::Resume { thread } => set_status(cx, &thread, GoalStatus::Active),
-            Pick::Replace { thread, objective } => replace(cx, &thread, objective),
-        }
-    }
-
-    /// The edit prompt, submitted: the objective changes, the status and the budget stay.
-    fn prompt_submitted(_state: &mut (), prompt: Prompt, text: String, cx: &mut AppCx<'_>) {
-        let objective = text.trim().to_owned();
-        if objective.is_empty() {
-            return;
-        }
-        let Prompt::Edit {
-            thread,
-            status,
-            token_budget,
-        } = prompt;
-        let draft = Draft {
-            objective,
-            mode: Mode::UpdateExisting {
-                status,
-                token_budget,
-            },
-        };
-        set_draft(cx, &thread, draft);
     }
 
     fn note_tone(note: &Note) -> Tone {

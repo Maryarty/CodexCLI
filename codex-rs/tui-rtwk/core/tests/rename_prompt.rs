@@ -1,20 +1,23 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! `/rename` (oracle `chatwidget/interaction.rs` `show_rename_prompt`, `app/thread_title.rs`):
-//! a bare `/rename` opens the name prompt over the thread, prefilled with its name, and asks for
-//! a title suggestion that fills the field only while the user has not typed; a submit renames,
-//! an empty name is an error line, a side conversation cannot be renamed. The words (`Rename
-//! thread`, `Name thread`, the labels) are the view's: these tests read the data.
+//! a bare `/rename` wishes the name prompt over the thread, prefilled with its name; the prompt
+//! says it is interested in the thread's title suggestion, which the feature asks the host for and
+//! keeps while the prompt is open (the field, and whether the user typed, are the UI's); a submit
+//! renames, an empty name is an error line, a side conversation cannot be renamed. The words
+//! (`Rename thread`, `Name thread`, the labels) are the view's: these tests read the data.
 
 use codex_app_server_protocol::{ServerNotification, ThreadNameUpdatedNotification};
 use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{CommandFlags, SessionIntent, SlashCommand};
-use codex_tui_core::features::rename::{self, Note as RenameNote};
-use codex_tui_core::features::{FeatureCommand, FeatureNote, FeaturePrompt, FeatureReply};
+use codex_tui_core::features::rename::{self, Interest, Note as RenameNote};
+use codex_tui_core::features::{
+    FeatureCommand, FeatureIntent, FeatureInterest, FeatureNote, FeatureReply, FeatureWish,
+    InterestStep, Remote,
+};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::dialogs::{self, Prompt, PromptKind, Suggestion};
 use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
 use codex_tui_core::threads::{Failure, Item, Note, NoteKey};
 use pretty_assertions::assert_eq;
@@ -67,18 +70,46 @@ fn rename(app: &mut CodexApp, name: Option<&str>) -> AppFx {
     )
 }
 
-fn dialog(app: &mut CodexApp, intent: dialogs::Intent) -> AppFx {
+/// What the name prompt of the UI says when the user submits it.
+fn submit(app: &mut CodexApp, name: &str) -> AppFx {
+    let intent = rename::Intent::Set {
+        thread: ThreadId::new(T),
+        name: name.to_owned(),
+    };
     run(
         app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Dialogs(intent))),
+        AppEv::Intent(Intent::Feature(FeatureIntent::Rename(intent))),
     )
 }
 
-fn prompt(app: &CodexApp) -> Prompt {
-    match &app.screens().dialogs.prompt {
-        Some(prompt) => prompt.clone(),
-        other => panic!("not the prompt: {other:?}"),
-    }
+/// The name prompts the rename wishes the surface to show.
+fn wishes(app: &CodexApp) -> Vec<rename::Wish> {
+    app.wishes()
+        .pending()
+        .filter_map(|wish| match &wish.wish {
+            FeatureWish::Rename(wish) => Some(wish.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn interested() -> FeatureInterest {
+    FeatureInterest::Rename(Interest::Title {
+        thread: ThreadId::new(T),
+    })
+}
+
+/// The prompt is up: its interest in the title suggestion is the first, and asks the host.
+fn open_prompt(app: &mut CodexApp) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::Interest(InterestStep::Open(interested()))),
+    )
+}
+
+/// What the feature knows of the suggestion for the prompt of the thread.
+fn title(app: &CodexApp) -> Option<Remote<Option<String>>> {
+    app.features().rename.title(&ThreadId::new(T)).cloned()
 }
 
 /// The request of the suggestion the open asked for.
@@ -126,107 +157,111 @@ fn notices(app: &CodexApp) -> Vec<RenameNote> {
         .collect()
 }
 
-fn name_prompt(renaming: bool) -> PromptKind {
-    PromptKind::Feature(FeaturePrompt::Rename(rename::Prompt::Name {
-        thread: ThreadId::new(T),
-        renaming,
-    }))
-}
-
 #[test]
-fn a_bare_rename_opens_the_prompt_with_the_name_and_asks_for_a_suggestion() {
+fn a_bare_rename_wishes_the_prompt_with_the_name() {
     let mut app = ready();
     named(&mut app, "Old name");
     let fx = rename(&mut app, None);
-    let open = prompt(&app);
-    assert_eq!(open.kind, name_prompt(true), "the title says Rename thread");
-    assert_eq!(open.initial, "Old name");
-    assert_eq!(open.suggestion, Suggestion::Loading);
-    assert!(!open.edited);
-    asked(&fx);
+    assert_eq!(
+        wishes(&app),
+        [rename::Wish::Name {
+            thread: ThreadId::new(T),
+            existing: "Old name".to_owned(),
+        }]
+    );
+    assert!(
+        fx.commands()
+            .iter()
+            .all(|c| !matches!(c, Command::Effect { .. })),
+        "the suggestion is asked for when the prompt is up, not before"
+    );
 }
 
 #[test]
-fn a_thread_without_a_name_starts_empty_and_is_named() {
+fn a_thread_without_a_name_wishes_an_empty_field() {
     let mut app = ready();
     rename(&mut app, None);
-    let open = prompt(&app);
-    assert_eq!(open.initial, "");
-    assert_eq!(open.kind, name_prompt(false), "the title says Name thread");
+    assert_eq!(
+        wishes(&app),
+        [rename::Wish::Name {
+            thread: ThreadId::new(T),
+            existing: String::new(),
+        }]
+    );
 }
 
 #[test]
-fn the_suggestion_fills_the_field_while_the_user_has_not_typed() {
+fn the_prompt_being_up_asks_for_a_suggestion() {
     let mut app = ready();
-    let request = asked(&rename(&mut app, None));
+    rename(&mut app, None);
+    let fx = open_prompt(&mut app);
+    asked(&fx);
+    assert_eq!(title(&app), Some(Remote::loading()));
+}
+
+#[test]
+fn the_suggestion_is_kept_for_the_prompt_and_answered_once() {
+    let mut app = ready();
+    rename(&mut app, None);
+    let request = asked(&open_prompt(&mut app));
     answer(&mut app, request, Some("Fix the build"));
-    let open = prompt(&app);
     assert_eq!(
-        open.suggestion,
-        Suggestion::Applied("Fix the build".to_owned())
+        title(&app),
+        Some(Remote::Ready(Some("Fix the build".to_owned())))
     );
     // answered once: a second answer finds nothing waiting
     answer(&mut app, request, Some("Another"));
     assert_eq!(
-        prompt(&app).suggestion,
-        Suggestion::Applied("Fix the build".to_owned())
+        title(&app),
+        Some(Remote::Ready(Some("Fix the build".to_owned())))
     );
 }
 
 #[test]
-fn typing_first_keeps_the_suggestion_out_of_the_field() {
+fn a_generator_with_nothing_to_say_is_an_answer_without_a_title() {
     let mut app = ready();
-    let request = asked(&rename(&mut app, None));
-    dialog(&mut app, dialogs::Intent::Typed);
-    assert!(prompt(&app).edited);
-    answer(&mut app, request, Some("Fix the build"));
-    assert_eq!(prompt(&app).suggestion, Suggestion::Idle);
-}
-
-#[test]
-fn a_generator_with_nothing_to_say_clears_the_loading_line() {
-    let mut app = ready();
-    let request = asked(&rename(&mut app, None));
+    rename(&mut app, None);
+    let request = asked(&open_prompt(&mut app));
     answer(&mut app, request, None);
-    assert_eq!(prompt(&app).suggestion, Suggestion::Idle);
+    assert_eq!(title(&app), Some(Remote::Ready(None)));
 }
 
 #[test]
 fn an_answer_to_another_request_is_not_the_prompts() {
     let mut app = ready();
-    let request = asked(&rename(&mut app, None));
+    rename(&mut app, None);
+    let request = asked(&open_prompt(&mut app));
     answer(&mut app, request + 1, Some("Other"));
-    assert_eq!(prompt(&app).suggestion, Suggestion::Loading);
+    assert_eq!(title(&app), Some(Remote::loading()));
 }
 
 #[test]
 fn a_late_answer_after_the_prompt_closed_goes_nowhere() {
     let mut app = ready();
-    let request = asked(&rename(&mut app, None));
-    dialog(&mut app, dialogs::Intent::CancelPrompt);
-    assert_eq!(app.screens().dialogs.prompt, None);
+    rename(&mut app, None);
+    let request = asked(&open_prompt(&mut app));
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
+    );
+    assert_eq!(title(&app), None);
     answer(&mut app, request, Some("Late"));
-    assert_eq!(app.screens().dialogs.prompt, None);
+    assert_eq!(title(&app), None);
 }
 
 #[test]
 fn a_submit_renames_the_thread_with_the_trimmed_name() {
     let mut app = ready();
     rename(&mut app, None);
-    let fx = dialog(
-        &mut app,
-        dialogs::Intent::Submit("  Fresh name \n".to_owned()),
-    );
-    assert_eq!(app.screens().dialogs.prompt, None, "the prompt closes");
+    let fx = submit(&mut app, "  Fresh name \n");
     assert_eq!(renamed_to(&fx), Some("Fresh name".to_owned()));
-    assert_eq!(app.screens().dialogs.submitted, None, "carried out once");
 }
 
 #[test]
 fn an_empty_name_is_the_error_line_and_renames_nothing() {
     let mut app = ready();
     rename(&mut app, None);
-    let fx = dialog(&mut app, dialogs::Intent::Submit("   ".to_owned()));
+    let fx = submit(&mut app, "   ");
     assert_eq!(renamed_to(&fx), None);
     assert_eq!(notices(&app), [RenameNote::NameEmpty]);
 }
@@ -243,7 +278,7 @@ fn a_side_conversation_cannot_be_renamed() {
         AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(flags))),
     );
     let fx = rename(&mut app, None);
-    assert_eq!(app.screens().dialogs.prompt, None);
+    assert_eq!(wishes(&app), []);
     assert!(
         fx.commands()
             .iter()
@@ -262,7 +297,7 @@ fn a_rename_with_a_name_still_renames_directly() {
     let mut app = ready();
     let fx = rename(&mut app, Some("Direct"));
     assert_eq!(renamed_to(&fx), Some("Direct".to_owned()));
-    assert_eq!(app.screens().dialogs.prompt, None);
+    assert_eq!(wishes(&app), []);
 }
 
 /// The ticket of the thread's `thread/name/set` in `fx`.

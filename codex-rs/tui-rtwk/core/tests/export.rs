@@ -1,21 +1,20 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! `/export` (oracle `chatwidget/transcript_export.rs`, `app/transcript_export.rs`): the
-//! destination picker's rows go to the clipboard or to the filename prompt, `/export <path>`
-//! writes at once, the Markdown is what the UI's renderer made of the thread, and the host's
-//! answers are the notes of the conversation. The words are the view's: these tests read data.
+//! `/export` (oracle `chatwidget/transcript_export.rs`, `app/transcript_export.rs`): the verb
+//! `Export { destination }` (what `/export <path>` and the UI's destination sheet say) goes to the
+//! clipboard or writes a file, the Markdown is what the UI's renderer made of the thread, and
+//! the host's answers are the notes of the conversation. The picker and the filename prompt are
+//! the UI's (`src/features/export/`). The words are the view's: these tests read data.
 
 use codex_tui_core::app::effects::{
     Ask, CopyDestination, CopyFormat, CopyStatus, Done, FEATURE_REQUEST_BIT,
 };
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, TranscriptText, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
-use codex_tui_core::features::export::{self, Note as ExportNote, Prompt as ExportPrompt};
-use codex_tui_core::features::{FeatureMenu, FeatureNote, FeaturePrompt};
+use codex_tui_core::features::export::{Destination, Intent as ExportIntent, Note as ExportNote};
+use codex_tui_core::features::{FeatureIntent, FeatureNote};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::dialogs::{self, PromptKind};
-use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
 use codex_tui_core::screens::{ScreenIntent, chat};
 use codex_tui_core::threads::{Item as Entry, Note, NoteKey, Tone};
 use pretty_assertions::assert_eq;
@@ -51,33 +50,26 @@ fn ready() -> CodexApp {
     start(CodexApp::new().with_transcript_text(TranscriptText::new(|_| Some(MARKDOWN.to_owned()))))
 }
 
-fn export_command(app: &mut CodexApp, path: Option<&str>) -> AppFx {
+fn export_command(app: &mut CodexApp, path: &str) -> AppFx {
     run(
         app,
         AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread: Some(ThreadId::new(T)),
             command: SlashCommand::Export,
             intent: SessionIntent::Export {
-                path: path.map(str::to_owned),
+                path: Some(path.to_owned()),
             },
         }))),
     )
 }
 
-/// A row of the destination picker the bare `/export` opened.
-fn pick(app: &mut CodexApp, row: &str) -> AppFx {
-    export_command(app, None);
-    assert_eq!(
-        app.screens().select.menu(),
-        Some(&Menu::Feature(FeatureMenu::Export(
-            export::Menu::Destination
-        )))
-    );
+/// What the destination sheet of the UI says: the verb, with where the Markdown goes.
+fn export_to(app: &mut CodexApp, destination: Destination) -> AppFx {
     run(
         app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Select(SelectIntent::Choose(
-            row.to_owned(),
-        )))),
+        AppEv::Intent(Intent::Feature(FeatureIntent::Export(
+            ExportIntent::Export { destination },
+        ))),
     )
 }
 
@@ -108,7 +100,7 @@ fn exports(app: &CodexApp) -> Vec<ExportNote> {
 #[test]
 fn a_path_writes_the_conversation_there() {
     let mut app = ready();
-    let fx = export_command(&mut app, Some("notes/talk.md"));
+    let fx = export_command(&mut app, "notes/talk.md");
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1);
     let (request, ask) = &asks[0];
@@ -128,9 +120,9 @@ fn a_path_writes_the_conversation_there() {
 }
 
 #[test]
-fn the_clipboard_row_copies_the_markdown_as_plain_text() {
+fn the_clipboard_destination_copies_the_markdown_as_plain_text() {
     let mut app = ready();
-    let fx = pick(&mut app, export::CLIPBOARD);
+    let fx = export_to(&mut app, Destination::Clipboard);
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(
@@ -141,30 +133,12 @@ fn the_clipboard_row_copies_the_markdown_as_plain_text() {
             destination: CopyDestination::Clipboard,
         }
     );
-    assert!(app.screens().dialogs.prompt.is_none());
 }
 
 #[test]
-fn the_file_row_opens_the_filename_prompt_and_its_submit_writes() {
+fn a_file_destination_writes_the_conversation_under_that_name() {
     let mut app = ready();
-    let fx = pick(&mut app, export::FILE);
-    assert!(asks(&fx).is_empty(), "nothing is asked before the filename");
-    let Some(prompt) = &app.screens().dialogs.prompt else {
-        panic!("no prompt: {:?}", app.screens().dialogs.prompt);
-    };
-    assert_eq!(
-        prompt.kind,
-        PromptKind::Feature(FeaturePrompt::Export(ExportPrompt::File))
-    );
-    assert_eq!(prompt.initial, "codex-session-thread-1.md");
-
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Dialogs(
-            dialogs::Intent::Submit("mine.md".to_owned()),
-        ))),
-    );
-    assert!(app.screens().dialogs.prompt.is_none());
+    let fx = export_to(&mut app, Destination::File("mine.md".to_owned()));
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1, "{asks:?}");
     let Ask::Export { path, markdown, .. } = &asks[0].1 else {
@@ -175,23 +149,13 @@ fn the_file_row_opens_the_filename_prompt_and_its_submit_writes() {
 }
 
 #[test]
-fn the_prompt_filename_has_no_thread_before_one_exists() {
-    let mut app = CodexApp::new();
-    pick(&mut app, export::FILE);
-    let Some(prompt) = &app.screens().dialogs.prompt else {
-        panic!("no prompt");
-    };
-    assert_eq!(prompt.initial, "codex-session.md");
-}
-
-#[test]
 fn a_saved_file_is_said_with_its_path_and_a_failure_with_its_reason() {
     let mut app = ready();
     for done in [
         Done::Export(Ok("/work/a.md".to_owned())),
         Done::Export(Err("could not create /work/a.md: exists".to_owned())),
     ] {
-        let request = asks(&export_command(&mut app, Some("a.md")))[0].0;
+        let request = asks(&export_command(&mut app, "a.md"))[0].0;
         run(&mut app, AppEv::Effect { request, done });
     }
     assert_eq!(
@@ -219,7 +183,7 @@ fn a_saved_file_is_said_with_its_path_and_a_failure_with_its_reason() {
 fn a_copy_says_pending_first_and_its_status_when_settled() {
     let mut app = ready();
     let answers = |app: &mut CodexApp, results: Vec<Result<CopyStatus, String>>| {
-        let request = asks(&pick(app, export::CLIPBOARD))[0].0;
+        let request = asks(&export_to(app, Destination::Clipboard))[0].0;
         for result in results {
             run(
                 app,
@@ -249,7 +213,7 @@ fn a_copy_says_pending_first_and_its_status_when_settled() {
 #[test]
 fn an_answer_after_the_last_one_of_an_ask_is_dropped() {
     let mut app = ready();
-    let request = asks(&pick(&mut app, export::CLIPBOARD))[0].0;
+    let request = asks(&export_to(&mut app, Destination::Clipboard))[0].0;
     for result in [Ok(CopyStatus::Confirmed), Ok(CopyStatus::Unconfirmed)] {
         run(
             &mut app,
@@ -281,7 +245,7 @@ fn another_requests_copy_is_not_a_note() {
 #[test]
 fn nothing_to_export_is_the_failure_line_and_no_ask() {
     let mut app = start(CodexApp::new().with_transcript_text(TranscriptText::new(|_| None)));
-    let fx = export_command(&mut app, Some("a.md"));
+    let fx = export_command(&mut app, "a.md");
     assert!(asks(&fx).is_empty());
     assert_eq!(exports(&app), vec![ExportNote::NoContent]);
 }
@@ -308,18 +272,4 @@ fn without_a_thread_the_failure_is_a_note_of_the_chat() {
         NoteKey::Feature(FeatureNote::Export(ExportNote::NoConversation))
     );
     assert_eq!(notes[0].tone, Tone::Error);
-}
-
-#[test]
-fn a_row_of_another_menu_does_nothing_here() {
-    let mut app = ready();
-    export_command(&mut app, None);
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Select(SelectIntent::Choose(
-            "plan.yes".to_owned(),
-        )))),
-    );
-    assert!(asks(&fx).is_empty());
-    assert!(app.screens().select.menu().is_some(), "the picker stays");
 }

@@ -30,7 +30,7 @@ mod strings;
 use std::rc::Rc;
 
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
-use rtwk::provider::{select, watch};
+use rtwk::provider::select;
 use rtwk::style::Span;
 use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
@@ -210,22 +210,26 @@ impl Footer {
                     usage.tokens.blended_total(),
                 )
             });
-        let states = watch::<ScreenStates, _>(cx);
-        let now = states.agents.now;
-        let chat = Rc::clone(&states);
+        let (now, status_line_enabled, warnings, chat) =
+            select::<ScreenStates, _, _>(cx, |states| {
+                (
+                    states.agents.now,
+                    states
+                        .chat
+                        .status
+                        .items
+                        .as_ref()
+                        .is_none_or(|items| !items.is_empty()),
+                    states.dialogs.retained.len(),
+                    states.chat.clone(),
+                )
+            });
         let facts = select::<ThreadModel, chat_facts::Footer, _>(cx, move |thread| {
-            chat_facts::footer(&chat.chat, thread.screen_slots())
+            chat_facts::footer(&chat, thread.screen_slots())
         });
         let goal = select::<ThreadModel, Option<GoalIndicator>, _>(cx, move |thread| {
             chat_facts::goal_indicator(thread, now)
         });
-        let status_line_enabled = states
-            .chat
-            .status
-            .items
-            .as_ref()
-            .is_none_or(|items| !items.is_empty());
-        let warnings = states.dialogs.retained.len();
         let meter = match (percent, received) {
             (Some(percent), _) => Meter::Left(percent),
             (None, true) if used > 0 => Meter::Used(used),

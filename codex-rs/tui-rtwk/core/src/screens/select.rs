@@ -77,9 +77,6 @@ pub enum Menu {
     /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
     /// settings, the editor and the confirmation of a change.
     Quick(Box<quick_dials::Menu>),
-    /// A menu of a feature slice (ADR-012); the feature turns it into rows and settles its
-    /// picks (`Feature::choose`).
-    Feature(crate::features::FeatureMenu),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -120,8 +117,6 @@ pub enum Picked {
     /// A saved preset's input, to be submitted as the user typed it (`RecallQuickDial`): the
     /// session's composer takes it.
     Recall(String),
-    /// What a feature slice's menu settled on (`Feature::picked`).
-    Feature(crate::features::FeaturePick),
 }
 
 /// A typed menu as rows: what the view turns into its list.
@@ -345,8 +340,7 @@ impl Model {
             | Menu::List(_)
             | Menu::Review(_)
             | Menu::Worktree(_)
-            | Menu::Quick(_)
-            | Menu::Feature(_) => None,
+            | Menu::Quick(_) => None,
         }
     }
 
@@ -1280,23 +1274,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     }
                     Some(Chosen::Close) => model.stack.clear(),
                     None => {}
-                }
-            }
-            Some(Menu::Feature(menu)) => {
-                use crate::features::Choice;
-                match crate::features::choose(menu, &id) {
-                    Choice::Stay => {}
-                    Choice::Dismiss => {
-                        model.stack.pop();
-                    }
-                    Choice::Pick(pick) => {
-                        model.stack.pop();
-                        model.picked.push(Picked::Feature(pick));
-                    }
-                    Choice::Replace(next) => {
-                        model.stack.pop();
-                        model.stack.push(Menu::Feature(next));
-                    }
                 }
             }
             Some(Menu::Confirm(confirm)) => {

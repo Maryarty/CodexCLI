@@ -2,7 +2,6 @@
 //! permissions menu are data in the model (`Menu`), their words are here
 //! (ADR-010). A `Menu::List` is already the generic form.
 
-use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::select::apps;
 use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Secondary, Span};
 use codex_tui_core::screens::select::models::{
@@ -19,16 +18,14 @@ use super::strings::Strings;
 const SESSION_KEY: char = 's';
 
 /// The list the menu on top of the stack is shown as; `page` is its rows when
-/// it is a menu of a typed family (`Model::page`), `features` the state a feature's menu
-/// reads its rows from.
-pub fn of(menu: &Menu, page: Option<&Page>, features: &FeatureStates, s: &Strings) -> Option<List> {
+/// it is a menu of a typed family (`Model::page`).
+pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
     Some(match (menu, page) {
         (Menu::List(list), _) => (**list).clone(),
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
         (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
         (Menu::Apps, Some(Page::Apps(page))) => apps(page, s),
         (Menu::Confirm(confirm), _) => confirmation(*confirm, s),
-        (Menu::Feature(menu), _) => crate::features::menu_list(menu, features, s),
         _ => return None,
     })
 }

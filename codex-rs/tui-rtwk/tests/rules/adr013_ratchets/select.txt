@@ -12,4 +12,4 @@ ratchet adr013_widgets_name_no_screen_half src/widgets/picker/mod.rs 2
 ratchet adr013_widgets_name_no_screen_half src/widgets/picker/pane.rs 2
 ratchet adr013_widgets_name_no_screen_half src/widgets/picker/rows.rs 1
 ratchet adr013_widgets_name_no_screen_half src/widgets/picker/side.rs 1
-ratchet adr013_no_whole_state_watch src/sheets/select/dialog.rs 3
+ratchet adr013_no_whole_state_watch src/sheets/select/dialog.rs 2

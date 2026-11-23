@@ -7,9 +7,12 @@
 //! gets a key first, so the mode's keys are read there, never by an ancestor.
 
 use rtwk::focus::KeyPress;
-use rtwk::prelude::KeyCode;
 
-use crate::pages::session::keys::{self, Action};
+use codex_tui_core::keymap::fixed;
+use codex_tui_core::keymap::{ActionId, Keymap};
+
+use crate::keymap::presses;
+use crate::pages::session::keys::Action;
 use crate::pages::session::transcript::pager;
 use crate::widgets::thread_ui::{Follow, Modes};
 
@@ -33,28 +36,29 @@ pub enum Browse {
 }
 
 /// What a key means while prompts are browsed: none when it is the composer's.
-pub fn key(press: &KeyPress) -> Option<Browse> {
-    let plain = KeyPress::code;
+pub fn key(keymap: &Keymap, press: &KeyPress) -> Option<Browse> {
+    let step = |id: ActionId, step: Browse| {
+        presses(keymap, id)
+            .into_iter()
+            .map(move |key| (key, step.clone()))
+            .collect::<Vec<_>>()
+    };
     [
-        (plain(KeyCode::Escape), Browse::Cancel),
-        (plain(KeyCode::Enter), Browse::Confirm),
-        (plain(KeyCode::Left), Browse::Older),
-        (KeyPress::char('h'), Browse::Older),
-        (plain(KeyCode::Right), Browse::Newer),
-        (KeyPress::char('l'), Browse::Newer),
+        step(fixed::DISMISS, Browse::Cancel),
+        step(fixed::ENTER, Browse::Confirm),
+        step(fixed::BROWSE_OLDER, Browse::Older),
+        vec![(KeyPress::char('h'), Browse::Older)],
+        step(fixed::BROWSE_NEWER, Browse::Newer),
+        vec![(KeyPress::char('l'), Browse::Newer)],
     ]
     .into_iter()
+    .flatten()
     .chain(
-        pager::bindings(false)
+        pager::bindings(keymap, false)
             .into_iter()
             .map(|(key, msg)| (key, Browse::Pager(msg))),
     )
-    .chain(
-        keys::defaults()
-            .into_iter()
-            .filter(|(action, _)| *action == Action::OpenTranscript)
-            .map(|(_, key)| (key, Browse::Details)),
-    )
+    .chain(step(Action::OpenTranscript.id(), Browse::Details))
     .find(|(key, _)| key == press)
     .map(|(_, step)| step)
 }

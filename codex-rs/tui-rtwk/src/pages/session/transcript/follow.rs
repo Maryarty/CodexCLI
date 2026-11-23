@@ -17,16 +17,17 @@ use rtwk::focus::KeyPress;
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
 use rtwk::layout::{Center, Column, Expanded, Flexible, MainAxisSize, Row, SizedBox};
-use rtwk::prelude::KeyCode;
 use rtwk::provider::{select, watch};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::composer::trigger;
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
+use crate::keymap::pressed_fixed;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::copy::Shown;
@@ -322,10 +323,12 @@ pub fn footer<S>(
 /// another key, or while the text before the caret opens the popup of
 /// suggestions, whose list the keys are.
 pub fn pager_key(key: &KeyPress, composer: &TextEditingController) -> Option<i8> {
-    let pages = match key.code {
-        KeyCode::PageUp => -1,
-        KeyCode::PageDown => 1,
-        _ => return None,
+    let pages = if pressed_fixed(fixed::TRANSCRIPT_PAGE_UP, key) {
+        -1
+    } else if pressed_fixed(fixed::TRANSCRIPT_PAGE_DOWN, key) {
+        1
+    } else {
+        return None;
     };
     if !key.mods.is_empty() {
         return None;

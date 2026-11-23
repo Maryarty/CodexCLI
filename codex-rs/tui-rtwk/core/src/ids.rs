@@ -83,6 +83,11 @@ impl Ticket {
     pub(crate) fn new(n: u64) -> Self {
         Self(n)
     }
+
+    /// The number the ticket was minted with (a domain counter for `ThreadModel::submit_seq`).
+    pub(crate) fn seq(self) -> u64 {
+        self.0
+    }
 }
 
 /// The one source of tickets, kept by the app.

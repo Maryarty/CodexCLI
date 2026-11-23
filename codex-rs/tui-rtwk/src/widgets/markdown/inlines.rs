@@ -26,7 +26,7 @@ use rtwk_rich::markdown::{
     resolve_references,
 };
 
-use codex_tui_core::screens::cells::local_links;
+use codex_tui_core::threads::local_links;
 
 /// `blocks` as the oracle reads them: references resolved, local links and line breaks
 /// rewritten (module doc), local file paths relative to `cwd`.

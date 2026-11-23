@@ -37,7 +37,10 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         .collect();
     for (seq, shown) in wishes {
         if let Some(shown) = shown
-            && app.core.interests().count(&shown.held_by) == 0
+            && shown
+                .held_by
+                .as_ref()
+                .is_none_or(|held_by| app.core.interests().count(held_by) == 0)
         {
             let Some(place) = app.ui.presenter.place().get() else {
                 // no home to show from yet: the wish stays queued for the next event

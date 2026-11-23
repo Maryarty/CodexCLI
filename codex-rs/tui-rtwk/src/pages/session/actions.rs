@@ -11,7 +11,6 @@ use codex_tui_core::commands::{
     DispatchCx, Notice, Open, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
     parent_owned_takes,
 };
-use codex_tui_core::features::Scope;
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
@@ -227,8 +226,8 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 }
             }
         }
-        // A bare `/rename`: the feature opens its prompt in the model, the page shows it
-        // (`session_page`'s prompt watcher).
+        // A bare `/rename`: the feature checks the thread and wishes for the name prompt, which
+        // the presenter shows.
         Outcome::Open(Open {
             command: SlashCommand::Rename,
             ..
@@ -243,6 +242,22 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     intent: SessionIntent::Rename { name: None },
                 },
             );
+        }
+        // A feature's own sheet (`/plugins`, a bare `/export`): its UI half opens it with the
+        // typed arguments (`features::OpenArgs`), the feature is told what it needs to be.
+        Outcome::Open(Open {
+            target: Target::Feature(feature),
+            ..
+        }) => {
+            record(cx);
+            clear_sent(&w.ui);
+            let args = features::OpenArgs::of(
+                feature,
+                Cwd::new(review_cwd(&states, &thread)),
+                session.active.clone(),
+            );
+            features::open(cx, args);
+            note_opened(Target::Feature(feature));
         }
         Outcome::Open(opened) => {
             record(cx);
@@ -274,18 +289,6 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 open_confirmation(cx);
                 return;
             }
-            // `/export` opens the destination picker the feature builds (`features/export`): the
-            // feature is asked, then the select sheet shows the menu it opened.
-            if let Some(intent) = feature_menu_intent(opened.command) {
-                screen(
-                    cx,
-                    chat::Intent::Session {
-                        thread: session.active.clone(),
-                        command: opened.command,
-                        intent,
-                    },
-                );
-            }
             // `/model`, `/permissions` and `/apps` fill the selection dialog
             // from the thread's facts, and the app asks the server for the rest.
             if let Some(intent) = select_intent(
@@ -302,18 +305,6 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             } else {
                 open(cx, opened.target);
             }
-        }
-        // A feature's sheet (`/plugins`): the feature is told which directory, the sheet shows
-        // what it holds.
-        Outcome::Session { command, .. } if features::opens_sheet(command) => {
-            record(cx);
-            clear_sent(&w.ui);
-            features::open_sheet(
-                cx,
-                command,
-                &Scope::Cwd(Cwd::new(review_cwd(&states, &thread))),
-            );
-            note_opened(Target::Select);
         }
         // `/vim`: modal editing is the draft's own state, toggled here and said
         // (`toggle_vim_mode_and_notify`); the composer clears with the line.
@@ -377,15 +368,6 @@ fn removal_intent(command: SlashCommand) -> Option<SessionIntent> {
     match command {
         SlashCommand::Archive => Some(SessionIntent::Archive),
         SlashCommand::Delete => Some(SessionIntent::Delete),
-        _ => None,
-    }
-}
-
-/// What the feature is asked before the select sheet shows the menu it opens (a bare `/export`:
-/// the destination picker).
-fn feature_menu_intent(command: SlashCommand) -> Option<SessionIntent> {
-    match command {
-        SlashCommand::Export => Some(SessionIntent::Export { path: None }),
         _ => None,
     }
 }
