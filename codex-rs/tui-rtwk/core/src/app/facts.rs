@@ -42,6 +42,9 @@ pub struct TuiSettings {
     /// `tui.copy_on_select_clear_selection`: a selection is let go once its copy is confirmed
     /// (default off).
     pub deselect_after_copy: bool,
+    /// `tui.vim_mode_default`: a new draft starts in Vim Insert mode (oracle `constructor`
+    /// `enable_vim_in_insert_mode`).
+    pub vim_mode_default: bool,
 }
 
 impl Default for TuiSettings {
@@ -52,6 +55,7 @@ impl Default for TuiSettings {
             rendering: Rendering::default(),
             copy_on_select: true,
             deselect_after_copy: false,
+            vim_mode_default: false,
         }
     }
 }

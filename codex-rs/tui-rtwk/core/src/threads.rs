@@ -40,7 +40,7 @@ pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
-pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Tone};
+pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
 pub use user_prompt::{Shown, UserPrompt};
@@ -3160,14 +3160,17 @@ fn steer_reply(
     }
 }
 
-/// The messages as one, joined by newlines; the local images' placeholders
-/// are numbered afresh in order (`merge_user_messages`).
+/// The messages as one, joined by newlines; the remote images of all of
+/// them in order, and the local images' placeholders numbered afresh after
+/// them (`merge_user_messages`).
 fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
     let mut merged = UserMessage::default();
+    let remote: usize = messages.iter().map(|m| m.remote_images.len()).sum();
     for (index, message) in messages.into_iter().enumerate() {
         if index > 0 {
             merged.text.push('\n');
         }
+        merged.remote_images.extend(message.remote_images);
         for mention in message.mentions {
             if !merged.mentions.contains(&mention) {
                 merged.mentions.push(mention);
@@ -3186,7 +3189,7 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
             let placeholder = &message.text[range.clone()];
             merged
                 .text
-                .push_str(&renumbered(placeholder, merged.images.len() + 1));
+                .push_str(&renumbered(placeholder, remote + merged.images.len() + 1));
             merged.images.push(LocalImage {
                 path: image.path,
                 range: start..merged.text.len(),
@@ -3283,6 +3286,34 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Messages merged into one keep every remote image in order, and the
+    /// local images' placeholders count on after them (`merge_user_messages`).
+    #[test]
+    fn merged_messages_keep_their_remote_images_and_number_local_ones_after_them() {
+        let with_image = |text: &str, remote: &[&str]| {
+            let placeholder = "[Image #1]";
+            UserMessage {
+                text: format!("{placeholder} {text}"),
+                images: vec![LocalImage {
+                    path: "/tmp/a.png".into(),
+                    range: 0..placeholder.len(),
+                }],
+                remote_images: remote.iter().map(|url| (*url).to_owned()).collect(),
+                ..UserMessage::default()
+            }
+        };
+        let merged = merge_messages(vec![
+            with_image("one", &["https://example.com/a.png"]),
+            with_image("two", &["https://example.com/b.png"]),
+        ]);
+        assert_eq!(
+            merged.remote_images,
+            ["https://example.com/a.png", "https://example.com/b.png"]
+        );
+        assert_eq!(merged.text, "[Image #3] one\n[Image #4] two");
+        assert_eq!(merged.images.len(), 2);
+    }
 
     /// Opening a task from the center must not pull its whole history over the
     /// wire (perf-open-session): the resume asks for the thread's state only;

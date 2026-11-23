@@ -426,8 +426,8 @@ pub enum Draft {
 
 impl Draft {
     /// The draft as the composer takes a message (`restore_user_message_to_composer`):
-    /// the text, and each image placeholder of the persisted prompt paired with its local
-    /// image in order. Skills, mentions, remote images and pasted-content elements are the
+    /// the text, the remote images, and each image placeholder of the persisted prompt paired
+    /// with its local image in order. Skills, mentions and pasted-content elements are the
     /// composer's to bind (Need chunk-composer): their text stays as the server stored it.
     pub fn message(&self) -> UserMessage {
         match self {
@@ -448,6 +448,7 @@ impl Draft {
                             range: element.range.clone(),
                         })
                         .collect(),
+                    remote_images: prompt.remote_images.clone(),
                     mentions: Vec::new(),
                 }
             }
