@@ -22,6 +22,7 @@ use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
+use codex_tui_core::screens::status::Ev as StatusEv;
 use codex_tui_core::screens::transcript::diff;
 
 use crate::app::UiApp;
@@ -174,6 +175,15 @@ async fn ambient(ingress: IngressTx, epoch: ConnEpoch) {
             &ingress,
             epoch,
             AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(now))),
+        );
+        // A `/status` card is made at this clock, in the local time zone.
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Screen(ScreenEv::Status(StatusEv::Clock {
+                now,
+                utc_offset_secs: chrono::Local::now().offset().local_minus_utc(),
+            })),
         );
         tokio::time::sleep(CLOCK_EVERY).await;
     }

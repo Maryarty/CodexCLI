@@ -3035,6 +3035,7 @@ mod text_contract {
             .into(),
             Item::Web(activity) => web::WebCell {
                 activity: activity.clone(),
+                detailed,
             }
             .into(),
             Item::ImageView { path, name } => viewed_image::ViewedImageCell {
@@ -3278,11 +3279,16 @@ mod text_contract {
             (true, WebAction::FindInPage { pattern: true }, "'x' in y"),
             (true, WebAction::FindInPage { pattern: false }, "y"),
         ] {
-            agrees(Item::Web(WebActivity {
-                completed,
-                action,
-                detail: detail.into(),
-            }));
+            for detailed in [false, true] {
+                agrees_in(
+                    Item::Web(WebActivity {
+                        completed,
+                        action,
+                        detail: detail.into(),
+                    }),
+                    detailed,
+                );
+            }
         }
     }
 

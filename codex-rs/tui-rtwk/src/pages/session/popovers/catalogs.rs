@@ -43,6 +43,22 @@ pub fn entries() -> Vec<DebugEntry> {
             "the composer alone, with the plugin `Sample Plugin` (skills, MCP server, app)"
         ),
         catalog!(
+            "alone_plugin_opaque",
+            "the composer alone, with the plugin `Postman` of an opaque config name"
+        ),
+        catalog!(
+            "alone_skills_default",
+            "the composer alone, with four skills and the plugin of the default `@` popup"
+        ),
+        catalog!(
+            "alone_mentions_ten",
+            "the composer alone, with ten skills of the oracle's scrolled `$` popup"
+        ),
+        catalog!(
+            "alone_mention_types",
+            "the composer alone, with a skill and an app named Google Calendar and a plugin"
+        ),
+        catalog!(
             "alone_tasks",
             "the composer alone, with two tasks the task search found"
         ),

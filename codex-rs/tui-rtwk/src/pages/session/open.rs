@@ -11,7 +11,6 @@ use rtwk::navigation::{Navigator, PageRoute};
 use codex_tui_core::commands::{Opens, Target};
 
 use crate::pages::session::backtrack;
-use crate::pages::session::cells::status;
 use crate::pages::startup::import;
 use crate::pages::{agents, resume, usage};
 use crate::sheets::{approvals, dialogs, pets, select, settings, voice};
@@ -55,7 +54,6 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
             _ => push(cx, usage::route()),
         },
         Opens::Sheet | Opens::Dialog => match target {
-            Target::Status => drop(status::open(cx)),
             Target::Select => drop(select::open(cx)),
             Target::Settings => drop(settings::open(cx)),
             Target::Dialogs => drop(dialogs::open(cx)),

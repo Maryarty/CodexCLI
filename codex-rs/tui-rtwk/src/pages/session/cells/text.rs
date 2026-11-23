@@ -165,7 +165,7 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
                 .map(Part::text)
                 .collect(),
         ),
-        Item::Web(activity) => one(web::text(activity, cells)),
+        Item::Web(activity) => Texts::Exact(web::texts(activity, cells, env.detailed)),
         Item::ImageView { path, name } => Texts::Exact(viewed_image::texts(
             name,
             path,
@@ -180,6 +180,7 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
         | Item::Patch(_)
         | Item::PlanUpdate(_)
         | Item::Collab(_)
+        | Item::Status(_)
         | Item::Decision(_)
         | Item::Review(_) => Texts::Gap(Gap::Rows),
     }

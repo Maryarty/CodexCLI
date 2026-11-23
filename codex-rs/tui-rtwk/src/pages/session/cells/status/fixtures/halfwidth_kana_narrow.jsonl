@@ -1,0 +1,4 @@
+# The /status cell: half-width kana (and their sound marks) in the model, account, thread name and collaboration mode at 42 columns.
+# Oracle: status/tests.rs:1630 status_snapshot_wraps_halfwidth_kana_in_narrow_terminal. The oracle's plan is the free text `ｶﾞﾊﾟ plan`; a plan here is the protocol's enum, so the card holds the unknown plan.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ-model","reasoning":{"effort":"none","summary":"auto"},"directory":"[[workspace]]","permissions":{"sandbox":"workspace","network":true,"approval":"on_request"},"tokens":{"input":0,"cached_input":0,"output":0,"total":0},"usage_link":true,"hour24":true,"account":{"chat_gpt":{"email":"ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ@example.com","plan":"unknown"}},"thread_name":"ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ thread","collaboration_mode":"ｶﾞﾊﾟ collaboration mode","limits":{"snapshots":[],"now":1704164645,"refreshing":false}}}
