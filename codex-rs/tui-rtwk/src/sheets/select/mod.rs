@@ -6,6 +6,7 @@
 
 mod dialog;
 mod lists;
+mod review;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;

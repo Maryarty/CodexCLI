@@ -15,9 +15,11 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::select::review::Menu as ReviewMenu;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
 
 use super::lists;
+use super::review;
 use super::strings;
 use crate::app::view::Hs;
 use crate::widgets::picker::{Event, Picker};
@@ -33,6 +35,9 @@ struct Head {
     menu: Menu,
     page: Option<Page>,
     depth: usize,
+    /// The row of the menu that opened the one above this one: Esc shows this menu with the
+    /// cursor on it.
+    cursor: Option<String>,
 }
 
 fn head(states: &ScreenStates) -> Option<Head> {
@@ -41,6 +46,7 @@ fn head(states: &ScreenStates) -> Option<Head> {
         menu: select.menu()?.clone(),
         page: select.page(),
         depth: select.stack.len(),
+        cursor: select.cursor_row().map(str::to_owned),
     })
 }
 
@@ -51,6 +57,8 @@ pub struct MenuDialogState {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Picked(Event),
+    /// What the `/review` instructions prompt answered.
+    Typed(review::Answer),
 }
 
 impl StatefulWidget for MenuDialog {
@@ -82,8 +90,15 @@ impl State for MenuDialogState {
     }
 
     fn update(&mut self, msg: Msg, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Msg::Picked(event) = msg;
         let hs = read::<Hs, _>(cx);
+        let event = match msg {
+            Msg::Picked(event) => event,
+            Msg::Typed(review::Answer::Submit(text)) => {
+                cx.emit(&hs.screen, ScreenIntent::Select(Intent::Instructions(text)));
+                return Rebuild::Yes;
+            }
+            Msg::Typed(review::Answer::Back) => Event::Cancel,
+        };
         let intent = match event {
             Event::Choose(id) => Intent::Choose(id),
             Event::Secondary(id) => Intent::Secondary(id),
@@ -108,7 +123,21 @@ impl State for MenuDialogState {
         let Some(head) = head(&watch::<ScreenStates, _>(cx)) else {
             return AnyWidget::default();
         };
-        let Some(list) = lists::of(&head.menu, head.page.as_ref(), strings::of(cx)) else {
+        // The instructions of `/review` are a text prompt, not a list.
+        if matches!(&head.menu, Menu::Review(menu) if **menu == ReviewMenu::Instructions) {
+            let prompt: AnyWidget = review::Instructions {
+                on_answer: cx.map(Msg::Typed),
+            }
+            .into();
+            return prompt.with_key(u32::try_from(head.depth).unwrap_or(0));
+        }
+        let list = match &head.menu {
+            Menu::Review(menu) => {
+                review::list(menu, head.cursor.as_deref(), review::strings::of(cx))
+            }
+            menu => lists::of(menu, head.page.as_ref(), strings::of(cx)),
+        };
+        let Some(list) = list else {
             return AnyWidget::default();
         };
         let picker = Picker {
