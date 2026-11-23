@@ -2,9 +2,9 @@
 //! `show_copy_result`): its transcript notes, the rows of its destination picker and its
 //! filename prompt. The wording is the oracle's English until the catalog has these entries.
 
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::features::export::Note;
-use codex_tui_core::screens::select::list::{Columns, Item, List};
 
 /// The row ids of the destination picker, in order (oracle: "Copy to clipboard", "Save to
 /// file").
@@ -19,7 +19,9 @@ pub fn note(note: &Note) -> String {
         Note::NoConversation => "Export failed: No active conversation to export.".to_owned(),
         Note::NoContent => "Export failed: No conversation content to export.".to_owned(),
         Note::Copy(Ok(CopyStatus::Confirmed)) => "Copied conversation to clipboard".to_owned(),
-        Note::Copy(Ok(CopyStatus::Unconfirmed)) => "Copy unconfirmed; /export saves chat".to_owned(),
+        Note::Copy(Ok(CopyStatus::Unconfirmed)) => {
+            "Copy unconfirmed; /export saves chat".to_owned()
+        }
         Note::Copy(Ok(CopyStatus::Pending(_))) => "Copying conversation…".to_owned(),
         Note::Copy(Ok(CopyStatus::Busy)) => "Copy already in progress".to_owned(),
         Note::Copy(Err(error)) => format!("Copy failed: {error}"),

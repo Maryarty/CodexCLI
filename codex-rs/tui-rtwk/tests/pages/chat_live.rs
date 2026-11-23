@@ -319,6 +319,31 @@ fn the_edit_queued_key_puts_the_newest_queued_message_back_in_the_composer() {
     assert!(screen.contains("↳ one"), "{screen}");
 }
 
+/// An edge that lands in the flush of a rebuild of the page (the turn's next delta arrives with
+/// the key) is not lost to the rebuild (`widgets/directives.rs`: the listener is a dependent of
+/// its own) and is carried out once: the composer holds the message once, not twice.
+#[test]
+fn an_edge_in_the_flush_of_a_rebuild_is_carried_out_once() {
+    let mut h = running();
+    h.t.type_text("one");
+    h.wait_for("the queue hint", |s| s.contains("tab to queue message"));
+    h.press("tab");
+    h.wait_for("the message queued", |s| s.contains("↳ one"));
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(agent_delta(FAKE_THREAD, "turn-1", "msg-1", " and more")),
+    );
+    h.press("alt+up");
+    h.wait_for("the message back in the composer", |s| {
+        !s.contains("↳ one") && s.contains("› one")
+    });
+    h.advance(300);
+    let screen = h.t.screen();
+    assert_eq!(screen.matches("› one").count(), 1, "{screen}");
+    assert!(!screen.contains("› oneone"), "{screen}");
+}
+
 /// A chat on `model` whose account read carried the Luna Reserve banner; `draft` is typed first.
 fn with_reserve(model: &str, draft: &str) -> Harness {
     let mut h = start();
@@ -599,4 +624,69 @@ fn f3_shows_the_details() {
     h.press("f3");
     h.t.type_text("abc");
     h.wait_for("the composer", |s| s.contains("abc"));
+}
+
+// ---- the plan question and other sheets (`no_modal_or_popup_active`) ----
+
+const PLAN_ITEM: &str = include_str!("../oracle/fixtures/chat_live_4/plan_item.jsonl");
+const PLAN_TITLE: &str = "Implement this plan?";
+
+/// The server notifications of the oracle's plan fixture (`chat_live_4/plan_item.jsonl`) that
+/// `wanted` takes: the settings that make the mode Plan, and the turn with its plan.
+fn plan_notes(h: &mut Harness, wanted: impl Fn(&str) -> bool) {
+    use codex_app_server_protocol::ServerNotification;
+    let events: Vec<AppEv> = PLAN_ITEM
+        .lines()
+        .filter(|line| line.starts_with('{') && wanted(line))
+        .filter_map(|line| {
+            let step: serde_json::Value = serde_json::from_str(line).expect("a json line");
+            let message = step.get("message")?.clone();
+            let note: ServerNotification = serde_json::from_value(message).expect("a notification");
+            Some(AppEv::Backend(
+                codex_tui_core::app::BackendEv::Notification(Box::new(note)),
+            ))
+        })
+        .collect();
+    h.inject(events);
+}
+
+fn plan_turn_ends(h: &mut Harness) {
+    plan_notes(h, |line| !line.contains("thread/settings/updated"));
+    h.inject([AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1"))]);
+    h.settle();
+}
+
+/// A Plan-mode turn that ends with a proposed plan while the sheet of `/permissions` is open does not
+/// open the question over it: the oracle skips it (`turn_runtime.rs`, `no_modal_or_popup_active`),
+/// and does not keep it waiting after the sheet closes.
+#[test]
+fn a_plan_that_ends_under_another_sheet_asks_nothing() {
+    let mut h = start();
+    h.wait_idle();
+    plan_notes(&mut h, |line| line.contains("thread/settings/updated"));
+    // `/permissions` is refused while a turn runs: the sheet opens first, the turn comes under it
+    h.t.type_text("/permissions");
+    h.press("enter");
+    h.wait_for("the permissions sheet", |s| {
+        s.contains("Update Model Permissions")
+    });
+    plan_turn_ends(&mut h);
+    let screen = h.t.screen();
+    assert!(!screen.contains(PLAN_TITLE), "{screen}");
+    assert!(screen.contains("Update Model Permissions"), "{screen}");
+    h.press("esc");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Update Model Permissions"), "{screen}");
+    assert!(!screen.contains(PLAN_TITLE), "{screen}");
+}
+
+/// The same turn with no sheet open asks.
+#[test]
+fn a_plan_that_ends_with_no_sheet_open_asks() {
+    let mut h = start();
+    h.wait_idle();
+    plan_notes(&mut h, |_| true);
+    h.inject([AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1"))]);
+    h.wait_for("the plan question", |s| s.contains(PLAN_TITLE));
 }

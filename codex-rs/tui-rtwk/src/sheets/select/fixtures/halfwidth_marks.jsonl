@@ -1,4 +1,3 @@
 # Two rows with halfwidth sound marks
 # Oracle data: bottom_pane/list_selection_view.rs:3237
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Halfwidth sound marks", "items": [{"name": "abｶﾞc", "description": "dakuten description"}, {"name": "aﾊﾟc", "description": "handakuten description"}], "kind": "list"}}

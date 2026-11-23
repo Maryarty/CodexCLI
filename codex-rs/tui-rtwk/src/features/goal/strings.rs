@@ -2,9 +2,9 @@
 //! its transcript notes and the rows of its two confirmations. The wording is the oracle's
 //! English until the catalog has these entries.
 
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::features::goal::{Action, CommandsHint, Failure, Note, UsageHint};
 use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
-use codex_tui_core::screens::select::list::{Columns, Item, List};
 use codex_tui_core::threads::{Goal, GoalStatus};
 use rtwk_core::unicode::grapheme_boundaries;
 
@@ -138,14 +138,8 @@ pub fn menu(question: Question, objective: &str) -> List {
             "Resume paused goal?",
             format!("Goal: {objective}"),
             [
-                (
-                    "Resume goal",
-                    "Mark it active and continue when idle",
-                ),
-                (
-                    "Leave paused",
-                    "Keep it paused; use /goal resume later",
-                ),
+                ("Resume goal", "Mark it active and continue when idle"),
+                ("Leave paused", "Keep it paused; use /goal resume later"),
             ],
             [RESUME, LEAVE],
         ),

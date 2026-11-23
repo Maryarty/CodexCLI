@@ -34,6 +34,7 @@ use rtwk::{
 use codex_tui_core::data::mention::MentionKind;
 use codex_tui_core::data::mention::{MentionType, Row as Candidate};
 use codex_tui_core::kit::mentions::files::Empty;
+use codex_tui_core::kit::mentions::row::{file_name_start, primary};
 use codex_tui_core::kit::mentions::search_mode::SearchMode;
 use codex_tui_core::kit::mentions::session::Active;
 
@@ -641,7 +642,7 @@ impl UnifiedRows {
         let widest = at
             .rows
             .iter()
-            .map(|row| measure(row.primary()))
+            .map(|row| measure(primary(row)))
             .max()
             .unwrap_or(0);
         UnifiedRows {
@@ -720,14 +721,14 @@ impl UnifiedRows {
     /// matched letters bold.
     fn primary_spans(&self, row: &Candidate, selected: bool) -> Vec<Span> {
         let look = &self.look;
-        if row.file_name_start().is_some() {
+        if file_name_start(row).is_some() {
             let own = if row.mention_type == MentionType::File {
                 look.info.clone()
             } else {
                 Style::new()
             };
             return vec![Span::styled(
-                row.primary().to_string(),
+                primary(row).to_string(),
                 self.style(selected, &own),
             )];
         }
@@ -758,7 +759,7 @@ impl UnifiedRows {
                 (row.mention_type == MentionType::Plugin)
                     .then(|| self.table.plugin_description(&row.capabilities))
             });
-        let Some(start) = row.file_name_start() else {
+        let Some(start) = file_name_start(row) else {
             return description.map(|text| vec![Span::styled(text, dim)]);
         };
         let mut spans = if start == 0 {

@@ -19,7 +19,7 @@ use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, Toggle, UserM
 use crate::app::view::Hs;
 use crate::features;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::open::{note_opened, open, open_confirmation};
+use crate::pages::session::open::{note_opened, open};
 
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
@@ -267,13 +267,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits);
                 cx.emit(&hs.screen, intent);
             }
-            // The settings dialogs are built by the model from its facts
-            // (the dialog the command names), then shown by `open`.
-            if let Some(dialog) = settings_dialog(opened.command) {
-                cx.emit(
-                    &hs.screen,
-                    ScreenIntent::Settings(codex_tui_core::screens::settings::Intent::Open(dialog)),
-                );
+            // The settings dialog is opened by the kind the command names (`features::open`):
+            // the feature builds its catalogue from its facts.
+            if opened.target == Target::Settings {
+                features::open(cx, features::OpenArgs::settings(opened.command));
             }
             // The confirmation of `/archive` and `/delete` is the model's
             // question (is a turn running?), then the select sheet shows it.
@@ -286,11 +283,34 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                         intent,
                     },
                 );
-                open_confirmation(cx);
+                // The select sheet shows the question once the model has asked for it (the presenter).
+                note_opened(Target::Select);
+                return;
+            }
+            // `/auto-review` lists the thread's denials in a sheet of its own, or says there is
+            // none (`open_auto_review_denials_popup`).
+            if opened.command == SlashCommand::AutoReview {
+                let denials = &thread.screen_slots().approvals.recent_denials;
+                if denials.is_empty() {
+                    let what = codex_tui_core::app::AutoReview::NoDenials;
+                    let thread = thread.id().clone();
+                    cx.emit(
+                        &hs.intent,
+                        codex_tui_core::app::Intent::AutoReview { thread, what },
+                    );
+                } else {
+                    drop(crate::sheets::approvals::open_auto_review(
+                        cx,
+                        thread.id().clone(),
+                        denials,
+                    ));
+                }
+                note_opened(Target::Select);
                 return;
             }
             // `/model`, `/permissions` and `/apps` fill the selection dialog
             // from the thread's facts, and the app asks the server for the rest.
+            let mut shown_by_presenter = false;
             if let Some(intent) = select_intent(
                 opened.command,
                 &states.chat.status,
@@ -298,10 +318,22 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 reserve_only(&session, &states, &thread),
                 review_cwd(&states, &thread),
             ) {
+                // `/review`, `/apps`, `/permissions` and `/model` are sheets of their own: the model
+                // asks for them and the presenter shows them (a `/model` the provider blocks shows
+                // nothing: a note).
+                shown_by_presenter = matches!(
+                    intent,
+                    codex_tui_core::screens::select::Intent::OpenReview { .. }
+                        | codex_tui_core::screens::select::Intent::OpenApps { .. }
+                        | codex_tui_core::screens::select::Intent::OpenPermissions(_)
+                        | codex_tui_core::screens::select::Intent::OpenModels(_)
+                );
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
+            } else if shown_by_presenter {
+                note_opened(opened.target);
             } else {
                 open(cx, opened.target);
             }
@@ -432,17 +464,6 @@ fn select_intent(
         )),
         SlashCommand::Apps => Some(Intent::OpenApps { enabled: apps }),
         SlashCommand::Review => Some(Intent::OpenReview { cwd }),
-        _ => None,
-    }
-}
-
-/// The settings dialog a slash command opens, when the model builds it
-/// (the others open their slot empty until their sheet lands).
-fn settings_dialog(command: SlashCommand) -> Option<codex_tui_core::screens::settings::Dialog> {
-    use codex_tui_core::screens::settings::Dialog;
-    match command {
-        SlashCommand::Theme => Some(Dialog::Theme),
-        SlashCommand::Memories => Some(Dialog::Memories),
         _ => None,
     }
 }

@@ -28,7 +28,9 @@ fn the_continue_key_starts_a_new_chat_that_names_the_saved_one() {
     assert_eq!(s.commands_named("StartThread").len(), 2, "{}", s.text());
     s.assert_absent("start fresh");
     s.assert_no_turn();
-    // the new chat's composer holds the words that point at the saved one
+    // the new chat's composer holds the words that point at the saved one: the thread is started
+    // by the backend's answer, the words come once the page has it
+    s.wait_for("let’s continue where we left off");
     s.assert_contains("let’s continue where we left off");
 }
 

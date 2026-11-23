@@ -1,4 +1,3 @@
 # The three models under Select Model and Effort
 # Oracle data: bottom_pane/list_selection_view.rs:3163
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Select Model and Effort", "items": [{"name": "gpt-5.1-codex", "description": "Optimized for Codex. Balance of reasoning quality and coding ability.", "current": true}, {"name": "gpt-5.1-codex-mini", "description": "Optimized for Codex. Cheaper, faster, but less capable."}, {"name": "gpt-4.1-codex", "description": "Legacy model. Use when you need compatibility with older automations."}], "kind": "list"}}

@@ -1,4 +1,3 @@
 # The apps list while it loads: one disabled row
 # Oracle data: chatwidget/snapshots/codex_tui__chatwidget__tests__apps_popup_loading_state.snap
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Apps", "subtitle": "Loading installed and available apps...", "footer_hint": "enter select · esc back", "items": [{"name": "Loading apps...", "description": "This updates when the full list is ready", "disabled": true}], "kind": "list"}}

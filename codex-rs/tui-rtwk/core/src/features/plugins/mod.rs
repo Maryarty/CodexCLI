@@ -16,6 +16,7 @@ mod wire;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
+use crate::commands::SlashCommand;
 use crate::app::effects::Done;
 use crate::ids::{Cwd, ThreadId};
 use crate::rpc::RpcError;
@@ -31,6 +32,10 @@ pub use wire::{AuthApp, Found, Want, Wanted, add_source, decode, wire_request};
 
 /// The marker of the feature (`feature_list!`).
 pub struct Plugins;
+
+/// What `/plugins` names (`FeatureTarget`): the feature's own sheet, opened by its UI half.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sheet;
 
 /// What the user or a surface asks of the feature: verbs, with ids (a directory, a plugin's row).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -165,9 +170,11 @@ impl Say {
 
 impl Feature for Plugins {
     const NAME: &'static str = "plugins";
+    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Plugins, Sheet));
 
     type State = State;
     type ThreadPart = ();
+    type Target = Sheet;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
     type Command = Wanted;

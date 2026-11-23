@@ -1,0 +1,5 @@
+# The experimental features with one server feature on that is off by default
+# Oracle data: bottom_pane/experimental_features_view_tests.rs:206
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"experimental","features":[],"loading":true}}
+{"step":"fact","feature":"settings","fact":{"kind":"features_discovered","features":[{"key":"network_proxy","name":"Server network_proxy","description":"Description supplied by the server.","enabled":true}]}}

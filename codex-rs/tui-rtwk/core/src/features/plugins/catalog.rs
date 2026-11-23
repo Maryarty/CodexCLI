@@ -974,15 +974,18 @@ impl RowKey {
 
     /// The row a picker item id names (`Display` is its inverse); none for an id of another kind
     /// of item (`Add marketplace`).
+    /// The market's byte length leads (`plugin:<len>|<market><plugin>`), so a `|` in either name
+    /// cannot move the split.
     pub fn parse(id: &str) -> Option<Self> {
-        let (market, plugin) = id.strip_prefix("plugin:")?.rsplit_once('|')?;
+        let (len, rest) = id.strip_prefix("plugin:")?.split_once('|')?;
+        let (market, plugin) = rest.split_at_checked(len.parse().ok()?)?;
         Some(Self::new(market, plugin))
     }
 }
 
 impl fmt::Display for RowKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "plugin:{}|{}", self.market, self.plugin)
+        write!(f, "plugin:{}|{}{}", self.market.len(), self.market, self.plugin)
     }
 }
 

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
-use crate::screens::select::{Confirm, Menu, Picked};
+use crate::screens::select::{Confirm, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
 };
@@ -327,10 +327,8 @@ pub(super) fn session_intent(
         // `/export <path>` (written there): `features/export`. A bare `/export` is the
         // feature's own sheet (`Target::Feature`), whose answer is the same verb.
         S::Export { path } => {
-            if let Some(path) = path {
-                let intent = crate::features::export::Intent::Command { path };
-                super::features::intent(app, intent.into(), fx);
-            }
+            let intent = crate::features::export::Intent::Command { path };
+            super::features::intent(app, intent.into(), fx);
         }
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).
         S::Goal { args } => {
@@ -346,10 +344,22 @@ pub(super) fn session_intent(
         }
         // `/vim`: modal editing of the draft is UI state (the page toggles it and says so).
         S::Vim => {}
+        // `/worktree`: the sheet of the worktree pickers (`show_managed_worktree_picker`), over
+        // the thread's working directory. A local Git repository is what the host knows (the
+        // flag that lists the command stands for it until the host says).
+        S::Worktree => {
+            let cwd = working_directory(app, source.as_ref());
+            let available = app.screens.chat.flags.worktrees_enabled;
+            let open = crate::screens::select::Intent::OpenWorktrees {
+                available,
+                cwd,
+                thread: source,
+            };
+            super::select::intent(app, open, fx);
+        }
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
-        | S::Worktree
         | S::Side { .. }
         | S::Copy
         | S::Tui
@@ -540,7 +550,7 @@ fn ask_removal(
     };
     select::apply_intent(
         &mut Rc::make_mut(&mut app.screens).select,
-        select::Intent::Open(Menu::Confirm(confirm)),
+        select::Intent::Confirm(confirm),
         fx,
     );
 }

@@ -823,8 +823,8 @@ fn the_sheet_holds_no_window_cursor_or_tab_of_its_own() {
             include_str!("../../src/widgets/picker/rows.rs"),
         ),
         (
-            "core/src/screens/select/list.rs",
-            include_str!("../../core/src/screens/select/list.rs"),
+            "src/widgets/picker/list.rs",
+            include_str!("../../src/widgets/picker/list.rs"),
         ),
     ];
     // `Browse` and `List` take a tab as a parameter (a pure function of it):

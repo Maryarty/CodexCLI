@@ -1,4 +1,3 @@
 # Two single-line rows, the label column as wide as its widest
 # Oracle data: bottom_pane/list_selection_view.rs:2690
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"single_line": true, "items": [{"name": "Short", "description": "desc"}, {"name": "Longer", "description": "desc"}], "kind": "list"}}

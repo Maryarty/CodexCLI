@@ -19,7 +19,7 @@ use std::rc::Rc;
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::{Keys, Strings};
 use crate::app::theme::Tokens;
-use crate::keymap::{label, stroke_label};
+use crate::keymap::{label, stroke_for, stroke_label};
 use codex_tui_core::keymap::{Keymap, Stroke};
 
 /// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`: `ShortcutView`):
@@ -155,10 +155,13 @@ pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool) -> Vec<Resolv
                 .filter_map(|entry| {
                     let keys = match entry.keys {
                         Keys::Plain(text) => text.to_string(),
-                        Keys::Chord(stroke) => spell(&stroke),
-                        Keys::Pair(a, b) => {
-                            format!("{}{}{}", spell(&a), s.shortcut_either, spell(&b))
-                        }
+                        Keys::Fixed(id) => spell(&stroke_for(id)?),
+                        Keys::FixedPair(a, b) => format!(
+                            "{}{}{}",
+                            spell(&stroke_for(a)?),
+                            s.shortcut_either,
+                            spell(&stroke_for(b)?)
+                        ),
                         Keys::Bound(id) => label(keymap, id)?,
                     };
                     let action = match (running, entry.running) {

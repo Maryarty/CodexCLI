@@ -149,6 +149,7 @@ fn the_ratchet_file_is_well_formed() {
         "adr006_keycode_only_in_keymap",
         "adr013_kit_names_no_screen",
         "adr013_data_names_only_ids",
+        "adr013_store_written_only_by_apply",
     ];
     let mut bad = Vec::new();
     for line in ratchet_file().lines() {
@@ -790,17 +791,20 @@ fn adr013_kit_is_not_app_state() {
     );
 }
 
-/// A kit file names no `screens::` or `features::` path, and re-exports none (`pub use crate::screens`
-/// is the same two tokens): the kit depends on `core::data` and `core::ids`, never on a screen
-/// that depends on it (full §2, layer table).
+/// A kit file names a `crate::` path of `kit`, `data` or `ids` only (an allowlist, like
+/// `data_names_others`): the kit depends on std, protocol types, `core::data` and `core::ids`, never on a
+/// screen, a feature, the commands or the threads that depend on it (full §2, layer table). A bare
+/// `screens::`/`features::` (a re-export through an alias) is the same hit.
 fn kit_names_screens(files: &Files) -> Vec<String> {
     hits_by_file(
         files,
         |name| name.starts_with("core/src/kit/"),
         |tokens, i| {
-            matches!(at(tokens, i), "screens" | "features")
-                && starts(tokens, i + 1, &[":", ":"])
-                && at(tokens, i.wrapping_sub(1)) != "."
+            (starts(tokens, i, &["crate", ":", ":"])
+                && !matches!(at(tokens, i + 3), "kit" | "data" | "ids"))
+                || (matches!(at(tokens, i), "screens" | "features")
+                    && starts(tokens, i + 1, &[":", ":"])
+                    && !matches!(at(tokens, i.wrapping_sub(1)), "." | ":"))
         },
     )
 }
@@ -809,7 +813,7 @@ fn kit_names_screens(files: &Files) -> Vec<String> {
 fn adr013_kit_names_no_screen() {
     check(
         "adr013_kit_names_no_screen",
-        "core::kit names no screen or feature: the values it reads are core::data, so the screens use the kit and not the other way round",
+        "core::kit names no module of core but kit, data and ids: the values it reads are core::data, so the screens use the kit and not the other way round",
         &kit_names_screens(&sources_of("core/src")),
     );
 }
@@ -834,13 +838,68 @@ fn adr013_data_names_only_ids() {
     );
 }
 
+/// The history `Store` is written by `apply` only (`popovers::Ev::History*`): its writers are `pub`
+/// for `core/tests`, so the UI and the host must never call them nor build a store of their own
+/// (`Shared<Store>` is the app's; the UI reads it through `&Store`).
+fn store_written_in_ui(files: &Files) -> Vec<String> {
+    hits_by_file(
+        files,
+        |name| name.starts_with("src/") || name.starts_with("host/src/"),
+        |tokens, i| {
+            (at(tokens, i) == "."
+                && matches!(
+                    at(tokens, i + 1),
+                    "set_metadata" | "on_entry" | "on_batch" | "on_batch_error"
+                )
+                && at(tokens, i + 2) == "(")
+                || (at(tokens, i) == "Store"
+                    && starts(tokens, i + 1, &[":", ":"])
+                    && matches!(at(tokens, i + 3), "new" | "seeded"))
+        },
+    )
+}
+
+#[test]
+fn adr013_store_written_only_by_apply() {
+    let mut files = sources_of("src");
+    files.extend(sources_of("host/src"));
+    check(
+        "adr013_store_written_only_by_apply",
+        "the history Store changes only through apply (popovers::Ev::History*): its pub writers are for core/tests, the UI and the host read it through &Store",
+        &store_written_in_ui(&files),
+    );
+}
+
+#[test]
+fn the_store_scan_bites() {
+    let files = vec![
+        (
+            "src/widgets/composer_draft.rs".to_owned(),
+            "store.on_entry(1, 0, None);\nlet s = Store::seeded(v);\nlet t = history::Store::new();\nstore.set_metadata(1, 2);\n// store.on_batch(\nlet ok = Store::default();\nfn on_entry() {}\n".to_owned(),
+        ),
+        (
+            "core/src/screens/popovers.rs".to_owned(),
+            "model.history.on_entry(1, 0, t);\n".to_owned(),
+        ),
+    ];
+    assert_eq!(
+        store_written_in_ui(&files),
+        [
+            "src/widgets/composer_draft.rs",
+            "src/widgets/composer_draft.rs",
+            "src/widgets/composer_draft.rs",
+            "src/widgets/composer_draft.rs"
+        ]
+    );
+}
+
 #[test]
 fn the_kit_and_data_scans_bite() {
     let file = |name: &str, text: &str| (name.to_owned(), text.to_owned());
     let files = vec![
         file(
             "core/src/kit/mentions/popup.rs",
-            "use crate::screens::composer::Row;\npub use crate::features::x::Y;\n// screens::z\nlet n = a.screens::b;\n",
+            "use crate::screens::composer::Row;\npub use crate::features::x::Y;\n// screens::z\nlet n = a.screens::b;\nuse crate::commands::fuzzy_match;\nuse crate::kit::fuzzy::f;\nuse crate::ids::ThreadId;\nuse screens::q;\n",
         ),
         file("core/src/kit/vim.rs", "use crate::data::mention::Row;\n"),
         file(
@@ -855,6 +914,8 @@ fn the_kit_and_data_scans_bite() {
     assert_eq!(
         kit_names_screens(&files),
         [
+            "core/src/kit/mentions/popup.rs",
+            "core/src/kit/mentions/popup.rs",
             "core/src/kit/mentions/popup.rs",
             "core/src/kit/mentions/popup.rs"
         ]
@@ -1242,19 +1303,30 @@ fn the_interest_scan_bites() {
 }
 
 /// A `Directive` (the domain tells a controller what to do: restore a draft, put text) is read by the
-/// one listener (full §4.6): `Directive<..>` and `.restore()` (the thread's pending restore, no
-/// arguments) stand only in `src/widgets/directives.rs`. The markdown `Directive` of the citations is not
-/// generic, and `restore(&text)` of the citations and the search preview is another verb.
+/// one listener (full §4.6): `Directive<..>`, `.restore()` (the thread's pending restore, no
+/// arguments) and `submit_seq` stand only in `src/widgets/directives.rs`, and so does the number a
+/// one-shot is counted by (`prompt.seq`, `Restore::seq`): a page or a sheet that read one would be a
+/// second listener, carrying the one-shot out twice or losing it to a rebuild. The markdown
+/// `Directive` of the citations is not generic, `restore(&text)` of the citations and the search
+/// preview is another verb, and the `seq` of the presenters' wishes and of the composer's elements
+/// are other counters (outside pages and sheets).
 fn directives_read_elsewhere(files: &Files) -> Vec<String> {
-    hits_by_file(
+    let mut found = hits_by_file(
         files,
         |name| in_ui_sources(name) && name != "src/widgets/directives.rs",
         |tokens, i| {
             (at(tokens, i) == "Directive" && at(tokens, i + 1) == "<")
                 || (starts(tokens, i, &["restore", "(", ")"])
                     && at(tokens, i.wrapping_sub(1)) == ".")
+                || at(tokens, i) == "submit_seq"
         },
-    )
+    );
+    found.extend(hits_by_file(
+        files,
+        |name| name.starts_with("src/pages/") || name.starts_with("src/sheets/"),
+        |tokens, i| at(tokens, i) == "seq" && matches!(at(tokens, i.wrapping_sub(1)), "." | ":"),
+    ));
+    found
 }
 
 #[test]
@@ -1274,16 +1346,33 @@ fn the_directive_scan_bites() {
             "let seq = thread.restore().map(Restore::seq);\nlet d: Option<Directive<Restore>> = None;\nfn restore() {}\nrestore(x);\nself.restore(c, &snapshot);\nlet t = directives.restore(&title);\nenum Directive { Citation }\n".to_owned(),
         ),
         (
+            "src/pages/session/live/plan_mode.rs".to_owned(),
+            "let seq = thread.screen_slots().chat.plan.prompt().map(|prompt| prompt.seq);\nlet n = thread.submit_seq();\nlet seq = 3; // prompt.seq\n".to_owned(),
+        ),
+        (
             "src/widgets/directives.rs".to_owned(),
-            "fn r(d: Directive<Restore>) { d.restore() }\n".to_owned(),
+            "fn r(d: Directive<Restore>) { d.restore() }\nlet n = prompt.seq + thread.submit_seq();\n".to_owned(),
+        ),
+        (
+            "src/app/presenters/mod.rs".to_owned(),
+            "let fresh = wish.seq > taken;\n".to_owned(),
+        ),
+        (
+            "src/widgets/composer_draft.rs".to_owned(),
+            "elements.sort_by_key(|e| e.seq);\n".to_owned(),
         ),
     ];
-    // `.restore(` and `Directive<`, twice; the declaration `fn restore(` and the citations' enum are not
+    // `.restore(` and `Directive<` and the `seq` of `Restore::seq`, in a page (three); `.seq` and
+    // `submit_seq` in a page (two more); the declaration `fn restore(`, the citations' enum, a local
+    // named `seq`, a comment, the listener itself and the other counters' `seq` are not
     assert_eq!(
         directives_read_elsewhere(&files),
         [
             "src/pages/session/session_page.rs",
-            "src/pages/session/session_page.rs"
+            "src/pages/session/session_page.rs",
+            "src/pages/session/live/plan_mode.rs",
+            "src/pages/session/session_page.rs",
+            "src/pages/session/live/plan_mode.rs",
         ]
     );
 }
@@ -1535,7 +1624,7 @@ fn the_eq_scan_bites() {
 
 // ---- 14. adr006_keycode_only_in_keymap ----
 
-/// A `KeyCode::` in a page, a sheet or the app is a key the user cannot rebind (ADR-006): keys are
+/// A `KeyCode::` or a keymap `Key::` variant in a page, a sheet or the app is a key the user cannot rebind (ADR-006): keys are
 /// read through `Shortcuts` and `Actions` of the resolved keymap, `KeyCode` stays in `src/keymap/` and
 /// in the primitives of `src/widgets/` (the picker, the key guard, the page keys).
 fn keycode_outside_keymap(files: &Files) -> Vec<String> {
@@ -1548,10 +1637,40 @@ fn keycode_outside_keymap(files: &Files) -> Vec<String> {
         },
         |tokens, i| {
             starts(tokens, i, &["KeyCode", ":", ":"])
+                // the keymap's own `Key` (`Key::Tab`, `Key::Char('r')`): a stroke spelled in a page is
+                // a key the user cannot rebind either, a hardwired one is a named action of
+                // `core::keymap::fixed` (`Key::value`, a widget key, is another type)
+                || (starts(tokens, i, &["Key", ":", ":"])
+                    && matches!(
+                        at(tokens, i + 3),
+                        "Char"
+                            | "F"
+                            | "Enter"
+                            | "Tab"
+                            | "BackTab"
+                            | "Backspace"
+                            | "Esc"
+                            | "Delete"
+                            | "Insert"
+                            | "Up"
+                            | "Down"
+                            | "Left"
+                            | "Right"
+                            | "Home"
+                            | "End"
+                            | "PageUp"
+                            | "PageDown"
+                    )
+                    && at(tokens, i.wrapping_sub(1)) != ":")
                 // the copy of `KeyCode` the pages used to name keys by (`Fixed::Enter`,
                 // `key.fixed()`): a hardwired key is a named action of `core::keymap::fixed`
                 || starts(tokens, i, &["Fixed", ":", ":"])
                 || starts(tokens, i, &[".", "fixed", "(", ")"])
+                // a press written out (`KeyPress::char('h')`, `KeyPress::ESC`) and a key read from the
+                // text it typed (`key.text() == Some("?")`): a hardwired key is a named action of
+                // `core::keymap::fixed`, whose presses `src/keymap` builds
+                || starts(tokens, i, &["KeyPress", ":", ":"])
+                || starts(tokens, i, &[".", "text", "(", ")", "=", "=", "Some"])
         },
     )
 }
@@ -1570,7 +1689,7 @@ fn the_keycode_scan_bites() {
     let files = vec![
         (
             "src/pages/agents/dialogs.rs".to_owned(),
-            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\n"
+            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\nlet s = Stroke::new(Key::Char('r'), m);\nlet w = x.with_key(Key::value(1));\n// Key::Tab\n"
                 .to_owned(),
         ),
         (
@@ -1585,6 +1704,10 @@ fn the_keycode_scan_bites() {
     assert_eq!(
         keycode_outside_keymap(&files),
         [
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",

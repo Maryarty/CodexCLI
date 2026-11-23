@@ -553,6 +553,8 @@ fn warning_pages_wrap_and_scroll_long_diagnostics() {
             "fixtures/small_dialogs_2/warnings_long_scroll.jsonl"
         ))
         .open();
+    // The oracle pushes the viewer itself; the port opens it from the footer's `f2`.
+    s.keys("f2");
     s.assert_snap("warnings_narrow");
     s.keys("pagedown");
     s.assert_absent("Long diagnostic");

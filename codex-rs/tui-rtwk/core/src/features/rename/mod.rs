@@ -59,8 +59,10 @@ pub enum ThreadIntent {
 pub enum Ctx {
     /// `thread/name/set`.
     SetName,
-    /// The title the host was asked to suggest for this thread's prompt.
-    Title(ThreadId),
+    /// The title the host was asked to suggest for this thread's prompt, by the request's
+    /// generation: the answer of a prompt that was closed and opened again belongs to the
+    /// earlier request and is dropped (`State::titles`).
+    Title(ThreadId, Gen),
 }
 
 /// What the surface is asked to show once (`Scope::Thread`): the name prompt (`Rename thread`
@@ -86,13 +88,18 @@ pub enum Interest {
 /// none when nothing came out).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
-    titles: BTreeMap<ThreadId, Remote<Option<String>>>,
+    titles: BTreeMap<ThreadId, (Gen, Remote<Option<String>>)>,
+    /// The generation of the last request made (O4: a request's answer is told by its gen).
+    asked: Gen,
 }
+
+/// Which request for a title an answer belongs to.
+pub type Gen = u64;
 
 impl State {
     /// What is known of the suggestion for `thread`'s prompt: none when it was not asked for.
     pub fn title(&self, thread: &ThreadId) -> Option<&Remote<Option<String>>> {
-        self.titles.get(thread)
+        self.titles.get(thread).map(|(_, title)| title)
     }
 }
 
@@ -156,6 +163,7 @@ impl Feature for Rename {
 
     type State = State;
     type ThreadPart = ();
+    type Target = Never<Self>;
     type Intent = Intent;
     type ThreadIntent = ThreadIntent;
     type Command = Command;
@@ -185,10 +193,11 @@ impl Feature for Rename {
     /// The generator's answer to the prompt's ask: kept for the prompt that waits for it.
     fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
         let _ = cx;
-        if let (Ctx::Title(thread), Done::Title(title)) = (ctx, done)
-            && state.titles.contains_key(&thread)
+        if let (Ctx::Title(thread, at), Done::Title(title)) = (ctx, done)
+            && let Some((current, slot)) = state.titles.get_mut(&thread)
+            && *current == at
         {
-            state.titles.insert(thread, Remote::Ready(title));
+            *slot = Remote::Ready(title);
         }
     }
 
@@ -197,12 +206,14 @@ impl Feature for Rename {
     fn on_interest(state: &mut State, interest: &Interest, open: bool, cx: &mut AppCx<'_>) {
         let Interest::Title { thread } = interest;
         if open {
-            state.titles.insert(thread.clone(), Remote::loading());
+            state.asked += 1;
+            let at = state.asked;
+            state.titles.insert(thread.clone(), (at, Remote::loading()));
             cx.effect(
                 Ask::SuggestTitle {
                     thread: thread.clone(),
                 },
-                Ctx::Title(thread.clone()),
+                Ctx::Title(thread.clone(), at),
             );
         } else {
             state.titles.remove(thread);

@@ -177,6 +177,17 @@ impl Open {
                 script::Answer::Result(response.clone()),
             );
         }
+        // The server's mode catalog (`collaborationMode/list`, read at connect): the Default and
+        // Plan presets with no model or effort of their own, so `/plan` and Shift+Tab have a Plan
+        // to switch to (the oracle's chat widget enables the collaboration modes the same way).
+        answer(
+            &mut h,
+            "collaborationMode/list".to_string(),
+            script::Answer::Result(serde_json::json!({"data": [
+                {"name": "Plan", "mode": "plan", "model": null, "reasoning_effort": null},
+                {"name": "Default", "mode": "default", "model": null, "reasoning_effort": null},
+            ]})),
+        );
         h.connect();
         self.env.deliver(&mut h);
         self.set_keymap(&mut h);
@@ -338,6 +349,12 @@ fn feed(h: &mut Harness, text: &str) {
                 Ok(ev) => h.fake.inject(epoch, AppEv::Screen(ev)),
                 Err(err) => panic!("script line {line}: screen `{dir}`: {err:?}"),
             },
+            Step::Fact { feature, fact } => {
+                match codex_tui_core::features::seed_fact(&feature, fact) {
+                    Ok(fact) => h.fake.inject(epoch, AppEv::Feature(fact)),
+                    Err(err) => panic!("script line {line}: fact `{feature}`: {err:?}"),
+                }
+            }
             Step::Notify { message } => {
                 h.fake
                     .inject(epoch, AppEv::Backend(BackendEv::Notification(message)));

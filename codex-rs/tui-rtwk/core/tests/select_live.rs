@@ -11,11 +11,13 @@ use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::{Reply, RpcError};
 use codex_tui_core::screens::select::apps::{App, Cache, Status};
-use codex_tui_core::screens::select::models::{Current as ModelCurrent, Preset};
-use codex_tui_core::screens::select::permissions::{
-    Current as PermsCurrent, Failure, PermissionsMenu, Profile,
+use codex_tui_core::screens::select::models::{
+    Answer, Current as ModelCurrent, ModelMenu, Onward, Preset,
 };
-use codex_tui_core::screens::select::{self, Intent as SelectIntent, Menu};
+use codex_tui_core::screens::select::permissions::{
+    Chosen, Current as PermsCurrent, Failure, Heading, PermissionsMenu, Phase, Profile, Recommend,
+};
+use codex_tui_core::screens::select::{self, Intent as SelectIntent, Opening};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -110,10 +112,37 @@ fn model_menu() -> PermsCurrent {
     }
 }
 
+/// The menu of the last permissions sheet the screen asked for (no presenter runs in these
+/// tests: the shows wait).
 fn permissions_menu(app: &CodexApp) -> PermissionsMenu {
-    match app.screens().select.stack.last() {
-        Some(Menu::Permissions(menu)) => (**menu).clone(),
-        other => panic!("expected a permissions menu, got {other:?}"),
+    let asked = app
+        .screens()
+        .select
+        .shows
+        .pending()
+        .filter_map(|show| match &show.opening {
+            Opening::Permissions(menu) => Some(menu.clone()),
+            _ => None,
+        })
+        .last();
+    asked.expect("a permissions sheet was asked for")
+}
+
+/// What the menu is showing over what the model holds.
+fn phase(app: &CodexApp) -> Phase {
+    permissions_menu(app).phase(&app.screens().select.profiles)
+}
+
+/// What a sheet on that menu says to the model for the row `id`.
+fn verb(app: &CodexApp, id: &str) -> SelectIntent {
+    let select = &app.screens().select;
+    match permissions_menu(app)
+        .choose(&select.profiles, id)
+        .expect("a row that can be chosen")
+    {
+        Chosen::Done(selection) => SelectIntent::SetPermissions(selection),
+        Chosen::Retry => SelectIntent::LoadProfiles,
+        Chosen::Menu(menu) => panic!("the pick asks first: {menu:?}"),
     }
 }
 
@@ -144,6 +173,8 @@ fn model_opens_and_asks_the_server_for_the_catalog() {
     let select = &app.screens().select;
     assert_eq!(select.catalog.pending, None);
     assert_eq!(select.catalog.presets.len(), 2);
+    // the loading sheet reads its answer under the request it carries
+    assert_eq!(select.catalog.answered, Some((request, Answer::Listed)));
 }
 
 /// The answer of an older ask, once the menu was opened again, is dropped:
@@ -179,12 +210,19 @@ fn a_failed_model_list_clears_the_wait() {
         &mut app,
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
-    let (ticket, _) = asked(&fx);
+    let (ticket, command) = asked(&fx);
+    let select::Command::Models { request } = command else {
+        panic!("expected model/list");
+    };
     run(
         &mut app,
         AppEv::Reply(ticket, Reply::error(RpcError::Remote("down".into()))),
     );
     assert_eq!(app.screens().select.catalog.pending, None);
+    assert_eq!(
+        app.screens().select.catalog.answered,
+        Some((request, Answer::Failed))
+    );
 }
 
 /// The full-access confirmation is the cyber one when the catalog says the
@@ -211,8 +249,9 @@ fn the_model_catalog_is_warmed_for_the_cyber_warning() {
     }))
     .expect("preset");
     answer(&mut app, models[0], select::Reply::Models(vec![cyber]));
-    assert!(
-        matches!(permissions_menu(&app), PermissionsMenu::Loading(_)),
+    assert_eq!(
+        phase(&app),
+        Phase::Loading,
         "the answer is not for a picker"
     );
     let (ticket, _) = asked(&fx);
@@ -226,11 +265,20 @@ fn the_model_catalog_is_warmed_for_the_cyber_warning() {
             next: None,
         },
     );
-    open(&mut app, SelectIntent::Choose(":danger-full-access".into()));
-    match permissions_menu(&app) {
-        PermissionsMenu::FullAccess { current, .. } => assert!(current.cyber),
-        other => panic!("expected the confirmation, got {other:?}"),
-    }
+    // the pick asks first; the confirmation reads the model catalog for its warning
+    let select = &app.screens().select;
+    let Some(Chosen::Menu(confirm)) =
+        permissions_menu(&app).choose(&select.profiles, ":danger-full-access")
+    else {
+        panic!("expected the confirmation");
+    };
+    assert!(matches!(confirm, PermissionsMenu::FullAccess { .. }));
+    assert_eq!(
+        confirm.page(&select.profiles, &select.catalog).heading,
+        Heading::FullAccess {
+            cyber: Some(Recommend::Ask)
+        }
+    );
 }
 
 /// `/permissions` reads the requirements, then page after page of the
@@ -241,10 +289,7 @@ fn permissions_read_the_requirements_then_every_page() {
     let fx = open(&mut app, SelectIntent::OpenPermissions(model_menu()));
     let (ticket, command) = asked(&fx);
     assert!(matches!(command, select::Command::Requirements { .. }));
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Loading(_)
-    ));
+    assert_eq!(phase(&app), Phase::Loading);
 
     let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
     let (ticket, command) = asked(&fx);
@@ -266,10 +311,7 @@ fn permissions_read_the_requirements_then_every_page() {
         panic!("expected the second page");
     };
     assert_eq!(cursor.as_deref(), Some("c2"));
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Loading(_)
-    ));
+    assert_eq!(phase(&app), Phase::Loading);
 
     let fx = answer(
         &mut app,
@@ -280,10 +322,7 @@ fn permissions_read_the_requirements_then_every_page() {
         },
     );
     assert!(fx.commands().is_empty());
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Profiles(_)
-    ));
+    assert_eq!(phase(&app), Phase::Listed);
     let found = app
         .screens()
         .select
@@ -320,10 +359,11 @@ fn pages_that_never_end_stop_after_ten() {
         );
     }
     assert!(fx.commands().is_empty(), "no eleventh page is asked");
-    let PermissionsMenu::Failed { failure, .. } = permissions_menu(&app) else {
-        panic!("expected the failure menu");
-    };
-    assert_eq!(failure, Failure::Pagination);
+    assert_eq!(phase(&app), Phase::Failed);
+    assert_eq!(
+        app.screens().select.profiles.failure,
+        Some(Failure::Pagination)
+    );
 }
 
 /// A failed read shows the error's own text, and `Retry` asks again.
@@ -336,20 +376,17 @@ fn a_failed_read_shows_the_error_and_retry_asks_again() {
         &mut app,
         AppEv::Reply(ticket, Reply::error(RpcError::Remote("no route".into()))),
     );
-    let PermissionsMenu::Failed { failure, .. } = permissions_menu(&app) else {
-        panic!("expected the failure menu");
-    };
-    assert_eq!(failure, Failure::Other("no route".into()));
-    let fx = open(
-        &mut app,
-        SelectIntent::Choose(select::permissions::RETRY.into()),
+    assert_eq!(phase(&app), Phase::Failed);
+    assert_eq!(
+        app.screens().select.profiles.failure,
+        Some(Failure::Other("no route".into()))
     );
+    let verb = verb(&app, select::permissions::RETRY);
+    assert_eq!(verb, SelectIntent::LoadProfiles);
+    let fx = open(&mut app, verb);
     let (_, command) = asked(&fx);
     assert!(matches!(command, select::Command::Requirements { .. }));
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Loading(_)
-    ));
+    assert_eq!(phase(&app), Phase::Loading);
 }
 
 /// The opener reads the thread's facts: the status line's model and effort
@@ -404,6 +441,27 @@ fn threaded() -> CodexApp {
     app
 }
 
+/// A final pick of a row of the quick `/model` page, as the sheet makes it: the model leads from
+/// the row to the `Onward` (`ModelMenu::choose`), the page says the pick (`Intent::Settle`).
+fn settle(app: &mut CodexApp, id: &str, session: bool) -> AppFx {
+    let menu = ModelMenu::Models(ModelCurrent::new("gpt-5.5"));
+    let Onward::Done(selection) = menu.choose(&app.screens().select.catalog, id, session) else {
+        panic!("a final pick of {id}");
+    };
+    open(app, SelectIntent::Settle(selection))
+}
+
+/// The `/model` sheets the screen asked for and nobody showed yet.
+fn model_shows(app: &CodexApp) -> Vec<select::Opening> {
+    app.screens()
+        .select
+        .shows
+        .pending()
+        .filter(|show| matches!(show.opening, select::Opening::Models(_)))
+        .map(|show| show.opening.clone())
+        .collect()
+}
+
 /// Every select command in `fx`, in order.
 fn all(fx: &AppFx) -> Vec<(Ticket, select::Command)> {
     fx.commands()
@@ -425,7 +483,7 @@ fn all(fx: &AppFx) -> Vec<(Ticket, select::Command)> {
 fn a_default_model_pick_updates_the_thread_saves_it_and_then_says_so() {
     let mut app = threaded();
     // `gpt-sol` has one effort: the pick settles at once.
-    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", false);
     assert!(app.screens().select.stack.is_empty());
     let asks = all(&fx);
     let [
@@ -462,7 +520,7 @@ fn a_default_model_pick_updates_the_thread_saves_it_and_then_says_so() {
 #[test]
 fn a_session_pick_updates_the_thread_and_writes_nothing() {
     let mut app = threaded();
-    let fx = open(&mut app, SelectIntent::Secondary("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", true);
     let asks = all(&fx);
     let [(_, select::Command::Settings { patch, .. })] = &asks[..] else {
         panic!("expected only the settings update, got {asks:?}");
@@ -478,7 +536,7 @@ fn a_session_pick_updates_the_thread_and_writes_nothing() {
 #[test]
 fn a_write_that_is_overridden_or_failed_is_reported() {
     let mut app = threaded();
-    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", false);
     let (write, _) = all(&fx).pop().expect("a write");
     answer(&mut app, write, select::Reply::Written { overridden: true });
     // The warning is for the detailed transcript only (`add_warning_message`).
@@ -488,7 +546,7 @@ fn a_write_that_is_overridden_or_failed_is_reported() {
     ));
     assert!(!select::Note::Overridden(select::Setting::Model).in_transcript());
     let mut app = threaded();
-    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", false);
     let (write, _) = all(&fx).pop().expect("a write");
     run(
         &mut app,
@@ -514,7 +572,8 @@ fn a_permission_pick_updates_the_thread_and_says_so() {
         &mut app,
         SelectIntent::OpenPermissions(PermsCurrent::default()),
     );
-    let fx = open(&mut app, SelectIntent::Choose(":workspace".into()));
+    let verb = verb(&app, ":workspace");
+    let fx = open(&mut app, verb);
     let asks = all(&fx);
     let [(_, select::Command::Settings { thread, patch })] = &asks[..] else {
         panic!("expected one settings update, got {asks:?}");
@@ -556,7 +615,8 @@ fn a_catalog_pick_is_said_after_the_server_took_it() {
                 next: None,
             },
         );
-        let fx = open(&mut app, SelectIntent::Choose(":workspace".into()));
+        let verb = verb(&app, ":workspace");
+        let fx = open(&mut app, verb);
         let asks = all(&fx);
         assert_eq!(asks.len(), expected, "{asks:?}");
         assert!(said(&app).is_empty(), "nothing before the answer");
@@ -585,6 +645,18 @@ fn apps_cache(app: &CodexApp) -> Cache {
     app.screens().select.apps.cache.clone()
 }
 
+/// The sheets the screen asked for and nobody has shown, oldest first, the `/model` ones apart
+/// (`threaded` opened that family to fill the catalog and nobody showed it: `model_shows`).
+fn shows(app: &CodexApp) -> Vec<select::Opening> {
+    app.screens()
+        .select
+        .shows
+        .pending()
+        .filter(|show| !matches!(show.opening, select::Opening::Models(_)))
+        .map(|show| show.opening.clone())
+        .collect()
+}
+
 fn apps_command(fx: &AppFx) -> (Ticket, u64, bool, Option<String>) {
     match asked(fx) {
         (
@@ -599,8 +671,8 @@ fn apps_command(fx: &AppFx) -> (Ticket, u64, bool, Option<String>) {
     }
 }
 
-/// `/apps` opens the loading menu and asks `app/list` forced for the
-/// displayed thread; the answer fills it in place.
+/// `/apps` asks for its sheet (which reads the directory as a fact: loading) and asks `app/list`
+/// forced for the displayed thread; the answer fills the directory in place.
 #[test]
 fn apps_open_loading_then_show_the_directory() {
     let mut app = threaded();
@@ -608,16 +680,20 @@ fn apps_open_loading_then_show_the_directory() {
     let (ticket, _, force, thread) = apps_command(&fx);
     assert!(force);
     assert_eq!(thread.as_deref(), Some("thread-1"));
-    assert_eq!(app.screens().select.menu(), Some(&Menu::Apps));
+    assert_eq!(shows(&app), vec![select::Opening::Apps]);
     assert_eq!(apps_cache(&app), Cache::Loading);
+    assert_eq!(
+        app.screens().select.apps.page(),
+        select::apps::Page::Loading
+    );
     answer(
         &mut app,
         ticket,
         select::Reply::Apps(vec![app_of("notion", true, true, true)]),
     );
-    let Some(select::Page::Apps(select::apps::Page::Apps {
+    let select::apps::Page::Apps {
         installed, total, ..
-    })) = app.screens().select.page()
+    } = app.screens().select.apps.page()
     else {
         panic!("expected the directory page");
     };
@@ -717,22 +793,21 @@ fn app_failed(app: &mut CodexApp, ticket: Ticket) {
 }
 
 /// Disabled apps say so; a ready empty directory, a failed one and the
-/// feature off are notes, and no menu opens.
+/// feature off are notes, and no sheet is asked for.
 #[test]
 fn apps_that_cannot_open_say_why() {
     let mut app = threaded();
-    open(&mut app, SelectIntent::Close);
     open(&mut app, SelectIntent::OpenApps { enabled: false });
     assert_eq!(said(&app), vec![select::Note::AppsDisabled]);
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(shows(&app), vec![]);
 
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
     let (ticket, ..) = apps_command(&fx);
     answer(&mut app, ticket, select::Reply::Apps(vec![]));
-    open(&mut app, SelectIntent::Close);
+    assert_eq!(shows(&app).len(), 1, "the first /apps asked for its sheet");
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
     assert_eq!(said(&app).last(), Some(&select::Note::NoApps));
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(shows(&app).len(), 1, "an empty directory asks for none");
     // Still asked for again, forced: the cache is ready.
     assert!(apps_command(&fx).2);
 }
@@ -753,14 +828,9 @@ fn a_failed_apps_read_offers_retry_and_a_ready_directory_survives_failure() {
         ),
     );
     assert!(matches!(apps_cache(&app), Cache::Failed(_)));
-    assert!(matches!(
-        app.screens().select.page(),
-        Some(select::Page::Apps(select::apps::Page::Failed))
-    ));
-    let fx = open(
-        &mut app,
-        SelectIntent::Choose(select::apps::RETRY.to_string()),
-    );
+    assert_eq!(app.screens().select.apps.page(), select::apps::Page::Failed);
+    // the Retry row of the sheet says the verb: the directory is read again
+    let fx = open(&mut app, SelectIntent::RefreshApps);
     let (ticket, _, force, _) = apps_command(&fx);
     assert!(force);
     assert_eq!(apps_cache(&app), Cache::Loading);
@@ -813,7 +883,7 @@ fn a_refresh_in_flight_queues_the_forced_one() {
     );
 }
 
-/// Picking an app without a link says so and opens nothing.
+/// An app without a page says so (the sheet decides from `App::link`, the model has the words).
 #[test]
 fn picking_an_app_with_no_page_says_so() {
     let mut app = threaded();
@@ -827,19 +897,23 @@ fn picking_an_app_with_no_page_says_so() {
             app_of("b", false, true, false),
         ]),
     );
-    open(&mut app, SelectIntent::Choose("b".into()));
+    let directory = &app.screens().select.apps;
+    assert!(directory.app("a").and_then(App::link).is_some());
+    assert!(directory.app("b").and_then(App::link).is_none());
+    open(&mut app, SelectIntent::AppUnlinked("b".into()));
     assert_eq!(
         said(&app),
         vec![select::Note::AppLinkUnavailable(Status::Installable)]
     );
 }
 
-/// Picking an app with a page opens its link dialog in place of the directory; the dialog's
-/// actions open the page in the browser, switch the app (shown at once, written to the config,
-/// said when refused), read the directory again after an install, and close with the menu.
+/// The link dialog is the sheet's (it copies the page of the app picked); what its actions ask of
+/// the app are verbs: open the page in the browser, switch the app (written to the config, said
+/// when refused, the directory only following a saved write), read the directory again after an
+/// install.
 #[test]
-fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
-    use codex_tui_core::screens::select::apps::{LINK_INSTALLED, LINK_OPEN, Link};
+fn an_app_link_dialog_asks_the_app_to_open_the_page_switch_and_read_again() {
+    use codex_tui_core::screens::select::apps::Link;
     let mut app = threaded();
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
     let (ticket, ..) = apps_command(&fx);
@@ -848,13 +922,11 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
         ticket,
         select::Reply::Apps(vec![
             app_of("a", true, true, true),
-            app_of("b", false, true, true),
+            app_of("b", false, true, false),
         ]),
     );
-    let link = |app: &CodexApp| app.screens().select.apps.link.clone();
-    open(&mut app, SelectIntent::Choose("a".into()));
     assert_eq!(
-        link(&app),
+        app.screens().select.apps.app("a").and_then(App::link),
         Some(Link {
             id: "a".into(),
             name: "A".into(),
@@ -864,26 +936,19 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
             enabled: true,
         })
     );
-    assert_eq!(
-        app.screens().select.menu(),
-        Some(&Menu::Apps),
-        "it is shown over the directory"
-    );
-    assert_eq!(
-        app.screens().select.picked.last(),
-        Some(&select::Picked::App("a".into()))
-    );
 
-    // the page opens in the browser; the dialog stays
-    let fx = open(&mut app, SelectIntent::Choose(LINK_OPEN.into()));
+    // the page opens in the browser; an app with no page opens nothing
+    let fx = open(&mut app, SelectIntent::OpenAppPage("a".into()));
     assert!(
         matches!(fx.commands(), [Command::OpenUrl { url, .. }] if url == "https://x/a"),
         "{:?}",
         fx.commands()
     );
-    assert!(link(&app).is_some());
+    let fx = open(&mut app, SelectIntent::OpenAppPage("b".into()));
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
 
-    // the switch shows at once and is written; a refused write is said, the dialog keeps it
+    // the switch is written; a refused write is said and leaves the directory as it was (the
+    // dialog keeps the switch it shows: it is the sheet's copy)
     let fx = open(
         &mut app,
         SelectIntent::SetApp {
@@ -891,10 +956,12 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
             enabled: false,
         },
     );
-    assert_eq!(link(&app).map(|link| link.enabled), Some(false));
     let (ticket, _) = asked(&fx);
     app_failed(&mut app, ticket);
-    assert_eq!(link(&app).map(|link| link.enabled), Some(false));
+    assert_eq!(
+        app.screens().select.apps.ready().expect("ready")[0].status(),
+        Status::Installed
+    );
     assert_eq!(
         said(&app),
         vec![select::Note::SaveFailed {
@@ -903,27 +970,8 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
         }]
     );
 
-    // Esc closes the dialog and the menu with it
-    open(&mut app, SelectIntent::Close);
-    assert_eq!(app.screens().select.menu(), None);
-    assert_eq!(link(&app), None);
-
-    // an install confirmed: the dialog closes and the directory is read again, forced
-    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
-    let (ticket, ..) = apps_command(&fx);
-    answer(
-        &mut app,
-        ticket,
-        select::Reply::Apps(vec![
-            app_of("a", true, true, true),
-            app_of("b", false, true, true),
-        ]),
-    );
-    let fx = open(&mut app, SelectIntent::Choose("b".into()));
-    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
-    assert_eq!(link(&app).map(|link| link.installed), Some(false));
-    let fx = open(&mut app, SelectIntent::Choose(LINK_INSTALLED.into()));
-    assert_eq!(app.screens().select.menu(), None);
+    // an install confirmed: the directory is read again, forced
+    let fx = open(&mut app, SelectIntent::RefreshApps);
     let (_, _, force, _) = apps_command(&fx);
     assert!(force);
 }
@@ -978,9 +1026,10 @@ fn a_switch_survives_a_refresh_and_only_a_different_notification_asks() {
     );
 }
 
-/// A default-provider write (`model_picker_unavailable`, `dismiss_stale_model_picker`): the model
-/// menus go with the request in flight, `/model` says why it is blocked and asks nothing, and the
-/// answer of the dropped request is not read.
+/// A default-provider write (`model_picker_unavailable`, `dismiss_stale_model_picker`): the
+/// request in flight is dropped and the sheet of `/model` not yet shown is forgotten (one shown
+/// reads `Catalog::provider` and closes itself), `/model` says why it is blocked and asks
+/// nothing, and the answer of the dropped request is not read.
 #[test]
 fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
     use codex_tui_core::screens::ScreenEv;
@@ -991,28 +1040,32 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
     let (ticket, _) = asked(&fx);
-    assert!(matches!(app.screens().select.menu(), Some(Menu::Model(_))));
+    assert!(matches!(
+        model_shows(&app).as_slice(),
+        [select::Opening::Models(ModelMenu::Loading { .. })]
+    ));
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Select(select::Ev::Provider(Provider::Changed))),
     );
+    assert_eq!(app.screens().select.catalog.provider, Provider::Changed);
     assert_eq!(
-        app.screens().select.menu(),
-        None,
-        "the model menus are gone"
+        model_shows(&app),
+        [],
+        "the sheet not shown yet is forgotten"
     );
     assert_eq!(app.screens().select.catalog.pending, None);
     // the answer in flight is dropped
     let fx = answer(&mut app, ticket, select::Reply::Models(Vec::new()));
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(app.screens().select.catalog.answered, None);
     // `/model` is blocked with the restart words and sends nothing
     let fx = open(
         &mut app,
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(model_shows(&app), []);
     let fx = open(&mut app, SelectIntent::LoadModels);
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
     // while a write is in flight it says so; settled, the picker opens again
@@ -1029,5 +1082,8 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
     assert_eq!(fx.commands().len(), 1, "{:?}", fx.commands());
-    assert!(matches!(app.screens().select.menu(), Some(Menu::Model(_))));
+    assert!(matches!(
+        model_shows(&app).as_slice(),
+        [select::Opening::Models(ModelMenu::Loading { .. })]
+    ));
 }

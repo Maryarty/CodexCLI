@@ -1,4 +1,3 @@
 # Two options, the second a long command
 # Oracle data: bottom_pane/list_selection_view.rs:3040
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Approval", "items": [{"name": "Yes, proceed"}, {"name": "Yes, and don't ask again for commands that start with `python -mpre_commit run --files eslint-plugin/no-mixed-const-enum-exports.js`"}], "kind": "list"}}

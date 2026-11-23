@@ -12,6 +12,7 @@ mod import;
 mod in_process;
 mod launch;
 mod providers;
+mod settings;
 mod startup;
 mod target;
 mod update;

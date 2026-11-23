@@ -1,4 +1,3 @@
 # A searchable list with no items
 # Oracle data: bottom_pane/list_selection_view.rs:2320
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Select a base branch", "footer_hint": "Press enter to confirm or esc to go back", "searchable": true, "search_placeholder": "Type to search branches", "kind": "list"}}

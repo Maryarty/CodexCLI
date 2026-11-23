@@ -13,7 +13,7 @@ use codex_tui_core::commands::{Opens, Target};
 use crate::pages::session::backtrack;
 use crate::pages::startup::import;
 use crate::pages::{agents, resume, usage};
-use crate::sheets::{approvals, dialogs, pets, select, settings, voice};
+use crate::sheets::{approvals, dialogs, pets, select, voice};
 
 thread_local! {
     /// The target the chat opened last on this thread: the identity a test
@@ -39,13 +39,6 @@ pub fn note_opened(target: Target) {
     LAST.with(|last| last.set(Some(target)));
 }
 
-/// Opens the select sheet as a confirmation floats (`/archive`, `/delete`):
-/// the target is the same, the presentation is centered on the screen.
-pub fn open_confirmation<S>(cx: &mut Cx<'_, S>) {
-    drop(select::open_centered(cx));
-    LAST.with(|last| last.set(Some(Target::Select)));
-}
-
 /// Opens `target` over the chat of `cx`. Only the pages are routes
 /// (`Opens::Page`: Agents, Resume, Usage, the import step of Startup); a sheet
 /// or dialog is shown over the page that asks, a mode belongs to the session
@@ -61,7 +54,8 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
         },
         Opens::Sheet | Opens::Dialog => match target {
             Target::Select => drop(select::open(cx)),
-            Target::Settings => drop(settings::open(cx)),
+            // Opened by its own UI half with the dialog's kind (`features::open`).
+            Target::Settings => {}
             Target::Dialogs => drop(dialogs::open(cx)),
             // The picker of this session's subagents is not built: the sheet
             // says so (oracle: `AppEvent::OpenAgentPicker`).

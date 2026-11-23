@@ -8,16 +8,28 @@ pub mod strings;
 
 use std::rc::Rc;
 
-use rtwk::AnyWidget;
+use rtwk::{AnyWidget, Cx};
 
-use codex_tui_core::features::Scope;
 use codex_tui_core::features::rename::{Note, Rename, Wish};
+use codex_tui_core::features::{Never, Scope};
+use codex_tui_core::ids::{Cwd, ThreadId};
 
 use self::prompt::NamePrompt;
 use super::{FeatureView, Shown};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for Rename {
+    /// A verb, not a sheet: no command opens one.
+    type Args = Never<Self>;
+
+    fn args(target: Never<Self>, _cwd: Cwd, _thread: Option<ThreadId>) -> Never<Self> {
+        target.absurd()
+    }
+
+    fn open<S: 'static>(_cx: &mut Cx<'_, S>, args: Never<Self>) {
+        args.absurd()
+    }
+
     /// The prompt opens once for the wish, over the chat, at the bottom like the oracle's pane.
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
         let Wish::Name { thread, existing } = wish.clone();

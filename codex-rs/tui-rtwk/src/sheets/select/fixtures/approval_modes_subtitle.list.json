@@ -1,0 +1,1 @@
+{"title": "Select Approval Mode", "subtitle": "Switch between Codex approval presets", "footer_hint": "Press enter to confirm or esc to go back", "items": [{"name": "Read Only", "description": "Codex can read files", "current": true}, {"name": "Full Access", "description": "Codex can edit files"}]}

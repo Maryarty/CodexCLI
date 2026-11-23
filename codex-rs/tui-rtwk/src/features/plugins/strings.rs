@@ -15,7 +15,6 @@ use codex_tui_core::features::plugins::catalog::{Next, Part, Section};
 use codex_tui_core::features::plugins::{PluginStatus as Status, Product, Say};
 use codex_tui_core::rpc::RpcError;
 
-
 use crate::l10n::Tables;
 use crate::l10n::lang;
 
@@ -645,7 +644,10 @@ pub fn note(say: &Say) -> String {
             "You can now continue managing plugins from /plugins.".to_string(),
         ),
         Say::EnableFailed { id, error } => {
-            format!("Failed to update plugin config for {id}: {}", failure(error))
+            format!(
+                "Failed to update plugin config for {id}: {}",
+                failure(error)
+            )
         }
         Say::PageFailed { url, error } => format!("Failed to open browser for {url}: {error}"),
         Say::MarketAdded {
@@ -698,4 +700,3 @@ pub fn note(say: &Say) -> String {
         Say::UpgradeError(error) => failure(error),
     }
 }
-

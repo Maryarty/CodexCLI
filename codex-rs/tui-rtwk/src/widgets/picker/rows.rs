@@ -23,7 +23,7 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, Handler};
 
-use codex_tui_core::screens::select::list::{Role, Row};
+use super::list::{Role, Row};
 
 use crate::widgets::measure::{self, Measure};
 

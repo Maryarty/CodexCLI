@@ -1,4 +1,3 @@
 # Rows of the dialog with line breaks: a name without a description hangs its second line under the first;
 # a description with a break keeps its two lines in the description column (oracle selection_popup_common.rs:965).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"numbered": false, "items": [{"name": "first\nsecond"}, {"name": "x", "description": "alpha\nbeta"}], "kind": "list"}}

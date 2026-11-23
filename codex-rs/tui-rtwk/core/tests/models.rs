@@ -1,17 +1,22 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! State tests of the `/model` family of S14: the menu stack, the catalog and
-//! the rules of `chatwidget/model_popups.rs` and `model_popup_state.rs` (a
-//! choice opens the next menu or is final, Esc pops one menu, a catalog
-//! refresh keeps what is open and drops what has nothing left to offer).
+//! State tests of the `/model` family of S14: the catalog, the shows and the pure rules of
+//! `chatwidget/model_popups.rs` and `model_popup_state.rs` (a choice opens the next page or is
+//! final, a catalog refresh keeps what is open and drops what has nothing left to offer).
+//! The pages are the sheet's (ADR-013: a nested navigator, `tests/pages/models.rs` is its test),
+//! so a test here plays the sheet as a fold of the two pure answers the model gives it
+//! (`ModelMenu::choose` leads from a page to the next, `ModelMenu::next` is what the catalog makes
+//! of one) over the pages the shows open; `Esc` is the sheet's pop.
 //! `core/tests/model.rs` is the app model's; this file is the picker's.
 
 use codex_tui_core::app::AppFx;
 use codex_tui_core::screens::select::models::{
-    ALL_MODELS, ALL_MODES, Apply, Current, Effort, Heading, Kind, MORE_REASONING, ModelMenu,
-    PLAN_ONLY, PlanMode, PlanSource, Preset,
+    ALL_MODELS, ALL_MODES, Answer, Apply, Current, Effort, GaveUp, Heading, Kind, MORE_REASONING,
+    ModelMenu, Next, Onward, PLAN_ONLY, PlanMode, PlanSource, Preset,
 };
-use codex_tui_core::screens::select::{Ev, Intent as SelectIntent, Menu, Note, Picked, Selection};
+use codex_tui_core::screens::select::{
+    Ev, Intent as SelectIntent, Note, Opening, Picked, Selection,
+};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -44,11 +49,13 @@ fn presets() -> Vec<Preset> {
 }
 
 /// The picker's own model: these are state tests of the screen, not of the
-/// app that answers its asks (`core/tests/select_live.rs` is that).
+/// app that answers its asks (`core/tests/select_live.rs` is that). `pages` are the sheet's
+/// (the navigator's routes), played by the helpers below.
 #[derive(Default)]
 struct Sandbox {
     model: codex_tui_core::screens::select::Model,
     fx: AppFx,
+    pages: Vec<ModelMenu>,
 }
 
 impl Sandbox {
@@ -56,10 +63,13 @@ impl Sandbox {
     fn play(script: &str) -> Result<Self, String> {
         let played = codex_tui_core::fixtures::sandbox::Sandbox::play(script)
             .map_err(|error| format!("{error:?}"))?;
-        Ok(Self {
+        let mut sandbox = Self {
             model: played.app().screens().select.clone(),
             fx: AppFx::default(),
-        })
+            pages: Vec::new(),
+        };
+        present(&mut sandbox);
+        Ok(sandbox)
     }
 }
 
@@ -71,28 +81,85 @@ fn sandbox(catalog: Vec<Preset>) -> Sandbox {
     sandbox
 }
 
+/// The presenter: a sheet opens on the menu of every show, and the show is said to be shown.
+fn present(sandbox: &mut Sandbox) {
+    let shows: Vec<_> = sandbox.model.shows.pending().cloned().collect();
+    for show in shows {
+        if let Opening::Models(menu) = show.opening {
+            sandbox.pages = vec![menu];
+        }
+        intent(sandbox, SelectIntent::Shown(show.seq));
+    }
+}
+
+/// The pages look at the catalog after it changed (`ModelMenu::next`): the loading page goes on
+/// with its answer, a list left with no choice says so and leaves, the provider closes the sheet.
+fn follow(sandbox: &mut Sandbox) {
+    let mut at = 0;
+    while at < sandbox.pages.len() {
+        match sandbox.pages[at].next(&sandbox.model.catalog) {
+            None => at += 1,
+            Some(Next::Close) => sandbox.pages.clear(),
+            Some(Next::Replace(menu)) => {
+                sandbox.pages[at] = *menu;
+                at += 1;
+            }
+            Some(Next::GiveUp(why)) => {
+                intent(sandbox, SelectIntent::GiveUp(why));
+                sandbox.pages.remove(at);
+            }
+        }
+    }
+}
+
 fn event(sandbox: &mut Sandbox, ev: Ev) {
     codex_tui_core::screens::select::apply(&mut sandbox.model, ev, &mut sandbox.fx);
+    follow(sandbox);
 }
 
 fn intent(sandbox: &mut Sandbox, intent: SelectIntent) {
     codex_tui_core::screens::select::apply_intent(&mut sandbox.model, intent, &mut sandbox.fx);
 }
 
+/// A row of the page on top is picked with the primary key (`s`: `session`), and the step the
+/// model answers is what the sheet does with its pages.
+fn pick(sandbox: &mut Sandbox, id: &str, session: bool) {
+    let step = head(sandbox).choose(&sandbox.model.catalog, id, session);
+    match step {
+        Onward::None => {}
+        Onward::Push(menu) => sandbox.pages.push(menu),
+        Onward::Replace(menu) => {
+            sandbox.pages.pop();
+            sandbox.pages.push(menu);
+        }
+        Onward::Done(selection) => {
+            intent(sandbox, SelectIntent::Settle(selection));
+            sandbox.pages.clear();
+        }
+        Onward::Prompt(menu) => sandbox.pages = vec![menu],
+    }
+}
+
 fn choose(sandbox: &mut Sandbox, id: &str) {
-    intent(sandbox, SelectIntent::Choose(id.into()));
+    pick(sandbox, id, false);
+}
+
+fn secondary(sandbox: &mut Sandbox, id: &str) {
+    pick(sandbox, id, true);
+}
+
+/// Esc: the page on top goes, the one under it shows again.
+fn esc(sandbox: &mut Sandbox) {
+    sandbox.pages.pop();
 }
 
 fn model(sandbox: &Sandbox) -> &codex_tui_core::screens::select::Model {
     &sandbox.model
 }
 
-/// The rows of the model menu shown.
+/// The rows of the page on top.
 fn page_of(sandbox: &Sandbox) -> codex_tui_core::screens::select::models::Page {
-    match model(sandbox).page().expect("a typed menu") {
-        codex_tui_core::screens::select::Page::Model(page) => page,
-        _ => panic!("not a model menu"),
-    }
+    head(sandbox).page(&model(sandbox).catalog)
 }
 
 fn ids(sandbox: &Sandbox) -> Vec<String> {
@@ -104,11 +171,13 @@ fn ids(sandbox: &Sandbox) -> Vec<String> {
 }
 
 fn depth(sandbox: &Sandbox) -> usize {
-    model(sandbox).stack.len()
+    sandbox.pages.len()
 }
 
 fn open(sandbox: &mut Sandbox, current: Current) {
     intent(sandbox, SelectIntent::OpenModels(current));
+    present(sandbox);
+    follow(sandbox);
 }
 
 fn picked(sandbox: &Sandbox) -> Vec<Selection> {
@@ -132,10 +201,7 @@ fn selection(model: &str, effort: Effort, apply: Apply) -> Selection {
 }
 
 fn head(sandbox: &Sandbox) -> &ModelMenu {
-    match model(sandbox).menu() {
-        Some(Menu::Model(menu)) => menu,
-        other => panic!("a model menu, not {other:?}"),
-    }
+    sandbox.pages.last().expect("a page of the sheet")
 }
 
 fn all_models(sandbox: &mut Sandbox) {
@@ -149,9 +215,13 @@ fn all_models(sandbox: &mut Sandbox) {
 fn an_empty_catalog_opens_the_loading_menu_and_asks_for_the_models() {
     let mut s = sandbox(Vec::new());
     open(&mut s, Current::new("gpt-5.5"));
-    assert!(matches!(head(&s), ModelMenu::Loading(_)));
+    // The show carries the request it waits for: the answer is read under it.
+    let ModelMenu::Loading { request, .. } = head(&s) else {
+        panic!("loading, not {:?}", head(&s))
+    };
+    assert_eq!(Some(*request), model(&s).catalog.pending);
     assert_eq!(page_of(&s).heading, Heading::Loading);
-    assert!(model(&s).catalog.pending.is_some());
+    assert_eq!(model(&s).catalog.answered, None);
 }
 
 #[test]
@@ -170,6 +240,7 @@ fn the_answer_replaces_the_loading_menu_with_the_quick_menu() {
     assert!(matches!(head(&s), ModelMenu::Models(_)));
     assert_eq!(model(&s).catalog.presets, presets());
     assert_eq!(model(&s).catalog.pending, None);
+    assert_eq!(model(&s).catalog.answered, Some((request, Answer::Listed)));
 }
 
 #[test]
@@ -186,6 +257,46 @@ fn a_failed_answer_drops_the_loading_menu_with_a_note() {
     );
     assert_eq!(depth(&s), 0);
     assert_eq!(model(&s).notes, vec![Note::ModelsNotLoaded]);
+    assert_eq!(model(&s).catalog.answered, Some((request, Answer::Failed)));
+}
+
+#[test]
+fn a_failure_after_the_loading_page_was_left_says_nothing() {
+    // Only the sheet knows the user is still looking at `Loading models…` (Esc left it): the
+    // model keeps the fact, the note is the page's verb (`Intent::GiveUp`).
+    let mut s = sandbox(Vec::new());
+    open(&mut s, Current::new("gpt-5.5"));
+    let request = model(&s).catalog.pending.expect("asked");
+    esc(&mut s);
+    event(
+        &mut s,
+        Ev::Fetched {
+            request,
+            result: Err("down".into()),
+        },
+    );
+    assert!(model(&s).notes.is_empty());
+    assert_eq!(model(&s).catalog.answered, Some((request, Answer::Failed)));
+}
+
+#[test]
+fn an_answer_with_no_choice_ends_the_loading_page_with_the_note_of_an_empty_list() {
+    let mut hidden = presets();
+    for preset in &mut hidden {
+        preset.show_in_picker = false;
+    }
+    let mut s = sandbox(Vec::new());
+    open(&mut s, Current::new("gpt-5.5"));
+    let request = model(&s).catalog.pending.expect("asked");
+    event(
+        &mut s,
+        Ev::Fetched {
+            request,
+            result: Ok(hidden),
+        },
+    );
+    assert_eq!(depth(&s), 0);
+    assert_eq!(model(&s).notes, vec![Note::NoAdditionalModels]);
 }
 
 #[test]
@@ -193,7 +304,7 @@ fn an_answer_of_an_older_request_is_dropped() {
     let mut s = sandbox(Vec::new());
     open(&mut s, Current::new("gpt-5.5"));
     let old = model(&s).catalog.pending.expect("asked");
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     open(&mut s, Current::new("gpt-5.5"));
     let current = model(&s).catalog.pending.expect("asked again");
     assert_ne!(old, current);
@@ -205,7 +316,7 @@ fn an_answer_of_an_older_request_is_dropped() {
         },
     );
     assert!(model(&s).catalog.presets.is_empty());
-    assert!(matches!(head(&s), ModelMenu::Loading(_)));
+    assert!(matches!(head(&s), ModelMenu::Loading { .. }));
     assert_eq!(model(&s).catalog.pending, Some(current));
 }
 
@@ -315,42 +426,10 @@ fn a_model_with_several_efforts_opens_its_menu_above_the_list_and_esc_comes_back
     choose(&mut s, "gpt-5.5");
     assert_eq!(depth(&s), 2);
     assert!(matches!(head(&s), ModelMenu::Reasoning { .. }));
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     assert_eq!(depth(&s), 1);
     assert!(matches!(head(&s), ModelMenu::AllModels(_)));
     assert!(model(&s).picked.is_empty());
-}
-
-/// The parent view of the oracle keeps its highlight while a menu sits above it;
-/// here the menu below is shown again, so the core remembers which row opened
-/// the one above and the page starts there.
-#[test]
-fn esc_comes_back_to_the_row_that_opened_the_menu() {
-    let mut s = sandbox(presets());
-    all_models(&mut s);
-    let at = |s: &Sandbox, id: &str| page_of(s).rows.iter().position(|row| row.id == id);
-    choose(&mut s, "gpt-5.5");
-    intent(&mut s, SelectIntent::Close);
-    assert_eq!(page_of(&s).initial, at(&s, "gpt-5.5"));
-    // the quick menu: an auto mode that advertises more opens its own menu
-    let mut s = sandbox(presets());
-    open(&mut s, Current::new("gpt-5.5"));
-    choose(&mut s, "codex-auto-thorough");
-    assert!(matches!(head(&s), ModelMenu::Reasoning { .. }));
-    intent(&mut s, SelectIntent::Close);
-    assert_eq!(page_of(&s).initial, at(&s, "codex-auto-thorough"));
-}
-
-#[test]
-fn the_row_kept_for_a_menu_goes_with_the_menu() {
-    let mut s = sandbox(presets());
-    all_models(&mut s);
-    choose(&mut s, "gpt-5.5");
-    intent(&mut s, SelectIntent::Close);
-    // closing the list too and opening it again starts where a fresh list does
-    intent(&mut s, SelectIntent::Close);
-    all_models(&mut s);
-    assert_eq!(page_of(&s).initial, None);
 }
 
 #[test]
@@ -474,11 +553,11 @@ fn esc_in_the_advanced_menu_returns_one_level_at_a_time() {
     all_models(&mut s);
     choose(&mut s, "gpt-astra");
     choose(&mut s, MORE_REASONING);
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     assert!(matches!(head(&s), ModelMenu::Reasoning { .. }));
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     assert!(matches!(head(&s), ModelMenu::AllModels(_)));
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     assert_eq!(depth(&s), 0);
     assert!(model(&s).picked.is_empty());
 }
@@ -503,7 +582,7 @@ fn an_auto_mode_that_advertises_an_advanced_effort_opens_the_reasoning_menu() {
     assert_eq!(depth(&s), 2);
     assert!(matches!(head(&s), ModelMenu::Reasoning { .. }));
     // Esc returns to the quick menu, a pick closes both.
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     assert!(matches!(head(&s), ModelMenu::Models(_)));
     choose(&mut s, "codex-auto-thorough");
     choose(&mut s, "high");
@@ -525,7 +604,7 @@ fn the_session_key_picks_for_this_session_only() {
     let mut s = sandbox(presets());
     all_models(&mut s);
     choose(&mut s, "gpt-5.5");
-    intent(&mut s, SelectIntent::Secondary("high".into()));
+    secondary(&mut s, "high");
     assert_eq!(depth(&s), 0);
     assert_eq!(
         picked(&s),
@@ -537,10 +616,7 @@ fn the_session_key_picks_for_this_session_only() {
 fn the_session_key_works_on_a_one_effort_model_and_an_auto_mode() {
     let mut s = sandbox(presets());
     open(&mut s, Current::new("gpt-5.5"));
-    intent(
-        &mut s,
-        SelectIntent::Secondary("codex-auto-balanced".into()),
-    );
+    secondary(&mut s, "codex-auto-balanced");
     assert_eq!(
         picked(&s),
         [selection(
@@ -550,7 +626,7 @@ fn the_session_key_works_on_a_one_effort_model_and_an_auto_mode() {
         )]
     );
     all_models(&mut s);
-    intent(&mut s, SelectIntent::Secondary("gpt-sol".into()));
+    secondary(&mut s, "gpt-sol");
     assert_eq!(
         picked(&s)[1],
         selection("gpt-sol", Effort::High, Apply::Session)
@@ -562,11 +638,8 @@ fn rows_without_a_session_key_ignore_it() {
     let mut s = sandbox(presets());
     open(&mut s, Current::new("gpt-5.5"));
     // All models, and an auto mode that needs its own menu.
-    intent(&mut s, SelectIntent::Secondary(ALL_MODELS.into()));
-    intent(
-        &mut s,
-        SelectIntent::Secondary("codex-auto-thorough".into()),
-    );
+    secondary(&mut s, ALL_MODELS);
+    secondary(&mut s, "codex-auto-thorough");
     assert_eq!(depth(&s), 1);
     assert!(model(&s).picked.is_empty());
 }
@@ -649,7 +722,7 @@ fn the_scope_prompt_can_apply_to_every_mode_and_esc_drops_it() {
     choose(&mut s, ALL_MODELS);
     choose(&mut s, "gpt-5.5");
     choose(&mut s, "low");
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     assert_eq!(depth(&s), 0);
     assert_eq!(picked(&s).len(), 1);
 }
@@ -680,7 +753,7 @@ fn another_model_or_the_session_key_never_asks_for_a_scope() {
     open(&mut s, in_plan_mode(Effort::Medium));
     choose(&mut s, ALL_MODELS);
     choose(&mut s, "gpt-5.5");
-    intent(&mut s, SelectIntent::Secondary("low".into()));
+    secondary(&mut s, "low");
     assert_eq!(
         picked(&s)[1],
         selection("gpt-5.5", Effort::Low, Apply::Session)
@@ -724,7 +797,7 @@ fn a_refresh_leaves_the_menu_above_a_list_as_it_was_opened() {
     assert_eq!(depth(&s), 2);
     assert_eq!(page_of(&s), before);
     // The parent shows the new catalog.
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     let rows = page_of(&s).rows;
     assert_eq!(rows[0].description, "Updated");
 }
@@ -764,7 +837,7 @@ fn the_reasoning_menu_outlives_its_dismissed_parent() {
     assert_eq!(depth(&s), 1);
     assert!(matches!(head(&s), ModelMenu::Reasoning { .. }));
     assert_eq!(model(&s).notes, vec![Note::NoAdditionalModels]);
-    intent(&mut s, SelectIntent::Close);
+    esc(&mut s);
     assert_eq!(depth(&s), 0);
 }
 
@@ -777,6 +850,104 @@ fn an_all_models_list_that_turns_auto_only_is_dismissed() {
     event(&mut s, Ev::Loaded(auto_only));
     assert_eq!(depth(&s), 0);
     assert_eq!(model(&s).notes, vec![Note::NoAdditionalModels]);
+}
+
+// -- the provider write
+
+#[test]
+fn a_provider_write_closes_every_page_and_drops_the_answer_in_flight() {
+    let mut s = sandbox(presets());
+    all_models(&mut s);
+    choose(&mut s, "gpt-5.5");
+    assert_eq!(depth(&s), 2);
+    assert!(model(&s).catalog.pending.is_some());
+    event(
+        &mut s,
+        Ev::Provider(codex_tui_core::screens::select::Provider::Changed),
+    );
+    assert_eq!(depth(&s), 0);
+    assert_eq!(model(&s).catalog.pending, None);
+    assert!(model(&s).notes.is_empty());
+}
+
+#[test]
+fn a_show_not_shown_yet_is_forgotten_when_the_provider_is_written() {
+    let mut s = sandbox(presets());
+    intent(&mut s, SelectIntent::OpenModels(Current::new("gpt-5.5")));
+    assert_eq!(model(&s).shows.pending().count(), 1);
+    event(
+        &mut s,
+        Ev::Provider(codex_tui_core::screens::select::Provider::Saving),
+    );
+    assert_eq!(model(&s).shows.pending().count(), 0);
+}
+
+#[test]
+fn after_a_provider_write_model_opens_no_sheet_and_says_why() {
+    let mut s = sandbox(presets());
+    event(
+        &mut s,
+        Ev::Provider(codex_tui_core::screens::select::Provider::Changed),
+    );
+    open(&mut s, Current::new("gpt-5.5"));
+    assert_eq!(depth(&s), 0);
+    assert_eq!(model(&s).shows.pending().count(), 0);
+    assert_eq!(
+        model(&s).notes,
+        vec![Note::ModelPickerUnavailable(
+            codex_tui_core::screens::select::Provider::Changed
+        )]
+    );
+}
+
+// -- what a page does with the catalog's facts
+
+#[test]
+fn a_page_acts_on_the_answer_of_its_own_request_only() {
+    let mut s = sandbox(Vec::new());
+    open(&mut s, Current::new("gpt-5.5"));
+    let loading = head(&s).clone();
+    let ModelMenu::Loading { request, .. } = &loading else {
+        panic!("loading")
+    };
+    let mut catalog = model(&s).catalog.clone();
+    assert_eq!(loading.next(&catalog), None);
+    catalog.answered = Some((request + 1, Answer::Failed));
+    assert_eq!(loading.next(&catalog), None);
+    catalog.answered = Some((*request, Answer::Failed));
+    assert_eq!(
+        loading.next(&catalog),
+        Some(Next::GiveUp(GaveUp::NotLoaded))
+    );
+    catalog.answered = Some((*request, Answer::Listed));
+    catalog.presets = presets();
+    assert_eq!(
+        loading.next(&catalog),
+        Some(Next::Replace(Box::new(ModelMenu::Models(Current::new(
+            "gpt-5.5"
+        )))))
+    );
+}
+
+#[test]
+fn only_the_lists_give_themselves_up_when_nothing_is_left_to_offer() {
+    let mut s = sandbox(presets());
+    all_models(&mut s);
+    choose(&mut s, "gpt-5.5");
+    let mut hidden = presets();
+    for preset in &mut hidden {
+        preset.show_in_picker = false;
+    }
+    let mut catalog = model(&s).catalog.clone();
+    catalog.presets = hidden;
+    let empty = Some(Next::GiveUp(GaveUp::Empty { reserve: false }));
+    assert_eq!(s.pages[0].next(&catalog), empty);
+    assert_eq!(
+        ModelMenu::Models(Current::new("gpt-5.5")).next(&catalog),
+        empty
+    );
+    // The pages over a list keep the model they were opened on.
+    assert_eq!(s.pages[1].next(&catalog), None);
 }
 
 #[test]
@@ -812,15 +983,18 @@ fn a_model_list_answer_becomes_presets_with_the_hidden_flag_inverted() {
 }
 
 #[test]
-fn a_menu_a_script_seeds_is_the_only_one_on_the_stack() {
+fn a_menu_a_script_seeds_is_a_show_the_sheet_opens_on() {
     let mut s = Sandbox::play(
         r#"{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"m","name":"M"}]}}
 {"step":"screen","dir":"select","ev":{"kind":"models","current":{"model":"m"}}}"#,
     )
     .expect("plays");
+    assert!(model(&s).stack.is_empty());
     assert_eq!(depth(&s), 1);
     assert_eq!(ids(&s), ["m"]);
-    intent(&mut s, SelectIntent::Close);
+    // the presenter said it showed it: nothing is left to show
+    assert_eq!(model(&s).shows.pending().count(), 0);
+    esc(&mut s);
     assert_eq!(depth(&s), 0);
 }
 

@@ -1,4 +1,3 @@
 # Disabled rows, one of them the current one
 # Oracle data: bottom_pane/list_selection_view.rs:2800
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"items": [{"name": "Unavailable", "description": "Not available right now.", "current": true, "disabled": true}, {"name": "Alpha"}, {"name": "Busy", "description": "Still disabled.", "disabled_reason": "Try again later."}, {"name": "Beta"}], "kind": "list"}}

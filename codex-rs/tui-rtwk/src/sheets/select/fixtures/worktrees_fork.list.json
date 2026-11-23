@@ -1,0 +1,1 @@
+{"title": "Where should the forked conversation run?", "footer_hint": "enter select · esc back", "items": [{"name": "Use current Git worktree", "description": "Keep using the current working directory"}, {"name": "Create new Git worktree", "description": "Create a separate checkout of this repository in another directory"}]}

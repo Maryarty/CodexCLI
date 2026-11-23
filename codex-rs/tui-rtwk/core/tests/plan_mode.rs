@@ -338,29 +338,19 @@ fn yes_while_a_turn_runs_is_refused() {
 /// server prepared starts its work.
 #[test]
 fn clearing_the_context_hands_the_plan_to_a_fresh_thread() {
-    use codex_tui_core::screens::select::list::{Item, List};
-    use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
+    use codex_tui_core::screens::chat::plan_mode::Answer;
+    use codex_tui_core::screens::select::Intent as SelectIntent;
     use codex_tui_core::screens::{ScreenIntent, ScreenReply};
 
     let mut app = planning();
     notification(&mut app, turn_completed(T, "turn-1"));
-    let row = |id: &str| Item {
-        id: id.to_string(),
-        name: id.to_string(),
-        ..Item::default()
-    };
-    let list = List {
-        items: vec![row("plan.yes"), row("plan.clear"), row("plan.no")],
-        ..List::default()
-    };
     let select = |app: &mut CodexApp, intent| {
         run(
             app,
             AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
         )
     };
-    select(&mut app, SelectIntent::Open(Menu::List(Box::new(list))));
-    let fx = select(&mut app, SelectIntent::Choose("plan.clear".to_string()));
+    let fx = select(&mut app, SelectIntent::PlanAnswer(Answer::ImplementFresh));
     let ticket = fx
         .commands()
         .iter()

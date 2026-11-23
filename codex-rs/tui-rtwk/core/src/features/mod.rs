@@ -29,8 +29,10 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::effects::Done;
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
+use crate::screens::SeedError;
 use crate::threads::{Tone, TurnEnd};
 
 mod cx;
@@ -53,11 +55,12 @@ pub enum Never<F> {
     ),
 }
 
+/// How a script's `fact` step reads one fact of a feature from its JSON (`Feature::SEED`).
+pub type SeedFn<T> = fn(serde_json::Value) -> Result<T, SeedError>;
+
 impl<F> Clone for Never<F> {
     fn clone(&self) -> Self {
-        match self {
-            Never::Void(never, _) => match *never {},
-        }
+        *self
     }
 }
 
@@ -79,6 +82,8 @@ impl<F> PartialEq for Never<F> {
 
 impl<F> Eq for Never<F> {}
 
+impl<F> Copy for Never<F> {}
+
 impl<F> Never<F> {
     /// Anything, from a value that cannot exist: what a step a feature has no component for
     /// returns (`command.absurd()` in `wire` and `decode` of a feature without RPCs).
@@ -87,17 +92,6 @@ impl<F> Never<F> {
             Never::Void(never, _) => match *never {},
         }
     }
-}
-
-/// What a slash command that opens a feature's own sheet names (`Target::Feature`): the UI half
-/// of the feature opens it (`src/features/<f>/`, `open`). A command that only runs a verb of a
-/// feature (`/goal`, `/rename`) is no target.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FeatureTarget {
-    /// `/plugins`: the plugin browser.
-    Plugins,
-    /// `/export`: the destination picker.
-    Export,
 }
 
 /// A feature of the core. Every associated type that a feature does not need is `Never<Self>`
@@ -109,6 +103,16 @@ pub trait Feature: 'static {
     /// The directory and list name (`goal`).
     const NAME: &'static str;
 
+    /// How a script's `fact` step makes one of the feature's facts (`seed_fact`): the feature's
+    /// own reading of the JSON, so a slice seeds its facts without editing the shared loader.
+    /// None: the feature has no seedable fact.
+    const SEED: Option<SeedFn<Self::Fact>> = None;
+
+    /// The slash command that opens the feature's own sheet and what it names
+    /// (`Target::Feature`; the generated `FeatureTarget` and `target_of`). None: no command opens
+    /// a sheet of the feature (`/goal`, `/rename` run a verb), and `Target` is `Never<Self>`.
+    const OPENS: Option<(SlashCommand, Self::Target)> = None;
+
     /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
     /// `intent`, `answered`, `effect_done`, `on_fact`, `on_interest` and `on_resumed`.
     type State: Clone + std::fmt::Debug + Default + PartialEq + Eq;
@@ -117,6 +121,9 @@ pub trait Feature: 'static {
     /// the hooks) always: a part that waits for a reply never stays stuck because the thread
     /// lost its writer. The effects of `ThreadCx` are the writer's (`ThreadCx::request`).
     type ThreadPart: Clone + std::fmt::Debug + Default + PartialEq + Eq;
+    /// What a slash command that opens the feature's sheet names (`FeatureTarget`): a unit type
+    /// of the feature's own (the UI half knows how to open it), or `Never<Self>`.
+    type Target: Copy + Clone + std::fmt::Debug + PartialEq + Eq;
     /// What the user or a view asks of the feature (`Intent::Feature`).
     type Intent: Clone + std::fmt::Debug + PartialEq + Eq;
     /// What is asked of one thread's feature part (`ThreadEv::FeatureIntent`), applied by
@@ -251,6 +258,7 @@ macro_rules! feature_list {
             rename => Rename;
             export => Export;
             plugins => Plugins;
+            settings => Settings;
         }
     };
 }
@@ -331,6 +339,13 @@ macro_rules! feature_dirs {
             $($variant(<$name::$variant as Feature>::Wish),)*
         }
 
+        /// What a slash command that opens a feature's own sheet names (`Target::Feature`): one
+        /// variant per feature, uninhabited for a feature without a sheet of its own.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum FeatureTarget {
+            $($variant(<$name::$variant as Feature>::Target),)*
+        }
+
         /// The interests of every feature: `Intent::Interest`.
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum FeatureInterest {
@@ -362,10 +377,49 @@ macro_rules! feature_dirs {
         impl From<<$name::$variant as Feature>::Note> for FeatureNote {
             fn from(note: <$name::$variant as Feature>::Note) -> Self { Self::$variant(note) }
         }
+        impl From<<$name::$variant as Feature>::Target> for FeatureTarget {
+            fn from(target: <$name::$variant as Feature>::Target) -> Self { Self::$variant(target) }
+        }
         impl From<<$name::$variant as Feature>::Fact> for FeatureFact {
             fn from(fact: <$name::$variant as Feature>::Fact) -> Self { Self::$variant(fact) }
         }
         )*
+
+        /// The fact a script's `fact` step makes: `value` is read by the feature's own `SEED`.
+        #[allow(dead_code)]
+        pub fn seed_fact(
+            feature: &str,
+            value: serde_json::Value,
+        ) -> Result<FeatureFact, $crate::screens::SeedError> {
+            $(if feature == <$name::$variant as Feature>::NAME {
+                return match <$name::$variant as Feature>::SEED {
+                    Some(seed) => seed(value).map(FeatureFact::$variant),
+                    None => Err($crate::screens::SeedError::NoSeeds),
+                };
+            })*
+            Err($crate::screens::SeedError::UnknownDir)
+        }
+
+        #[allow(dead_code)]
+        impl FeatureTarget {
+            /// The directory of the feature whose sheet is named (`Target::dir`).
+            pub fn dir(self) -> &'static str {
+                match self {
+                    $(Self::$variant(_) => <$name::$variant as Feature>::NAME,)*
+                }
+            }
+        }
+
+        /// The sheet a slash command opens, if some feature's is the one.
+        #[allow(unused_variables, dead_code)]
+        pub fn target_of(command: $crate::commands::SlashCommand) -> Option<FeatureTarget> {
+            $(if let Some((opens, target)) = <$name::$variant as Feature>::OPENS {
+                if opens == command {
+                    return Some(FeatureTarget::$variant(target));
+                }
+            })*
+            None
+        }
 
         /// The names of the features, in list (hook) order.
         #[allow(unused_variables)]

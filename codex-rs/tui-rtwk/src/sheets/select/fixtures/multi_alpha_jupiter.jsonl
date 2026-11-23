@@ -1,3 +1,2 @@
 # A searchable multi-select of alpha and jupiter: a plain j feeds the search (oracle multi_select_picker.rs searchable_plain_j_updates_query_instead_of_navigating).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"kind": "list", "title": "Status line", "multi": true, "searchable": true, "ordering": true, "search_placeholder": "Type to search", "footer_hint": "space toggle · ←/→ reorder · enter save · esc cancel", "items": [{"id": "alpha", "name": "alpha", "search_value": "alpha", "toggle": false, "checkbox": true, "orderable": true}, {"id": "jupiter", "name": "jupiter", "search_value": "jupiter", "toggle": false, "checkbox": true, "orderable": true}]}}

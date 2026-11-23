@@ -14,10 +14,10 @@ use codex_tui_core::rpc::{Reply, RpcError};
 use codex_tui_core::screens::select::permission_args::{self, Args, Error, Inline, Refusal};
 use codex_tui_core::screens::select::permission_shortcuts;
 use codex_tui_core::screens::select::permissions::{
-    self, Approval, Current, Disabled, Discovery, Failure, Label, PermissionsMenu, Preset, Profile,
-    Requirements, Reviewer, Selection,
+    self, Approval, Chosen, Current, Disabled, Discovery, Failure, Label, PermissionsMenu, Phase,
+    Preset, Profile, Requirements, Reviewer, Selection,
 };
-use codex_tui_core::screens::select::{self, Intent as SelectIntent, Menu};
+use codex_tui_core::screens::select::{self, Intent as SelectIntent, Opening};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, chat};
 use codex_tui_core::threads::{Item, NoteKey, Tone, UserMessage};
 use pretty_assertions::assert_eq;
@@ -69,6 +69,48 @@ fn permissions_command(app: &mut CodexApp, args: &str) -> AppFx {
             },
         }))),
     )
+}
+
+/// The permission menus the screen asked for that no presenter has shown yet, oldest first.
+fn asked_menus(app: &CodexApp) -> Vec<PermissionsMenu> {
+    app.screens()
+        .select
+        .shows
+        .pending()
+        .filter_map(|show| match &show.opening {
+            Opening::Permissions(menu) => Some(menu.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The presenter's receipt for every show waiting: the menus it shows.
+fn presented(app: &mut CodexApp) -> Vec<PermissionsMenu> {
+    let menus = asked_menus(app);
+    let waiting: Vec<u64> = app
+        .screens()
+        .select
+        .shows
+        .pending()
+        .map(|show| show.seq)
+        .collect();
+    for seq in waiting {
+        select_intent(app, SelectIntent::Shown(seq));
+    }
+    menus
+}
+
+/// What a sheet on `menu` says to the model for the row `id` (a page change says nothing).
+fn pick(app: &mut CodexApp, menu: &PermissionsMenu, id: &str) -> AppFx {
+    let profiles = app.screens().select.profiles.clone();
+    match menu
+        .choose(&profiles, id)
+        .expect("a row that can be chosen")
+    {
+        Chosen::Done(selection) => select_intent(app, SelectIntent::SetPermissions(selection)),
+        Chosen::Retry => select_intent(app, SelectIntent::LoadProfiles),
+        Chosen::Menu(_) => AppFx::default(),
+    }
 }
 
 fn answer(app: &mut CodexApp, ticket: Ticket, reply: select::Reply) -> AppFx {
@@ -124,7 +166,7 @@ fn current() -> Current {
     }
 }
 
-/// `/permissions` answered once: the catalog is held and the menu closed.
+/// `/permissions` answered once: the catalog is held and the sheet closed.
 fn with_catalog(requirements: Option<Requirements>) -> CodexApp {
     let mut app = start();
     let fx = select_intent(&mut app, SelectIntent::OpenPermissions(current()));
@@ -139,8 +181,8 @@ fn with_catalog(requirements: Option<Requirements>) -> CodexApp {
             next: None,
         },
     );
-    select_intent(&mut app, SelectIntent::Close);
-    assert!(app.screens().select.stack.is_empty());
+    presented(&mut app);
+    select_intent(&mut app, SelectIntent::AbandonPermissions);
     assert!(app.screens().select.profiles.found.is_some());
     app
 }
@@ -419,7 +461,7 @@ fn requirements_disable_a_profile_a_policy_or_a_reviewer() {
 fn a_held_catalog_applies_the_profile_without_a_menu() {
     let mut app = with_catalog(None);
     let fx = permissions_command(&mut app, ":read-only");
-    assert!(app.screens().select.stack.is_empty(), "no menu opens");
+    assert_eq!(asked_menus(&app), vec![], "no menu opens");
     assert_eq!(
         settings(&fx),
         Some((
@@ -435,13 +477,13 @@ fn a_held_catalog_applies_the_profile_without_a_menu() {
 fn a_catalog_still_being_read_is_waited_for() {
     let mut app = start();
     let fx = permissions_command(&mut app, "server-only");
-    assert!(
-        matches!(
-            app.screens().select.stack.last(),
-            Some(Menu::Permissions(menu)) if matches!(**menu, PermissionsMenu::Loading(_))
-        ),
-        "the loading menu shows meanwhile"
+    let [menu] = asked_menus(&app).try_into().expect("one menu asked for");
+    assert_eq!(
+        menu.phase(&app.screens().select.profiles),
+        Phase::Loading,
+        "the wait shows meanwhile"
     );
+    presented(&mut app);
     assert!(matches!(
         app.screens().select.profiles.inline,
         Some(Inline::Discovering { .. })
@@ -458,9 +500,10 @@ fn a_catalog_still_being_read_is_waited_for() {
             next: None,
         },
     );
-    assert!(
-        app.screens().select.stack.is_empty(),
-        "the pick replaces the menu"
+    assert_eq!(
+        asked_menus(&app),
+        vec![],
+        "the pick takes the catalog: no menu opens for it"
     );
     assert_eq!(
         settings(&fx),
@@ -481,11 +524,16 @@ fn a_retry_after_a_failed_read_keeps_the_profile() {
             Reply::error(RpcError::Remote("disconnected".into())),
         ),
     );
-    assert!(matches!(
-        app.screens().select.stack.last(),
-        Some(Menu::Permissions(menu)) if matches!(**menu, PermissionsMenu::Failed { failure: Failure::Other(_), .. })
-    ));
-    let fx = select_intent(&mut app, SelectIntent::Choose(permissions::RETRY.into()));
+    let [menu] = presented(&mut app).try_into().expect("one menu asked for");
+    let profiles = &app.screens().select.profiles;
+    assert_eq!(menu.phase(profiles), Phase::Failed);
+    assert!(matches!(profiles.failure, Some(Failure::Other(_))));
+    let fx = pick(&mut app, &menu, permissions::RETRY);
+    assert_eq!(
+        menu.phase(&app.screens().select.profiles),
+        Phase::Loading,
+        "the same menu waits again"
+    );
     let (ticket, command) = asked(&fx).remove(0);
     assert!(matches!(command, select::Command::Requirements { .. }));
     let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
@@ -569,7 +617,8 @@ fn leaving_the_loading_menu_gives_the_pick_up() {
     let mut app = start();
     let fx = permissions_command(&mut app, "server-only");
     let (ticket, _) = asked(&fx).remove(0);
-    select_intent(&mut app, SelectIntent::Close);
+    presented(&mut app);
+    select_intent(&mut app, SelectIntent::AbandonPermissions);
     assert!(!app.screens().select.profiles.inline_pending());
     // the late answer only fills the cache
     let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
@@ -584,28 +633,27 @@ fn leaving_the_loading_menu_gives_the_pick_up() {
     );
     assert_eq!(settings(&fx), None);
     assert!(app.screens().select.profiles.found.is_some());
-    assert!(app.screens().select.stack.is_empty());
+    assert_eq!(asked_menus(&app), vec![]);
 }
 
 #[test]
-fn a_failed_read_the_user_left_is_said_only_while_a_pick_waits() {
+fn a_failed_read_keeps_the_pick_waiting_until_the_sheet_is_left() {
     let mut app = start();
     let fx = permissions_command(&mut app, "server-only");
     let (ticket, _) = asked(&fx).remove(0);
-    // another menu covers the loading one: the user is elsewhere, the pick still waits
-    let covered = select::Menu::Permissions(Box::new(PermissionsMenu::Presets(current())));
-    select_intent(&mut app, SelectIntent::Open(covered));
     run(
         &mut app,
         AppEv::Reply(ticket, Reply::error(RpcError::Remote("down".into()))),
     );
+    // the failure is a fact the sheet shows with its Retry row; nothing is said in the history
     assert_eq!(
-        notes(&app),
-        vec![(
-            select::Note::PermissionsFailed(Failure::Other("down".into())),
-            Tone::Error
-        )]
+        app.screens().select.profiles.failure,
+        Some(Failure::Other("down".into()))
     );
+    assert!(app.screens().select.profiles.inline_pending());
+    assert!(app.screens().select.profiles.inline_waits());
+    assert_eq!(notes(&app), vec![]);
+    select_intent(&mut app, SelectIntent::AbandonPermissions);
     assert!(!app.screens().select.profiles.inline_pending());
 }
 
@@ -614,12 +662,12 @@ fn full_access_by_argument_asks_first_and_declining_gives_the_pick_up() {
     let mut app = with_catalog(None);
     let fx = permissions_command(&mut app, ":danger-full-access");
     assert_eq!(settings(&fx), None, "full access is confirmed first");
-    assert!(matches!(
-        app.screens().select.stack.last(),
-        Some(Menu::Permissions(menu)) if matches!(**menu, PermissionsMenu::FullAccess { .. })
-    ));
+    let [menu] = presented(&mut app).try_into().expect("one menu asked for");
+    assert!(matches!(menu, PermissionsMenu::FullAccess { .. }));
+    // the pick waits on the confirmation, no longer on the catalog: the sheet of the wait is gone
     assert!(app.screens().select.profiles.inline_pending());
-    let fx = select_intent(&mut app, SelectIntent::Choose(permissions::CONTINUE.into()));
+    assert!(!app.screens().select.profiles.inline_waits());
+    let fx = pick(&mut app, &menu, permissions::CONTINUE);
     assert_eq!(
         settings(&fx),
         Some((
@@ -635,7 +683,8 @@ fn full_access_by_argument_asks_first_and_declining_gives_the_pick_up() {
 fn escaping_the_full_access_confirmation_gives_the_pick_up() {
     let mut app = with_catalog(None);
     permissions_command(&mut app, ":danger-full-access");
-    select_intent(&mut app, SelectIntent::Close);
+    presented(&mut app);
+    select_intent(&mut app, SelectIntent::AbandonPermissions);
     assert!(!app.screens().select.profiles.inline_pending());
 }
 
@@ -804,6 +853,7 @@ fn a_shortcut_without_a_catalog_asks_for_it_once() {
     };
     let fx = key(&mut app);
     assert_eq!(asked(&fx).len(), 1, "the catalog is requested");
-    select_intent(&mut app, SelectIntent::Close);
+    assert_eq!(asked_menus(&app).len(), 1, "its sheet shows the wait");
+    select_intent(&mut app, SelectIntent::AbandonPermissions);
     assert_eq!(asked(&key(&mut app)), vec![], "the pending read is reused");
 }

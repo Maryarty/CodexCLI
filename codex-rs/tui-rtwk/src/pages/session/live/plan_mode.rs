@@ -2,24 +2,21 @@
 //! turn in Plan mode ends with a proposed plan (`chat::plan_mode::Prompt`).
 //!
 //! Flutter: a `showModalBottomSheet` of a list with three choices, opened by the page that
-//! listens to the controller (`didChangeDependencies`); rtwk's generic selection sheet is that
+//! listens to the controller (`BlocListener`: `widgets/directives.rs`); rtwk's generic selection sheet is that
 //! sheet, so this file says WHAT the list holds and when the page opens it. The pick returns to
-//! the model as `Picked::Item(<row id>)` (`plan_mode::Answer`), and the model decides what
+//! the model as `select::Intent::PlanAnswer` (`plan_mode::Answer`), and the model decides what
 //! switching modes and sending the implement message mean.
 
 use rtwk::Cx;
-use rtwk::provider::{read, select};
+use rtwk::navigation::Route;
+use rtwk::provider::read;
 
-use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::ScreenStates;
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::screens::chat::plan_mode::{Answer, Used};
-use codex_tui_core::screens::select::list::{Columns, Item, List};
-use codex_tui_core::screens::select::{Intent, Menu};
 use codex_tui_core::threads::ThreadModel;
 
-use crate::app::view::Hs;
 use crate::pages::session::strings::{self, Strings};
+use crate::sheets::select::Purpose;
 
 /// The list of the prompt (`plan_implementation::selection_view_params`): three numbered rows,
 /// the context's usage in the second row's note.
@@ -49,47 +46,21 @@ pub fn menu(s: &Strings, used: Option<Used>) -> List {
     }
 }
 
-/// What the page has seen of the thread's prompts: each number opens the sheet once, in the
-/// thread that raised it (a page that comes back to a thread does not ask again).
-#[derive(Debug, Default)]
-pub struct Seen(Option<(ThreadId, Option<u64>)>);
-
-impl Seen {
-    /// Called when the model changed: opens the sheet for a new prompt, unless another sheet is
-    /// open (`no_modal_or_popup_active`: the question is skipped, not kept waiting).
-    pub fn poll<S>(&mut self, cx: &mut Cx<'_, S>) {
-        let now = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
-            (
-                thread.id().clone(),
-                thread
-                    .screen_slots()
-                    .chat
-                    .plan
-                    .prompt()
-                    .map(|prompt| prompt.seq),
-            )
-        });
-        let fresh = matches!(
-            &self.0,
-            Some((thread, before)) if *thread == now.0 && *before != now.1 && now.1.is_some()
-        );
-        self.0 = Some(now);
-        if !fresh {
-            return;
-        }
-        let free = select::<ScreenStates, bool, _>(cx, |states| states.select.menu().is_none());
-        if !free {
-            return;
-        }
-        let thread = read::<ThreadModel, _>(cx);
-        let status = &thread.screen_slots().status;
-        let used = codex_tui_core::screens::chat::plan_mode::used(status.context, status.tokens);
-        let list = menu(strings::of(cx), used);
-        let hs = read::<Hs, _>(cx);
-        cx.emit(
-            &hs.screen,
-            ScreenIntent::Select(Intent::Open(Menu::List(Box::new(list)))),
-        );
-        drop(crate::sheets::select::open(cx));
+/// The page's answer to a new prompt (`directives::Edge::Plan`, each number once, in the thread
+/// that raised it): opens the sheet, unless another sheet is open (`no_modal_or_popup_active`:
+/// the question is skipped, not kept waiting).
+pub fn ask<S>(cx: &mut Cx<'_, S>) {
+    // another sheet over the page (the route is not on top) is the oracle's other popup
+    if !Route::is_current_of(cx) {
+        return;
     }
+    let thread = read::<ThreadModel, _>(cx);
+    let status = &thread.screen_slots().status;
+    let used = codex_tui_core::screens::chat::plan_mode::used(status.context, status.tokens);
+    let list = menu(strings::of(cx), used);
+    drop(crate::sheets::select::pick(
+        cx,
+        list,
+        Purpose::PlanImplementation,
+    ));
 }

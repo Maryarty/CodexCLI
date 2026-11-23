@@ -1,17 +1,19 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! State tests of the `/permissions` family of S14: the menu stack, the
-//! server's catalog and the rules of `chatwidget/permission_popups.rs`,
+//! State tests of the `/permissions` family of S14: the sheets the screen asks for, the
+//! server's catalog as a fact and the rules of `chatwidget/permission_popups.rs`,
 //! `permissions_menu.rs` and `permission_discovery.rs` (a row opens the next
 //! menu or is final, a disabled row is not chosen, one request serves the
-//! menu that waits and an answer of an older one is dropped).
+//! menu that waits and an answer of an older one is dropped). The sheet's own page is the
+//! test's `Sandbox::sheet`, moved by the pure `PermissionsMenu::choose` the way the UI's sheet
+//! moves it.
 
 use codex_tui_core::app::AppFx;
 use codex_tui_core::screens::select::permissions::{
-    Approval, CANCEL, CONTINUE, Current, Disabled, Discovery, Failure, Heading, Kind, Label,
-    Notice, Page, PermissionsMenu, Preset, RETRY, Recommend, Reviewer, Selection,
+    Approval, CANCEL, CONTINUE, Chosen, Current, Disabled, Discovery, Failure, Heading, Kind,
+    Label, Notice, Page, PermissionsMenu, Phase, Preset, RETRY, Recommend, Reviewer, Selection,
 };
-use codex_tui_core::screens::select::{Ev, Intent as SelectIntent, Menu, Page as AnyPage, Picked};
+use codex_tui_core::screens::select::{Ev, Intent as SelectIntent, Opening, Picked};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -35,27 +37,67 @@ fn local() -> serde_json::Value {
 }
 
 /// The picker's own model: these are state tests of the screen, not of the
-/// app that answers its asks (`core/tests/select_live.rs` is that).
+/// app that answers its asks (`core/tests/select_live.rs` is that). The `sheet` stands in for the
+/// UI's sheet: the page it is on, taken from the show the model made.
 #[derive(Default)]
 struct Sandbox {
     model: codex_tui_core::screens::select::Model,
     fx: AppFx,
+    sheet: Option<PermissionsMenu>,
 }
 
 fn sandbox() -> Sandbox {
     Sandbox::default()
 }
 
+/// The presenter: the sheet of each show waiting opens, and the show is said to be shown.
+fn present(sandbox: &mut Sandbox) {
+    let shows: Vec<_> = sandbox
+        .model
+        .shows
+        .pending()
+        .map(|show| (show.seq, show.opening.clone()))
+        .collect();
+    for (seq, opening) in shows {
+        if let Opening::Permissions(menu) = opening {
+            sandbox.sheet = Some(menu);
+        }
+        codex_tui_core::screens::select::apply_intent(
+            &mut sandbox.model,
+            SelectIntent::Shown(seq),
+            &mut sandbox.fx,
+        );
+    }
+}
+
 fn event(sandbox: &mut Sandbox, ev: Ev) {
     codex_tui_core::screens::select::apply(&mut sandbox.model, ev, &mut sandbox.fx);
+    present(sandbox);
 }
 
 fn intent(sandbox: &mut Sandbox, intent: SelectIntent) {
     codex_tui_core::screens::select::apply_intent(&mut sandbox.model, intent, &mut sandbox.fx);
+    present(sandbox);
 }
 
+/// A row of the sheet's page was chosen: what the sheet does with `PermissionsMenu::choose`.
 fn choose(sandbox: &mut Sandbox, id: &str) {
-    intent(sandbox, SelectIntent::Choose(id.into()));
+    let menu = sandbox.sheet.clone().expect("a sheet is open");
+    match menu.choose(&sandbox.model.profiles, id) {
+        Some(Chosen::Done(selection)) => {
+            intent(sandbox, SelectIntent::SetPermissions(selection));
+            sandbox.sheet = None;
+        }
+        Some(Chosen::Menu(next)) => sandbox.sheet = Some(next),
+        Some(Chosen::Retry) => intent(sandbox, SelectIntent::LoadProfiles),
+        None => {}
+    }
+}
+
+/// Esc: the sheet closes and says so.
+fn leave(sandbox: &mut Sandbox) {
+    intent(sandbox, SelectIntent::AbandonPermissions);
+    sandbox.sheet = None;
 }
 
 fn model(sandbox: &Sandbox) -> &codex_tui_core::screens::select::Model {
@@ -63,10 +105,13 @@ fn model(sandbox: &Sandbox) -> &codex_tui_core::screens::select::Model {
 }
 
 fn page(sandbox: &Sandbox) -> Page {
-    match model(sandbox).page().expect("a typed menu") {
-        AnyPage::Permissions(page) => page,
-        _ => panic!("not a permissions menu"),
-    }
+    let menu = sandbox.sheet.as_ref().expect("a sheet is open");
+    menu.page(&sandbox.model.profiles, &sandbox.model.catalog)
+}
+
+fn phase(sandbox: &Sandbox) -> Phase {
+    let menu = sandbox.sheet.as_ref().expect("a sheet is open");
+    menu.phase(&sandbox.model.profiles)
 }
 
 fn ids(sandbox: &Sandbox) -> Vec<String> {
@@ -93,8 +138,9 @@ fn reasons(sandbox: &Sandbox) -> Vec<Option<Disabled>> {
         .collect()
 }
 
+/// How many sheets are open: the one, or none once it closed.
 fn depth(sandbox: &Sandbox) -> usize {
-    model(sandbox).stack.len()
+    usize::from(sandbox.sheet.is_some())
 }
 
 fn picks(sandbox: &Sandbox) -> Vec<Selection> {
@@ -252,7 +298,7 @@ fn declining_the_confirmation_opens_the_menu_again() {
 fn esc_on_the_confirmation_closes_without_a_pick() {
     let mut sandbox = legacy(json!({}));
     choose(&mut sandbox, FULL);
-    intent(&mut sandbox, SelectIntent::Close);
+    leave(&mut sandbox);
     assert_eq!(depth(&sandbox), 0);
     assert!(picks(&sandbox).is_empty());
 }
@@ -274,10 +320,8 @@ fn a_cyber_models_confirmation_recommends_what_is_available() {
 #[test]
 fn a_threads_menu_waits_for_the_catalog_with_one_request() {
     let mut sandbox = legacy(json!({"discover": true}));
-    assert!(matches!(
-        model(&sandbox).menu(),
-        Some(Menu::Permissions(menu)) if matches!(**menu, PermissionsMenu::Loading(_))
-    ));
+    assert!(matches!(sandbox.sheet, Some(PermissionsMenu::Catalog(_))));
+    assert_eq!(phase(&sandbox), Phase::Loading);
     assert_eq!(kinds(&sandbox), vec![Kind::Loading]);
     assert_eq!(reasons(&sandbox), vec![Some(Disabled::Idle)]);
     let request = model(&sandbox).profiles.pending;
@@ -288,7 +332,7 @@ fn a_threads_menu_waits_for_the_catalog_with_one_request() {
 }
 
 #[test]
-fn the_answer_replaces_the_loading_menu_with_the_catalog() {
+fn the_answer_turns_the_wait_of_the_menu_into_the_catalog() {
     let mut sandbox = legacy(
         json!({"discover": true, "guardian": true, "matches": "auto",
                                     "approval": "on-request"}),
@@ -302,7 +346,8 @@ fn the_answer_replaces_the_loading_menu_with_the_catalog() {
         },
     );
     assert_eq!(model(&sandbox).profiles.pending, None);
-    assert_eq!(depth(&sandbox), 1);
+    // the same menu shows the catalog now: it is a fact, not a reopened menu
+    assert_eq!(phase(&sandbox), Phase::Listed);
     assert_eq!(ids(&sandbox), vec![ASK, APPROVE, FULL, READ_ONLY]);
     assert_eq!(marks(&sandbox), vec![true, false, false, false]);
 }
@@ -348,22 +393,26 @@ fn a_failed_read_offers_retry_and_retry_asks_again() {
             notice: Some(Notice::Failed(failure))
         }
     );
+    assert_eq!(phase(&sandbox), Phase::Failed);
     assert_eq!(ids(&sandbox), vec![RETRY]);
     assert_eq!(kinds(&sandbox), vec![Kind::Retry]);
     assert!(model(&sandbox).profiles.found.is_none());
     choose(&mut sandbox, RETRY);
     let again = model(&sandbox).profiles.pending;
     assert!(again.is_some() && again != Some(request));
+    assert_eq!(model(&sandbox).profiles.failure, None);
     assert_eq!(depth(&sandbox), 1);
     assert_eq!(kinds(&sandbox), vec![Kind::Loading]);
 }
 
 #[test]
-fn a_scope_change_drops_what_waited_on_the_answer_and_the_answer() {
+fn a_scope_change_drops_the_answer_and_dismisses_by_the_scope_fact() {
     let mut sandbox = legacy(json!({"discover": true}));
     let request = model(&sandbox).profiles.pending.expect("asked");
+    let scope = model(&sandbox).profiles.scope;
     event(&mut sandbox, Ev::ScopeChanged);
-    assert_eq!(depth(&sandbox), 0);
+    // the pages that wait on the catalog compare the scope they opened under to this one
+    assert_eq!(model(&sandbox).profiles.scope, scope + 1);
     assert_eq!(model(&sandbox).profiles.pending, None);
     event(
         &mut sandbox,
@@ -372,8 +421,8 @@ fn a_scope_change_drops_what_waited_on_the_answer_and_the_answer() {
             result: Ok(discovery(local())),
         },
     );
-    assert_eq!(depth(&sandbox), 0);
     assert!(model(&sandbox).profiles.found.is_none());
+    assert_eq!(model(&sandbox).profiles.failure, None);
 }
 
 #[test]

@@ -1,0 +1,4 @@
+# The hooks browser: one untrusted, enabled, async hook
+# Oracle data: bottom_pane/hooks_browser_view.rs:1129
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind": "hooks", "hooks": [{"key": "path:untrusted", "event": "pre_tool_use", "handler": "command", "command": "~/bin/untrusted.sh", "matcher": "Bash", "timeout_sec": 30, "source": "user", "source_path": "/tmp/hooks.json", "enabled": true, "is_managed": false, "trust": "untrusted", "async": true}]}}

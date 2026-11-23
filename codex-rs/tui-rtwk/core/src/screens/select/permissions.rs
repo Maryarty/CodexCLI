@@ -1,7 +1,8 @@
 //! The `/permissions` family of the selection dialog: the server's catalog of
-//! permission profiles the picker reads, the menus of the stack (data only,
-//! ADR-010: the words are the view's) and the rules that turn a choice into
-//! the next menu or a final pick.
+//! permission profiles the sheet reads (a fact of the model), the menus the sheet shows
+//! (data only, ADR-010: the words are the view's) and the pure rule that turns a choice into
+//! the next menu or a final pick (ADR-013: the sheet keeps the page it is on, the model
+//! keeps what its IO needs).
 //! Oracle: `chatwidget/permission_popups.rs`, `permissions_menu.rs`,
 //! `permission_discovery.rs`, `permission_shortcuts.rs`, and
 //! `permission_discovery.rs` (the catalog and its availability rules).
@@ -21,6 +22,8 @@ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 use serde::Deserialize;
+
+use super::models::Catalog as ModelCatalog;
 
 pub type Approval = AskForApproval;
 pub type Reviewer = ApprovalsReviewer;
@@ -340,6 +343,9 @@ pub enum Failure {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Profiles {
     pub found: Option<Discovery>,
+    /// Why the last read failed: a fact the open menu shows (its `Retry` page). None once a read
+    /// answered or was asked again.
+    pub failure: Option<Failure>,
     /// The request the open menu waits for: an answer of another request is
     /// dropped.
     pub pending: Option<u64>,
@@ -350,6 +356,9 @@ pub struct Profiles {
     /// A shortcut's pick is on its way to the server: another key press is ignored until it
     /// answers (`permission_shortcut_pending`).
     pub shortcut: bool,
+    /// How many times the account or the scope changed: a menu open on the catalog compares it to
+    /// the one it opened under and goes when they differ (`invalidate_permission_discovery`).
+    pub scope: u64,
 }
 
 impl Profiles {
@@ -359,9 +368,28 @@ impl Profiles {
         self.issued
     }
 
+    /// The catalog is wanted (`request_permission_profiles`): a request is made unless the
+    /// catalog is held or one is on its way, and what a read that failed left is forgotten. True
+    /// when a request was made.
+    pub(super) fn want(&mut self) -> bool {
+        if self.found.is_some() || self.pending.is_some() {
+            return false;
+        }
+        self.failure = None;
+        self.request();
+        true
+    }
+
     /// An inline pick has not settled yet (`inline_permission_profile_selection_pending`).
     pub fn inline_pending(&self) -> bool {
         self.inline.is_some()
+    }
+
+    /// An inline pick waits on the catalog: the sheet that shows the wait is the one it waits on,
+    /// and is gone when the catalog took the pick (to apply it, to ask the confirmation, or to
+    /// refuse it).
+    pub fn inline_waits(&self) -> bool {
+        matches!(self.inline, Some(super::permission_args::Inline::Discovering { .. }))
     }
 }
 
@@ -437,20 +465,29 @@ impl Selection {
     }
 }
 
-/// The menus of the `/permissions` family on the stack.
+/// A menu of the `/permissions` family: what a show of the screen opens (`Opening::Permissions`),
+/// and the page its sheet is on when it replaces one by another.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PermissionsMenu {
     /// The legacy list of presets (`open_legacy_permissions_popup`).
     Presets(Current),
-    /// `Loading permission profiles…`: the catalog is asked for.
-    Loading(Current),
-    /// The built-in modes and the server's profiles, read from the catalog
-    /// the model holds.
-    Profiles(Current),
-    /// The catalog could not be read: the message and a `Retry` row.
-    Failed { current: Current, failure: Failure },
+    /// The server's catalog: `Loading permission profiles…` while it is asked for, the built-in
+    /// modes and the server's profiles once it is held, or why it could not be read with a
+    /// `Retry` row. Which one is a fact of the model (`Phase`), so the same menu follows the
+    /// answer without being reopened.
+    Catalog(Current),
     /// `Enable full access?` before the pick is applied.
     FullAccess { current: Current, pick: Selection },
+}
+
+/// What a menu shows now, by what the model holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Presets,
+    Loading,
+    Listed,
+    Failed,
+    Confirm,
 }
 
 /// What a row does when chosen, for the view to give it its words.
@@ -519,20 +556,16 @@ pub struct Page {
     pub rows: Vec<Row>,
 }
 
-/// What a choice does to the stack.
+/// What a choice does: the sheet interprets it (a verb to the model, the page to show next).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Step {
-    /// Nothing: the id is not a row, or the row is disabled.
-    None,
-    /// This menu is dismissed and the next one takes its place.
-    Replace(PermissionsMenu),
-    /// The pick is final: every menu closes.
+pub enum Chosen {
+    /// The pick is final: the sheet says it and closes.
     Done(Selection),
-    /// The confirmation was declined: the permissions menu opens again from
-    /// the start (`OpenPermissionsPopup`).
-    Reopen(Current),
-    /// `Retry`: the catalog is asked for again.
-    Retry(Current),
+    /// This page is dismissed and the next one takes its place: the confirmation of a pick, or
+    /// the menu again once the confirmation was declined (`OpenPermissionsPopup`).
+    Menu(PermissionsMenu),
+    /// `Retry`: the catalog is asked for again and the page shows the wait.
+    Retry,
 }
 
 fn mode_id(preset: Preset, reviewer: Reviewer) -> String {
@@ -560,87 +593,104 @@ fn mode_row(
 }
 
 impl PermissionsMenu {
+    /// The menu `/permissions` opens for what the thread has now: the legacy list, or the
+    /// catalog when the thread asks for it (`Current::discover`).
+    pub fn start(current: Current) -> PermissionsMenu {
+        if current.discover {
+            PermissionsMenu::Catalog(current)
+        } else {
+            PermissionsMenu::Presets(current)
+        }
+    }
+
     /// The thread's snapshot the menu opened with.
     pub fn current(&self) -> &Current {
         match self {
             PermissionsMenu::Presets(current)
-            | PermissionsMenu::Loading(current)
-            | PermissionsMenu::Profiles(current)
-            | PermissionsMenu::Failed { current, .. }
+            | PermissionsMenu::Catalog(current)
             | PermissionsMenu::FullAccess { current, .. } => current,
         }
     }
 
-    /// The menu as rows.
-    pub fn page(&self, profiles: &Profiles) -> Page {
-        let permissions = |notice| Heading::Permissions { notice };
+    /// What the menu shows over the facts the model holds.
+    pub fn phase(&self, profiles: &Profiles) -> Phase {
         match self {
-            PermissionsMenu::Presets(current) => {
-                Page { heading: permissions(None), rows: presets(current) }
-            }
-            PermissionsMenu::Loading(_) => Page {
-                heading: permissions(None),
-                rows: vec![Row {
-                    id: String::new(),
-                    name: String::new(),
-                    kind: Kind::Loading,
-                    current: false,
-                    disabled: Some(Disabled::Idle),
-                }],
-            },
-            PermissionsMenu::Profiles(current) => {
-                let empty = Discovery::default();
-                let discovery = profiles.found.as_ref().unwrap_or(&empty);
-                let rows = profile_rows(current, discovery);
-                let notice = discovery.profiles.is_empty().then_some(Notice::NoProfiles);
-                Page { heading: permissions(notice), rows }
-            }
-            PermissionsMenu::Failed { failure, .. } => Page {
-                heading: permissions(Some(Notice::Failed(failure.clone()))),
-                rows: vec![Row {
-                    id: RETRY.to_string(),
-                    name: String::new(),
-                    kind: Kind::Retry,
-                    current: false,
-                    disabled: None,
-                }],
-            },
-            PermissionsMenu::FullAccess { current, .. } => {
-                let cyber = current.cyber.then_some(if current.auto_available {
+            PermissionsMenu::Presets(_) => Phase::Presets,
+            PermissionsMenu::FullAccess { .. } => Phase::Confirm,
+            PermissionsMenu::Catalog(_) if profiles.found.is_some() => Phase::Listed,
+            PermissionsMenu::Catalog(_) if profiles.failure.is_some() => Phase::Failed,
+            PermissionsMenu::Catalog(_) => Phase::Loading,
+        }
+    }
+
+    /// The menu as rows, over the catalog of profiles and the model catalog (a cyber model's
+    /// warning, `model_catalog.try_list_models()`: unknown stays plain).
+    pub fn page(&self, profiles: &Profiles, models: &ModelCatalog) -> Page {
+        Page { heading: self.heading(profiles, models), rows: self.rows(profiles) }
+    }
+
+    fn heading(&self, profiles: &Profiles, models: &ModelCatalog) -> Heading {
+        let permissions = |notice| Heading::Permissions { notice };
+        match (self, self.phase(profiles)) {
+            (PermissionsMenu::FullAccess { current, .. }, _) => {
+                let cyber = current.cyber
+                    || current.model.as_deref().is_some_and(|model| models.is_cyber(model));
+                let cyber = cyber.then_some(if current.auto_available {
                     Recommend::AutoReview
                 } else {
                     Recommend::Ask
                 });
-                let row = |id: &str, kind| Row {
-                    id: id.to_string(),
-                    name: String::new(),
-                    kind,
-                    current: false,
-                    disabled: None,
-                };
-                Page {
-                    heading: Heading::FullAccess { cyber },
-                    rows: vec![row(CONTINUE, Kind::Continue), row(CANCEL, Kind::Cancel)],
-                }
+                Heading::FullAccess { cyber }
             }
+            (_, Phase::Listed) => {
+                let empty = profiles.found.as_ref().is_some_and(|found| found.profiles.is_empty());
+                permissions(empty.then_some(Notice::NoProfiles))
+            }
+            (_, Phase::Failed) => {
+                permissions(profiles.failure.clone().map(Notice::Failed))
+            }
+            _ => permissions(None),
         }
     }
 
-    /// A row was chosen.
-    pub(super) fn choose(&self, profiles: &Profiles, id: &str) -> Step {
-        let page = self.page(profiles);
-        let Some(row) = page.rows.iter().find(|row| row.id == id) else {
-            return Step::None;
+    fn rows(&self, profiles: &Profiles) -> Vec<Row> {
+        let row = |id: &str, kind, disabled| Row {
+            id: id.to_string(),
+            name: String::new(),
+            kind,
+            current: false,
+            disabled,
         };
+        match (self, self.phase(profiles)) {
+            (PermissionsMenu::Presets(current), _) => presets(current),
+            (PermissionsMenu::Catalog(_), Phase::Loading) => {
+                vec![row("", Kind::Loading, Some(Disabled::Idle))]
+            }
+            (PermissionsMenu::Catalog(_), Phase::Failed) => vec![row(RETRY, Kind::Retry, None)],
+            (PermissionsMenu::Catalog(current), _) => {
+                let empty = Discovery::default();
+                profile_rows(current, profiles.found.as_ref().unwrap_or(&empty))
+            }
+            (PermissionsMenu::FullAccess { .. }, _) => vec![
+                row(CONTINUE, Kind::Continue, None),
+                row(CANCEL, Kind::Cancel, None),
+            ],
+        }
+    }
+
+    /// A row was chosen: None when the id is not a row or the row is disabled.
+    pub fn choose(&self, profiles: &Profiles, id: &str) -> Option<Chosen> {
+        let rows = self.rows(profiles);
+        let row = rows.iter().find(|row| row.id == id)?;
         if row.disabled.is_some() {
-            return Step::None;
+            return None;
         }
         match (self, &row.kind) {
             (PermissionsMenu::Presets(current), Kind::Mode { preset, reviewer }) => {
                 let pick = Selection::Preset { preset: *preset, reviewer: *reviewer };
-                settle(current, pick)
+                Some(settle(current, pick))
             }
-            (PermissionsMenu::Profiles(current), Kind::Mode { preset, reviewer }) => {
+            (PermissionsMenu::Catalog(current), Kind::Mode { preset, reviewer }) => {
                 let pick = Selection::Profile {
                     id: preset.profile().to_string(),
                     approval: Some(preset.approval()),
@@ -648,9 +698,9 @@ impl PermissionsMenu {
                     label: Label::Mode { preset: *preset, reviewer: *reviewer },
                     unchanged: false,
                 };
-                settle(current, pick)
+                Some(settle(current, pick))
             }
-            (PermissionsMenu::Profiles(current), Kind::Profile { .. }) => {
+            (PermissionsMenu::Catalog(current), Kind::Profile { .. }) => {
                 let pick = Selection::Profile {
                     id: row.id.clone(),
                     approval: None,
@@ -658,30 +708,32 @@ impl PermissionsMenu {
                     label: Label::Profile(row.id.clone()),
                     unchanged: false,
                 };
-                settle(current, pick)
+                Some(settle(current, pick))
             }
-            (PermissionsMenu::Failed { current, .. }, Kind::Retry) => Step::Retry(current.clone()),
-            (PermissionsMenu::FullAccess { pick, .. }, Kind::Continue) => Step::Done(pick.clone()),
+            (PermissionsMenu::Catalog(_), Kind::Retry) => Some(Chosen::Retry),
+            (PermissionsMenu::FullAccess { pick, .. }, Kind::Continue) => {
+                Some(Chosen::Done(pick.clone()))
+            }
             (PermissionsMenu::FullAccess { current, .. }, Kind::Cancel) => {
-                Step::Reopen(current.clone())
+                Some(Chosen::Menu(PermissionsMenu::start(current.clone())))
             }
-            _ => Step::None,
+            _ => None,
         }
     }
 }
 
 /// A pick of the full-access preset asks first (`requires_confirmation`);
 /// the rest apply.
-pub(super) fn settle(current: &Current, mut pick: Selection) -> Step {
+pub fn settle(current: &Current, mut pick: Selection) -> Chosen {
     if let Selection::Profile { id, approval, reviewer, unchanged, .. } = &mut pick {
         *unchanged = current.profile.as_deref() == Some(id.as_str())
             && approval.is_none_or(|approval| current.approval == Some(approval))
             && reviewer.is_none_or(|reviewer| current.reviewer == reviewer);
     }
     if pick.full_access() {
-        Step::Replace(PermissionsMenu::FullAccess { current: current.clone(), pick })
+        Chosen::Menu(PermissionsMenu::FullAccess { current: current.clone(), pick })
     } else {
-        Step::Done(pick)
+        Chosen::Done(pick)
     }
 }
 

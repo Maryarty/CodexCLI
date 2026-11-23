@@ -1,3 +1,2 @@
 # A searchable one-row list (oracle list_selection_view.rs:2025, accept = z).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"searchable": true, "items": [{"name": "Selection", "search_value": "Selection"}], "kind": "list"}}

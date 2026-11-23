@@ -6,6 +6,7 @@
 //! `core::data`: the kit and the widgets name it there, and the kit names no screen or feature.
 
 pub mod backtrack;
+pub mod fuzzy;
 pub mod history;
 pub mod mentions;
 pub mod paste;

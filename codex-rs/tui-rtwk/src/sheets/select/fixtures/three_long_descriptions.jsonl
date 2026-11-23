@@ -1,4 +1,3 @@
 # Three rows with a ten-x description under Debug
 # Oracle data: bottom_pane/list_selection_view.rs:3210
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Debug", "items": [{"name": "Item 1", "description": "xxxxxxxxxx"}, {"name": "Item 2", "description": "xxxxxxxxxx"}, {"name": "Item 3", "description": "xxxxxxxxxx"}], "kind": "list"}}

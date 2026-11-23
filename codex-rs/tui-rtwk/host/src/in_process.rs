@@ -34,6 +34,8 @@ use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::protocol;
@@ -385,6 +387,11 @@ async fn run(
         epoch,
         AppEv::Feature(plugins_fact(&config).into()),
     );
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Feature(settings_fact(&config).into()),
+    );
     if !warnings.is_empty() {
         emit(
             &ingress,
@@ -485,17 +492,35 @@ async fn run(
                         }));
                     }
                     let exec = AppServerExec::new(sender(handle.clone()), ids.clone());
-                    let job = match effects.run(&command, exec) {
-                        Some(job) => job,
-                        None => work(
-                            command.clone(),
-                            handle.clone(),
+                    // A write of the config file is the app server's, and the facts the dialogs
+                    // read follow it: it is not one of the machine's effects.
+                    let job = if let Command::Effect {
+                        request,
+                        ask: Ask::ConfigWrite { edits },
+                        ..
+                    } = &command
+                    {
+                        config_write_job(
+                            *request,
+                            edits.clone(),
+                            startup.clone(),
                             ids.clone(),
-                            facts,
-                            workspace.clone(),
-                            model.clone(),
-                            Some(startup.clone()),
-                        ),
+                            handle.clone(),
+                            (ingress.clone(), epoch),
+                        )
+                    } else {
+                        match effects.run(&command, exec) {
+                            Some(job) => job,
+                            None => work(
+                                command.clone(),
+                                handle.clone(),
+                                ids.clone(),
+                                facts,
+                                workspace.clone(),
+                                model.clone(),
+                                Some(startup.clone()),
+                            ),
+                        }
                     };
                     inflight.push(latest.wrap(&command, job));
                 }
@@ -561,6 +586,58 @@ async fn run(
         )));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
+}
+
+/// What the settings dialogs read of the config and the disk: the theme in force, the custom
+/// themes, the memory tool's switches (`settings::read`).
+fn settings_fact(config: &Config) -> codex_tui_core::features::settings::Fact {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let read = crate::settings::read(config, home.as_deref());
+    codex_tui_core::features::settings::Fact::facts(
+        read.syntax_theme,
+        read.custom_themes,
+        read.themes_dir,
+        read.memories,
+    )
+}
+
+/// `Ask::ConfigWrite` of a dialog (`/theme`, `/title`, `/statusline`, `/memories`): the edits go
+/// through the app server, and once the config file holds them the status card, the terminal
+/// settings and the dialogs' facts follow from the config as it is now, before the answer (the
+/// dialog that reads it finds them).
+fn config_write_job(
+    request: u64,
+    edits: Vec<ConfigEdit>,
+    startup: crate::startup::Startup,
+    ids: Ids,
+    handle: AppServerRequestHandle,
+    (ingress, epoch): (IngressTx, ConnEpoch),
+) -> Boxed<Option<AppEv>> {
+    Box::pin(async move {
+        let written = crate::settings::write(edits, &startup, &ids, sender(handle)).await;
+        if let Some(config) = &written.config {
+            let status = crate::facts::status(config).await;
+            emit(
+                &ingress,
+                epoch,
+                AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status)))),
+            );
+            emit(
+                &ingress,
+                epoch,
+                AppEv::Tui(crate::effects::tui_settings(config)),
+            );
+            emit(
+                &ingress,
+                epoch,
+                AppEv::Feature(settings_fact(config).into()),
+            );
+        }
+        Some(AppEv::Effect {
+            request,
+            done: written.done,
+        })
+    })
 }
 
 /// What `/plugins` reads of the config: the features it depends on, the home directory the

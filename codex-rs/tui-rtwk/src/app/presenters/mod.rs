@@ -15,6 +15,8 @@
 use rtwk::app::AppCx;
 
 use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::select::Intent as SelectIntent;
 
 use crate::app::UiApp;
 
@@ -24,10 +26,51 @@ pub struct Presenters {
     /// The number of the last wish taken: a wish still queued while its `WishShown` is on its
     /// way is not shown again.
     taken: u64,
+    /// The same for the select screen's shows (`select::Show`).
+    taken_select: u64,
 }
 
-/// Shows the wishes of the features that are waiting and can be shown now.
+/// Shows the wishes of the features and the sheets the select screen asked for that are waiting
+/// and can be shown now.
 pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
+    present_wishes(app, cx);
+    present_shows(app, cx);
+}
+
+/// The select screen's shows: a sheet opens for each, built from what the model asked for.
+fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
+    let shows: Vec<_> = app
+        .core
+        .screens()
+        .select
+        .shows
+        .pending()
+        .filter(|show| show.seq > app.ui.presenters.taken_select)
+        .cloned()
+        .collect();
+    for show in shows {
+        let Some(place) = app.ui.presenter.place().get() else {
+            return;
+        };
+        let opening = show.opening.clone();
+        let options = crate::sheets::select::shown(&opening).1;
+        let dialog = cx.show_dialog_from::<()>(
+            place,
+            move |_| crate::sheets::select::shown(&opening).0,
+            options,
+            |_app, _answer, _cx| {},
+        );
+        if dialog.is_closed() {
+            return;
+        }
+        app.ui.presenters.taken_select = show.seq;
+        app.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+            SelectIntent::Shown(show.seq),
+        ))));
+    }
+}
+
+fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let wishes: Vec<_> = app
         .core
         .wishes()
