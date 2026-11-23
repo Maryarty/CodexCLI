@@ -249,6 +249,25 @@ fn a_late_answer_after_the_prompt_closed_goes_nowhere() {
     assert_eq!(title(&app), None);
 }
 
+/// O4: the answer of the first request is told from the second's by its gen: a prompt closed and
+/// opened again before the first answer does not take the stale one.
+#[test]
+fn a_prompt_opened_again_does_not_take_the_earlier_answer() {
+    let mut app = ready();
+    rename(&mut app, None);
+    let first = asked(&open_prompt(&mut app));
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
+    );
+    let second = asked(&open_prompt(&mut app));
+    assert!(first != second);
+    answer(&mut app, first, Some("Stale"));
+    assert_eq!(title(&app), Some(Remote::loading()));
+    answer(&mut app, second, Some("Fresh"));
+    assert_eq!(title(&app), Some(Remote::Ready(Some("Fresh".to_owned()))));
+}
+
 #[test]
 fn a_submit_renames_the_thread_with_the_trimmed_name() {
     let mut app = ready();

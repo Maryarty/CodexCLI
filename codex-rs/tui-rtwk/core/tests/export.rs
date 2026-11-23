@@ -57,7 +57,7 @@ fn export_command(app: &mut CodexApp, path: &str) -> AppFx {
             thread: Some(ThreadId::new(T)),
             command: SlashCommand::Export,
             intent: SessionIntent::Export {
-                path: Some(path.to_owned()),
+                path: path.to_owned(),
             },
         }))),
     )
@@ -260,7 +260,7 @@ fn without_a_thread_the_failure_is_a_note_of_the_chat() {
             thread: None,
             command: SlashCommand::Export,
             intent: SessionIntent::Export {
-                path: Some("a.md".to_owned()),
+                path: "a.md".to_owned(),
             },
         }))),
     );

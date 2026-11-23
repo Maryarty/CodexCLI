@@ -56,20 +56,22 @@ pub trait FeatureView: Feature {
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
     fn note_words(note: &Self::Note, words: &SessionStrings) -> String;
 
+    /// What opens the feature's own sheet: ids the page that opens it holds, never what was
+    /// pressed (`Never<Self>` for a feature that has none).
+    type Args: Clone + std::fmt::Debug + PartialEq + Eq;
+
+    /// The arguments of the sheet a slash command named (`Feature::Target`), for the directory and
+    /// the thread in use; a feature without a target has no command to answer.
+    fn args(target: Self::Target, cwd: Cwd, thread: Option<ThreadId>) -> Self::Args;
+
+    /// Opens the feature's own sheet from the widget that asks.
+    fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Self::Args);
+
     /// The feature's slot in the debug menu (`--debug-screens`): its sheets on made-up data. None
     /// for a feature whose sheets have no fixture states.
     fn debug_dir() -> Option<Dir> {
         None
     }
-}
-
-/// The typed arguments of a feature's own sheet (`Target::Feature`): ids the page that opens it
-/// holds, never what was pressed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum OpenArgs {
-    Plugins(plugins::Args),
-    Export(export::Args),
-    Settings(settings::Args),
 }
 
 impl OpenArgs {
@@ -80,19 +82,7 @@ impl OpenArgs {
 
     /// The arguments of the sheet `target` names, for the directory and the thread in use.
     pub fn of(target: FeatureTarget, cwd: Cwd, thread: Option<ThreadId>) -> OpenArgs {
-        match target {
-            FeatureTarget::Plugins => OpenArgs::Plugins(plugins::Args { cwd }),
-            FeatureTarget::Export => OpenArgs::Export(export::Args { thread }),
-        }
-    }
-}
-
-/// Opens a feature's own sheet from the widget that asks (`Target::Feature`).
-pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: OpenArgs) {
-    match args {
-        OpenArgs::Plugins(args) => plugins::open(cx, args),
-        OpenArgs::Export(args) => export::open(cx, args),
-        OpenArgs::Settings(args) => settings::open(cx, args),
+        target_args(target, cwd, thread)
     }
 }
 
@@ -130,6 +120,46 @@ macro_rules! view_dispatch {
     };
 }
 
+macro_rules! view_open {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The typed arguments of a feature's own sheet (`Target::Feature`, the settings
+        /// dialogs): one variant per feature, uninhabited for a feature without a sheet.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum OpenArgs {
+            $($variant(<codex_tui_core::features::$name::$variant as FeatureView>::Args),)*
+        }
+
+        $(
+        impl From<<codex_tui_core::features::$name::$variant as FeatureView>::Args> for OpenArgs {
+            fn from(args: <codex_tui_core::features::$name::$variant as FeatureView>::Args) -> Self {
+                Self::$variant(args)
+            }
+        }
+        )*
+
+        /// The arguments of the sheet the slash command named, for the directory and thread in use.
+        #[allow(unused_variables)]
+        fn target_args(target: FeatureTarget, cwd: Cwd, thread: Option<ThreadId>) -> OpenArgs {
+            match target {
+                $(FeatureTarget::$variant(target) => OpenArgs::$variant(
+                    <codex_tui_core::features::$name::$variant as FeatureView>::args(
+                        target, cwd, thread,
+                    ),
+                ),)*
+            }
+        }
+
+        /// Opens a feature's own sheet from the widget that asks.
+        pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: OpenArgs) {
+            match args {
+                $(OpenArgs::$variant(args) => {
+                    <codex_tui_core::features::$name::$variant as FeatureView>::open(cx, args)
+                })*
+            }
+        }
+    };
+}
+
 macro_rules! view_debug {
     ($($name:ident => $variant:ident;)*) => {
         /// The slots of the features in the debug menu, in list order.
@@ -161,3 +191,4 @@ feature_list!(view_mods);
 feature_list!(view_dispatch);
 feature_list!(view_wishes);
 feature_list!(view_debug);
+feature_list!(view_open);

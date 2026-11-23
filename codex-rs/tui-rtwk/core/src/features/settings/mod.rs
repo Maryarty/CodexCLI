@@ -277,6 +277,7 @@ impl super::Feature for Settings {
 
     type State = State;
     type ThreadPart = ();
+    type Target = Never<Self>;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
     type Command = Never<Self>;

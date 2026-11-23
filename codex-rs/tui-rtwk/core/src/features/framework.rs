@@ -73,6 +73,7 @@ macro_rules! probe {
                 const NAME: &'static str = $name;
                 type State = u32;
                 type ThreadPart = u32;
+                type Target = Never<Self>;
                 type Intent = Intent;
                 type ThreadIntent = ThreadIntent;
                 type Command = Command;

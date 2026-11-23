@@ -15,7 +15,8 @@ use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::commands::SlashCommand;
-use codex_tui_core::features::FeatureStates;
+use codex_tui_core::features::{FeatureStates, Never};
+use codex_tui_core::ids::{Cwd, ThreadId};
 use codex_tui_core::features::settings::{Edit, ID, Intent, KIND, Settings, Which};
 
 use super::FeatureView;
@@ -35,6 +36,18 @@ pub mod strings;
 pub mod theme;
 
 impl FeatureView for Settings {
+    type Args = Args;
+
+    /// The dialogs are opened by `Target::Settings`, not by a feature target: none names this
+    /// feature.
+    fn args(target: Never<Self>, _cwd: Cwd, _thread: Option<ThreadId>) -> Args {
+        target.absurd()
+    }
+
+    fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
+        open(cx, args)
+    }
+
     fn note_words(note: &codex_tui_core::features::settings::Note, _words: &SessionStrings) -> String {
         strings::note(note)
     }
