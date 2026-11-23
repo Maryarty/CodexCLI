@@ -275,6 +275,7 @@ mod live {
             &ThreadId::new(T),
             ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Metadata {
                 name: None,
+                forked_from: None,
                 cwd: cwd.to_owned(),
                 path: None,
                 parent_owned: false,
