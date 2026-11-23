@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use rtwk::binding::TerminalTitle;
 use rtwk::editing::TextEditingController;
-use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyCombo, KeyEventResult, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack, StackFit};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
@@ -34,9 +34,10 @@ use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::composer::{Composer, clear_sent, submission};
 use crate::pages::session::footer::{Footer, Line, Sparkle, StatusRows};
-use codex_tui_core::keymap::{Keymap, fixed};
+use codex_tui_core::keymap::actions::GLOBAL_CHANGE_HOST;
+use codex_tui_core::keymap::{Binding, Keymap, fixed};
 
-use crate::keymap::pressed_fixed;
+use crate::keymap::{combo_of, pressed_fixed};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::popovers::mention;
@@ -244,6 +245,21 @@ struct Forking {
     notice: Option<codex_tui_core::screens::agents::Notice>,
 }
 
+/// The chords of `change_host` (the leader's prefix and its completion, `Ctrl+X b` by default),
+/// as the keymap resolved them.
+fn host_chords(keymap: &Keymap) -> Vec<(KeyCombo, KeyCombo)> {
+    keymap
+        .bindings(GLOBAL_CHANGE_HOST)
+        .into_iter()
+        .filter_map(|binding| match binding {
+            Binding::Chord { prefix, completion } => {
+                Some((combo_of(&prefix)?, combo_of(&completion)?))
+            }
+            Binding::Single(_) => None,
+        })
+        .collect()
+}
+
 impl ChatState {
     /// The fork the page waits on in this thread.
     fn forking_of(&self, thread: &ThreadModel) -> bool {
@@ -371,12 +387,13 @@ impl State for ChatState {
             // backend control shows (`visible_new_backend_control`), and it
             // works with a draft in the composer.
             if control.get() {
+                let chords = host_chords(&keymap.borrow());
                 if leader.replace(false) {
-                    if key.mods.is_empty() && key.text() == Some("b") {
+                    if chords.iter().any(|(_, done)| done.accepts_press(&key)) {
                         send(ChatMsg::Cycle);
                         return KeyEventResult::Handled;
                     }
-                } else if key == KeyPress::char('x').with_mods(Mods::CTRL) {
+                } else if chords.iter().any(|(leader, _)| leader.accepts_press(&key)) {
                     leader.set(true);
                     return KeyEventResult::Handled;
                 }
@@ -421,7 +438,7 @@ impl State for ChatState {
             {
                 return KeyEventResult::Ignored;
             }
-            if key.text() == Some("?") {
+            if pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
                 send(ChatMsg::Shortcuts);
             } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key) {
                 send(ChatMsg::Agents);
@@ -1133,17 +1150,11 @@ impl State for ChatState {
                 on_edge: on_edge.clone(),
             });
         }
-        let mut focus = Focus::new(body)
-            .bind(
-                KeyPress::char('c').with_mods(Mods::CTRL),
-                cx.send(ChatMsg::CtrlC),
-            )
-            .bind(
-                KeyPress::char('d').with_mods(Mods::CTRL),
-                cx.send(ChatMsg::CtrlD),
-            )
-            .bind(KeyPress::ESC, cx.send(ChatMsg::Escape));
+        let mut focus = Focus::new(body);
         for (id, msg) in [
+            (fixed::INTERRUPT_OR_QUIT, ChatMsg::CtrlC),
+            (fixed::QUIT_ON_EMPTY, ChatMsg::CtrlD),
+            (fixed::ESCAPE, ChatMsg::Escape),
             (fixed::DEBUG_KEY, ChatMsg::DebugMenu),
             (fixed::TRANSCRIPT_PAGE_UP, ChatMsg::Page(-1)),
             (fixed::TRANSCRIPT_PAGE_DOWN, ChatMsg::Page(1)),
@@ -1160,16 +1171,20 @@ impl State for ChatState {
             }
         }
         if thread.read_only() {
-            focus = focus
-                .can_request_focus(true)
-                .autofocus()
-                .bind(KeyPress::char('r'), cx.send(ChatMsg::RetryWriter))
-                .bind(KeyPress::char('f'), cx.send(ChatMsg::ForkWriter))
-                .bind(KeyPress::char('q'), cx.send(ChatMsg::QuitReadOnly));
+            focus = focus.can_request_focus(true).autofocus();
+            for (id, msg) in [
+                (fixed::RETRY_WRITER, ChatMsg::RetryWriter),
+                (fixed::FORK_WRITER, ChatMsg::ForkWriter),
+                (fixed::QUIT_READ_ONLY, ChatMsg::QuitReadOnly),
+            ] {
+                for key in crate::keymap::presses(&keymap, id) {
+                    focus = focus.bind(key, cx.send(msg.clone()));
+                }
+            }
         }
         if provider.is_some() {
             focus = focus.can_request_focus(true).autofocus();
-            for (key, msg) in provider_error::keys(can_continue) {
+            for (key, msg) in provider_error::keys(&keymap, can_continue) {
                 focus = focus.bind(key, cx.send(msg));
             }
         }

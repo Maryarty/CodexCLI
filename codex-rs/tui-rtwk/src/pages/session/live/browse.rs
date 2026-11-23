@@ -47,9 +47,9 @@ pub fn key(keymap: &Keymap, press: &KeyPress) -> Option<Browse> {
         step(fixed::DISMISS, Browse::Cancel),
         step(fixed::ENTER, Browse::Confirm),
         step(fixed::BROWSE_OLDER, Browse::Older),
-        vec![(KeyPress::char('h'), Browse::Older)],
+        step(fixed::BROWSE_OLDER_VIM, Browse::Older),
         step(fixed::BROWSE_NEWER, Browse::Newer),
-        vec![(KeyPress::char('l'), Browse::Newer)],
+        step(fixed::BROWSE_NEWER_VIM, Browse::Newer),
     ]
     .into_iter()
     .flatten()

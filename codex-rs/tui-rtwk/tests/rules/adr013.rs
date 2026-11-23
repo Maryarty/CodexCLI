@@ -1242,19 +1242,32 @@ fn the_interest_scan_bites() {
 }
 
 /// A `Directive` (the domain tells a controller what to do: restore a draft, put text) is read by the
-/// one listener (full §4.6): `Directive<..>` and `.restore()` (the thread's pending restore, no
-/// arguments) stand only in `src/widgets/directives.rs`. The markdown `Directive` of the citations is not
-/// generic, and `restore(&text)` of the citations and the search preview is another verb.
+/// one listener (full §4.6): `Directive<..>`, `.restore()` (the thread's pending restore, no
+/// arguments) and `submit_seq` stand only in `src/widgets/directives.rs`, and so does the number a
+/// one-shot is counted by (`prompt.seq`, `Restore::seq`): a page or a sheet that read one would be a
+/// second listener, carrying the one-shot out twice or losing it to a rebuild. The markdown
+/// `Directive` of the citations is not generic, `restore(&text)` of the citations and the search
+/// preview is another verb, and the `seq` of the presenters' wishes and of the composer's elements
+/// are other counters (outside pages and sheets).
 fn directives_read_elsewhere(files: &Files) -> Vec<String> {
-    hits_by_file(
+    let mut found = hits_by_file(
         files,
         |name| in_ui_sources(name) && name != "src/widgets/directives.rs",
         |tokens, i| {
             (at(tokens, i) == "Directive" && at(tokens, i + 1) == "<")
                 || (starts(tokens, i, &["restore", "(", ")"])
                     && at(tokens, i.wrapping_sub(1)) == ".")
+                || at(tokens, i) == "submit_seq"
         },
-    )
+    );
+    found.extend(hits_by_file(
+        files,
+        |name| name.starts_with("src/pages/") || name.starts_with("src/sheets/"),
+        |tokens, i| {
+            at(tokens, i) == "seq" && matches!(at(tokens, i.wrapping_sub(1)), "." | ":")
+        },
+    ));
+    found
 }
 
 #[test]
@@ -1274,16 +1287,33 @@ fn the_directive_scan_bites() {
             "let seq = thread.restore().map(Restore::seq);\nlet d: Option<Directive<Restore>> = None;\nfn restore() {}\nrestore(x);\nself.restore(c, &snapshot);\nlet t = directives.restore(&title);\nenum Directive { Citation }\n".to_owned(),
         ),
         (
+            "src/pages/session/live/plan_mode.rs".to_owned(),
+            "let seq = thread.screen_slots().chat.plan.prompt().map(|prompt| prompt.seq);\nlet n = thread.submit_seq();\nlet seq = 3; // prompt.seq\n".to_owned(),
+        ),
+        (
             "src/widgets/directives.rs".to_owned(),
-            "fn r(d: Directive<Restore>) { d.restore() }\n".to_owned(),
+            "fn r(d: Directive<Restore>) { d.restore() }\nlet n = prompt.seq + thread.submit_seq();\n".to_owned(),
+        ),
+        (
+            "src/app/presenters/mod.rs".to_owned(),
+            "let fresh = wish.seq > taken;\n".to_owned(),
+        ),
+        (
+            "src/widgets/composer_draft.rs".to_owned(),
+            "elements.sort_by_key(|e| e.seq);\n".to_owned(),
         ),
     ];
-    // `.restore(` and `Directive<`, twice; the declaration `fn restore(` and the citations' enum are not
+    // `.restore(` and `Directive<` and the `seq` of `Restore::seq`, in a page (three); `.seq` and
+    // `submit_seq` in a page (two more); the declaration `fn restore(`, the citations' enum, a local
+    // named `seq`, a comment, the listener itself and the other counters' `seq` are not
     assert_eq!(
         directives_read_elsewhere(&files),
         [
             "src/pages/session/session_page.rs",
-            "src/pages/session/session_page.rs"
+            "src/pages/session/session_page.rs",
+            "src/pages/session/live/plan_mode.rs",
+            "src/pages/session/session_page.rs",
+            "src/pages/session/live/plan_mode.rs",
         ]
     );
 }
@@ -1552,6 +1582,11 @@ fn keycode_outside_keymap(files: &Files) -> Vec<String> {
                 // `key.fixed()`): a hardwired key is a named action of `core::keymap::fixed`
                 || starts(tokens, i, &["Fixed", ":", ":"])
                 || starts(tokens, i, &[".", "fixed", "(", ")"])
+                // a press written out (`KeyPress::char('h')`, `KeyPress::ESC`) and a key read from the
+                // text it typed (`key.text() == Some("?")`): a hardwired key is a named action of
+                // `core::keymap::fixed`, whose presses `src/keymap` builds
+                || starts(tokens, i, &["KeyPress", ":", ":"])
+                || starts(tokens, i, &[".", "text", "(", ")", "=", "=", "Some"])
         },
     )
 }
@@ -1570,7 +1605,7 @@ fn the_keycode_scan_bites() {
     let files = vec![
         (
             "src/pages/agents/dialogs.rs".to_owned(),
-            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\n"
+            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\n"
                 .to_owned(),
         ),
         (
@@ -1585,6 +1620,9 @@ fn the_keycode_scan_bites() {
     assert_eq!(
         keycode_outside_keymap(&files),
         [
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
