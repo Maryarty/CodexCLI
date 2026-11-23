@@ -4,11 +4,12 @@
 //! provider as the live one.
 
 use rtwk::layout::Column;
-use rtwk::provider::watch;
+use rtwk::provider::select;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::resume::Row;
 
 use crate::app::theme;
 use crate::pages::resume::strings;
@@ -22,9 +23,9 @@ impl StatelessWidget for List {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
         let title = strings::of(cx).title;
-        let screens = watch::<ScreenStates, _>(cx);
+        let saved = select::<ScreenStates, Vec<Row>, _>(cx, |states| states.resume.rows.clone());
         let mut column = Column::new().child(Text::new(title).style(tokens.accent()));
-        for row in &screens.resume.rows {
+        for row in &saved {
             column = column.child(Text::new(format!(
                 "{}  {}  {}",
                 row.started, row.preview, row.model_provider

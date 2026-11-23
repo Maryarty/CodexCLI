@@ -8,8 +8,9 @@
 //! `TextEditingController` (its `FocusNode.onKeyEvent` takes the keys that
 //! are the list's), a `ListView` over a `ListController` with the cursor in a
 //! `SelectionController` keyed by the theme's name. The theme in force while
-//! the picker is open is the model's (`Intent::Preview` on every move of the
-//! cursor, `Intent::Close` restores it, `Intent::Pick` keeps it, ADR-003).
+//! the picker is open is the model's (`Intent::SyntaxTheme` on every move of
+//! the cursor and on Esc, which restores it; `Edit::ThemeSelected` keeps it,
+//! ADR-013).
 //! The mouse (ADR-011, beyond the oracle): a tap moves the cursor to a row, a
 //! tap on the row the cursor is on picks it; the wheel is the `ListView`'s.
 
@@ -26,20 +27,21 @@ use rtwk::layout::{
     MainAxisSize, Padding, Row, SizedBox,
 };
 use rtwk::overlay::{Dialog, close_dialog};
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
-use rtwk::style::{Attrs, Span, Style};
+use rtwk::style::{Attrs, Span, Style, TerminalBrightness};
 use rtwk::text::{Text, TextAlign, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk::{Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::select::list::{SIDE_GAP, Side, SideWidth};
-use codex_tui_core::screens::settings::{Intent, Open, ThemePicker};
+use codex_tui_core::screens::settings::{Edit, Intent, Offer, ThemePicker, Which};
 
+use super::keys::{Keys, ListKey, list_key};
 use super::strings::{self, Change, PreviewRow, Strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
@@ -62,7 +64,7 @@ pub struct ThemeSheet;
 
 /// Widget state: the controllers (R14).
 pub struct ThemeState {
-    shown: bool,
+    keys: Keys,
     ready: bool,
     node: FocusNode,
     query: TextEditingController,
@@ -89,28 +91,12 @@ pub enum Msg {
 }
 
 /// The act of a key; none: the key is the search field's.
-fn act_of(key: &KeyPress) -> Option<Act> {
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    let letter = key.text().and_then(|text| {
-        let mut chars = text.chars();
-        let first = chars.next()?;
-        chars.next().is_none().then_some(first)
-    });
-    match (key.code, letter, ctrl, alt) {
-        (KeyCode::Up, _, false, false) | (KeyCode::Char, Some('p'), true, false) => {
-            Some(Act::Move(Move::Step(false)))
-        }
-        (KeyCode::Down, _, false, false) | (KeyCode::Char, Some('n'), true, false) => {
-            Some(Act::Move(Move::Step(true)))
-        }
-        (KeyCode::PageUp, _, false, false) => Some(Act::Move(Move::Page(false))),
-        (KeyCode::PageDown, _, false, false) => Some(Act::Move(Move::Page(true))),
-        (KeyCode::Home, _, false, false) => Some(Act::Move(Move::Edge(false))),
-        (KeyCode::End, _, false, false) => Some(Act::Move(Move::Edge(true))),
-        (KeyCode::Enter, _, false, false) => Some(Act::Pick),
-        (KeyCode::Escape, _, false, false) => Some(Act::Close),
-        _ => None,
+fn act_of(keys: &Keymap, key: &KeyPress) -> Option<Act> {
+    match list_key(keys, key, true)? {
+        ListKey::Move(mv) => Some(Act::Move(mv)),
+        ListKey::Accept => Some(Act::Pick),
+        ListKey::Cancel => Some(Act::Close),
+        ListKey::Left | ListKey::Right => None,
     }
 }
 
@@ -119,7 +105,7 @@ impl StatefulWidget for ThemeSheet {
 
     fn create_state(&self) -> ThemeState {
         ThemeState {
-            shown: false,
+            keys: Keys::new(),
             ready: false,
             node: FocusNode::new(),
             query: TextEditingController::new(""),
@@ -132,12 +118,45 @@ impl StatefulWidget for ThemeSheet {
 
 impl_widget!(stateful eq ThemeSheet);
 
-/// The picker the model holds open.
+/// The picker the model offers, as the sheet draws it: the theme in force is the one the
+/// config names when it is among the themes, else the terminal's default theme
+/// (`build_theme_picker_params`: `effective_name`), so the cursor starts on it and the row says
+/// "(current)".
 fn open_picker(cx: &mut Cx<'_, ThemeState>) -> Option<ThemePicker> {
-    select::<ScreenStates, Option<ThemePicker>, _>(cx, |states| match &states.settings.open {
-        Some(Open::Theme(picker)) => Some(picker.clone()),
-        _ => None,
+    let offered = offered_picker(cx)?;
+    let in_force = offered
+        .original
+        .clone()
+        .filter(|name| offered.themes.contains(name))
+        .unwrap_or_else(|| adaptive_default(TerminalBrightness::background_of(cx)).to_owned());
+    Some(ThemePicker {
+        original: Some(in_force),
+        ..offered
     })
+}
+
+/// The picker as the model offers it: `original` is the theme the config names, if any.
+fn offered_picker(cx: &mut Cx<'_, ThemeState>) -> Option<ThemePicker> {
+    select::<ScreenStates, Option<ThemePicker>, _>(cx, |states| {
+        match states.settings.offers.get(&Which::Theme) {
+            Some(Offer::Theme(picker)) => Some(picker.clone()),
+            _ => None,
+        }
+    })
+}
+
+/// The theme a terminal gets when the config names none (`adaptive_default_theme_selection`):
+/// catppuccin-mocha, catppuccin-latte when its background is light (luma above 128).
+fn adaptive_default(terminal_bg: Option<u32>) -> &'static str {
+    let light = terminal_bg.is_some_and(|rgb| {
+        let [_, r, g, b] = rgb.to_be_bytes();
+        0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b) > 128.0
+    });
+    if light {
+        "catppuccin-latte"
+    } else {
+        "catppuccin-mocha"
+    }
 }
 
 impl ThemeState {
@@ -157,7 +176,10 @@ impl ThemeState {
         self.list.ensure_index_visible(at);
         if moved {
             let hs = read::<Hs, _>(cx);
-            cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Preview(name)));
+            cx.emit(
+                &hs.screen,
+                ScreenIntent::Settings(Intent::SyntaxTheme(Some(name))),
+            );
         }
     }
 
@@ -178,6 +200,18 @@ impl ThemeState {
         });
     }
 
+    /// Esc: the theme in force is the one the picker opened on again (the config's, if it names
+    /// one: none is the terminal's default).
+    fn cancel(&self, cx: &mut Cx<'_, Self>) {
+        let original = offered_picker(cx).and_then(|picker| picker.original);
+        let hs = read::<Hs, _>(cx);
+        cx.emit(
+            &hs.screen,
+            ScreenIntent::Settings(Intent::SyntaxTheme(original)),
+        );
+        close_dialog::<_, ()>(cx, None);
+    }
+
     fn act(&self, act: Act, picker: &ThemePicker, rows: &[usize], cx: &mut Cx<'_, Self>) {
         let hs = read::<Hs, _>(cx);
         let at = self.at(picker, rows);
@@ -189,13 +223,17 @@ impl ThemeState {
             }
             // Enter with no row left cancels (`enter_with_no_matches_triggers_cancel_callback`).
             Act::Pick => match at {
-                Some(at) => cx.emit(
-                    &hs.screen,
-                    ScreenIntent::Settings(Intent::Pick(picker.themes[rows[at]].clone())),
-                ),
-                None => cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Close)),
+                Some(at) => {
+                    let theme = picker.themes[rows[at]].clone();
+                    cx.emit(
+                        &hs.screen,
+                        ScreenIntent::Settings(Intent::Request(Edit::ThemeSelected(theme))),
+                    );
+                    close_dialog::<_, ()>(cx, None);
+                }
+                None => self.cancel(cx),
             },
-            Act::Close => cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Close)),
+            Act::Close => self.cancel(cx),
         }
     }
 }
@@ -206,14 +244,16 @@ impl State for ThemeState {
 
     fn init_state(&mut self, _: &ThemeSheet, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
-        self.node
-            .set_on_key_event(Some(Rc::new(move |_, key| match act_of(&key) {
+        let keys = self.keys.clone();
+        self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            match act_of(&keys.get(), &key) {
                 Some(act) => {
                     send(Msg::Act(act));
                     KeyEventResult::Handled
                 }
                 None => KeyEventResult::Ignored,
-            })));
+            }
+        })));
     }
 
     fn dispose(&mut self) {
@@ -223,11 +263,8 @@ impl State for ThemeState {
     }
 
     fn did_change_dependencies(&mut self, _: &ThemeSheet, cx: &mut Cx<'_, Self>) {
+        self.keys.refresh(cx);
         let picker = open_picker(cx);
-        if picker.is_none() && self.shown {
-            close_dialog::<_, ()>(cx, None);
-        }
-        self.shown = picker.is_some();
         if let (Some(picker), false) = (&picker, self.ready) {
             self.ready = true;
             // The cursor starts on the theme in force, without a preview of it.
@@ -352,6 +389,8 @@ impl State for ThemeState {
         let column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            // the panel's padding row: the preview centres below it, in the content area
+            .child(Text::new(String::new()))
             .child(sheet)
             .child(Text::line(format!("{}{}", s.indent, s.popup_hint)).style(tokens.dim()));
         Dialog::bare(BoxWidget::new().style(Style::new()).child(column)).into()
@@ -448,7 +487,6 @@ fn header_and_rows(
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(Text::new(String::new()))
         .child(Text::line(format!("{}{}", s.indent, s.theme_title)).style(tokens.bold()))
         .child(Text::line(format!("{}{subtitle}", s.indent)).style(tokens.dim()))
         .child(Text::new(String::new()))

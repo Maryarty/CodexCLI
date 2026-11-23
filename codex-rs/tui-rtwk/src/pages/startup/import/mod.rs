@@ -17,7 +17,7 @@ use rtwk::layout::{
 };
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::HitTestBehavior;
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap};
@@ -120,11 +120,11 @@ enum Act {
 
 /// The actions of the page, top to bottom: the summary offers to import only
 /// while something is checked.
-fn actions(view: View, model: &import::Model) -> Vec<Act> {
+fn actions(view: View, checked: &[bool]) -> Vec<Act> {
     match view {
         View::Summary => {
             let mut actions = Vec::new();
-            if model.proceed_enabled() {
+            if checked.iter().any(|on| *on) {
                 actions.push(Act::Proceed);
             }
             actions.extend([Act::Customize, Act::Skip]);
@@ -152,6 +152,9 @@ pub struct ScreenState {
     view: View,
     /// The review the page and the cursors are for, by its number.
     review_for: u64,
+    /// The checklist's checks: the draft of the import (ADR-013: a toggle is the page's, the
+    /// flow gets the checked indexes with `Proceed`), started from the model's preselection.
+    checked: Vec<bool>,
     items: FocusNode,
     actions: FocusNode,
     /// The checklist's cursor (an index of the model's `items`, or of its
@@ -202,6 +205,7 @@ impl StatefulWidget for Screen {
             list: ListController::new(),
             view: View::Summary,
             review_for: 0,
+            checked: Vec::new(),
             items: FocusNode::new(),
             actions: FocusNode::new(),
             item: SelectionController::new(),
@@ -229,16 +233,16 @@ impl State for ScreenState {
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
-        let screens = watch::<ScreenStates, _>(cx);
-        let model = &screens.import;
+        let model = flow(cx);
         if model.phase == Phase::Review {
             if self.review_for != model.review_id {
                 // a review opens on its summary, the actions have the keys
                 self.review_for = model.review_id;
-                self.show(View::Summary, model);
+                self.checked = model.preselected();
+                self.show(View::Summary, &model);
             }
-            self.settle(model);
-            self.track(model, strings::of(cx), &shared::of(cx).num);
+            self.settle(&model);
+            self.track(&model, strings::of(cx), &shared::of(cx).num);
         }
     }
 
@@ -255,13 +259,15 @@ impl State for ScreenState {
             Msg::ActionUp => self.walk(Region::Actions, false, model),
             Msg::ActionDown => self.walk(Region::Actions, true, model),
             Msg::Toggle => {
-                intent = customize.then_some(ImportIntent::Toggle(self.item.cursor().unwrap_or(0)))
+                if customize {
+                    self.toggle(self.item.cursor().unwrap_or(0));
+                }
             }
             Msg::Run => intent = self.run(model),
             Msg::TapItem(at) => {
                 if !customize {
                 } else if self.items.has_focus() && self.item.cursor() == Some(at) {
-                    intent = Some(ImportIntent::Toggle(at));
+                    self.toggle(at);
                 } else {
                     self.item.set_cursor(Some(at));
                     self.items.request_focus();
@@ -277,7 +283,7 @@ impl State for ScreenState {
             }
             Msg::Number(number) => {
                 let at = usize::from(number).checked_sub(1);
-                if let Some(at) = at.filter(|at| *at < actions(self.view, model).len()) {
+                if let Some(at) = at.filter(|at| *at < actions(self.view, &self.checked).len()) {
                     self.action.set_cursor(Some(at));
                     self.actions.request_focus();
                     intent = self.run(model);
@@ -293,7 +299,11 @@ impl State for ScreenState {
                     self.show(View::Summary, model);
                 }
             }
-            Msg::All(on) => intent = customize.then_some(ImportIntent::SetAll(on)),
+            Msg::All(on) => {
+                if customize {
+                    self.checked.iter_mut().for_each(|check| *check = on);
+                }
+            }
             Msg::Escape => {
                 if customize {
                     self.show(View::Summary, model);
@@ -319,11 +329,11 @@ impl State for ScreenState {
     }
 
     fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let screens = watch::<ScreenStates, _>(cx);
-        if screens.import.phase == Phase::Source {
+        let model = flow(cx);
+        if model.phase == Phase::Source {
             return source::SourcePrompt.into();
         }
-        if screens.import.phase != Phase::Review || self.review_for != screens.import.review_id {
+        if model.phase != Phase::Review || self.review_for != model.review_id {
             // The oracle draws nothing while it asks the server: the
             // screen below stays. Escape
             // ends a detection that has not answered (its answer is then
@@ -373,10 +383,10 @@ impl State for ScreenState {
             checklist,
             buttons,
             focus: (cx.map(Msg::Focus), cx.map(Msg::Focus)),
-            item_taps: (0..self.item_count(&screens.import))
+            item_taps: (0..self.item_count(&model))
                 .map(|at| cx.map(move |_: PointerEvent| Msg::TapItem(at)))
                 .collect(),
-            action_taps: (0..actions(self.view, &screens.import).len())
+            action_taps: (0..actions(self.view, &self.checked).len())
                 .map(|at| cx.map(move |_: PointerEvent| Msg::TapAction(at)))
                 .collect(),
         };
@@ -384,12 +394,19 @@ impl State for ScreenState {
             &look,
             strings::of(cx),
             shared::of(cx).num,
-            screens,
+            &model,
+            &self.checked,
             self.view,
             regions,
         );
         KeyBindings::new(page, body).into()
     }
+}
+
+/// The flow's model, as the page draws it (a `select` of the import slice, not the whole
+/// screen states).
+fn flow(cx: &mut Cx<'_, ScreenState>) -> import::Model {
+    select::<ScreenStates, import::Model, _>(cx, |states| states.import.clone())
 }
 
 const DIGITS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -435,7 +452,7 @@ impl ScreenState {
     fn walk(&mut self, region: Region, forward: bool, model: &import::Model) {
         let (sel, len) = match region {
             Region::Items => (&self.item, self.item_count(model)),
-            Region::Actions => (&self.action, actions(self.view, model).len()),
+            Region::Actions => (&self.action, actions(self.view, &self.checked).len()),
         };
         let from = sel.cursor().unwrap_or(0);
         let Some(to) = target(len, Some(from), &|_| true, Move::Step(forward), 1) else {
@@ -449,7 +466,7 @@ impl ScreenState {
         }
         match region {
             Region::Items => {
-                let count = actions(self.view, model).len();
+                let count = actions(self.view, &self.checked).len();
                 self.action
                     .set_cursor(Some(if forward { 0 } else { count.saturating_sub(1) }));
                 self.actions.request_focus();
@@ -465,10 +482,20 @@ impl ScreenState {
         }
     }
 
+    fn toggle(&mut self, at: usize) {
+        if let Some(check) = self.checked.get_mut(at) {
+            *check = !*check;
+        }
+    }
+
     /// What the action under the cursor does.
     fn run(&mut self, model: &import::Model) -> Option<ImportIntent> {
-        match actions(self.view, model).get(self.action.cursor().unwrap_or(0))? {
-            Act::Proceed => Some(ImportIntent::Proceed),
+        match actions(self.view, &self.checked).get(self.action.cursor().unwrap_or(0))? {
+            Act::Proceed => Some(ImportIntent::Proceed(
+                (0..self.checked.len())
+                    .filter(|at| self.checked[*at])
+                    .collect(),
+            )),
             Act::Skip => Some(ImportIntent::Cancel),
             Act::Customize => {
                 self.show(View::Customize, model);
@@ -486,8 +513,9 @@ impl ScreenState {
     fn settle(&mut self, model: &import::Model) {
         let last = |len: usize| len.saturating_sub(1);
         let action = self.action.cursor().unwrap_or(0);
-        self.action
-            .set_cursor(Some(action.min(last(actions(self.view, model).len()))));
+        self.action.set_cursor(Some(
+            action.min(last(actions(self.view, &self.checked).len())),
+        ));
         let item = self.item.cursor().unwrap_or(0);
         self.item
             .set_cursor(Some(item.min(last(self.item_count(model)))));
@@ -499,7 +527,7 @@ impl ScreenState {
         if !self.items.has_focus() {
             return;
         }
-        let rows = rows::of(self.view, model, strings, num);
+        let rows = rows::of(self.view, model, &self.checked, strings, num);
         if let Some(row) = rows::cursor_row(&rows, self.item.cursor()) {
             self.list.ensure_index_visible(row);
         }
@@ -541,14 +569,14 @@ fn review(
     look: &Look,
     strings: &'static Strings,
     num: rtwk::l10n::NumSyms,
-    screens: Rc<ScreenStates>,
+    model: &import::Model,
+    checked: &[bool],
     view: View,
     regions: Regions,
 ) -> AnyWidget {
-    let model = &screens.import;
     let customize = view == View::Customize;
-    let acts = actions(view, model);
-    let rows = rows::of(view, model, strings, &num);
+    let acts = actions(view, checked);
+    let rows = rows::of(view, model, checked, strings, &num);
     let intro = if customize {
         strings.intro_customize
     } else {
@@ -612,7 +640,11 @@ fn review(
     });
     column = column.child(SizedBox::new(None, Some(1), None));
     column = column.child(wrapped(
-        strings.selected(model.selected_count(), model.items.len(), &num),
+        strings.selected(
+            checked.iter().filter(|on| **on).count(),
+            model.items.len(),
+            &num,
+        ),
         Style::new(),
     ));
     let mut buttons = Column::new()

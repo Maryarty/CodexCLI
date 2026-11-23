@@ -21,26 +21,26 @@ use rtwk::AnyWidget;
 use rtwk::binding::AppBinding;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
-use rtwk::foundation::ListenableBuilder;
+use rtwk::foundation::{ListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Expanded, Flexible, MainAxisSize, Padding, Row,
     SizedBox,
 };
-use rtwk::prelude::{HitTestBehavior, Mods};
+use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::read;
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_core::input::KeyCode;
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
 use codex_tui_core::screens::onboarding::auth::{self, provider};
 use provider::gateway::{FIELDS, Fields, Form, FormError, Gateway, Stage};
 
-use super::super::{Line, Look, guarded_keys, now, rows_of, width_of};
+use super::super::keys::{ctrl, pressed};
+use super::super::{Line, Look, Resting, guarded_keys, now, rows_of, width_of};
 use super::{frame, frame_of, sized, strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
@@ -52,6 +52,9 @@ use crate::widgets::options::{OptionRow, OptionStyles, Options, RichRow};
 pub struct GatewayWizard {
     pub gateway: Gateway,
     pub guard: KeyGuard,
+    /// Set while the form's mark is on Save (the logo of the step fades only while a field has
+    /// the keys: the step reads it).
+    pub resting: Resting,
 }
 
 /// The nodes: the three fields, Save, and the list's (which the views
@@ -60,9 +63,10 @@ const SAVE: usize = FIELDS;
 const LIST: usize = FIELDS + 1;
 const VARIABLE: usize = FIELDS - 1;
 
-/// Widget state (R14): the fields, their nodes, the list's cursor, the
-/// scroll of a short pane.
+/// Widget state (R14): the fields, their nodes, the field marked (the fields in turn, then
+/// Save: the form's own, ADR-013), the list's cursor, the scroll of a short pane.
 pub struct GatewayState {
+    at: usize,
     fields: [TextEditingController; FIELDS],
     nodes: [FocusNode; FIELDS + 2],
     options: Options,
@@ -71,6 +75,8 @@ pub struct GatewayState {
     /// layout measured them.
     marked: Rc<Cell<i64>>,
     total: Rc<Cell<i64>>,
+    /// The step's `Resting`, set to false when the wizard goes.
+    rested: Rc<ValueNotifier<bool>>,
 }
 
 pub enum Msg {
@@ -112,12 +118,14 @@ impl StatefulWidget for GatewayWizard {
 
     fn create_state(&self) -> GatewayState {
         GatewayState {
+            at: 0,
             fields: std::array::from_fn(|_| TextEditingController::new("")),
             nodes: std::array::from_fn(|_| FocusNode::new()),
             options: Options::new(),
             scroll: ScrollController::default(),
             marked: Rc::new(Cell::new(0)),
             total: Rc::new(Cell::new(0)),
+            rested: self.resting.0.clone(),
         }
     }
 }
@@ -136,7 +144,7 @@ fn form_of(stage: &Stage) -> Option<&Form> {
 /// creates, or the error's "Back"); none for the other stages.
 fn list_len(stage: &Stage) -> usize {
     match stage {
-        Stage::Picking(picker) => picker.page.create_row() + 1,
+        Stage::Picking(picker) => picker.list.create_row() + 1,
         Stage::LoadError(_) => 1,
         _ => 0,
     }
@@ -147,21 +155,27 @@ impl GatewayState {
     /// form to scroll (`visible_layout`: Save shows what is below it as far
     /// as the room goes, a field ends at the bottom).
     fn reveal(&self, w: &GatewayWizard) -> bool {
-        let Stage::Editing { form, .. } = &w.gateway.stage else {
+        if !matches!(w.gateway.stage, Stage::Editing { .. }) {
             return false;
-        };
+        }
         if !self.scroll.has_clients() {
             return false;
         }
         let view = self.scroll.position().viewport_dimension();
         let (marked, total) = (self.marked.get(), self.total.get());
-        let top = if form.on_save() {
+        let top = if self.at == SAVE {
             (total - view).max(0).min(marked)
         } else {
             (marked + 1 - view).max(0)
         };
         self.scroll.jump_to(top);
         true
+    }
+
+    /// The step's logo is told whether the mark rests on Save of the form.
+    fn rest(&self, w: &GatewayWizard) {
+        let on_save = matches!(w.gateway.stage, Stage::Editing { .. }) && self.at == SAVE;
+        w.resting.0.set_value(on_save);
     }
 
     fn after_frame(cx: &mut Cx<'_, Self>) {
@@ -198,7 +212,11 @@ impl GatewayState {
             w.guard.arm(key, now(cx));
         }
         match &w.gateway.stage {
-            Stage::Picking(_) => Self::emit_gateway(cx, provider::gateway::Intent::Activate(row)),
+            // Past the saved gateways: the row that creates one.
+            Stage::Picking(picker) if row < picker.list.create_row() => {
+                Self::emit_gateway(cx, provider::gateway::Intent::Use(row));
+            }
+            Stage::Picking(_) => Self::emit_gateway(cx, provider::gateway::Intent::Create),
             Stage::LoadError(_) => Self::emit(cx, auth::Intent::ProviderBack),
             _ => {}
         }
@@ -230,40 +248,40 @@ impl GatewayState {
                 if guarded(node, key.clone()) == KeyEventResult::Handled {
                     return KeyEventResult::Handled;
                 }
-                let plain = key.mods == Mods::NONE;
-                let shift = key.mods == Mods::SHIFT;
-                let ctrl = key.mods == Mods::CTRL;
+                let is = |want: KeyPress| pressed(&key, &want);
                 let msg = if index == LIST {
-                    match (key.code, key.ch) {
-                        (KeyCode::Up, _) if plain => Some(Msg::Up),
-                        (KeyCode::Down, _) if plain => Some(Msg::Down),
-                        (KeyCode::Char, Some('k')) if plain || ctrl => Some(Msg::Up),
-                        (KeyCode::Char, Some('j')) if plain || ctrl => Some(Msg::Down),
-                        (KeyCode::Char, Some('p')) if ctrl => Some(Msg::Up),
-                        (KeyCode::Char, Some('n')) if ctrl => Some(Msg::Down),
-                        (KeyCode::Home, _) if plain => Some(Msg::Top),
-                        (KeyCode::End, _) if plain => Some(Msg::Bottom),
-                        (KeyCode::PageUp, _) if plain => Some(Msg::Page(-1)),
-                        (KeyCode::PageDown, _) if plain => Some(Msg::Page(1)),
-                        (KeyCode::Char, Some('b')) if ctrl => Some(Msg::Page(-1)),
-                        (KeyCode::Char, Some('f')) if ctrl => Some(Msg::Page(1)),
-                        (KeyCode::Enter, _) if plain => Some(Msg::Confirm),
-                        (KeyCode::Char, Some('1')) if plain => Some(Msg::Confirm),
-                        _ => None,
+                    if is(KeyPress::UP) || is(KeyPress::char('k')) || is(ctrl('k')) || is(ctrl('p'))
+                    {
+                        Some(Msg::Up)
+                    } else if is(KeyPress::DOWN)
+                        || is(KeyPress::char('j'))
+                        || is(ctrl('j'))
+                        || is(ctrl('n'))
+                    {
+                        Some(Msg::Down)
+                    } else if is(KeyPress::HOME) {
+                        Some(Msg::Top)
+                    } else if is(KeyPress::END) {
+                        Some(Msg::Bottom)
+                    } else if is(KeyPress::PAGE_UP) || is(ctrl('b')) {
+                        Some(Msg::Page(-1))
+                    } else if is(KeyPress::PAGE_DOWN) || is(ctrl('f')) {
+                        Some(Msg::Page(1))
+                    } else if is(KeyPress::ENTER) || is(KeyPress::char('1')) {
+                        Some(Msg::Confirm)
+                    } else {
+                        None
                     }
+                } else if is(KeyPress::UP) || is(KeyPress::BACKTAB) {
+                    Some(Msg::Mark((index + count - 1) % count))
+                } else if is(KeyPress::DOWN) || is(KeyPress::TAB) {
+                    Some(Msg::Mark((index + 1) % count))
+                } else if is(KeyPress::ENTER) && index == SAVE {
+                    Some(Msg::Save)
+                } else if is(ctrl(' ')) && index == VARIABLE {
+                    Some(Msg::Complete)
                 } else {
-                    match key.code {
-                        KeyCode::Up if plain => Some(Msg::Mark((index + count - 1) % count)),
-                        KeyCode::Tab if shift => Some(Msg::Mark((index + count - 1) % count)),
-                        KeyCode::Down | KeyCode::Tab if plain => {
-                            Some(Msg::Mark((index + 1) % count))
-                        }
-                        KeyCode::Enter if plain && index == SAVE => Some(Msg::Save),
-                        KeyCode::Char if ctrl && key.ch == Some(' ') && index == VARIABLE => {
-                            Some(Msg::Complete)
-                        }
-                        _ => None,
-                    }
+                    None
                 };
                 match msg {
                     Some(msg) => {
@@ -290,17 +308,20 @@ impl State for GatewayState {
         if old.gateway.stage == w.gateway.stage {
             return;
         }
-        // A new form starts empty; a save that failed keeps what was typed.
+        // A new form starts empty, on its first field; a save that failed keeps what was typed
+        // and where the mark was.
         if form_of(&old.gateway.stage).is_none() && form_of(&w.gateway.stage).is_some() {
             for field in &self.fields {
                 field.set_text("");
             }
+            self.at = 0;
         }
+        self.rest(w);
         // A list opens on the row it names (the gateway just created, the
         // one the form came from), the error's on "Back".
         match (&old.gateway.stage, &w.gateway.stage) {
-            (Stage::Picking(a), Stage::Picking(b)) if a.selected == b.selected => {}
-            (_, Stage::Picking(picker)) => self.options.set(picker.selected.unwrap_or(0)),
+            (Stage::Picking(a), Stage::Picking(b)) if a.lands_on == b.lands_on => {}
+            (_, Stage::Picking(picker)) => self.options.set(picker.lands_on.unwrap_or(0)),
             (Stage::LoadError(_), Stage::LoadError(_)) => {}
             (_, Stage::LoadError(_)) => self.options.set(0),
             _ => {}
@@ -315,6 +336,7 @@ impl State for GatewayState {
     }
 
     fn dispose(&mut self) {
+        self.rested.set_value(false);
         for field in &self.fields {
             field.dispose();
         }
@@ -359,15 +381,17 @@ impl State for GatewayState {
             Msg::Submit => {
                 // From the last field the mark goes to Save: a held Enter
                 // does not go on to save (`KeyEventKind::Press`).
-                if form_of(&w.gateway.stage).is_some_and(|form| form.selected + 1 == SAVE) {
-                    w.guard.arm(GuardKey::Enter, now(cx));
+                if matches!(w.gateway.stage, Stage::Editing { .. }) && self.at < SAVE {
+                    if self.at + 1 == SAVE {
+                        w.guard.arm(GuardKey::Enter, now(cx));
+                    }
+                    self.nodes[self.at + 1].request_focus();
                 }
-                Self::emit_gateway(cx, provider::gateway::Intent::Enter(self.texts()));
             }
-            Msg::Save => Self::emit_gateway(cx, provider::gateway::Intent::Enter(self.texts())),
+            Msg::Save => Self::emit_gateway(cx, provider::gateway::Intent::Save(self.texts())),
             Msg::TapSave => match form_of(&w.gateway.stage) {
-                Some(form) if form.on_save() => {
-                    Self::emit_gateway(cx, provider::gateway::Intent::Enter(self.texts()));
+                Some(_) if self.at == SAVE => {
+                    Self::emit_gateway(cx, provider::gateway::Intent::Save(self.texts()));
                 }
                 Some(_) => self.nodes[SAVE].request_focus(),
                 None => {}
@@ -380,16 +404,16 @@ impl State for GatewayState {
                 }
             }
             Msg::Focused(index, true) => {
-                if let Stage::Editing { form, .. } = &w.gateway.stage
-                    && form.selected != index
-                {
-                    Self::emit_gateway(cx, provider::gateway::Intent::Mark(index));
+                if matches!(w.gateway.stage, Stage::Editing { .. }) && self.at != index {
+                    self.at = index;
+                    self.rest(w);
+                    return Rebuild::Yes;
                 }
             }
             Msg::Focused(_, false) => {}
             Msg::Complete => {
                 if let Stage::Editing { form, .. } = &w.gateway.stage
-                    && form.selected == VARIABLE
+                    && self.at == VARIABLE
                 {
                     let text = self.fields[VARIABLE].text();
                     let at = self.fields[VARIABLE].selection().extent_offset;
@@ -402,7 +426,7 @@ impl State for GatewayState {
             }
             Msg::Settle => {
                 let node = match &w.gateway.stage {
-                    Stage::Editing { form, .. } => form.selected.min(SAVE),
+                    Stage::Editing { .. } => self.at.min(SAVE),
                     _ => LIST,
                 };
                 if !self.nodes[node].has_focus() {
@@ -499,7 +523,7 @@ impl State for GatewayState {
                 .into()
             }
             Stage::Picking(picker) => {
-                let page = &picker.page;
+                let page = &picker.list;
                 let options = self
                     .options
                     .on_accept(cx.map(Msg::Accept))
@@ -602,7 +626,7 @@ impl GatewayState {
     ) -> AnyWidget {
         let strings = strings::of(cx);
         let [marked_mark, plain_mark] = strings.gateway_marks;
-        let selected = form.selected;
+        let selected = self.at;
         // A field: its label (the mark, the name, a star for the required
         // ones) and the text; a click marks it (`Focus.onFocusChange`).
         let inputs: Vec<(String, AnyWidget)> = (0..FIELDS)
@@ -644,7 +668,7 @@ impl GatewayState {
             .behavior(HitTestBehavior::Opaque)
             .on_tap(tap)
             .child(
-                Focus::new(Text::rich([if form.on_save() {
+                Focus::new(Text::rich([if selected == SAVE {
                     Span::styled(strings.gateway_save[0], bold.clone())
                 } else {
                     Span::new(strings.gateway_save[1])
@@ -656,13 +680,13 @@ impl GatewayState {
         // The suggestion follows the text and the caret of the variable's
         // field: the line is a listener of its controller.
         let suggestion: AnyWidget = {
-            let (controller, form) = (self.fields[VARIABLE].clone(), form.clone());
+            let (controller, form, at) = (self.fields[VARIABLE].clone(), form.clone(), self.at);
             let (key, dim) = (look.key.clone(), look.dim.clone());
             let [shortcut, complete] = strings.gateway_complete;
             ListenableBuilder::new(self.fields[VARIABLE].listenable(), move |_, _| {
                 let text = controller.text();
                 let at_end = controller.selection().extent_offset == text.len();
-                let name = (form.selected == VARIABLE && at_end)
+                let name = (at == VARIABLE && at_end)
                     .then(|| form.suggestion(&text))
                     .flatten();
                 match name {

@@ -720,9 +720,9 @@ mod inputs {
         }
     }
 
-    fn draft(selected: Option<usize>, committed: bool, notes: &str) -> Draft {
+    fn draft(choice: Option<usize>, committed: bool, notes: &str) -> Draft {
         Draft {
-            selected,
+            choice,
             committed,
             notes: notes.to_string(),
         }

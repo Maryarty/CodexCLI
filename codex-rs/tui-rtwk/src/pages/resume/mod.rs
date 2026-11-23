@@ -23,17 +23,17 @@ use rtwk::layout::{
     Padding, Row, SizedBox, Stack,
 };
 use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select};
 use rtwk::scroll::ListController;
 use rtwk::style::Theme;
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::resume::{
-    Action, Control, Density, Dir, Intent as ResumeIntent, Launch, Load, Pick, Row as Saved,
-    Status, TranscriptState,
+    Action, Control, Dir, Intent as ResumeIntent, Key as RowKey, LOAD_NEAR, Launch, Load, Model,
+    Pick, Row as Saved, Status, TranscriptState,
 };
-use codex_tui_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -45,6 +45,7 @@ use crate::l10n::strings as shared;
 use crate::widgets::session_list::{Move, Scrolled, SessionList, target};
 
 mod chrome;
+mod density;
 mod keys;
 mod layout;
 mod list;
@@ -53,6 +54,7 @@ mod rows;
 pub mod strings;
 mod toolbar;
 
+use density::Density;
 use look::Look;
 use rows::Rows;
 use strings::Strings;
@@ -210,6 +212,12 @@ pub struct ScreenState {
     query: TextEditingController,
     node: FocusNode,
     focus: TabController,
+    /// How much of a row the list shows (ctrl+o): the page's, as the
+    /// oracle's `density` of the picker.
+    density: Density,
+    /// The row whose details are open (ctrl+e), with the listing cycle it
+    /// was opened in: a new cycle (a filter, a sort) closes it.
+    expanded: Option<(u64, RowKey)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -252,6 +260,8 @@ impl StatefulWidget for Screen {
             query: TextEditingController::new(""),
             node: FocusNode::new(),
             focus: TabController::new(3),
+            density: Density::default(),
+            expanded: None,
         }
     }
 }
@@ -272,8 +282,9 @@ struct Controls {
 struct Frame {
     look: Look,
     strings: &'static Strings,
-    screens: Rc<ScreenStates>,
+    model: Shared<Model>,
     shown: Rc<Vec<usize>>,
+    density: Density,
     rows: Rows,
     focus: Control,
     field: AnyWidget,
@@ -293,10 +304,9 @@ fn screen(frame: Rc<Frame>) -> AnyWidget {
         let Frame {
             look,
             strings,
-            screens,
+            model,
             ..
         } = &*frame;
-        let model = &screens.resume;
         let gap = |rows: u16| SizedBox::new(None, Some(i32::from(rows)), None);
         let chrome = |line: AnyWidget| -> AnyWidget {
             Padding::new(EdgeInsets::only(1, 0, 1, 0), line).into()
@@ -349,7 +359,7 @@ fn screen(frame: Rc<Frame>) -> AnyWidget {
 /// The field stays in the tree while an error shows, so it keeps its focus.
 fn search(frame: &Frame) -> AnyWidget {
     let (look, strings) = (&frame.look, frame.strings);
-    let model = &frame.screens.resume;
+    let model = &frame.model;
     let problem = model
         .inline_error
         .as_ref()
@@ -386,7 +396,7 @@ fn search(frame: &Frame) -> AnyWidget {
 /// The footer: the rule with the progress label, then the hint rows.
 fn footer(frame: &Frame, seg: Measure, width: usize) -> AnyWidget {
     let look = frame.look.clone();
-    let model = &frame.screens.resume;
+    let model = &frame.model;
     let facts = chrome::HintFacts {
         loading: matches!(
             &model.transcript,
@@ -399,12 +409,12 @@ fn footer(frame: &Frame, seg: Measure, width: usize) -> AnyWidget {
         archived: model.status == Status::Archived,
         searching: !model.query.is_empty(),
         in_session: matches!(model.launch, Launch::Session { .. }),
-        dense: model.density == Density::Dense,
+        dense: frame.density == Density::Dense,
         archive: !frame.shown.is_empty() && model.archive_available(),
     };
     let [first, second] = chrome::hint_rows(frame.strings, facts);
-    let (screens, shown, selection, scroll) = (
-        frame.screens.clone(),
+    let (model, shown, selection, scroll) = (
+        frame.model.clone(),
         frame.shown.clone(),
         frame.controls.selection.clone(),
         frame.controls.scroll.clone(),
@@ -412,14 +422,13 @@ fn footer(frame: &Frame, seg: Measure, width: usize) -> AnyWidget {
     let rule = {
         let look = look.clone();
         ListenableBuilder::new(selection.listenable(), move |_, _| {
-            let (look, screens, shown, selection) = (
+            let (look, model, shown, selection) = (
                 look.clone(),
-                screens.clone(),
+                model.clone(),
                 shown.clone(),
                 selection.clone(),
             );
             ValueListenableBuilder::new(scroll.clone(), move |_, at: &Scrolled, _| {
-                let model = &screens.resume;
                 let rows = shown.len();
                 let position = if rows == 0 {
                     0
@@ -495,10 +504,10 @@ fn list_of(frame: &Frame) -> AnyWidget {
     let rows = frame.rows.clone();
     let (look, strings) = (frame.look.clone(), frame.strings);
     let controls = frame.controls.clone();
-    let screens = frame.screens.clone();
+    let model = frame.model.clone();
     let shown = frame.shown.clone();
+    let density = frame.density;
     LayoutBuilder::new(move |cx, constraints| {
-        let model = &screens.resume;
         let len = shown.len();
         let loading = matches!(
             &model.transcript,
@@ -555,7 +564,6 @@ fn list_of(frame: &Frame) -> AnyWidget {
                     if at.above() { above.clone() } else { none() }
                 })
             };
-            let density = model.density;
             let down = {
                 let below = shown_line(if loading_more {
                     strings.more_loading
@@ -622,10 +630,19 @@ impl ScreenState {
         self.focus.set_index(at.unwrap_or(0));
     }
 
+    /// The picker's model, subscribed to: the page is rebuilt when it changes.
+    fn model_watched(cx: &mut Cx<'_, Self>) -> Shared<Model> {
+        select::<ScreenStates, Shared<Model>, _>(cx, |states| states.resume.clone())
+    }
+
+    /// The picker's model as it is now (handlers read, they do not subscribe).
+    fn model_now(cx: &mut Cx<'_, Self>) -> Shared<Model> {
+        read::<ScreenStates, _>(cx).resume.clone()
+    }
+
     /// The row the cursor is on among those the list shows.
     fn cursor_row(&self, cx: &mut Cx<'_, Self>) -> Option<Saved> {
-        let screens = watch::<ScreenStates, _>(cx);
-        let model = &screens.resume;
+        let model = Self::model_now(cx);
         let at = self.selection.cursor()?;
         let index = *model.visible_indices().get(at)?;
         model.rows.get(index).cloned()
@@ -634,6 +651,14 @@ impl ScreenState {
     fn tell(&self, cx: &mut Cx<'_, Self>, intent: ResumeIntent) {
         let hs = read::<Hs, _>(cx);
         cx.emit(&hs.screen, ScreenIntent::Resume(intent));
+    }
+
+    /// The cursor is on row `at` of `len`: near the last loaded row, the next
+    /// page is read (oracle: `maybe_load_more_for_scroll`).
+    fn reach(&self, cx: &mut Cx<'_, Self>, at: usize, len: usize) {
+        if len > 0 && len.saturating_sub(at + 1) <= LOAD_NEAR {
+            self.tell(cx, ResumeIntent::LoadMore);
+        }
     }
 
     /// The cursor goes to `index` and the list shows it.
@@ -659,8 +684,7 @@ impl ScreenState {
     /// included, fit in the window less its `more` lines. Up and down stop at
     /// the ends, as the oracle's do.
     fn move_cursor(&self, cx: &mut Cx<'_, Self>, mv: Move) {
-        let screens = watch::<ScreenStates, _>(cx);
-        let model = &screens.resume;
+        let model = Self::model_now(cx);
         let len = model.visible_indices().len();
         if len == 0 {
             return;
@@ -679,19 +703,18 @@ impl ScreenState {
         let at = from.unwrap_or(0);
         if (forward && to <= at && from.is_some()) || (backward && to >= at && from.is_some()) {
             // no wrap round the ends
-            self.tell(cx, ResumeIntent::Cursor(at));
+            self.reach(cx, at, len);
             return;
         }
         self.selection.set_cursor(Some(to));
         self.selection.select(to);
-        let prev = rows_above(pixels, model.density);
-        list.jump_to_index(window_top(prev.min(len - 1), to, view, len, model.density));
-        let intent = if matches!(mv, Move::Edge(true)) {
-            ResumeIntent::End
+        let prev = rows_above(pixels, self.density);
+        list.jump_to_index(window_top(prev.min(len - 1), to, view, len, self.density));
+        if matches!(mv, Move::Edge(true)) {
+            self.tell(cx, ResumeIntent::LoadMore);
         } else {
-            ResumeIntent::Cursor(to)
-        };
-        self.tell(cx, intent);
+            self.reach(cx, to, len);
+        }
     }
 
     /// Enter on the cursor's row: the app opens that thread (ADR-003), the
@@ -700,7 +723,7 @@ impl ScreenState {
         let Some(row) = self.cursor_row(cx) else {
             return;
         };
-        let archived = watch::<ScreenStates, _>(cx).resume.status == Status::Archived;
+        let archived = Self::model_now(cx).status == Status::Archived;
         let listed = !row.id.as_str().is_empty();
         self.tell(cx, ResumeIntent::Resume(row.id));
         if listed && !archived {
@@ -793,8 +816,11 @@ impl State for ScreenState {
     }
 
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let screens = watch::<ScreenStates, _>(cx);
-        let model = &screens.resume;
+        let model = Self::model_now(cx);
+        // Every key clears the line under the list (oracle: `handle_key`).
+        if model.inline_error.is_some() && !matches!(msg, Msg::Fit) {
+            self.tell(cx, ResumeIntent::DismissProblem);
+        }
         match msg {
             Msg::Accept => self.accept(cx),
             Msg::Row(index) => {
@@ -802,7 +828,7 @@ impl State for ScreenState {
                     self.accept(cx);
                 } else {
                     self.put(index);
-                    self.tell(cx, ResumeIntent::Cursor(index));
+                    self.reach(cx, index, model.visible_indices().len());
                 }
             }
             Msg::Move(mv) => self.move_cursor(cx, mv),
@@ -867,11 +893,24 @@ impl State for ScreenState {
                 }
             }
             Msg::Expand => {
-                if let Some(row) = self.cursor_row(cx) {
-                    self.tell(cx, ResumeIntent::Expand(row.id));
+                if let Some(row) = self
+                    .cursor_row(cx)
+                    .filter(|row| !row.id.as_str().is_empty())
+                {
+                    let open = (model.listing.generation, row.key());
+                    if self.expanded.as_ref() == Some(&open) {
+                        self.expanded = None;
+                    } else {
+                        self.expanded = Some(open);
+                        self.tell(cx, ResumeIntent::LoadPreview(row.id));
+                    }
+                    return Rebuild::Yes;
                 }
             }
-            Msg::Density => self.tell(cx, ResumeIntent::ToggleDensity),
+            Msg::Density => {
+                self.density = self.density.toggled();
+                return Rebuild::Yes;
+            }
             Msg::Archive => {
                 if let Some(row) = self.cursor_row(cx) {
                     self.tell(cx, ResumeIntent::Archive(row.id));
@@ -881,7 +920,7 @@ impl State for ScreenState {
                 let at = self.scroll.value();
                 let len = model.visible_indices().len();
                 if at.max <= 0 && len > 0 {
-                    self.tell(cx, ResumeIntent::Room(len + 1));
+                    self.tell(cx, ResumeIntent::LoadMore);
                 }
             }
         }
@@ -891,8 +930,7 @@ impl State for ScreenState {
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
         // The rows change under the cursor (a page arrives, a filter turns):
         // it stays inside them.
-        let screens = watch::<ScreenStates, _>(cx);
-        let len = screens.resume.visible_indices().len();
+        let len = Self::model_watched(cx).visible_indices().len();
         match self.selection.cursor() {
             Some(at) if len > 0 && at >= len => self.put(len - 1),
             None if len > 0 => self.selection.set_cursor(Some(0)),
@@ -903,7 +941,10 @@ impl State for ScreenState {
     fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
-        let screens = watch::<ScreenStates, _>(cx);
+        let model = Self::model_watched(cx);
+        let home = select::<ScreenStates, Option<Rc<str>>, _>(cx, |states| {
+            states.agents.home.as_deref().map(Rc::<str>::from)
+        });
         let look = Look::of(cx);
         let markdown = theme::Tokens::of(cx).transcript_markdown(cx);
         let cells = crate::pages::session::cells::strings::of(cx);
@@ -911,7 +952,6 @@ impl State for ScreenState {
         // one-cell mark: the glyph for this screen.
         let mut data = (*Theme::of(cx)).clone();
         data.glyphs.ellipsis = "...".into();
-        let model = &screens.resume;
         let focus = self.control(model.action);
         let shown = Rc::new(model.visible_indices());
         let tell = cx.local_sender();
@@ -931,6 +971,7 @@ impl State for ScreenState {
         let data_keys = keys::KeyData {
             tell: tell.clone(),
             loading,
+            keymap: crate::keymap::keymap(cx),
         };
         let field = TextField::new()
             .controller(self.query.clone())
@@ -956,14 +997,19 @@ impl State for ScreenState {
             });
         let field = EditingKeys::new(move |_, key, kcx| keys::take(&data_keys, key, kcx), field)
             .controller(self.query.clone());
-        let home = screens.agents.home.as_deref().map(Rc::<str>::from);
         let frame = Frame {
             rows: Rows {
                 look: look.clone(),
                 strings,
                 num,
-                screens: screens.clone(),
+                model: model.clone(),
                 shown: shown.clone(),
+                density: self.density,
+                expanded: self
+                    .expanded
+                    .clone()
+                    .filter(|(cycle, _)| *cycle == model.listing.generation)
+                    .map(|(_, key)| key),
                 home,
                 width: 0,
                 markdown,
@@ -971,8 +1017,9 @@ impl State for ScreenState {
             },
             look,
             strings,
-            screens,
+            model,
             shown,
+            density: self.density,
             focus,
             field: field.into(),
             controls: Controls {

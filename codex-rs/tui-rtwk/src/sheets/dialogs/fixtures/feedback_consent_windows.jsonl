@@ -1,4 +1,4 @@
 # /feedback: include logs, with the Windows sandbox log.
 # Oracle data: bottom_pane/feedback_view.rs ..._lists_windows_sandbox_log_when_included
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"dialogs","ev":{"kind":"feedback_consent","category":"bug","can_save":true,"windows_sandbox_log":true,"rollout":"rollout.jsonl","auto_review":"auto-review-rollout.jsonl"}}
+{"step":"screen","dir":"dialogs","ev":{"kind":"attachments","can_save":true,"windows_sandbox_log":true,"rollout":"rollout.jsonl","auto_review":"auto-review-rollout.jsonl"}}

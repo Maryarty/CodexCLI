@@ -11,7 +11,7 @@ use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::chat::StatusFacts;
-use codex_tui_core::screens::dialogs::{Intent as DialogIntent, Open, PageIntent};
+use codex_tui_core::screens::dialogs::{Decision, Intent as DialogIntent, Warning};
 use pretty_assertions::assert_eq;
 
 fn facts(json: &str) -> std::rc::Rc<StatusFacts> {
@@ -163,55 +163,51 @@ fn send(sandbox: &mut Sandbox, intent: DialogIntent) {
     sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Dialogs(intent))));
 }
 
+fn warning(source: &str, details: &str) -> Warning {
+    Warning {
+        source: source.into(),
+        details: details.into(),
+    }
+}
+
+fn left(sandbox: &Sandbox) -> Vec<String> {
+    sandbox
+        .app()
+        .screens()
+        .dialogs
+        .retained
+        .iter()
+        .map(|w| w.details.clone())
+        .collect()
+}
+
 #[test]
-fn retained_warnings_are_counted_and_f2_opens_the_viewer_over_them() {
-    let mut sandbox = Sandbox::play(RETAINED).expect("plays");
+fn retained_warnings_are_counted() {
+    let sandbox = Sandbox::play(RETAINED).expect("plays");
     assert_eq!(sandbox.app().screens().dialogs.retained.len(), 3);
-    assert!(sandbox.app().screens().dialogs.open.is_none());
-    send(&mut sandbox, DialogIntent::OpenWarnings);
-    let Some(Open::Warnings(view)) = &sandbox.app().screens().dialogs.open else {
-        panic!("not open");
-    };
-    assert_eq!(view.entries.len(), 3);
-    assert_eq!(view.entries[0].details, "one");
+    assert_eq!(left(&sandbox), ["one", "two", "three"]);
 }
 
-#[test]
-fn nothing_retained_opens_the_empty_viewer() {
-    let mut sandbox = Sandbox::play("# nothing retained").expect("plays");
-    send(&mut sandbox, DialogIntent::OpenWarnings);
-    let Some(Open::Warnings(view)) = &sandbox.app().screens().dialogs.open else {
-        panic!("not open");
-    };
-    assert!(view.entries.is_empty());
-}
-
-// A page shown and left is dismissed and no longer counts, a kept one stays;
+// A page shown and left is dismissed and no longer counts, a saved one stays;
 // pages never shown stay (`WarningsView::close`, `AppEvent::UpdateWarnings`).
+// Which pages were shown is the viewer's (`src/sheets/dialogs/warnings.rs`).
 #[test]
 fn dismissed_warnings_leave_the_retained_list() {
     let mut sandbox = Sandbox::play(RETAINED).expect("plays");
-    send(&mut sandbox, DialogIntent::OpenWarnings);
-    send(&mut sandbox, DialogIntent::Close);
-    let left: Vec<_> = sandbox
-        .app()
-        .screens()
-        .dialogs
-        .retained
-        .iter()
-        .map(|w| w.details.as_str())
-        .collect();
-    assert_eq!(left, ["two", "three"]);
-    send(&mut sandbox, DialogIntent::OpenWarnings);
-    send(&mut sandbox, DialogIntent::Page(PageIntent::KeepAndNext));
-    send(&mut sandbox, DialogIntent::Close);
-    let left: Vec<_> = sandbox
-        .app()
-        .screens()
-        .dialogs
-        .retained
-        .iter()
-        .map(|w| w.details.as_str())
-        .collect();
-    assert_eq!(left, ["two"]);
+    send(
+        &mut sandbox,
+        DialogIntent::Decide(Decision {
+            dismissed: vec![warning("Startup", "one")],
+            saved: Vec::new(),
+        }),
+    );
+    assert_eq!(left(&sandbox), ["two", "three"]);
+    send(
+        &mut sandbox,
+        DialogIntent::Decide(Decision {
+            dismissed: vec![warning("MCP", "three")],
+            saved: vec![warning("Startup", "two")],
+        }),
+    );
+    assert_eq!(left(&sandbox), ["two"]);
 }

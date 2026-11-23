@@ -432,3 +432,54 @@ fn a_tap_on_a_compact_value_moves_to_the_next_one() {
         "the filter has the focus"
     );
 }
+
+/// The list actions of the keymap move the cursor (oracle: `self.keymap.list`):
+/// ctrl+n is a default of `move_down`; a plain `j`, though bound to it too, is
+/// typed into the search.
+#[test]
+fn list_actions_of_the_keymap_move_and_plain_characters_type() {
+    let mut h = open("table", WIDE_FOR_80_LIST, 22);
+    h.press("ctrl+n");
+    let moved = oracle_snap::screen(&h.t);
+    assert!(moved[LIST_AT_22 + 3].starts_with("  › "), "{moved:?}");
+    h.press("j");
+    let typed = oracle_snap::screen(&h.t);
+    assert!(
+        typed
+            .iter()
+            .any(|row| row.contains("Search") && row.contains('j')),
+        "{typed:?}"
+    );
+}
+
+/// A rebound list action is the picker's key: `move_down` on ctrl+x.
+#[test]
+fn a_rebound_move_down_moves_the_cursor() {
+    let mut h = start_sized(true, WIDE_FOR_80_LIST, 22);
+    h.set_keymap(&[("list.move_down", "ctrl+x")]);
+    h.open_debug_row("resume", Some("table"));
+    h.press("ctrl+x");
+    let moved = oracle_snap::screen(&h.t);
+    assert!(moved[LIST_AT_22 + 3].starts_with("  › "), "{moved:?}");
+    h.press("down");
+    let still = oracle_snap::screen(&h.t);
+    assert!(still[LIST_AT_22 + 3].starts_with("  › "), "{still:?}");
+}
+
+/// Ctrl+E opens the row's details and the same key closes them; ctrl+O makes
+/// the rows dense and back (both the page's own state).
+#[test]
+fn ctrl_e_and_ctrl_o_are_the_pages_own_state() {
+    let mut h = open("expanded_session", 100, 24);
+    let closed = oracle_snap::screen(&h.t);
+    h.press("ctrl+e");
+    let open_rows = oracle_snap::screen(&h.t);
+    assert_ne!(closed, open_rows, "the details are drawn");
+    h.press("ctrl+e");
+    assert_eq!(oracle_snap::screen(&h.t), closed, "the details are closed");
+    h.press("ctrl+o");
+    let dense = oracle_snap::screen(&h.t);
+    assert_ne!(dense, closed, "the rows are dense");
+    h.press("ctrl+o");
+    assert_eq!(oracle_snap::screen(&h.t), closed, "comfortable again");
+}

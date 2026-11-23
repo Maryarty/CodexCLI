@@ -22,7 +22,7 @@ fn picker(sandbox: &Sandbox) -> Picker {
         .app()
         .screens()
         .pets
-        .open
+        .catalog
         .clone()
         .expect("the picker is open")
 }
@@ -88,25 +88,28 @@ fn a_custom_pet_is_current_through_its_legacy_selector() {
 }
 
 #[test]
-fn opening_and_moving_request_the_preview_of_the_row() {
+fn the_preview_of_a_row_is_requested_once_until_another_row_is_asked_for() {
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
+    // Listing the pets asks for nothing: the sheet asks for the row it opens on.
+    assert!(sandbox.app().screens().pets.previews.is_empty());
+    send(&mut sandbox, PetsIntent::LoadPreview("codex".into()));
     assert_eq!(sandbox.app().screens().pets.previews, vec!["codex"]);
     assert_eq!(
         picker(&sandbox).preview,
         Some(("codex".to_string(), Preview::Loading))
     );
-    // The cursor is the widget's: it tells the model which row it is on.
-    send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
+    // The cursor is the widget's: it asks for the preview of the row it is on.
+    send(&mut sandbox, PetsIntent::LoadPreview("dewey".into()));
     assert_eq!(
         sandbox.app().screens().pets.previews,
         vec!["codex", "dewey"]
     );
-    send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
+    send(&mut sandbox, PetsIntent::LoadPreview("dewey".into()));
     assert_eq!(
         sandbox.app().screens().pets.previews,
         vec!["codex", "dewey"]
     );
-    send(&mut sandbox, PetsIntent::Highlight("bsod".into()));
+    send(&mut sandbox, PetsIntent::LoadPreview("bsod".into()));
     assert_eq!(
         sandbox.app().screens().pets.previews,
         vec!["codex", "dewey", "bsod"]
@@ -118,7 +121,7 @@ fn the_preview_becomes_ready_only_for_the_row_it_was_asked_for() {
     use codex_tui_core::screens::ScreenEv;
     use codex_tui_core::screens::pets::Ev;
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
+    send(&mut sandbox, PetsIntent::LoadPreview("dewey".into()));
     sandbox.send(AppEv::Screen(ScreenEv::Pets(Ev::PreviewReady(
         "codex".into(),
     ))));
@@ -143,7 +146,8 @@ fn enter_selects_the_pet_and_closes() {
         sandbox.app().screens().pets.chosen,
         vec![Choice::Selected("codex".into())]
     );
-    assert!(sandbox.app().screens().pets.open.is_none());
+    // The preview is not wanted any more: the next picker asks again.
+    assert_eq!(picker(&sandbox).preview, None);
 }
 
 #[test]
@@ -171,13 +175,19 @@ fn typing_filters_the_pets_and_the_disable_row_answers_to_its_words() {
 }
 
 #[test]
-fn close_drops_the_picker_without_a_choice() {
-    // Esc clears a typed search first: that is the widget's, the model sees
-    // only the Close that follows.
+fn leaving_the_picker_releases_its_preview_without_a_choice() {
+    // Esc clears a typed search first and closes the sheet: those are the widget's; the
+    // model hears only that the preview is not wanted.
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Close);
-    assert!(sandbox.app().screens().pets.open.is_none());
+    send(&mut sandbox, PetsIntent::LoadPreview("codex".into()));
+    send(&mut sandbox, PetsIntent::ReleasePreview);
+    assert_eq!(picker(&sandbox).preview, None);
     assert!(sandbox.app().screens().pets.chosen.is_empty());
+    send(&mut sandbox, PetsIntent::LoadPreview("codex".into()));
+    assert_eq!(
+        sandbox.app().screens().pets.previews,
+        vec!["codex", "codex"]
+    );
 }
 
 #[test]

@@ -161,6 +161,9 @@ macro_rules! slot {
     (agents) => {
         Shared<agents::Model>
     };
+    (resume) => {
+        Shared<resume::Model>
+    };
     ($dir:ident) => {
         $dir::Model
     };

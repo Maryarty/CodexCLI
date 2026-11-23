@@ -69,10 +69,11 @@
    "sweep: <shard>::<test>..." — a filler batch un-pends them later. Do not
    spend a round chasing a snapshot of a secondary form.
 3. Mouse on every selectable view (tap, double tap, wheel) with rtwk_test tests.
-4. Rules tests green. Run scoped checks only (your crate's tests, your
-   oracle shard, `--test rules`, fmt, clippy on what you touched): the full
-   land-check is run ONCE per landing by the orchestrator on the merge
-   candidate (the person, 2026-11-23). Do not wait for it; hand in.
+4. Porter checks: `check` clean + `--test rules` green + fmt (below). The tests themselves
+   (your crate's, the KEY oracle tests, the pty run) run in the BATCH: the orchestrator merges the
+   handed-in branches and a Haiku waiter runs land-check + the key tests + scenarios on the merge
+   (the person, 2026-11-23 ~19:35). Name your key tests and pty scenario in the deliverable
+   ("key: <root>::<test>, ...; pty: <scenario>"). A red there comes back to you by message.
 5. No new framework doors (AppCx/Feature hooks, kit options) unless the
    feature cannot be built without one: then hold and ask the orchestrator.
 
@@ -81,14 +82,13 @@
   writing, no cargo at all; commit as you go (WIP commits without tests are fine, so a hand-off
   loses nothing). When the task's code is written: `acargo check -q --tests` (3-7 s), fix, again
   until clean. Stuck on a type or an API: one `check` is allowed any time.
-- Then ONE nextest call that names all the roots you touched with a filter
-  (e.g. `-p codex-tui-core --test oracle --test pages -E 'test(/selection/)'`): one build, one
-  run. A red: fix, `check`, then that same one call again. Never nextest without a root.
-  Core tests: `-p codex-tui-core --test all` or `--lib`, never bare `-p codex-tui-core` (4-6 CPU s
-  more); a call with no root costs ~67 CPU s against 13-23 for one root (build-speed-3, 8.6).
-- With that call: `--test rules`. Before hand-in: your KEY oracle tests by name through
-  `--test oracle -E 'test(=a)|test(=b)'` (not `summary.py --run`), the feature's pty run, fmt +
-  clippy of what you touched. Never the whole workspace nextest, never land-check.
+- Then ONE call: `acargo nextest run -p codex-tui-rtwk --test rules --cargo-quiet --status-level fail
+  --final-status-level fail --hide-progress-bar` (the architecture rules: one small root), and
+  `acargo fmt`. That is all before hand-in: no other nextest, no clippy, no pty run, no land-check
+  (the batch runs them, rule 4). Stuck on behaviour you cannot judge without a run: one scoped
+  nextest is allowed — say so in the deliverable.
+- Which root holds a test file (for your "key:" line): `grep -l 'pages/<x>.rs' codex-rs/tui-rtwk/tests/*.rs`
+  — `tests/pages/*.rs` are split between `--test screens` and `--test pages`.
 - A checkpoint lists `read:` lines (`file:line-range — what is there`) so the next agent does
   not re-read to orient.
 

@@ -167,7 +167,7 @@ pub(super) fn logins(model: &mut Model, request: Request, logins: Logins, fx: &m
     let mut asks = Vec::new();
     auth::apply_intent(
         sign_in,
-        auth::Intent::Choose(method),
+        auth::Intent::UseMethod(method),
         &mut next_request,
         &mut asks,
     );

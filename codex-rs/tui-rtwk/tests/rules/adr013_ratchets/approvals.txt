@@ -1,4 +1,0 @@
-# ADR-013 ratchets of the approvals family (format and rules: tests/rules/adr013_ratchets.txt).
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/approvals/input.rs:Draft.selected 1
-ratchet adr006_keycode_only_in_keymap src/sheets/approvals/form.rs 22
-ratchet adr006_keycode_only_in_keymap src/sheets/approvals/user_input.rs 25

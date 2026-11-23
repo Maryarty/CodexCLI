@@ -3,13 +3,13 @@
 //! event, and what the user asked of them. The model part with no rtwk; the
 //! cursor of either page and its scroll are the view's controllers
 //! (`SelectionController`, `ListController`), so what is here is the hooks,
-//! the issues the server reported, the page open and what each intent
-//! changes (ADR-003).
+//! the issues the server reported and what a toggle or a trust changes in
+//! them (the sheet's draft applies them to a copy until the app takes them).
 //!
 //! The types are the browser's own, not the protocol's (`HookMetadata`):
 //! the host maps the server's entry to them (the source path as the
 //! directory display writes it, the hooks in the server's display order) and
-//! opens the dialog with `Ev::Opened(Open::Hooks(..))`.
+//! opens the dialog with `Ev::Offered(Offer::Hooks(..))`.
 
 /// A lifecycle event a hook can be attached to, in the oracle's order
 /// (`codex_protocol::protocol::HookEventName`).
@@ -173,14 +173,13 @@ pub struct EventRow {
     pub needs_review: usize,
 }
 
-/// `HooksBrowserView`: the hooks, the server's warnings and errors, and the
-/// page open: none the list of events, an event the list of its hooks.
+/// `HooksBrowserView`: the hooks, the server's warnings and errors. The page open (the events,
+/// or the hooks of an event) is the sheet's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hooks {
     pub hooks: Vec<Hook>,
     pub warnings: Vec<String>,
     pub errors: Vec<HookIssue>,
-    pub page: Option<HookEvent>,
 }
 
 impl Hooks {
@@ -189,7 +188,6 @@ impl Hooks {
             hooks,
             warnings,
             errors,
-            page: None,
         }
     }
 
@@ -233,7 +231,7 @@ impl Hooks {
 
     /// `toggle_selected_hook`: managed hooks and those waiting for a review
     /// stay as they are. Returns what changed.
-    pub(super) fn toggle(&mut self, key: &str) -> Option<bool> {
+    pub fn toggle(&mut self, key: &str) -> Option<bool> {
         let hook = self.hooks.iter_mut().find(|hook| hook.key == key)?;
         if hook.is_managed || hook.needs_review() {
             return None;
@@ -244,7 +242,7 @@ impl Hooks {
 
     /// `trust_selected_hook`: a hook waiting for a review is trusted, its
     /// enablement as it was. Returns the hash vouched for.
-    pub(super) fn trust(&mut self, key: &str) -> Option<String> {
+    pub fn trust(&mut self, key: &str) -> Option<String> {
         let hook = self.hooks.iter_mut().find(|hook| hook.key == key)?;
         if !hook.needs_review() {
             return None;
@@ -254,7 +252,7 @@ impl Hooks {
     }
 
     /// `trust_all_hooks`: every hook waiting for a review is trusted.
-    pub(super) fn trust_all(&mut self) -> Vec<(String, String)> {
+    pub fn trust_all(&mut self) -> Vec<(String, String)> {
         let mut updates = Vec::new();
         for hook in self.hooks.iter_mut().filter(|hook| hook.needs_review()) {
             hook.trust = HookTrust::Trusted;

@@ -42,7 +42,9 @@ pub enum Preview {
     Ready,
 }
 
-/// The `/pets` picker (`pets/picker.rs`: `build_pet_picker_params`).
+/// What the `/pets` picker lists (`pets/picker.rs`: `build_pet_picker_params`): the host's
+/// pets and the configured one, and the preview the model asked the host for. Where the cursor
+/// is and what was searched are the sheet's own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Picker {
     /// Disabled row first, the rest by name.
@@ -111,9 +113,9 @@ impl Picker {
         })
     }
 
-    /// Asks for the preview of the highlighted row (`on_selection_changed`):
-    /// its selector, if it changed.
-    fn highlight(&mut self, selector: &str) -> Option<String> {
+    /// Asks for the preview of a pet (`on_selection_changed`): its selector, if the preview
+    /// shown is another one.
+    fn load_preview(&mut self, selector: &str) -> Option<String> {
         if self.preview.as_ref().map(|(shown, _)| shown.as_str()) == Some(selector) {
             return None;
         }
@@ -134,7 +136,8 @@ pub enum Choice {
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    pub open: Option<Picker>,
+    /// The pets the host listed (the picker's data, not whether a picker is up).
+    pub catalog: Option<Picker>,
     /// `PetPreviewRequested`, in order.
     pub previews: Vec<String>,
     pub chosen: Vec<Choice>,
@@ -144,7 +147,8 @@ pub struct Model {
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    Opened(Picker),
+    /// The host listed the pets (and the configured one).
+    Listed(Picker),
     /// The preview of a pet finished loading.
     PreviewReady(String),
 }
@@ -152,27 +156,23 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// The cursor or the search moved onto the row with this selector.
-    Highlight(String),
+    /// The picker wants the preview of the pet with this selector.
+    LoadPreview(String),
+    /// The picker was left: the preview is not wanted any more.
+    ReleasePreview,
     /// Enter on the row with this selector.
     Pick(String),
-    /// Esc with no search typed.
-    Close,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Opened(mut picker) => {
+        Ev::Listed(mut picker) => {
             picker.preview = None;
-            let initial = picker.pets.get(picker.initial()).map(|pet| pet.selector.clone());
-            if let Some(selector) = initial.and_then(|selector| picker.highlight(&selector)) {
-                model.previews.push(selector);
-            }
-            model.open = Some(picker);
+            model.catalog = Some(picker);
         }
         Ev::PreviewReady(selector) => {
-            if let Some(picker) = &mut model.open
+            if let Some(picker) = &mut model.catalog
                 && let Some((shown, state)) = &mut picker.preview
                 && *shown == selector
             {
@@ -184,14 +184,17 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
-    let Some(picker) = &mut model.open else {
-        return;
-    };
     match intent {
-        // The highlighted row changed (cursor or search): the preview of it.
-        Intent::Highlight(selector) => {
-            if let Some(selector) = picker.highlight(&selector) {
+        Intent::LoadPreview(selector) => {
+            if let Some(picker) = &mut model.catalog
+                && let Some(selector) = picker.load_preview(&selector)
+            {
                 model.previews.push(selector);
+            }
+        }
+        Intent::ReleasePreview => {
+            if let Some(picker) = &mut model.catalog {
+                picker.preview = None;
             }
         }
         Intent::Pick(selector) => {
@@ -201,9 +204,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 Choice::Selected(selector)
             };
             model.chosen.push(choice);
-            model.open = None;
+            if let Some(picker) = &mut model.catalog {
+                picker.preview = None;
+            }
         }
-        Intent::Close => model.open = None,
     }
 }
 
@@ -274,5 +278,5 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     let SeedEv::Picker { current, pets } = seed;
-    Ok(Ev::Opened(Picker::build(current.as_deref(), pets)))
+    Ok(Ev::Listed(Picker::build(current.as_deref(), pets)))
 }

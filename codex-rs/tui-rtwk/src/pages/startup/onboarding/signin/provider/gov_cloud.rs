@@ -19,12 +19,14 @@ use rtwk::binding::{AppBinding, InputListener};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{Column, CrossAxisAlignment, Flexible, MainAxisSize};
-use rtwk::prelude::{HitTestBehavior, Mods};
+use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::read;
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::{Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_core::input::{InputEvent, KeyCode, KeyKind};
+use rtwk_core::input::{InputEvent, KeyKind};
+
+use super::super::keys::{is_key, pressed};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
@@ -87,11 +89,14 @@ impl State for GovCloudState {
                 if guarded(node, key.clone()) == KeyEventResult::Handled {
                     return KeyEventResult::Handled;
                 }
-                let msg = match key.code {
-                    KeyCode::Up if key.mods == Mods::NONE => Msg::Up,
-                    KeyCode::Down if key.mods == Mods::NONE => Msg::Down,
-                    KeyCode::Enter if key.mods == Mods::NONE => Msg::Acknowledge,
-                    _ => return KeyEventResult::Ignored,
+                let msg = if pressed(&key, &KeyPress::UP) {
+                    Msg::Up
+                } else if pressed(&key, &KeyPress::DOWN) {
+                    Msg::Down
+                } else if pressed(&key, &KeyPress::ENTER) {
+                    Msg::Acknowledge
+                } else {
+                    return KeyEventResult::Ignored;
                 };
                 send(msg);
                 KeyEventResult::Handled
@@ -199,7 +204,11 @@ impl State for GovCloudState {
             let InputEvent::Key(key) = event else {
                 return false;
             };
-            key.kind == KeyKind::Repeat && !matches!(key.code, KeyCode::Up | KeyCode::Down)
+            let held = KeyPress::from_event(key);
+            let arrow = held
+                .as_ref()
+                .is_some_and(|held| is_key(held, &KeyPress::UP) || is_key(held, &KeyPress::DOWN));
+            key.kind == KeyKind::Repeat && !arrow
         })
         .into()
     }

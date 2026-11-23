@@ -11,16 +11,35 @@ use rtwk::overlay::Dialog;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
-use codex_tui_core::screens::dialogs::{Attachments, Feedback, FeedbackCategory};
+use codex_tui_core::screens::dialogs::{Attachments, FeedbackCategory};
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;
 use crate::app::theme::Tokens;
 
-pub(super) fn build(step: &Feedback, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
+/// A step of the feedback flow: drawn state of the dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Step {
+    /// "How was this?"
+    Category,
+    /// "Include logs and session history?"
+    Consent(FeedbackCategory),
+}
+
+/// The category of the picker's row `index`.
+pub(super) fn category(index: usize) -> Option<FeedbackCategory> {
+    FeedbackCategory::ALL.get(index).copied()
+}
+
+pub(super) fn build(
+    step: Step,
+    attachments: &Attachments,
+    s: &Strings,
+    cx: &mut Cx<'_, SmallDialogState>,
+) -> Focus {
     let tokens = Tokens::of(cx);
     match step {
-        Feedback::Category => {
+        Step::Category => {
             let rows = FeedbackCategory::ALL
                 .iter()
                 .zip(s.feedback_categories.iter())
@@ -34,7 +53,7 @@ pub(super) fn build(step: &Feedback, s: &Strings, cx: &mut Cx<'_, SmallDialogSta
                 .child(Text::line(s.popup_hint).style(tokens.dim()));
             frame(Dialog::new(column).title(s.feedback_title), 5, cx)
         }
-        Feedback::Consent { attachments, .. } => {
+        Step::Consent(_) => {
             let rows = vec![
                 (
                     s.consent_yes.to_string(),

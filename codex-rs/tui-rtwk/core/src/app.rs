@@ -1650,7 +1650,7 @@ fn release_held_start(app: &mut CodexApp, fx: &mut AppFx) {
     if app.start_held
         && app.screens.onboarding.launched()
         && !app.screens.onboarding.due()
-        && app.screens.startup.open.is_none()
+        && app.screens.startup.asked.is_none()
     {
         app.start_held = false;
         if crate::screens::onboarding::session::pending(&app.screens.onboarding) {

@@ -5,9 +5,9 @@
 //! tappable rows and a hint; the cursor of each list is a
 //! `SelectionController` (the sheet owns both, the confirmation's starts on
 //! its first row each time), the keys come from the `FocusNode.onKeyEvent` of
-//! a `Focus`. What the switches are, whether the confirmation is up and what
-//! Enter sends are the model's (`Memories`, `Intent::Toggle`, `Save`,
-//! `ConfirmReset`, `Reset`, `Close`, ADR-003). The mouse (ADR-011, beyond the
+//! a `Focus`. What the switches are before Save and whether the confirmation
+//! is up are the sheet's draft (`MemoriesDraft`); what Enter sends is the
+//! model's request (`Edit::MemoriesSaved`, `Edit::MemoriesReset`, ADR-013). The mouse (ADR-011, beyond the
 //! oracle): a tap puts the cursor on a row, a tap on the row the cursor is on
 //! does what Enter (a switch: Space) does.
 
@@ -21,29 +21,32 @@ use rtwk::layout::{
     SizedBox,
 };
 use rtwk::overlay::{Dialog, close_dialog};
-use rtwk::prelude::{KeyCode, Mods};
-use rtwk::provider::{read, select};
+use rtwk::provider::select;
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::settings::{Intent, MEMORIES_GENERATE, MEMORIES_USE, Memories, Open};
+use codex_tui_core::screens::settings::{Memories, Offer, Which};
 
-use super::setup::{letter_of, move_of};
+use super::draft::MemoriesDraft;
+use super::keys::{Keys, ListKey, is_interrupt, is_space, list_key};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
-use crate::app::view::Hs;
 use crate::widgets::session_list::{Move, target};
 
 /// The sheet of the memories dialog and its reset confirmation.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MemoriesSheet;
+pub struct MemoriesSheet {
+    /// The dialog opens on the reset confirmation (a debug entry's start).
+    pub confirming: bool,
+}
 
 /// Widget state: the controllers (R14).
 pub struct MemoriesState {
-    shown: bool,
+    keys: Keys,
+    draft: Option<MemoriesDraft>,
     node: FocusNode,
     /// The switches and the reset row.
     main: SelectionController<usize>,
@@ -72,19 +75,19 @@ pub enum Msg {
     Row(usize),
 }
 
-fn act_of(key: &KeyPress) -> Option<Act> {
-    if let Some(mv) = move_of(key) {
-        return Some(Act::Move(mv));
+fn act_of(keys: &Keymap, key: &KeyPress) -> Option<Act> {
+    if is_space(key) {
+        return Some(Act::Toggle);
     }
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    match (key.code, letter_of(key), ctrl, alt) {
-        (KeyCode::Char, Some(' '), false, false) if key.mods.is_empty() => Some(Act::Toggle),
-        (KeyCode::Enter, _, false, false) => Some(Act::Accept),
-        (KeyCode::Escape, _, false, false) => Some(Act::Close),
-        // Ctrl+C is the view's cancel too (`on_ctrl_c`).
-        (KeyCode::Char, Some('c'), true, false) => Some(Act::Close),
-        _ => None,
+    // Ctrl+C is the view's cancel too (`on_ctrl_c`).
+    if is_interrupt(key) {
+        return Some(Act::Close);
+    }
+    match list_key(keys, key, false)? {
+        ListKey::Move(mv) => Some(Act::Move(mv)),
+        ListKey::Accept => Some(Act::Accept),
+        ListKey::Cancel => Some(Act::Close),
+        ListKey::Left | ListKey::Right => None,
     }
 }
 
@@ -93,7 +96,8 @@ impl StatefulWidget for MemoriesSheet {
 
     fn create_state(&self) -> MemoriesState {
         MemoriesState {
-            shown: false,
+            keys: Keys::new(),
+            draft: None,
             node: FocusNode::new(),
             main: SelectionController::new(),
             confirm: SelectionController::new(),
@@ -103,18 +107,20 @@ impl StatefulWidget for MemoriesSheet {
 
 impl_widget!(stateful eq MemoriesSheet);
 
-/// The dialog the model holds open.
-fn open_dialog(cx: &mut Cx<'_, MemoriesState>) -> Option<Memories> {
-    select::<ScreenStates, Option<Memories>, _>(cx, |states| match &states.settings.open {
-        Some(Open::Memories(dialog)) => Some(dialog.clone()),
-        _ => None,
+/// The switches the model offers.
+fn offered(cx: &mut Cx<'_, MemoriesState>) -> Option<Memories> {
+    select::<ScreenStates, Option<Memories>, _>(cx, |states| {
+        match states.settings.offers.get(&Which::Memories) {
+            Some(Offer::Memories(dialog)) => Some(dialog.clone()),
+            _ => None,
+        }
     })
 }
 
 impl MemoriesState {
     /// The list the dialog shows now, and how many rows it has.
-    fn active(&self, dialog: &Memories) -> (&SelectionController<usize>, usize) {
-        if dialog.confirming {
+    fn active(&self, confirming: bool) -> (&SelectionController<usize>, usize) {
+        if confirming {
             (&self.confirm, 2)
         } else {
             (&self.main, ROWS)
@@ -126,13 +132,12 @@ impl MemoriesState {
         controller.set_cursor(Some(at));
     }
 
-    fn act(&self, act: Act, dialog: &Memories, cx: &mut Cx<'_, Self>) {
-        let hs = read::<Hs, _>(cx);
-        let (cursor, len) = self.active(dialog);
-        let at = cursor.cursor();
-        let send = |cx: &mut Cx<'_, Self>, intent: Intent| {
-            cx.emit(&hs.screen, ScreenIntent::Settings(intent));
+    fn act(&mut self, act: Act, cx: &mut Cx<'_, Self>) {
+        let Some(confirming) = self.draft.as_ref().map(|draft| draft.confirming) else {
+            return;
         };
+        let (cursor, len) = self.active(confirming);
+        let at = cursor.cursor();
         match act {
             Act::Move(mv) => {
                 if let Some(to) = target(len, at, &|_| true, mv, len) {
@@ -140,34 +145,50 @@ impl MemoriesState {
                 }
             }
             // Space flips a switch; on the other rows it does nothing.
-            Act::Toggle if !dialog.confirming => match at {
-                Some(0) => send(cx, Intent::Toggle(MEMORIES_USE.to_string())),
-                Some(1) => send(cx, Intent::Toggle(MEMORIES_GENERATE.to_string())),
-                _ => {}
-            },
+            Act::Toggle if !confirming => {
+                if let (Some(row), Some(draft)) = (at, self.draft.as_mut()) {
+                    draft.toggle(row);
+                }
+            }
             Act::Toggle => {}
             // Enter: the reset row asks to confirm, a switch saves; in the
             // confirmation the first choice resets and the second goes back.
-            Act::Accept if dialog.confirming => match at {
-                Some(0) => send(cx, Intent::Reset),
-                _ => self.back(cx, &send),
+            Act::Accept if confirming => match at {
+                Some(0) => {
+                    if let Some(edit) = self.draft.as_ref().and_then(MemoriesDraft::reset) {
+                        super::request(cx, edit);
+                    }
+                    close_dialog::<_, ()>(cx, None);
+                }
+                _ => self.back(),
             },
             Act::Accept => match at {
-                Some(RESET_ROW) => send(cx, Intent::ConfirmReset),
-                _ => send(cx, Intent::Save),
+                Some(RESET_ROW) => {
+                    if let Some(draft) = self.draft.as_mut() {
+                        draft.confirming = true;
+                    }
+                }
+                _ => {
+                    if let Some(edit) = self.draft.as_ref().and_then(MemoriesDraft::save) {
+                        super::request(cx, edit);
+                    }
+                    close_dialog::<_, ()>(cx, None);
+                }
             },
-            Act::Close if dialog.confirming => self.back(cx, &send),
-            Act::Close => send(cx, Intent::Close),
+            Act::Close if confirming => self.back(),
+            Act::Close => close_dialog::<_, ()>(cx, None),
         }
     }
 
     /// The confirmation goes back: the reset row is the cursor again
     /// (`close_reset_confirmation`), and the next confirmation starts on its
     /// first choice (`open_reset_confirmation`).
-    fn back(&self, cx: &mut Cx<'_, Self>, send: &dyn Fn(&mut Cx<'_, Self>, Intent)) {
+    fn back(&mut self) {
         Self::put(&self.main, RESET_ROW);
         Self::put(&self.confirm, 0);
-        send(cx, Intent::Close);
+        if let Some(draft) = self.draft.as_mut() {
+            draft.confirming = false;
+        }
     }
 }
 
@@ -177,14 +198,16 @@ impl State for MemoriesState {
 
     fn init_state(&mut self, _: &MemoriesSheet, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
-        self.node
-            .set_on_key_event(Some(Rc::new(move |_, key| match act_of(&key) {
+        let keys = self.keys.clone();
+        self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            match act_of(&keys.get(), &key) {
                 Some(act) => {
                     send(Msg::Act(act));
                     KeyEventResult::Handled
                 }
                 None => KeyEventResult::Ignored,
-            })));
+            }
+        })));
         Self::put(&self.main, 0);
         Self::put(&self.confirm, 0);
     }
@@ -195,25 +218,26 @@ impl State for MemoriesState {
         self.confirm.dispose();
     }
 
-    fn did_change_dependencies(&mut self, _: &MemoriesSheet, cx: &mut Cx<'_, Self>) {
-        let dialog = open_dialog(cx);
-        if dialog.is_none() && self.shown {
-            close_dialog::<_, ()>(cx, None);
+    fn did_change_dependencies(&mut self, w: &MemoriesSheet, cx: &mut Cx<'_, Self>) {
+        self.keys.refresh(cx);
+        if self.draft.is_none()
+            && let Some(offered) = offered(cx)
+        {
+            self.draft = Some(MemoriesDraft::new(&offered, w.confirming));
         }
-        self.shown = dialog.is_some();
     }
 
     fn update(&mut self, msg: Msg, _: &MemoriesSheet, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Some(dialog) = open_dialog(cx) else {
+        let Some(confirming) = self.draft.as_ref().map(|draft| draft.confirming) else {
             return Rebuild::No;
         };
         match msg {
-            Msg::Act(act) => self.act(act, &dialog, cx),
+            Msg::Act(act) => self.act(act, cx),
             Msg::Row(row) => {
-                let (cursor, len) = self.active(&dialog);
+                let (cursor, len) = self.active(confirming);
                 if cursor.cursor() == Some(row) {
-                    let accept = dialog.confirming || row == RESET_ROW;
-                    self.act(if accept { Act::Accept } else { Act::Toggle }, &dialog, cx);
+                    let accept = confirming || row == RESET_ROW;
+                    self.act(if accept { Act::Accept } else { Act::Toggle }, cx);
                 } else if row < len {
                     Self::put(cursor, row);
                 }
@@ -222,13 +246,19 @@ impl State for MemoriesState {
         Rebuild::Yes
     }
 
-    fn build(&self, _: &MemoriesSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, w: &MemoriesSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
         let seg = segmenter_of(cx);
-        let Some(dialog) = open_dialog(cx) else {
+        let Some(offered) = offered(cx) else {
             return Dialog::bare(Text::new(String::new())).into();
         };
+        let draft = self
+            .draft
+            .clone()
+            .unwrap_or_else(|| MemoriesDraft::new(&offered, w.confirming));
+        let dialog = draft.view();
+        let confirming = draft.confirming;
         let gutter = EdgeInsets::symmetric(2, 0);
         let note = |text: &str| -> AnyWidget {
             Padding::new(
@@ -241,9 +271,9 @@ impl State for MemoriesState {
         };
         let blank = || Text::new(String::new());
 
-        let (cursor, _) = self.active(&dialog);
+        let (cursor, _) = self.active(confirming);
         let at = cursor.cursor();
-        let rows = rows_of(s, &dialog);
+        let rows = rows_of(s, &dialog, confirming);
         // The name column is as wide as the widest name with its marks (the
         // oracle measures the rows it shows: all of them, at most eight).
         let wide = rows
@@ -261,7 +291,7 @@ impl State for MemoriesState {
             list = list.child(GestureDetector::new().on_tap(tap).child(line));
         }
 
-        let (title, subtitle, hint) = if dialog.confirming {
+        let (title, subtitle, hint) = if confirming {
             (s.reset_title, s.reset_subtitle, s.reset_hint)
         } else {
             (s.memories_title, s.memories_subtitle, s.memories_hint)
@@ -278,7 +308,7 @@ impl State for MemoriesState {
             .child(list)
             .child(blank())
             .child(blank());
-        if dialog.confirming {
+        if confirming {
             column = column.child(blank());
         } else {
             column = column
@@ -326,8 +356,8 @@ impl MemoryRow {
     }
 }
 
-fn rows_of(s: &Strings, dialog: &Memories) -> Vec<MemoryRow> {
-    if dialog.confirming {
+fn rows_of(s: &Strings, dialog: &Memories, confirming: bool) -> Vec<MemoryRow> {
+    if confirming {
         return vec![
             MemoryRow {
                 check: None,

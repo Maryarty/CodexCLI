@@ -189,12 +189,9 @@ pub enum Intent {
     Open { cwd: Option<String> },
     /// The source with this id (`Source::id`) was chosen.
     Source(String),
-    /// The entry (an index of `items`) was toggled.
-    Toggle(usize),
-    /// Every entry was checked or unchecked.
-    SetAll(bool),
-    /// The checked entries are to be imported.
-    Proceed,
+    /// The entries checked (indexes of `items`, as the page's checklist holds them) are to be
+    /// imported: the checks are the page's draft until this verb, the request records them.
+    Proceed(Vec<usize>),
     /// Cancel the flow (the source prompt left, `ctrl+c`, `ctrl+d`, skip, escape).
     Cancel,
 }
@@ -221,17 +218,15 @@ impl Model {
         self.items.iter().filter(|sel| sel.enabled).map(|sel| sel.item.clone()).collect()
     }
 
-    pub fn selected_count(&self) -> usize {
-        self.items.iter().filter(|sel| sel.enabled).count()
+    /// The items checked at the start of a review: what the detection preselected, or what
+    /// the last import asked for. The page's checklist starts from these.
+    pub fn preselected(&self) -> Vec<bool> {
+        self.items.iter().map(|sel| sel.enabled).collect()
     }
 
-    pub fn proceed_enabled(&self) -> bool {
-        self.selected_count() > 0
-    }
-
-    /// The mark of a group of the summary.
-    pub fn mark(&self, group: &Group) -> Mark {
-        let on = group.items.iter().filter(|at| self.items[**at].enabled).count();
+    /// The mark of a group of the summary over the page's `checked` items.
+    pub fn mark(group: &Group, checked: &[bool]) -> Mark {
+        let on = group.items.iter().filter(|at| checked.get(**at).copied().unwrap_or(false)).count();
         match on {
             0 => Mark::None,
             n if n == group.items.len() => Mark::All,
@@ -268,21 +263,11 @@ impl Model {
         self.error = error;
     }
 
-    fn toggle(&mut self, at: usize) {
-        if let Some(sel) = self.items.get_mut(at) {
-            sel.enabled = !sel.enabled;
-            self.error = None;
-        }
-    }
-
-    fn set_all(&mut self, enabled: bool) {
-        for sel in &mut self.items {
-            sel.enabled = enabled;
+    fn proceed(&mut self, checked: &[usize]) {
+        for (at, sel) in self.items.iter_mut().enumerate() {
+            sel.enabled = checked.contains(&at);
         }
         self.error = None;
-    }
-
-    fn proceed(&mut self) {
         self.generation += 1;
         self.phase = Phase::Importing;
     }
@@ -371,7 +356,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             match result {
                 Ok(import_id) => {
                     model.import_id = Some(import_id);
-                    let remaining = model.items.len().saturating_sub(model.selected_count());
+                    let remaining = model.items.len().saturating_sub(model.selected_items().len());
                     model.running = true;
                     model.end(Outcome::Started(Started { items: model.items.iter().filter(|sel| sel.enabled).cloned().collect(), remaining }));
                 }
@@ -414,11 +399,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         _ if !reviewing => {}
-        Intent::Toggle(at) => model.toggle(at),
-        Intent::SetAll(on) => model.set_all(on),
-        Intent::Proceed => {
-            if model.proceed_enabled() {
-                model.proceed();
+        Intent::Proceed(checked) => {
+            if checked.iter().any(|at| *at < model.items.len()) {
+                model.proceed(&checked);
                 ask(model, fx);
             }
         }
