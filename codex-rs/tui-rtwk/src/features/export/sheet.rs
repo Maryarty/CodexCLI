@@ -139,3 +139,17 @@ impl State for FilePromptState {
         .into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_filename_names_the_thread_when_there_is_one() {
+        assert_eq!(
+            filename(Some(&ThreadId::new("thread-1"))),
+            "codex-session-thread-1.md"
+        );
+        assert_eq!(filename(None), "codex-session.md");
+    }
+}

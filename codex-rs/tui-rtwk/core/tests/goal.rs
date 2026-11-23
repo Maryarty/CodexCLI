@@ -2,8 +2,8 @@
 
 //! `/goal` (oracle `slash_dispatch.rs`, `app/thread_goal_actions.rs`, `chatwidget/goal_menu.rs`):
 //! the bare command reads the goal and says it, the control words ask the server, an objective
-//! over an unfinished goal asks before it replaces it, the edit prompt keeps the status and the
-//! budget, an ask that failed is the oracle's error. The words are the view's: these tests read
+//! over an unfinished goal asks before it replaces it, the edit prompt (a wish of the feature, answered by a verb)
+//! keeps the status and the budget, an ask that failed is the oracle's error. The words are the view's: these tests read
 //! data.
 
 use codex_app_server_protocol::{
@@ -13,12 +13,10 @@ use codex_app_server_protocol::{
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::goal::{self, Ask};
-use codex_tui_core::features::{FeatureCommand, FeatureMenu, FeatureNote, FeaturePrompt};
+use codex_tui_core::features::{FeatureCommand, FeatureIntent, FeatureNote, FeatureWish};
 use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::dialogs::{self, PromptKind};
-use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
 use codex_tui_core::threads::queue::Dispatched;
 use codex_tui_core::threads::{
@@ -134,10 +132,22 @@ fn notes(app: &CodexApp) -> Vec<(Tone, GoalNote)> {
         .collect()
 }
 
-fn select_intent(app: &mut CodexApp, intent: SelectIntent) -> AppFx {
+/// What the goal wishes the surface to show, oldest first.
+fn wishes(app: &CodexApp) -> Vec<goal::Wish> {
+    app.wishes()
+        .pending()
+        .filter_map(|wish| match &wish.wish {
+            FeatureWish::Goal(wish) => Some(wish.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// What the UI half says when the user answers a question or the edit prompt.
+fn verb(app: &mut CodexApp, intent: goal::Intent) -> AppFx {
     run(
         app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
+        AppEv::Intent(Intent::Feature(FeatureIntent::Goal(intent))),
     )
 }
 
@@ -263,16 +273,16 @@ fn an_objective_over_an_unfinished_goal_asks_before_it_replaces_it() {
         goal::Reply::Goal(Some(goal("old", GoalStatus::Paused))),
     );
     assert_eq!(asked(&fx), [], "nothing is replaced yet");
-    let menu = Menu::Feature(FeatureMenu::Goal(goal::Menu::Replace {
+    let question = goal::Wish::Replace {
         thread: ThreadId::new(T),
         objective: "new objective".into(),
-    }));
-    assert_eq!(app.screens().select.menu(), Some(&menu));
+    };
+    assert_eq!(wishes(&app), [question]);
 
-    // Cancel: the goal stays.
-    let fx = select_intent(&mut app, SelectIntent::Choose(goal::CANCEL.into()));
-    assert_eq!(asked(&fx), []);
-    assert_eq!(app.screens().select.menu(), None);
+    // Cancel: nothing is said to the feature, the goal stays (the wish is shown and gone).
+    let seq = app.wishes().pending().next().expect("a wish").seq;
+    run(&mut app, AppEv::Intent(Intent::WishShown(seq)));
+    assert_eq!(wishes(&app), []);
 
     // Replace: the old goal is cleared, then the new one set.
     let (ticket, _) = only(&command(&mut app, true, Some("new objective")));
@@ -281,7 +291,13 @@ fn an_objective_over_an_unfinished_goal_asks_before_it_replaces_it() {
         ticket,
         goal::Reply::Goal(Some(goal("old", GoalStatus::Active))),
     );
-    let fx = select_intent(&mut app, SelectIntent::Choose(goal::REPLACE.into()));
+    let fx = verb(
+        &mut app,
+        goal::Intent::Replace {
+            thread: ThreadId::new(T),
+            objective: "new objective".into(),
+        },
+    );
     let (ticket, ask) = only(&fx);
     assert_eq!(ask, Ask::Clear);
     let (ticket, ask) = only(&answer(&mut app, ticket, goal::Reply::Cleared(true)));
@@ -308,7 +324,7 @@ fn an_objective_over_a_complete_goal_replaces_it_without_asking() {
         goal::Reply::Goal(Some(goal("done", GoalStatus::Complete))),
     );
     assert_eq!(only(&fx).1, Ask::Clear);
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(wishes(&app), []);
 }
 
 #[test]
@@ -320,23 +336,22 @@ fn the_edit_prompt_keeps_the_status_and_the_budget_of_the_goal() {
         ticket,
         goal::Reply::Goal(Some(goal("old", GoalStatus::Paused))),
     );
-    let Some(prompt) = app.screens().dialogs.prompt.clone() else {
-        panic!("the edit prompt is open");
+    let edit = goal::Wish::Edit {
+        thread: ThreadId::new(T),
+        objective: "old".into(),
+        status: GoalStatus::Paused,
+        token_budget: Some(5_000),
     };
-    assert_eq!(prompt.initial, "old");
-    assert_eq!(
-        prompt.kind,
-        PromptKind::Feature(FeaturePrompt::Goal(goal::Prompt::Edit {
+    assert_eq!(wishes(&app), [edit]);
+    // The prompt's text is the UI's; the verb carries the submitted objective.
+    let fx = verb(
+        &mut app,
+        goal::Intent::Edit {
             thread: ThreadId::new(T),
+            objective: "  better \n".into(),
             status: GoalStatus::Paused,
             token_budget: Some(5_000),
-        }))
-    );
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Dialogs(
-            dialogs::Intent::Submit("  better \n".into()),
-        ))),
+        },
     );
     assert_eq!(
         only(&fx).1,
@@ -357,16 +372,11 @@ fn a_finished_goal_is_edited_back_to_active() {
         ticket,
         goal::Reply::Goal(Some(goal("old", GoalStatus::BudgetLimited))),
     );
-    let Some(prompt) = app.screens().dialogs.prompt.clone() else {
-        panic!("the edit prompt is open");
+    let wished = wishes(&app);
+    let [goal::Wish::Edit { status, .. }] = wished.as_slice() else {
+        panic!("the edit prompt is wished: {wished:?}");
     };
-    assert!(matches!(
-        prompt.kind,
-        PromptKind::Feature(FeaturePrompt::Goal(goal::Prompt::Edit {
-            status: GoalStatus::Active,
-            ..
-        }))
-    ));
+    assert_eq!(*status, GoalStatus::Active);
 }
 
 #[test]
@@ -381,7 +391,7 @@ fn edit_over_no_goal_is_an_error_then_the_usage() {
             (Tone::Info, GoalNote::Usage(GoalHint::CreateFirst)),
         ]
     );
-    assert_eq!(app.screens().dialogs.prompt, None);
+    assert_eq!(wishes(&app), []);
 
     // Before the session starts the same two lines come without an ask.
     let mut app = CodexApp::new();
@@ -452,24 +462,15 @@ fn a_failed_replace_names_the_step_that_failed() {
 }
 
 #[test]
-fn the_resume_row_sets_the_goal_active_and_leave_paused_asks_nothing() {
-    let resume = |app: &mut CodexApp| {
-        let menu = goal::Menu::Resume {
-            thread: ThreadId::new(T),
-            objective: "ship it".into(),
-        };
-        select_intent(
-            app,
-            SelectIntent::Open(Menu::Feature(FeatureMenu::Goal(menu))),
-        );
-    };
+fn the_resume_verb_sets_the_goal_active() {
     let mut app = ready();
-    resume(&mut app);
-    let fx = select_intent(&mut app, SelectIntent::Choose(goal::LEAVE.into()));
-    assert_eq!(asked(&fx), []);
-    assert_eq!(app.screens().select.menu(), None);
-    resume(&mut app);
-    let fx = select_intent(&mut app, SelectIntent::Choose(goal::RESUME.into()));
+    // `Leave paused` says nothing to the feature; `Resume goal` is this verb.
+    let fx = verb(
+        &mut app,
+        goal::Intent::Resume {
+            thread: ThreadId::new(T),
+        },
+    );
     assert_eq!(
         only(&fx).1,
         Ask::Set {

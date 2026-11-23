@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use rtwk::provider::watch;
+use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::rename::{Intent, Interest};
@@ -59,11 +59,15 @@ impl State for NamePromptState {
     }
 
     fn build(&self, w: &NamePrompt, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let suggest = match watch::<FeatureStates, _>(cx).rename.title(&w.thread) {
-            Some(Remote::Ready(title)) => Suggest::Ready(title.clone()),
-            Some(Remote::Failed(_)) => Suggest::Ready(None),
-            _ => Suggest::Waiting,
-        };
+        // The suggestion of this thread's prompt only: another thread's answer does not rebuild it.
+        let thread = w.thread.clone();
+        let suggest = select::<FeatureStates, Suggest, _>(cx, move |features| {
+            match features.rename.title(&thread) {
+                Some(Remote::Ready(title)) => Suggest::Ready(title.clone()),
+                Some(Remote::Failed(_)) => Suggest::Ready(None),
+                _ => Suggest::Waiting,
+            }
+        });
         let prompt = TextPrompt {
             title: strings::title(!w.existing.is_empty()).to_owned(),
             placeholder: strings::PLACEHOLDER.to_owned(),

@@ -327,10 +327,9 @@ pub(super) fn session_intent(
         // `/export <path>` (written there): `features/export`. A bare `/export` is the
         // feature's own sheet (`Target::Feature`), whose answer is the same verb.
         S::Export { path } => {
-            use crate::features::export::{Destination, Intent};
             if let Some(path) = path {
-                let destination = Destination::File(path);
-                super::features::intent(app, Intent::Export { destination }.into(), fx);
+                let intent = crate::features::export::Intent::Command { path };
+                super::features::intent(app, intent.into(), fx);
             }
         }
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).

@@ -8,8 +8,7 @@ use std::rc::Rc;
 use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread, session_note};
 use crate::features::{
-    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent,
-    InterestStep,
+    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
 use crate::features::{FeatureStates, Out};
 use crate::ids::ThreadId;

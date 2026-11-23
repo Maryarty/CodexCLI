@@ -36,8 +36,10 @@ pub enum Destination {
 /// What the user asks of `/export`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// Export the conversation in use to `destination` (`/export <path>`, or a row of the
-    /// destination picker, or the filename typed in its prompt).
+    /// `/export <path>`: the conversation in use is written to the path as typed.
+    Command { path: String },
+    /// Export the conversation in use to `destination` (a row of the destination sheet, or the
+    /// filename typed in its prompt).
     Export { destination: Destination },
 }
 
@@ -110,7 +112,10 @@ impl Feature for Export {
     type Interest = Never<Self>;
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
-        let Intent::Export { destination } = intent;
+        let destination = match intent {
+            Intent::Command { path } => Destination::File(path),
+            Intent::Export { destination } => destination,
+        };
         run(cx, destination);
     }
 

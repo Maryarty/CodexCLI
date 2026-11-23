@@ -206,11 +206,10 @@ mod probe_list {
 }
 
 use probe_list::{
-    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest,
-    FeatureNote, FeatureReply, FeatureStates, FeatureThreadIntent,
-    FeatureThreadParts, alpha, answered, apply_intent, apply_thread_intent, apply_thread_reply,
-    beta, decode, effect_done, names, note_tone, on_fact, on_interest, on_interrupted,
-    on_resumed, on_turn_end, wire,
+    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote,
+    FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha, answered,
+    apply_intent, apply_thread_intent, apply_thread_reply, beta, decode, effect_done, names,
+    note_tone, on_fact, on_interest, on_interrupted, on_resumed, on_turn_end, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
