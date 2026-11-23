@@ -379,6 +379,11 @@ async fn run(
         epoch,
         AppEv::Presets(crate::effects::presets(&config)),
     );
+    emit(
+        &ingress,
+        epoch,
+        AppEv::PluginConfig(crate::effects::plugin_config(&config)),
+    );
     if !warnings.is_empty() {
         emit(
             &ingress,

@@ -276,6 +276,9 @@ pub enum AppEv {
     /// The presets of the config (`tui.presets`) with the layer each comes from: sent with
     /// `Tui`, and never changed by anything but the saved write of a preset.
     Presets(Vec<crate::screens::select::quick_dials::Slot>),
+    /// What the config says of the plugins (the features, the home directory, the marketplaces
+    /// the user configured): sent with `Presets`.
+    PluginConfig(crate::screens::select::plugins::Config),
     /// An error the host words for the shown conversation: the browser did not open a page
     /// (`Command::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
     /// no image to paste (`Failed to paste image: {err}`). The conversation keeps it as an error
@@ -1288,6 +1291,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Daybreak(access) => app.daybreak = access,
         AppEv::Tui(settings) => app.tui = settings,
         AppEv::Presets(slots) => select::event(app, crate::screens::select::Ev::Dials(slots), fx),
+        AppEv::PluginConfig(config) => {
+            use crate::screens::select::{plugins, Ev};
+            select::event(app, Ev::Plugins(plugins::Ev::Config(config)), fx);
+        }
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } => {
             if !select::reviewed(app, request, &done, fx) {

@@ -35,6 +35,7 @@ mod onboarding;
 mod permissions;
 mod pets;
 mod plan_mode;
+mod plugins;
 mod popovers;
 mod provider_error;
 mod quick_dials;
