@@ -1020,9 +1020,28 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     }
                     return;
                 }
+                // The app server says the apps directory changed
+                // (`refresh_connector_directory_after_notification`): with a thread on display
+                // it is read again, and the apps a user cannot call leave the mentions.
+                ServerNotification::AppListUpdated(note) => {
+                    if app.session.active.is_some() {
+                        let listed: Vec<_> = note
+                            .data
+                            .iter()
+                            .cloned()
+                            .map(screens::select::apps::App::of)
+                            .collect();
+                        drop_uncallable_apps(app, &listed);
+                        select::event(app, screens::select::Ev::AppsNotified(listed), fx);
+                    }
+                    return;
+                }
                 // The identity boundary (`update_account_state`): what was asked of, and shown
                 // for, the previous account is not the new one's.
                 ServerNotification::AccountUpdated(_) => {
+                    // the apps directory and the permission catalog of the old account go
+                    // (`invalidate_connector_scope`, `invalidate_permission_discovery`)
+                    select::event(app, screens::select::Ev::ScopeChanged, fx);
                     Rc::make_mut(&mut app.session)
                         .backend_banners
                         .remove(&origin);
@@ -1630,7 +1649,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             );
                         }
                         if app.session.active == source {
-                            show_held_thread(app, thread.clone());
+                            show_held_thread(app, thread.clone(), fx);
                         }
                         fetch_history(app, &thread, fx);
                         if let Some(markdown) = plan {
@@ -2134,7 +2153,7 @@ fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
     let agents = &mut Rc::make_mut(&mut app.screens).agents;
     if held {
         agents::attach_loaded(agents, id.as_str());
-        show_held_thread(app, id.clone());
+        show_held_thread(app, id.clone(), fx);
         return;
     }
     agents.opening = Some(id.clone());
@@ -2260,7 +2279,7 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         let id = ThreadId::new(&thread.id);
         let backend = app.screens.agents.owner_of(id.as_str());
         attach_thread_with_metadata(app, &id, backend, Origin::Resumed, Some(thread), fx);
-        show_held_thread(app, id.clone());
+        show_held_thread(app, id.clone(), fx);
         apply_thread(app, &id, threads::history_page(&thread.turns, None), fx);
     }
     if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
@@ -2344,14 +2363,14 @@ fn session_opened(
                 Action::Fork => Origin::Started,
             };
             attach_thread_with_metadata(app, &id, BackendId::default(), origin, Some(&opened), fx);
-            show_held_thread(app, id.clone());
+            show_held_thread(app, id.clone(), fx);
             apply_thread(app, &id, threads::history_page(&opened.turns, None), fx);
             fetch_history(app, &id, fx);
             send_queued(app, &id, fx);
         }
         Answer::Failed(error) if action == Action::Resume && agents::is_active_writer(&error) => {
             app.threads.open(&requested, Origin::ForeignWriter);
-            show_held_thread(app, requested.clone());
+            show_held_thread(app, requested.clone(), fx);
             fetch_history(app, &requested, fx);
         }
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
@@ -2474,10 +2493,40 @@ fn attach_thread_with_metadata(
     notices::flush(app, thread, fx);
 }
 
-fn show_held_thread(app: &mut CodexApp, id: ThreadId) {
+/// The apps the mentions offer are the installed ones the directory lists
+/// (`connectors_for_mentions`): an app it does not list as accessible leaves them.
+fn drop_uncallable_apps(app: &mut CodexApp, listed: &[screens::select::apps::App]) {
+    use screens::composer::mentions::catalog::MentionKind;
+    let callable = |path: &Option<String>| {
+        path.as_deref()
+            .and_then(|path| path.strip_prefix("app://"))
+            .is_none_or(|id| listed.iter().any(|app| app.id == id && app.installed))
+    };
+    if app
+        .screens
+        .popovers
+        .mentions
+        .iter()
+        .all(|mention| mention.kind != MentionKind::App || callable(&mention.path))
+    {
+        return;
+    }
+    Rc::make_mut(&mut app.screens)
+        .popovers
+        .mentions
+        .retain(|mention| mention.kind != MentionKind::App || callable(&mention.path));
+}
+
+fn show_held_thread(app: &mut CodexApp, id: ThreadId, fx: &mut AppFx) {
+    // Another thread on display: what the pickers hold for the one before is not trusted
+    // (oracle `invalidate_connector_scope` on a displayed-thread change).
+    let switched = app.session.active.as_ref().is_some_and(|shown| *shown != id);
     let session = Rc::make_mut(&mut app.session);
     session.active = Some(id);
     session.status = Session::Ready;
+    if switched {
+        select::event(app, screens::select::Ev::ScopeChanged, fx);
+    }
 }
 
 fn submit(app: &mut CodexApp, thread: &ThreadId, message: UserMessage, fx: &mut AppFx) {

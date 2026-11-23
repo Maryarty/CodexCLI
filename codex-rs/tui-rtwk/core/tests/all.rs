@@ -15,6 +15,7 @@ mod agents_reconnect;
 mod agents_shared;
 mod app;
 mod app_wiring;
+mod apps_directory;
 mod approvals;
 mod backend_switch;
 mod backtrack;
