@@ -1,7 +1,11 @@
 # status-card-live (chunk-status-card): parity pack
 
 Branch fleet/block-status. Code commits 84ea2f024 (host deps, Cargo.toml + Cargo.lock) and e7f765d7d (the card), then the
-collaboration-mode commit and this pack.
+collaboration-mode commit and this pack; merge of claude/tui-rtwk f48f8b5de, then 1e601e7e7 (the refresh test's screen is
+60 rows tall: the faithful card, with the Collaboration mode row, no longer leaves the first card's `8% left` on 24 rows).
+Re-checked after the merge: core 1565 pass, rules 80 pass, pages/screens/shell status filters 137 pass, clippy and fmt green,
+chat_status_1 5/6/47/0, chat_status_2 20/1/38/0, pty scenario (mock turn then /status) PASS on rtwk and oracle with the same
+rows as below. land-check not run: the fleet brief's Done rule leaves it to the orchestrator's landing.
 
 ## Features
 - `/status` appends the card to the shown thread's transcript (`Item::Status { card, request }`); the card is composed
