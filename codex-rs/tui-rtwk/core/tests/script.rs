@@ -251,7 +251,8 @@ mod replies {
             replies.next("thread/turns/list"),
             Some(Answer::Error {
                 code: Some(-32600),
-                message: "gone".into()
+                message: "gone".into(),
+                data: None
             })
         );
         let bare = r#"{"step":"reply","method":"m","error":{"message":"x"}}"#;
@@ -259,7 +260,8 @@ mod replies {
             parse(bare).expect("parses").replies.next("m"),
             Some(Answer::Error {
                 code: None,
-                message: "x".into()
+                message: "x".into(),
+                data: None
             })
         );
     }

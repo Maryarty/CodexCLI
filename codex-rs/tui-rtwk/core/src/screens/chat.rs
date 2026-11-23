@@ -26,6 +26,7 @@ use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
+use crate::screens::select::collaboration::{self, ModelChange};
 use crate::threads::{Note, ThreadFx};
 
 pub const NAME: &str = "chat";
@@ -77,6 +78,10 @@ pub struct StatusFacts {
     pub effort: Option<String>,
     /// The approval policy as the config writes it (`on-request`).
     pub approval_policy: Option<String>,
+    /// A granular approval policy as the config's JSON (`/presets` recalls it).
+    pub approval_granular: Option<String>,
+    /// The active permission profile's id (`:workspace`, a named profile's name).
+    pub permission_profile: Option<String>,
     /// The approvals reviewer is the auto reviewer.
     pub auto_review: bool,
     pub profile: super::status::Profile,
@@ -118,6 +123,8 @@ impl Default for StatusFacts {
             model: None,
             effort: None,
             approval_policy: None,
+            approval_granular: None,
+            permission_profile: None,
             auto_review: false,
             profile: super::status::Profile::Workspace,
             cwd: None,
@@ -282,6 +289,9 @@ pub enum Ev {
     /// What `thread` holds of the user's input during a turn, set as a fixture
     /// does (the app routes it to the thread, which owns the lists).
     Pending { thread: String, pending: PendingTexts },
+    /// `thread` is refused for its model provider, set as a fixture does (the
+    /// app routes it to the thread, which owns the fact).
+    ProviderError { thread: String, error: codex_app_server_protocol::ModelProviderError },
 }
 
 /// The three lists the pending-input preview shows, as texts.
@@ -326,7 +336,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Status(facts) => model.status = Rc::from(facts),
         Ev::Facts(ev) => model.facts.apply(ev),
         // the thread owns it (`apply_app` routes it)
-        Ev::Details { .. } | Ev::Pending { .. } => {}
+        Ev::Details { .. } | Ev::Pending { .. } | Ev::ProviderError { .. } => {}
     }
     // what the configured items need is asked for after every change that may alter it
     model.facts.sync(&model.status, model.signed_in);
@@ -349,6 +359,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 pub struct ThreadPart {
     compact_pending: bool,
     pub error: Option<RpcError>,
+    /// Why the thread is locked: the server refused it for its model provider.
+    /// Set until the thread is attached again.
+    pub provider_error: Option<codex_app_server_protocol::ModelProviderError>,
     pub name: Option<String>,
     pub cwd: Option<String>,
     /// The file the thread's history is written to (`/rollout`), once the
@@ -366,6 +379,9 @@ pub struct ThreadPart {
     pub daybreak: Option<bool>,
     /// The collaboration mode (`thread/settings/updated`, or the user's switch); read through `mode()`.
     mode: codex_protocol::config_types::ModeKind,
+    /// What the thread runs with outside of a mask: its model and effort as last seen in Default
+    /// mode (`current_collaboration_mode`); the mask of a switch lies over it.
+    base: collaboration::Base,
     /// Plan mode: the proposed plan and the question asked when the turn ends.
     pub plan: plan_mode::PlanMode,
     /// Resumed with history: the token usage is pending until `status` counts one.
@@ -529,13 +545,42 @@ impl ThreadPart {
         self.retry_header = None;
     }
 
-    /// The user's switch of the mode: the thread's mode changes at once (the next turn is
-    /// sent in it) and the server's settings follow (`set_collaboration_mask_from_user_action`).
-    pub(crate) fn set_mode(&mut self, kind: codex_protocol::config_types::ModeKind, fx: &mut ThreadFx<'_>) {
-        self.mode = kind;
+    /// The user's switch of the mode (`set_collaboration_mask_from_user_action`): the mask lies
+    /// over the thread's base settings, the thread goes on in what that makes at once (the next
+    /// turn is sent in it) and the server's settings follow. What the switch changed of the
+    /// model and the effort comes back for the line that says so.
+    pub(crate) fn set_mask(
+        &mut self,
+        mask: &collaboration::Mask,
+        fx: &mut ThreadFx<'_>,
+    ) -> Option<ModelChange> {
+        // a thread resumed in Plan mode has not been seen in Default: what it runs with now stands in
+        let base = if self.base.model.is_empty() {
+            collaboration::Base::of(self.model.as_deref(), self.effort.as_deref())
+        } else {
+            self.base.clone()
+        };
+        let effective = collaboration::effective(&base, mask, None);
+        let previous = (self.mode, self.model.clone(), self.effort.clone());
+        self.mode = effective.mode;
         self.error = None;
-        let mode = plan_mode::collaboration_mode(kind, self.model.as_deref());
-        fx.request(Ctx::Mode, Command::Mode(mode));
+        self.model = Some(effective.settings.model.clone());
+        self.effort = effective
+            .settings
+            .reasoning_effort
+            .as_ref()
+            .map(|effort| effort.as_str().to_string());
+        let changed = previous.0 != self.mode && (previous.1 != self.model || previous.2 != self.effort);
+        let change = changed.then(|| ModelChange {
+            model: effective.settings.model.clone(),
+            effort: collaboration::effort_label(
+                &effective.settings.model,
+                effective.settings.reasoning_effort.as_ref(),
+            ),
+            mode: self.mode,
+        });
+        fx.request(Ctx::Mode, Command::Mode(effective));
+        change
     }
 
     pub fn is_compacting(&self) -> bool {
@@ -555,12 +600,20 @@ pub enum ThreadIntent {
     /// (`AppCommand::clean_background_terminals`).
     CleanTerminals,
     Rename(String),
+    /// `/review <text>` and the review popup's pick: `review/start` inline on
+    /// this thread (the oracle's `AppCommand::review`).
+    Review(crate::threads::ReviewTarget),
     /// `!cmd` from the composer: a user shell command (the oracle's
     /// `AppCommand::RunUserShellCommand`), run while a turn runs too.
     Shell(String),
-    /// Tab: the message waits behind the running turn (the oracle's
+    /// Tab: the line waits behind the running turn (the oracle's
     /// `InputResult::Queued`); `threads::apply` owns the queue.
-    Queue(crate::threads::UserMessage),
+    Queue(crate::threads::Queued),
+    /// The screen ran the queued command it was handed (`ThreadModel::due_command`): what the
+    /// queue does next reads what it opened.
+    QueueRan(crate::threads::Ran),
+    /// What stopped the queue is over (the sheet closed): the next item goes on.
+    QueueResume,
     /// Esc while steers are pending: interrupt the turn, then send the
     /// steers as one message (`submit_pending_steers_after_interrupt`).
     InterruptForSteers,
@@ -570,10 +623,16 @@ pub enum ThreadIntent {
     /// Esc Esc found no prompt to edit: the chat says so
     /// (`NO_PREVIOUS_MESSAGE_TO_EDIT`, an info line in the history).
     NoPreviousMessage,
-    /// The user's switch of the collaboration mode (`/plan`, Shift+Tab, the prompt's Yes):
-    /// the thread goes on in `ModeKind` and the server is told.
-    SetMode(codex_protocol::config_types::ModeKind),
-    /// Shift+Tab: the next mode, only while the thread is idle (`cycle_collaboration_mode`).
+    /// A text for the composer of a fresh thread (the provider-error notice's
+    /// continue key): given back as a restore, nothing is sent.
+    Draft(String),
+    /// The user's switch of the collaboration mode (`/plan`, the prompt's Yes): the thread goes
+    /// on in the mode `Mask` makes and the server is told; the app chose the mask from the
+    /// server's presets (`select::collaboration`). The switch is `threads::apply`'s, which
+    /// says what it changed.
+    SetMask(collaboration::Mask),
+    /// Shift+Tab: the next preset in the server's list, only while the thread is idle
+    /// (`cycle_collaboration_mode`); `threads::apply` chooses it.
     CycleMode,
     /// The fresh thread of the prompt's "clear context" row takes the approved plan: the server
     /// answers with the prompt that starts the work.
@@ -581,6 +640,10 @@ pub enum ThreadIntent {
     /// The prompt's answer Yes (`submit_user_message_with_mode`): the thread goes on in Default
     /// and `Implement the plan.` is sent; a running turn refuses the switch.
     ImplementPlan,
+    /// A settings pick that was to run before the queue went on failed (an inline
+    /// `/permissions <profile>`): what waits in the queue and the pending steers stay unsent
+    /// until the user sends again (`retain_input_after_failed_permission_selection`).
+    HoldQueue,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -618,6 +681,9 @@ pub enum ThreadEv {
     /// What the status row says under its header (oracle `set_status`'s
     /// `details`); `None` clears it.
     Details(Option<StatusDetails>),
+    /// The server refused this thread for its model provider (oracle
+    /// `show_provider_error`): the thread takes no input and the notice says why.
+    ProviderError(codex_app_server_protocol::ModelProviderError),
     /// The thread's goal reached its token budget during `turn`
     /// (`on_thread_goal_updated` with `BudgetLimited`).
     BudgetLimited { turn: TurnId },
@@ -755,6 +821,7 @@ pub enum Command {
     Compact,
     CleanTerminals,
     Rename(String),
+    Review(crate::threads::ReviewTarget),
     Shell(String),
     /// `turn/steer`: the message joins the running turn `turn`.
     Steer {
@@ -783,6 +850,7 @@ pub enum Ctx {
     Compact,
     CleanTerminals,
     Rename,
+    Review,
     Shell,
     /// A steer in flight: `threads::apply` reads its reply (the queue and the
     /// previews are the thread's, not the slot's); `retried` once the turn id
@@ -810,15 +878,17 @@ pub fn apply_thread_intent(
             part.error = None;
             fx.request(Ctx::CleanTerminals, Command::CleanTerminals);
         }
-        ThreadIntent::SetMode(kind) => part.set_mode(kind, fx),
         ThreadIntent::ApprovePlan(markdown) => {
             part.error = None;
             fx.request(Ctx::ApprovePlan, Command::ApprovePlan(markdown));
         }
-        ThreadIntent::CycleMode if !busy => part.set_mode(plan_mode::next(part.mode), fx),
         ThreadIntent::Rename(name) if !name.trim().is_empty() => {
             part.error = None;
             fx.request(Ctx::Rename, Command::Rename(name));
+        }
+        ThreadIntent::Review(target) => {
+            part.error = None;
+            fx.request(Ctx::Review, Command::Review(target));
         }
         ThreadIntent::Shell(command) if !command.trim().is_empty() => {
             part.error = None;
@@ -839,6 +909,9 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.path = path;
             part.parent_owned = parent_owned;
             part.ephemeral = ephemeral;
+            if part.mode == codex_protocol::config_types::ModeKind::Default {
+                part.base = collaboration::Base::of(model.as_deref(), effort.as_deref());
+            }
             part.model = model;
             part.effort = effort;
             part.provider = (!provider.is_empty()).then_some(provider);
@@ -849,6 +922,9 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Settings { cwd, model, effort, provider, service_tier, mode } => {
             part.mode = mode;
+            if mode == codex_protocol::config_types::ModeKind::Default {
+                part.base = collaboration::Base::of(Some(&model), effort.as_deref());
+            }
             part.cwd = Some(cwd);
             part.model = Some(model);
             part.effort = effort;
@@ -863,6 +939,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.details = details.map(|text| StatusDetails::new(text, STATUS_DETAILS_MAX_LINES));
         }
         ThreadEv::Details(details) => part.details = details,
+        ThreadEv::ProviderError(error) => part.provider_error = Some(error),
         ThreadEv::BudgetLimited { turn } => {
             if !part.budget_limited.contains(&turn) {
                 part.budget_limited.push(turn);
@@ -899,6 +976,10 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             thread: thread.to_string(),
             name: name.clone(),
         },
+        Command::Review(target) => crate::threads::ThreadAsk::Review {
+            thread: thread.to_string(),
+            target: target.clone(),
+        },
         Command::Shell(command) => crate::threads::ThreadAsk::Shell {
             thread: thread.to_string(),
             command: command.clone(),
@@ -925,7 +1006,8 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     use codex_app_server_protocol::{
-        ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse, ThreadSetNameResponse,
+        ReviewStartResponse, ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse,
+        ThreadSetNameResponse,
         ThreadPrepareApprovedPlanResponse, ThreadShellCommandResponse, TurnSteerResponse,
     };
     let decoded = match command {
@@ -934,6 +1016,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
             serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result).map(|_| Reply::Ack)
         }
         Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
+        Command::Review(_) => serde_json::from_value::<ReviewStartResponse>(result).map(|_| Reply::Ack),
         Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
         Command::Mode(_) => Ok(Reply::Ack),
         Command::ApprovePlan(_) => serde_json::from_value::<ThreadPrepareApprovedPlanResponse>(result)
@@ -958,6 +1041,7 @@ enum SeedEv {
     Facts(FactEv),
     Details(SeedDetails),
     Pending { thread: String, #[serde(flatten)] pending: PendingTexts },
+    ProviderError { thread: String, error: codex_app_server_protocol::ModelProviderError },
 }
 
 /// `{"details":{"thread":"thread-1","text":"a\nb","max_lines":3,"preserve":true}}`
@@ -1040,6 +1124,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         SeedEv::Status(facts) => Ev::Status(facts),
         SeedEv::Facts(ev) => Ev::Facts(ev),
         SeedEv::Pending { thread, pending } => Ev::Pending { thread, pending },
+        SeedEv::ProviderError { thread, error } => Ev::ProviderError { thread, error },
         SeedEv::Details(d) => {
             let max = d.max_lines.unwrap_or(STATUS_DETAILS_MAX_LINES);
             Ev::Details {

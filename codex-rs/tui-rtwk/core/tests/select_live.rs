@@ -881,3 +881,57 @@ fn a_switch_survives_a_refresh_and_only_a_different_notification_asks() {
         Status::Disabled
     );
 }
+
+/// A default-provider write (`model_picker_unavailable`, `dismiss_stale_model_picker`): the model
+/// menus go with the request in flight, `/model` says why it is blocked and asks nothing, and the
+/// answer of the dropped request is not read.
+#[test]
+fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::select::Provider;
+    let mut app = CodexApp::new();
+    let fx = open(
+        &mut app,
+        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+    );
+    let (ticket, _) = asked(&fx);
+    assert!(matches!(app.screens().select.menu(), Some(Menu::Model(_))));
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Select(select::Ev::Provider(Provider::Changed))),
+    );
+    assert_eq!(
+        app.screens().select.menu(),
+        None,
+        "the model menus are gone"
+    );
+    assert_eq!(app.screens().select.catalog.pending, None);
+    // the answer in flight is dropped
+    let fx = answer(&mut app, ticket, select::Reply::Models(Vec::new()));
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+    assert_eq!(app.screens().select.menu(), None);
+    // `/model` is blocked with the restart words and sends nothing
+    let fx = open(
+        &mut app,
+        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+    );
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+    assert_eq!(app.screens().select.menu(), None);
+    let fx = open(&mut app, SelectIntent::LoadModels);
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+    // while a write is in flight it says so; settled, the picker opens again
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Select(select::Ev::Provider(Provider::Saving))),
+    );
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Select(select::Ev::Provider(Provider::Settled))),
+    );
+    let fx = open(
+        &mut app,
+        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+    );
+    assert_eq!(fx.commands().len(), 1, "{:?}", fx.commands());
+    assert!(matches!(app.screens().select.menu(), Some(Menu::Model(_))));
+}

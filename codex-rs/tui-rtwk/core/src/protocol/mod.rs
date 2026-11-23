@@ -216,6 +216,31 @@ pub fn reply_from_server(
             return Some((*ticket, Reply::interrupt_turn_changed(TurnId::new(actual))));
         }
     }
+    // A turn or a steer the server refuses for the chat's model provider keeps
+    // the typed failure: the chat is read-only and says why (oracle `show_provider_error`).
+    if let Err(error) = &result
+        && let Some(provider) = error.model_provider()
+    {
+        match command {
+            Command::StartTurn { ticket, .. }
+            | Command::Screen {
+                ticket,
+                command: screens::ScreenCommand::Chat(screens::chat::Command::Steer { .. }),
+                ..
+            }
+            // the resume of a thread whose provider is refused opens it read-only
+            | Command::Screen {
+                ticket,
+                command:
+                    screens::ScreenCommand::Agents(screens::agents::Command::Thread(
+                        crate::threads::ThreadAsk::Resume { .. }
+                        | crate::threads::ThreadAsk::ResumeAt { .. },
+                    )),
+                ..
+            } => return Some((*ticket, Reply::error(RpcError::Provider(provider)))),
+            _ => {}
+        }
+    }
     reply(command, result.map_err(|error| error.message))
 }
 

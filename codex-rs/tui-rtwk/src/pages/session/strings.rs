@@ -44,6 +44,8 @@ pub struct Strings {
     pub unavailable_in_review: Msg<1>,
     pub session_starting: Msg<1>,
     pub model_startup: &'static str,
+    pub thread_name_empty: &'static str,
+    pub side_rename: &'static str,
     /// `USER_SHELL_COMMAND_HELP_TITLE` and `_HINT` (`chatwidget.rs`): a bare `!`.
     pub shell_help: &'static str,
     /// `user_input_too_large_message` (`chat_composer.rs`): the limit and the size.
@@ -165,6 +167,12 @@ pub struct Strings {
     // (`model_defaults.rs`, `config_persistence.rs`, `connectors.rs`).
     pub note_no_models: &'static str,
     pub note_models_not_loaded: &'static str,
+    pub note_model_list_stale: &'static str,
+    pub note_worktrees_unavailable: &'static str,
+    pub note_worktree_list_failed: Msg<1>,
+    pub note_worktree_removed: Msg<1>,
+    pub note_worktree_remove_failed: Msg<2>,
+    pub note_model_provider_saving: &'static str,
     pub note_model_changed: Msg<1>,
     pub note_session_only: &'static str,
     pub note_default_effort: &'static str,
@@ -207,6 +215,8 @@ pub const EN: Strings = Strings {
     unavailable_in_review: msg!("'/{0}' is unavailable while code review is running."),
     session_starting: msg!("Session is still starting; try /{0} again in a moment."),
     model_startup: "Model selection is disabled until startup completes.",
+    thread_name_empty: "Thread name cannot be empty.",
+    side_rename: "Side conversations cannot be renamed.",
     shell_help: "Prefix a command with ! to run it locally\nExample: !ls",
     input_too_large: msg!("Message exceeds the maximum length of {0} characters ({1} provided)."),
     usage_needs_login: "Sign in with ChatGPT to use /usage.",
@@ -296,6 +306,12 @@ pub const EN: Strings = Strings {
     picker: &crate::sheets::select::strings::EN,
     note_no_models: "No additional models are available right now.",
     note_models_not_loaded: "Could not load models. Try /model again.",
+    note_worktrees_unavailable: "Managed worktrees require a local Git repository.",
+    note_worktree_list_failed: msg!("Cannot list managed worktrees: {0}"),
+    note_worktree_removed: msg!("Removed worktree at {0}. Thread history was kept."),
+    note_worktree_remove_failed: msg!("Could not remove worktree at {0}: {1}"),
+    note_model_list_stale: "The model list may be out of date. Restart the app server and TUI to refresh /model.",
+    note_model_provider_saving: "Saving the default provider. Try /model after the save finishes.",
     note_model_changed: msg!("Model changed to {0}"),
     note_session_only: " for this session only",
     note_default_effort: "default",
@@ -477,8 +493,11 @@ impl Strings {
 
     /// The words of a note of the transcript (a command line's answer).
     pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
+        use codex_tui_core::app::effects::CopyStatus;
         use codex_tui_core::screens::agents::Action;
-        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, Stub};
+        use codex_tui_core::threads::{
+            CdRefusal, CopyLabel, ExportNote, NoteKey, RemoveNote, Stub,
+        };
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
@@ -511,19 +530,85 @@ impl Strings {
             NoteKey::Remove(Action::Archive, RemoveNote::Failed) => self.archive_failed.to_string(),
             NoteKey::Remove(Action::Delete, RemoveNote::Failed) => self.delete_failed.to_string(),
             NoteKey::Select(note) => self.picker_note(note),
+            // The words of the export notes are the view task's (chunk-commands-export); the
+            // oracle's English stands until its catalog entries exist.
+            NoteKey::Export(ExportNote::Saved(path)) => format!("Saved conversation to {path}"),
+            NoteKey::Export(ExportNote::Failed(error)) => format!("Export failed: {error}"),
+            NoteKey::Export(ExportNote::NoConversation) => {
+                "Export failed: No active conversation to export.".to_owned()
+            }
+            NoteKey::Export(ExportNote::NoContent) => {
+                "Export failed: No conversation content to export.".to_owned()
+            }
+            // The words of the goal notes are the view task's (chunk-popups-goal); the oracle's
+            // English stands until its catalog entries exist.
+            NoteKey::Goal(note) => goal_note(note),
+            // The words of the mode notes are the view task's (chunk-popups-plan); the oracle's
+            // English stands until its catalog entries exist.
+            NoteKey::Mode(note) => mode_note(note),
+            NoteKey::Copy { label, result } => {
+                let label = match label {
+                    CopyLabel::Conversation => "conversation",
+                };
+                match result {
+                    Ok(CopyStatus::Confirmed) => format!("Copied {label} to clipboard"),
+                    Ok(CopyStatus::Unconfirmed) => {
+                        "Copy unconfirmed; /export saves chat".to_owned()
+                    }
+                    Ok(CopyStatus::Pending(_)) => format!("Copying {label}…"),
+                    Ok(CopyStatus::Busy) => "Copy already in progress".to_owned(),
+                    Err(error) => format!("Copy failed: {error}"),
+                }
+            }
         }
     }
 
     /// The words of what a picker said (`select::Note`).
     fn picker_note(&self, note: &codex_tui_core::screens::select::Note) -> String {
         use codex_tui_core::screens::select::permissions::{Label, Preset, Reviewer};
-        use codex_tui_core::screens::select::{Note, Setting};
+        use codex_tui_core::screens::select::{Note, Provider, Setting};
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
         let picker = self.picker;
         match note {
             Note::NoAdditionalModels => self.note_no_models.to_string(),
+            // The words of the preset notes are the view task's (chunk-popups-quick-dials); the
+            // oracle's English stands until its catalog entries exist.
+            Note::PresetsUnavailable => "Presets are unavailable in this conversation.".to_string(),
+            Note::PresetsStarting => "Presets are available after startup completes.".to_string(),
+            Note::PresetImages => {
+                "Images cannot be copied into a preset. Starting with empty text.".to_string()
+            }
+            Note::PresetMentions => {
+                "Linked mentions cannot be copied into a preset. Starting with empty text."
+                    .to_string()
+            }
+            Note::PresetInvalid(reason) => preset_reason(*reason).to_string(),
+            Note::PresetBroken { slot, reason } => {
+                format!("Preset {slot}: {}", preset_reason(*reason))
+            }
+            Note::PresetOutside(slot) => format!(
+                "Preset {slot} is defined outside your user config. Edit its source configuration instead."
+            ),
+            Note::PresetFailed { slot, error } => {
+                format!("Failed to update preset {slot}: {error}")
+            }
+            Note::PresetSaved(slot) => format!("Saved preset {slot}."),
+            Note::PresetDeleted(slot) => format!("Deleted preset {slot}."),
             Note::ModelsNotLoaded => self.note_models_not_loaded.to_string(),
+            Note::WorktreesUnavailable => self.note_worktrees_unavailable.to_string(),
+            Note::WorktreeListFailed(error) => text(self.note_worktree_list_failed, error),
+            Note::WorktreeRemoved { root } => text(self.note_worktree_removed, root),
+            Note::WorktreeRemoveFailed { root, error } => Fmt::new(
+                self.note_worktree_remove_failed,
+                [Arg::Text(root), Arg::Text(error)],
+                &self.num,
+            )
+            .to_string(),
+            Note::ModelPickerUnavailable(Provider::Saving) => {
+                self.note_model_provider_saving.to_string()
+            }
+            Note::ModelPickerUnavailable(_) => self.note_model_list_stale.to_string(),
             Note::ModelChanged {
                 model,
                 effort,
@@ -629,6 +714,14 @@ impl Strings {
             Note::AppLinkUnavailable(status) => {
                 picker.app_status_line(picker.apps_no_link, *status)
             }
+            Note::Plugins(say) => plugin_say(say),
+            // The words of the `/permissions` arguments and shortcut notes are the view task's
+            // (chunk-popups-permission-args); the oracle's English stands until its catalog entries
+            // exist.
+            Note::PermissionArgs(error) => permission_args_error(error),
+            Note::PermissionRefused(refusal) => permission_refusal(picker, refusal),
+            Note::PermissionsFailed(failure) => picker.failure(failure),
+            Note::NoOtherPermissionModes => "No other permission modes are available.".to_string(),
         }
     }
 
@@ -646,6 +739,8 @@ impl Strings {
             Notice::NotAvailable(c) => text(self.not_available, c.command()),
             Notice::ModelStartup => self.model_startup.to_string(),
             Notice::ShellHelp => self.shell_help.to_string(),
+            Notice::ThreadNameEmpty => self.thread_name_empty.to_string(),
+            Notice::SideRename => self.side_rename.to_string(),
             Notice::InputTooLarge { provided } => Fmt::new(
                 self.input_too_large,
                 [
@@ -739,5 +834,286 @@ fn description_en(command: SlashCommand) -> &'static str {
         SlashCommand::Logout => "log out of Codex",
         SlashCommand::Rollout => "print the rollout file path",
         SlashCommand::TestApproval => "test approval request",
+    }
+}
+
+/// `parse_permission_profile_args` and `slash_command_args::parse` failures.
+fn permission_args_error(
+    error: &codex_tui_core::screens::select::permission_args::Error,
+) -> String {
+    use codex_tui_core::commands::args::ArgError;
+    use codex_tui_core::screens::select::permission_args::Error;
+    match error {
+        Error::Usage => "Usage: /permissions <profile-id> [--approval-policy=<policy>] [--reviewer=user|auto_review]".to_string(),
+        Error::Unexpected(argument) => format!("Unexpected permission argument `{argument}`."),
+        Error::Approval(value) => format!(
+            "Unknown approval policy `{value}`. Expected `untrusted`, `on-request`, `never`, or a granular policy."
+        ),
+        Error::Reviewer(value) => {
+            format!("Unknown permission reviewer `{value}`. Expected `user` or `auto_review`.")
+        }
+        Error::Args(ArgError::Quoting) => "Invalid command arguments. Check the quoting.".to_string(),
+        Error::Args(ArgError::NeedsValue(name)) => {
+            format!("Command setting `{name}` requires a value.")
+        }
+        Error::Args(ArgError::TakesNoValue(name)) => {
+            format!("Command setting `{name}` does not take a value.")
+        }
+        Error::Args(ArgError::OnlyOne(name)) => format!("Specify only one of --{name} or --no-{name}."),
+        Error::Args(ArgError::Repeated(name)) => {
+            format!("Command setting `{name}` was provided more than once.")
+        }
+        Error::Args(ArgError::Unknown(name)) => format!("Unknown command setting `{name}`."),
+    }
+}
+
+/// `try_select_permission_profile`'s error lines.
+fn permission_refusal(
+    picker: &crate::sheets::select::strings::Strings,
+    refusal: &codex_tui_core::screens::select::permission_args::Refusal,
+) -> String {
+    use codex_tui_core::screens::select::permission_args::Refusal;
+    use codex_tui_core::screens::select::permissions::Disabled;
+    match refusal {
+        Refusal::ApproveUnavailable => {
+            "Approve for me is unavailable. Run `/permissions` to see available profiles."
+                .to_string()
+        }
+        Refusal::Unknown(id) => format!(
+            "Unknown permission profile `{id}`. Run `/permissions` to see available profiles."
+        ),
+        Refusal::Unavailable { profile, why } => {
+            let reason = match why {
+                Disabled::NotOnServer => picker.not_on_server.to_string(),
+                Disabled::Requirements => picker.disabled_by_requirements.to_string(),
+                Disabled::Reason(text) => text.clone(),
+                Disabled::Idle => String::new(),
+            };
+            format!("Permission profile `{profile}` is unavailable: {reason}.")
+        }
+    }
+}
+
+/// `QuickDial::validate`'s reasons.
+fn preset_reason(reason: codex_tui_core::screens::select::quick_dials::Invalid) -> &'static str {
+    use codex_tui_core::screens::select::quick_dials::Invalid;
+    match reason {
+        Invalid::Empty => "Preset input cannot be empty.",
+        Invalid::Shell => "Presets support prompts and slash commands, not shell commands.",
+        Invalid::TooLong => "Preset input cannot exceed 8,000 UTF-8 bytes.",
+    }
+}
+
+/// The words of what the plugin browser said (`plugins::Say`). The view task of `/plugins` moves
+/// them to the catalog; the oracle's English stands until then.
+fn plugin_say(say: &codex_tui_core::screens::select::plugins::Say) -> String {
+    use codex_tui_core::screens::select::plugins::Say;
+    let noun = |count: usize| {
+        if count == 1 {
+            "marketplace"
+        } else {
+            "marketplaces"
+        }
+    };
+    let both = |message: String, hint: String| format!("{message}{INLINE_GAP}{hint}");
+    match say {
+        Say::Disabled => both(
+            "Plugins are disabled.".to_string(),
+            "Enable the plugins feature to use /plugins.".to_string(),
+        ),
+        Say::Installed { name, apps } if apps.is_empty() => both(
+            format!("Installed {name} plugin."),
+            "No additional app authentication is required.".to_string(),
+        ),
+        Say::Installed { name, apps } => both(
+            format!("Installed {name} plugin."),
+            format!(
+                "{} app(s) still need authentication: {}",
+                apps.len(),
+                apps.join(", ")
+            ),
+        ),
+        Say::Uninstalled { name } => both(
+            format!("Uninstalled {name} plugin."),
+            "Bundled apps remain installed.".to_string(),
+        ),
+        Say::Skipped { name } => both(
+            format!("Skipped remaining app setup for {name} plugin."),
+            "The plugin may not be usable until required apps are installed.".to_string(),
+        ),
+        Say::Completed { name } => both(
+            format!("Completed app setup flow for {name} plugin."),
+            "You can now continue managing plugins from /plugins.".to_string(),
+        ),
+        Say::EnableFailed { id, error } => {
+            format!("Failed to update plugin config for {id}: {error}")
+        }
+        Say::MarketAdded {
+            name,
+            root,
+            already,
+        } => both(
+            if *already {
+                format!("Marketplace {name} is already added.")
+            } else {
+                format!("Added marketplace {name}.")
+            },
+            format!("Marketplace root: {root}"),
+        ),
+        Say::MarketRemoved { label, name, root } => both(
+            format!("Removed marketplace {label}."),
+            match root {
+                Some(root) => format!("Marketplace root: {root}"),
+                None => format!("Removed marketplace config for {name}."),
+            },
+        ),
+        Say::NothingToUpgrade => both(
+            "No configured Git marketplaces to upgrade.".to_string(),
+            "Only configured Git marketplaces can be upgraded.".to_string(),
+        ),
+        Say::UpToDate { selected } => both(
+            match selected.as_slice() {
+                [one] => format!("Marketplace {one} is already up to date."),
+                many => format!(
+                    "Checked {} marketplaces; all are already up to date.",
+                    many.len()
+                ),
+            },
+            format!("Checked: {}", selected.join(", ")),
+        ),
+        Say::Upgraded { roots } => both(
+            format!("Upgraded {} {}.", roots.len(), noun(roots.len())),
+            format!("Updated roots: {}", roots.join(", ")),
+        ),
+        Say::UpgradeFailed(errors) => format!(
+            "Failed to upgrade {} {}: {}",
+            errors.len(),
+            noun(errors.len()),
+            errors
+                .iter()
+                .map(|(name, message)| format!("{name}: {message}"))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ),
+        Say::UpgradeError(error) => error.clone(),
+    }
+}
+
+/// The oracle's words of the `/goal` notes (`goal_display.rs`, `goal_menu.rs`,
+/// `thread_goal_actions.rs`), until the catalog has them.
+fn mode_note(note: &codex_tui_core::threads::ModeNote) -> String {
+    use codex_tui_core::threads::ModeNote;
+    match note {
+        ModeNote::Disabled => {
+            "Collaboration modes are disabled.\nEnable collaboration modes to use /plan.".to_owned()
+        }
+        ModeNote::PlanUnavailable => "Plan mode unavailable right now.".to_owned(),
+        ModeNote::ModelChanged(change) => {
+            let mode = match change.mode {
+                codex_protocol::config_types::ModeKind::Plan => "Plan",
+                codex_protocol::config_types::ModeKind::Default => "Default",
+            };
+            match &change.effort {
+                Some(effort) => format!(
+                    "Model changed to {} {effort} for {mode} mode.",
+                    change.model
+                ),
+                None => format!("Model changed to {} for {mode} mode.", change.model),
+            }
+        }
+    }
+}
+
+fn goal_note(note: &codex_tui_core::threads::GoalNote) -> String {
+    use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
+    use codex_tui_core::screens::select::goal::Hint;
+    use codex_tui_core::threads::{Goal, GoalAction, GoalFailure, GoalHint, GoalNote, GoalStatus};
+    const USAGE: &str = "Usage: /goal [<objective>|clear|edit|pause|resume]";
+    fn label(status: GoalStatus) -> &'static str {
+        match status {
+            GoalStatus::Active => "active",
+            GoalStatus::Paused => "paused",
+            GoalStatus::Blocked => "stalled",
+            GoalStatus::UsageLimited => "usage limited",
+            GoalStatus::BudgetLimited => "limited by budget",
+            GoalStatus::Complete => "complete",
+        }
+    }
+    fn usage_summary(goal: &Goal) -> String {
+        let mut parts = vec![format!("Objective: {}", goal.objective)];
+        if goal.time_used_seconds > 0 {
+            parts.push(format!(
+                "Time: {}.",
+                format_goal_elapsed_seconds(goal.time_used_seconds)
+            ));
+        }
+        if let Some(budget) = goal.token_budget {
+            parts.push(format!(
+                "Tokens: {}/{}.",
+                format_tokens_compact(goal.tokens_used),
+                format_tokens_compact(budget)
+            ));
+        }
+        parts.join(" ")
+    }
+    match note {
+        GoalNote::Usage(hint) => {
+            let hint = match hint {
+                GoalHint::Example => "Example: /goal improve benchmark coverage",
+                GoalHint::NoGoal => "No goal is currently set.",
+                GoalHint::StartToChange => "The session must start before you can change a goal.",
+                GoalHint::StartToSet => "The session must start before you can set a goal.",
+                GoalHint::CreateFirst => "Create a goal before editing it.",
+            };
+            format!("{USAGE}\n{hint}")
+        }
+        GoalNote::Summary(goal) => {
+            let mut lines = vec![
+                "Goal".to_owned(),
+                format!("Status: {}", label(goal.status)),
+                format!("Objective: {}", goal.objective),
+                format!(
+                    "Time used: {}",
+                    format_goal_elapsed_seconds(goal.time_used_seconds)
+                ),
+                format!("Tokens used: {}", format_tokens_compact(goal.tokens_used)),
+            ];
+            if let Some(budget) = goal.token_budget {
+                lines.push(format!("Token budget: {}", format_tokens_compact(budget)));
+            }
+            lines.push(String::new());
+            lines.push(
+                match Hint::of(goal.status) {
+                    Hint::Pause => "Commands: /goal edit, /goal pause, /goal clear",
+                    Hint::Resume => "Commands: /goal edit, /goal resume, /goal clear",
+                    Hint::Finished => "Commands: /goal edit, /goal clear",
+                }
+                .to_owned(),
+            );
+            lines.join("\n")
+        }
+        GoalNote::Status(goal) => format!("Goal {}\n{}", label(goal.status), usage_summary(goal)),
+        GoalNote::Cleared => "Goal cleared".to_owned(),
+        GoalNote::NothingToClear => {
+            "No goal to clear\nThis thread does not currently have a goal.".to_owned()
+        }
+        GoalNote::NoGoalToEdit => "No goal is currently set.".to_owned(),
+        GoalNote::Failed {
+            failure: GoalFailure::Ephemeral,
+            ..
+        } => "Goals need a saved session. This session is temporary.\nRun `codex` to start a saved session, or `codex resume` / `/resume` to reopen one.".to_owned(),
+        GoalNote::Failed {
+            action,
+            failure: GoalFailure::Other(error),
+        } => {
+            let action = match action {
+                GoalAction::Read => "read",
+                GoalAction::Replace => "replace",
+                GoalAction::Set => "set",
+                GoalAction::Update => "update",
+                GoalAction::Clear => "clear",
+            };
+            format!("Failed to {action} thread goal: {error}")
+        }
     }
 }

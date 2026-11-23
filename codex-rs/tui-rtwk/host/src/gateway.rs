@@ -295,6 +295,7 @@ mod tests {
         let mut server = Server::answering(read(true, false, Some("notReady")));
         server.login = Err(ServerError {
             code: Some(-32600),
+            data: None,
             message: "account/gatewayOAuth/login failed: Gateway refused (code -32600)".into(),
         });
         assert_eq!(
@@ -371,6 +372,7 @@ mod tests {
     fn refusal(code: i64, message: &str) -> ServerError {
         ServerError {
             code: Some(code),
+            data: None,
             message: message.into(),
         }
     }

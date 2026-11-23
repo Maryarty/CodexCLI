@@ -102,7 +102,7 @@ type RowTaps = Rc<Vec<Handler<PointerEvent>>>;
 /// editing line above the list. The controller's text is reset when a line
 /// opens (a rename starts from the task's name, a search from nothing).
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Mode {
+enum CenterMode {
     Browse,
     Help,
     Search,
@@ -131,7 +131,7 @@ pub struct ScreenState {
     /// The handlers of the tab clicks, made once.
     tab_taps: Vec<Handler<PointerEvent>>,
     listening: Option<Listening>,
-    mode: Mode,
+    mode: CenterMode,
     /// What the usage request of the highlighted task depends on, as the
     /// screen last saw it: a change asks the model for it (oracle: the
     /// repaint of the view asks).
@@ -200,7 +200,7 @@ impl StatefulWidget for Screen {
             row_taps: None,
             tab_taps: Vec::new(),
             listening: None,
-            mode: Mode::Browse,
+            mode: CenterMode::Browse,
             usage_seen: None,
             entered: None,
             opening_pushed: false,

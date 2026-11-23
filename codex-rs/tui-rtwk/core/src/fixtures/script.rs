@@ -91,7 +91,12 @@ pub enum Answer {
     /// The request's `result`.
     Result(serde_json::Value),
     /// A refusal: the JSON-RPC error's code (if the script gave one) and message.
-    Error { code: Option<i64>, message: String },
+    Error {
+        code: Option<i64>,
+        message: String,
+        /// The error's `data` (a provider failure carries one).
+        data: Option<serde_json::Value>,
+    },
 }
 
 /// The `reply` steps of a script, queued by method: the n-th request of a method gets the n-th
@@ -146,6 +151,7 @@ struct ReplyLine {
 struct ErrorBody {
     code: Option<i64>,
     message: String,
+    data: Option<serde_json::Value>,
 }
 
 fn reply_of(line: ReplyLine) -> Result<(String, Answer), String> {
@@ -154,6 +160,7 @@ fn reply_of(line: ReplyLine) -> Result<(String, Answer), String> {
         (None, Some(error)) => Answer::Error {
             code: error.code,
             message: error.message,
+            data: error.data,
         },
         _ => return Err("a `reply` step has exactly one of `result` and `error`".to_string()),
     };

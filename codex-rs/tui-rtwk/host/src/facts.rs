@@ -36,6 +36,15 @@ pub fn project_root_name(cwd: &Path, home: Option<&Path>) -> Option<String> {
     })
 }
 
+/// The granular approval policy as JSON (`/presets` recalls it), none for the plain ones.
+fn granular_policy(config: &Config) -> Option<String> {
+    use codex_app_server_protocol::AskForApproval;
+    match AskForApproval::from(config.permissions.approval_policy.value()) {
+        granular @ AskForApproval::Granular { .. } => serde_json::to_string(&granular).ok(),
+        _ => None,
+    }
+}
+
 /// The status facts of `config` and its cwd.
 pub async fn status(config: &Config) -> StatusFacts {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
@@ -59,6 +68,11 @@ pub async fn status(config: &Config) -> StatusFacts {
             .as_ref()
             .map(|effort| effort.as_str().to_string()),
         approval_policy: Some(config.permissions.approval_policy.value().to_string()),
+        approval_granular: granular_policy(config),
+        permission_profile: config
+            .permissions
+            .active_permission_profile()
+            .map(|profile| profile.id),
         profile: match config.permissions.legacy_sandbox_policy(cwd) {
             codex_protocol::protocol::SandboxPolicy::ReadOnly { .. } => {
                 codex_tui_core::screens::status::Profile::ReadOnly

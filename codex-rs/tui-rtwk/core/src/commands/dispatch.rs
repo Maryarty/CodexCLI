@@ -130,6 +130,10 @@ pub enum Notice {
     /// `Prefix a command with ! to run it locally` / `Example: !ls`: a bare
     /// `!` was submitted (`USER_SHELL_COMMAND_HELP_*`, an info line).
     ShellHelp,
+    /// `Thread name cannot be empty.` (a submitted rename prompt).
+    ThreadNameEmpty,
+    /// `Side conversations cannot be renamed.`
+    SideRename,
     /// `Message exceeds the maximum length of N characters (M provided).`
     InputTooLarge { provided: usize },
 }
@@ -188,31 +192,60 @@ pub enum UsageKey {
 /// answers `Notice::NotAvailable`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionIntent {
-    New { name: Option<String> },
-    Clear { name: Option<String> },
-    Fork { name: Option<String> },
+    New {
+        name: Option<String>,
+    },
+    /// The provider-error notice's continue key: a new chat whose composer
+    /// holds `message` (the view words it from the saved chat's name and path).
+    ContinueChat {
+        message: String,
+    },
+    Clear {
+        name: Option<String>,
+    },
+    Fork {
+        name: Option<String>,
+    },
     Compact,
     Init,
     Recap,
     Archive,
     Delete,
     Worktree,
-    Rename { name: Option<String> },
-    Plan { prompt: Option<String> },
-    Goal { args: Option<String> },
-    Side { prompt: Option<String> },
+    Rename {
+        name: Option<String>,
+    },
+    Plan {
+        prompt: Option<String>,
+    },
+    Goal {
+        args: Option<String>,
+    },
+    Side {
+        prompt: Option<String>,
+    },
     Copy,
-    Export { path: Option<String> },
-    Raw { on: Option<bool> },
+    Export {
+        path: Option<String>,
+    },
+    Raw {
+        on: Option<bool>,
+    },
     Tui,
-    Cd { path: String },
+    Cd {
+        path: String,
+    },
     Pwd,
-    Mcp { args: Option<String> },
+    Mcp {
+        args: Option<String>,
+    },
     Apps,
     Plugins,
     Logout,
     Vim,
-    Ide { args: Option<String> },
+    Ide {
+        args: Option<String>,
+    },
     Daybreak,
     ElevateSandbox,
     Hooks,
@@ -221,13 +254,30 @@ pub enum SessionIntent {
     Stop,
     Rollout,
     App,
-    Review { args: Option<String> },
-    Model { args: Option<String> },
-    Permissions { args: Option<String> },
-    Title { args: Option<String> },
-    Statusline { args: Option<String> },
+    Review {
+        args: Option<String>,
+    },
+    /// The review popup's pick (or `/review <text>` once typed): `review/start`
+    /// inline on this thread, with the target chosen.
+    StartReview {
+        target: crate::threads::ReviewTarget,
+    },
+    Model {
+        args: Option<String>,
+    },
+    Permissions {
+        args: Option<String>,
+    },
+    Title {
+        args: Option<String>,
+    },
+    Statusline {
+        args: Option<String>,
+    },
     VoiceControl(VoiceControl),
-    ResumeNamed { name: String },
+    ResumeNamed {
+        name: String,
+    },
     MemoryMaintenance,
 }
 
@@ -311,6 +361,45 @@ pub fn dispatch_with_tiers(line: &str, cx: &DispatchCx, tiers: &[ServiceTierComm
     }
 }
 
+/// A queued line dispatched when its turn comes (`submit_queued_slash_prompt`): what the
+/// outcome is and the command that was found, for the rule of the next item.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueuedDispatch {
+    pub outcome: Outcome,
+    pub command: Option<SlashCommand>,
+}
+
+/// Dispatches a queued line. As a live line, except that a command which takes no arguments,
+/// given some, is a message for the model (the line is submitted whole).
+pub fn dispatch_queued(
+    line: &str,
+    cx: &DispatchCx,
+    tiers: &[ServiceTierCommand],
+) -> QueuedDispatch {
+    let found = parse_slash_name(line)
+        .filter(|(name, _, _)| !name.contains('/'))
+        .and_then(|(name, rest, _)| {
+            find_slash_command(name, cx.flags, tiers).map(|item| (item, rest))
+        });
+    let command = match &found {
+        Some((SlashCommandItem::Builtin(command), _)) => Some(*command),
+        _ => None,
+    };
+    if let Some((SlashCommandItem::Builtin(command), rest)) = &found
+        && !rest.trim().is_empty()
+        && !command.supports_inline_args()
+    {
+        return QueuedDispatch {
+            outcome: Outcome::NotACommand,
+            command: None,
+        };
+    }
+    QueuedDispatch {
+        outcome: dispatch_with_tiers(line, cx, tiers),
+        command,
+    }
+}
+
 fn open(target: Target, command: SlashCommand, args: &str) -> Outcome {
     Outcome::Open(Open {
         target,
@@ -362,7 +451,7 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
                 Outcome::Notice(Notice::ModelStartup)
             }
         }
-        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps => {
+        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps | Export => {
             open(Target::Select, command, "")
         }
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
@@ -400,7 +489,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Goal => session(command, SessionIntent::Goal { args: None }),
         Side | Btw => session(command, SessionIntent::Side { prompt: None }),
         Copy => session(command, SessionIntent::Copy),
-        Export => session(command, SessionIntent::Export { path: None }),
         Raw => session(command, SessionIntent::Raw { on: None }),
         // `slash_dispatch.rs:557-559`: a bare `/cd` is `/cd ~`.
         Cd => session(

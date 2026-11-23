@@ -250,6 +250,7 @@ fn pins_follow_the_cursor_beyond_the_first_page() {
 fn a_server_without_pins_and_a_failed_read() {
     let refused = ServerError {
         code: Some(-32602),
+        data: None,
         message: "invalid params".to_owned(),
     };
     let (asked, pins) = read_pins(vec![Err(refused)]);
@@ -260,12 +261,14 @@ fn a_server_without_pins_and_a_failed_read() {
         page_json(&[("p1", 1)]),
         Err(ServerError {
             code: Some(-32600),
+            data: None,
             message: "x".to_owned(),
         }),
     ]);
     assert_eq!(pins.expect("an answer").ids, None);
     let failed = ServerError {
         code: Some(-32000),
+        data: None,
         message: "boom".to_owned(),
     };
     let (_, pins) = read_pins(vec![Err(failed)]);
@@ -273,6 +276,7 @@ fn a_server_without_pins_and_a_failed_read() {
     // A message that merely reads like a refusal is not one.
     let (_, pins) = read_pins(vec![Err(ServerError {
         code: None,
+        data: None,
         message: "thread/list failed: invalid params (code -32602)".to_owned(),
     })]);
     assert_eq!(pins, None);

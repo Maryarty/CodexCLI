@@ -13,6 +13,9 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod prompt;
+pub use prompt::{Prompt, PromptKind, Submitted, Suggestion};
+
 pub const NAME: &str = "dialogs";
 pub const ID: &str = "S23";
 pub const KIND: Kind = Kind::Dialog;
@@ -256,6 +259,8 @@ pub enum Open {
     Shortcuts(ShortcutView),
     Warnings(Warnings),
     Feedback(Feedback),
+    /// A text prompt (`/rename`): the field is the view's.
+    Prompt(Prompt),
 }
 
 /// The note the flow ends in (`AppEvent::OpenFeedbackNote`): the note view
@@ -280,8 +285,19 @@ pub struct Model {
     /// footer counts them and F2 / `/warnings` shows them. A page seen and
     /// left is dismissed and leaves the list.
     pub retained: Vec<Warning>,
+    /// The prompt the user submitted and the app has not yet carried out.
+    pub submitted: Option<Submitted>,
+    stamp: u64,
     /// How diagnostics are taken in (startup or runtime, what was seen, what was dismissed).
     pub intake: Intake,
+}
+
+impl Model {
+    /// The next number for the requests of this screen's asks (below `prompt::REQUEST_BIT`).
+    pub(crate) fn next_stamp(&mut self) -> u64 {
+        self.stamp += 1;
+        self.stamp
+    }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -319,6 +335,10 @@ pub enum Intent {
     /// F2 or `/warnings`: the viewer over the retained warnings (none: its
     /// empty page).
     OpenWarnings,
+    /// The prompt's field changed by the user (a key or a paste).
+    Typed,
+    /// Enter in the prompt: its text; the prompt closes and the app carries it out.
+    Submit(String),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -353,6 +373,19 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     category: *category,
                     attachments: Attachments::default(),
                 };
+            }
+        }
+        Intent::Typed => {
+            if let Some(Open::Prompt(prompt)) = &mut model.open {
+                prompt.typed();
+            }
+        }
+        Intent::Submit(text) => {
+            if let Some(Open::Prompt(prompt)) = model.open.take() {
+                model.submitted = Some(Submitted {
+                    kind: prompt.kind,
+                    text,
+                });
             }
         }
         Intent::Consent(include_logs) => {

@@ -137,6 +137,7 @@ impl Env {
                 };
                 Some(Err(ServerError {
                     code: None,
+                    data: None,
                     message: refused.to_string(),
                 }))
             });

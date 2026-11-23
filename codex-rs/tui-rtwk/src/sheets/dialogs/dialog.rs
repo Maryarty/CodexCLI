@@ -81,6 +81,8 @@ impl State for SmallDialogState {
             Open::Shortcuts(view) => shortcuts::build(*view, s, cx),
             Open::Warnings(warnings) => warnings::build(warnings, s, cx),
             Open::Feedback(step) => feedback::build(step, s, cx),
+            // The text prompt (`/rename`) is built by the view task of chunk-commands.
+            Open::Prompt(_) => return AnyWidget::default(),
         };
         focus.into()
     }

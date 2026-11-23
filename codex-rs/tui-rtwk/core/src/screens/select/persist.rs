@@ -154,6 +154,38 @@ pub fn app_enabled_request(id: &str, enabled: bool, request: RequestId) -> Clien
     }
 }
 
+/// `save_quick_dial`: `tui.presets.<slot>` as a table of the input and the label (an explicit
+/// empty label masks labels inherited from lower layers), or cleared.
+pub fn preset_edit(slot: u8, dial: Option<&super::quick_dials::Dial>) -> ConfigEdit {
+    ConfigEdit {
+        key_path: ["tui.presets.", &slot.to_string()].concat(),
+        value: dial.map_or(serde_json::Value::Null, |dial| {
+            serde_json::json!({
+                "input": dial.input,
+                "label": dial.label.as_deref().unwrap_or_default(),
+            })
+        }),
+        merge_strategy: MergeStrategy::Replace,
+    }
+}
+
+/// `config/batchWrite` of the preset in `slot` (`save_quick_dial`).
+pub fn preset_request(
+    slot: u8,
+    dial: Option<&super::quick_dials::Dial>,
+    request: RequestId,
+) -> ClientRequest {
+    ClientRequest::ConfigBatchWrite {
+        request_id: request,
+        params: ConfigBatchWriteParams {
+            edits: vec![preset_edit(slot, dial)],
+            file_path: None,
+            expected_version: None,
+            reload_user_config: true,
+        },
+    }
+}
+
 /// `config/batchWrite` of `edits` (`write_config_batch`).
 pub fn write_request(edits: &[Edit], id: RequestId) -> ClientRequest {
     ClientRequest::ConfigBatchWrite {

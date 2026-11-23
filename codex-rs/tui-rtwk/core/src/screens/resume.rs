@@ -968,6 +968,8 @@ fn describe(error: &RpcError) -> String {
     match error {
         RpcError::Remote(message) | RpcError::Malformed(message) => message.clone(),
         RpcError::Mismatch => "unexpected reply".to_owned(),
+        RpcError::Prepare(text) => text.clone(),
+        RpcError::Provider(error) => error.to_string(),
     }
 }
 

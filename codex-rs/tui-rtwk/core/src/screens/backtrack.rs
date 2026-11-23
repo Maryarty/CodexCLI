@@ -671,6 +671,8 @@ fn rpc_message(error: &RpcError) -> String {
     match error {
         RpcError::Remote(message) | RpcError::Malformed(message) => message.clone(),
         RpcError::Mismatch => "the reply is for another request".to_string(),
+        RpcError::Prepare(text) => text.clone(),
+        RpcError::Provider(error) => error.to_string(),
     }
 }
 

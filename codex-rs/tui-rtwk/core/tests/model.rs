@@ -123,7 +123,10 @@ fn chat_intent(app: &mut CodexApp, intent: chat::ThreadIntent) -> AppFx {
 
 /// Tab: the message waits behind the running turn instead of steering it.
 fn tab(app: &mut CodexApp, text: &str) -> AppFx {
-    chat_intent(app, chat::ThreadIntent::Queue(UserMessage::text(text)))
+    chat_intent(
+        app,
+        chat::ThreadIntent::Queue(UserMessage::text(text).into()),
+    )
 }
 
 /// The `(ticket, turn, text)` of every `turn/steer` in `fx`.
@@ -166,9 +169,10 @@ fn steered(turn: &str) -> Reply {
 fn connected_starts_the_first_thread() {
     let mut app = app();
     let fx = run(&mut app, AppEv::Connected);
-    // The thread start, the startup page's launch facts (startup-flow) and
-    // the model catalog the /model page and its shortcuts read.
-    assert_eq!(fx.commands().len(), 3);
+    // The thread start, the startup page's launch facts (startup-flow), the
+    // model catalog the /model page and its shortcuts read, and the
+    // collaboration modes `/plan` and Shift+Tab choose from.
+    assert_eq!(fx.commands().len(), 4);
     assert!(
         fx.commands()
             .iter()
@@ -949,6 +953,7 @@ fn interrupt_retries_once_when_the_server_names_a_different_active_turn() {
     let refusal = |expected, actual| {
         Err(ServerError {
             code: Some(-32602),
+            data: None,
             message: format!("expected active turn id {expected} but found {actual}"),
         })
     };
@@ -1234,8 +1239,11 @@ fn restored_messages_merge_with_renumbered_image_placeholders() {
         images: vec![image(0, 10)],
         mentions: Vec::new(),
     };
-    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image.clone()));
-    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image));
+    chat_intent(
+        &mut app,
+        chat::ThreadIntent::Queue(with_image.clone().into()),
+    );
+    chat_intent(&mut app, chat::ThreadIntent::Queue(with_image.into()));
     notification(&mut app, turn_interrupted(T, "turn-1"));
     let restore = thread(&app).restore().cloned().expect("restore");
     let merged = restore.merged();
