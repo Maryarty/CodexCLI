@@ -40,7 +40,7 @@ pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
 pub use note::{
-    CdRefusal, CopyLabel, ExportNote, GoalAction, GoalFailure, GoalHint, GoalNote, ModeNote, Note,
+    CdRefusal, CopyLabel, ExportNote, ModeNote, Note,
     NoteKey, RemoveNote, Stub, Tone,
 };
 pub use queue::{DueCommand, Queued, Ran};
@@ -60,10 +60,6 @@ use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
 use codex_app_server_protocol::ThreadCompactStartParams;
 use codex_app_server_protocol::ThreadForkParams;
-use codex_app_server_protocol::ThreadGoalClearParams;
-use codex_app_server_protocol::ThreadGoalGetParams;
-use codex_app_server_protocol::ThreadGoalMutationOrigin;
-use codex_app_server_protocol::ThreadGoalSetParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadPrepareApprovedPlanParams;
@@ -1507,22 +1503,6 @@ pub enum ThreadAsk {
         thread: String,
         target: ReviewTarget,
     },
-    /// `thread/goal/get`.
-    GoalGet {
-        thread: String,
-    },
-    /// `thread/goal/set` as the user (oracle `thread_goal_set`): a new objective, a status
-    /// (`/goal pause|resume`), a token budget (`Some(None)` removes it).
-    GoalSet {
-        thread: String,
-        objective: Option<String>,
-        status: Option<GoalStatus>,
-        token_budget: Option<Option<i64>>,
-    },
-    /// `thread/goal/clear` as the user.
-    GoalClear {
-        thread: String,
-    },
     /// `thread/settings/update`: the settings the picks of the model, effort, permissions and
     /// collaboration-mode popups change for the turns after them.
     SettingsUpdate {
@@ -1561,9 +1541,6 @@ impl ThreadAsk {
             | ThreadAsk::Shell { thread, .. }
             | ThreadAsk::Rename { thread, .. }
             | ThreadAsk::Review { thread, .. }
-            | ThreadAsk::GoalGet { thread }
-            | ThreadAsk::GoalSet { thread, .. }
-            | ThreadAsk::GoalClear { thread }
             | ThreadAsk::SettingsUpdate { thread, .. }
             | ThreadAsk::PrepareApprovedPlan { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
@@ -1726,34 +1703,6 @@ impl ThreadAsk {
                     thread_id: thread.clone(),
                     target: target.wire(),
                     delivery: Some(ReviewDelivery::Inline),
-                },
-            },
-            ThreadAsk::GoalGet { thread } => ClientRequest::ThreadGoalGet {
-                request_id,
-                params: ThreadGoalGetParams {
-                    thread_id: thread.clone(),
-                },
-            },
-            ThreadAsk::GoalSet {
-                thread,
-                objective,
-                status,
-                token_budget,
-            } => ClientRequest::ThreadGoalSet {
-                request_id,
-                params: ThreadGoalSetParams {
-                    origin: Some(ThreadGoalMutationOrigin::User),
-                    thread_id: thread.clone(),
-                    objective: objective.clone(),
-                    status: status.map(GoalStatus::wire),
-                    token_budget: *token_budget,
-                },
-            },
-            ThreadAsk::GoalClear { thread } => ClientRequest::ThreadGoalClear {
-                request_id,
-                params: ThreadGoalClearParams {
-                    origin: Some(ThreadGoalMutationOrigin::User),
-                    thread_id: thread.clone(),
                 },
             },
             ThreadAsk::SettingsUpdate { thread, patch } => ClientRequest::ThreadSettingsUpdate {

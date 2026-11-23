@@ -491,9 +491,7 @@ mod composer_asks {
 mod thread_asks {
     use codex_app_server_protocol::{
         ClientRequest, RequestId, ReviewDelivery, ReviewStartParams, ReviewTarget as Wire,
-        ServerNotification, ThreadBackgroundTerminalsCleanParams, ThreadGoalClearParams,
-        ThreadGoalGetParams, ThreadGoalMutationOrigin, ThreadGoalSetParams, ThreadGoalStatus,
-        ThreadSettingsUpdateParams,
+        ServerNotification, ThreadBackgroundTerminalsCleanParams, ThreadSettingsUpdateParams,
     };
     use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
     use codex_tui_core::ids::ThreadId;
@@ -561,49 +559,6 @@ mod thread_asks {
                 }
             );
         }
-    }
-
-    /// A goal is set and cleared as the user (the server takes a goal change without that
-    /// provenance as the model's); a token budget of `Some(None)` removes it.
-    #[test]
-    fn goals_are_set_cleared_and_read_as_the_user() {
-        assert_eq!(
-            wire(ThreadAsk::GoalSet {
-                thread: T.into(),
-                objective: Some("ship it".into()),
-                status: Some(GoalStatus::Paused),
-                token_budget: Some(None),
-            }),
-            ClientRequest::ThreadGoalSet {
-                request_id: RequestId::Integer(1),
-                params: ThreadGoalSetParams {
-                    origin: Some(ThreadGoalMutationOrigin::User),
-                    thread_id: T.into(),
-                    objective: Some("ship it".into()),
-                    status: Some(ThreadGoalStatus::Paused),
-                    token_budget: Some(None),
-                },
-            }
-        );
-        assert_eq!(
-            wire(ThreadAsk::GoalClear { thread: T.into() }),
-            ClientRequest::ThreadGoalClear {
-                request_id: RequestId::Integer(1),
-                params: ThreadGoalClearParams {
-                    origin: Some(ThreadGoalMutationOrigin::User),
-                    thread_id: T.into(),
-                },
-            }
-        );
-        assert_eq!(
-            wire(ThreadAsk::GoalGet { thread: T.into() }),
-            ClientRequest::ThreadGoalGet {
-                request_id: RequestId::Integer(1),
-                params: ThreadGoalGetParams {
-                    thread_id: T.into(),
-                },
-            }
-        );
     }
 
     #[test]

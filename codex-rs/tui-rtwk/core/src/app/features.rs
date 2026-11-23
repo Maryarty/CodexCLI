@@ -9,6 +9,7 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread, session_note};
 use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureIntent, FeaturePick, FeaturePrompt,
+    FeatureThreadIntent,
 };
 use crate::features::{FeatureStates, Out};
 use crate::ids::ThreadId;
@@ -70,6 +71,10 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             session_note(app, thread, Note::from(NoteKey::Feature(note)), fx);
         }
         Out::Thread { thread, intent } => {
+            apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
+        }
+        Out::Settled { thread } => {
+            let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
         }
     }

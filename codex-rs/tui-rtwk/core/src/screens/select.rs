@@ -16,7 +16,6 @@ use crate::threads::ThreadFx;
 pub mod apps;
 pub mod collaboration;
 pub mod export;
-pub mod goal;
 pub mod layout;
 pub mod list;
 pub mod models;
@@ -82,8 +81,6 @@ pub enum Menu {
     Quick(Box<quick_dials::Menu>),
     /// `/plugins` (`plugins.rs`): the browser, its page is `Model::plugins.menu()`.
     Plugins,
-    /// A confirmation of `/goal` (`goal.rs`): resume a stopped goal, replace a goal.
-    Goal(Box<goal::Menu>),
     /// A menu of a feature slice (ADR-012); the feature turns it into rows and settles its
     /// picks (`Feature::choose`).
     Feature(crate::features::FeatureMenu),
@@ -129,8 +126,6 @@ pub enum Picked {
     Recall(String),
     /// A page to open in the browser (a plugin's app).
     Open(String),
-    /// What a confirmation of `/goal` settled on; the app acts.
-    Goal(goal::Pick),
     /// What a feature slice's menu settled on (`Feature::picked`).
     Feature(crate::features::FeaturePick),
 }
@@ -351,7 +346,6 @@ impl Model {
             | Menu::Review(_)
             | Menu::Worktree(_)
             | Menu::Quick(_)
-            | Menu::Goal(_)
             | Menu::Feature(_)
             | Menu::Plugins => None,
         }
@@ -1296,13 +1290,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     None => {}
                 }
             }
-            Some(Menu::Goal(menu)) => {
-                // The row dismisses the menu; Leave paused and Cancel pick nothing.
-                if let Some(pick) = menu.choose(&id) {
-                    model.stack.pop();
-                    model.picked.extend(pick.map(Picked::Goal));
-                }
-            }
             Some(Menu::Feature(menu)) => {
                 use crate::features::Choice;
                 match crate::features::choose(menu, &id) {
@@ -1422,8 +1409,6 @@ pub enum Command {
     },
     /// A request of the plugin browser (`Plugins::take_wanted`).
     Plugins(plugins::Wanted),
-    /// `thread/goal/get|set|clear` of `thread`.
-    Goal { thread: String, ask: goal::Ask },
 }
 
 /// The replies of those RPCs, decoded by `decode`.
@@ -1446,10 +1431,6 @@ pub enum Reply {
     },
     /// The answer of a request of the plugin browser.
     Plugins(Box<plugins::Found>),
-    /// The goal a `thread/goal/get` or `thread/goal/set` answered with (none: the thread has none).
-    Goal(Option<crate::threads::Goal>),
-    /// `thread/goal/clear`: whether a goal was there to clear.
-    GoalCleared(bool),
 }
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
@@ -1494,8 +1475,6 @@ pub enum Ctx {
     },
     /// An answer of the plugin browser: the request it belongs to.
     Plugins { request: u64 },
-    /// A step of `/goal` on `thread`.
-    Goal { thread: ThreadId, flow: goal::Flow },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).
@@ -1529,7 +1508,6 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         Command::SetApp { id: app, enabled } => persist::app_enabled_request(app, *enabled, id),
         Command::Preset { slot, dial } => persist::preset_request(*slot, dial.as_ref(), id),
         Command::Plugins(wanted) => plugins::wire_request(wanted, id),
-        Command::Goal { thread, ask } => ask.thread_ask(thread).wire(id),
         Command::Models { .. } => models::list_request(id),
         Command::Collaboration => collaboration::list_request(id),
         Command::Apps { force, thread, .. } => apps::list_request(id, *force, thread.clone()),
@@ -1549,21 +1527,6 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
         }
         Command::Plugins(wanted) => plugins::decode(wanted, result)
             .map(|found| Reply::Plugins(Box::new(found))),
-        Command::Goal {
-            ask: goal::Ask::Clear,
-            ..
-        } => {
-            #[derive(serde::Deserialize)]
-            struct Cleared {
-                cleared: bool,
-            }
-            return serde_json::from_value::<Cleared>(result)
-                .map(|answer| Reply::GoalCleared(answer.cleared))
-                .map_err(|error| RpcError::Malformed(error.to_string()));
-        }
-        Command::Goal { .. } => {
-            return crate::threads::goal_of_response(result).map(Reply::Goal);
-        }
         Command::Models { .. } => models::presets(result).map(Reply::Models),
         Command::Collaboration => collaboration::masks(result).map(Reply::Collaboration),
         Command::Apps { .. } => apps::apps(result).map(Reply::Apps),

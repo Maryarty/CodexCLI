@@ -28,6 +28,7 @@ enum Hook {
     Resumed(ThreadId),
     TurnEnd(TurnEnd, bool),
     Interrupted,
+    Settled,
 }
 
 thread_local! {
@@ -121,6 +122,10 @@ macro_rules! probe {
 
                 fn on_interrupted(_part: &mut u32, _cx: &mut ThreadCx<'_, '_>) {
                     log($name, Hook::Interrupted);
+                }
+
+                fn on_settled(_part: &mut u32, _cx: &mut ThreadCx<'_, '_>) {
+                    log($name, Hook::Settled);
                 }
 
                 fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
@@ -228,8 +233,12 @@ fn with_thread(step: impl FnOnce(&mut ThreadCx<'_, '_>)) {
 }
 
 #[test]
-fn the_real_list_starts_empty_and_a_list_names_its_features_in_order() {
-    assert_eq!(super::names(), Vec::<&str>::new());
+fn a_list_names_its_features_in_order_and_the_real_one_names_each_once() {
+    let real = super::names();
+    let mut sorted = real.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), real.len(), "{real:?}");
     assert_eq!(names(), ["alpha", "beta"]);
 }
 
@@ -339,6 +348,17 @@ fn thread_hooks_run_in_list_order_with_the_thread_read_only() {
         ]
     );
     assert_eq!((parts.alpha, parts.beta), (1, 1));
+}
+
+#[test]
+fn a_settled_thread_runs_every_features_hook_in_list_order() {
+    let mut parts = FeatureThreadParts::default();
+    logged();
+    with_thread(|cx| apply_thread_intent(&mut parts, FeatureThreadIntent::Settled, cx));
+    assert_eq!(
+        logged(),
+        [("alpha", Hook::Settled), ("beta", Hook::Settled)]
+    );
 }
 
 #[test]

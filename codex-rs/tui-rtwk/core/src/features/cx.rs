@@ -4,10 +4,6 @@
 //! a change of a thread) and the app carries it out after the call, in the order it was said.
 //! It never holds `&mut` of the app or of a thread's model.
 
-// While the list is empty the root enums are uninhabited, so what is built of them is
-// unreachable; the code is the one every list has.
-#![allow(unreachable_code, unused_variables)]
-
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
 };
@@ -139,6 +135,8 @@ pub enum Out {
         thread: ThreadId,
         intent: FeatureThreadIntent,
     },
+    /// What held `thread`'s input back is over: every feature's `on_settled`.
+    Settled { thread: ThreadId },
 }
 
 /// The context of an app-scoped step of a feature: the app as a view, and the outbox.
@@ -202,6 +200,14 @@ impl<'a> AppCx<'a> {
         self.out.push(Out::Thread {
             thread: thread.clone(),
             intent: intent.into(),
+        });
+    }
+
+    /// Says that what held `thread`'s input back is over (a goal was set): what waits for it
+    /// (the queue) goes on, in the features' own words, `Feature::on_settled`.
+    pub fn settled(&mut self, thread: &ThreadId) {
+        self.out.push(Out::Settled {
+            thread: thread.clone(),
         });
     }
 

@@ -6,17 +6,21 @@
 //! budget, an ask that failed is the oracle's error. The words are the view's: these tests read
 //! data.
 
+use codex_app_server_protocol::{
+    ClientRequest, RequestId, ThreadGoalClearParams, ThreadGoalGetParams,
+    ThreadGoalMutationOrigin, ThreadGoalSetParams, ThreadGoalStatus,
+};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
+use codex_tui_core::features::goal::{self, Ask};
+use codex_tui_core::features::{FeatureCommand, FeatureMenu, FeatureNote, FeaturePrompt};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::dialogs::{self, Open, PromptKind};
-use codex_tui_core::screens::select::goal::{self, Ask};
-use codex_tui_core::screens::select::{self, Intent as SelectIntent, Menu};
-use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, chat};
-use codex_tui_core::threads::{
-    Goal, GoalAction, GoalFailure, GoalHint, GoalNote, GoalStatus, Item, Note, NoteKey, Tone,
-};
+use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
+use codex_tui_core::screens::{ScreenIntent, chat};
+use codex_tui_core::threads::{Goal, GoalStatus, Item, Note, NoteKey, Tone};
+use goal::{Action as GoalAction, Failure as GoalFailure, Note as GoalNote, UsageHint as GoalHint};
 use pretty_assertions::assert_eq;
 
 const T: &str = "thread-1";
@@ -77,11 +81,12 @@ fn asked(fx: &AppFx) -> Vec<(Ticket, String, Ask)> {
     fx.commands()
         .iter()
         .filter_map(|c| match c {
-            Command::Screen {
+            Command::Feature {
                 ticket,
-                command: ScreenCommand::Select(select::Command::Goal { thread, ask }),
+                thread,
+                command: FeatureCommand::Goal(ask),
                 ..
-            } => Some((*ticket, thread.clone(), ask.clone())),
+            } => Some((*ticket, thread.to_string(), ask.clone())),
             _ => None,
         })
         .collect()
@@ -96,10 +101,10 @@ fn only(fx: &AppFx) -> (Ticket, Ask) {
     (*ticket, ask.clone())
 }
 
-fn answer(app: &mut CodexApp, ticket: Ticket, reply: select::Reply) -> AppFx {
+fn answer(app: &mut CodexApp, ticket: Ticket, reply: goal::Reply) -> AppFx {
     run(
         app,
-        AppEv::Reply(ticket, Reply::screen(ScreenReply::Select(reply))),
+        AppEv::Reply(ticket, Reply::feature(codex_tui_core::features::FeatureReply::Goal(reply))),
     )
 }
 
@@ -115,7 +120,7 @@ fn notes(app: &CodexApp) -> Vec<(Tone, GoalNote)> {
         .filter_map(|(_, item)| match item {
             Item::Note(Note {
                 tone,
-                key: NoteKey::Goal(note),
+                key: NoteKey::Feature(FeatureNote::Goal(note)),
             }) => Some((*tone, note.clone())),
             _ => None,
         })
@@ -136,7 +141,7 @@ fn the_bare_command_reads_the_goal_and_says_it() {
     let (ticket, ask) = only(&fx);
     assert_eq!(ask, Ask::Get);
     let active = goal("ship it", GoalStatus::Active);
-    answer(&mut app, ticket, select::Reply::Goal(Some(active.clone())));
+    answer(&mut app, ticket, goal::Reply::Goal(Some(active.clone())));
     assert_eq!(notes(&app), [(Tone::Info, GoalNote::Summary(active))]);
 }
 
@@ -144,7 +149,7 @@ fn the_bare_command_reads_the_goal_and_says_it() {
 fn the_bare_command_over_no_goal_is_the_usage_and_its_hint() {
     let mut app = ready();
     let (ticket, _) = only(&command(&mut app, true, None));
-    answer(&mut app, ticket, select::Reply::Goal(None));
+    answer(&mut app, ticket, goal::Reply::Goal(None));
     assert_eq!(
         notes(&app),
         [(Tone::Info, GoalNote::Usage(GoalHint::NoGoal))]
@@ -172,7 +177,7 @@ fn before_the_session_starts_the_command_only_says_how_to_use_it() {
             .notes
             .iter()
             .filter_map(|note| match &note.key {
-                NoteKey::Goal(note) => Some(note.clone()),
+                NoteKey::Feature(FeatureNote::Goal(note)) => Some(note.clone()),
                 _ => None,
             })
             .collect();
@@ -186,9 +191,9 @@ fn clear_pause_and_resume_ask_the_server_and_say_the_answer() {
 
     let (ticket, ask) = only(&command(&mut app, true, Some("clear")));
     assert_eq!(ask, Ask::Clear);
-    answer(&mut app, ticket, select::Reply::GoalCleared(true));
+    answer(&mut app, ticket, goal::Reply::Cleared(true));
     let (ticket, _) = only(&command(&mut app, true, Some("CLEAR")));
-    answer(&mut app, ticket, select::Reply::GoalCleared(false));
+    answer(&mut app, ticket, goal::Reply::Cleared(false));
 
     let (ticket, ask) = only(&command(&mut app, true, Some("pause")));
     assert_eq!(
@@ -200,7 +205,7 @@ fn clear_pause_and_resume_ask_the_server_and_say_the_answer() {
         }
     );
     let paused = goal("ship it", GoalStatus::Paused);
-    answer(&mut app, ticket, select::Reply::Goal(Some(paused.clone())));
+    answer(&mut app, ticket, goal::Reply::Goal(Some(paused.clone())));
 
     let (_, ask) = only(&command(&mut app, true, Some("resume")));
     assert_eq!(
@@ -227,7 +232,7 @@ fn an_objective_over_no_goal_sets_it_active() {
     let mut app = ready();
     let (ticket, ask) = only(&command(&mut app, true, Some("  improve coverage ")));
     assert_eq!(ask, Ask::Get, "the goal is read first");
-    let (ticket, ask) = only(&answer(&mut app, ticket, select::Reply::Goal(None)));
+    let (ticket, ask) = only(&answer(&mut app, ticket, goal::Reply::Goal(None)));
     assert_eq!(
         ask,
         Ask::Set {
@@ -237,7 +242,7 @@ fn an_objective_over_no_goal_sets_it_active() {
         }
     );
     let set = goal("improve coverage", GoalStatus::Active);
-    answer(&mut app, ticket, select::Reply::Goal(Some(set.clone())));
+    answer(&mut app, ticket, goal::Reply::Goal(Some(set.clone())));
     assert_eq!(notes(&app), [(Tone::Info, GoalNote::Status(set))]);
 }
 
@@ -248,10 +253,10 @@ fn an_objective_over_an_unfinished_goal_asks_before_it_replaces_it() {
     let fx = answer(
         &mut app,
         ticket,
-        select::Reply::Goal(Some(goal("old", GoalStatus::Paused))),
+        goal::Reply::Goal(Some(goal("old", GoalStatus::Paused))),
     );
     assert_eq!(asked(&fx), [], "nothing is replaced yet");
-    let menu = Menu::Goal(Box::new(goal::Menu::Replace {
+    let menu = Menu::Feature(FeatureMenu::Goal(goal::Menu::Replace {
         thread: ThreadId::new(T),
         objective: "new objective".into(),
     }));
@@ -267,12 +272,12 @@ fn an_objective_over_an_unfinished_goal_asks_before_it_replaces_it() {
     answer(
         &mut app,
         ticket,
-        select::Reply::Goal(Some(goal("old", GoalStatus::Active))),
+        goal::Reply::Goal(Some(goal("old", GoalStatus::Active))),
     );
     let fx = select_intent(&mut app, SelectIntent::Choose(goal::REPLACE.into()));
     let (ticket, ask) = only(&fx);
     assert_eq!(ask, Ask::Clear);
-    let (ticket, ask) = only(&answer(&mut app, ticket, select::Reply::GoalCleared(true)));
+    let (ticket, ask) = only(&answer(&mut app, ticket, goal::Reply::Cleared(true)));
     assert_eq!(
         ask,
         Ask::Set {
@@ -282,7 +287,7 @@ fn an_objective_over_an_unfinished_goal_asks_before_it_replaces_it() {
         }
     );
     let set = goal("new objective", GoalStatus::Active);
-    answer(&mut app, ticket, select::Reply::Goal(Some(set.clone())));
+    answer(&mut app, ticket, goal::Reply::Goal(Some(set.clone())));
     assert_eq!(notes(&app), [(Tone::Info, GoalNote::Status(set))]);
 }
 
@@ -293,7 +298,7 @@ fn an_objective_over_a_complete_goal_replaces_it_without_asking() {
     let fx = answer(
         &mut app,
         ticket,
-        select::Reply::Goal(Some(goal("done", GoalStatus::Complete))),
+        goal::Reply::Goal(Some(goal("done", GoalStatus::Complete))),
     );
     assert_eq!(only(&fx).1, Ask::Clear);
     assert_eq!(app.screens().select.menu(), None);
@@ -306,7 +311,7 @@ fn the_edit_prompt_keeps_the_status_and_the_budget_of_the_goal() {
     answer(
         &mut app,
         ticket,
-        select::Reply::Goal(Some(goal("old", GoalStatus::Paused))),
+        goal::Reply::Goal(Some(goal("old", GoalStatus::Paused))),
     );
     let Some(Open::Prompt(prompt)) = app.screens().dialogs.open.clone() else {
         panic!("the edit prompt is open");
@@ -314,11 +319,11 @@ fn the_edit_prompt_keeps_the_status_and_the_budget_of_the_goal() {
     assert_eq!(prompt.initial, "old");
     assert_eq!(
         prompt.kind,
-        PromptKind::GoalEdit {
+        PromptKind::Feature(FeaturePrompt::Goal(goal::Prompt::Edit {
             thread: ThreadId::new(T),
             status: GoalStatus::Paused,
             token_budget: Some(5_000),
-        }
+        }))
     );
     let fx = run(
         &mut app,
@@ -343,17 +348,17 @@ fn a_finished_goal_is_edited_back_to_active() {
     answer(
         &mut app,
         ticket,
-        select::Reply::Goal(Some(goal("old", GoalStatus::BudgetLimited))),
+        goal::Reply::Goal(Some(goal("old", GoalStatus::BudgetLimited))),
     );
     let Some(Open::Prompt(prompt)) = app.screens().dialogs.open.clone() else {
         panic!("the edit prompt is open");
     };
     assert!(matches!(
         prompt.kind,
-        PromptKind::GoalEdit {
+        PromptKind::Feature(FeaturePrompt::Goal(goal::Prompt::Edit {
             status: GoalStatus::Active,
             ..
-        }
+        }))
     ));
 }
 
@@ -361,7 +366,7 @@ fn a_finished_goal_is_edited_back_to_active() {
 fn edit_over_no_goal_is_an_error_then_the_usage() {
     let mut app = ready();
     let (ticket, _) = only(&command(&mut app, true, Some("edit")));
-    answer(&mut app, ticket, select::Reply::Goal(None));
+    answer(&mut app, ticket, goal::Reply::Goal(None));
     assert_eq!(
         notes(&app),
         [
@@ -424,7 +429,7 @@ fn a_failed_replace_names_the_step_that_failed() {
     let (ticket, _) = only(&answer(
         &mut app,
         ticket,
-        select::Reply::Goal(Some(goal("done", GoalStatus::Complete))),
+        goal::Reply::Goal(Some(goal("done", GoalStatus::Complete))),
     ));
     fail(&mut app, ticket, "no clear");
     assert_eq!(
@@ -446,7 +451,7 @@ fn the_resume_row_sets_the_goal_active_and_leave_paused_asks_nothing() {
             thread: ThreadId::new(T),
             objective: "ship it".into(),
         };
-        select_intent(app, SelectIntent::Open(Menu::Goal(Box::new(menu))));
+        select_intent(app, SelectIntent::Open(Menu::Feature(FeatureMenu::Goal(menu))));
     };
     let mut app = ready();
     resume(&mut app);
@@ -461,6 +466,56 @@ fn the_resume_row_sets_the_goal_active_and_leave_paused_asks_nothing() {
             objective: None,
             status: Some(GoalStatus::Active),
             token_budget: None
+        }
+    );
+}
+
+/// A goal is set and cleared as the user (the server takes a goal change without that
+/// provenance as the model's); a token budget of `Some(None)` removes it. Expected values are
+/// the oracle's (`app_server_session.rs`: `thread_goal_set|clear|get`).
+#[test]
+fn goals_are_set_cleared_and_read_as_the_user() {
+    let wire = |ask: Ask| {
+        codex_tui_core::features::wire(
+            &FeatureCommand::Goal(ask),
+            &ThreadId::new(T),
+            RequestId::Integer(1),
+        )
+    };
+    assert_eq!(
+        wire(Ask::Set {
+            objective: Some("ship it".into()),
+            status: Some(GoalStatus::Paused),
+            token_budget: Some(None),
+        }),
+        ClientRequest::ThreadGoalSet {
+            request_id: RequestId::Integer(1),
+            params: ThreadGoalSetParams {
+                origin: Some(ThreadGoalMutationOrigin::User),
+                thread_id: T.into(),
+                objective: Some("ship it".into()),
+                status: Some(ThreadGoalStatus::Paused),
+                token_budget: Some(None),
+            },
+        }
+    );
+    assert_eq!(
+        wire(Ask::Clear),
+        ClientRequest::ThreadGoalClear {
+            request_id: RequestId::Integer(1),
+            params: ThreadGoalClearParams {
+                origin: Some(ThreadGoalMutationOrigin::User),
+                thread_id: T.into(),
+            },
+        }
+    );
+    assert_eq!(
+        wire(Ask::Get),
+        ClientRequest::ThreadGoalGet {
+            request_id: RequestId::Integer(1),
+            params: ThreadGoalGetParams {
+                thread_id: T.into(),
+            },
         }
     );
 }
