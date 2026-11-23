@@ -287,17 +287,8 @@ pub struct Model {
     pub retained: Vec<Warning>,
     /// The prompt the user submitted and the app has not yet carried out.
     pub submitted: Option<Submitted>,
-    stamp: u64,
     /// How diagnostics are taken in (startup or runtime, what was seen, what was dismissed).
     pub intake: Intake,
-}
-
-impl Model {
-    /// The next number for the requests of this screen's asks (below `prompt::REQUEST_BIT`).
-    pub(crate) fn next_stamp(&mut self) -> u64 {
-        self.stamp += 1;
-        self.stamp
-    }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the

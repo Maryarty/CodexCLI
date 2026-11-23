@@ -398,8 +398,9 @@ async fn run(
     {
         emit(&ingress, epoch, AppEv::Announce(notice));
     }
-    // The terminal's way of writing a link and the machine's clock, for the transcript's cells.
-    for ev in crate::viewer::events() {
+    // The terminal's way of writing a link, the machine's clock and whether raw reasoning shows,
+    // for the transcript's cells.
+    for ev in crate::viewer::events(&config) {
         emit(&ingress, epoch, ev);
     }
     let daemon = matches!(mode, Mode::Daemon | Mode::Remote { daemon: true, .. });

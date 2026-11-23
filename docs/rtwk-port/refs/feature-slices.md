@@ -189,6 +189,40 @@ FeatureCommand::Goal(_), .. }`.
 16. (K3) `ClientRequest::ReviewStart` / `ReviewStartParams` are lifecycle RPCs
     (`LIFECYCLE_RPCS`): a slice cannot build `review/start`.
 
+17. (migrate, /rename) **A prompt that awaits a generated suggestion.** `AppCx::prompt_suggesting(
+    prompt, initial)` opens the prompt with its loading line; the feature asks the host as always
+    (`cx.effect(Ask::SuggestTitle { .. }, ctx)`) and, in `effect_done`, `cx.suggest(prompt, title)`
+    (`Out::Suggest`). The app fills the field only if that prompt is still the one open, still
+    waiting and the user has not typed: the dialog's own model knows what was typed
+    (`dialogs::Intent::Typed`), so the feature never hears a keystroke and never updates an open
+    dialog itself. Test: `core/src/app/features/tests.rs`
+    `a_suggestion_fills_the_prompt_it_is_for_once_and_never_over_the_users_typing`. Raised `Out`
+    to 8 in `hub_budget.txt`.
+18. (migrate, /rename) **A command that asks something of the thread it starts** (`/new <name>`).
+    `AppCtx::NewConversation` carries `then: Option<FeatureThreadIntent>`, built by the slash
+    router (`SLASH_ROUTERS` may now name `features::<f>::ThreadIntent` too, nothing else), and the
+    app applies it to the new thread once it is attached: the generic route for a feature's thread
+    intent, no hook. A feature's `thread_intent` is the writer's, so it runs after the attach.
+19. (migrate, /rename) **A feature RPC on a thread that fails is the thread's last failure.**
+    `threads::feature_reply` sets `last_error` from the `Err` before the feature hears it, as a
+    turn start's failure does, so a feature that has nothing more to say writes no error line of
+    its own (the activity row reads `last_error` first). A feature that words the failure as a
+    note (`/goal`) is untouched: it uses `AppCx::ask`, not a thread RPC.
+20. `AppView::screens()` reads the facts a feature decides by (the side-conversation flag,
+    `chat.flags.side_conversation_active`); `ThreadView::name()` the thread's name.
+21. (migrate, /export) **The app's renderers and directory are facts a feature reads.**
+    `AppView::transcript_text(thread)` (the UI's renderer of the conversation as Markdown, handed
+    to the app once with `CodexApp::with_transcript_text`; `core/src/app/transcript_text.rs`) and
+    `AppView::working_directory(thread)` (`config.cwd`: the thread's own, else the status line's;
+    also read by `/cd`). The app keeps one renderer and a feature never names `ThreadModel`.
+    `AppView::new` takes the renderer as its last argument; `app/features.rs` `view(app)` builds
+    the read-only view for the app's own code.
+22. (migrate, /export) **An ask of the host answers once or twice, and the ask ends with the
+    last answer.** A copy says `Pending` and then how it ended: `effect_done` hears both (the
+    export notes both), a third answer for the same request is dropped (`Done::is_final`,
+    `effects::feature_answered`). A feature keeps nothing to tell a pending copy from a
+    final one: `Done` says it.
+
 ## 8. A feature that is half a slice: the menu half and the thread half
 
 Some features write `ThreadModel` fields or sit in `threads::apply_ev` (`/review`,

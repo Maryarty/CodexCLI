@@ -27,16 +27,16 @@ enum core/src/app.rs Intent 15
 enum core/src/app.rs AppEv 18
 enum core/src/app.rs Command 20
 enum core/src/app.rs AppCtx 13
-enum core/src/threads/note.rs NoteKey 18
-enum core/src/screens/chat.rs ThreadIntent 17
+enum core/src/threads/note.rs NoteKey 16
+enum core/src/screens/chat.rs ThreadIntent 16
 enum core/src/rpc.rs Answer 11
-enum core/src/screens/dialogs/prompt.rs PromptKind 3
+enum core/src/screens/dialogs/prompt.rs PromptKind 1
 enum core/src/app/effects.rs Ask 11
 enum core/src/app/effects.rs Done 11
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that
 # are no feature's. A new one is a decision with an ADR-012 paragraph (a hook is added only for
 # a thread or app lifecycle fact, never for one producer and one consumer), and raises its line.
-enum core/src/features/cx.rs Out 7
+enum core/src/features/cx.rs Out 8
 enum core/src/features/mod.rs FeatureThreadIntent 1
 methods core/src/features/mod.rs Feature 16
 # threads::apply_ev still matches the chat screen's thread intents by name (the draft, the mask,

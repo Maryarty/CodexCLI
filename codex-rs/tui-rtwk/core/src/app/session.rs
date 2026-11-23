@@ -3,13 +3,9 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub(super) mod export;
-pub(super) mod rename;
-
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
-use crate::screens::select::export::Destination;
 use crate::screens::select::{Confirm, Menu, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
@@ -192,12 +188,14 @@ pub(super) fn session_intent(
             } else {
                 super::start_thread(app, ticket, backend)
             };
+            // `/new <name>`: the new thread is named once it has started (`features/rename`).
+            let then = name.map(|name| crate::features::rename::ThreadIntent::Set(name).into());
             app.outgoing.insert(
                 ticket,
                 AppCtx::NewConversation {
                     source,
                     backend,
-                    name,
+                    then,
                     plan: None,
                     draft: None,
                 },
@@ -227,7 +225,7 @@ pub(super) fn session_intent(
                 AppCtx::NewConversation {
                     source: Some(thread),
                     backend,
-                    name: None,
+                    then: None,
                     plan: None,
                     draft: Some(message),
                 },
@@ -247,24 +245,16 @@ pub(super) fn session_intent(
         S::StartReview { target } => start_review(app, source, target, fx),
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
         S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
-        S::Rename { name: None } => rename::open(app, source, fx),
-        S::Rename { name: Some(_) } if rename::blocked(app) => session_note(
-            app,
-            source,
-            Note::from(crate::commands::Notice::SideRename),
-            fx,
-        ),
+        // `/rename`: the name prompt, or the rename itself (`features/rename`).
+        S::Rename { name } => {
+            let intent = crate::features::rename::Intent::Command { source, name };
+            super::features::intent(app, intent.into(), fx);
+        }
         S::Status => status_command(app, source, fx),
-        S::Compact | S::Rename { name: Some(_) } => {
+        S::Compact => {
             if let Some(thread) = source {
-                let ev = match intent {
-                    S::Rename { name: Some(name) } => ThreadEv::ScreenIntent(
-                        ScreenThreadIntent::Chat(chat::ThreadIntent::Rename(name)),
-                    ),
-                    _ => ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-                        chat::ThreadIntent::Compact,
-                    )),
-                };
+                let ev =
+                    ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::Compact));
                 apply_thread(app, &thread, ev, fx);
             }
         }
@@ -332,9 +322,11 @@ pub(super) fn session_intent(
             session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
         }
         S::Plan { prompt } => plan(app, source, command, prompt, fx),
-        // `AppEvent::ExportTranscript` with a path: the conversation is written there. The bare
-        // command opens the destination picker, which is the view's list (`select::export`).
-        S::Export { path: Some(path) } => export::run(app, Destination::File(path), fx),
+        // `/export` (the destination picker) and `/export <path>` (written there): `features/export`.
+        S::Export { path } => {
+            let intent = crate::features::export::Intent::Command { path };
+            super::features::intent(app, intent.into(), fx);
+        }
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).
         S::Goal { args } => {
             let intent = crate::features::goal::Intent::Command { source, args };
@@ -353,7 +345,6 @@ pub(super) fn session_intent(
         | S::Worktree
         | S::Side { .. }
         | S::Copy
-        | S::Export { path: None }
         | S::Tui
         | S::Mcp { .. }
         | S::Apps
@@ -514,7 +505,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         AppCtx::NewConversation {
             source,
             backend,
-            name: None,
+            then: None,
             plan: None,
             draft: None,
         },
@@ -648,8 +639,6 @@ pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
         return;
     };
     match submitted.kind {
-        PromptKind::Rename { thread } => rename::submitted(app, thread, &submitted.text, fx),
-        PromptKind::ExportFile => export::submitted(app, submitted.text, fx),
         PromptKind::Feature(prompt) => {
             super::features::prompt_submitted(app, prompt, submitted.text, fx);
         }
@@ -659,11 +648,7 @@ pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
 /// `config.cwd`: the directory of the thread, else the one the host read for
 /// the status line.
 fn working_directory(app: &CodexApp, thread: Option<&ThreadId>) -> String {
-    thread
-        .and_then(|id| app.threads.get(id))
-        .and_then(|model| model.screen_slots().chat.cwd.clone())
-        .or_else(|| app.screens.chat.status.cwd.clone())
-        .unwrap_or_default()
+    super::features::view(app).working_directory(thread)
 }
 
 /// What a command line answered with (oracle `add_info_message` /
@@ -732,7 +717,7 @@ pub(super) fn plan_answer(
                 AppCtx::NewConversation {
                     source: Some(thread),
                     backend,
-                    name: None,
+                    then: None,
                     plan: Some(markdown),
                     draft: None,
                 },
