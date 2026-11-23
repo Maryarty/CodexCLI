@@ -4,6 +4,7 @@
 
 pub(super) mod browse;
 pub(super) mod plan_mode;
+pub(super) mod provider_error;
 mod restore;
 
 pub(super) use restore::{put_back, seed_history};
