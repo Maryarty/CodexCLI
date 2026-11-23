@@ -669,9 +669,19 @@ fn an_app_switch_is_written_to_the_config_and_then_shown_in_the_directory() {
         ]
     );
     // not shown switched before the config has it
-    assert_eq!(app.screens().select.apps.ready().expect("ready")[0].status(), Status::Installed);
-    answer(&mut app, ticket, select::Reply::Written { overridden: false });
-    assert_eq!(app.screens().select.apps.ready().expect("ready")[0].status(), Status::Disabled);
+    assert_eq!(
+        app.screens().select.apps.ready().expect("ready")[0].status(),
+        Status::Installed
+    );
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Written { overridden: false },
+    );
+    assert_eq!(
+        app.screens().select.apps.ready().expect("ready")[0].status(),
+        Status::Disabled
+    );
 
     // on again: both keys are cleared
     let fx = open(

@@ -58,10 +58,16 @@ fn another_model_or_a_switched_off_effect_is_not() {
         "gpt-6-astra",
         json!({"starfield_effect": false})
     )]));
-    assert!(!eligible(&[facts("gpt-6-astra", json!({"animations": false}))]));
+    assert!(!eligible(&[facts(
+        "gpt-6-astra",
+        json!({"animations": false})
+    )]));
 }
 
 #[test]
 fn a_thread_that_ran_a_turn_is_not_fresh() {
-    assert!(!eligible(&[facts("gpt-6-astra", json!({})), turn_started()]));
+    assert!(!eligible(&[
+        facts("gpt-6-astra", json!({})),
+        turn_started()
+    ]));
 }

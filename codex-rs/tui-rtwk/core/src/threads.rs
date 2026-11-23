@@ -2632,7 +2632,10 @@ fn live_timing(
     // with no clock yet (the host has not said) no time is invented either.
     let elapsed = match &model.turn {
         TurnState::Running(running) if running.turn == *turn && now > 0 => {
-            let since = running.started_at.filter(|at| *at > 0).unwrap_or(running.began);
+            let since = running
+                .started_at
+                .filter(|at| *at > 0)
+                .unwrap_or(running.began);
             Some(now.saturating_sub(since).max(0) * 1_000)
         }
         _ => return timing,

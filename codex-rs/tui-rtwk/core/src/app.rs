@@ -2583,7 +2583,11 @@ fn drop_uncallable_apps(app: &mut CodexApp, listed: &[screens::select::apps::App
 fn show_held_thread(app: &mut CodexApp, id: ThreadId, fx: &mut AppFx) {
     // Another thread on display: what the pickers hold for the one before is not trusted
     // (oracle `invalidate_connector_scope` on a displayed-thread change).
-    let switched = app.session.active.as_ref().is_some_and(|shown| *shown != id);
+    let switched = app
+        .session
+        .active
+        .as_ref()
+        .is_some_and(|shown| *shown != id);
     let session = Rc::make_mut(&mut app.session);
     session.active = Some(id);
     session.status = Session::Ready;
