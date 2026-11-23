@@ -79,6 +79,15 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 alone::Alone { ui }.into()
             }),
         },
+        DebugEntry {
+            name: "alone_running",
+            description: "the composer with its key footer while a turn runs",
+            script: include_str!("fixtures/alone_running.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone { ui }.into()
+            }),
+        },
     ]
 }
 
