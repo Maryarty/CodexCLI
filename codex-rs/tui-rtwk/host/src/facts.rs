@@ -91,6 +91,7 @@ pub async fn status(config: &Config) -> StatusFacts {
         animations: config.animations,
         progress_effect: config.tui_effects.progress,
         shimmer_effect: config.tui_effects.shimmer,
+        starfield_effect: config.tui_effects.starfield,
         account_usage: config.model_provider.requires_openai_auth,
         empty_state: config.tui_effects.welcome,
         notification_policy: NotificationPolicy {

@@ -621,6 +621,98 @@ fn apps_open_loading_then_show_the_directory() {
     assert_eq!((installed, total), (1, 1));
 }
 
+/// The link dialog's switch writes `apps."<id>".enabled` and `disabled_reason` to the config
+/// (`SetAppEnabled`) and the directory takes it once the write is saved; a refused write leaves
+/// it as it was.
+#[test]
+fn an_app_switch_is_written_to_the_config_and_then_shown_in_the_directory() {
+    use codex_app_server_protocol::{ClientRequest, RequestId};
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, ..) = apps_command(&fx);
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Apps(vec![app_of("notion", true, true, true)]),
+    );
+
+    let fx = open(
+        &mut app,
+        SelectIntent::SetApp {
+            id: "notion".into(),
+            enabled: false,
+        },
+    );
+    let (ticket, command) = asked(&fx);
+    assert_eq!(
+        command,
+        select::Command::SetApp {
+            id: "notion".into(),
+            enabled: false
+        }
+    );
+    let ClientRequest::ConfigBatchWrite { params, .. } =
+        select::wire(&command, &Default::default(), RequestId::Integer(1))
+    else {
+        panic!("a config write");
+    };
+    let written: Vec<_> = params
+        .edits
+        .iter()
+        .map(|edit| (edit.key_path.as_str(), edit.value.clone()))
+        .collect();
+    assert_eq!(
+        written,
+        vec![
+            ("apps.\"notion\".enabled", json!(false)),
+            ("apps.\"notion\".disabled_reason", json!("user")),
+        ]
+    );
+    // not shown switched before the config has it
+    assert_eq!(
+        app.screens().select.apps.ready().expect("ready")[0].status(),
+        Status::Installed
+    );
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Written { overridden: false },
+    );
+    assert_eq!(
+        app.screens().select.apps.ready().expect("ready")[0].status(),
+        Status::Disabled
+    );
+
+    // on again: both keys are cleared
+    let fx = open(
+        &mut app,
+        SelectIntent::SetApp {
+            id: "notion".into(),
+            enabled: true,
+        },
+    );
+    let (ticket, command) = asked(&fx);
+    let ClientRequest::ConfigBatchWrite { params, .. } =
+        select::wire(&command, &Default::default(), RequestId::Integer(2))
+    else {
+        panic!("a config write");
+    };
+    assert!(params.edits.iter().all(|edit| edit.value.is_null()));
+    app_failed(&mut app, ticket);
+    assert_eq!(
+        app.screens().select.apps.ready().expect("ready")[0].status(),
+        Status::Disabled,
+        "a refused write leaves the switch as it was"
+    );
+}
+
+fn app_failed(app: &mut CodexApp, ticket: Ticket) {
+    run(
+        app,
+        AppEv::Reply(ticket, Reply::error(RpcError::Remote("refused".into()))),
+    );
+}
+
 /// Disabled apps say so; a ready empty directory, a failed one and the
 /// feature off are notes, and no menu opens.
 #[test]

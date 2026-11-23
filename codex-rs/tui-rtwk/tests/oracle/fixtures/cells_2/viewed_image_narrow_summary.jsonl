@@ -1,4 +1,4 @@
 # Oracle data of codex-tui history_cell/patches_tests.rs:74 (the oracle's temp file, named the same) (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
+# No turn/started: the oracle builds the cell alone, no turn runs (a running turn adds the Working row to the bottom pane).
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
 {"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"imageView","id":"view-1","path":"/tmp/very-long-screenshot #5.png"},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

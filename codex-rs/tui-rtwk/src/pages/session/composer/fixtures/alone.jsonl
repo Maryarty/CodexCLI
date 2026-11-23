@@ -1,0 +1,6 @@
+# The composer with its footer, alone, on a blank draft of one thread (no turn).
+# Oracle data: bottom_pane/chat_composer.rs `snapshot_composer_state_with_width`
+# (a fresh ChatComposer: no status line, so the context meter stands in the
+# footer, `100% context left` while the window is unknown).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}

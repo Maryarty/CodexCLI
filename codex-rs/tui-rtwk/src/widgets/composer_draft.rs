@@ -478,6 +478,8 @@ impl ComposerDraft {
         UserMessage {
             text,
             images: images.into_iter().map(|(_, image)| image).collect(),
+            // resolved against the catalog by the composer (`mentions::tool_mentions`)
+            mentions: Vec::new(),
         }
     }
 

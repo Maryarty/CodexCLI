@@ -37,7 +37,9 @@ use crate::rpc::Reply;
 use crate::rpc::RpcError;
 use crate::rpc::ServerError;
 use crate::screens;
+use crate::threads::ToolMention;
 use crate::threads::UserMessage;
+use std::path::PathBuf;
 
 /// The wire request of `command`, under `request_id`. `model` is the
 /// `--model` override for a new thread. `None` for `RejectRequest`, which is
@@ -271,6 +273,17 @@ pub(crate) fn turn_input(message: &UserMessage) -> Vec<UserInput> {
             text_elements: elements,
         });
     }
+    // the tools the text names, after it (`input_submission.rs`: skills, then plugins and apps)
+    input.extend(message.mentions.iter().map(|mention| match mention {
+        ToolMention::Skill { name, path } => UserInput::Skill {
+            name: name.clone(),
+            path: PathBuf::from(path),
+        },
+        ToolMention::Mention { name, path } => UserInput::Mention {
+            name: name.clone(),
+            path: path.clone(),
+        },
+    }));
     input
 }
 
@@ -287,6 +300,7 @@ mod turn_input_tests {
                 path: "/tmp/a.png".into(),
                 range: 4..14,
             }],
+            mentions: Vec::new(),
         };
         let input = turn_input(&message);
         assert!(matches!(&input[0], UserInput::LocalImage { path, .. } if path.ends_with("a.png")));
@@ -315,7 +329,37 @@ mod turn_input_tests {
                 path: "/tmp/a.png".into(),
                 range: 0..0,
             }],
+            mentions: Vec::new(),
         };
         assert_eq!(turn_input(&message).len(), 1);
+    }
+
+    #[test]
+    fn the_named_tools_follow_the_text() {
+        let message = UserMessage {
+            text: "use $deploy and $Figma".into(),
+            images: Vec::new(),
+            mentions: vec![
+                ToolMention::Skill {
+                    name: "deploy".into(),
+                    path: "/skills/deploy/SKILL.md".into(),
+                },
+                ToolMention::Mention {
+                    name: "Figma".into(),
+                    path: "plugin://figma@openai".into(),
+                },
+            ],
+        };
+        let input = turn_input(&message);
+        assert_eq!(input.len(), 3);
+        assert!(matches!(&input[0], UserInput::Text { .. }));
+        assert!(matches!(
+            &input[1],
+            UserInput::Skill { name, path } if name == "deploy" && path.ends_with("SKILL.md")
+        ));
+        assert!(matches!(
+            &input[2],
+            UserInput::Mention { name, path } if name == "Figma" && path == "plugin://figma@openai"
+        ));
     }
 }

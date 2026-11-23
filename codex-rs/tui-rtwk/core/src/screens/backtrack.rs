@@ -446,6 +446,7 @@ impl Draft {
                             range: element.range.clone(),
                         })
                         .collect(),
+                    mentions: Vec::new(),
                 }
             }
         }

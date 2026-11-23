@@ -119,7 +119,7 @@ impl Step {
                 agents.display(backend);
                 agents::finish_start(agents, thread.as_str());
                 attach_thread(app, &thread, backend, Origin::Started, fx);
-                show_held_thread(app, thread);
+                show_held_thread(app, thread, fx);
                 return;
             }
             (Self::Binding { checkout, thread }, Answer::WorktreeBound(Err(error))) => {
