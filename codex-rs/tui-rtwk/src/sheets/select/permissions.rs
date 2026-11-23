@@ -20,7 +20,6 @@
 
 use std::rc::Rc;
 
-use rtwk::layout::{Align, Alignment};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
@@ -37,6 +36,7 @@ use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
 use crate::widgets::picker::list::{Item, List, Role, Span};
 use crate::widgets::picker::{Event, Picker};
+use crate::widgets::sheet::bottom;
 
 /// The sheet of a menu the model asked for (`Opening::Permissions`): a navigator as tall as the
 /// sheet's cap whose home is the page of the menu, each page at the bottom edge of it (where the
@@ -70,10 +70,6 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
             _ => None,
         })
         .unwrap_or_default()
-}
-
-fn bottom(page: impl Into<AnyWidget>) -> AnyWidget {
-    Align::new(Alignment::BOTTOM_CENTER, page).into()
 }
 
 fn route(menu: PermissionsMenu) -> PageRoute<()> {

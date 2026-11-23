@@ -4,6 +4,9 @@
 //! for changed, it closes by itself instead of staying over a screen it no longer belongs to. The
 //! rules test `adr013_sheets_declare_alive` has every `impl Sheet` say it.
 
+use rtwk::AnyWidget;
+use rtwk::layout::{Align, Alignment};
+
 /// A sheet over a page.
 pub trait Sheet {
     /// What the sheet reads of the app to decide: a selection, compared for equality.
@@ -11,4 +14,14 @@ pub trait Sheet {
 
     /// Whether the sheet is still wanted, given what it sees now.
     fn alive(&self, seen: &Self::Seen) -> bool;
+}
+
+/// A page at the bottom of the sheet. The navigator is as tall as the sheet's cap (a `Navigator`
+/// under bounded constraints fills them) and gives each route that size tight; the page is as
+/// tall as what it shows, so it sits at the bottom edge where the oracle's pane is, under the
+/// transparent rest of the cap. (`IntrinsicHeight` over the navigator cannot size it: a page of
+/// the picker is built by a `LayoutBuilder` from the height it is given, which has no intrinsic
+/// height before it is built; `tests/rtwk_o1.rs`.)
+pub fn bottom(page: impl Into<AnyWidget>) -> AnyWidget {
+    Align::new(Alignment::BOTTOM_CENTER, page).into()
 }

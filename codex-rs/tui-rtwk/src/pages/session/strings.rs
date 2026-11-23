@@ -829,7 +829,6 @@ impl Strings {
             // exist.
             Note::PermissionArgs(error) => permission_args_error(error),
             Note::PermissionRefused(refusal) => permission_refusal(picker, refusal),
-            Note::PermissionsFailed(failure) => picker.failure(failure),
             Note::NoOtherPermissionModes => "No other permission modes are available.".to_string(),
         }
     }

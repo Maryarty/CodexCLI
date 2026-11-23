@@ -2376,7 +2376,6 @@ mod removal {
             let mut app = ready();
             let fx = pick(&mut app, confirm, 1);
             assert_eq!(removals(&fx), [expected], "{confirm:?}");
-            assert_eq!(app.screens().select.menu().cloned(), None, "{confirm:?}");
             assert_eq!(app.session().active, Some(ThreadId::new(T)), "not yet gone");
         }
     }
@@ -2387,7 +2386,6 @@ mod removal {
             let mut app = ready();
             let fx = pick(&mut app, confirm, 0);
             assert_eq!(removals(&fx), [], "{confirm:?}");
-            assert_eq!(app.screens().select.menu().cloned(), None, "{confirm:?}");
             assert_eq!(notes_of(&app.active_thread()), [], "{confirm:?}");
         }
     }

@@ -690,3 +690,23 @@ fn a_plan_that_ends_with_no_sheet_open_asks() {
     h.inject([AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1"))]);
     h.wait_for("the plan question", |s| s.contains(PLAN_TITLE));
 }
+
+/// `/presets` opens the sheet of the presets (its editor, the first entry of the oracle's
+/// shortcut menu), and `/daemon` says its menu is not built instead of opening an empty dialog.
+#[test]
+fn presets_opens_its_own_sheet_and_daemon_says_it_is_not_built() {
+    let mut h = start();
+    h.wait_idle();
+    h.t.type_text("/presets");
+    h.press("enter");
+    h.wait_for("the presets sheet", |s| s.contains("New preset"));
+    h.press("esc");
+    h.settle();
+    assert!(!h.t.screen().contains("New preset"), "{}", h.t.screen());
+    h.t.type_text("/daemon");
+    h.press("enter");
+    h.wait_for("the daemon popup", |s| s.contains("daemon menu"));
+    h.press("esc");
+    h.settle();
+    assert!(!h.t.screen().contains("daemon menu"), "{}", h.t.screen());
+}

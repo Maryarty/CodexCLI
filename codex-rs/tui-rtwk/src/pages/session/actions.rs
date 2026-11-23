@@ -13,6 +13,7 @@ use codex_tui_core::commands::{
 };
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
+use codex_tui_core::screens::select::quick_dials;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
 use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, Toggle, UserMessage};
 
@@ -317,6 +318,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 states.chat.flags.connectors_enabled,
                 reserve_only(&session, &states, &thread),
                 review_cwd(&states, &thread),
+                quick_gate(&session, &states, &thread),
             ) {
                 // `/review`, `/apps`, `/permissions` and `/model` are sheets of their own: the model
                 // asks for them and the presenter shows them (a `/model` the provider blocks shows
@@ -327,6 +329,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                         | codex_tui_core::screens::select::Intent::OpenApps { .. }
                         | codex_tui_core::screens::select::Intent::OpenPermissions(_)
                         | codex_tui_core::screens::select::Intent::OpenModels(_)
+                        | codex_tui_core::screens::select::Intent::Quick { .. }
                 );
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
@@ -417,6 +420,22 @@ fn review_cwd(states: &ScreenStates, thread: &ThreadModel) -> String {
         .unwrap_or_else(|| ".".to_owned())
 }
 
+/// `quick_dials_available`: presets are not for a conversation that takes no direct input (a
+/// side conversation, a thread its parent controls), nor before the session is configured.
+fn quick_gate(
+    session: &SessionSlice,
+    states: &ScreenStates,
+    thread: &ThreadModel,
+) -> quick_dials::Gate {
+    if states.chat.flags.side_conversation_active || thread.screen_slots().chat.parent_owned {
+        quick_dials::Gate::Blocked
+    } else if !matches!(session.status, Session::Ready) {
+        quick_dials::Gate::Starting
+    } else {
+        quick_dials::Gate::Ready
+    }
+}
+
 /// `restrict_model_picker_to_luna_reserve`: the thread runs on the Reserve and the last account
 /// read did not say ordinary usage is back.
 fn reserve_only(
@@ -452,6 +471,7 @@ fn select_intent(
     apps: bool,
     reserve: Option<codex_tui_core::screens::select::models::ReserveOnly>,
     cwd: String,
+    gate: quick_dials::Gate,
 ) -> Option<codex_tui_core::screens::select::Intent> {
     use codex_tui_core::screens::select::{Intent, models, permissions};
     match command {
@@ -464,6 +484,17 @@ fn select_intent(
         )),
         SlashCommand::Apps => Some(Intent::OpenApps { enabled: apps }),
         SlashCommand::Review => Some(Intent::OpenReview { cwd }),
+        // `/presets` opens the oracle's footer menu of shortcuts (the HUD's); until that menu is
+        // built its first entry opens: `n`, a new preset (the line was the command, so the editor
+        // starts empty).
+        SlashCommand::Presets => Some(Intent::Quick {
+            gate,
+            open: quick_dials::Open::Editor {
+                target: quick_dials::Target::PickSlot,
+                dial: None,
+                composer: quick_dials::Composer::default(),
+            },
+        }),
         _ => None,
     }
 }

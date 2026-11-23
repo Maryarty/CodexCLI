@@ -1,17 +1,10 @@
-//! The named parameterisations as the generic list. Every family is a sheet of its own now
-//! (`models.rs`, `permissions.rs`, `apps.rs`, `quick.rs`, `worktree.rs`); `Menu` is left empty
-//! until adr013-select-finish deletes it.
+//! The list of the confirmation sheet (`confirm.rs`). Every family is a sheet of its own
+//! (`models.rs`, `permissions.rs`, `apps.rs`, `quick.rs`, `worktree.rs`).
 
 use crate::widgets::picker::list::{Columns, Item, List};
-use codex_tui_core::screens::select::{Confirm, Menu, Page};
+use codex_tui_core::screens::select::Confirm;
 
 use super::strings::Strings;
-
-/// The list the menu on top of the stack is shown as; `page` is its rows when
-/// it is a menu of a typed family (`Model::page`).
-pub fn of(menu: &Menu, _page: Option<&Page>, _s: &Strings) -> Option<List> {
-    match *menu {}
-}
 
 /// The two rows of a confirmation, No first (`SelectionViewParams::confirmation`:
 /// the panel picker with the standard hint, its columns placed from all rows

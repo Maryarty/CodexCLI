@@ -52,12 +52,6 @@ impl Confirm {
     pub const YES: &'static str = "yes";
 }
 
-/// A menu the generic selection dialog shows; one variant per
-/// parameterisation, its rows data (the words are the view's).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Menu {
-}
-
 /// A sheet the screen wants shown, once (ADR-013 Ж): the decision is the domain's (a thread is
 /// asked to be archived: the question comes first), how it looks and where it opens is the
 /// presenter's. The presenter shows it and says so (`Intent::Shown`).
@@ -155,11 +149,6 @@ pub enum Picked {
     Recall(String),
 }
 
-/// A typed menu as rows: what the view turns into its list.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Page {
-}
-
 /// What the picker says in the history (`add_info_message`/`add_error_message`):
 /// data, the cell is the history's.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -248,9 +237,6 @@ pub enum Note {
     PermissionArgs(permission_args::Error),
     /// The profile `/permissions` named cannot be picked (an error).
     PermissionRefused(permission_args::Refusal),
-    /// The catalog an inline `/permissions <profile>` waited for could not be read (an error): the
-    /// failure's own words.
-    PermissionsFailed(permissions::Failure),
     /// `No other permission modes are available.` (the shortcut found no other mode).
     NoOtherPermissionModes,
 }
@@ -272,8 +258,7 @@ impl Note {
             | Note::PresetOutside(_)
             | Note::PresetFailed { .. }
             | Note::PermissionArgs(_)
-            | Note::PermissionRefused(_)
-            | Note::PermissionsFailed(_) => Tone::Error,
+            | Note::PermissionRefused(_) => Tone::Error,
             _ => Tone::Info,
         }
     }
@@ -304,9 +289,6 @@ pub enum Setting {
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// The menus open, the one on top is shown; a menu below stays until the
-    /// ones above it are closed or one of them is picked from.
-    pub stack: Vec<Menu>,
     /// The models the pickers list.
     pub catalog: Catalog,
     /// The permission profiles the pickers list.
@@ -328,29 +310,9 @@ pub struct Model {
     /// An inline `/permissions <profile>` pick failed or was given up: what waits in the thread's
     /// queue stays unsent (`retain_input_after_failed_permission_selection`). The app takes it.
     pub hold_queue: bool,
-    /// How many intents were applied: a sheet opened with the intent that asks for its menu
-    /// compares it to tell a menu that has not come yet from one the intent left a note for
-    /// (`/model` blocked by a provider switch, or over a catalog with nothing to pick).
-    applied: u64,
 }
 
 impl Model {
-    /// How many intents the model has applied.
-    pub fn applied(&self) -> u64 {
-        self.applied
-    }
-
-    /// The menu shown now.
-    pub fn menu(&self) -> Option<&Menu> {
-        self.stack.last()
-    }
-
-    /// The rows of the menu shown now, if it is one of the typed families.
-    /// Every family is a sheet of its own now (`Menu` is empty until adr013-select-finish).
-    pub fn page(&self) -> Option<Page> {
-        None
-    }
-
     /// `/apps` (`add_connectors_output`): the directory is asked for again,
     /// and what it held before decides what the user sees: the sheet, or a note.
     fn open_apps(&mut self, enabled: bool) {
@@ -626,8 +588,6 @@ impl Model {
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    /// A menu was opened: the only one on the stack.
-    Opened(Menu),
     /// A sheet is asked for (a seed of the debug entries; the intents that ask for one make
     /// the show themselves).
     Showing(Opening),
@@ -702,8 +662,6 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// A screen asks for this menu.
-    Open(Menu),
     /// The answer of the plan-implementation question (`chat::plan_mode::Answer`): the question
     /// is a list of the sheet's own (`sheets/select/generic.rs`), only its answer is the domain's.
     PlanAnswer(crate::screens::chat::plan_mode::Answer),
@@ -791,12 +749,6 @@ pub enum Intent {
     Confirmed(Confirm),
     /// The sheet of show `seq` is shown (the presenter says so).
     Shown(u64),
-    /// The row with this id of the menu on top was accepted.
-    Choose(String),
-    /// The secondary action of the item with this id (`s for secondary`).
-    Secondary(String),
-    /// The menu shown was closed without a pick; the one below shows again.
-    Close,
     /// `/fast`, `/ultrafast`...: the tier `id` is switched on, or off when it is `current`
     /// (`toggle_service_tier_from_ui`).
     ServiceTier { id: String, current: Option<String> },
@@ -812,7 +764,6 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Showing(opening) => model.shows.push(opening),
         Ev::Loaded(presets) => model.accept(presets),
         // The list stays as a fact under its request (`Worktree::listing`): the loading page
@@ -904,14 +855,8 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    model.applied += 1;
-    apply_choice(model, intent, fx);
-}
-
-fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::Open(menu) => model.stack = vec![menu],
         Intent::Confirm(confirm) => model.shows.push(Opening::Confirm(confirm)),
         Intent::Confirmed(confirm) => model.picked.push(Picked::Confirmed(confirm)),
         Intent::Shown(seq) => model.shows.shown(seq),
@@ -1019,15 +964,8 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // The page of the app is opened by the app (`app/select.rs`); the screen keeps no record.
         Intent::OpenAppPage(_) => {}
         Intent::AppUnlinked(id) => model.app_unlinked(&id),
-        // No family is on the stack any more (adr013-select-finish deletes the gesture).
-        Intent::Choose(_) => {}
-        // No menu of the stack has a secondary action any more (`s` of `/model` is the sheet's).
-        Intent::Secondary(_) => {}
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
         Intent::PlanAnswer(_) => {}
-        Intent::Close => {
-            model.stack.pop();
-        }
     }
 }
 
