@@ -21,12 +21,15 @@ use rtwk::controls::SelectionController;
 use rtwk::foundation::{Listenable, ListenableBuilder, VoidCallback};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Row, SizedBox,
+    BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded,
+    FlexFit, Flexible, MainAxisSize, Row, SizedBox, UNBOUNDED,
 };
 use rtwk::scroll::{ListController, ListView};
-use rtwk::style::{Attrs, Span, Style};
+use rtwk::style::{Attrs, Span, Style, TerminalBrightness};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
-use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{
+    AnyWidget, Cx, Handler, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
+};
 
 use codex_tui_core::screens::composer::mentions::candidate::{MentionType, Row as Candidate};
 use codex_tui_core::screens::composer::mentions::catalog::MentionKind;
@@ -52,6 +55,53 @@ const POPUP_HEIGHT: i32 = MAX_ROWS + 9;
 const MIN_DESCRIPTION: usize = 24;
 /// The cells of the type tag (`TAG_WIDTH`: `"Plugin".len()`).
 const TAG_CELLS: i32 = 6;
+
+/// The flex factor of an open popup in the column it stands in: it takes the
+/// rows the cells before it leave, ahead of any other flexible child (the
+/// draft first, then the popup, then the rest: `Layout::vertical([Min(3),
+/// Max(above_input), ..])`).
+const OPEN_FLEX: i32 = 1000;
+
+/// The popup of the draft `ui` holds, in its place among the children of a
+/// column that gives it the rows left over: while closed it is a box of no
+/// size, while open it takes up to its own height of what the other children
+/// leave. The slot is keyed, and a `ListenableBuilder` of the draft's mentions
+/// swaps its child, so the column is laid out again as the popup opens and
+/// closes.
+pub fn slot(ui: Rc<ThreadUi>) -> AnyWidget {
+    let mentions = ui.draft.mentions();
+    AnyWidget::from(ListenableBuilder::new(mentions.listenable(), move |_, _| {
+        if !ui.draft.mentions().is_open() {
+            return SizedBox::shrink().into();
+        }
+        Flexible {
+            flex: OPEN_FLEX,
+            fit: FlexFit::Loose,
+            child: MentionPopup::new(ui.clone()).into(),
+        }
+        .into()
+    }))
+    .with_key(Key::value("mention-popup"))
+}
+
+/// The popup of the draft `ui` holds, at most `room` rows high and no more
+/// than it wants, as an inflexible child: for a column whose other children
+/// are known (the composer harness: footer and draft rows), where the draft
+/// then takes every row the popup leaves.
+pub fn capped(ui: Rc<ThreadUi>, room: i32) -> AnyWidget {
+    let mentions = ui.draft.mentions();
+    AnyWidget::from(ListenableBuilder::new(mentions.listenable(), move |_, _| {
+        if !ui.draft.mentions().is_open() {
+            return SizedBox::shrink().into();
+        }
+        ConstrainedBox::new(
+            BoxConstraints::new(0, UNBOUNDED, 0, room.max(0)),
+            MentionPopup::new(ui.clone()),
+        )
+        .into()
+    }))
+    .with_key(Key::value("mention-popup"))
+}
 
 /// The popup of the draft `ui` holds.
 #[derive(Clone)]
@@ -155,12 +205,26 @@ impl State for PopupState {
             return AnyWidget::default();
         };
         let tokens = theme::Tokens::of(cx);
+        // Where the terminal told nothing of its background the oracle's rows
+        // fall back to the terminal's own attributes (`selection_style`,
+        // `accent_color_on`): the cursor row reversed, the `↑`/`↓` in the ink.
+        let known = TerminalBrightness::background_of(cx).is_some();
         let look = Look {
-            dim: tokens.dim(),
+            // the oracle's `.dim()`: the terminal's dim attribute
+            dim: Style::new().attrs(Attrs::DIM),
             bold: tokens.bold(),
             accent: tokens.accent(),
-            selected: tokens.selected(),
+            selected: if known {
+                tokens.selected()
+            } else {
+                Style::new().attrs(Attrs::BOLD | Attrs::REVERSE)
+            },
             info: tokens.info(),
+            arrow: if known {
+                tokens.accent_on(&Style::new())
+            } else {
+                Style::new()
+            },
         };
         let table = strings::of(cx);
         let taps: Rc<Vec<Handler<PointerEvent>>> = Rc::new(
@@ -253,6 +317,8 @@ struct Look {
     /// The cursor row (`selection_style`).
     selected: Style,
     info: Style,
+    /// The `↑` and `↓` rows (`accent_color_on` the painted fill).
+    arrow: Style,
 }
 
 /// What both popups share: the controllers, the row taps, the looks.
@@ -331,7 +397,7 @@ impl Part {
         } else {
             self.table.scroll_down
         };
-        let style = self.look.accent.clone();
+        let style = self.look.arrow.clone();
         SizedBox::new(
             None,
             Some(1),
@@ -355,24 +421,32 @@ impl Part {
     }
 
     /// The hint line: each key bold and its word dim, `left` and `right`
-    /// cells in, cut at the end.
+    /// cells in. One `Text` per key and per word: the text layout gives a
+    /// blank between two styled spans the style of the span before it, and the
+    /// oracle's blank after a key is dim. The last word is cut at the end.
     fn hint(&self, parts: &[(&'static str, &'static str)], left: i32, right: i32) -> AnyWidget {
-        let spans: Vec<Span> = parts
-            .iter()
-            .flat_map(|(keys, word)| {
-                [
-                    Span::styled(*keys, self.look.bold.clone()),
-                    Span::styled(*word, self.look.dim.clone()),
-                ]
-            })
-            .collect();
+        let mut row = Row::new();
+        let last = parts.len().saturating_sub(1);
+        for (at, (keys, word)) in parts.iter().enumerate() {
+            row = row.child(Text::line(*keys).style(self.look.bold.clone()));
+            let word = Text::line(*word).style(self.look.dim.clone());
+            row = if at == last {
+                row.child(Flexible {
+                    flex: 1,
+                    fit: FlexFit::Loose,
+                    child: word.into(),
+                })
+            } else {
+                row.child(word)
+            };
+        }
         SizedBox::new(
             None,
             Some(1),
             Some(
                 BoxWidget::new()
                     .padding(EdgeInsets::only(left, 0, right, 0))
-                    .child(Text::rich_line(spans).overflow(TextOverflow::Ellipsis))
+                    .child(row)
                     .into(),
             ),
         )
@@ -776,9 +850,16 @@ fn dollar(rows: Rc<[DollarRow]>, part: Part) -> AnyWidget {
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
-        // the hint takes the last row
+        // the hint takes the last row; a list of three rows or more holds its
+        // `↑` and `↓` rows (`picker_rows::render_rows_single_line`)
         if height > 1 {
-            column = column.child(body(height - 1));
+            if height > 3 {
+                column = column.child(part.arrow(true));
+                column = column.child(body(height - 3));
+                column = column.child(part.arrow(false));
+            } else {
+                column = column.child(body(height - 1));
+            }
             let keys = [
                 (table.skill_hint_insert_key, table.hint_insert),
                 (table.hint_close_key, table.skill_hint_close),
@@ -846,7 +927,11 @@ impl DollarRows {
         // the cells between the mark and the tag, less a gap of two
         let name_cells = i32::try_from(start.saturating_sub(2 + 2)).unwrap_or(0);
         let (name_style, side_style) = if selected {
-            (look.selected.clone(), look.accent.clone())
+            (
+                look.selected.clone(),
+                // a dim span loses its bold on the cursor row
+                look.selected.clone().attrs_off(Attrs::BOLD),
+            )
         } else {
             (Style::new(), look.dim.clone())
         };
@@ -881,7 +966,7 @@ impl DollarRows {
             && let Some(description) = &row.description
         {
             line = line
-                .child(SizedBox::new(Some(1), None, None))
+                .child(Text::line(" ").style(side_style.clone()))
                 .child(Expanded::new(
                     1,
                     Text::line(description.clone())

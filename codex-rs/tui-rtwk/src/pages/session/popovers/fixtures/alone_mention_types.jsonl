@@ -1,4 +1,5 @@
-# The `$` mention list of skill_popup.rs / default_unified_mention_popup (chat_composer.rs:7979): a skill
-# and an app named Google Calendar, and a plugin the `$` trigger does not list.
+# `mention_popup_type_prefixes` (chat_composer.rs:7979): a skill and an app named Google Calendar and a
+# plugin the `$` trigger does not list (the unified `@` popup holds it).
 {"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
 {"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"Google Calendar","description":"Find availability and plan event changes","insert":"google-calendar-skill"},{"kind":"app","name":"Google Calendar","description":"Look up events and availability","insert":"google_calendar"},{"kind":"plugin","name":"google-calendar@debug","description":"Connect Google Calendar for scheduling, availability, and event management.","insert":"google-calendar"}]}}

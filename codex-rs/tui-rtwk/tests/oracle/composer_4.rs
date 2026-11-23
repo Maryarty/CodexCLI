@@ -583,11 +583,10 @@ fn unavailable_thread_expands_pasted_commands_without_dispatching() {
 // ORACLE bottom_pane/chat_composer/snapshot_tests.rs:21 plugin_mention_uses_display_name_for_opaque_id kind=snap owner=chat-live snap=plugin_mention_uses_display_name_for_opaque_id
 #[test]
 fn plugin_mention_uses_display_name_for_opaque_id() {
-    kit::pending(
-        Owner::ChatLive,
-        "no plugin mentions on the chat composer (set_plugin_mentions has no seed): `@Postm` opens no `Postman` row and Tab binds no plugin; the snapshot is the composer alone at 100 columns",
-    );
-    let mut s = chat(100, 9);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .entry("popovers", "alone_plugin_opaque")
+        .open();
     s.type_text("@Postm");
     s.keys("tab");
     s.assert_snap("plugin_mention_uses_display_name_for_opaque_id");
