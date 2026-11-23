@@ -391,21 +391,137 @@ fn page_keys_follow_pager_scroll_bindings() {
 fn terminal_output_disclosure_follows_live_history_and_keymap() {
     kit::pending(
         Owner::ChatLive,
-        "no exec-command entry with eight output lines and no ctrl+t output disclosure hint in the chat yet; the open_transcript keymap cannot be set from the kit",
+        "the hint's key is the literal `⌃t` of the cell strings; the oracle rebinds open_transcript (f12, `ctrl-x t`, unbound) and the hint follows, which the kit cannot set in config",
     );
-    let s = Screen::build(Owner::ChatLive).size(72, 6).live().open();
+    let mut command = command_item("output-test", "bash -lc echo");
+    command["aggregatedOutput"] = serde_json::json!("1\n2\n3\n4\n5\n6\n7\n8\n");
+    let s = live_plain(72, 14, &[item_line("item/completed", command)]);
     s.assert_contains("+ 5 lines (⌃t to expand)");
 }
 
 // ORACLE transcript_view_tests.rs:336 terminal_output_disclosure_counts_only_revealable_lines kind=snap owner=chat-live snap=terminal_output_disclosure_counts_only_revealable_lines
+// The oracle joins five frames under bare labels the kit's snapshot reader does not split, so
+// each frame is compared row by row from the snapshot's text.
 #[test]
 fn terminal_output_disclosure_counts_only_revealable_lines() {
     kit::pending(
         Owner::ChatLive,
-        "no exec-command entries (three, four, a clipped line, a command alone, 530,000 streamed lines): the oracle's five frames are joined in one snapshot and the chat has no output disclosure yet",
+        "three of the five frames match; the control's count and hint ignore the room (the oracle counts a preview line clipped by the width as hidden and drops the key hint where it does not fit: `+ 1 line` at 20 columns), and the live output keeps all 530,000 streamed lines where the oracle keeps the first 50 and last 50 (`+ 97 lines`)",
     );
-    let s = Screen::build(Owner::ChatLive).size(64, 6).live().open();
-    s.assert_snap("terminal_output_disclosure_counts_only_revealable_lines");
+    /// One frame: its name, the command, the output, the width, whether the output streams, and
+    /// the rows the oracle draws.
+    type Case = (
+        &'static str,
+        &'static str,
+        String,
+        u16,
+        bool,
+        &'static [&'static str],
+    );
+    let cases: [Case; 5] = [
+        (
+            "three visible",
+            "echo",
+            "a\nb\nc\n".to_owned(),
+            64,
+            false,
+            &["• Ran echo", "  └ a", "    b", "    c"],
+        ),
+        (
+            "one hidden",
+            "echo",
+            "a\nb\nc\nd\n".to_owned(),
+            64,
+            false,
+            &[
+                "• Ran echo",
+                "  └ b",
+                "    c",
+                "    d",
+                "    + 1 line (⌃t to expand)",
+            ],
+        ),
+        (
+            "clipped line",
+            "echo",
+            "abcdefghijklmnopqrstuvwxyz\n".to_owned(),
+            20,
+            false,
+            &["• Ran echo", "  └ abcdefghijklmno…", "    + 1 line"],
+        ),
+        (
+            "command only",
+            "echo a\necho b",
+            String::new(),
+            64,
+            false,
+            &["• Ran echo a …", "  └ (no output)", "    + Show details"],
+        ),
+        (
+            "storage truncated",
+            "echo",
+            "x\n".repeat(530_000),
+            64,
+            true,
+            &[
+                "• Running echo",
+                "  └ x",
+                "    x",
+                "    x",
+                "    + 97 lines (⌃t to expand)",
+            ],
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (name, command, output, width, streamed, frame) in cases {
+        let command = format!("bash -lc {}", shell_quote(command));
+        let mut item = command_item("output-test", &command);
+        let mut lines = Vec::new();
+        if streamed {
+            item["status"] = serde_json::json!("inProgress");
+            item["aggregatedOutput"] = serde_json::Value::Null;
+            item["exitCode"] = serde_json::Value::Null;
+            item["durationMs"] = serde_json::Value::Null;
+            lines.push(item_line("item/started", item));
+            lines.push(notify_line(
+                "item/commandExecution/outputDelta",
+                serde_json::json!({
+                    "threadId": "thread-1", "turnId": "turn-1", "itemId": "output-test",
+                    "delta": output
+                }),
+            ));
+        } else {
+            item["aggregatedOutput"] = serde_json::json!(output);
+            item["durationMs"] = serde_json::json!(1_000);
+            lines.push(item_line("item/completed", item));
+        }
+        let s = live_plain(width, 14, &lines);
+        let top = row_of(&s, if streamed { "• Running" } else { "• Ran" });
+        let rows = s.rows();
+        let got: Vec<&str> = rows
+            .iter()
+            .skip(top)
+            .take(frame.len())
+            .map(String::as_str)
+            .collect();
+        if got != frame {
+            wrong.push(format!("{name}: {got:?} != {frame:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "frames that differ:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// `text` as one shell word.
+fn shell_quote(text: &str) -> String {
+    if text.contains('\n') {
+        format!("'{text}'")
+    } else {
+        text.to_owned()
+    }
 }
 
 // ORACLE transcript_view_tests.rs:394 startup_warning_keeps_first_visible_header_in_place kind=ui owner=chat-live
@@ -960,11 +1076,17 @@ fn item_line(method: &str, item: serde_json::Value) -> String {
 /// A live chat (thread `thread-1`) with the turn details folded, fed its turn's start and
 /// then `lines`.
 fn live_with(width: u16, height: u16, lines: &[String]) -> Screen {
+    let mut s = live_plain(width, height, lines);
+    s.collapse_turn_details();
+    s
+}
+
+/// A live chat (thread `thread-1`) fed its turn's start and then `lines`.
+fn live_plain(width: u16, height: u16, lines: &[String]) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .size(width, height)
         .script("{\"step\": \"seed\", \"seed\": \"session\", \"thread\": \"thread-1\"}\n")
         .open();
-    s.collapse_turn_details();
     s.feed(&started_line());
     for line in lines {
         s.feed(line);
