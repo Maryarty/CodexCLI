@@ -56,7 +56,7 @@
   `Choose`/`Toggle`/`Cursor`/`Expand`...). No new `Menu`/`Pick`/`Prompt`,
   `FeatureView` or `AppCx` hooks: a feature's visible half is
   `src/features/<f>/` with `open(cx, args)` and its own sheet; sheet pages are
-  a `SheetStack` in `State`. Code you touch in an old family keeps its shape
+  routes of a nested `Navigator` in `IntrinsicHeight` (no own page stack). Code you touch in an old family keeps its shape
   unless your task is its migration step.
 - The rules tests (`--test rules`) check all of this.
 

@@ -47,7 +47,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | # | decision | in one line |
 |---|---|---|
 | ADR-001 | crate and pins | `codex-rs/tui-rtwk` (crate `codex-tui-rtwk`), its own Cargo workspace passing codex-rs manifest policy; codex-rs `[patch]` copied, lockfile seeded from codex-rs; rtwk by path at `RTWK_REF` with a pin check; codex-rs workspace, lockfile and Bazel untouched |
-| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, inline views as the chat page's bottom-pane slot (amendment 2026-11-18's core view stack withdrawn by ADR-013: `SheetStack` in `State`, docked `SheetHost`), centered views and dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
+| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, inline views as the chat page's bottom-pane slot (amendment 2026-11-18's core view stack withdrawn by ADR-013: nested `Navigator` in `IntrinsicHeight`, docked `SheetHost`), centered views and dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
 | ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)` per thread and `apply_app(&mut CodexApp, AppEv, &mut AppFx)` for app-scoped state, tickets on replies, derived values via `ViewCx::memo`; per-thread UI controllers in `ThreadUi`, kept in the UI model (`UiApp.ui`), never in the core model; entities+notify as reserve; chosen on per-approach trade-offs |
 | ADR-004 | screens and content | 24 screen-map rows (§1) as pushed routes, dialogs and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
 | ADR-005 | screen modes | owned full screen first (the oracle's default), inline last |
@@ -990,8 +990,12 @@ data is wanted now → `Interest` counter in core, the open fact in UI (И); (5)
 drawn state (Н) in the UI: `State` of the widget or `ThreadUi`. Field text is always Н; core
 gets it only in a verb (`Submit`, `Search{query}`). "Who writes it" decides, not "who reads".
 
-**Recommendations taken (full §16).** O1 sheet pages are a `SheetStack<P>` in `State` (no
-nested `Navigator`); O2 bottom-pane views stand in a docked `SheetHost` slot of the session
+**Recommendations taken (full §16).** O1 sheet pages are routes of a nested `Navigator`
+wrapped in `IntrinsicHeight` inside the sheet's max-height cap (re-decided by the person
+2026-11-23 after the rtwk orchestrator showed this is twk's supported way: rtwk's Navigator
+reports intrinsic height from onstage routes only, navigation/navigator.rs `most`; each page a
+route with its own `State`, Esc pops; `SheetStack` of full §6.2 is dropped; a mismatch with
+the oracle goes to rtwk as a repro); O2 bottom-pane views stand in a docked `SheetHost` slot of the session
 page (check the oracle snapshot first; until then the modal routes stay); O3 pure helpers in
 `core::kit`; O4 ops keyed by a domain key (+ `gen`), never a UI correlation id; O5 the rules
 first (`adr013-rules`), then the `/plugins` pilot; O6 the 9 doors of WIP `6cafa8de1` are not
