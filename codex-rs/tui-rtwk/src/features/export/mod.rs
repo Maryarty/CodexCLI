@@ -5,7 +5,7 @@
 pub mod strings;
 
 use codex_tui_core::features::export::{Export, Menu, Note, Prompt};
-use codex_tui_core::screens::select::list::List;
+use crate::widgets::picker::list::List;
 
 use super::{FeatureView, PromptWords};
 use crate::pages::session::strings::Strings as SessionStrings;

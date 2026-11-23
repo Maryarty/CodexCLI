@@ -1,4 +1,3 @@
 # The worktrees menu: where the conversation goes
 # Oracle data: chatwidget/snapshots/codex_tui__chatwidget__tests__worktrees_conversation_choices.snap
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Worktrees", "footer_hint": "enter select · esc back", "items": [{"name": "Continue current conversation", "description": "Preserve this conversation in the new checkout"}, {"name": "Start new conversation", "description": "Open a fresh conversation in the new checkout"}, {"name": "Browse worktrees", "description": "Resume an owner thread or copy a working directory"}], "kind": "list"}}

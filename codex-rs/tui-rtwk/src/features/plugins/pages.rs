@@ -29,7 +29,7 @@ use codex_tui_core::features::{FeatureStates, Remote};
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::select::Intent as SelectIntent;
-use codex_tui_core::screens::select::list::List;
+use crate::widgets::picker::list::List;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::lists::{self, AuthStep};

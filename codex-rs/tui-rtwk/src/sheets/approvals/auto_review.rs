@@ -4,18 +4,17 @@
 //! Flutter: a `showModalBottomSheet` over a searchable `ListView` with two columns (the action
 //! and the rationale); rtwk's generic selection list is that sheet, so this file only says WHAT
 //! the list holds: a disabled header row, then a row per denial, newest first. The pick comes
-//! back as `Picked::Item(<denial id>)`; the model turns it into `ThreadEv::ApproveDenied`.
+//! back as `AutoReview::Approve { id }`; the model turns it into `ThreadEv::ApproveDenied`.
 
 use rtwk::{Cx, overlay::DialogResult};
 
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::approvals::guardian::{Denial, Denials};
-use codex_tui_core::screens::select::list::{Columns, Item, List};
-use codex_tui_core::screens::select::{Intent, Menu};
+use crate::widgets::picker::list::{Columns, Item, List};
 
 use super::guardian::summary;
 use super::strings::{self, Strings};
-use crate::app::view::Hs;
+use crate::sheets::select::Purpose;
 
 /// The list of the denials: a header row ("Action", "Rationale") that cannot be picked and is
 /// kept by every search, then a row per denial with its rationale in the second column.
@@ -57,14 +56,10 @@ fn row(s: &Strings, denial: &Denial) -> Item {
     }
 }
 
-/// Shows the list over the page that asks: the model gets the menu, then the generic selection
-/// dialog reads it. With no denial the oracle says so in the history instead
-/// (`ThreadEv::NoDenials`), so the caller asks only when there is one.
-pub fn open<S>(cx: &mut Cx<'_, S>, hs: &Hs, denials: &Denials) -> DialogResult<()> {
+/// Shows the list over the page that asks. With no denial the oracle says so in the history
+/// instead (`AutoReview::NoDenials`), so the caller asks only when there is one. The pick is the
+/// verb `AutoReview::Approve { id }` for the thread.
+pub fn open<S>(cx: &mut Cx<'_, S>, thread: ThreadId, denials: &Denials) -> DialogResult<()> {
     let list = menu(strings::of(cx), denials);
-    cx.emit(
-        &hs.screen,
-        ScreenIntent::Select(Intent::Open(Menu::List(Box::new(list)))),
-    );
-    crate::sheets::select::open(cx)
+    crate::sheets::select::pick(cx, list, Purpose::ApproveDenial(thread))
 }

@@ -286,6 +286,27 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     },
                 );
             }
+            // `/auto-review` lists the thread's denials in a sheet of its own, or says there is
+            // none (`open_auto_review_denials_popup`).
+            if opened.command == SlashCommand::AutoReview {
+                let denials = &thread.screen_slots().approvals.recent_denials;
+                if denials.is_empty() {
+                    let what = codex_tui_core::app::AutoReview::NoDenials;
+                    let thread = thread.id().clone();
+                    cx.emit(
+                        &hs.intent,
+                        codex_tui_core::app::Intent::AutoReview { thread, what },
+                    );
+                } else {
+                    drop(crate::sheets::approvals::open_auto_review(
+                        cx,
+                        thread.id().clone(),
+                        denials,
+                    ));
+                }
+                note_opened(Target::Select);
+                return;
+            }
             // `/model`, `/permissions` and `/apps` fill the selection dialog
             // from the thread's facts, and the app asks the server for the rest.
             if let Some(intent) = select_intent(

@@ -4,21 +4,19 @@
 //! Flutter: a `showModalBottomSheet` of a list with three choices, opened by the page that
 //! listens to the controller (`didChangeDependencies`); rtwk's generic selection sheet is that
 //! sheet, so this file says WHAT the list holds and when the page opens it. The pick returns to
-//! the model as `Picked::Item(<row id>)` (`plan_mode::Answer`), and the model decides what
+//! the model as `select::Intent::PlanAnswer` (`plan_mode::Answer`), and the model decides what
 //! switching modes and sending the implement message mean.
 
 use rtwk::Cx;
 use rtwk::provider::{read, select};
 
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat::plan_mode::{Answer, Used};
-use codex_tui_core::screens::select::list::{Columns, Item, List};
-use codex_tui_core::screens::select::{Intent, Menu};
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::threads::ThreadModel;
 
-use crate::app::view::Hs;
+use crate::sheets::select::Purpose;
 use crate::pages::session::strings::{self, Strings};
 
 /// The list of the prompt (`plan_implementation::selection_view_params`): three numbered rows,
@@ -85,11 +83,6 @@ impl Seen {
         let status = &thread.screen_slots().status;
         let used = codex_tui_core::screens::chat::plan_mode::used(status.context, status.tokens);
         let list = menu(strings::of(cx), used);
-        let hs = read::<Hs, _>(cx);
-        cx.emit(
-            &hs.screen,
-            ScreenIntent::Select(Intent::Open(Menu::List(Box::new(list)))),
-        );
-        drop(crate::sheets::select::open(cx));
+        drop(crate::sheets::select::pick(cx, list, Purpose::PlanImplementation));
     }
 }

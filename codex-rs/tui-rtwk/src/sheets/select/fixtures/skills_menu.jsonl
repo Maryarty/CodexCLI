@@ -1,4 +1,3 @@
 # The skills menu: list skills or enable and disable them
 # Oracle data: chatwidget/snapshots/codex_tui__chatwidget__tests__skills_menu_default_mentions_shortcut.snap
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Skills", "subtitle": "Choose an action", "footer_hint": "enter select · esc back", "items": [{"name": "List skills", "description": "Tip: press $ to open this list directly"}, {"name": "Enable/Disable Skills", "description": "Enable or disable skills"}], "kind": "list"}}

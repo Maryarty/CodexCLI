@@ -1,3 +1,2 @@
 # One highlighted row (oracle selection_popup_common.rs:1089): the accent style, bold.
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"items": [{"name": "selected"}], "kind": "list"}}

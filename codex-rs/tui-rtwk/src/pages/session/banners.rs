@@ -23,7 +23,7 @@ use codex_tui_core::app::SessionSlice;
 use codex_tui_core::ids::{BackendId, Ticket};
 use codex_tui_core::keymap::actions::{LIST_ACCEPT, LIST_CANCEL};
 use codex_tui_core::screens::cells::ClockFormat;
-use codex_tui_core::screens::select::list::{Columns, Item, List};
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::screens::status::reset_time;
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::ThreadModel;

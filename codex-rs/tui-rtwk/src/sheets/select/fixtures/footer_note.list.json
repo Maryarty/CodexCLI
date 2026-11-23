@@ -1,0 +1,1 @@
+{"title": "Select Approval Mode", "footer_note": "Note: Use /setup-default-sandbox to allow network access.", "footer_hint": "Press enter to confirm or esc to go back", "items": [{"name": "Read Only", "description": "Codex can read files", "current": true}]}

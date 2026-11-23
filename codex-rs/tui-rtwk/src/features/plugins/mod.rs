@@ -25,7 +25,7 @@ use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::features::plugins::{Intent, Interest, Plugins, Say, State, Wish};
 use codex_tui_core::features::{FeatureInterest, FeatureStates, Never, Scope};
 use codex_tui_core::ids::Cwd;
-use codex_tui_core::screens::select::list::List;
+use crate::widgets::picker::list::List;
 
 use self::sheet::PluginsSheet;
 use super::{FeatureView, PromptWords, Shown, verb};

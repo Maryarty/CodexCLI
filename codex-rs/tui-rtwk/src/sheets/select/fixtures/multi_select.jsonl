@@ -1,3 +1,2 @@
 # A multi-select list: three checkbox rows, Space flips the one under the cursor, Enter confirms them all.
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"kind": "list", "title": "Choose", "multi": true, "items": [{"id": "a", "name": "Alpha", "toggle": true, "checkbox": true}, {"id": "b", "name": "Beta", "toggle": false, "checkbox": true}, {"id": "c", "name": "Gamma", "toggle": true, "checkbox": true}]}}

@@ -19,7 +19,7 @@ use codex_tui_core::features::plugins::{
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::keymap::{Key, Keymap, Mods, Stroke};
 use codex_tui_core::rpc::RpcError;
-use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Span, Tab as ListTab};
+use crate::widgets::picker::list::{Columns, Item, List, Role, Span, Tab as ListTab};
 
 use super::strings::{self, Strings};
 use crate::keymap::stroke_label;

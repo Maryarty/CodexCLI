@@ -1499,7 +1499,7 @@ mod auto_review {
     use crate::dialogs::oracle::assert_rows;
     use codex_tui_core::app::{AppEv, Intent};
     use codex_tui_core::screens::ScreenIntent;
-    use codex_tui_core::screens::select::list::List;
+    use codex_tui_rtwk::widgets::picker::list::List;
     use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
     use codex_tui_rtwk::sheets::approvals::auto_review_menu;
     use codex_tui_rtwk::sheets::approvals::strings::EN;

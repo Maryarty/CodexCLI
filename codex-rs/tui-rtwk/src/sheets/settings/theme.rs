@@ -38,7 +38,7 @@ use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::select::list::{SIDE_GAP, Side, SideWidth};
+use crate::widgets::picker::list::{SIDE_GAP, Side, SideWidth};
 use codex_tui_core::screens::settings::{Edit, Intent, Offer, ThemePicker, Which};
 
 use super::keys::{Keys, ListKey, list_key};

@@ -10,7 +10,6 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
-use crate::screens::chat::plan_mode;
 use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply};
 
@@ -29,6 +28,10 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
             select::Ctx::App { id, enabled },
             fx,
         );
+        return;
+    }
+    if let select::Intent::PlanAnswer(answer) = intent {
+        super::session::plan_answer(app, answer, fx);
         return;
     }
     // `AppEvent::OpenUrlInBrowser`: the page of the app the link dialog shows.
@@ -206,7 +209,7 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 | select::Picked::Review(_)
                 | select::Picked::Worktree(_)
                 | select::Picked::Feature(_)
-        ) || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
+        )
     };
     if !app.screens.select.picked.iter().any(ours) {
         return;
@@ -239,11 +242,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
             }
             select::Picked::Worktree(pick) => worktree_pick(app, pick, fx),
             select::Picked::Feature(pick) => super::features::picked(app, pick, fx),
-            select::Picked::Item(id) => {
-                if let Some(answer) = plan_mode::Answer::of_row(&id) {
-                    super::session::plan_answer(app, answer, fx);
-                }
-            }
             _ => {}
         }
     }

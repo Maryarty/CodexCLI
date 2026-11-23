@@ -1,0 +1,1 @@
+{"title": "Select Approval Mode", "footer_hint": "Press enter to confirm or esc to go back", "searchable": true, "search_placeholder": "Type to search branches", "items": [{"name": "Read Only", "description": "Codex can read files", "search_value": "Read Only"}]}

@@ -4,7 +4,7 @@
 
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::select::apps;
-use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Secondary, Span};
+use crate::widgets::picker::list::{Columns, Item, List, Role, Secondary, Span};
 use codex_tui_core::screens::select::models::{
     self, Apply, Choice, Effort, Heading, Kind, PlanSource,
 };
@@ -23,7 +23,6 @@ const SESSION_KEY: char = 's';
 /// reads its rows from.
 pub fn of(menu: &Menu, page: Option<&Page>, features: &FeatureStates, s: &Strings) -> Option<List> {
     Some(match (menu, page) {
-        (Menu::List(list), _) => (**list).clone(),
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
         (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
         (Menu::Apps, Some(Page::Apps(page))) => apps(page, s),
@@ -68,7 +67,6 @@ fn apps(page: &apps::Page, s: &Strings) -> List {
                     id: apps::RETRY.to_string(),
                     name: s.apps_retry.to_string(),
                     description: Some(s.apps_retry_description.to_string()),
-                    keep_open: true,
                     ..Item::default()
                 },
             ],

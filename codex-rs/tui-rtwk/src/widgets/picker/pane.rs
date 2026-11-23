@@ -15,8 +15,8 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, LayoutBuilder};
 
-use codex_tui_core::screens::select::layout::{self, Sizes, Surface};
-use codex_tui_core::screens::select::list::Side;
+use super::layout::{self, Sizes, Surface};
+use super::list::Side;
 
 use super::rows::Rows;
 use super::side;

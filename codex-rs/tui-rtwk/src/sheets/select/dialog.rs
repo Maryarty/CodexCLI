@@ -125,11 +125,14 @@ impl State for MenuDialogState {
         let intent = match event {
             Event::Choose(id) => Intent::Choose(id),
             Event::Secondary(id) => Intent::Secondary(id),
-            Event::Toggle(id) => Intent::Toggle(id),
-            Event::Reorder(id, down) => Intent::Reorder(id, down),
-            Event::Confirm => Intent::Confirm,
-            // Only the plugin browser asks for these (`Picker::extras`), and it is not this sheet.
-            Event::Tab(_) | Event::Hot(_) => return Rebuild::No,
+            // The typed menus have no toggles and no order to move (the generic lists, which
+            // have, are `generic::ListSheet`), and only the plugin browser asks for tabs and
+            // hot keys (`Picker::extras`).
+            Event::Toggle(_)
+            | Event::Reorder(..)
+            | Event::Confirm
+            | Event::Tab(_)
+            | Event::Hot(_) => return Rebuild::No,
             // Esc leaves the menu on top; one below it (the quick menu under
             // the reasoning menu) comes back, and the dialog closes when the
             // model has none left.

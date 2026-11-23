@@ -84,8 +84,6 @@ pub struct Item {
     /// The footer while this row is highlighted.
     pub footer_hint: Option<String>,
     pub secondary: Option<Secondary>,
-    /// An accept does not close the list.
-    pub keep_open: bool,
     /// A multi-select row the ordering keys may move (`MultiSelectItem::orderable`).
     pub orderable: bool,
     /// A rule is drawn under the row, unless it is the last one shown.

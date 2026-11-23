@@ -1,3 +1,2 @@
 # As hint_default on the shared picker preset (oracle picker_presets.rs).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Choose an action", "standard_hint": true, "panel": true, "columns": "auto_all_rows", "hide_description_below": 24, "items": [{"name": "Continue"}], "kind": "list"}}

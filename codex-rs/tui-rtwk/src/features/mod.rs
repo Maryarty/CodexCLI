@@ -23,7 +23,7 @@ use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureInterest, FeatureMenu, FeatureNote, FeaturePrompt,
     FeatureStates, FeatureWish, Scope,
 };
-use codex_tui_core::screens::select::list::List;
+use crate::widgets::picker::list::List;
 
 use crate::app::view::Hs;
 

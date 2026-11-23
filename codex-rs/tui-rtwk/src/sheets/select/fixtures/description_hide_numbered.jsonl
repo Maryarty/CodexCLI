@@ -1,3 +1,2 @@
 # The same two rows as description_hide_when_narrow, with the numbers as the oracle's test writes its raw rows' prefixes (`› 1. `, `  2. `: the disabled row numbered too, which a list does not): here the numbers are the rows' shortcuts (oracle selection_popup_common.rs description_column_visibility).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"kind": "list", "columns": "auto_all_rows", "hide_description_below": 24, "numbered": false, "items": [{"name": "日本語", "description": "Details", "shortcut": "1"}, {"name": "Blocked", "disabled_reason": "Unavailable", "shortcut": "2"}]}}

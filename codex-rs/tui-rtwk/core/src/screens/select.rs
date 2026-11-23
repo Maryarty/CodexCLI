@@ -15,8 +15,6 @@ use crate::threads::ThreadFx;
 
 pub mod apps;
 pub mod collaboration;
-pub mod layout;
-pub mod list;
 pub mod models;
 pub mod permission_args;
 pub mod permission_shortcuts;
@@ -26,7 +24,6 @@ pub mod quick_dials;
 pub mod reasoning;
 pub mod review;
 pub mod worktree;
-pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
 use models::{Effort, PlanSource, Step};
 pub use permissions::{PermissionsMenu, Profiles};
@@ -80,10 +77,6 @@ pub enum Menu {
     /// A menu of a feature slice (ADR-012); the feature turns it into rows and settles its
     /// picks (`Feature::choose`).
     Feature(crate::features::FeatureMenu),
-    /// The generic form: every option of the oracle's `SelectionViewParams`
-    /// (search, tabs, disabled rows, side preview, footers) as data. A named
-    /// parameterisation is a variant above whose view turns it into a `List`.
-    List(Box<List>),
 }
 
 /// What the user picked.
@@ -102,13 +95,6 @@ pub enum Picked {
     Effort { model: String, effort: Effort, plan: bool },
     /// The answer of a confirmation was Yes (No picks nothing).
     Confirmed(Confirm),
-    /// An item of a generic list, by id.
-    Item(String),
-    /// The secondary action of an item of a generic list, by id.
-    ItemSecondary(String),
-    /// A multi-select list (`List::multi`) was confirmed: the ids of the
-    /// items whose toggle is on, in the order of the list.
-    Items(Vec<String>),
     /// An app of the directory (`Model::apps`), by id: its link dialog opens (`Apps::link`) or
     /// it says it has no link.
     App(String),
@@ -342,7 +328,6 @@ impl Model {
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
             Menu::Confirm(_)
-            | Menu::List(_)
             | Menu::Review(_)
             | Menu::Worktree(_)
             | Menu::Quick(_)
@@ -860,9 +845,11 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// A screen asks for this menu (a generic list: its picks come back as
-    /// `Picked::Item(id)` in `Model::picked`).
+    /// A screen asks for this menu.
     Open(Menu),
+    /// The answer of the plan-implementation question (`chat::plan_mode::Answer`): the question
+    /// is a list of the sheet's own (`sheets/select/generic.rs`), only its answer is the domain's.
+    PlanAnswer(crate::screens::chat::plan_mode::Answer),
     /// `/model`: the quick menu on the catalog held (`Loading models…` while
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
@@ -916,18 +903,10 @@ pub enum Intent {
     /// switch at once, the app writes the config and, once it is saved, tells the directory
     /// (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
-    /// The item with this id (`List::id_of`, or a row of `Page`) was
-    /// accepted.
+    /// The row with this id of the menu on top was accepted.
     Choose(String),
     /// The secondary action of the item with this id (`s for secondary`).
     Secondary(String),
-    /// The toggle of the item with this id was flipped.
-    Toggle(String),
-    /// The orderable item with this id moves one place (`true`: down).
-    Reorder(String, bool),
-    /// A multi-select list (`List::multi`) was confirmed (Enter): the ids of
-    /// the toggled-on items are picked together and the menu closes.
-    Confirm,
     /// The menu shown was closed without a pick; the one below shows again.
     Close,
     /// `/fast`, `/ultrafast`...: the tier `id` is switched on, or off when it is `current`
@@ -1195,21 +1174,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 let step = menu.choose(&model.catalog, &id, false);
                 model.step_from(id, step);
             }
-            Some(Menu::List(list)) => {
-                let Some(item) = list.find(&id) else { return };
-                if item.is_disabled() {
-                    return;
-                }
-                let keep = item.keep_open;
-                if item.checkbox && item.toggle.is_some() {
-                    list.flip(&id);
-                    return;
-                }
-                model.picked.push(Picked::Item(id));
-                if !keep {
-                    model.stack.pop();
-                }
-            }
             Some(Menu::Permissions(menu)) => {
                 let step = menu.choose(&model.profiles, &id);
                 model.permissions_step(step);
@@ -1315,30 +1279,10 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 let step = menu.choose(&model.catalog, &id, true);
                 model.step_from(id, step);
             }
-            Some(Menu::List(list)) if list.find(&id).is_some_and(|item| !item.is_disabled()) => {
-                model.picked.push(Picked::ItemSecondary(id));
-                model.stack.pop();
-            }
             _ => {}
         },
-        Intent::Toggle(id) => {
-            if let Some(Menu::List(list)) = model.stack.last_mut() {
-                list.flip(&id);
-            }
-        }
-        Intent::Reorder(id, down) => {
-            if let Some(Menu::List(list)) = model.stack.last_mut() {
-                list.reorder(&id, down);
-            }
-        }
-        Intent::Confirm => {
-            if let Some(Menu::List(list)) = model.stack.last()
-                && list.multi
-            {
-                model.picked.push(Picked::Items(list.checked()));
-                model.stack.pop();
-            }
-        }
+        // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
+        Intent::PlanAnswer(_) => {}
         Intent::Close => {
             model.apps.link = None;
             model.stack.pop();
@@ -1541,8 +1485,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// (`{"kind":"models","current":{"model":..}}`, `all_models`, `loading`,
 /// `reasoning` and `advanced` with a `preset`), `{"kind":"profiles",
 /// "discovery":{..}}` (the permission catalog), `{"kind":"permissions",
-/// "menu":"profiles","current":{..}}`, `{"kind":"list", ..}` (the fields
-/// of `List`) and `{"kind":"app_link","link":{..}}` (the link dialog of an app).
+/// "menu":"profiles","current":{..}}`, `{"kind":"app_link","link":{..}}` (the link dialog of an app).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -1577,7 +1520,6 @@ enum SeedEv {
         #[serde(default)]
         warning: Option<usize>,
     },
-    List(Box<List>),
     /// The link dialog of an app (`/apps`, an app picked).
     AppLink {
         link: apps::Link,
@@ -1634,7 +1576,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             source,
             warning,
         }),
-        SeedEv::List(list) => Ev::Opened(Menu::List(list)),
         SeedEv::AppLink { link } => Ev::AppLinkOpened(link),
         SeedEv::Profiles { discovery } => Ev::Listed(discovery),
         SeedEv::Permissions {

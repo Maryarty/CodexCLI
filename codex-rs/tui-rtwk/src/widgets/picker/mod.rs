@@ -35,20 +35,19 @@ use codex_tui_core::keymap::actions::{
     LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
 use codex_tui_core::keymap::{ActionId, Keymap, Stroke};
-use codex_tui_core::screens::select::list::{
-    Browse, List, Role, Secondary, Span as Run, normalize_paste,
-};
-
 use crate::app::theme;
 use crate::keymap::{combo_of, keymap, label, pressed};
 use crate::widgets::session_list::page_rows;
 use crate::widgets::tab_strip::Tabs;
 
+pub mod layout;
+pub mod list;
 mod pane;
 mod rows;
 mod side;
 pub mod strings;
 
+use self::list::{Browse, List, Role, Secondary, Span as Run, normalize_paste};
 use self::pane::{Pane, Reserved};
 use self::rows::{RowStyles, Rows, Words};
 
@@ -896,7 +895,7 @@ impl PickerState {
         let disabled = list
             .items_of(self.tab())
             .get(item)
-            .is_none_or(codex_tui_core::screens::select::list::Item::is_disabled);
+            .is_none_or(list::Item::is_disabled);
         if disabled {
             return;
         }

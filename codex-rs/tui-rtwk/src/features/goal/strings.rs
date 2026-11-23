@@ -6,7 +6,7 @@ use codex_tui_core::features::goal::{
     Action, CommandsHint, Failure, Menu, Note, Prompt, UsageHint,
 };
 use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
-use codex_tui_core::screens::select::list::{Columns, Item, List};
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::threads::{Goal, GoalStatus};
 use rtwk_core::unicode::grapheme_boundaries;
 

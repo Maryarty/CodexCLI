@@ -1,0 +1,1 @@
+{"title": "Worktrees", "footer_hint": "enter select · esc back", "items": [{"name": "Continue current conversation", "description": "Preserve this conversation in the new checkout"}, {"name": "Start new conversation", "description": "Open a fresh conversation in the new checkout"}, {"name": "Browse worktrees", "description": "Resume an owner thread or copy a working directory"}]}

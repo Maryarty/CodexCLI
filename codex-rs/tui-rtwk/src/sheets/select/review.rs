@@ -7,7 +7,7 @@
 
 use rtwk::Handler;
 
-use codex_tui_core::screens::select::list::{Columns, Item, List};
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::screens::select::review::{self, Menu};
 
 pub mod strings;

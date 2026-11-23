@@ -4,7 +4,7 @@
 
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::features::export::{CLIPBOARD, FILE, Menu, Note, Prompt};
-use codex_tui_core::screens::select::list::{Columns, Item, List};
+use crate::widgets::picker::list::{Columns, Item, List};
 
 use crate::features::PromptWords;
 
