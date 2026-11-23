@@ -3,10 +3,13 @@
 //! filename prompt. The wording is the oracle's English until the catalog has these entries.
 
 use codex_tui_core::app::effects::CopyStatus;
-use codex_tui_core::features::export::{CLIPBOARD, FILE, Menu, Note, Prompt};
+use codex_tui_core::features::export::Note;
 use crate::widgets::picker::list::{Columns, Item, List};
 
-use crate::features::PromptWords;
+/// The row ids of the destination picker, in order (oracle: "Copy to clipboard", "Save to
+/// file").
+pub const CLIPBOARD: &str = "export.clipboard";
+pub const FILE: &str = "export.file";
 
 /// The words of one of the feature's notes.
 pub fn note(note: &Note) -> String {
@@ -23,20 +26,14 @@ pub fn note(note: &Note) -> String {
     }
 }
 
-/// The filename prompt (oracle `show_transcript_export_file_prompt`).
-pub fn prompt(prompt: &Prompt) -> PromptWords {
-    match prompt {
-        Prompt::File => PromptWords {
-            title: "Save conversation".into(),
-            placeholder: "Type a filename and press Enter".into(),
-        },
-    }
-}
+/// The filename prompt (oracle `show_transcript_export_file_prompt`): its title and the
+/// placeholder of an empty field.
+pub const PROMPT_TITLE: &str = "Save conversation";
+pub const PROMPT_PLACEHOLDER: &str = "Type a filename and press Enter";
 
 /// The destination picker (oracle `show_transcript_export_popup`), shaped as
 /// `SelectionViewParams` with the standard hint.
-pub fn menu(menu: &Menu) -> List {
-    let Menu::Destination = menu;
+pub fn menu() -> List {
     let row = |id: &str, name: &str, description: &str| Item {
         id: id.to_owned(),
         name: name.to_owned(),

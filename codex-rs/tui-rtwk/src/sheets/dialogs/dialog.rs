@@ -4,8 +4,7 @@
 //! the warnings the session retains, the host's attachments and the prompt a feature asked for,
 //! and takes the verbs the user's decisions are (`Decide`, `RequestNote`, `Submit`...).
 
-use rtwk::editing::TextEditingController;
-use rtwk::focus::{FocusNode, KeyBindings};
+use rtwk::focus::KeyBindings;
 use rtwk::overlay::close_dialog;
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -13,20 +12,18 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::keymap::actions::{GLOBAL_COPY, GLOBAL_OPEN_WARNINGS};
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::dialogs::{Attachments, Intent, NoteRequest, Suggestion};
+use codex_tui_core::screens::dialogs::{Attachments, Intent, NoteRequest};
 
 use super::feedback::Step;
 use super::shortcuts::ShortcutView;
 use super::warnings::{Pages, Turn};
-use super::{feedback, prompt, shortcuts, strings, warnings};
+use super::{feedback, shortcuts, strings, warnings};
 use crate::app::view::Hs;
 use crate::keymap::{bindings, first_of_each, keymap};
 
 /// The dialog a `SmallDialog` is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
-    /// The text prompt a feature asked for: the model holds the request.
-    Prompt,
     /// The shortcut overlay, list page.
     Shortcuts,
     /// The warnings viewer over the warnings the session retains when it opened.
@@ -49,15 +46,6 @@ impl SmallDialog {
 }
 
 pub struct SmallDialogState {
-    shown: bool,
-    /// The text prompt's field and its focus (`prompt.rs`): UI state, the model keeps only
-    /// whether the user typed.
-    pub(super) text: TextEditingController,
-    pub(super) node: FocusNode,
-    /// The prompt's field was seeded with its initial text.
-    seeded: bool,
-    /// The suggestion put in the field.
-    suggested: Option<String>,
     /// The shortcut overlay's page.
     shortcuts: ShortcutView,
     /// The warnings viewer's pages (frozen when it opened).
@@ -73,10 +61,6 @@ pub enum Msg {
     Turn(Turn),
     Category(usize),
     Consent(bool),
-    /// The prompt's field changed by the user.
-    Typed,
-    /// Enter in the prompt's field.
-    Submit(std::rc::Rc<str>),
 }
 
 impl StatefulWidget for SmallDialog {
@@ -84,11 +68,6 @@ impl StatefulWidget for SmallDialog {
 
     fn create_state(&self) -> SmallDialogState {
         SmallDialogState {
-            shown: false,
-            text: TextEditingController::new(""),
-            node: FocusNode::new(),
-            seeded: false,
-            suggested: None,
             shortcuts: ShortcutView::List,
             warnings: None,
             feedback: match self.page {
@@ -108,7 +87,6 @@ impl SmallDialogState {
     fn finish(&mut self, page: Page, cx: &mut Cx<'_, Self>) {
         let hs = read::<Hs, _>(cx);
         match page {
-            Page::Prompt => cx.emit(&hs.screen, ScreenIntent::Dialogs(Intent::CancelPrompt)),
             Page::Warnings => {
                 if let Some(decision) = self.warnings.as_ref().and_then(Pages::decision) {
                     cx.emit(&hs.screen, ScreenIntent::Dialogs(Intent::Decide(decision)));
@@ -126,33 +104,6 @@ impl State for SmallDialogState {
 
     fn did_change_dependencies(&mut self, widget: &SmallDialog, cx: &mut Cx<'_, Self>) {
         match widget.page {
-            Page::Prompt => {
-                // The model's request: the dialog closes when the model drops it.
-                let prompt = select::<
-                    ScreenStates,
-                    Option<codex_tui_core::screens::dialogs::Prompt>,
-                    _,
-                >(cx, |states| states.dialogs.prompt.clone());
-                if prompt.is_none() && self.shown {
-                    close_dialog::<_, ()>(cx, None);
-                }
-                self.shown = prompt.is_some();
-                // A prompt's field starts with its initial text, and takes the generated
-                // suggestion while the model says it applies (`apply_text_suggestion`: only
-                // before the user typed).
-                if let Some(prompt) = prompt {
-                    if !self.seeded {
-                        self.seeded = true;
-                        self.text.reset(&prompt.initial);
-                    }
-                    if let Suggestion::Applied(text) = &prompt.suggestion
-                        && self.suggested.as_ref() != Some(text)
-                    {
-                        self.suggested = Some(text.clone());
-                        self.text.reset(text);
-                    }
-                }
-            }
             Page::Warnings => {
                 if self.warnings.is_none() {
                     let retained = read::<ScreenStates, _>(cx).dialogs.retained.clone();
@@ -161,10 +112,6 @@ impl State for SmallDialogState {
             }
             Page::Shortcuts | Page::Feedback | Page::Consent => {}
         }
-    }
-
-    fn dispose(&mut self) {
-        self.text.dispose();
     }
 
     fn update(&mut self, msg: Msg, widget: &SmallDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -214,36 +161,12 @@ impl State for SmallDialogState {
                 }
                 Rebuild::No
             }
-            Msg::Typed => {
-                cx.emit(&hs.screen, ScreenIntent::Dialogs(Intent::Typed));
-                Rebuild::No
-            }
-            // A blank text is not an answer: the prompt stays open (`CustomPromptView`).
-            Msg::Submit(text) if text.trim().is_empty() => Rebuild::No,
-            Msg::Submit(text) => {
-                cx.emit(
-                    &hs.screen,
-                    ScreenIntent::Dialogs(Intent::Submit(text.trim().to_string())),
-                );
-                Rebuild::No
-            }
         }
     }
 
     fn build(&self, widget: &SmallDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let s = strings::of(cx);
         match widget.page {
-            Page::Prompt => {
-                let open = select::<
-                    ScreenStates,
-                    Option<codex_tui_core::screens::dialogs::Prompt>,
-                    _,
-                >(cx, |states| states.dialogs.prompt.clone());
-                match &open {
-                    Some(open) => prompt::build(open, s, self, cx).into(),
-                    None => AnyWidget::default(),
-                }
-            }
             Page::Shortcuts => shortcuts::build(self.shortcuts, s, cx).into(),
             Page::Warnings => match &self.warnings {
                 Some(pages) => {

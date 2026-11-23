@@ -2,15 +2,13 @@
 //! its transcript notes and the rows of its two confirmations. The wording is the oracle's
 //! English until the catalog has these entries.
 
-use codex_tui_core::features::goal::{
-    Action, CommandsHint, Failure, Menu, Note, Prompt, UsageHint,
-};
+use codex_tui_core::features::goal::{Action, CommandsHint, Failure, Note, UsageHint};
 use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
 use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::threads::{Goal, GoalStatus};
 use rtwk_core::unicode::grapheme_boundaries;
 
-use crate::features::PromptWords;
+use super::Question;
 
 const USAGE: &str = "Usage: /goal [<objective>|clear|edit|pause|resume]";
 
@@ -121,21 +119,22 @@ fn cut(text: &str, max: usize) -> String {
     format!("{}...", &text[..keep])
 }
 
-/// The edit prompt (oracle `show_goal_edit_prompt`).
-pub fn prompt(prompt: &Prompt) -> PromptWords {
-    match prompt {
-        Prompt::Edit { .. } => PromptWords {
-            title: "Edit goal".into(),
-            placeholder: "Type a goal objective and press Enter".into(),
-        },
-    }
-}
+/// The edit prompt (oracle `show_goal_edit_prompt`): its title and the placeholder of an empty
+/// field.
+pub const EDIT_TITLE: &str = "Edit goal";
+pub const EDIT_PLACEHOLDER: &str = "Type a goal objective and press Enter";
+
+/// The rows of `Resume paused goal?` and `Replace goal?`, in order.
+pub const RESUME: &str = "goal.resume";
+pub const LEAVE: &str = "goal.leave";
+pub const REPLACE: &str = "goal.replace";
+pub const CANCEL: &str = "goal.cancel";
 
 /// The list of one of the two confirmations (`show_resume_paused_goal_prompt`, the replace
 /// confirmation of `thread_goal_actions.rs`), shaped as `SelectionViewParams::confirmation()`.
-pub fn menu(menu: &Menu) -> List {
-    let (title, subtitle, rows) = match menu {
-        Menu::Resume { objective, .. } => (
+pub fn menu(question: Question, objective: &str) -> List {
+    let (title, subtitle, rows, ids) = match question {
+        Question::Resume => (
             "Resume paused goal?",
             format!("Goal: {objective}"),
             [
@@ -148,8 +147,9 @@ pub fn menu(menu: &Menu) -> List {
                     "Keep it paused; use /goal resume later",
                 ),
             ],
+            [RESUME, LEAVE],
         ),
-        Menu::Replace { objective, .. } => (
+        Question::Replace => (
             "Replace goal?",
             format!("New objective: {}", cut(objective, SUBTITLE_GRAPHEMES)),
             [
@@ -159,10 +159,10 @@ pub fn menu(menu: &Menu) -> List {
                 ),
                 ("Cancel", "Keep the current goal"),
             ],
+            [REPLACE, CANCEL],
         ),
     };
-    let items = menu
-        .rows()
+    let items = ids
         .into_iter()
         .zip(rows)
         .map(|(id, (name, description))| Item {

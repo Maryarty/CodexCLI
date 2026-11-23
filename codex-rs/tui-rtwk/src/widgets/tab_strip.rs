@@ -135,20 +135,3 @@ impl Tabs {
         row.into()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_strip_scrolls_around_the_active_tab() {
-        let labels: Vec<String> = ["All 0", "Needs you 0", "Working 0", "Ready 0", "Inactive 0"]
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        let narrow = strip(TextSegmenter::default(), &labels, 0, 44);
-        assert_eq!((narrow.start, narrow.end, narrow.right), (0, 3, true));
-        let wide = strip(TextSegmenter::default(), &labels, 0, 76);
-        assert_eq!((wide.end, wide.right), (5, false));
-    }
-}

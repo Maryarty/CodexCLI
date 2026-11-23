@@ -17,6 +17,7 @@ pub mod directives;
 pub mod followups;
 pub mod goal;
 pub mod inline_vis;
+pub mod local_links;
 mod message;
 mod note;
 pub mod queue;
@@ -1327,6 +1328,13 @@ impl ThreadModel {
 
     pub fn last_submit(&self) -> Option<Ticket> {
         self.last_submit
+    }
+
+    /// The number of the last submit `apply` accepted: it grows with each, so a page that sees it
+    /// change in the same thread knows the model took the line (the composer clears then). The
+    /// ticket itself is core's.
+    pub fn submit_seq(&self) -> Option<u64> {
+        self.last_submit.map(Ticket::seq)
     }
 
     pub fn queue(&self) -> &[Queued] {

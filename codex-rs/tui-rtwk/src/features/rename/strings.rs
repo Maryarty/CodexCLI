@@ -2,26 +2,23 @@
 //! title and placeholder, and the three lines it says in the transcript, read from the session
 //! catalog's entries (`thread_name_empty`, `side_rename`, `session_starting`).
 
-use codex_tui_core::features::rename::{Note, Prompt};
+use codex_tui_core::features::rename::Note;
 use rtwk::l10n::{Arg, Fmt};
 
-use crate::features::PromptWords;
 use crate::pages::session::strings::Strings as SessionStrings;
 
-/// The prompt (`Rename thread` over a thread that has a name, `Name thread` over one that has
-/// none).
-pub fn prompt(prompt: &Prompt) -> PromptWords {
-    let Prompt::Name { renaming, .. } = prompt;
-    PromptWords {
-        title: if *renaming {
-            "Rename thread"
-        } else {
-            "Name thread"
-        }
-        .into(),
-        placeholder: "Type a name and press Enter".into(),
+/// The prompt's title: `Rename thread` over a thread that has a name, `Name thread` over one
+/// that has none.
+pub fn title(renaming: bool) -> &'static str {
+    if renaming {
+        "Rename thread"
+    } else {
+        "Name thread"
     }
 }
+
+/// The placeholder of an empty field.
+pub const PLACEHOLDER: &str = "Type a name and press Enter";
 
 /// The words of one of the feature's notes.
 pub fn note(note: &Note, words: &SessionStrings) -> String {

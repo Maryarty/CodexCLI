@@ -13,9 +13,6 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
-pub mod prompt;
-pub use prompt::{Prompt, PromptKind, Submitted, Suggestion};
-
 pub const NAME: &str = "dialogs";
 pub const ID: &str = "S23";
 pub const KIND: Kind = Kind::Dialog;
@@ -215,12 +212,9 @@ pub struct NoteRequest {
 /// What is drawn (which dialog is up, the warnings viewer's page, the keyboard page of the
 /// shortcut overlay, the feedback step) is the sheet's own state, ADR-013; the model keeps what
 /// the app and the host read: the warnings the session retains, the host's list of attachments,
-/// what the user decided and the prompt a feature asked for.
+/// and what the user decided.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// The text prompt a feature asked the user for (`/rename`): a request of the domain, left
-    /// by `Intent::Submit` or `Intent::CancelPrompt`. Its field is the sheet's.
-    pub prompt: Option<Prompt>,
     /// Decisions made when a warnings viewer closed.
     pub decided: Vec<Decision>,
     /// Warning texts copied (`AppEvent::CopyWarning`).
@@ -233,8 +227,6 @@ pub struct Model {
     /// footer counts them and F2 / `/warnings` shows them. A page seen and
     /// left is dismissed and leaves the list.
     pub retained: Vec<Warning>,
-    /// The prompt the user submitted and the app has not yet carried out.
-    pub submitted: Option<Submitted>,
     /// How diagnostics are taken in (startup or runtime, what was seen, what was dismissed).
     pub intake: Intake,
 }
@@ -258,12 +250,6 @@ pub enum Intent {
     Decide(Decision),
     /// The consent step was answered: the note the feedback flow ends in.
     RequestNote(NoteRequest),
-    /// The prompt's field changed by the user (a key or a paste).
-    Typed,
-    /// Enter in the prompt: its text; the prompt closes and the app carries it out.
-    Submit(String),
-    /// The prompt was given up: the feature's request is withdrawn.
-    CancelPrompt,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -280,20 +266,6 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::CopyWarning(text) => model.copied.push(text),
         Intent::Decide(decision) => decide(model, decision),
         Intent::RequestNote(note) => model.note = Some(note),
-        Intent::Typed => {
-            if let Some(prompt) = &mut model.prompt {
-                prompt.typed();
-            }
-        }
-        Intent::Submit(text) => {
-            if let Some(prompt) = model.prompt.take() {
-                model.submitted = Some(Submitted {
-                    kind: prompt.kind,
-                    text,
-                });
-            }
-        }
-        Intent::CancelPrompt => model.prompt = None,
     }
 }
 

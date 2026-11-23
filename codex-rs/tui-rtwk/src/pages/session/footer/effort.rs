@@ -20,7 +20,7 @@ use std::time::Duration;
 use rtwk::animation::{AnimatedBuilder, AnimationController, AnimationStatus};
 use rtwk::layout::{CellPainter, CustomPaint, SizedBox};
 use rtwk::layout::{EdgeInsets, Padding};
-use rtwk::provider::{select, watch};
+use rtwk::provider::select;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
@@ -59,12 +59,15 @@ pub(crate) fn signal<S>(cx: &mut Cx<'_, S>) -> Signal {
         let part = &thread.screen_slots().chat;
         (part.effort.clone(), part.cwd.is_some())
     });
-    let states = watch::<ScreenStates, _>(cx);
-    let facts = &states.chat.status;
+    let (configured, animations) =
+        select::<ScreenStates, (Option<String>, bool), _>(cx, |states| {
+            let facts = &states.chat.status;
+            (facts.effort.clone(), facts.animations)
+        });
     Signal {
-        effort: effort.or_else(|| facts.effort.clone()),
+        effort: effort.or(configured),
         known,
-        animations: facts.animations,
+        animations,
     }
 }
 

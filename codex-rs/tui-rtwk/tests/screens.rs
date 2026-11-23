@@ -3,6 +3,7 @@
 //! its file and the build links one test binary, not one per directory.
 
 mod common;
+mod unit;
 
 #[path = "app/cli.rs"]
 mod cli;

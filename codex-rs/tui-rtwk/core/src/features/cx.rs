@@ -1,14 +1,11 @@
 //! What a feature is handed (ADR-012): the app and a thread as read-only views, and the
 //! ways to change them that a feature has. The context is Flutter's `BuildContext` with an
-//! outbox, or Elm's `Cmd`: the feature says what it wants (an ask, a menu, a prompt, a note,
+//! outbox, or Elm's `Cmd`: the feature says what it wants (an ask, a note, a wish,
 //! a change of a thread) and the app carries it out after the call, in the order it was said.
 //! It never holds `&mut` of the app or of a thread's model.
 
 use super::surface::Scope;
-use super::{
-    FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
-    FeatureWish,
-};
+use super::{FeatureCommand, FeatureCtx, FeatureNote, FeatureThreadIntent, FeatureWish};
 use crate::app::TranscriptText;
 use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
@@ -163,21 +160,6 @@ pub enum Out {
     /// An ask of the host (write a file, suggest a title, copy): its answer comes back to
     /// `Feature::effect_done` with `ctx`.
     Effect { ask: Ask, ctx: FeatureCtx },
-    /// A menu of the generic selection dialog, replacing the stack.
-    Menu(FeatureMenu),
-    /// A text prompt, prefilled with `initial`; `suggesting` says that a generated suggestion
-    /// is awaited (the dialog shows its loading line until `Suggest`).
-    Prompt {
-        prompt: FeaturePrompt,
-        initial: String,
-        suggesting: bool,
-    },
-    /// The suggestion for the open `prompt` (none: nothing came out). It fills the field only
-    /// while that prompt is still the one open, still waiting, and the user has not typed.
-    Suggest {
-        prompt: FeaturePrompt,
-        text: Option<String>,
-    },
     /// A line in the transcript of `thread` (none: the thread in use, or the chat before
     /// any thread).
     Note {
@@ -236,44 +218,6 @@ impl<'a> AppCx<'a> {
         self.out.push(Out::Effect {
             ask,
             ctx: ctx.into(),
-        });
-    }
-
-    /// Opens `menu` in the generic selection dialog.
-    pub fn open(&mut self, menu: impl Into<FeatureMenu>) {
-        self.out.push(Out::Menu(menu.into()));
-    }
-
-    /// Opens a text prompt, its field starting with `initial`.
-    pub fn prompt(&mut self, prompt: impl Into<FeaturePrompt>, initial: impl Into<String>) {
-        self.out.push(Out::Prompt {
-            prompt: prompt.into(),
-            initial: initial.into(),
-            suggesting: false,
-        });
-    }
-
-    /// Opens a text prompt that awaits a generated suggestion (the title `/rename` asks the host
-    /// for): the dialog says so until `suggest` answers it, and the user's own typing wins over
-    /// the suggestion. The ask itself is `effect`, its answer `effect_done`.
-    pub fn prompt_suggesting(
-        &mut self,
-        prompt: impl Into<FeaturePrompt>,
-        initial: impl Into<String>,
-    ) {
-        self.out.push(Out::Prompt {
-            prompt: prompt.into(),
-            initial: initial.into(),
-            suggesting: true,
-        });
-    }
-
-    /// The suggestion for `prompt` (none: nothing came out). A prompt that is no longer the one
-    /// open, or that the user already typed in, takes nothing.
-    pub fn suggest(&mut self, prompt: impl Into<FeaturePrompt>, text: Option<String>) {
-        self.out.push(Out::Suggest {
-            prompt: prompt.into(),
-            text,
         });
     }
 

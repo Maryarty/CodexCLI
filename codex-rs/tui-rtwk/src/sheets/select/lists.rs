@@ -18,15 +18,13 @@ use super::strings::Strings;
 const SESSION_KEY: char = 's';
 
 /// The list the menu on top of the stack is shown as; `page` is its rows when
-/// it is a menu of a typed family (`Model::page`), `feature` the rows of a feature's menu (the
-/// sheet builds them from the feature's state).
-pub fn of(menu: &Menu, page: Option<&Page>, feature: Option<List>, s: &Strings) -> Option<List> {
+/// it is a menu of a typed family (`Model::page`).
+pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
     Some(match (menu, page) {
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
         (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
         (Menu::Apps, Some(Page::Apps(page))) => apps(page, s),
         (Menu::Confirm(confirm), _) => confirmation(*confirm, s),
-        (Menu::Feature(_), _) => feature?,
         _ => return None,
     })
 }

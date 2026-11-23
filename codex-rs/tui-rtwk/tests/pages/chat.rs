@@ -18,8 +18,6 @@ use crate::common::{Harness, slot};
 mod chat_live;
 #[path = "commands.rs"]
 mod commands;
-#[path = "feature_menu_live.rs"]
-mod feature_menu_live;
 #[path = "permissions_live.rs"]
 mod permissions_live;
 #[path = "transitions.rs"]

@@ -14,7 +14,6 @@ use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::select::apps::Link;
@@ -28,7 +27,6 @@ use super::prompt;
 use super::review;
 use super::strings;
 use crate::app::view::Hs;
-use crate::widgets::picker::list::List;
 use crate::widgets::picker::{Event, Picker};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -182,18 +180,6 @@ impl State for MenuDialogState {
             return AnyWidget::default();
         };
         let words = strings::of(cx);
-        // A feature's menu reads its rows from the feature's state: selected, so a change of the
-        // state while the menu is open rebuilds its rows under the same picker (same depth
-        // key: cursor, tab and query stay).
-        let feature = match &head.menu {
-            Menu::Feature(menu) => Some(menu.clone()),
-            _ => None,
-        };
-        let feature_list = select::<FeatureStates, Option<List>, _>(cx, move |features| {
-            feature
-                .as_ref()
-                .map(|menu| crate::features::menu_list(menu, features, words))
-        });
         let cursor = head
             .depth
             .checked_sub(1)
@@ -226,7 +212,7 @@ impl State for MenuDialogState {
                 {
                     page.initial = Some(at);
                 }
-                lists::of(menu, page.as_ref(), feature_list, words)
+                lists::of(menu, page.as_ref(), words)
             }
         };
         let Some(list) = list else {

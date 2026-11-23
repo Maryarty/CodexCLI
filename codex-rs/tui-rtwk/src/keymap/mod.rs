@@ -233,6 +233,24 @@ pub fn press_of(stroke: &Stroke) -> Option<KeyPress> {
     })
 }
 
+/// The presses of every single key of an action, for the code that binds presses to a `Focus`
+/// (`names` is the same for `KeyBindings`): a hardwired action's own keys, or the keymap's.
+pub fn presses(keymap: &Keymap, id: ActionId) -> Vec<KeyPress> {
+    match fixed::bindings_of(id) {
+        Some(keys) => keys
+            .iter()
+            .filter_map(|binding| press_of(&Stroke::new(binding.key, binding.mods.pressed())))
+            .collect(),
+        None => keymap.singles(id).iter().filter_map(press_of).collect(),
+    }
+}
+
+/// Whether a key press is one of a hardwired action's keys (`pressed` without a keymap, for the
+/// code that holds none: a fixed action has no configured keys).
+pub fn pressed_fixed(id: ActionId, key: &KeyPress) -> bool {
+    fixed::bindings_of(id).is_some_and(|keys| keys.iter().any(|binding| holds(binding, key)))
+}
+
 /// The press of a hardwired action's first key (`Edit::canonical`: the key the field's own
 /// editing answers to for an action).
 pub fn press_for(id: ActionId) -> Option<KeyPress> {

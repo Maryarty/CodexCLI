@@ -123,20 +123,26 @@ impl StatelessWidget for StatusSlot {
         let session_strings = super::strings::of(cx);
         let status_strings = status::strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
-        let states = watch::<ScreenStates, _>(cx);
         let run = select::<ThreadModel, Run, _>(cx, Run::of);
         if run.read_only {
             return SizedBox::shrink().into();
         }
+        let owner = run.id.clone();
+        let (backend, now, facts) = select::<ScreenStates, _, _>(cx, move |states| {
+            (
+                states.agents.owner_of(owner.as_str()),
+                states.agents.now,
+                states.chat.status.clone(),
+            )
+        });
         let keymap = crate::keymap::keymap(cx);
         let interrupt = run
             .can_interrupt
             .then(|| crate::keymap::label(&keymap, CHAT_INTERRUPT_TURN))
             .flatten();
-        let backend = states.agents.owner_of(run.id.as_str());
         let reconnecting =
             session.connections.get(&backend) == Some(&ConnectionState::Reconnecting);
-        let facts = &states.chat.status;
+        let facts = &facts;
         let running = match &run.turn {
             TurnState::Running(running) => Some(running),
             TurnState::Idle => None,
@@ -162,9 +168,7 @@ impl StatelessWidget for StatusSlot {
             let offset_seconds = running
                 .and_then(|running| running.started_at)
                 .filter(|started| *started > 0)
-                .map(|started| {
-                    u64::try_from(states.agents.now.saturating_sub(started)).unwrap_or(0)
-                })
+                .map(|started| u64::try_from(now.saturating_sub(started)).unwrap_or(0))
                 .unwrap_or(0);
             Some(
                 AnyWidget::from(Activity {

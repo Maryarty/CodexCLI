@@ -173,9 +173,6 @@ impl Feature for Plugins {
     type Command = Wanted;
     type Reply = Found;
     type Ctx = Ctx;
-    type Menu = Never<Self>;
-    type Pick = Never<Self>;
-    type Prompt = Never<Self>;
     type Note = Say;
     type Fact = Fact;
     type Wish = Wish;

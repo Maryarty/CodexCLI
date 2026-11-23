@@ -6,11 +6,12 @@
 //! enums and their dispatch, as `screen_list!` does for the screens.
 //!
 //! A feature implements `Feature` for a marker type: its own state, per-thread part, intents,
-//! RPCs, menus, prompts and notes are associated types, its steps are methods with default
-//! no-ops. It reads the app through `AppView` / `ThreadView` and changes it only through the
+//! RPCs, notes, wishes and interests are associated types, its steps are methods with default
+//! no-ops. What the feature shows (a menu, a prompt, a sheet) is its UI half's
+//! (`src/features/<f>/`, ADR-013): core says a domain fact (a wish, a note) and takes verbs. It reads the app through `AppView` / `ThreadView` and changes it only through the
 //! outbox of `AppCx` and the effects of `ThreadCx`; it never names `CodexApp` or
 //! `ThreadModel` (rule `features_hold_no_app`). The hub carries one generic variant per
-//! component (`Intent::Feature`, `Menu::Feature`, `Picked::Feature`, `PromptKind::Feature`,
+//! component (`Intent::Feature`,
 //! `NoteKey::Feature`, `ThreadEv::FeatureIntent`, `ThreadCtx::Feature`, `Command::Feature`)
 //! and never a variant per feature (rule `hub_enums_only_shrink`).
 //!
@@ -40,10 +41,10 @@ pub use cx::{AppCx, AppView, Out, ThreadCx, ThreadView};
 pub use remote::Remote;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
-/// The type of a component feature `F` does not use (no RPCs, no menu, no prompt...): nothing
+/// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
 /// that both have none still have distinct types and the root enums' `From` impls do not
-/// overlap: a feature says `type Menu = Never<Self>;`.
+/// overlap: a feature says `type Wish = Never<Self>;`.
 pub enum Never<F> {
     #[doc(hidden)]
     Void(
@@ -88,33 +89,15 @@ impl<F> Never<F> {
     }
 }
 
-/// What a row of a feature's menu settled.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Choice<M, P> {
-    /// The row is not the menu's, or does nothing: the menu stays as it is.
-    Stay,
-    /// The menu is dismissed and nothing is picked (`Cancel`, `Leave paused`).
-    Dismiss,
-    /// The menu is dismissed and `P` is picked: `Feature::picked` acts.
-    Pick(P),
-    /// The menu on top is replaced by another (a step of a flow).
-    Replace(M),
-}
-
-impl<M, P> Choice<M, P> {
-    /// The same choice in the root enums' terms.
-    pub fn lift<M2, P2>(
-        self,
-        menu: impl FnOnce(M) -> M2,
-        pick: impl FnOnce(P) -> P2,
-    ) -> Choice<M2, P2> {
-        match self {
-            Choice::Stay => Choice::Stay,
-            Choice::Dismiss => Choice::Dismiss,
-            Choice::Pick(p) => Choice::Pick(pick(p)),
-            Choice::Replace(m) => Choice::Replace(menu(m)),
-        }
-    }
+/// What a slash command that opens a feature's own sheet names (`Target::Feature`): the UI half
+/// of the feature opens it (`src/features/<f>/`, `open`). A command that only runs a verb of a
+/// feature (`/goal`, `/rename`) is no target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeatureTarget {
+    /// `/plugins`: the plugin browser.
+    Plugins,
+    /// `/export`: the destination picker.
+    Export,
 }
 
 /// A feature of the core. Every associated type that a feature does not need is `Never<Self>`
@@ -127,7 +110,7 @@ pub trait Feature: 'static {
     const NAME: &'static str;
 
     /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
-    /// `intent`, `answered`, `picked`, `prompt_submitted` and `on_resumed`.
+    /// `intent`, `answered`, `effect_done`, `on_fact`, `on_interest` and `on_resumed`.
     type State: Clone + std::fmt::Debug + Default + PartialEq + Eq;
     /// The feature's per-thread state: a field of `ThreadModel`, changed by `thread_intent`
     /// only under the thread's writer, and by what happened to the thread (`thread_answered`,
@@ -145,12 +128,6 @@ pub trait Feature: 'static {
     type Reply: Clone + std::fmt::Debug + PartialEq + Eq;
     /// What an RPC was for, kept with its ticket and given back with the answer.
     type Ctx: Clone + std::fmt::Debug + PartialEq + Eq;
-    /// A menu the generic selection dialog shows for the feature (`Menu::Feature`).
-    type Menu: Clone + std::fmt::Debug + PartialEq + Eq;
-    /// What a menu settled on (`Picked::Feature`).
-    type Pick: Clone + std::fmt::Debug + PartialEq + Eq;
-    /// A text prompt of the feature (`PromptKind::Feature`).
-    type Prompt: Clone + std::fmt::Debug + PartialEq + Eq;
     /// A line the feature says in the transcript (`NoteKey::Feature`); its words are
     /// `src/features/<f>/strings.rs`.
     type Note: Clone + std::fmt::Debug + PartialEq + Eq;
@@ -158,7 +135,7 @@ pub trait Feature: 'static {
     /// the config holds. The host builds it with the feature's own type and `From`.
     type Fact: Clone + std::fmt::Debug + PartialEq + Eq;
     /// A one-shot the feature asks the surface to show (`AppCx::wish`): the setup page of an
-    /// installed plugin. The surface's presenter shows it once and says so (`WishShown`); the
+    /// installed plugin, a question over a goal, the name prompt. The surface's presenter shows it once and says so (`WishShown`); the
     /// feature never knows how, or whether, it was drawn (ADR-013 Ж).
     type Wish: Clone + std::fmt::Debug + PartialEq + Eq;
     /// What a surface can be interested in (ADR-013 И): a counter per value, raised by a widget
@@ -188,27 +165,6 @@ pub trait Feature: 'static {
         let _ = (state, ctx, done, cx);
     }
 
-    /// The row `row` of the feature's `menu` chosen.
-    fn choose(menu: &Self::Menu, row: &str) -> Choice<Self::Menu, Self::Pick> {
-        let _ = (menu, row);
-        Choice::Stay
-    }
-
-    /// What a menu of the feature settled on.
-    fn picked(state: &mut Self::State, pick: Self::Pick, cx: &mut AppCx<'_>) {
-        let _ = (state, pick, cx);
-    }
-
-    /// The feature's prompt submitted with `text`.
-    fn prompt_submitted(
-        state: &mut Self::State,
-        prompt: Self::Prompt,
-        text: String,
-        cx: &mut AppCx<'_>,
-    ) {
-        let _ = (state, prompt, text, cx);
-    }
-
     /// Whether the oracle shows the note as information, a success or an error.
     fn note_tone(note: &Self::Note) -> Tone {
         let _ = note;
@@ -216,7 +172,7 @@ pub trait Feature: 'static {
     }
 
     /// A fact the host sent unasked (`AppEv::Feature`): the feature keeps it, and changes what
-    /// its open menu shows by it (`FeatureView::menu_list` reads the state).
+    /// its sheet shows by it (the sheet reads the state).
     fn on_fact(state: &mut Self::State, fact: Self::Fact, cx: &mut AppCx<'_>) {
         let _ = (state, fact, cx);
     }
@@ -356,24 +312,6 @@ macro_rules! feature_dirs {
             $($variant(<$name::$variant as Feature>::Ctx),)*
         }
 
-        /// The menus of every feature: `Menu::Feature`.
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub enum FeatureMenu {
-            $($variant(<$name::$variant as Feature>::Menu),)*
-        }
-
-        /// What the menus of every feature settled on: `Picked::Feature`.
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub enum FeaturePick {
-            $($variant(<$name::$variant as Feature>::Pick),)*
-        }
-
-        /// The prompts of every feature: `PromptKind::Feature`.
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub enum FeaturePrompt {
-            $($variant(<$name::$variant as Feature>::Prompt),)*
-        }
-
         /// The notes of every feature: `NoteKey::Feature`.
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum FeatureNote {
@@ -420,15 +358,6 @@ macro_rules! feature_dirs {
         }
         impl From<<$name::$variant as Feature>::Ctx> for FeatureCtx {
             fn from(ctx: <$name::$variant as Feature>::Ctx) -> Self { Self::$variant(ctx) }
-        }
-        impl From<<$name::$variant as Feature>::Menu> for FeatureMenu {
-            fn from(menu: <$name::$variant as Feature>::Menu) -> Self { Self::$variant(menu) }
-        }
-        impl From<<$name::$variant as Feature>::Pick> for FeaturePick {
-            fn from(pick: <$name::$variant as Feature>::Pick) -> Self { Self::$variant(pick) }
-        }
-        impl From<<$name::$variant as Feature>::Prompt> for FeaturePrompt {
-            fn from(prompt: <$name::$variant as Feature>::Prompt) -> Self { Self::$variant(prompt) }
         }
         impl From<<$name::$variant as Feature>::Note> for FeatureNote {
             fn from(note: <$name::$variant as Feature>::Note) -> Self { Self::$variant(note) }
@@ -485,42 +414,6 @@ macro_rules! feature_dirs {
             match ctx {
                 $(FeatureCtx::$variant(ctx) => {
                     <$name::$variant as Feature>::effect_done(&mut states.$name, ctx, done, cx)
-                })*
-            }
-        }
-
-        /// The row `row` chosen in a feature's menu.
-        #[allow(unused_variables)]
-        pub fn choose(menu: &FeatureMenu, row: &str) -> Choice<FeatureMenu, FeaturePick> {
-            match *menu {
-                $(FeatureMenu::$variant(ref menu) => {
-                    <$name::$variant as Feature>::choose(menu, row)
-                        .lift(FeatureMenu::$variant, FeaturePick::$variant)
-                })*
-            }
-        }
-
-        /// What a feature's menu settled on.
-        #[allow(unused_variables)]
-        pub fn picked(states: &mut FeatureStates, pick: FeaturePick, cx: &mut AppCx<'_>) {
-            match pick {
-                $(FeaturePick::$variant(pick) => {
-                    <$name::$variant as Feature>::picked(&mut states.$name, pick, cx)
-                })*
-            }
-        }
-
-        /// A feature's prompt submitted.
-        #[allow(unused_variables)]
-        pub fn prompt_submitted(
-            states: &mut FeatureStates,
-            prompt: FeaturePrompt,
-            text: String,
-            cx: &mut AppCx<'_>,
-        ) {
-            match prompt {
-                $(FeaturePrompt::$variant(prompt) => {
-                    <$name::$variant as Feature>::prompt_submitted(&mut states.$name, prompt, text, cx)
                 })*
             }
         }

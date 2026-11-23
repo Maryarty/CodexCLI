@@ -208,7 +208,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 | Effort { .. }
                 | select::Picked::Review(_)
                 | select::Picked::Worktree(_)
-                | select::Picked::Feature(_)
         )
     };
     if !app.screens.select.picked.iter().any(ours) {
@@ -241,7 +240,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 super::session::start_review(app, thread, target, fx);
             }
             select::Picked::Worktree(pick) => worktree_pick(app, pick, fx),
-            select::Picked::Feature(pick) => super::features::picked(app, pick, fx),
             _ => {}
         }
     }
