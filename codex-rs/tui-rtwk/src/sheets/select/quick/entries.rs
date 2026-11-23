@@ -137,7 +137,9 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             Menu::Confirm {
                 slot: 1,
                 old: Some(Dial::new(MODEL)),
-                new: Some(Dial::new("/model gpt-5.6-terra --reasoning=high --speed=fast")),
+                new: Some(Dial::new(
+                    "/model gpt-5.6-terra --reasoning=high --speed=fast"
+                )),
             }
         ),
         entry!(
@@ -147,7 +149,9 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             Menu::Confirm {
                 slot: 2,
                 old: None,
-                new: Some(Dial::new("/model gpt-5.6-terra --reasoning=high --speed=fast")),
+                new: Some(Dial::new(
+                    "/model gpt-5.6-terra --reasoning=high --speed=fast"
+                )),
             }
         ),
         entry!(

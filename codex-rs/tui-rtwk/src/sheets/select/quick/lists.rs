@@ -129,12 +129,7 @@ fn confirmation(
         (_, _, Some(new)) => new.input.trim().to_string(),
         _ => String::new(),
     };
-    let run = |text: String, role| {
-        vec![Span {
-            text,
-            role,
-        }]
-    };
+    let run = |text: String, role| vec![Span { text, role }];
     std::iter::once(run(s.confirm_title(action, slot), Role::Strong))
         .chain(what.lines().map(|line| run(line.to_string(), Role::Dim)))
         .collect()
