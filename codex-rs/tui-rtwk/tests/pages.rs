@@ -44,6 +44,8 @@ mod onboarding_focus;
 mod resume_focus;
 #[path = "pages/review.rs"]
 mod review;
+#[path = "pages/selection_copy.rs"]
+mod selection_copy;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
 #[path = "pages/text_mode.rs"]

@@ -6,7 +6,6 @@ use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
 
-use rtwk::gestures::SelectionArea;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
@@ -21,6 +20,7 @@ use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 
 use crate::app::theme;
 use crate::app::view::Hs;
+use crate::features;
 use crate::l10n::strings as l10n;
 use crate::widgets::thread_ui::Follow;
 
@@ -421,8 +421,8 @@ impl State for ViewportState {
         .reverse(reverse);
         let send = cx.local_sender();
         let follow = widget.follow.clone();
-        SelectionArea::new(
-            NotificationListener::<ScrollNotification>::new(list).on_notification(move |scroll| {
+        let list: AnyWidget = NotificationListener::<ScrollNotification>::new(list)
+            .on_notification(move |scroll| {
                 let metrics = scroll.metrics;
                 let distance = if reverse {
                     metrics.max_scroll_extent.saturating_sub(metrics.pixels)
@@ -437,9 +437,10 @@ impl State for ViewportState {
                     follow.clear_unseen();
                 }
                 false
-            }),
-        )
-        .into()
+            })
+            .into();
+        // what the reader selects in it: the features that are about selecting wrap it
+        features::around_transcript(list)
     }
 }
 

@@ -49,6 +49,7 @@ mod review_popup;
 mod script;
 mod select;
 mod select_live;
+mod selection;
 mod settings;
 mod sparkle;
 mod status;

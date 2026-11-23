@@ -18,13 +18,16 @@ use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
 use rtwk::layout::{Center, Column, Expanded, Flexible, MainAxisSize, Row, SizedBox};
 use rtwk::prelude::KeyCode;
+use rtwk::provider::watch;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::composer::trigger;
 
 use crate::app::theme;
+use crate::features;
 use crate::widgets::thread_ui::Follow;
 
 use super::strings::{self, Strings};
@@ -32,9 +35,10 @@ use super::strings::{self, Strings};
 /// The row above the composer, there while the window has the room (the oracle
 /// reserves it, so the composer does not move when the control appears; it is
 /// a flexible child of the bottom pane, the first thing a short window clips):
-/// the control while the reader is away. With `status_above` (the working line
-/// or the previews are above), a blank row precedes the control to set it
-/// apart.
+/// the control while the reader is away, or what a feature has to say there
+/// (the result of a copy, `composer_gap.rs`: it wins over the control). With
+/// `status_above` (the working line or the previews are above), a blank row
+/// precedes the control to set it apart.
 pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
@@ -44,28 +48,32 @@ pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidg
         Some(fg) => surface.fg(fg),
         None => surface,
     };
+    let features = watch::<FeatureStates, _>(cx);
     let listenable = Rc::new(follow.listenable());
     let builder = ListenableBuilder::new(listenable, move |_, _| {
         let blank: AnyWidget = SizedBox::new(None, Some(1), None).into();
-        if !follow.away() {
-            return blank;
-        }
-        let control = FollowControl {
-            follow: follow.clone(),
-            unseen: follow.unseen(),
-            table,
-            style: style.clone(),
-        };
-        let row: AnyWidget = SizedBox::new(None, Some(1), Some(Center::new(control).into())).into();
-        if status_above {
-            Column::new()
-                .main_axis_size(MainAxisSize::Min)
-                .child(blank)
-                .child(row)
-                .into()
+        let plain = if follow.away() {
+            let control = FollowControl {
+                follow: follow.clone(),
+                unseen: follow.unseen(),
+                table,
+                style: style.clone(),
+            };
+            let row: AnyWidget =
+                SizedBox::new(None, Some(1), Some(Center::new(control).into())).into();
+            if status_above {
+                Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .child(blank)
+                    .child(row)
+                    .into()
+            } else {
+                row
+            }
         } else {
-            row
-        }
+            blank
+        };
+        features::composer_gap(&features, plain, status_above)
     });
     Flexible::new(1, builder).into()
 }

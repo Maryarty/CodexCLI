@@ -13,6 +13,7 @@ use rtwk::provider::{MultiProvider, Provider};
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Intent;
+use codex_tui_core::features::FeatureIntent;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
@@ -44,6 +45,8 @@ pub struct Hs {
     pub quit: Handler<()>,
     /// Move the empty conversation to the next connected backend.
     pub cycle: Handler<()>,
+    /// What a view asks of a feature slice (ADR-012: the transcript's copy of a selection).
+    pub feature: Handler<FeatureIntent>,
 }
 
 /// The view of the app.
@@ -90,6 +93,9 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         }),
         quit: cx.on(|_, cx| cx.quit()),
         cycle: cx.on(|app: &mut UiApp, _cx| app.send(AppEv::Intent(Intent::CycleBackend))),
+        feature: cx.on_with(|app: &mut UiApp, intent: FeatureIntent, _cx| {
+            app.send(AppEv::Intent(Intent::Feature(intent)));
+        }),
     };
     // The home is a memo node that leaves its handle for the request
     // presenter, which shows a request's dialog from it as a route of this

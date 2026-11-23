@@ -16,6 +16,7 @@ use std::rc::Rc;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::CodexApp;
 use codex_tui_core::app::Intent;
+use codex_tui_core::features::FeatureIntent;
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
@@ -55,6 +56,7 @@ pub enum SeededMsg {
     LoadHistory(ThreadId),
     Interrupt(ThreadId),
     Cycle,
+    Feature(FeatureIntent),
     Quit,
 }
 
@@ -104,6 +106,7 @@ impl State for SeededScopeState {
             SeededMsg::LoadHistory(id) => Intent::LoadOlderHistory(id),
             SeededMsg::Interrupt(id) => Intent::Interrupt(id),
             SeededMsg::Cycle => Intent::CycleBackend,
+            SeededMsg::Feature(intent) => Intent::Feature(intent),
             // The seeded screen is a page of the debug menu: leaving it is the
             // menu's own back key.
             SeededMsg::Quit => return Rebuild::No,
@@ -133,6 +136,7 @@ impl State for SeededScopeState {
             interrupt: cx.map(SeededMsg::Interrupt),
             quit: cx.map(|()| SeededMsg::Quit),
             cycle: cx.map(|()| SeededMsg::Cycle),
+            feature: cx.map(SeededMsg::Feature),
         };
         let child = (w.build)(&Seeded {
             core,
