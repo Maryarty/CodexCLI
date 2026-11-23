@@ -47,11 +47,18 @@
 - Mock and fixture state: a JSONL event script applied through core `apply`.
 - The rules tests (`--test rules`) check all of this.
 
-## Done
-1. The feature's oracle tests green, or `pending(Gxx)` on an open gap row.
-2. Mouse on every selectable view (tap, double tap, wheel) with rtwk_test tests.
-3. Rules tests green.
-4. Ran in the real binary beside the oracle; differing rows in the pack.
+## Done (the person, 2026-11-23: function first, the full test sweep after)
+1. The feature works in the real binary beside the oracle (pty scenario or
+   check.py run); differing rows in the pack. No visual deltas accepted.
+2. Its KEY oracle tests green: the ones that show the feature's main forms
+   (a handful, not the whole family). The rest of its oracle tests stay
+   `pending` with a reason and are named in the deliverable as
+   "sweep: <shard>::<test>..." — a filler batch un-pends them later. Do not
+   spend a round chasing a snapshot of a secondary form.
+3. Mouse on every selectable view (tap, double tap, wheel) with rtwk_test tests.
+4. Rules tests green.
+5. No new framework doors (AppCx/Feature hooks, kit options) unless the
+   feature cannot be built without one: then hold and ask the orchestrator.
 
 ## Files
 - Your task's area only; a Need for another file goes into your checkpoint.
