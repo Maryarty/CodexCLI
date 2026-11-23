@@ -307,6 +307,7 @@ mod tests {
     use codex_tui_core::app::Intent;
     use codex_tui_core::app::apply_app;
     use codex_tui_core::app::effects::Ask;
+    use codex_tui_core::app::effects::CopyDestination;
     use codex_tui_core::app::effects::CopyFormat;
     use codex_tui_core::app::effects::CopyStatus;
     use codex_tui_core::app::effects::Done;
@@ -486,6 +487,7 @@ mod tests {
             effect(Ask::Copy {
                 text: "hello".into(),
                 format: CopyFormat::Markdown,
+                destination: CopyDestination::Clipboard,
             }),
         )
         .await;
@@ -502,6 +504,7 @@ mod tests {
             effect(Ask::Copy {
                 text: "hello".into(),
                 format: CopyFormat::PlainText,
+                destination: CopyDestination::Clipboard,
             }),
         )
         .await;

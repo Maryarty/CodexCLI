@@ -237,8 +237,18 @@ fn header(
             (!rest.is_empty()).then(|| rest.to_string()),
         ));
     }
-    if line.starts_with("width=") {
+    if line.starts_with("width=") || line.starts_with("height=") {
         return Some((line.trim_end_matches(':').to_string(), None));
+    }
+    // `80x24`, `48×6:`: the size of the terminal a frame was drawn at, as the
+    // test wrote it (the colon stays when the test wrote one).
+    if let Some((w, h)) = line.trim_end_matches(':').split_once(['x', '×'])
+        && !w.is_empty()
+        && !h.is_empty()
+        && w.chars().all(|c| c.is_ascii_digit())
+        && h.chars().all(|c| c.is_ascii_digit())
+    {
+        return Some((line.to_string(), None));
     }
     // `(255, 255, 255): Buffer {`: a label and the dump's first line on one row.
     if let Some(name) = line.strip_suffix(": Buffer {")
@@ -291,13 +301,21 @@ fn header(
 
 /// The frames of the snapshot `rel`, in order. A snapshot the test made of
 /// several screens marks each with a header line (`--- x ---`,
-/// `---- x ----`, `N columns:`, `width=N..`, a bare label such as
+/// `---- x ----`, `N columns:`, `width=N..`, `height=N`, `80x24`, a bare label such as
 /// `before scroll:`, a label above a `Buffer {` dump); one without is a single frame with an empty name.
 pub fn frames(rel: &str) -> Vec<Frame> {
     let body = body(rel);
     let mut chunks: Vec<(String, Vec<String>)> = Vec::new();
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for (i, line) in body.iter().enumerate() {
+        // `---` alone between two frames is the test's `join("\n---\n")`.
+        if line == "---"
+            && body
+                .get(i + 1)
+                .is_some_and(|next| header(next, Some(line), body.get(i + 2)).is_some())
+        {
+            continue;
+        }
         if let Some((name, inline)) = header(
             line,
             i.checked_sub(1).and_then(|j| body.get(j)),
