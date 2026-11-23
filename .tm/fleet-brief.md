@@ -77,6 +77,13 @@
 5. No new framework doors (AppCx/Feature hooks, kit options) unless the
    feature cannot be built without one: then hold and ask the orchestrator.
 
+## Scripts first (the person, 2026-11-23 ~21:20)
+- A change that repeats a pattern across files (rename, move, import rewrite, KeyCode -> keymap
+  action table, watch -> select, ratchet lines, test un-pend by list) is done by a rerunnable
+  script in `tools/rtwk-port/<name>/` (python3 -I, stdlib), committed with its result and a
+  README line; the script checks (`acargo check`) and puts back what it cannot do; you hand-edit
+  only that rest. Example: `tools/rtwk-port/unit-tests/move.py`. Name the script in the deliverable.
+
 ## Test commands (speed-order, 2026-11-23: cargo is 55 % of porter time, 90 % of it compile)
 - WRITE THE WHOLE TASK FIRST, CHECK AT THE END (the person, 2026-11-23 ~18:20, trial): while
   writing, no cargo at all; commit as you go (WIP commits without tests are fine, so a hand-off
