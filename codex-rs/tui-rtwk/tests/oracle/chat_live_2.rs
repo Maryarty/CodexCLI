@@ -502,55 +502,150 @@ fn goal_slash_command_emits_only_inserted_paste_text_element() {
 // ORACLE chatwidget/tests/history_projection.rs:12 older_tool_projection_matches_initial_replay kind=snap owner=chat-live
 #[test]
 fn older_tool_projection_matches_initial_replay() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
-    );
+    let command = |id: &str, command: &str, action: serde_json::Value, output: &str, ms: u32| {
+        serde_json::json!({
+            "type": "commandExecution", "id": id, "command": command, "cwd": "/work",
+            "processId": null, "source": "agent", "status": "completed",
+            "commandActions": [action], "aggregatedOutput": output, "exitCode": 0, "durationMs": ms
+        })
+    };
+    let read = |id: &str, name: &str| {
+        command(
+            id,
+            &format!("cat {name}"),
+            serde_json::json!({"type": "read", "command": format!("cat {name}"), "name": name, "path": format!("/work/{name}")}),
+            "fn main() {}",
+            5,
+        )
+    };
+    let items = serde_json::json!([
+        command(
+            "command",
+            "cargo check",
+            serde_json::json!({"type": "unknown", "command": "cargo check"}),
+            &(1..=12)
+                .map(|line| format!("Checking crate {line}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            25
+        ),
+        read("one.rs", "one.rs"),
+        read("two.rs", "two.rs"),
+    ]);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 60)
+        .replay(vec![bare_turn("turn", items)])
+        .live()
+        .open();
+    // oracle: `completion_only_replay_exploration_group`, the compact half (the group of the two reads), then the detailed
+    s.snap("completion_only_replay_exploration_group")
+        .frame("compact:")
+        .at(row_of(&s, "• Explored"), 0)
+        .assert();
+    s.keys("ctrl+t");
+    s.snap("completion_only_replay_exploration_group")
+        .frame("detailed:")
+        .at(row_of(&s, "$ cat one.rs"), 0)
+        .assert();
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:180 snapshot_formatter_reasoning_matches_compact_and_detailed_replay kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_reasoning_matches_compact_and_detailed_replay() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `show_raw_agent_reasoning` setting on the chat: the Visible half (`Raw detail.` under the summary) is not drawn; the snapshot is also the Debug dump of the compact cell lines (`compact: []`), not a screen",
     );
+    let mut s = resumed(vec![kit::replay_turn(
+        "turn",
+        serde_json::json!([{
+            "type": "reasoning", "id": "reasoning",
+            "summary": ["**Plan**\n\nRead [src/main.rs](src/main.rs:3).", "**Checking tests**\n\n<!-- -->"],
+            "content": ["Raw detail."]
+        }]),
+    )]);
+    s.keys("ctrl+t");
+    s.assert_contains("• Read src/main.rs (src/main.rs:3).");
+    s.assert_contains("Raw detail.");
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:250 raw_reasoning_keeps_its_own_heading kind=snap owner=chat-live
 #[test]
 fn raw_reasoning_keeps_its_own_heading() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `show_raw_agent_reasoning` setting on the chat: a reasoning item with raw content only draws nothing",
     );
+    let mut s = resumed(vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([{
+            "type": "reasoning", "id": "raw", "summary": [],
+            "content": ["**Raw investigation**\nKeep this heading and its details."]
+        }]),
+    )]);
+    s.keys("ctrl+t");
+    let at = row_of(&s, "• Raw investigation");
+    s.assert_row(at, "• Raw investigation");
+    s.assert_row(at + 1, "  Keep this heading and its details.");
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:269 snapshot_formatter_completed_patch_needs_no_started_notification kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_completed_patch_needs_no_started_notification() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    let s = resumed(vec![kit::replay_turn(
+        "turn",
+        serde_json::json!([patch_item("completed")]),
+    )]);
+    s.assert_snap_region(
+        "snapshot_formatter_completed_patch",
+        row_of(&s, "• Edited sample.txt"),
+        0,
     );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:307 snapshot_formatter_live_and_buffered_patch_notifications_render_once kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_live_and_buffered_patch_notifications_render_once() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(SEED)
+        .live()
+        .open();
+    s.feed(&turn_started("thread-1", "turn-1"));
+    s.feed(&notify(
+        "item/started",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0, "item": patch_item("inProgress")}),
+    ));
+    s.feed(&item_completed("thread-1", patch_item("completed")));
+    s.assert_snap_region(
+        "snapshot_formatter_completed_patch",
+        row_of(&s, "• Edited sample.txt"),
+        0,
     );
+    if times(&s, "• Edited sample.txt") != 1 {
+        panic!(
+            "the patch is drawn {} times:\n{}",
+            times(&s, "• Edited sample.txt"),
+            s.text()
+        );
+    }
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:344 snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes kind=snap owner=chat-live snap=empty
 #[test]
 fn snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "a replayed failed file change draws the patch's `• Edited sample.txt (+1 -1)` cell with its diff and `└ (error details unavailable)`, where the oracle's snapshot formatter draws the single row `✘ Failed to apply patch`; the empty completed patch adds no cell, as the oracle's",
     );
+    let empty = serde_json::json!({"type": "fileChange", "id": "empty", "changes": [], "status": "completed"});
+    let s = resumed(vec![kit::replay_turn(
+        "turn",
+        serde_json::json!([empty, patch_item("failed")]),
+    )]);
+    // oracle: the empty patch adds no cell; the failed one is the only row of the history
+    s.assert_has_row("✘ Failed to apply patch");
+    s.assert_absent("Edited");
 }
 
 // ---- oracle: chatwidget/tests/history_replay.rs (24 screen-level tests here; 11 state tests left to chat-live)
@@ -566,6 +661,95 @@ fn resumed(mut turns: Vec<serde_json::Value>) -> Screen {
         .open()
 }
 
+/// The screen row of the first row that starts with `text`.
+fn row_of(s: &Screen, text: &str) -> usize {
+    let Some(at) = s
+        .rows()
+        .iter()
+        .position(|row| row.trim_start().starts_with(text))
+    else {
+        panic!("no row starts with {text:?} on the screen:\n{}", s.text());
+    };
+    at
+}
+
+/// A turn as the oracle's `app_server_turn` makes one: no start, end or duration (so no
+/// `Worked for` separator).
+fn bare_turn(id: &str, items: serde_json::Value) -> serde_json::Value {
+    let mut turn = kit::replay_turn(id, items);
+    turn["startedAt"] = serde_json::Value::Null;
+    turn["completedAt"] = serde_json::Value::Null;
+    turn["durationMs"] = serde_json::Value::Null;
+    turn
+}
+
+/// `bare_turn` ended as `status` (`failed`, `interrupted`).
+fn turn_ended(id: &str, status: &str, items: serde_json::Value) -> serde_json::Value {
+    let mut turn = bare_turn(id, items);
+    turn["status"] = serde_json::json!(status);
+    turn
+}
+
+/// A `notify` step: a server notification of `method` with `params`.
+fn notify(method: &str, params: serde_json::Value) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": method, "params": params}})
+    )
+}
+
+/// `turn/started` of `turn` in `thread`.
+fn turn_started(thread: &str, turn: &str) -> String {
+    notify(
+        "turn/started",
+        serde_json::json!({"threadId": thread, "turn": {
+            "id": turn, "rootTurnId": null, "items": [], "itemsView": "full",
+            "status": "inProgress", "error": null, "startedAt": 0, "completedAt": null, "durationMs": null
+        }}),
+    )
+}
+
+/// `item/completed` of `item` in `turn-1` of `thread`.
+fn item_completed(thread: &str, item: serde_json::Value) -> String {
+    notify(
+        "item/completed",
+        serde_json::json!({"threadId": thread, "turnId": "turn-1", "item": item,
+            "startedAtMs": 0, "completedAtMs": 0}),
+    )
+}
+
+/// An `mcpToolCall` item of `server`'s `tool`.
+fn mcp_call(
+    id: &str,
+    server: &str,
+    tool: &str,
+    status: &str,
+    arguments: serde_json::Value,
+    result: serde_json::Value,
+    duration: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": "mcpToolCall", "id": id, "server": server, "tool": tool, "status": status,
+        "arguments": arguments, "result": result, "error": null, "durationMs": duration
+    })
+}
+
+/// The oracle's `patch_item`: `sample.txt` updated, one line changed.
+fn patch_item(status: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "fileChange", "id": "patch", "status": status,
+        "changes": [{"path": "sample.txt", "kind": {"type": "update", "move_path": null},
+            "diff": "@@ -1 +1 @@\n-old sample\n+new sample\n"}]
+    })
+}
+
+/// How often the screen shows `text`.
+fn times(s: &Screen, text: &str) -> usize {
+    s.text().matches(text).count()
+}
+
+const SEED: &str = "{\"step\":\"seed\",\"seed\":\"session\",\"thread\":\"thread-1\"}\n";
+
 /// A recorded user message `text` with the extra inputs `more`.
 fn user_message(id: &str, text: &str, more: serde_json::Value) -> serde_json::Value {
     let mut content = vec![serde_json::json!({"type": "text", "text": text, "text_elements": []})];
@@ -575,27 +759,55 @@ fn user_message(id: &str, text: &str, more: serde_json::Value) -> serde_json::Va
 // ORACLE chatwidget/tests/history_replay.rs:18 resumed_initial_messages_render_history kind=snap owner=chat-live
 #[test]
 fn resumed_initial_messages_render_history() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no thread session with daybreak on the chat screen: the 'Daybreak is on for new turns.' line the oracle's session hydration draws after the header is not drawn",
     );
+    let s = resumed(vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([
+            user_message("user-1", "hello from user", serde_json::json!([])),
+            {"type": "agentMessage", "id": "assistant-1", "text": "assistant reply", "phase": null, "memoryCitation": null}
+        ]),
+    )]);
+    // oracle: the history rows alone, the header first.
+    s.assert_snap_region("resumed_daybreak_banner", 0, 0);
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:130 replayed_failed_turns_preserve_overload_warnings_between_retries kind=snap owner=chat-live
 #[test]
 fn replayed_failed_turns_preserve_overload_warnings_between_retries() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    let prompt = "The workspace also looks super confusing with its separator.";
+    let failed = |id: &str, item: &str| {
+        let mut turn = turn_ended(
+            id,
+            "failed",
+            serde_json::json!([user_message(item, prompt, serde_json::json!([]))]),
+        );
+        turn["error"] = serde_json::json!({
+            "message": "Selected model is at capacity. Please try a different model.",
+            "codexErrorInfo": "serverOverloaded", "additionalDetails": null
+        });
+        turn["completedAt"] = serde_json::Value::Null;
+        turn["durationMs"] = serde_json::Value::Null;
+        turn
+    };
+    let s = resumed(vec![failed("turn-1", "user-1"), failed("turn-2", "user-2")]);
+    s.assert_contains("Selected model is at capacity. Please try a different model.");
+    // oracle: the history rows alone, a blank row before the first.
+    s.assert_snap_region(
+        "replayed_failed_turns_preserve_overload_warnings_between_retries",
+        row_of(&s, "› The workspace") - 1,
+        0,
     );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:181 restored_conversation_ultra_remains_selected_after_switching_to_plan kind=ui owner=chat-live
 #[test]
 fn restored_conversation_ultra_remains_selected_after_switching_to_plan() {
-    kit::missing(
+    kit::na(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "asserts the active collaboration mode kind and the current reasoning effort after Shift+Tab, neither drawn as text of its own",
     );
 }
 
@@ -643,172 +855,437 @@ fn replayed_review_prompt_does_not_seed_composer_history() {
 // ORACLE chatwidget/tests/history_replay.rs:333 replayed_delegated_tool_output_is_attributed_without_seeding_composer_history kind=snap owner=chat-live snap=replayed_delegated_tool_output
 #[test]
 fn replayed_delegated_tool_output_is_attributed_without_seeding_composer_history() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    let item = serde_json::json!({
+        "type": "functionCallOutput", "id": "delegation-1", "name": "send_message_to_thread",
+        "namespace": "codex_tui",
+        "output": concat!(
+            "<codex_delegation>\n  <source_thread_id>source-task</source_thread_id>\n  <input>",
+            "**Follow up** on [the PR](https://example.com/pr).\n\n",
+            "- Review `&lt;up&gt; &amp; report`.\n",
+            "- Share the result.",
+            "</input>\n</codex_delegation>",
+        )
+    });
+    let mut s = resumed(vec![kit::replay_turn("turn-1", serde_json::json!([item]))]);
+    s.assert_snap_region(
+        "replayed_delegated_tool_output",
+        row_of(&s, "• Sent by Codex"),
+        0,
     );
+    s.assert_link("the PR", "https://example.com/pr");
+    s.keys("up");
+    s.assert_composer("");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:410 replayed_nested_review_prompts_do_not_render_or_seed_composer_history kind=snap owner=chat-live
 #[test]
 fn replayed_nested_review_prompts_do_not_render_or_seed_composer_history() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "three rows of the replayed history differ: the review's end draws `<< Code review finished: review complete >>` (the transcript projection's text) where the chat shows `<< Code review finished >>`; a replayed interrupted turn draws no `■ Conversation interrupted - use /feedback if something went wrong` notice (the core adds it only for a live interrupt); the user cells have one blank row between them where the oracle's have two",
     );
+    let hint = "current changes";
+    let prompt = "Review the current code changes (staged, unstaged, and untracked files).";
+    let marker = |id: &str| {
+        bare_turn(
+            id,
+            serde_json::json!([
+                {"type": "enteredReviewMode", "id": format!("{id}-start"), "review": hint},
+                {"type": "exitedReviewMode", "id": format!("{id}-end"), "review": "review complete"}
+            ]),
+        )
+    };
+    let mut interrupted = turn_ended(
+        "turn-interrupted",
+        "interrupted",
+        serde_json::json!([
+            user_message("interrupted-prompt", hint, serde_json::json!([])),
+            user_message("interrupted-steer", hint, serde_json::json!([]))
+        ]),
+    );
+    interrupted["completedAt"] = serde_json::json!(1);
+    let mut child = turn_ended(
+        "turn-review-child",
+        "interrupted",
+        serde_json::json!([
+            user_message("review-prompt-1", prompt, serde_json::json!([])),
+            user_message("review-prompt-2", prompt, serde_json::json!([])),
+            {"type": "agentMessage", "id": "review-result", "text": "review result is retained",
+             "phase": "final_answer", "memoryCitation": null}
+        ]),
+    );
+    child["completedAt"] = serde_json::Value::Null;
+    let mut s = resumed(vec![
+        marker("turn-review-before-steer"),
+        interrupted,
+        marker("turn-review"),
+        child,
+    ]);
+    s.assert_absent(prompt);
+    s.assert_snap_region(
+        "replayed_nested_review_prompts",
+        row_of(&s, ">> Code review started"),
+        0,
+    );
+    s.keys("up");
+    s.assert_composer(hint);
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:853 replayed_user_message_with_only_remote_images_renders_history_cell kind=ui owner=chat-live
 #[test]
 fn replayed_user_message_with_only_remote_images_renders_history_cell() {
-    kit::missing(
+    kit::na(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "asserts the stored message of the replayed user cell (empty) and its remote image urls, not text drawn",
     );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:914 replayed_user_message_with_only_local_images_renders_history_cell kind=ui owner=chat-live
 #[test]
 fn replayed_user_message_with_only_local_images_renders_history_cell() {
-    kit::missing(
+    kit::na(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "asserts the stored message of the replayed user cell (empty) and its local image paths, not text drawn",
     );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:973 forked_thread_history_line_includes_name_and_id_snapshot kind=snap owner=chat-live snap=forked_thread_history_line
 #[test]
 fn forked_thread_history_line_includes_name_and_id_snapshot() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
+    );
+    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // needs: the fork of `named-thread` (e9f18a88-8081-4e51-9d4e-8af5cde2d8dd) opened
+    s.assert_snap_region(
+        "forked_thread_history_line",
+        row_of(&s, "• Thread forked from"),
+        0,
     );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1003 forked_thread_history_line_without_name_shows_id_once_snapshot kind=snap owner=chat-live snap=forked_thread_history_line_without_name
 #[test]
 fn forked_thread_history_line_without_name_shows_id_once_snapshot() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
+    );
+    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // needs: the fork of 019c2d47-4935-7423-a190-05691f566092 opened, the parent without a title
+    s.assert_snap_region(
+        "forked_thread_history_line_without_name",
+        row_of(&s, "• Thread forked from"),
+        0,
     );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1091 prompt_edit_thread_history_line_snapshot kind=snap owner=chat-live snap=prompt_edit_thread_history_line
 #[test]
 fn prompt_edit_thread_history_line_snapshot() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `Conversation reverted to this point. File changes are unchanged.` line: the prompt edit's revert does not add the line the oracle's `emit_prompt_edit_thread_event` inserts",
+    );
+    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // needs: a prompt edit (Esc Esc, Enter) answered by the revert
+    s.assert_snap_region(
+        "prompt_edit_thread_history_line",
+        row_of(&s, "• Conversation reverted"),
+        0,
     );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1113 app_server_forked_thread_history_line_uses_app_server_title_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line
 #[test]
 fn app_server_forked_thread_history_line_uses_app_server_title_snapshot() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
     );
+    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // needs: the fork of e9f18a88-8081-4e51-9d4e-8af5cde2d8dd titled `app-server-parent-thread` by the server
+    s.assert_snap_region(
+        "app_server_forked_thread_history_line",
+        row_of(&s, "• Thread forked from"),
+        0,
+    );
+    s.assert_absent("stale-local-thread");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1153 app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line_without_app_server_name
 #[test]
 fn app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
+    );
+    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // needs: the fork of 019c2d47-4935-7423-a190-05691f566092, the server names no title; the local session index names it `stale-local-thread`
+    s.assert_absent("stale-local-thread");
+    s.assert_snap_region(
+        "app_server_forked_thread_history_line_without_app_server_name",
+        row_of(&s, "• Thread forked from"),
+        0,
     );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1195 thread_snapshot_replay_preserves_agent_message_during_review_mode kind=ui owner=chat-live
 #[test]
 fn thread_snapshot_replay_preserves_agent_message_during_review_mode() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
-    );
+    let s = resumed(vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([
+            {"type": "enteredReviewMode", "id": "review-start", "review": "current changes"},
+            {"type": "agentMessage", "id": "review-message", "text": "Review progress update", "phase": null, "memoryCitation": null}
+        ]),
+    )]);
+    s.assert_contains("Review progress update");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1276 replayed_reasoning_item_preserves_summary_parts_and_hides_raw_reasoning_when_disabled kind=ui owner=chat-live
 #[test]
 fn replayed_reasoning_item_preserves_summary_parts_and_hides_raw_reasoning_when_disabled() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
-    );
+    let mut s = resumed(vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([{
+            "type": "reasoning", "id": "reasoning-1",
+            "summary": ["**Plan**\n\ndone", "**Checking tests**\n\n<!-- -->"],
+            "content": ["Raw reasoning"]
+        }]),
+    )]);
+    s.keys("ctrl+t");
+    s.assert_contains("• done");
+    s.assert_absent("Raw reasoning");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1328 replayed_reasoning_item_shows_raw_reasoning_when_enabled kind=ui owner=chat-live
 #[test]
 fn replayed_reasoning_item_shows_raw_reasoning_when_enabled() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "no `show_raw_agent_reasoning` setting on the chat: the replayed reasoning item's raw content is never drawn",
     );
+    let mut s = resumed(vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([{
+            "type": "reasoning", "id": "reasoning-1",
+            "summary": ["Summary only"], "content": ["Raw reasoning"]
+        }]),
+    )]);
+    s.keys("ctrl+t");
+    s.assert_contains("Raw reasoning");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1376 replayed_mcp_tool_call_stays_active_until_completion kind=ui owner=chat-live
 #[test]
 fn replayed_mcp_tool_call_stays_active_until_completion() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
-    );
+    let call = |status: &str| {
+        mcp_call(
+            "mcp-1",
+            "copilot-bridge",
+            "copilot",
+            status,
+            serde_json::json!({"action": "wait"}),
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+        )
+    };
+    let mut s = resumed(vec![turn_ended(
+        "turn-1",
+        "inProgress",
+        serde_json::json!([call("inProgress")]),
+    )]);
+    s.assert_contains("Calling");
+    s.assert_absent("MCP tool call completed without a result");
+    s.feed(&item_completed(kit::REPLAYED, call("completed")));
+    s.assert_contains("MCP tool call completed without a result");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1419 failed_repl_mcp_tool_call_preserves_status_and_result kind=snap owner=chat-live
 #[test]
 fn failed_repl_mcp_tool_call_preserves_status_and_result() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "the cell of a failed REPL tool call (node_repl, cua_repl) is the generic MCP failure cell: `• Failed Inspect workspace` with the result's first text dropped and `+ Show details`, where the oracle draws `• Inspect workspace`, `└ Script failed`, the reformatted JSON, `Script error:` and `+1 line (⌃t to view transcript)` (cells/ mcp cell, chunk-cells)",
     );
+    for server in ["node_repl", "cua_repl"] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 24)
+            .script(SEED)
+            .live()
+            .open();
+        s.feed(&turn_started("thread-1", "turn-1"));
+        s.feed(&item_completed(
+            "thread-1",
+            mcp_call(
+                "mcp-failed", server, "js", "failed",
+                serde_json::json!({"title": "Inspect workspace"}),
+                serde_json::json!({"content": [
+                    {"type": "text", "text": "Script failed"},
+                    {"type": "text", "text": r#"{"exit_code":0,"output":"ready","chunk_id":"chunk-1"}"#},
+                    {"type": "text", "text": "Script error:\npermission denied"}
+                ], "structuredContent": null, "_meta": null}),
+                serde_json::json!(5),
+            ),
+        ));
+        if server == "cua_repl" {
+            s.assert_snap_region("failed_computer_activity", row_of(&s, "•"), 0);
+            continue;
+        }
+        let at = row_of(&s, "• Inspect workspace");
+        s.assert_row(at, "• Inspect workspace");
+        s.assert_row(at + 1, "  └ Script failed");
+        s.assert_row(
+            at + 2,
+            r#"    {"exit_code": 0, "output": "ready", "chunk_id": "chunk-1"}"#,
+        );
+        s.assert_row(at + 3, "    Script error:");
+        s.assert_row(at + 4, "    +1 line (⌃t to view transcript)");
+        s.assert_text_style("Inspect workspace", "fg=Cyan");
+    }
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1482 deferred_mcp_lifecycle_events_keep_fifo_after_stream_finishes kind=ui owner=chat-live
 #[test]
 fn deferred_mcp_lifecycle_events_keep_fifo_after_stream_finishes() {
-    kit::missing(
-        Owner::ChatLive,
-        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
-    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(SEED)
+        .live()
+        .open();
+    s.feed(&turn_started("thread-1", "turn-1"));
+    let call = |status: &str, result: serde_json::Value, duration: serde_json::Value| {
+        mcp_call(
+            "mcp-deferred",
+            "copilot-bridge",
+            "copilot",
+            status,
+            serde_json::json!({"action": "wait"}),
+            result,
+            duration,
+        )
+    };
+    s.feed(&notify(
+        "item/started",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0,
+            "item": call("inProgress", serde_json::Value::Null, serde_json::Value::Null)}),
+    ));
+    s.feed(&item_completed(
+        "thread-1",
+        call(
+            "completed",
+            serde_json::json!({"content": [{"type": "text", "text": "deferred result"}], "structuredContent": null, "_meta": null}),
+            serde_json::json!(5),
+        ),
+    ));
+    s.assert_contains("deferred result");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1544 live_reasoning_summary_is_not_rendered_twice_when_item_completes kind=ui owner=chat-live
 #[test]
 fn live_reasoning_summary_is_not_rendered_twice_when_item_completes() {
-    kit::missing(
-        Owner::ChatLive,
-        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
-    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(SEED)
+        .live()
+        .open();
+    s.feed(&turn_started("thread-1", "turn-1"));
+    s.feed(&notify(
+        "item/started",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0,
+            "item": {"type": "reasoning", "id": "reasoning-1", "summary": [], "content": []}}),
+    ));
+    s.feed(&notify(
+        "item/reasoning/summaryTextDelta",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "reasoning-1",
+            "delta": "Summary only", "summaryIndex": 0}),
+    ));
+    s.feed(&item_completed(
+        "thread-1",
+        serde_json::json!({"type": "reasoning", "id": "reasoning-1", "summary": ["Summary only"], "content": []}),
+    ));
+    s.keys("ctrl+t");
+    if times(&s, "Summary only") != 1 {
+        panic!(
+            "the summary is drawn {} times:\n{}",
+            times(&s, "Summary only"),
+            s.text()
+        );
+    }
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1605 live_reasoning_summary_drops_empty_parts_without_losing_content kind=ui owner=chat-live
 #[test]
 fn live_reasoning_summary_drops_empty_parts_without_losing_content() {
-    kit::missing(
-        Owner::ChatLive,
-        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
-    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(SEED)
+        .live()
+        .open();
+    s.feed(&turn_started("thread-1", "turn-1"));
+    s.feed(&notify(
+        "item/started",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0,
+            "item": {"type": "reasoning", "id": "reasoning-1", "summary": [], "content": []}}),
+    ));
+    for (index, delta) in [
+        (0, "**Plan**\n\ndone"),
+        (1, "**Checking tests**\n\n<!-- -->"),
+    ] {
+        s.feed(&notify(
+            "item/reasoning/summaryPartAdded",
+            serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "reasoning-1", "summaryIndex": index}),
+        ));
+        s.feed(&notify(
+            "item/reasoning/summaryTextDelta",
+            serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "reasoning-1",
+                "delta": delta, "summaryIndex": index}),
+        ));
+    }
+    s.feed(&item_completed(
+        "thread-1",
+        serde_json::json!({"type": "reasoning", "id": "reasoning-1",
+            "summary": ["**Plan**\n\ndone", "**Checking tests**\n\n<!-- -->"], "content": []}),
+    ));
+    s.keys("ctrl+t");
+    s.assert_contains("• done");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1685 thread_snapshot_replayed_turn_started_marks_task_running kind=snap owner=chat-live
 #[test]
 fn thread_snapshot_replayed_turn_started_marks_task_running() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
-    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(SEED)
+        .live()
+        .open();
+    s.feed(&turn_started("thread-1", "turn-1"));
+    // oracle: `• Working (<elapsed> • esc to interrupt)`, the elapsed time counted from the turn's start
+    s.assert_contains("• Working (");
+    s.assert_contains(" • esc to interrupt)");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1723 replayed_in_progress_turn_marks_task_running kind=snap owner=chat-live snap=replayed_in_progress_turn
 #[test]
 fn replayed_in_progress_turn_marks_task_running() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+        "a resumed thread whose recorded turn is in progress draws no `• Working (<elapsed> • esc to interrupt)` row: the replayed turn does not leave the thread running with the turn's start time (core replay/resume wiring); the live turn/started case is green",
     );
+    for items_view in ["full", "notLoaded"] {
+        let mut turn = turn_ended("turn-1", "inProgress", serde_json::json!([]));
+        turn["itemsView"] = serde_json::json!(items_view);
+        turn["startedAt"] = serde_json::json!(1_700_000_000);
+        let mut s = resumed(vec![turn]);
+        // oracle: no history cell, the bottom pane `• Working (<elapsed> • esc to interrupt)`
+        s.assert_contains("• Working (");
+        s.assert_contains(" • esc to interrupt)");
+        s.assert_absent("Worked for");
+        s.keys("ctrl+c");
+        s.assert_interrupts(1);
+    }
 }
 
 // ---- oracle: chatwidget/tests/list_spacing_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
