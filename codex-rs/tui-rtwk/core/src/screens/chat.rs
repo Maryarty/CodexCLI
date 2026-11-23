@@ -12,7 +12,10 @@ pub mod plan_mode;
 use std::rc::Rc;
 
 pub use facts::{Ev as FactEv, Facts, Footer, Probe};
-pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve};
+pub use banner::{
+    AutomaticSwitch, Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve,
+    SwitchReason,
+};
 pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;

@@ -9,6 +9,7 @@
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
+mod banners;
 mod notices;
 mod select;
 mod session;
@@ -579,6 +580,8 @@ pub struct CodexApp {
     /// The server's collaboration-mode presets (`collaborationMode/list`, read at connect):
     /// empty until the server has answered, and when it did not.
     modes: Vec<crate::screens::select::collaboration::Mask>,
+    /// Where each thread returns to when Luna Reserve ends (`ReserveReturnModel`).
+    reserve_returns: BTreeMap<ThreadId, banners::ReserveReturn>,
 }
 
 /// When the process's first thread starts.
@@ -642,6 +645,7 @@ impl CodexApp {
             daybreak: threads::daybreak::Access::default(),
             transcript_text: None,
             modes: Vec::new(),
+            reserve_returns: BTreeMap::new(),
         }
     }
 
@@ -1691,6 +1695,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         .insert(backend, reserve);
                     install_rates(app, backend, limits);
                     install_banner(app, backend, banner.map(|banner| *banner));
+                    banners::fallback(app, backend, fx);
                 }
             }
             AppCtx::Nudge { nudge, thread, .. } => {
@@ -2088,6 +2093,21 @@ fn install_banner(app: &mut CodexApp, backend: BackendId, banner: Option<chat::B
             backend,
             chat::BannerOccurrence::new(banner, app.mint.next()),
         );
+    }
+}
+
+/// A change of the banner occurrence `backend` shows (`app/banners.rs`); none shown, none made.
+fn with_banner(
+    app: &mut CodexApp,
+    backend: BackendId,
+    change: impl FnOnce(&mut chat::BannerOccurrence),
+) {
+    if app.session.backend_banners.contains_key(&backend)
+        && let Some(occurrence) = Rc::make_mut(&mut app.session)
+            .backend_banners
+            .get_mut(&backend)
+    {
+        change(occurrence);
     }
 }
 

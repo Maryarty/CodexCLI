@@ -1123,5 +1123,24 @@ fn mode_note(note: &codex_tui_core::threads::ModeNote) -> String {
                 None => format!("Model changed to {} for {mode} mode.", change.model),
             }
         }
+        ModeNote::AutomaticSwitch(switch) => {
+            use codex_tui_core::screens::chat::SwitchReason;
+            let (prefix, suffix) = match switch.reason {
+                SwitchReason::UsageLimit => ("Automatically switched to", " due to usage limits."),
+                SwitchReason::UsageRecovered => (
+                    "Automatically switched back to",
+                    " because ordinary usage is available again.",
+                ),
+            };
+            let name = if switch.model.eq_ignore_ascii_case("gpt-reserve") {
+                "Luna Reserve"
+            } else {
+                switch.model.as_str()
+            };
+            match &switch.effort {
+                Some(effort) => format!("{prefix} {name} {effort}{suffix}"),
+                None => format!("{prefix} {name}{suffix}"),
+            }
+        }
     }
 }

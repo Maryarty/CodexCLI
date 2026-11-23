@@ -98,6 +98,9 @@ pub enum ModeNote {
     PlanUnavailable,
     /// `Model changed to {model} {effort} for {mode} mode.`
     ModelChanged(crate::screens::select::collaboration::ModelChange),
+    /// `Automatically switched to {model} {effort} due to usage limits.` or `... back to ...
+    /// because ordinary usage is available again.` (`apply_backend_banner_fallback`).
+    AutomaticSwitch(crate::screens::chat::AutomaticSwitch),
 }
 
 impl NoteKey {
