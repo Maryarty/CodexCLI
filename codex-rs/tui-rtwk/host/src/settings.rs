@@ -116,7 +116,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rtwk-themes-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for name in ["zen.tmTheme", "amber.tmTheme", "notes.txt"] {
-            std::fs::write(dir.join(name), "").unwrap();
+            std::fs::File::create(dir.join(name)).unwrap();
         }
         assert_eq!(custom_themes(&dir), ["amber", "zen"]);
         std::fs::remove_dir_all(&dir).unwrap();

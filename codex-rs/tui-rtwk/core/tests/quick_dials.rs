@@ -73,6 +73,8 @@ fn ask(app: &mut CodexApp, ask: Ask) -> AppFx {
 /// The pages the model asked the sheet to open, oldest first, taken as the presenter takes them
 /// (it says it showed each).
 fn opened(app: &mut CodexApp) -> Vec<Page> {
+    // Collected first: the shows borrow `app`, and `select` below needs it mutably.
+    #[allow(clippy::needless_collect)]
     let shows: Vec<_> = app
         .screens()
         .select
