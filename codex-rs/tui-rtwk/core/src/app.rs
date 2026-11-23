@@ -2780,7 +2780,7 @@ const CONNECTION_LOST: &str = "the connection to the app server was closed";
 fn sent_to(app: &CodexApp, ctx: &AppCtx) -> BackendId {
     match ctx {
         AppCtx::StartThread { switch } => switch.unwrap_or_default(),
-        AppCtx::RateLimits { backend }
+        AppCtx::RateLimits { backend, .. }
         | AppCtx::Nudge { backend, .. }
         | AppCtx::NewConversation { backend, .. }
         | AppCtx::OpenThread { backend, .. }
