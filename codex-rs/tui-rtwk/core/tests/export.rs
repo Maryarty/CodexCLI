@@ -69,7 +69,9 @@ fn pick(app: &mut CodexApp, row: &str) -> AppFx {
     export_command(app, None);
     assert_eq!(
         app.screens().select.menu(),
-        Some(&Menu::Feature(FeatureMenu::Export(export::Menu::Destination)))
+        Some(&Menu::Feature(FeatureMenu::Export(
+            export::Menu::Destination
+        )))
     );
     run(
         app,
@@ -257,7 +259,10 @@ fn an_answer_after_the_last_one_of_an_ask_is_dropped() {
             },
         );
     }
-    assert_eq!(exports(&app), vec![ExportNote::Copy(Ok(CopyStatus::Confirmed))]);
+    assert_eq!(
+        exports(&app),
+        vec![ExportNote::Copy(Ok(CopyStatus::Confirmed))]
+    );
 }
 
 #[test]

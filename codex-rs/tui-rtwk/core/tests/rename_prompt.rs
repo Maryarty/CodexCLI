@@ -251,7 +251,10 @@ fn a_side_conversation_cannot_be_renamed() {
     );
     let fx = rename(&mut app, Some("Name"));
     assert_eq!(renamed_to(&fx), None);
-    assert_eq!(notices(&app), [RenameNote::SideRename, RenameNote::SideRename]);
+    assert_eq!(
+        notices(&app),
+        [RenameNote::SideRename, RenameNote::SideRename]
+    );
 }
 
 #[test]
@@ -313,7 +316,10 @@ fn a_rename_the_server_refused_is_the_threads_failure() {
     let fx = rename(&mut app, Some("Direct"));
     let ticket = rename_ticket(&fx, T);
     assert_eq!(app.active_thread().last_error(), None);
-    run(&mut app, AppEv::Reply(ticket, Reply::failed("no such thread")));
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::failed("no such thread")),
+    );
     assert_eq!(
         app.active_thread().last_error(),
         Some(&Failure::Message("no such thread".to_owned()))

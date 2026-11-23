@@ -80,7 +80,9 @@ fn the_bare_export_command_opens_the_feature_destination_picker() {
     chat_with_history(&mut h);
     h.t.type_text("/export");
     h.press("enter");
-    h.wait_for("the destination picker", |s| s.contains("Export conversation"));
+    h.wait_for("the destination picker", |s| {
+        s.contains("Export conversation")
+    });
     let screen = h.t.screen();
     assert!(
         screen.contains("Save the complete conversation as Markdown"),
