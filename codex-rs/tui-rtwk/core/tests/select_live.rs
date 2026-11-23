@@ -645,12 +645,14 @@ fn apps_cache(app: &CodexApp) -> Cache {
     app.screens().select.apps.cache.clone()
 }
 
-/// The sheets the screen asked for and nobody has shown, oldest first.
+/// The sheets the screen asked for and nobody has shown, oldest first, the `/model` ones apart
+/// (`threaded` opened that family to fill the catalog and nobody showed it: `model_shows`).
 fn shows(app: &CodexApp) -> Vec<select::Opening> {
     app.screens()
         .select
         .shows
         .pending()
+        .filter(|show| !matches!(show.opening, select::Opening::Models(_)))
         .map(|show| show.opening.clone())
         .collect()
 }
