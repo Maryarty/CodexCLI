@@ -123,6 +123,7 @@ impl State for AloneState {
                 agents: false,
                 draft_empty: self.draft_empty,
                 shell: self.draft_shell,
+                vim: w.ui.draft.with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
                 on_queue: None,
                 on_warnings: None,
                 on_close: Some(cx.send(Msg::Shortcuts)),

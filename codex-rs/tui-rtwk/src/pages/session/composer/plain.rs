@@ -270,6 +270,7 @@ impl State for EmbeddedState {
                 agents: false,
                 draft_empty: self.draft_empty,
                 shell: false,
+                vim: None,
                 on_queue: None,
                 on_warnings: None,
                 on_close: None,

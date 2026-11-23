@@ -17,6 +17,7 @@ mod effort_frames;
 pub use effort::{Aura, Prompt};
 pub mod entries;
 pub mod hints;
+mod indicators;
 mod sparkle;
 pub use sparkle::Sparkle;
 mod status_rows;
@@ -34,6 +35,8 @@ use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::keymap::actions::COMPOSER_TOGGLE_SHORTCUTS;
+use codex_tui_core::screens::chat::facts::{self as chat_facts, GoalIndicator};
+use codex_tui_core::screens::composer::vim::VimMode;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::threads::ThreadModel;
 
@@ -83,6 +86,8 @@ pub struct Footer {
     pub draft_empty: bool,
     /// The composer is in shell mode.
     pub shell: bool,
+    /// The draft's Vim mode, none with Vim off.
+    pub vim: Option<VimMode>,
     /// A tap on the queue hint.
     pub on_queue: Option<Handler<()>>,
     /// A tap on the warning notice.
@@ -97,6 +102,7 @@ impl PartialEq for Footer {
             && self.agents == other.agents
             && self.draft_empty == other.draft_empty
             && self.shell == other.shell
+            && self.vim == other.vim
             && self.on_queue == other.on_queue
             && self.on_warnings == other.on_warnings
             && self.on_close == other.on_close
@@ -175,6 +181,14 @@ impl Footer {
                 )
             });
         let states = watch::<ScreenStates, _>(cx);
+        let now = states.agents.now;
+        let chat = Rc::clone(&states);
+        let facts = select::<ThreadModel, chat_facts::Footer, _>(cx, move |thread| {
+            chat_facts::footer(&chat.chat, thread.screen_slots())
+        });
+        let goal = select::<ThreadModel, Option<GoalIndicator>, _>(cx, move |thread| {
+            chat_facts::goal_indicator(thread, now)
+        });
         let status_line_enabled = states
             .chat
             .status
@@ -189,9 +203,20 @@ impl Footer {
         };
         Rc::new(Spec {
             running,
-            agents: self.agents,
+            agents: self.agents && facts.agents_navigation,
             draft_empty: self.draft_empty,
             shell: self.shell,
+            vim: self.vim,
+            plan: facts.plan_indicator,
+            // the key cycles the mode only while the thread is idle
+            // (`show_cycle = can_type && !is_task_running`)
+            show_cycle: !running,
+            goal,
+            side: facts
+                .side_label
+                .map(|label| (label, facts.side_active)),
+            agent_label: facts.agent_label,
+            context_pending: facts.usage_pending,
             status_line_enabled,
             warnings,
             meter,
@@ -278,6 +303,15 @@ struct Spec {
     agents: bool,
     draft_empty: bool,
     shell: bool,
+    vim: Option<VimMode>,
+    plan: bool,
+    show_cycle: bool,
+    goal: Option<GoalIndicator>,
+    /// The side conversation's label and whether it is the one shown.
+    side: Option<(String, bool)>,
+    agent_label: Option<String>,
+    /// The resumed thread has no token usage yet: no context meter.
+    context_pending: bool,
     status_line_enabled: bool,
     warnings: usize,
     meter: Meter,
@@ -324,6 +358,14 @@ impl Spec {
                 vec![plain(self.shell_label.to_owned(), self.tokens.shell())],
             ));
         }
+        if let Some(forms) = indicators::vim(self, width) {
+            out.push((Kind::Vim, forms));
+        }
+        if self.plan {
+            out.push((Kind::Plan, indicators::plan(self, width)));
+        } else if let Some(forms) = indicators::goal(self, width) {
+            out.push((Kind::Goal, forms));
+        }
         if self.running && !self.draft_empty && !self.shell {
             let key = self.own.queue_key;
             let spelling = |rest: &'static str| -> Form {
@@ -345,6 +387,15 @@ impl Spec {
                 ],
             ));
         }
+        if let Some((label, active)) = &self.side {
+            let kind = if *active { Kind::Side } else { Kind::SideNav };
+            out.push((kind, indicators::side(self, label, width)));
+        }
+        if !self.status_line_enabled
+            && let Some(forms) = indicators::agent_name(self, width)
+        {
+            out.push((Kind::AgentName, forms));
+        }
         if self.draft_empty {
             let bar = |(key, hint): (&'static str, &'static str)| -> Form {
                 Form {
@@ -365,7 +416,11 @@ impl Spec {
             }
             out.push((Kind::Shortcuts, vec![bar(self.shortcuts)]));
         }
-        if !self.status_line_enabled {
+        if !self.status_line_enabled
+            && !self.context_pending
+            && self.side.is_none()
+            && !self.shell
+        {
             let text = match self.meter {
                 Meter::Left(percent) => self.own.left(percent),
                 Meter::Used(used) => self.own.used(&format_tokens_compact(used)),

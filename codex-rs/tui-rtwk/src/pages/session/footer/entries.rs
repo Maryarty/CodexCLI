@@ -21,6 +21,7 @@ fn footer(line: Line, draft_empty: bool) -> Footer {
         agents: false,
         draft_empty,
         shell: false,
+        vim: None,
         on_queue: None,
         on_warnings: None,
         on_close: None,
