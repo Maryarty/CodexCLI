@@ -127,6 +127,10 @@ pub struct Strings {
     pub writer_center: &'static str,
     pub writer_exit: &'static str,
     pub writer_transcript: &'static str,
+    pub forking: &'static str,
+    /// The blank before a footer entry's label, and between two entries.
+    pub writer_pad: &'static str,
+    pub writer_gap: &'static str,
     pub backend_cycle: &'static str,
     /// `actionable_banner.rs` / `set_inline_banner`: the hint under the
     /// banner's actions, and under an information-only one.
@@ -266,6 +270,9 @@ pub const EN: Strings = Strings {
     writer_center: "command center",
     writer_exit: "exit",
     writer_transcript: "transcript",
+    forking: "Forking conversation…",
+    writer_pad: " ",
+    writer_gap: "   ",
     backend_cycle: " to cycle",
     banner_choose: "Press a number to choose",
     banner_choose_dismiss: "Press a number to choose \u{b7} esc to dismiss \u{b7} type to continue",

@@ -421,7 +421,7 @@ fn composer_paste_releases_selection_and_retains_normal_cursor_movement() {
 fn external_writer_escape_returns_to_command_center_without_editing() {
     kit::pending(
         Owner::ChatLive,
-        "no external-writer thread: a remote app-server target showing the external writer (the agent command center, S21) and the offline reconnect overview are not built; the snapshots are the command-center popup only (96 columns)",
+        "Esc and Left leave the read-only chat for the command center (built); the snapshots differ by what the kit cannot stage: the oracle's list is still `Loading tasks…` (the foreign_writer seed lists the thread, which the chat needs to open it) and the offline variant needs a lost connection (`Reconnecting…`, stale list), for which the kit has no step",
     );
     for (detailed, scrolled, offline) in [
         (false, false, false),
@@ -431,7 +431,8 @@ fn external_writer_escape_returns_to_command_center_without_editing() {
     ] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(96, 24)
-            .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
+            .foreign_writer("thread-foreign")
+            .live()
             .open();
         if detailed {
             s.keys("ctrl+t");
