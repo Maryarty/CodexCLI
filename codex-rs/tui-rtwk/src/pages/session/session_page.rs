@@ -45,7 +45,7 @@ use super::backtrack::{self, EditWatch};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::browse::{self, Browse};
 use super::live::plan_mode::Seen as PlanSeen;
-use super::live::put_back;
+use super::live::{put_back, seed_history};
 
 use super::status_surfaces::{StatusContext, TitleInputs};
 use super::transcript;
@@ -73,6 +73,8 @@ pub struct ChatState {
     /// The last restore (`Restore::seq`) the composer took from the model: a
     /// number is applied once, in the thread that made it.
     restored: Option<(ThreadId, Option<u64>)>,
+    /// The thread and generation of the replayed submissions the composer's history was seeded from.
+    replayed: Option<(ThreadId, u64)>,
     /// The same for the prompt an edit of the transcript's backtrack put back
     /// (the edit of a past prompt).
     edited: Option<(ThreadId, Option<u64>)>,
@@ -174,6 +176,7 @@ impl StatefulWidget for Chat {
         ChatState {
             seen: None,
             restored: None,
+            replayed: None,
             edited: None,
             plan: PlanSeen::default(),
             removed: None,
@@ -365,6 +368,20 @@ impl State for ChatState {
             }
         }
         self.restored = Some(restore);
+        // The user messages of a resumed thread's turns seed the composer's
+        // history (`replay_backend_thread_turns`): once per resume, and again
+        // from the whole list when older turns came in front.
+        let replayed = select::<ThreadModel, (ThreadId, u64), _>(cx, |thread| {
+            (
+                thread.id().clone(),
+                thread.replayed_submissions().generation(),
+            )
+        });
+        if self.replayed.as_ref() != Some(&replayed) && replayed.1 > 0 {
+            let model = read::<ThreadModel, _>(cx);
+            seed_history(&w.ui, model.replayed_submissions());
+        }
+        self.replayed = Some(replayed);
         // The prompt an edit of the backtrack put back, once (`restore_user_message_to_composer`).
         let edited = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
             (
