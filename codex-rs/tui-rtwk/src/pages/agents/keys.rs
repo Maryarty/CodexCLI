@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use codex_tui_core::keymap::actions::*;
-use codex_tui_core::keymap::{ActionId, Binding, Context, Key, Keymap, Mods};
+use codex_tui_core::keymap::{ActionId, Binding, Context, Keymap};
 
 use super::*;
 
@@ -147,11 +147,8 @@ fn editing(keymap: &Keymap, list: bool) -> Pairs {
             continue;
         }
         for binding in keymap.bindings(*id) {
-            let is_text = matches!(binding, Binding::Single(stroke)
-                if matches!(stroke.key, Key::Char(_))
-                    && !stroke.mods.contains(Mods::CTRL)
-                    && !stroke.mods.contains(Mods::ALT)
-                    && !stroke.mods.contains(Mods::SUPER));
+            let is_text =
+                matches!(binding, Binding::Single(stroke) if crate::keymap::is_text(&stroke));
             if !is_text && let Some(name) = crate::keymap::name_of_binding(&binding) {
                 out.push((name, *act));
             }

@@ -10,9 +10,11 @@ pub mod files;
 pub mod filter;
 pub mod popup;
 pub mod rebind;
+pub mod row;
 pub mod search_mode;
 pub mod session;
 pub mod target;
+pub mod task_link;
 pub mod tools;
 
 pub use tools::tool_mentions;

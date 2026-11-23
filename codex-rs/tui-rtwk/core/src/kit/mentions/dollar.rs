@@ -6,9 +6,9 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
-use crate::commands::fuzzy_match;
 use crate::data::mention::uri;
 use crate::data::mention::{Mention, MentionKind};
+use crate::kit::fuzzy::fuzzy_match;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MentionItem {
