@@ -7,8 +7,8 @@
 //! data.
 
 use codex_app_server_protocol::{
-    ClientRequest, RequestId, ThreadGoalClearParams, ThreadGoalGetParams,
-    ThreadGoalMutationOrigin, ThreadGoalSetParams, ThreadGoalStatus,
+    ClientRequest, RequestId, ThreadGoalClearParams, ThreadGoalGetParams, ThreadGoalMutationOrigin,
+    ThreadGoalSetParams, ThreadGoalStatus,
 };
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
@@ -104,7 +104,10 @@ fn only(fx: &AppFx) -> (Ticket, Ask) {
 fn answer(app: &mut CodexApp, ticket: Ticket, reply: goal::Reply) -> AppFx {
     run(
         app,
-        AppEv::Reply(ticket, Reply::feature(codex_tui_core::features::FeatureReply::Goal(reply))),
+        AppEv::Reply(
+            ticket,
+            Reply::feature(codex_tui_core::features::FeatureReply::Goal(reply)),
+        ),
     )
 }
 
@@ -451,7 +454,10 @@ fn the_resume_row_sets_the_goal_active_and_leave_paused_asks_nothing() {
             thread: ThreadId::new(T),
             objective: "ship it".into(),
         };
-        select_intent(app, SelectIntent::Open(Menu::Feature(FeatureMenu::Goal(menu))));
+        select_intent(
+            app,
+            SelectIntent::Open(Menu::Feature(FeatureMenu::Goal(menu))),
+        );
     };
     let mut app = ready();
     resume(&mut app);
