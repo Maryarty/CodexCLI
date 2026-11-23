@@ -4,10 +4,6 @@
 //! a change of a thread) and the app carries it out after the call, in the order it was said.
 //! It never holds `&mut` of the app or of a thread's model.
 
-// While the list is empty the root enums are uninhabited, so what is built of them is
-// unreachable; the code is the one every list has.
-#![allow(unreachable_code, unused_variables)]
-
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
 };
@@ -79,15 +75,28 @@ impl<'a> AppView<'a> {
 
 /// One thread, read-only: its own state and its screens' parts; a feature's own part is
 /// the `&mut` it is handed beside this.
+///
+/// The thread is read through the methods below only (a feature adds the one it needs, each a
+/// decision): `core.busy()` would not see a turn start that was said in this step and is not in
+/// the model yet (`ThreadFx` hands its tickets to the model after the whole `apply`), so the
+/// model itself is not a feature's to read raw.
 #[derive(Clone, Copy)]
 pub struct ThreadView<'a> {
-    pub core: &'a ThreadCore,
-    pub slots: &'a ThreadSlots,
+    core: &'a ThreadCore,
+    slots: &'a ThreadSlots,
+    /// A turn start was said in this step and the model does not hold its ticket yet: the
+    /// thread is busy for whoever reads after it (ADR-012: "a feature after it sees the
+    /// thread already busy").
+    start_said: bool,
 }
 
 impl<'a> ThreadView<'a> {
-    pub fn new(core: &'a ThreadCore, slots: &'a ThreadSlots) -> Self {
-        Self { core, slots }
+    pub(crate) fn new(core: &'a ThreadCore, slots: &'a ThreadSlots) -> Self {
+        Self {
+            core,
+            slots,
+            start_said: false,
+        }
     }
 
     pub fn id(&self) -> &'a ThreadId {
@@ -99,9 +108,9 @@ impl<'a> ThreadView<'a> {
         self.core.is_running()
     }
 
-    /// A turn runs or is about to (its start is in flight).
+    /// A turn runs or is about to (its start is in flight, or was said earlier in this step).
     pub fn busy(&self) -> bool {
-        self.core.busy()
+        self.start_said || self.core.busy()
     }
 
     /// This process writes the thread and the server has not refused it for its model
@@ -139,6 +148,8 @@ pub enum Out {
         thread: ThreadId,
         intent: FeatureThreadIntent,
     },
+    /// What held `thread`'s input back is over: every feature's `on_settled`.
+    Settled { thread: ThreadId },
 }
 
 /// The context of an app-scoped step of a feature: the app as a view, and the outbox.
@@ -205,6 +216,14 @@ impl<'a> AppCx<'a> {
         });
     }
 
+    /// Says that what held `thread`'s input back is over (a goal was set): what waits for it
+    /// (the queue) goes on, in the features' own words, `Feature::on_settled`.
+    pub fn settled(&mut self, thread: &ThreadId) {
+        self.out.push(Out::Settled {
+            thread: thread.clone(),
+        });
+    }
+
     /// What was asked, in order.
     pub(crate) fn into_out(self) -> Vec<Out> {
         self.out
@@ -213,16 +232,28 @@ impl<'a> AppCx<'a> {
 
 /// The context of a thread-scoped step of a feature: the thread as a view, and the thread's
 /// effects (its RPCs, its tickets).
+///
+/// There is one only for a thread this process writes (ADR-003, `new`): a feature's part and
+/// the thread's effects are changed under the writer, so a step over a detached thread, one
+/// another process writes, or one the server refused for its provider cannot be made.
 pub struct ThreadCx<'a, 'b> {
     pub view: ThreadView<'a>,
     /// Private: a feature has the effects this type names (`request`, and what a feature
-    /// that needs more adds here), never the thread's lifecycle RPCs.
+    /// that needs more adds here), never the thread's lifecycle RPCs. An effect that starts a
+    /// turn sets `view.start_said` (the next feature in the list sees the thread busy).
     fx: &'a mut ThreadFx<'b>,
 }
 
 impl<'a, 'b> ThreadCx<'a, 'b> {
-    pub(crate) fn new(view: ThreadView<'a>, fx: &'a mut ThreadFx<'b>) -> Self {
-        Self { view, fx }
+    /// The context of a step over `view`, or none where this process is not the thread's
+    /// writer. A turn start the thread said before this step (its own `send_next`) already
+    /// counts: the features' hooks run after the thread's own work.
+    pub(crate) fn new(mut view: ThreadView<'a>, fx: &'a mut ThreadFx<'b>) -> Option<Self> {
+        if !view.has_writer() {
+            return None;
+        }
+        view.start_said = fx.start_said();
+        Some(Self { view, fx })
     }
 
     /// An RPC of the feature on this thread: `ctx` comes back with the answer to the

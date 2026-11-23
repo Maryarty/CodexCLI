@@ -69,6 +69,16 @@ impl<F> PartialEq for Never<F> {
 
 impl<F> Eq for Never<F> {}
 
+impl<F> Never<F> {
+    /// Anything, from a value that cannot exist: what a step a feature has no component for
+    /// returns (`command.absurd()` in `wire` and `decode` of a feature without RPCs).
+    pub fn absurd<T>(&self) -> T {
+        match self {
+            Never::Void(never, _) => match *never {},
+        }
+    }
+}
+
 /// What a row of a feature's menu settled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Choice<M, P> {
@@ -212,6 +222,13 @@ pub trait Feature: 'static {
         let _ = (part, cx);
     }
 
+    /// What held the thread's input back is over (a goal was set: `AppCx::settled`): what
+    /// waits goes on. Runs over all features in list order, like the turn hooks, so a feature
+    /// that waits for it does not name the one that said it.
+    fn on_settled(part: &mut Self::ThreadPart, cx: &mut ThreadCx<'_, '_>) {
+        let _ = (part, cx);
+    }
+
     /// The wire request of one of the feature's RPCs.
     fn wire(command: &Self::Command, thread: &ThreadId, id: RequestId) -> ClientRequest;
 
@@ -226,7 +243,9 @@ pub trait Feature: 'static {
 #[macro_export]
 macro_rules! feature_list {
     ($callback:ident) => {
-        $callback! {}
+        $callback! {
+            goal => Goal;
+        }
     };
 }
 
@@ -260,10 +279,13 @@ macro_rules! feature_dirs {
             $($variant(<$name::$variant as Feature>::Intent),)*
         }
 
-        /// The thread intents of every feature: `ThreadEv::FeatureIntent`.
+        /// The thread intents of every feature: `ThreadEv::FeatureIntent`, and the one that is
+        /// no feature's: what held a thread's input back is over (`AppCx::settled`).
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum FeatureThreadIntent {
             $($variant(<$name::$variant as Feature>::ThreadIntent),)*
+            /// Every feature's `on_settled`, in list order.
+            Settled,
         }
 
         /// The RPCs of every feature: `Command::Feature`.
@@ -435,6 +457,9 @@ macro_rules! feature_dirs {
                 $(FeatureThreadIntent::$variant(intent) => {
                     <$name::$variant as Feature>::thread_intent(&mut parts.$name, intent, cx)
                 })*
+                FeatureThreadIntent::Settled => {
+                    $(<$name::$variant as Feature>::on_settled(&mut parts.$name, cx);)*
+                }
             }
         }
 

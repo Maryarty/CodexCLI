@@ -210,7 +210,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 | Effort { .. }
                 | select::Picked::Review(_)
                 | select::Picked::Worktree(_)
-                | select::Picked::Goal(_)
                 | select::Picked::Feature(_)
         ) || matches!(pick, select::Picked::Item(id)
             if plan_mode::Answer::of_row(id).is_some() || export::Row::of_row(id).is_some())
@@ -245,7 +244,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 super::session::start_review(app, thread, target, fx);
             }
             select::Picked::Worktree(pick) => worktree_pick(app, pick, fx),
-            select::Picked::Goal(pick) => super::session::goal::picked(app, pick, fx),
             select::Picked::Feature(pick) => super::features::picked(app, pick, fx),
             select::Picked::Item(id) => {
                 if let Some(answer) = plan_mode::Answer::of_row(&id) {
@@ -577,9 +575,6 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
                 Err(error) => Err(text(error)),
             };
             event(app, select::Ev::PresetWritten { slot, dial, result }, fx);
-        }
-        (select::Ctx::Goal { thread, flow }, result) => {
-            super::session::goal::answered(app, thread, flow, result, fx);
         }
         (select::Ctx::Plugins { request }, result) => {
             let result = match result {
