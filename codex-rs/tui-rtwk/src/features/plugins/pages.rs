@@ -14,13 +14,14 @@
 
 use std::rc::Rc;
 
-use rtwk::layout::{Align, Alignment, EdgeInsets, Padding};
+use rtwk::layout::{EdgeInsets, Padding};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::widgets::picker::list::List;
+use crate::widgets::sheet::bottom;
 use codex_tui_core::features::plugins::catalog::{ALL, RowKey, tab_id_of_root};
 use codex_tui_core::features::plugins::{
     Action, Detail as DetailData, Gen, Intent, OpKey, Outcome, PluginKey, SetupEnd,
@@ -114,16 +115,6 @@ fn floating(picker: Picker, page: u32) -> AnyWidget {
 }
 
 // ------------------------------------------------------------------------------- the routes
-
-/// A page at the bottom of the sheet. The navigator is as tall as the sheet's cap (a `Navigator`
-/// under bounded constraints fills them) and gives each route that size tight; the page is as
-/// tall as what it shows, so it sits at the bottom edge where the oracle's pane is, under the
-/// transparent rest of the cap. (`IntrinsicHeight` over the navigator cannot size it: a page of
-/// the picker is built by a `LayoutBuilder` from the height it is given, which has no intrinsic
-/// height before it is built; `tests/rtwk_o1.rs`.)
-pub fn bottom(page: impl Into<AnyWidget>) -> AnyWidget {
-    Align::new(Alignment::BOTTOM_CENTER, page).into()
-}
 
 pub fn detail_route(key: PluginKey) -> PageRoute<()> {
     PageRoute::new(move |_| bottom(Detail { key: key.clone() }))

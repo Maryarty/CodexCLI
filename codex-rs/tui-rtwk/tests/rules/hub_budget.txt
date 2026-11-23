@@ -16,7 +16,7 @@
 # slash list, which stays `SessionIntent`'s; `Target::Status` went (that enum has no budget).
 # The slash list has no generic `Feature` variant yet: a Need of the ADR-012 owner.
 enum core/src/commands/dispatch.rs SessionIntent 43
-enum core/src/screens/select.rs Note 37
+enum core/src/screens/select.rs Note 36
 enum core/src/screens/select.rs Picked 8
 # ADR-013 (select, the page stack leaves core family by family): `Menu::Confirm` and `Menu::Review`
 # are sheets of their own (`Show`/`Opening`: the one-shot the presenter shows; the pages of
@@ -40,8 +40,9 @@ enum core/src/screens/select.rs Picked 8
 # The `/model` family is a sheet of its own too (`Opening::Models`; its pages are the routes of a
 # nested navigator, `ModelMenu::choose` leads from one to the next): `Menu::Model` goes (1 -> 0),
 # `Intent` +2 for `Settle` (the pick a page settled on) and `GiveUp` (the sheet could not go on).
-enum core/src/screens/select.rs Menu 0
-enum core/src/screens/select.rs Intent 33
+# adr013-select-finish: `Menu` and the gesture intents (`Open`, `Choose`, `Secondary`, `Close`) are
+# deleted, `Intent` 33 -> 29; `Note::PermissionsFailed` (dead) goes, `Note` 37 -> 36.
+enum core/src/screens/select.rs Intent 29
 enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4

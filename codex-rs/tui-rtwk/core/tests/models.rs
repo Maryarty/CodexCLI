@@ -989,7 +989,6 @@ fn a_menu_a_script_seeds_is_a_show_the_sheet_opens_on() {
 {"step":"screen","dir":"select","ev":{"kind":"models","current":{"model":"m"}}}"#,
     )
     .expect("plays");
-    assert!(model(&s).stack.is_empty());
     assert_eq!(depth(&s), 1);
     assert_eq!(ids(&s), ["m"]);
     // the presenter said it showed it: nothing is left to show

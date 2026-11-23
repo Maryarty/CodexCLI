@@ -22,9 +22,9 @@ use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::plugins::Interest as Wanted;
 use codex_tui_core::ids::Cwd;
 
-use super::pages::{Home, bottom};
+use super::pages::Home;
 use crate::widgets::interest::Interest;
-use crate::widgets::sheet::Sheet;
+use crate::widgets::sheet::{Sheet, bottom};
 
 /// The sheet of the plugins of `cwd`.
 #[derive(Clone, Debug, PartialEq)]
