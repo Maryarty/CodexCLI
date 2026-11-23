@@ -4,8 +4,8 @@
 //! installed plugin's apps as a wish); nothing here keeps a copy of it.
 //!
 //! The template of a feature's UI half: `mod.rs` (this: `open`, with ids as its arguments, and the
-//! `FeatureView` words), `sheet.rs` (the modal sheet: a nested `Navigator` in an
-//! `IntrinsicHeight`, the `Interest` that has the feature load, `alive`), `pages.rs` (the routes
+//! `FeatureView` words), `sheet.rs` (the modal sheet: a nested `Navigator` as tall as the sheet's
+//! cap, the `Interest` that has the feature load, `alive`), `pages.rs` (the routes
 //! of the navigator: one `StatefulWidget` per page, each selecting the feature's part of the app
 //! and sending verbs), `lists.rs` (what each page shows, as the shared picker's lists),
 //! `strings.rs` (the words).
