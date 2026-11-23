@@ -990,6 +990,8 @@ data is wanted now → `Interest` counter in core, the open fact in UI (И); (5)
 drawn state (Н) in the UI: `State` of the widget or `ThreadUi`. Field text is always Н; core
 gets it only in a verb (`Submit`, `Search{query}`). "Who writes it" decides, not "who reads".
 
+**`core::data`** — plain domain values shared by kit, screens and widgets; depends on std/protocol/ids (`adr013_data_names_only_ids`). **`core::kit`** names no screen or feature (`adr013_kit_names_no_screen`); hardwired keys are named actions of `core::keymap::fixed` read by `pressed` like any action (`adr006_keycode_only_in_keymap`).
+
 **Recommendations taken (full §16).** O1 sheet pages are routes of a nested `Navigator`
 wrapped in `IntrinsicHeight` inside the sheet's max-height cap (re-decided by the person
 2026-11-23 after the rtwk orchestrator showed this is twk's supported way: rtwk's Navigator
