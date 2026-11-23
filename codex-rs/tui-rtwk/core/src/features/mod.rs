@@ -378,14 +378,14 @@ macro_rules! feature_dirs {
         pub fn seed_fact(
             feature: &str,
             value: serde_json::Value,
-        ) -> Result<FeatureFact, SeedError> {
+        ) -> Result<FeatureFact, $crate::screens::SeedError> {
             $(if feature == <$name::$variant as Feature>::NAME {
                 return match <$name::$variant as Feature>::SEED {
                     Some(seed) => seed(value).map(FeatureFact::$variant),
-                    None => Err(SeedError::NoSeeds),
+                    None => Err($crate::screens::SeedError::NoSeeds),
                 };
             })*
-            Err(SeedError::UnknownDir)
+            Err($crate::screens::SeedError::UnknownDir)
         }
 
         /// The names of the features, in list (hook) order.

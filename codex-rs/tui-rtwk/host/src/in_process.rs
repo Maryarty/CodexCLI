@@ -627,7 +627,11 @@ fn config_write_job(
                 epoch,
                 AppEv::Tui(crate::effects::tui_settings(config)),
             );
-            emit(&ingress, epoch, AppEv::Feature(settings_fact(config).into()));
+            emit(
+                &ingress,
+                epoch,
+                AppEv::Feature(settings_fact(config).into()),
+            );
         }
         Some(AppEv::Effect {
             request,

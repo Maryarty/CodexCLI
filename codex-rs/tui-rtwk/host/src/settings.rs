@@ -42,10 +42,10 @@ pub(crate) fn read(config: &Config, home: Option<&Path>) -> Read {
         syntax_theme: config.tui_theme.clone(),
         custom_themes: custom_themes(&themes),
         themes_dir: shown.starts_with('~').then_some(shown),
-        memories: config
-            .features
-            .enabled(Feature::MemoryTool)
-            .then_some((config.memories.use_memories, config.memories.generate_memories)),
+        memories: config.features.enabled(Feature::MemoryTool).then_some((
+            config.memories.use_memories,
+            config.memories.generate_memories,
+        )),
     }
 }
 

@@ -306,12 +306,13 @@ impl Script {
                     ingest(app, AppEv::Screen(ev));
                 }
                 Step::Fact { feature, fact } => {
-                    let fact = crate::features::seed_fact(feature, fact.clone()).map_err(|err| {
-                        ScriptError {
-                            line: *line,
-                            message: format!("{err:?}"),
-                        }
-                    })?;
+                    let fact =
+                        crate::features::seed_fact(feature, fact.clone()).map_err(|err| {
+                            ScriptError {
+                                line: *line,
+                                message: format!("{err:?}"),
+                            }
+                        })?;
                     ingest(app, AppEv::Feature(fact));
                 }
                 Step::Notify { message } => {

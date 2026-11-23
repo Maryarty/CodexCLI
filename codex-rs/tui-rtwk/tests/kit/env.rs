@@ -44,12 +44,12 @@
 
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::features::settings::{Fact as SettingsFact, Facts};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev as AgentsEv, Page};
 use codex_tui_core::screens::cells::{Ev as CellsEv, Startup};
-use codex_tui_core::features::settings::{Fact as SettingsFact, Facts};
 use codex_tui_core::threads::Notice;
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_rtwk::services::startup::UpdateAction;
