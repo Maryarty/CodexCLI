@@ -14,7 +14,7 @@ use codex_tui_core::features::rename::{self, Note as RenameNote};
 use codex_tui_core::features::{FeatureCommand, FeatureNote, FeaturePrompt, FeatureReply};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::dialogs::{self, Open, Prompt, PromptKind, Suggestion};
+use codex_tui_core::screens::dialogs::{self, Prompt, PromptKind, Suggestion};
 use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
 use codex_tui_core::threads::{Failure, Item, Note, NoteKey};
 use pretty_assertions::assert_eq;
@@ -75,8 +75,8 @@ fn dialog(app: &mut CodexApp, intent: dialogs::Intent) -> AppFx {
 }
 
 fn prompt(app: &CodexApp) -> Prompt {
-    match &app.screens().dialogs.open {
-        Some(Open::Prompt(prompt)) => prompt.clone(),
+    match &app.screens().dialogs.prompt {
+        Some(prompt) => prompt.clone(),
         other => panic!("not the prompt: {other:?}"),
     }
 }
@@ -203,10 +203,10 @@ fn an_answer_to_another_request_is_not_the_prompts() {
 fn a_late_answer_after_the_prompt_closed_goes_nowhere() {
     let mut app = ready();
     let request = asked(&rename(&mut app, None));
-    dialog(&mut app, dialogs::Intent::Close);
-    assert_eq!(app.screens().dialogs.open, None);
+    dialog(&mut app, dialogs::Intent::CancelPrompt);
+    assert_eq!(app.screens().dialogs.prompt, None);
     answer(&mut app, request, Some("Late"));
-    assert_eq!(app.screens().dialogs.open, None);
+    assert_eq!(app.screens().dialogs.prompt, None);
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn a_submit_renames_the_thread_with_the_trimmed_name() {
         &mut app,
         dialogs::Intent::Submit("  Fresh name \n".to_owned()),
     );
-    assert_eq!(app.screens().dialogs.open, None, "the prompt closes");
+    assert_eq!(app.screens().dialogs.prompt, None, "the prompt closes");
     assert_eq!(renamed_to(&fx), Some("Fresh name".to_owned()));
     assert_eq!(app.screens().dialogs.submitted, None, "carried out once");
 }
@@ -243,7 +243,7 @@ fn a_side_conversation_cannot_be_renamed() {
         AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(flags))),
     );
     let fx = rename(&mut app, None);
-    assert_eq!(app.screens().dialogs.open, None);
+    assert_eq!(app.screens().dialogs.prompt, None);
     assert!(
         fx.commands()
             .iter()
@@ -262,7 +262,7 @@ fn a_rename_with_a_name_still_renames_directly() {
     let mut app = ready();
     let fx = rename(&mut app, Some("Direct"));
     assert_eq!(renamed_to(&fx), Some("Direct".to_owned()));
-    assert_eq!(app.screens().dialogs.open, None);
+    assert_eq!(app.screens().dialogs.prompt, None);
 }
 
 /// The ticket of the thread's `thread/name/set` in `fx`.

@@ -83,8 +83,8 @@ fn a_screens_host_ask_is_still_kept_for_the_screen() {
 }
 
 fn open_prompt(app: &CodexApp) -> Prompt {
-    match &app.screens.dialogs.open {
-        Some(Open::Prompt(prompt)) => prompt.clone(),
+    match &app.screens.dialogs.prompt {
+        Some(prompt) => prompt.clone(),
         other => panic!("not a prompt: {other:?}"),
     }
 }
@@ -137,13 +137,13 @@ fn a_suggestion_fills_the_prompt_it_is_for_once_and_never_over_the_users_typing(
     assert_eq!(open_prompt(&app).initial, "keep");
 
     carry(&mut app, prompt(true), &mut fx);
-    if let Some(Open::Prompt(open)) = &mut Rc::make_mut(&mut app.screens).dialogs.open {
+    if let Some(open) = &mut Rc::make_mut(&mut app.screens).dialogs.prompt {
         open.typed();
     }
     carry(&mut app, suggest("t1", "too late"), &mut fx);
     assert_eq!(open_prompt(&app).suggestion, Suggestion::Idle);
 
-    Rc::make_mut(&mut app.screens).dialogs.open = None;
+    Rc::make_mut(&mut app.screens).dialogs.prompt = None;
     carry(&mut app, suggest("t1", "to nobody"), &mut fx);
-    assert_eq!(app.screens.dialogs.open, None);
+    assert_eq!(app.screens.dialogs.prompt, None);
 }

@@ -15,7 +15,7 @@ use crate::features::{
 use crate::features::{FeatureStates, Out};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
-use crate::screens::dialogs::{Open, Prompt};
+use crate::screens::dialogs::Prompt;
 use crate::screens::select::{self, Menu};
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
@@ -86,11 +86,11 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             initial,
             suggesting,
         } => {
-            Rc::make_mut(&mut app.screens).dialogs.open =
-                Some(Open::Prompt(Prompt::feature(prompt, initial, suggesting)));
+            Rc::make_mut(&mut app.screens).dialogs.prompt =
+                Some(Prompt::feature(prompt, initial, suggesting));
         }
         Out::Suggest { prompt, text } => {
-            if let Some(Open::Prompt(open)) = &mut Rc::make_mut(&mut app.screens).dialogs.open {
+            if let Some(open) = &mut Rc::make_mut(&mut app.screens).dialogs.prompt {
                 open.suggested_for(&prompt, text);
             }
         }

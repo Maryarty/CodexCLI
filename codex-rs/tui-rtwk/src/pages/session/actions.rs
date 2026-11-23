@@ -12,9 +12,7 @@ use codex_tui_core::commands::{
     parent_owned_takes,
 };
 use codex_tui_core::screens::composer::{self, ShellLine};
-use codex_tui_core::screens::{
-    ScreenIntent, ScreenStates, ScreenThreadIntent, chat, dialogs, popovers,
-};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
 use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
@@ -45,12 +43,8 @@ pub(super) fn prompt(text: &'static str, style: Style) -> AnyWidget {
 /// else is a message for the model.
 /// F2 and `/warnings`: the viewer over the retained warnings (with none it
 /// shows its empty page, `No warnings`).
-pub(super) fn open_warnings(cx: &mut Cx<'_, ChatState>, hs: &Hs) {
-    cx.emit(
-        &hs.screen,
-        ScreenIntent::from(dialogs::Intent::OpenWarnings),
-    );
-    open(cx, Target::Dialogs);
+pub(super) fn open_warnings(cx: &mut Cx<'_, ChatState>) {
+    super::open::open_warnings(cx);
 }
 
 /// What a line that is a message for the model does while a turn runs:
@@ -313,7 +307,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
             if opened.command == SlashCommand::Warnings {
-                open_warnings(cx, hs);
+                open_warnings(cx);
             } else {
                 open(cx, opened.target);
             }

@@ -83,6 +83,13 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
     LAST.with(|last| last.set(Some(target)));
 }
 
+/// F2 and `/warnings`: the warnings viewer over the chat (the viewer reads the warnings the
+/// session retains itself; nothing is asked of the model).
+pub fn open_warnings<S>(cx: &mut Cx<'_, S>) {
+    drop(dialogs::open_warnings(cx));
+    LAST.with(|last| last.set(Some(Target::Dialogs)));
+}
+
 fn push<S>(cx: &mut Cx<'_, S>, route: PageRoute<()>) {
     drop(Navigator::of(cx).push::<()>(route));
 }

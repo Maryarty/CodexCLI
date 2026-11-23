@@ -458,12 +458,8 @@ impl State for ChatState {
         }
         // A text prompt the model opened (a command's, or the pick of a menu) is shown over the
         // chat once the chat is in front; the dialog closes itself when the model drops it.
-        let prompting = select::<ScreenStates, bool, _>(cx, |states| {
-            matches!(
-                states.dialogs.open,
-                Some(codex_tui_core::screens::dialogs::Open::Prompt(_))
-            )
-        });
+        let prompting =
+            select::<ScreenStates, bool, _>(cx, |states| states.dialogs.prompt.is_some());
         if !prompting {
             self.prompt_shown = false;
         } else if !self.prompt_shown && Route::is_current_of(cx) {
@@ -736,7 +732,7 @@ impl State for ChatState {
                     let on = !read::<ScreenStates, _>(cx).chat.raw_output;
                     cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::RawOutput(on)));
                 }
-                Action::OpenWarnings => open_warnings(cx, &hs),
+                Action::OpenWarnings => open_warnings(cx),
                 // `cycle_collaboration_mode`: the thread's own switch; the model refuses
                 // it while a turn runs
                 Action::CycleMode => {

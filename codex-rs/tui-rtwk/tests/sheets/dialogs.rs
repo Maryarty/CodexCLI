@@ -222,6 +222,19 @@ fn shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list() {
     assert!(h.t.screen().contains("Paste image"), "{}", h.t.screen());
 }
 
+// Tab swaps the overlay's two pages: the page is the dialog's own state.
+#[test]
+fn tab_swaps_the_shortcut_overlay_between_its_list_and_the_keyboard() {
+    let mut h = open(120, 30, "shortcut_overlay");
+    assert!(h.t.screen().contains("Tab: Keyboard"), "{}", h.t.screen());
+    h.press("tab");
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("Tab: List"), "{}", h.t.screen());
+    h.press("tab");
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("Tab: Keyboard"), "{}", h.t.screen());
+}
+
 #[test]
 fn shortcut_overlay_closes_on_question_mark_and_on_escape() {
     for key in ["?", "escape"] {
@@ -367,4 +380,27 @@ fn the_consent_answer_closes_the_flow_and_escape_goes_back() {
     let mut h = open(100, 30, "feedback_consent");
     h.press("escape");
     closed(&mut h, "Include logs and session history?");
+}
+
+/// ADR-011 (beyond the oracle): a tap on a row puts the cursor there (`SelectionList` selects on
+/// a tap; Enter submits), so Enter answers for the row tapped.
+#[test]
+fn a_tap_on_a_feedback_row_moves_the_cursor_to_it() {
+    let mut h = open(100, 24, "feedback_categories");
+    let screen = h.t.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("3. good result"))
+        .expect("the third category");
+    let x = u16::try_from(line.find("3. good result").unwrap()).unwrap();
+    h.t.click(x, u16::try_from(y).unwrap());
+    h.settle();
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Include logs and session history?"),
+        "{screen}"
+    );
 }
