@@ -1,0 +1,7 @@
+# `skill_popup_prefers_confirmed_selections_within_match_tier` (chat_composer.rs:7162): statsig,
+# status and hello-statsig, and the picks the oracle makes by Enter (hello-statsig twice, status
+# once) as the usage file the host read.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"statsig","description":"Example skill used in tests.","insert":"statsig","path":"/tmp/statsig/SKILL.md"},{"kind":"skill","name":"status","description":"Example skill used in tests.","insert":"status","path":"/tmp/status/SKILL.md"},{"kind":"skill","name":"hello-statsig","description":"Example skill used in tests.","insert":"hello-statsig","path":"/tmp/hello-statsig/SKILL.md"}]}}
+{"step":"screen","dir":"popovers","ev":{"mention_usage":["/tmp/hello-statsig/SKILL.md","/tmp/hello-statsig/SKILL.md","/tmp/status/SKILL.md"]}}

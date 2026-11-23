@@ -230,14 +230,26 @@ fn attach_image_and_submit_includes_local_image_paths() {
 fn submit_captures_recent_mention_bindings_before_clearing_textarea() {
     kit::pending(
         Owner::ChatLive,
-        "no skill mention bindings on the chat composer: '$figma' bound to a skill; the submit shows the text and clears the composer (the binding is not a row)",
+        "the submit carries no bindings: `ComposerDraft::submission` fills `mentions: Vec::new()`, where `catalog::tool_mentions(bindings, catalog)` of the thread's `Sources` is to give the `ToolMention::Skill`",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    // oracle: the draft '$figma please' with a '$figma' mention binding; Enter submits and clears
-    s.type_text("$figma please");
-    s.keys("enter");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_3/skill_figma.jsonl"))
+        .open();
+    // oracle: the draft `$figma please` with `$figma` bound to the skill file; Enter submits
+    s.type_text("$figma").keys("tab");
+    s.type_text("please").keys("enter");
+    // ... and the composer is cleared
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.assert_contains("$figma please");
+    // oracle: the submission's bindings are the one `$figma`
+    assert_eq!(
+        s.turns()[0].mentions,
+        vec![codex_tui_core::threads::ToolMention::Skill {
+            name: "figma".to_string(),
+            path: "/tmp/user/figma/SKILL.md".to_string(),
+        }]
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11047 history_navigation_restores_remote_and_local_image_attachments kind=ui owner=chat-live

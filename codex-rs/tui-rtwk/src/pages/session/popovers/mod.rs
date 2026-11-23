@@ -20,13 +20,17 @@ pub mod strings;
 /// What the debug menu lists for this directory: the real chat composer on
 /// the data a script seeds (files, skills, plugins, history, tiers).
 pub fn debug_entries() -> Vec<DebugEntry> {
-    vec![DebugEntry {
+    let mut entries = vec![DebugEntry {
         name: "composer_popups",
         description: "the chat composer and its popups",
         script: include_str!("fixtures/composer_popups.jsonl"),
         open: EntryOpen::Route(|seeded: &Seeded| crate::pages::session::seeded(seeded)),
-    }]
+    }];
+    entries.extend(catalogs::entries());
+    entries
 }
+
+mod catalogs;
 
 /// The part as a widget, placed by the chat screen's subtree.
 pub fn part() -> AnyWidget {
