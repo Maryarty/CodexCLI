@@ -11,7 +11,9 @@ use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::{Reply, RpcError};
 use codex_tui_core::screens::select::apps::{App, Cache, Status};
-use codex_tui_core::screens::select::models::{Current as ModelCurrent, Preset};
+use codex_tui_core::screens::select::models::{
+    Answer, Current as ModelCurrent, ModelMenu, Preset, Step,
+};
 use codex_tui_core::screens::select::permissions::{
     Current as PermsCurrent, Failure, PermissionsMenu, Profile,
 };
@@ -144,6 +146,8 @@ fn model_opens_and_asks_the_server_for_the_catalog() {
     let select = &app.screens().select;
     assert_eq!(select.catalog.pending, None);
     assert_eq!(select.catalog.presets.len(), 2);
+    // the loading sheet reads its answer under the request it carries
+    assert_eq!(select.catalog.answered, Some((request, Answer::Listed)));
 }
 
 /// The answer of an older ask, once the menu was opened again, is dropped:
@@ -179,12 +183,19 @@ fn a_failed_model_list_clears_the_wait() {
         &mut app,
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
-    let (ticket, _) = asked(&fx);
+    let (ticket, command) = asked(&fx);
+    let select::Command::Models { request } = command else {
+        panic!("expected model/list");
+    };
     run(
         &mut app,
         AppEv::Reply(ticket, Reply::error(RpcError::Remote("down".into()))),
     );
     assert_eq!(app.screens().select.catalog.pending, None);
+    assert_eq!(
+        app.screens().select.catalog.answered,
+        Some((request, Answer::Failed))
+    );
 }
 
 /// The full-access confirmation is the cyber one when the catalog says the
@@ -404,6 +415,27 @@ fn threaded() -> CodexApp {
     app
 }
 
+/// A final pick of a row of the quick `/model` page, as the sheet makes it: the model leads from
+/// the row to the `Step` (`ModelMenu::choose`), the page says the pick (`Intent::Settle`).
+fn settle(app: &mut CodexApp, id: &str, session: bool) -> AppFx {
+    let menu = ModelMenu::Models(ModelCurrent::new("gpt-5.5"));
+    let Step::Done(selection) = menu.choose(&app.screens().select.catalog, id, session) else {
+        panic!("a final pick of {id}");
+    };
+    open(app, SelectIntent::Settle(selection))
+}
+
+/// The `/model` sheets the screen asked for and nobody showed yet.
+fn model_shows(app: &CodexApp) -> Vec<select::Opening> {
+    app.screens()
+        .select
+        .shows
+        .pending()
+        .filter(|show| matches!(show.opening, select::Opening::Models(_)))
+        .map(|show| show.opening.clone())
+        .collect()
+}
+
 /// Every select command in `fx`, in order.
 fn all(fx: &AppFx) -> Vec<(Ticket, select::Command)> {
     fx.commands()
@@ -425,7 +457,7 @@ fn all(fx: &AppFx) -> Vec<(Ticket, select::Command)> {
 fn a_default_model_pick_updates_the_thread_saves_it_and_then_says_so() {
     let mut app = threaded();
     // `gpt-sol` has one effort: the pick settles at once.
-    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", false);
     assert!(app.screens().select.stack.is_empty());
     let asks = all(&fx);
     let [
@@ -462,7 +494,7 @@ fn a_default_model_pick_updates_the_thread_saves_it_and_then_says_so() {
 #[test]
 fn a_session_pick_updates_the_thread_and_writes_nothing() {
     let mut app = threaded();
-    let fx = open(&mut app, SelectIntent::Secondary("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", true);
     let asks = all(&fx);
     let [(_, select::Command::Settings { patch, .. })] = &asks[..] else {
         panic!("expected only the settings update, got {asks:?}");
@@ -478,7 +510,7 @@ fn a_session_pick_updates_the_thread_and_writes_nothing() {
 #[test]
 fn a_write_that_is_overridden_or_failed_is_reported() {
     let mut app = threaded();
-    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", false);
     let (write, _) = all(&fx).pop().expect("a write");
     answer(&mut app, write, select::Reply::Written { overridden: true });
     // The warning is for the detailed transcript only (`add_warning_message`).
@@ -488,7 +520,7 @@ fn a_write_that_is_overridden_or_failed_is_reported() {
     ));
     assert!(!select::Note::Overridden(select::Setting::Model).in_transcript());
     let mut app = threaded();
-    let fx = open(&mut app, SelectIntent::Choose("gpt-sol".into()));
+    let fx = settle(&mut app, "gpt-sol", false);
     let (write, _) = all(&fx).pop().expect("a write");
     run(
         &mut app,
@@ -978,9 +1010,10 @@ fn a_switch_survives_a_refresh_and_only_a_different_notification_asks() {
     );
 }
 
-/// A default-provider write (`model_picker_unavailable`, `dismiss_stale_model_picker`): the model
-/// menus go with the request in flight, `/model` says why it is blocked and asks nothing, and the
-/// answer of the dropped request is not read.
+/// A default-provider write (`model_picker_unavailable`, `dismiss_stale_model_picker`): the
+/// request in flight is dropped and the sheet of `/model` not yet shown is forgotten (one shown
+/// reads `Catalog::provider` and closes itself), `/model` says why it is blocked and asks
+/// nothing, and the answer of the dropped request is not read.
 #[test]
 fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
     use codex_tui_core::screens::ScreenEv;
@@ -991,28 +1024,28 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
     let (ticket, _) = asked(&fx);
-    assert!(matches!(app.screens().select.menu(), Some(Menu::Model(_))));
+    assert!(matches!(
+        model_shows(&app).as_slice(),
+        [select::Opening::Models(ModelMenu::Loading { .. })]
+    ));
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Select(select::Ev::Provider(Provider::Changed))),
     );
-    assert_eq!(
-        app.screens().select.menu(),
-        None,
-        "the model menus are gone"
-    );
+    assert_eq!(app.screens().select.catalog.provider, Provider::Changed);
+    assert_eq!(model_shows(&app), [], "the sheet not shown yet is forgotten");
     assert_eq!(app.screens().select.catalog.pending, None);
     // the answer in flight is dropped
     let fx = answer(&mut app, ticket, select::Reply::Models(Vec::new()));
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(app.screens().select.catalog.answered, None);
     // `/model` is blocked with the restart words and sends nothing
     let fx = open(
         &mut app,
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(model_shows(&app), []);
     let fx = open(&mut app, SelectIntent::LoadModels);
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
     // while a write is in flight it says so; settled, the picker opens again
@@ -1029,5 +1062,8 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
         SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
     );
     assert_eq!(fx.commands().len(), 1, "{:?}", fx.commands());
-    assert!(matches!(app.screens().select.menu(), Some(Menu::Model(_))));
+    assert!(matches!(
+        model_shows(&app).as_slice(),
+        [select::Opening::Models(ModelMenu::Loading { .. })]
+    ));
 }

@@ -439,6 +439,18 @@ pub struct Page {
     pub initial: Option<usize>,
 }
 
+/// What a page does on its own when the facts of the catalog say so (the sheet asks after every
+/// change of them): the page is the sheet's, the decision is the domain's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Next {
+    /// The default provider was written (`dismiss_stale_model_picker`): the sheet is stale.
+    Close,
+    /// The answer of the request the loading page waits for came: this page takes its place.
+    Replace(ModelMenu),
+    /// The page cannot go on and leaves, saying why (`Intent::GiveUp`).
+    GiveUp(GaveUp),
+}
+
 /// What a choice does to the pages of the sheet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
@@ -483,6 +495,31 @@ impl ModelMenu {
                     .collect(),
                 initial: None,
             },
+        }
+    }
+
+    /// What this page does with the catalog as it stands: the provider write closes every page;
+    /// the loading page goes on with the answer of its own request (never one of another); a
+    /// list a refresh left with no choice gives itself up (`refresh_open_model_picker`), and the
+    /// pages above it stay (they hold the model they were opened on).
+    pub fn next(&self, catalog: &Catalog) -> Option<Next> {
+        if catalog.provider != Provider::Settled {
+            return Some(Next::Close);
+        }
+        let gave_up = |menu: &ModelMenu| Next::GiveUp(GaveUp::Empty { reserve: menu.is_reserve() });
+        match self {
+            ModelMenu::Loading { current, request } => match catalog.answered {
+                Some((answered, Answer::Failed)) if answered == *request => {
+                    Some(Next::GiveUp(GaveUp::NotLoaded))
+                }
+                Some((answered, Answer::Listed)) if answered == *request => {
+                    let menu = ModelMenu::Models(current.clone());
+                    Some(if menu.is_empty(catalog) { gave_up(&menu) } else { Next::Replace(menu) })
+                }
+                _ => None,
+            },
+            ModelMenu::Models(_) | ModelMenu::AllModels(_) if self.is_empty(catalog) => Some(gave_up(self)),
+            _ => None,
         }
     }
 

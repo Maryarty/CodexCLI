@@ -25,9 +25,7 @@ use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::select::models::{
-    Answer, Catalog, GaveUp, Heading, ModelMenu, Provider, Step,
-};
+use codex_tui_core::screens::select::models::{Catalog, Heading, ModelMenu, Next, Step};
 use codex_tui_core::screens::select::{Intent, Opening};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
@@ -86,19 +84,15 @@ struct PageState {
     catalog: Catalog,
     /// The route this page is, to take it off the navigator when it gives up.
     route: Option<Route>,
-    /// The page decided what the catalog means for it (once: it goes on or leaves).
+    /// The page decided what the catalog means for it (once: it closes, goes on or leaves).
     decided: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum Msg {
     Picked(Event),
-    /// The provider was written: the sheet is stale.
-    Close,
-    /// The page cannot go on (the history says why) and leaves.
-    GiveUp(GaveUp),
-    /// The loading page's answer came: the page that follows takes its place.
-    Replace(ModelMenu),
+    /// What the catalog made of the page (`ModelMenu::next`).
+    Next(Next),
 }
 
 impl StatefulWidget for Page {
@@ -140,41 +134,6 @@ fn back(cx: &mut Cx<'_, PageState>) {
 }
 
 impl PageState {
-    /// What the catalog makes of this page, if it changes anything: the sheet closes on a
-    /// provider write; the loading page goes on with the answer of its request; a list a refresh
-    /// left with no choice gives itself up.
-    fn decide(&self, menu: &ModelMenu, catalog: &Catalog) -> Option<Msg> {
-        if self.decided {
-            return None;
-        }
-        if catalog.provider != Provider::Settled {
-            return Some(Msg::Close);
-        }
-        let empty = |menu: &ModelMenu| GaveUp::Empty {
-            reserve: menu.is_reserve(),
-        };
-        match menu {
-            ModelMenu::Loading { current, request } => match catalog.answered {
-                Some((answered, Answer::Failed)) if answered == *request => {
-                    Some(Msg::GiveUp(GaveUp::NotLoaded))
-                }
-                Some((answered, Answer::Listed)) if answered == *request => {
-                    let next = ModelMenu::Models(current.clone());
-                    Some(if next.is_empty(catalog) {
-                        Msg::GiveUp(empty(&next))
-                    } else {
-                        Msg::Replace(next)
-                    })
-                }
-                _ => None,
-            },
-            ModelMenu::Models(_) | ModelMenu::AllModels(_) if menu.is_empty(catalog) => {
-                Some(Msg::GiveUp(empty(menu)))
-            }
-            _ => None,
-        }
-    }
-
     /// What a choice does to the pages.
     fn step(&self, cx: &mut Cx<'_, Self>, step: Step) {
         match step {
@@ -216,9 +175,11 @@ impl State for PageState {
     fn did_change_dependencies(&mut self, w: &Page, cx: &mut Cx<'_, Self>) {
         self.route = Route::maybe_of(cx);
         let catalog = catalog_of(cx);
-        if let Some(msg) = self.decide(&w.menu, &catalog) {
+        if !self.decided
+            && let Some(next) = w.menu.next(&catalog)
+        {
             self.decided = true;
-            let go = cx.send(msg);
+            let go = cx.send(Msg::Next(next));
             cx.emit(&go, ());
         }
         self.catalog = catalog;
@@ -238,12 +199,12 @@ impl State for PageState {
             Msg::Picked(Event::Cancel) => back(cx),
             // These lists have no toggles, order, tabs or hot keys.
             Msg::Picked(_) => {}
-            Msg::Close => close(cx),
-            Msg::GiveUp(why) => {
+            Msg::Next(Next::Close) => close(cx),
+            Msg::Next(Next::GiveUp(why)) => {
                 say(cx, Intent::GiveUp(why));
                 self.leave(cx);
             }
-            Msg::Replace(menu) => {
+            Msg::Next(Next::Replace(menu)) => {
                 drop(Navigator::of(cx).push_replacement::<()>(route(menu)));
             }
         }
