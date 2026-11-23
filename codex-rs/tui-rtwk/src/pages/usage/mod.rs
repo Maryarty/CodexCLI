@@ -875,6 +875,8 @@ impl State for ScreenState {
             }
             Msg::Pick(index) => {
                 self.help = false;
+                // The help closes whether or not the section changes.
+                rebuild = Rebuild::Yes;
                 visible
                     .get(index)
                     .map(|section| UsageIntent::Select(*section))
@@ -886,6 +888,7 @@ impl State for ScreenState {
                     .unwrap_or(0);
                 let next = (at as isize + delta).rem_euclid(visible.len() as isize) as usize;
                 self.help = false;
+                rebuild = Rebuild::Yes;
                 Some(UsageIntent::Select(visible[next]))
             }
             Msg::Step(_) => None,
