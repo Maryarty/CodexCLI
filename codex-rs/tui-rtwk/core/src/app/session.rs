@@ -56,10 +56,12 @@ pub(super) fn refresh_rates(
         .push(Command::ReadRateLimits { ticket, backend });
 }
 
-/// `/status` (oracle `SlashCommand::Status`, `add_status_output`): the card is an
-/// entry of the transcript of the thread the command ran in, appended through that
-/// thread's `apply` (ADR-003); the app keeps no copy of it. With no thread yet
-/// there is no transcript to put it in.
+/// `/status` (oracle `SlashCommand::Status`): the card is an entry of the
+/// transcript of the thread the command ran in, appended through that thread's
+/// `apply` (ADR-003). A session that can read its account's limits asks for
+/// them and the card says it is refreshing; the reply finishes the card of its
+/// own request only (`ThreadEv::StatusRefreshed`). With no thread yet there is
+/// no transcript to put it in.
 fn status_command(app: &mut CodexApp, source: Option<ThreadId>, fx: &mut AppFx) {
     let Some(id) = source.or_else(|| app.session.active.clone()) else {
         return;
@@ -68,103 +70,76 @@ fn status_command(app: &mut CodexApp, source: Option<ThreadId>, fx: &mut AppFx) 
         return;
     };
     let backend = app.screens.agents.owner_of(id.as_str());
-    let card = status_card(app, &thread, backend);
-    let item = Item::Status(Arc::new(card));
+    let prefetch =
+        app.screens.chat.status.account_usage && app.screens.status.has_chatgpt_account();
+    let request = prefetch.then(|| Rc::make_mut(&mut app.screens).status.take_request());
+    let card = status_card(app, &thread, backend, request.is_some());
+    let item = Item::Status {
+        card: Arc::new(card),
+        request,
+    };
     apply_thread(app, &id, ThreadEv::Appended { turn: None, item }, fx);
-    // The limits the next card shows.
-    refresh_rates(app, backend, status::RateLimitOrigin::Status(0), fx);
+    if let Some(request) = request {
+        refresh_rates(app, backend, status::RateLimitOrigin::Status(request), fx);
+    }
+}
+
+/// The limits a card shows for `backend`: what the app has read of its
+/// account, at the clock the shell last moved.
+pub(super) fn card_limits(app: &CodexApp, backend: BackendId, refreshing: bool) -> status::Limits {
+    let screen = &app.screens.status;
+    status::Limits {
+        snapshots: app
+            .session
+            .rate_snapshots
+            .get(&backend)
+            .map(|store| store.snapshots().cloned().collect())
+            .unwrap_or_default(),
+        now: screen.now,
+        utc_offset_secs: screen.utc_offset_secs,
+        refreshing,
+    }
 }
 
 /// The card of a `/status` that runs now, from the facts the app holds: the
-/// loaded config, the thread's own facts and the limits last read for its backend.
-fn status_card(app: &CodexApp, thread: &ThreadModel, backend: BackendId) -> status::StatusCard {
+/// loaded config, the account and catalog the host read, the thread's own facts
+/// and the limits last read for its backend.
+fn status_card(
+    app: &CodexApp,
+    thread: &ThreadModel,
+    backend: BackendId,
+    refreshing: bool,
+) -> status::StatusCard {
     let facts = &app.screens.chat.status;
+    let screen = &app.screens.status;
     let slots = thread.screen_slots();
     let (chat, own) = (&slots.chat, &slots.status);
-    let screen = &app.screens.status;
-    let approval = match facts.approval_policy.as_deref() {
-        Some("never") => status::Approval::Never,
-        Some("on-failure") => status::Approval::OnFailure,
-        Some("untrusted") => status::Approval::UnlessTrusted,
-        _ => status::Approval::OnRequest,
-    };
-    let sandbox = match facts.profile {
-        status::Profile::ReadOnly => status::SandboxKind::ReadOnly,
-        status::Profile::Workspace => status::SandboxKind::Workspace,
-        status::Profile::Full => status::SandboxKind::DangerFullAccess,
-    };
-    let window = |rate: &status::RateWindow| status::Window {
-        used_percent: rate.used_percent,
-        window_minutes: rate.window_minutes,
-        resets_at: rate.resets_at,
-    };
-    let snapshots = app
-        .session
-        .rate_limits
-        .get(&backend)
-        .filter(|rates| rates.primary.is_some() || rates.secondary.is_some())
-        .map(|rates| status::Snapshot {
-            name: "codex".to_string(),
-            captured_at: screen.now,
-            primary: rates.primary.as_ref().map(window),
-            secondary: rates.secondary.as_ref().map(window),
-            credits: None,
-            individual_limit: None,
-        })
-        .into_iter()
-        .collect();
-    status::StatusCard {
+    status::StatusCard::compose(status::Inputs {
         version: facts
             .version
-            .clone()
-            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
-        remote: None,
-        model: chat
-            .model
-            .clone()
-            .or_else(|| facts.model.clone())
-            .unwrap_or_else(|| "loading".to_string()),
-        reasoning: chat
-            .effort
-            .clone()
-            .or_else(|| facts.effort.clone())
-            .map(|effort| status::Reasoning {
-                effort,
-                summary: Some("auto".to_string()),
-            }),
-        provider: chat.provider.clone().or_else(|| facts.provider.clone()),
-        directory: chat
-            .cwd
-            .clone()
-            .or_else(|| facts.cwd.clone())
-            .unwrap_or_default(),
-        home: facts.home_directory.clone(),
-        permissions: status::Permissions {
-            profile: facts.permission_profile.clone(),
-            sandbox,
-            network: false,
-            disabled: facts.profile == status::Profile::Full,
-            approval,
-            auto_review: facts.auto_review,
-            extra_roots: Vec::new(),
+            .as_deref()
+            .unwrap_or(env!("CARGO_PKG_VERSION")),
+        config: &facts.card,
+        model: chat.model.as_deref().or(facts.model.as_deref()),
+        effort: chat.effort.as_deref().or(facts.effort.as_deref()),
+        provider: chat.provider.as_deref().or(facts.provider.as_deref()),
+        requires_openai_auth: facts.account_usage,
+        auto_review: facts.auto_review,
+        home: facts.home_directory.as_deref(),
+        catalog: &screen.catalog,
+        account: screen.account.as_ref(),
+        remote: screen.remote.as_ref(),
+        thread: status::ThreadFacts {
+            id: Some(thread.id().as_str()),
+            name: chat.name.as_deref(),
+            cwd: chat.cwd.as_deref(),
+            forked_from: chat.forked_from.as_deref(),
+            agents: &own.agents,
+            tokens: own.tokens,
+            context: own.context,
         },
-        agents: Vec::new(),
-        account: None,
-        thread_name: chat.name.clone(),
-        session_id: Some(thread.id().to_string()),
-        forked_from: None,
-        collaboration_mode: None,
-        usage_link: facts.account_usage,
-        tokens: own.tokens,
-        context: own.context,
-        limits: status::Limits {
-            snapshots,
-            now: screen.now,
-            utc_offset_secs: screen.utc_offset_secs,
-            refreshing: false,
-        },
-        hour24: false,
-    }
+        limits: card_limits(app, backend, refreshing),
+    })
 }
 
 pub(super) fn session_intent(

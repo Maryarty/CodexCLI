@@ -15,7 +15,9 @@ mod session;
 pub use session::export::TranscriptText;
 pub mod worktree;
 
-use session::{active_backend, confirmed, refresh_rates, removed, session_intent, session_note};
+use session::{
+    active_backend, card_limits, confirmed, refresh_rates, removed, session_intent, session_note,
+};
 
 use crate::threads::ThreadAsk;
 use std::collections::{BTreeMap, VecDeque};
@@ -475,9 +477,7 @@ impl AppFx {
 enum AppCtx {
     /// The first thread of a connection, or one a cycle started on `backend`
     /// (`None`: the first).
-    StartThread {
-        switch: Option<BackendId>,
-    },
+    StartThread { switch: Option<BackendId> },
     /// An RPC of an app-scoped screen (the agents command center).
     Agents(agents::Ctx),
     /// An RPC of the resume picker (its pages, previews, archive).
@@ -1068,10 +1068,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Backend(BackendEv::Notification(notification)) => {
             match &*notification {
                 ServerNotification::AccountRateLimitsUpdated(note) => {
-                    // The notification is newer than any in-flight read.
-                    app.outgoing.retain(
-                        |ctx| !matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin),
-                    );
+                    // The notification is newer than a refresh nobody waits for; a
+                    // read a card or a menu waits for still answers it.
+                    app.outgoing.retain(|ctx| {
+                        !matches!(ctx, AppCtx::RateLimits { backend, origin: read }
+                            if *backend == origin && read.folds_into_a_read_in_flight())
+                    });
                     install_rates(app, origin, note.rate_limits.clone().into());
                     // never reuse the permission from before a new hard stop
                     // (`invalidate_ordinary_usage_recovery`)
@@ -1109,7 +1111,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 // The identity boundary (`update_account_state`): what was asked of, and shown
                 // for, the previous account is not the new one's.
-                ServerNotification::AccountUpdated(_) => {
+                ServerNotification::AccountUpdated(note) => {
                     // the apps directory and the permission catalog of the old account go
                     // (`invalidate_connector_scope`, `invalidate_permission_discovery`)
                     select::event(app, screens::select::Ev::ScopeChanged, fx);
@@ -1117,12 +1119,29 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .backend_banners
                         .remove(&origin);
                     Rc::make_mut(&mut app.session).reserve.remove(&origin);
-                    if let Some(store) = Rc::make_mut(&mut app.session).rate_snapshots.get_mut(&origin) {
+                    if let Some(store) = Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .get_mut(&origin)
+                    {
                         store.clear();
                     }
-                    app.outgoing.retain(
-                        |ctx| !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin),
-                    );
+                    app.outgoing.retain(|ctx| {
+                        !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin)
+                            && !matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                    });
+                    if active_backend(app) == origin {
+                        status::apply(
+                            &mut Rc::make_mut(&mut app.screens).status,
+                            status::Ev::Account(status::account_from_auth_mode(
+                                note.auth_mode,
+                                note.plan_type,
+                            )),
+                            fx,
+                        );
+                    }
+                    // The answers the cards waited for are gone: they end
+                    // empty (oracle `update_account_state`).
+                    finish_status_cells(app, origin, None, fx);
                 }
                 // With no thread open there is no transcript to show a thread-less
                 // warning or deprecation notice in: the banner line keeps it. With a
@@ -1400,7 +1419,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 // A card a script seeds is an entry of the shown thread, as `/status` makes it.
                 ScreenEv::Status(status::Ev::Card(card)) => {
                     if let Some(thread) = app.session.active.clone() {
-                        let item = threads::Item::Status(std::sync::Arc::new((**card).clone()));
+                        let item = threads::Item::Status {
+                            card: std::sync::Arc::new((**card).clone()),
+                            request: None,
+                        };
                         apply_thread(app, &thread, ThreadEv::Appended { turn: None, item }, fx);
                     }
                 }
@@ -1671,8 +1693,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
         match ctx {
             AppCtx::StartThread { switch } => {
                 match (switch, answer) {
-                    (Some(backend), Answer::ThreadStarted { thread }) => {
-                        switch_to(app, backend, thread, fx);
+                    (Some(backend), Answer::ThreadStarted { thread, sources }) => {
+                        switch_to(app, backend, thread, sources, fx);
                     }
                     (Some(_), Answer::Failed(error)) => {
                         // The oracle shows the error and stays where it was.
@@ -1687,7 +1709,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
-            AppCtx::RateLimits { backend, .. } => {
+            AppCtx::RateLimits { backend, origin } => {
                 if let Answer::RateLimits {
                     limits,
                     banner,
@@ -1706,6 +1728,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         .or_default()
                         .install(*read, now);
                     install_banner(app, backend, banner.map(|banner| *banner));
+                }
+                // The card that asked ends with what the app holds now: the new
+                // read, or the cache when the read failed.
+                if let status::RateLimitOrigin::Status(request) = origin {
+                    finish_status_cells(app, backend, Some(request), fx);
                 }
             }
             AppCtx::Nudge { nudge, thread, .. } => {
@@ -1749,15 +1776,15 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 draft,
             } => {
                 let result = match answer {
-                    Answer::ThreadStarted { thread } => Ok((thread, None)),
+                    Answer::ThreadStarted { thread, sources } => Ok((thread, None, sources)),
                     Answer::Screen(ScreenReply::Agents(
                         agents::Reply::Forked(thread) | agents::Reply::Started(thread),
-                    )) => Ok((ThreadId::new(&thread.id), Some(thread))),
+                    )) => Ok((ThreadId::new(&thread.id), Some(thread), Vec::new())),
                     Answer::Failed(error) => Err(error),
                     _ => Err(RpcError::Mismatch),
                 };
                 match result {
-                    Ok((thread, details)) => {
+                    Ok((thread, details, sources)) => {
                         attach_thread_with_metadata(
                             app,
                             &thread,
@@ -1766,6 +1793,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             details.as_deref(),
                             fx,
                         );
+                        note_instruction_sources(app, &thread, sources, fx);
                         if let Some(name) = name {
                             apply_thread(
                                 app,
@@ -2091,6 +2119,42 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
         Intent::Feature(intent) => features::intent(app, intent, fx),
+    }
+}
+
+/// The `/status` cells of `backend`'s threads that still wait end with the
+/// limits the app holds: those of `request` only, or all of them (`None`).
+fn finish_status_cells(
+    app: &mut CodexApp,
+    backend: BackendId,
+    request: Option<u64>,
+    fx: &mut AppFx,
+) {
+    let limits = card_limits(app, backend, false);
+    let waiting: Vec<(ThreadId, u64)> = app
+        .threads
+        .iter()
+        .filter(|(id, _)| app.screens.agents.owner_of(id.as_str()) == backend)
+        .flat_map(|(id, model)| {
+            model
+                .transcript()
+                .waiting_status()
+                .into_iter()
+                .filter(move |waiting| request.is_none_or(|request| request == *waiting))
+                .map(move |waiting| (id.clone(), waiting))
+        })
+        .collect();
+    for (thread, request) in waiting {
+        let limits = limits.clone();
+        apply_thread(
+            app,
+            &thread,
+            ThreadEv::Screen(ScreenThreadEv::from(status::ThreadEv::Refreshed {
+                request,
+                limits,
+            })),
+            fx,
+        );
     }
 }
 
@@ -2527,8 +2591,9 @@ fn run_shell(app: &mut CodexApp, thread: &ThreadId, command: String, fx: &mut Ap
 /// The first thread's answer.
 fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
     match answer {
-        Answer::ThreadStarted { thread } => {
+        Answer::ThreadStarted { thread, sources } => {
             attach_thread(app, &thread, BackendId::default(), Origin::Started, fx);
+            note_instruction_sources(app, &thread, sources, fx);
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
             session.status = Session::Ready;
@@ -2537,6 +2602,21 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
         _ => {}
     }
+}
+
+/// The instruction files a thread's start named are the thread's (`/status`
+/// lists them); an empty list says nothing.
+fn note_instruction_sources(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    sources: Vec<status::AgentsSource>,
+    fx: &mut AppFx,
+) {
+    if sources.is_empty() {
+        return;
+    }
+    let ev = ScreenThreadEv::from(status::ThreadEv::InstructionSources(sources));
+    apply_thread(app, thread, ThreadEv::Screen(ev), fx);
 }
 
 /// What was asked before the first thread existed goes out on it.
@@ -2593,8 +2673,15 @@ fn session_opened(
 /// An empty conversation moved to `backend` (oracle:
 /// `start_new_session_on_other_backend`): the new thread is the chat's, its
 /// backend the displayed one; the composer's draft goes with it.
-fn switch_to(app: &mut CodexApp, backend: BackendId, thread: ThreadId, fx: &mut AppFx) {
+fn switch_to(
+    app: &mut CodexApp,
+    backend: BackendId,
+    thread: ThreadId,
+    sources: Vec<status::AgentsSource>,
+    fx: &mut AppFx,
+) {
     attach_thread(app, &thread, backend, Origin::Started, fx);
+    note_instruction_sources(app, &thread, sources, fx);
     let session = Rc::make_mut(&mut app.session);
     session.switched_from = session.active.replace(thread.clone());
     session.switches += 1;

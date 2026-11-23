@@ -93,6 +93,17 @@ fn thread(app: &CodexApp) -> Rc<codex_tui_core::threads::ThreadModel> {
     app.active_thread()
 }
 
+/// The usage menu's refresh of the account's limits: asks a read.
+fn usage_read(app: &mut CodexApp) -> AppFx {
+    use codex_tui_core::screens::usage::Intent as UsageIntent;
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Usage(
+            UsageIntent::RefreshRateLimits,
+        ))),
+    )
+}
+
 /// `/status` typed in the shown thread: the session command the chat sends.
 fn status_command(app: &mut CodexApp) -> AppFx {
     use codex_tui_core::commands::{SessionIntent, SlashCommand};
@@ -892,22 +903,28 @@ fn streaming_commits_complete_utf8_lines_and_keeps_a_preview() {
 }
 
 #[test]
-fn rate_limit_notification_supersedes_the_outstanding_account_read() {
+fn rate_limit_notification_supersedes_the_outstanding_startup_read() {
     use codex_tui_core::ids::BackendId;
     use codex_tui_core::screens::status::RateLimits;
 
     let mut app = ready();
-    let fx = status_command(&mut app);
+    // The first facts of an account that has limits start the startup read.
+    let fx = run(
+        &mut app,
+        AppEv::Screen(codex_tui_core::screens::ScreenEv::Chat(chat::Ev::Status(
+            Box::new(chat::StatusFacts {
+                account_usage: true,
+                ..chat::StatusFacts::default()
+            }),
+        ))),
+    );
     let [
         Command::ReadRateLimits {
             ticket, backend, ..
         },
     ] = fx.commands()
     else {
-        panic!(
-            "expected the status card's account read: {:?}",
-            fx.commands()
-        );
+        panic!("expected the startup account read: {:?}", fx.commands());
     };
     assert_eq!(*backend, BackendId::default());
     let update = serde_json::from_value(serde_json::json!({
@@ -1565,7 +1582,7 @@ fn choosing_a_banner_row_opens_its_page_and_keeps_the_banner() {
     use codex_tui_core::ids::{BackendId, Ticket};
     use codex_tui_core::protocol;
     let mut app = ready();
-    let fx = status_command(&mut app);
+    let fx = usage_read(&mut app);
     let [read @ Command::ReadRateLimits { backend, .. }] = fx.commands() else {
         panic!("expected the account read: {:?}", fx.commands());
     };
@@ -1616,7 +1633,7 @@ fn choosing_a_banner_row_opens_its_page_and_keeps_the_banner() {
 fn read_banner(app: &mut CodexApp, banner: serde_json::Value) -> codex_tui_core::ids::BackendId {
     use codex_tui_core::protocol;
 
-    let fx = status_command(app);
+    let fx = usage_read(app);
     let [read @ Command::ReadRateLimits { backend, .. }] = fx.commands() else {
         panic!("expected the account read: {:?}", fx.commands());
     };

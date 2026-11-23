@@ -180,7 +180,7 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
         | Item::Patch(_)
         | Item::PlanUpdate(_)
         | Item::Collab(_)
-        | Item::Status(_)
+        | Item::Status { .. }
         | Item::Decision(_)
         | Item::Review(_) => Texts::Gap(Gap::Rows),
     }

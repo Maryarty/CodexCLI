@@ -238,6 +238,9 @@ pub struct StatusCard {
     #[serde(default)]
     pub remote: Option<Remote>,
     pub model: String,
+    /// The model's slug, as the thread runs it: what the copy menu copies.
+    #[serde(default)]
+    pub model_id: Option<String>,
     /// `None` when the model's wire protocol has no reasoning settings.
     #[serde(default)]
     pub reasoning: Option<Reasoning>,

@@ -684,13 +684,13 @@ mod rates {
     use pretty_assertions::assert_eq;
     use serde_json::json;
 
-    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+    pub(super) fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
         let mut fx = AppFx::default();
         apply_app(app, ev, &mut fx);
         fx
     }
 
-    fn ready() -> CodexApp {
+    pub(super) fn ready() -> CodexApp {
         let mut app = CodexApp::new();
         let fx = run(&mut app, AppEv::Connected);
         let ticket = fx
@@ -709,7 +709,7 @@ mod rates {
     }
 
     /// The clock the shell moves on (`status::Ev::Clock`).
-    fn clock(app: &mut CodexApp, now: i64) {
+    pub(super) fn clock(app: &mut CodexApp, now: i64) {
         run(
             app,
             AppEv::Screen(ScreenEv::Status(status::Ev::Clock {
@@ -720,7 +720,7 @@ mod rates {
     }
 
     /// The reads of the account's limits in `fx`.
-    fn reads(fx: &AppFx) -> Vec<Command> {
+    pub(super) fn reads(fx: &AppFx) -> Vec<Command> {
         fx.commands()
             .iter()
             .filter(|command| matches!(command, Command::ReadRateLimits { .. }))
@@ -739,7 +739,7 @@ mod rates {
         reads(&fx)
     }
 
-    fn answer(app: &mut CodexApp, read: &Command, response: serde_json::Value) {
+    pub(super) fn answer(app: &mut CodexApp, read: &Command, response: serde_json::Value) {
         let (ticket, reply) = protocol::reply(read, Ok(response)).expect("a reply");
         run(app, AppEv::Reply(ticket, reply));
     }
@@ -931,5 +931,419 @@ mod rates {
         clock(&mut app, 1_704_164_645);
         let status = &app.screens().status;
         assert_eq!((status.now, status.utc_offset_secs), (1_704_164_645, 3600));
+    }
+}
+
+/// `/status` as a cell of the active thread's transcript (ADR-003): the card
+/// is appended through the thread's `apply`, a read of the limits answers the
+/// cells of its own request only.
+mod live {
+    use std::sync::Arc;
+
+    use super::rates::{answer, clock, reads, ready, run};
+    use codex_protocol::account::PlanType;
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent};
+    use codex_tui_core::commands::{SessionIntent, SlashCommand};
+    use codex_tui_core::ids::{BackendId, ThreadId};
+    use codex_tui_core::protocol;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::status::{self, Account, AgentsSource, StatusCard};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
+    use codex_tui_core::threads::Item;
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    const NOW: i64 = 1_704_164_645;
+
+    fn facts(app: &mut CodexApp) {
+        let facts = chat::StatusFacts {
+            model: Some("gpt-5.5".into()),
+            provider: Some("openai".into()),
+            version: Some("0.0.0".into()),
+            home_directory: Some("/home/u".into()),
+            account_usage: true,
+            card: status::CardFacts {
+                cwd: "/repo".into(),
+                reasoning_summary: Some("auto".into()),
+                ..status::CardFacts::default()
+            },
+            ..chat::StatusFacts::default()
+        };
+        run(
+            app,
+            AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(facts)))),
+        );
+    }
+
+    fn account(app: &mut CodexApp, account: Option<Account>) {
+        run(
+            app,
+            AppEv::Screen(ScreenEv::Status(status::Ev::Account(account))),
+        );
+    }
+
+    fn chatgpt() -> Account {
+        Account::ChatGpt {
+            email: Some("user@example.com".into()),
+            plan: Some(PlanType::Pro),
+            workspace: None,
+        }
+    }
+
+    /// A session whose account is a ChatGPT one and whose clock is set.
+    fn signed_in() -> CodexApp {
+        let mut app = ready();
+        facts(&mut app);
+        account(&mut app, Some(chatgpt()));
+        clock(&mut app, NOW);
+        app
+    }
+
+    fn status(app: &mut CodexApp) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: Some(ThreadId::new("thread-1")),
+                command: SlashCommand::Status,
+                intent: SessionIntent::Status,
+            }))),
+        )
+    }
+
+    /// The cells of `/status` in the active thread, oldest first, with the
+    /// request each still waits for.
+    fn cells(app: &CodexApp) -> Vec<(Option<u64>, Arc<StatusCard>)> {
+        app.active_thread()
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Status { card, request } => Some((*request, card.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn limits(used: i32) -> serde_json::Value {
+        let codex = json!({
+            "limitId": "codex",
+            "primary": {"usedPercent": used, "windowDurationMins": 300, "resetsAt": 2_000_000_000},
+        });
+        json!({"rateLimits": codex, "rateLimitsByLimitId": {"codex": codex}})
+    }
+
+    fn used(card: &StatusCard) -> Vec<i32> {
+        card.limits
+            .snapshots
+            .iter()
+            .filter_map(|snapshot| snapshot.primary.map(|window| window.used_percent))
+            .collect()
+    }
+
+    fn notify(app: &mut CodexApp, message: serde_json::Value) {
+        let message = serde_json::from_value(message).expect("a notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(message))),
+        );
+    }
+
+    fn started(id: &str, name: Option<&str>, forked_from: Option<&str>) -> serde_json::Value {
+        json!({"method": "thread/started", "params": {"thread": {
+            "id": id, "environments": null, "extra": null, "sessionId": id,
+            "forkedFromId": forked_from, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+            "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": "/repo",
+            "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+            "agentRole": null, "gitInfo": null, "name": name, "daybreakEnabled": null,
+            "turns": []
+        }}})
+    }
+
+    fn catalog(app: &mut CodexApp) {
+        run(
+            app,
+            AppEv::Screen(ScreenEv::Status(status::Ev::Catalog(vec![
+                status::CatalogModel {
+                    model: "gpt-5.5".into(),
+                    display_name: "GPT-5.5".into(),
+                    default_effort: Some("medium".into()),
+                },
+            ]))),
+        );
+    }
+
+    #[test]
+    fn a_status_command_leaves_a_cell_in_the_active_thread_and_asks_for_the_limits() {
+        let mut app = signed_in();
+        let fx = status(&mut app);
+
+        let [(request, card)] = cells(&app).try_into().expect("one cell");
+        assert_eq!(request, Some(0));
+        assert!(card.limits.refreshing);
+        assert_eq!(card.limits.now, NOW);
+        assert_eq!(reads(&fx).len(), 1);
+    }
+
+    #[test]
+    fn the_card_holds_the_facts_of_the_session() {
+        let mut app = signed_in();
+        status(&mut app);
+
+        let (_, card) = cells(&app).remove(0);
+        assert_eq!(card.version, "0.0.0");
+        assert_eq!(card.model, "gpt-5.5");
+        assert_eq!(card.directory, "/repo");
+        assert_eq!(card.home.as_deref(), Some("/home/u"));
+        assert_eq!(card.provider.as_deref(), Some("openai"));
+        assert_eq!(card.session_id.as_deref(), Some("thread-1"));
+        assert_eq!(card.account, Some(chatgpt()));
+        assert!(card.usage_link);
+    }
+
+    #[test]
+    fn the_catalog_names_the_model_and_gives_its_default_reasoning() {
+        let mut app = signed_in();
+        catalog(&mut app);
+        status(&mut app);
+
+        let (_, card) = cells(&app).remove(0);
+        assert_eq!(card.model, "GPT-5.5");
+        let reasoning = card
+            .reasoning
+            .as_ref()
+            .expect("the wire has reasoning settings");
+        assert_eq!(reasoning.effort, "medium");
+        assert_eq!(reasoning.summary.as_deref(), Some("auto"));
+    }
+
+    #[test]
+    fn the_thread_s_own_effort_beats_the_config_and_the_catalog() {
+        let mut app = signed_in();
+        catalog(&mut app);
+        notify(
+            &mut app,
+            json!({"method": "thread/settings/updated", "params": {
+                "threadId": "thread-1",
+                "threadSettings": {
+                    "cwd": "/repo", "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                    "sandboxPolicy": {"type": "dangerFullAccess"}, "activePermissionProfile": null,
+                    "model": "gpt-5.5", "modelProvider": "openai", "serviceTier": null,
+                    "effort": "high", "summary": null,
+                    "collaborationMode": {"mode": "default", "settings": {
+                        "model": "gpt-5.5", "reasoning_effort": "high",
+                        "developer_instructions": null}},
+                    "personality": null,
+                },
+            }}),
+        );
+        status(&mut app);
+
+        let (_, card) = cells(&app).remove(0);
+        assert_eq!(card.reasoning.as_ref().expect("reasoning").effort, "high");
+    }
+
+    #[test]
+    fn a_session_without_a_chatgpt_account_reads_nothing() {
+        let mut app = ready();
+        facts(&mut app);
+        account(&mut app, Some(Account::ApiKey));
+        let fx = status(&mut app);
+
+        let [(request, card)] = cells(&app).try_into().expect("one cell");
+        assert_eq!(request, None);
+        assert!(!card.limits.refreshing);
+        assert!(reads(&fx).is_empty());
+    }
+
+    #[test]
+    fn a_provider_that_needs_no_openai_auth_reads_nothing() {
+        let mut app = ready();
+        facts(&mut app);
+        let mut no_auth = app.screens().chat.status.as_ref().clone();
+        no_auth.account_usage = false;
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(no_auth)))),
+        );
+        account(&mut app, Some(chatgpt()));
+        let fx = status(&mut app);
+
+        assert!(reads(&fx).is_empty());
+        assert!(!cells(&app)[0].1.usage_link);
+    }
+
+    #[test]
+    fn the_reply_finishes_the_cell_with_the_limits_it_read() {
+        let mut app = signed_in();
+        let fx = status(&mut app);
+        let [read] = reads(&fx).try_into().expect("one read");
+        answer(&mut app, &read, limits(8));
+
+        let [(request, card)] = cells(&app).try_into().expect("one cell");
+        assert_eq!(request, None);
+        assert!(!card.limits.refreshing);
+        assert_eq!(used(&card), vec![8]);
+    }
+
+    #[test]
+    fn the_cached_limits_show_at_once_and_a_failed_read_keeps_them() {
+        let mut app = signed_in();
+        let first = reads(&status(&mut app)).remove(0);
+        answer(&mut app, &first, limits(8));
+
+        let fx = status(&mut app);
+        let (_, card) = cells(&app).remove(1);
+        assert_eq!(
+            used(&card),
+            vec![8],
+            "the second card starts with the cache"
+        );
+        assert!(card.limits.refreshing);
+
+        let [read] = reads(&fx).try_into().expect("one read");
+        let (ticket, reply) = protocol::reply(&read, Err("boom".into())).expect("a reply");
+        run(&mut app, AppEv::Reply(ticket, reply));
+        let (request, card) = cells(&app).remove(1);
+        assert_eq!(request, None);
+        assert!(!card.limits.refreshing);
+        assert_eq!(used(&card), vec![8]);
+    }
+
+    #[test]
+    fn overlapping_refreshes_update_their_own_cell_only() {
+        let mut app = signed_in();
+        let first = reads(&status(&mut app)).remove(0);
+        let second = reads(&status(&mut app)).remove(0);
+        let waiting = |app: &CodexApp| {
+            cells(app)
+                .into_iter()
+                .map(|(request, _)| request)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(waiting(&app), vec![Some(0), Some(1)]);
+
+        answer(&mut app, &first, json!({"rateLimits": {}}));
+        assert_eq!(waiting(&app), vec![None, Some(1)]);
+
+        answer(&mut app, &second, limits(8));
+        assert_eq!(waiting(&app), vec![None, None]);
+        let cards = cells(&app);
+        assert_eq!(used(&cards[0].1), Vec::<i32>::new());
+        assert_eq!(used(&cards[1].1), vec![8]);
+    }
+
+    #[test]
+    fn a_rate_limit_notification_does_not_cancel_the_read_a_card_waits_for() {
+        let mut app = signed_in();
+        let read = reads(&status(&mut app)).remove(0);
+        notify(
+            &mut app,
+            json!({"method": "account/rateLimits/updated", "params": {
+                "rateLimits": {
+                    "limitId": "codex",
+                    "primary": {"usedPercent": 50, "windowDurationMins": 300, "resetsAt": 2_000_000_000},
+                },
+            }}),
+        );
+        answer(&mut app, &read, limits(8));
+
+        let [(request, card)] = cells(&app).try_into().expect("one cell");
+        assert_eq!(request, None);
+        assert_eq!(used(&card), vec![8]);
+    }
+
+    #[test]
+    fn a_reply_after_an_account_change_is_dropped_and_the_cell_ends_empty() {
+        let mut app = signed_in();
+        let read = reads(&status(&mut app)).remove(0);
+        notify(
+            &mut app,
+            json!({"method": "account/updated", "params": {"authMode": "chatgpt", "planType": "pro"}}),
+        );
+        let [(request, card)] = cells(&app).try_into().expect("one cell");
+        assert_eq!(request, None, "the change ends the wait");
+        assert!(!card.limits.refreshing);
+
+        answer(&mut app, &read, limits(8));
+        let installed = app
+            .session()
+            .rate_snapshots
+            .get(&BackendId::default())
+            .map_or(0, |store| store.snapshots().count());
+        assert_eq!(installed, 0, "the old account's answer is not installed");
+        assert_eq!(used(&cells(&app)[0].1), Vec::<i32>::new());
+    }
+
+    #[test]
+    fn the_instruction_sources_come_with_the_thread_start() {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a thread starts on connect");
+        let sources = vec![
+            AgentsSource::Native("/repo/AGENTS.md".into()),
+            AgentsSource::Foreign(r"C:\remote\AGENTS.md".into()),
+        ];
+        run(
+            &mut app,
+            AppEv::Reply(
+                ticket,
+                Reply::thread_started_with(ThreadId::new("thread-1"), sources.clone()),
+            ),
+        );
+        facts(&mut app);
+        status(&mut app);
+
+        assert_eq!(cells(&app)[0].1.agents, sources);
+        assert_eq!(
+            cells(&app)[0].1.agents_summary(),
+            vec!["AGENTS.md".to_string(), r"C:\remote\AGENTS.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_thread_name_and_the_fork_come_from_the_thread() {
+        let mut app = signed_in();
+        notify(
+            &mut app,
+            started("thread-1", Some("Refactor"), Some("thread-0")),
+        );
+        status(&mut app);
+
+        let (_, card) = cells(&app).remove(0);
+        assert_eq!(card.thread_name(), Some("Refactor"));
+        assert_eq!(card.forked_from(), Some("thread-0"));
+    }
+
+    #[test]
+    fn the_cell_belongs_to_the_thread_it_ran_in() {
+        let mut app = signed_in();
+        status(&mut app);
+        let shown = app.thread(&ThreadId::new("thread-1")).expect("the thread");
+        let in_thread = shown
+            .transcript()
+            .iter()
+            .filter(|(_, item)| matches!(item, Item::Status { .. }))
+            .count();
+        assert_eq!(in_thread, 1);
+    }
+
+    #[test]
+    fn the_cell_is_the_last_status_the_copy_picker_offers() {
+        let mut app = signed_in();
+        status(&mut app);
+        status(&mut app);
+        let thread = app.active_thread();
+        let card = thread.transcript().last_status().expect("a last status");
+        assert_eq!(card.session_id.as_deref(), Some("thread-1"));
     }
 }

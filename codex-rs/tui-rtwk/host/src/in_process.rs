@@ -45,6 +45,7 @@ use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::dialogs::Ev as DialogsEv;
 use codex_tui_core::screens::dialogs::Warning;
 use codex_tui_core::screens::onboarding::auth::provider::wire;
+use codex_tui_core::screens::status::Ev as StatusEv;
 use codex_tui_rtwk::services::agents::search::Latest;
 use codex_tui_rtwk::services::agents::version;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
@@ -415,6 +416,11 @@ async fn run(
     // As the oracle's bootstrap: the account is read, so the center knows
     // the plan and whether usage can be fetched.
     inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
+    // The status card's own: the account it shows, the catalog it names the model in, the server.
+    status_feed(&mut inflight, &ids, &handle);
+    if let Some(client) = held.get() {
+        emit_connection(&ingress, epoch, client, reconnect_endpoint(&mode), daemon);
+    }
     // And what words a refused cybersecurity request: the account's access and the catalog.
     let cyber = crate::facts::CyberPolicy::of(&config);
     inflight.push(Box::pin(crate::facts::daybreak(
@@ -545,6 +551,8 @@ async fn run(
             emit_version(&ingress, epoch, client, daemon, &mut version_shown);
         }
         inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
+        status_feed(&mut inflight, &ids, &handle);
+        emit_connection(&ingress, epoch, client, Some(endpoint.clone()), daemon);
         inflight.push(Box::pin(crate::facts::daybreak(
             cyber,
             ids.clone(),
@@ -552,6 +560,42 @@ async fn run(
         )));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
+}
+
+/// The reads of the facts the status card shows (`/status`): the account and the model catalog.
+fn status_feed(
+    inflight: &mut FuturesUnordered<Boxed<Option<AppEv>>>,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) {
+    inflight.push(Box::pin(crate::facts::card_account(
+        ids.clone(),
+        sender(handle.clone()),
+    )));
+    inflight.push(Box::pin(crate::facts::card_catalog(
+        ids.clone(),
+        sender(handle.clone()),
+    )));
+}
+
+/// The server row of the status card: the address of a remote server and the version it
+/// reports (none for the in-process one).
+fn emit_connection(
+    ingress: &IngressTx,
+    epoch: ConnEpoch,
+    client: &AppServerClient,
+    endpoint: Option<RemoteAppServerEndpoint>,
+    daemon: bool,
+) {
+    let AppServerClient::Remote(remote) = client else {
+        return;
+    };
+    let connection = crate::facts::card_remote(endpoint.as_ref(), daemon, remote.server_version());
+    emit(
+        ingress,
+        epoch,
+        AppEv::Screen(ScreenEv::Status(StatusEv::Connection(connection))),
+    );
 }
 
 /// Whether `command` is the first of a thread: one that starts, drives or reads one.

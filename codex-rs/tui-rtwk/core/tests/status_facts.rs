@@ -442,6 +442,7 @@ mod footer {
             &ThreadId::new(T),
             ThreadEv::Screen(ScreenThreadEv::Chat(ChatThreadEv::Metadata {
                 name: None,
+                forked_from: None,
                 cwd: "/tmp".into(),
                 path: None,
                 parent_owned: false,

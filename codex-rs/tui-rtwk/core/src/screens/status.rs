@@ -14,6 +14,7 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 mod card;
+mod compose;
 mod helpers;
 mod limits;
 mod rates;
@@ -31,6 +32,7 @@ pub use limits::{
     Snapshot, SpendLimit, SpendUsed, Window, WindowName, window_name,
 };
 
+pub use compose::{CardFacts, CatalogModel, Inputs, ThreadFacts};
 pub use rates::{
     Bucket, CreditStatus, RateLimitOrigin, RateLimitStore, RateRead, ResetCredit, ResetCredits,
     ResetKind,
@@ -57,6 +59,8 @@ pub enum Approval {
     Never,
     OnFailure,
     UnlessTrusted,
+    /// Fine-grained approval flows (the protocol's `granular`).
+    Granular,
 }
 
 /// The token counters of the thread (`TokenUsage`).
@@ -85,8 +89,8 @@ pub struct Context {
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`: the
-/// clock a card is made at. The cards themselves are items of a thread's
-/// transcript (`Item::Status`, ADR-003); nothing of a card is kept here.
+/// facts a `/status` card is made of that no thread owns. The cards themselves
+/// are items of a thread's transcript (`Item::Status`, ADR-003).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     /// The clock the shell moves on, unix seconds (the model never reads it):
@@ -94,6 +98,30 @@ pub struct Model {
     pub now: i64,
     /// The local time zone's offset from UTC, seconds east.
     pub utc_offset_secs: i32,
+    /// The account the server is signed in to (oracle `status_account_display`).
+    pub account: Option<Account>,
+    /// The models the server offers: their names and default reasoning.
+    pub catalog: Vec<CatalogModel>,
+    /// The connection to a server other than the in-process one.
+    pub remote: Option<Remote>,
+    /// The request number the next `/status` refresh takes (oracle
+    /// `next_status_refresh_request_id`).
+    pub next_request: u64,
+}
+
+impl Model {
+    /// The request number of a refresh a `/status` asks for.
+    pub(crate) fn take_request(&mut self) -> u64 {
+        let request = self.next_request;
+        self.next_request = self.next_request.wrapping_add(1);
+        request
+    }
+
+    /// Whether the session is signed in to a ChatGPT account (oracle
+    /// `has_chatgpt_account`): the limits of one can be read.
+    pub fn has_chatgpt_account(&self) -> bool {
+        matches!(self.account, Some(Account::ChatGpt { .. }))
+    }
 }
 
 /// The events of this screen; a variant of the root `ScreenEv`.
@@ -104,6 +132,12 @@ pub enum Ev {
     Card(Box<StatusCard>),
     /// The clock moved on (the shell's ambient loop).
     Clock { now: i64, utc_offset_secs: i32 },
+    /// The account the server is signed in to, as the host read it.
+    Account(Option<Account>),
+    /// The models the server offers.
+    Catalog(Vec<CatalogModel>),
+    /// The connection to the server changed.
+    Connection(Option<Remote>),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`. `/status`
@@ -123,6 +157,9 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.now = now;
             model.utc_offset_secs = utc_offset_secs;
         }
+        Ev::Account(account) => model.account = account,
+        Ev::Catalog(catalog) => model.catalog = catalog,
+        Ev::Connection(remote) => model.remote = remote,
     }
 }
 
@@ -138,12 +175,22 @@ pub struct ThreadPart {
     pub received: bool,
     pub tokens: Tokens,
     pub context: Option<Context>,
+    /// The instruction files the session loaded (oracle
+    /// `instruction_source_paths`), as the server said at the thread's start.
+    pub agents: Vec<AgentsSource>,
 }
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
     TokenUsage { tokens: Tokens, context: Option<Context> },
+    /// The instruction files of the session, from the start that opened the
+    /// thread.
+    InstructionSources(Vec<AgentsSource>),
+    /// A refresh of the rate limits ended: the transcript's `/status` cell that asked for it
+    /// (`request`) takes `limits`, the cells of other requests wait on (the thread's transcript
+    /// owns the cells: `threads.rs` applies it there).
+    Refreshed { request: u64, limits: Limits },
 }
 
 pub(crate) fn project(
@@ -153,6 +200,28 @@ pub(crate) fn project(
         return None;
     };
     Some((ThreadId::new(&note.thread_id), token_usage(&note.token_usage)))
+}
+
+/// The account an `account/updated` notification names (oracle
+/// `status_account_display_from_auth_mode`): the notification carries no email
+/// or workspace, so the card shows none until the account is read again.
+pub fn account_from_auth_mode(
+    auth_mode: Option<codex_app_server_protocol::AuthMode>,
+    plan: Option<codex_protocol::account::PlanType>,
+) -> Option<Account> {
+    use codex_app_server_protocol::AuthMode;
+    match auth_mode? {
+        AuthMode::ApiKey => Some(Account::ApiKey),
+        AuthMode::Chatgpt
+        | AuthMode::ChatgptAuthTokens
+        | AuthMode::AgentIdentity
+        | AuthMode::PersonalAccessToken => Some(Account::ChatGpt {
+            email: None,
+            plan,
+            workspace: None,
+        }),
+        _ => None,
+    }
 }
 
 fn token_usage(usage: &codex_app_server_protocol::ThreadTokenUsage) -> ThreadEv {
@@ -211,10 +280,16 @@ pub enum Ctx {}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
-    let ThreadEv::TokenUsage { tokens, context } = ev;
-    part.received = true;
-    part.tokens = tokens;
-    part.context = context;
+    match ev {
+        ThreadEv::TokenUsage { tokens, context } => {
+            part.received = true;
+            part.tokens = tokens;
+            part.context = context;
+        }
+        ThreadEv::InstructionSources(agents) => part.agents = agents,
+        // The transcript's: `threads::apply_ev` finishes the cell.
+        ThreadEv::Refreshed { .. } => {}
+    }
 }
 
 pub fn apply_reply(
@@ -239,11 +314,24 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// The seed forms: `{"kind":"status_card", ..the fields of `StatusCard`..}`.
+/// The seed forms: `{"kind":"status_card", ..the fields of `StatusCard`..}`,
+/// `{"kind":"account","account":{..}|null}`, `{"kind":"catalog","models":[..]}`
+/// and `{"kind":"connection","remote":{..}|null}`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
     StatusCard(Box<StatusCard>),
+    Account {
+        #[serde(default)]
+        account: Option<Account>,
+    },
+    Catalog {
+        models: Vec<CatalogModel>,
+    },
+    Connection {
+        #[serde(default)]
+        remote: Option<Remote>,
+    },
 }
 
 /// A script's `screen` step for this directory.
@@ -252,5 +340,8 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
         SeedEv::StatusCard(card) => Ev::Card(card),
+        SeedEv::Account { account } => Ev::Account(account),
+        SeedEv::Catalog { models } => Ev::Catalog(models),
+        SeedEv::Connection { remote } => Ev::Connection(remote),
     })
 }

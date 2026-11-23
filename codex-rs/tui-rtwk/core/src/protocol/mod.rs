@@ -156,7 +156,24 @@ pub fn reply(
         Command::StartThread { ticket, .. } => Some((
             *ticket,
             match decode::<ThreadStartResponse>("thread/start", result) {
-                Ok(response) => Reply::thread_started(ThreadId::new(response.thread.id)),
+                Ok(response) => {
+                    // The oracle's split (`compose_agents_summary`): a path in
+                    // the host's own convention is shown relative to the
+                    // directory, any other as the server spells it.
+                    let sources = response
+                        .instruction_source_path_uris()
+                        .into_iter()
+                        .map(|uri| match uri.to_abs_path() {
+                            Ok(path) => screens::status::AgentsSource::Native(
+                                path.as_path().display().to_string(),
+                            ),
+                            Err(_) => screens::status::AgentsSource::Foreign(
+                                uri.inferred_native_path_string(),
+                            ),
+                        })
+                        .collect();
+                    Reply::thread_started_with(ThreadId::new(response.thread.id), sources)
+                }
                 Err(error) => Reply::error(error),
             },
         )),

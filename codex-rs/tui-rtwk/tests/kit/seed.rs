@@ -154,6 +154,13 @@ impl Open {
         if self.held_start {
             h.fake.hold_thread_start();
         }
+        if let Some(response) = &self.env.thread_start {
+            answer(
+                &mut h,
+                "thread/start".to_string(),
+                script::Answer::Result(response.clone()),
+            );
+        }
         h.connect();
         self.env.deliver(&mut h);
         self.set_keymap(&mut h);

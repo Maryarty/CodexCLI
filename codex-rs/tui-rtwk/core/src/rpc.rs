@@ -86,7 +86,15 @@ pub struct Reply(Answer);
 
 impl Reply {
     pub fn thread_started(thread: ThreadId) -> Self {
-        Self(Answer::ThreadStarted { thread })
+        Self::thread_started_with(thread, Vec::new())
+    }
+
+    /// A thread's start, with the instruction files the session loaded.
+    pub fn thread_started_with(
+        thread: ThreadId,
+        sources: Vec<crate::screens::status::AgentsSource>,
+    ) -> Self {
+        Self(Answer::ThreadStarted { thread, sources })
     }
 
     pub fn turn_started(thread: ThreadId, turn: TurnId) -> Self {
@@ -165,6 +173,8 @@ impl Reply {
 pub enum Answer {
     ThreadStarted {
         thread: ThreadId,
+        /// The instruction files the session loaded (`/status` lists them).
+        sources: Vec<crate::screens::status::AgentsSource>,
     },
     TurnStarted {
         thread: ThreadId,
