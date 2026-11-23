@@ -313,6 +313,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             }
             // `/model`, `/permissions` and `/apps` fill the selection dialog
             // from the thread's facts, and the app asks the server for the rest.
+            let mut shown_by_presenter = false;
             if let Some(intent) = select_intent(
                 opened.command,
                 &states.chat.status,
@@ -320,10 +321,17 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 reserve_only(&session, &states, &thread),
                 review_cwd(&states, &thread),
             ) {
+                // `/review` is a sheet of its own: the model asks for it and the presenter shows it.
+                shown_by_presenter = matches!(
+                    intent,
+                    codex_tui_core::screens::select::Intent::OpenReview { .. }
+                );
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
+            } else if shown_by_presenter {
+                note_opened(opened.target);
             } else {
                 open(cx, opened.target);
             }

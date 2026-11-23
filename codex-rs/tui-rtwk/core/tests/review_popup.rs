@@ -1,16 +1,17 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! `/review` (oracle `chatwidget/review_popups.rs`, `tests/review_picker_tests.rs`): the presets,
-//! the host's branch list and commit log asked for under the menu's own request, the child menu
-//! pushed over the presets (Esc shows them again on the row that opened it), the instructions
-//! prompt, and the pick that starts `review/start` inline on the active thread.
+//! `/review` (oracle `chatwidget/review_popups.rs`, `tests/review_picker_tests.rs`): the sheet the
+//! model asks for, the host's branch list and commit log asked for under the menu's own request and
+//! kept as a fact, what each row leads to (the pure `Menu::choose`), and the pick that starts
+//! `review/start` inline on the active thread. The pages and what Esc does on them are the
+//! sheet's own (`tests/pages/review.rs`).
 
 use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::select::review::{self, Commit, Menu as Review};
-use codex_tui_core::screens::select::{Intent as Select, Menu};
+use codex_tui_core::screens::select::review::{self, Chosen, Commit, Git, Listing, Menu as Review};
+use codex_tui_core::screens::select::{Intent as Select, Opening};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, chat};
 use codex_tui_core::threads::ReviewTarget;
 use pretty_assertions::assert_eq;
@@ -49,13 +50,6 @@ fn select(app: &mut CodexApp, intent: Select) -> AppFx {
     )
 }
 
-fn menu(app: &CodexApp) -> Option<Review> {
-    match app.screens().select.menu() {
-        Some(Menu::Review(menu)) => Some((**menu).clone()),
-        _ => None,
-    }
-}
-
 fn open(app: &mut CodexApp) {
     select(
         app,
@@ -63,7 +57,11 @@ fn open(app: &mut CodexApp) {
             cwd: "/work/repo".into(),
         },
     );
-    assert_eq!(menu(app), Some(Review::Presets));
+    let shows: Vec<_> = app.screens().select.shows.pending().collect();
+    assert_eq!(
+        shows.last().map(|show| &show.opening),
+        Some(&Opening::Review)
+    );
 }
 
 /// The git list the menu asked the host for, with its request.
@@ -113,6 +111,13 @@ fn commits() -> Vec<Commit> {
     ]
 }
 
+fn branches() -> Done {
+    Done::GitBranches {
+        current: Some("feature".into()),
+        branches: vec!["main".into(), "feature".into()],
+    }
+}
+
 #[test]
 fn the_presets_are_four_rows_and_uncommitted_starts_the_review_at_once() {
     let mut app = ready();
@@ -127,20 +132,37 @@ fn the_presets_are_four_rows_and_uncommitted_starts_the_review_at_once() {
             review::CUSTOM
         ]
     );
-    let fx = select(&mut app, Select::Choose(review::UNCOMMITTED.into()));
+    assert!(matches!(
+        Review::Presets.choose(review::UNCOMMITTED),
+        Some(Chosen::Target(ReviewTarget::UncommittedChanges))
+    ));
+    let fx = select(&mut app, Select::Review(ReviewTarget::UncommittedChanges));
     assert_eq!(started(&fx), [ReviewTarget::UncommittedChanges]);
-    assert_eq!(
-        app.screens().select.menu(),
-        None,
-        "the presets are dismissed"
-    );
 }
 
 #[test]
-fn the_base_branch_picker_lists_the_hosts_branches_and_a_pick_dismisses_both() {
+fn the_presets_lead_to_a_list_of_the_host_a_prompt_or_a_target() {
+    assert!(matches!(
+        Review::Presets.choose(review::BASE),
+        Some(Chosen::Ask(Git::Branches))
+    ));
+    assert!(matches!(
+        Review::Presets.choose(review::COMMIT),
+        Some(Chosen::Ask(Git::Log))
+    ));
+    assert!(matches!(
+        Review::Presets.choose(review::CUSTOM),
+        Some(Chosen::Prompt)
+    ));
+    assert!(Review::Presets.choose("nope").is_none());
+    assert!(Review::Instructions.choose(review::CUSTOM).is_none());
+}
+
+#[test]
+fn the_base_branch_picker_lists_the_hosts_branches_and_a_pick_starts_the_review() {
     let mut app = ready();
     open(&mut app);
-    let fx = select(&mut app, Select::Choose(review::BASE.into()));
+    let fx = select(&mut app, Select::ReviewList(Git::Branches));
     let (request, ask) = asked(&fx);
     assert_eq!(
         ask,
@@ -150,51 +172,42 @@ fn the_base_branch_picker_lists_the_hosts_branches_and_a_pick_dismisses_both() {
     );
     assert!(request & review::REQUEST_BIT != 0);
     assert_eq!(
-        menu(&app),
-        Some(Review::Presets),
+        app.screens().select.review.listing(),
+        None,
         "the list is not there yet"
     );
-    answer(
-        &mut app,
-        request,
-        Done::GitBranches {
-            current: Some("feature".into()),
-            branches: vec!["main".into(), "feature".into()],
-        },
-    );
-    let Some(branches @ Review::Branches { .. }) = menu(&app) else {
-        panic!("expected the branches, got {:?}", menu(&app));
+    answer(&mut app, request, branches());
+    let Some((answered, Listing::Branches { current, branches })) = app
+        .screens()
+        .select
+        .review
+        .listing()
+        .map(|(r, l)| (r, l.clone()))
+    else {
+        panic!("expected the branches");
     };
-    select(&mut app, Select::Close);
-    assert_eq!(menu(&app), Some(Review::Presets));
-    let fx = select(&mut app, Select::Choose(review::BASE.into()));
-    let (request, _) = asked(&fx);
-    answer(
-        &mut app,
-        request,
-        Done::GitBranches {
-            current: Some("feature".into()),
-            branches: vec!["main".into(), "feature".into()],
-        },
-    );
-    let rows = branches.rows();
+    assert_eq!(answered, request, "the list carries its request");
+    let page = Listing::Branches { current, branches }.menu();
+    let rows = page.rows();
     assert_eq!(rows[1].name.as_deref(), Some("feature"));
     assert_eq!(rows[1].search.as_deref(), Some("feature"));
-    let fx = select(&mut app, Select::Choose(rows[0].id.clone()));
+    let Some(Chosen::Target(target)) = page.choose(&rows[0].id) else {
+        panic!("a branch row is a target");
+    };
+    let fx = select(&mut app, Select::Review(target));
     assert_eq!(
         started(&fx),
         [ReviewTarget::BaseBranch {
             branch: "main".into()
         }]
     );
-    assert_eq!(app.screens().select.menu(), None);
 }
 
 #[test]
-fn the_commit_picker_searches_subject_and_sha_and_esc_returns_to_the_presets() {
+fn the_commit_picker_searches_subject_and_sha() {
     let mut app = ready();
     open(&mut app);
-    let fx = select(&mut app, Select::Choose(review::COMMIT.into()));
+    let fx = select(&mut app, Select::ReviewList(Git::Log));
     let (request, ask) = asked(&fx);
     assert_eq!(
         ask,
@@ -204,19 +217,23 @@ fn the_commit_picker_searches_subject_and_sha_and_esc_returns_to_the_presets() {
         }
     );
     answer(&mut app, request, Done::GitLog(commits()));
-    let Some(Review::Commits(listed)) = menu(&app) else {
+    let Some((_, listing)) = app
+        .screens()
+        .select
+        .review
+        .listing()
+        .map(|(r, l)| (r, l.clone()))
+    else {
         panic!("expected the commits");
     };
-    let rows = Review::Commits(listed).rows();
+    let page = listing.menu();
+    let rows = page.rows();
     assert_eq!(rows[0].name.as_deref(), Some("Fix the parser"));
     assert_eq!(rows[0].search.as_deref(), Some("Fix the parser abc123"));
-    select(&mut app, Select::Close);
-    assert_eq!(menu(&app), Some(Review::Presets));
-    // again, and pick the second commit
-    let fx = select(&mut app, Select::Choose(review::COMMIT.into()));
-    let (request, _) = asked(&fx);
-    answer(&mut app, request, Done::GitLog(commits()));
-    let fx = select(&mut app, Select::Choose("commit:def456".into()));
+    let Some(Chosen::Target(target)) = page.choose("commit:def456") else {
+        panic!("a commit row is a target");
+    };
+    let fx = select(&mut app, Select::Review(target));
     assert_eq!(
         started(&fx),
         [ReviewTarget::Commit {
@@ -224,49 +241,57 @@ fn the_commit_picker_searches_subject_and_sha_and_esc_returns_to_the_presets() {
             title: Some("Add review".into())
         }]
     );
-    assert_eq!(app.screens().select.menu(), None);
 }
 
 #[test]
-fn custom_instructions_are_a_prompt_over_the_presets() {
+fn custom_instructions_are_a_review_target_of_their_own() {
     let mut app = ready();
     open(&mut app);
-    select(&mut app, Select::Choose(review::CUSTOM.into()));
-    assert_eq!(menu(&app), Some(Review::Instructions));
-    // an empty answer starts nothing, the prompt stays
-    let fx = select(&mut app, Select::Instructions("   ".into()));
-    assert_eq!(started(&fx), []);
-    assert_eq!(menu(&app), Some(Review::Instructions));
-    // Esc shows the presets
-    select(&mut app, Select::Close);
-    assert_eq!(menu(&app), Some(Review::Presets));
-    select(&mut app, Select::Choose(review::CUSTOM.into()));
-    let fx = select(&mut app, Select::Instructions("  the auth module ".into()));
+    let fx = select(
+        &mut app,
+        Select::Review(ReviewTarget::Custom {
+            instructions: "the auth module".into(),
+        }),
+    );
     assert_eq!(
         started(&fx),
         [ReviewTarget::Custom {
             instructions: "the auth module".into()
         }]
     );
-    assert_eq!(app.screens().select.menu(), None);
 }
 
 #[test]
-fn a_list_that_arrives_after_the_menu_was_closed_opens_nothing() {
+fn a_newer_list_replaces_the_older_and_a_stale_answer_is_not_kept() {
     let mut app = ready();
     open(&mut app);
-    let fx = select(&mut app, Select::Choose(review::BASE.into()));
-    let (request, _) = asked(&fx);
-    select(&mut app, Select::Close);
-    answer(
-        &mut app,
-        request,
-        Done::GitBranches {
-            current: None,
-            branches: vec!["main".into()],
-        },
+    let fx = select(&mut app, Select::ReviewList(Git::Branches));
+    let (first, _) = asked(&fx);
+    answer(&mut app, first, branches());
+    let fx = select(&mut app, Select::ReviewList(Git::Log));
+    let (second, _) = asked(&fx);
+    // the first request was answered: a second answer to it is not the one waited for
+    answer(&mut app, first, branches());
+    assert_eq!(
+        app.screens()
+            .select
+            .review
+            .listing()
+            .map(|(request, _)| request),
+        Some(first)
     );
-    assert_eq!(app.screens().select.menu(), None);
+    answer(&mut app, second, Done::GitLog(commits()));
+    assert_eq!(
+        app.screens()
+            .select
+            .review
+            .listing()
+            .map(|(request, _)| request),
+        Some(second)
+    );
+    // opening the sheet again forgets what the last one was told
+    open(&mut app);
+    assert_eq!(app.screens().select.review.listing(), None);
     // an answer of the UI's own request is kept for the UI
     answer(&mut app, 7, Done::GitLog(Vec::new()));
     assert_eq!(app.effect(7), Some(&Done::GitLog(Vec::new())));

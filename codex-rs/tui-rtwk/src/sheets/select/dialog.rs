@@ -17,13 +17,10 @@ use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::select::apps::Link;
 use codex_tui_core::screens::select::models::Heading;
-use codex_tui_core::screens::select::review::Menu as ReviewMenu;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
 
 use super::app_link::AppLinkView;
 use super::lists;
-use super::prompt;
-use super::review;
 use super::strings;
 use crate::app::view::Hs;
 use crate::widgets::picker::{Event, Picker};
@@ -67,8 +64,6 @@ pub struct MenuDialogState {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Picked(Event),
-    /// What the `/review` instructions prompt answered.
-    Typed(prompt::Answer),
     /// What the app link dialog asks of the app it shows.
     Link(Intent),
 }
@@ -137,11 +132,6 @@ impl State for MenuDialogState {
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
                 return Rebuild::Yes;
             }
-            Msg::Typed(prompt::Answer::Submit(text)) => {
-                cx.emit(&hs.screen, ScreenIntent::Select(Intent::Instructions(text)));
-                return Rebuild::Yes;
-            }
-            Msg::Typed(prompt::Answer::Back) => Event::Cancel,
         };
         let intent = match event {
             Event::Choose(id) => {
@@ -184,12 +174,6 @@ impl State for MenuDialogState {
             .checked_sub(1)
             .and_then(|at| self.kept.get(&at))
             .map(String::as_str);
-        // The instructions of `/review` are a text prompt, not a list.
-        if matches!(&head.menu, Menu::Review(menu) if **menu == ReviewMenu::Instructions) {
-            let prompt: AnyWidget =
-                review::instructions(cx.map(Msg::Typed), review::strings::of(cx)).into();
-            return prompt.with_key(u32::try_from(head.depth).unwrap_or(0));
-        }
         // The page of an app picked from `/apps`: a dialog of its own, not a list.
         if matches!(head.menu, Menu::Apps)
             && let Some(link) = link
@@ -202,7 +186,6 @@ impl State for MenuDialogState {
             return dialog.with_key(u32::try_from(head.depth).unwrap_or(0));
         }
         let list = match &head.menu {
-            Menu::Review(menu) => review::list(menu, cursor, review::strings::of(cx)),
             menu => {
                 let mut page = head.page.clone();
                 // The row that opened the menu above this one: the cursor starts on it.

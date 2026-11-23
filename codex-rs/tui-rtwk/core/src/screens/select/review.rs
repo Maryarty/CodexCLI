@@ -94,7 +94,7 @@ impl Menu {
 
     /// What the pick of the row `id` of this menu starts: a review of a target, or the
     /// next step.
-    pub(super) fn choose(&self, id: &str) -> Option<Chosen> {
+    pub fn choose(&self, id: &str) -> Option<Chosen> {
         match self {
             Menu::Presets => match id {
                 BASE => Some(Chosen::Ask(Git::Branches)),
@@ -141,7 +141,7 @@ fn commit_id(sha: &str) -> String {
 }
 
 /// What a pick of a row does.
-pub(super) enum Chosen {
+pub enum Chosen {
     /// The host is asked for a list; the answer opens the child menu.
     Ask(Git),
     /// The instructions prompt opens.
@@ -170,7 +170,7 @@ pub enum Listing {
 }
 
 impl Listing {
-    pub(super) fn menu(self) -> Menu {
+    pub fn menu(self) -> Menu {
         match self {
             Listing::Branches { current, branches } => Menu::Branches { current, branches },
             Listing::Log(commits) => Menu::Commits(commits),
@@ -189,6 +189,9 @@ pub struct Review {
     pending: Option<(u64, Git)>,
     /// A request the app has not yet sent.
     unsent: bool,
+    /// The host's last answer, under the request it answered: a fact the sheet over the presets
+    /// reads (it pushes the page of a list it has not shown yet, by the request).
+    listing: Option<(u64, Listing)>,
 }
 
 /// An ask the app sends for the review menus.
@@ -204,6 +207,7 @@ impl Review {
         self.cwd = Some(cwd);
         self.pending = None;
         self.unsent = false;
+        self.listing = None;
     }
 
     pub(super) fn want(&mut self, git: Git) {
@@ -228,16 +232,17 @@ impl Review {
         self.pending.is_some_and(|(wanted, _)| wanted == request)
     }
 
-    pub(super) fn answered(&mut self, request: u64) -> bool {
+    /// The host's answer: kept when it is the one asked for, else dropped.
+    pub(super) fn answered(&mut self, request: u64, listing: Listing) {
         if !self.waits_for(request) {
-            return false;
+            return;
         }
         self.pending = None;
-        true
+        self.listing = Some((request, listing));
     }
 
-    pub(super) fn forget(&mut self) {
-        self.pending = None;
-        self.unsent = false;
+    /// The host's last answer and the request it carries.
+    pub fn listing(&self) -> Option<(u64, &Listing)> {
+        self.listing.as_ref().map(|(request, listing)| (*request, listing))
     }
 }

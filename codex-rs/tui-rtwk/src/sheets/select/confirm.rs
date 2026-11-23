@@ -52,7 +52,10 @@ impl State for ConfirmSheetState {
         match event {
             Event::Choose(id) if id == Confirm::YES => {
                 let hs = read::<Hs, _>(cx);
-                cx.emit(&hs.screen, ScreenIntent::Select(Intent::Confirmed(w.confirm)));
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Select(Intent::Confirmed(w.confirm)),
+                );
                 close_dialog::<_, ()>(cx, None);
             }
             Event::Choose(id) if id == Confirm::NO => close_dialog::<_, ()>(cx, None),

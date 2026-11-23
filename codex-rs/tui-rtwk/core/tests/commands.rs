@@ -2341,10 +2341,7 @@ mod removal {
             Some(Opening::Confirm(Confirm::Archive { running: true }))
         );
         typed(&mut app, Some(T), SlashCommand::Delete);
-        assert_eq!(
-            asked(&app),
-            Some(Opening::Confirm(Confirm::Delete))
-        );
+        assert_eq!(asked(&app), Some(Opening::Confirm(Confirm::Delete)));
         // before any thread: the question still opens, the refusal is Yes's
         let mut app = CodexApp::new();
         typed(&mut app, None, SlashCommand::Archive);

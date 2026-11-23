@@ -11,6 +11,7 @@ mod generic;
 mod lists;
 pub(crate) mod prompt;
 mod review;
+mod review_sheet;
 
 use std::rc::Rc;
 
@@ -507,6 +508,7 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
             confirm::ConfirmSheet { confirm: *confirm }.into(),
             confirm::options(),
         ),
+        Opening::Review => (review_sheet::sheet(), review_sheet::options()),
     }
 }
 

@@ -65,9 +65,6 @@ pub enum Menu {
     /// `/apps`: the directory of apps, its rows `Model::apps` (loading, the
     /// failure with its Retry row, or the list).
     Apps,
-    /// A menu of `/review` (`review.rs`): the presets, the base branches, the commits and the
-    /// instructions prompt; the lists come from the host.
-    Review(Box<review::Menu>),
     /// A menu of the worktree pickers (`worktree.rs`): the checkout choice of `/new` and `/fork`,
     /// `/worktree`, the browser, a worktree's actions and the delete confirmation.
     Worktree(Box<worktree::Menu>),
@@ -91,6 +88,9 @@ pub struct Show {
 pub enum Opening {
     /// A confirmation: No (row 0), then Yes (row 1); the answer Yes is `Intent::Confirmed`.
     Confirm(Confirm),
+    /// `/review`: the presets, and over them the lists of the host (`review.rs`); the pages and
+    /// what Esc does on each are the sheet's.
+    Review,
 }
 
 /// The shows nobody has shown yet.
@@ -348,8 +348,7 @@ impl Model {
             Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Review(_)
-            | Menu::Worktree(_)
+            Menu::Worktree(_)
             | Menu::Quick(_) => None,
         }
     }
@@ -524,9 +523,6 @@ impl Model {
 
     /// Forgets what the menus that are gone were waiting for.
     fn tidy(&mut self) {
-        if !self.stack.iter().any(|menu| matches!(menu, Menu::Review(_))) {
-            self.review.forget();
-        }
         if !self.stack.iter().any(|menu| matches!(menu, Menu::Worktree(_))) {
             self.worktree.forget();
         }
@@ -894,8 +890,11 @@ pub enum Intent {
         cwd: String,
         thread: Option<ThreadId>,
     },
-    /// The text typed at `Custom review instructions`.
-    Instructions(String),
+    /// The review a page of `/review` settled on (a preset, a branch, a commit, the instructions
+    /// typed): the app starts it on the active thread.
+    Review(crate::threads::ReviewTarget),
+    /// A page of `/review` asks for a list of the host (the base branches, the commit log).
+    ReviewList(review::Git),
     /// The app directory is read again (`apps.refresh(true)`): a surface that waited for an app
     /// to be installed asks for it.
     RefreshApps,
@@ -991,15 +990,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 model.dismiss_stale_models();
             }
         }
-        Ev::Reviewed { request, listing } => {
-            let over_presets = matches!(
-                model.stack.last(),
-                Some(Menu::Review(menu)) if **menu == review::Menu::Presets
-            );
-            if model.review.answered(request) && over_presets {
-                model.stack.push(Menu::Review(Box::new(listing.menu())));
-            }
-        }
+        // The list stays as a fact under its request: the sheet over the presets pushes the page
+        // of it (once per request) if it is still open.
+        Ev::Reviewed { request, listing } => model.review.answered(request, listing),
         Ev::Listed(discovery) => model.profiles.found = Some(discovery),
         Ev::Discovered { request, result } => {
             if model.profiles.pending != Some(request) {
@@ -1124,7 +1117,7 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // `/review`: the presets, over the session's working directory.
         Intent::OpenReview { cwd } => {
             model.review.open(cwd);
-            model.stack = vec![Menu::Review(Box::new(review::Menu::Presets))];
+            model.shows.push(Opening::Review);
         }
         // `/new` and `/fork` (`show_session_checkout_picker`): the choice of checkout, or none
         // where there is no local repository to make one in.
@@ -1146,18 +1139,10 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.notes.push(Note::WorktreesUnavailable);
             }
         }
-        // The text of `Custom review instructions` (an empty one is not an answer).
-        Intent::Instructions(text) => {
-            let text = text.trim();
-            if matches!(model.stack.last(), Some(Menu::Review(menu)) if **menu == review::Menu::Instructions)
-                && !text.is_empty()
-            {
-                model.stack.clear();
-                model.picked.push(Picked::Review(crate::threads::ReviewTarget::Custom {
-                    instructions: text.to_string(),
-                }));
-            }
-        }
+        // What a page of `/review` settled on (`Picked::Review`), and the list a page asks of the
+        // host (the answer is `Ev::Reviewed`).
+        Intent::Review(target) => model.picked.push(Picked::Review(target)),
+        Intent::ReviewList(git) => model.review.want(git),
         Intent::RefreshApps => {
             model.apps.refresh(true);
         }
@@ -1195,20 +1180,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.permissions_step(step);
             }
             Some(Menu::Apps) => model.choose_app(&id),
-            Some(Menu::Review(menu)) => {
-                use review::Chosen;
-                match menu.choose(&id) {
-                    Some(Chosen::Ask(git)) => model.review.want(git),
-                    Some(Chosen::Prompt) => {
-                        model.stack.push(Menu::Review(Box::new(review::Menu::Instructions)));
-                    }
-                    Some(Chosen::Target(target)) => {
-                        model.stack.clear();
-                        model.picked.push(Picked::Review(target));
-                    }
-                    None => {}
-                }
-            }
             Some(Menu::Quick(menu)) => {
                 use quick_dials::Chosen;
                 match menu.choose(&id, &model.quick) {
