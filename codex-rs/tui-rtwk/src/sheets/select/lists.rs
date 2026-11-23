@@ -24,7 +24,6 @@ pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
         (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
         (Menu::Apps, Some(Page::Apps(page))) => apps(page, s),
-        (Menu::Confirm(confirm), _) => confirmation(*confirm, s),
         _ => return None,
     })
 }
@@ -374,7 +373,7 @@ fn source_phrase(source: &PlanSource, s: &Strings) -> String {
 /// The two rows of a confirmation, No first (`SelectionViewParams::confirmation`:
 /// the panel picker with the standard hint, its columns placed from all rows
 /// and the description hidden when narrow).
-fn confirmation(confirm: Confirm, s: &Strings) -> List {
+pub fn confirmation(confirm: Confirm, s: &Strings) -> List {
     let (title, subtitle, no, yes) = match confirm {
         Confirm::Archive { running } => (
             s.archive_title,

@@ -4,6 +4,8 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+use std::collections::VecDeque;
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
@@ -63,8 +65,6 @@ pub enum Menu {
     /// `/apps`: the directory of apps, its rows `Model::apps` (loading, the
     /// failure with its Retry row, or the list).
     Apps,
-    /// A confirmation: No (row 0), then Yes (row 1).
-    Confirm(Confirm),
     /// A menu of `/review` (`review.rs`): the presets, the base branches, the commits and the
     /// instructions prompt; the lists come from the host.
     Review(Box<review::Menu>),
@@ -74,6 +74,50 @@ pub enum Menu {
     /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
     /// settings, the editor and the confirmation of a change.
     Quick(Box<quick_dials::Menu>),
+}
+
+/// A sheet the screen wants shown, once (ADR-013 Ж): the decision is the domain's (a thread is
+/// asked to be archived: the question comes first), how it looks and where it opens is the
+/// presenter's. The presenter shows it and says so (`Intent::Shown`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Show {
+    /// Numbers the shows in the order they were made; what a presenter says it showed.
+    pub seq: u64,
+    pub opening: Opening,
+}
+
+/// What a show opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Opening {
+    /// A confirmation: No (row 0), then Yes (row 1); the answer Yes is `Intent::Confirmed`.
+    Confirm(Confirm),
+}
+
+/// The shows nobody has shown yet.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Shows {
+    queue: VecDeque<Show>,
+    seq: u64,
+}
+
+impl Shows {
+    fn push(&mut self, opening: Opening) {
+        self.seq += 1;
+        self.queue.push_back(Show {
+            seq: self.seq,
+            opening,
+        });
+    }
+
+    /// The show `seq` was shown (or is given up): it is gone from the queue.
+    fn shown(&mut self, seq: u64) {
+        self.queue.retain(|show| show.seq != seq);
+    }
+
+    /// The shows still to show, oldest first.
+    pub fn pending(&self) -> impl Iterator<Item = &Show> {
+        self.queue.iter()
+    }
 }
 
 /// What the user picked.
@@ -270,6 +314,8 @@ pub struct Model {
     pub review: review::Review,
     /// The scope and the requests of the worktree menus.
     pub worktree: worktree::Worktree,
+    /// The sheets asked for and not shown yet.
+    pub shows: Shows,
     /// The presets saved in the config and the writes asked for them.
     pub quick: quick_dials::Quick,
     /// Picks made; the effect that stores them is the settings slice's.
@@ -302,8 +348,7 @@ impl Model {
             Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Confirm(_)
-            | Menu::Review(_)
+            Menu::Review(_)
             | Menu::Worktree(_)
             | Menu::Quick(_) => None,
         }
@@ -866,6 +911,12 @@ pub enum Intent {
     /// switch at once, the app writes the config and, once it is saved, tells the directory
     /// (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
+    /// A confirmation is asked for (`/archive`, `/delete`): a sheet shows it.
+    Confirm(Confirm),
+    /// The answer Yes of a confirmation (No is the sheet's own: it closes).
+    Confirmed(Confirm),
+    /// The sheet of show `seq` is shown (the presenter says so).
+    Shown(u64),
     /// The row with this id of the menu on top was accepted.
     Choose(String),
     /// The secondary action of the item with this id (`s for secondary`).
@@ -1025,6 +1076,9 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         Intent::Open(menu) => model.stack = vec![menu],
+        Intent::Confirm(confirm) => model.shows.push(Opening::Confirm(confirm)),
+        Intent::Confirmed(confirm) => model.picked.push(Picked::Confirmed(confirm)),
+        Intent::Shown(seq) => model.shows.shown(seq),
         Intent::OpenModels(current) => {
             if let Some(why) = model.catalog.unavailable() {
                 model.notes.push(Note::ModelPickerUnavailable(why));
@@ -1203,15 +1257,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     }
                     Some(Chosen::Close) => model.stack.clear(),
                     None => {}
-                }
-            }
-            Some(Menu::Confirm(confirm)) => {
-                let confirm = *confirm;
-                if id == Confirm::YES {
-                    model.picked.push(Picked::Confirmed(confirm));
-                }
-                if id == Confirm::YES || id == Confirm::NO {
-                    model.stack.pop();
                 }
             }
             None => {}

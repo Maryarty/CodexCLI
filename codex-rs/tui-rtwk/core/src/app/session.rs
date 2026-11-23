@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
-use crate::screens::select::{Confirm, Menu, Picked};
+use crate::screens::select::{Confirm, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
 };
@@ -540,7 +540,7 @@ fn ask_removal(
     };
     select::apply_intent(
         &mut Rc::make_mut(&mut app.screens).select,
-        select::Intent::Open(Menu::Confirm(confirm)),
+        select::Intent::Confirm(confirm),
         fx,
     );
 }

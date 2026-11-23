@@ -9,8 +9,7 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use rtwk::layout::{EdgeInsets, Padding};
-use rtwk::overlay::{Dialog, close_dialog};
+use rtwk::overlay::close_dialog;
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -219,16 +218,7 @@ impl State for MenuDialogState {
             return AnyWidget::default();
         };
         let picker = Picker::new(Rc::new(list), cx.map(Msg::Picked));
-        let picker: AnyWidget = match head.menu {
-            // A confirmation floats: 72 cells wide at most and two cells in
-            // from the screen (`dialog_area` of the oracle's view stack).
-            Menu::Confirm(_) => Padding::new(
-                EdgeInsets::symmetric(2, 0),
-                Dialog::bare(picker).max_width(72),
-            )
-            .into(),
-            _ => picker.into(),
-        };
+        let picker: AnyWidget = picker.into();
         // Another page of the family (the quick menu a refresh made of the model list) is a new
         // picker with its own start; a refresh of the same page keeps cursor and scroll.
         let shape = match &head.page {

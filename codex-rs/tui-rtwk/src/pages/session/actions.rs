@@ -19,7 +19,7 @@ use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, Toggle, UserM
 use crate::app::view::Hs;
 use crate::features;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::open::{note_opened, open, open_confirmation};
+use crate::pages::session::open::{note_opened, open};
 
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
@@ -286,7 +286,8 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                         intent,
                     },
                 );
-                open_confirmation(cx);
+                // The select sheet shows the question once the model has asked for it (the presenter).
+                note_opened(Target::Select);
                 return;
             }
             // `/auto-review` lists the thread's denials in a sheet of its own, or says there is
