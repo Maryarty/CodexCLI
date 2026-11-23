@@ -69,6 +69,16 @@ impl<F> PartialEq for Never<F> {
 
 impl<F> Eq for Never<F> {}
 
+impl<F> Never<F> {
+    /// Anything, from a value that cannot exist: what a step a feature has no component for
+    /// returns (`command.absurd()` in `wire` and `decode` of a feature without RPCs).
+    pub fn absurd<T>(&self) -> T {
+        match self {
+            Never::Void(never, _) => match *never {},
+        }
+    }
+}
+
 /// What a row of a feature's menu settled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Choice<M, P> {

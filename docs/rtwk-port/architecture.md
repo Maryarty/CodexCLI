@@ -752,7 +752,7 @@ subscriptions` with default no-ops.
 - `trait Feature` (marker type per feature): associated types `State`, `ThreadPart`, `Intent`,
   `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Menu`, `Pick`, `Prompt`, `Note`; steps `intent`,
   `answered`, `choose`, `picked`, `prompt_submitted`, `note_tone`, `on_resumed`, `thread_intent`,
-  `thread_answered`, `on_turn_end`, `on_interrupted`, `wire`, `decode`; every step has a
+  `thread_answered`, `on_turn_end`, `on_interrupted`, `on_settled`, `wire`, `decode`; every step has a
   default that does nothing but `wire` / `decode`. A component a feature does not have is
   `Never<Self>`; the feature's own types are its own (no two features share a type, so the
   root enums' `From` impls are unique).
@@ -825,9 +825,10 @@ transcript line; its words are `src/features/<f>/strings.rs`).
 - Every component type is the feature's own, so the root enums' `From` impls do not overlap
   (two features sharing `String` as a note would not compile). A component you do not have is
   `Never<Self>`; the two states are `()`. Every step but `wire` / `decode` has a default that
-  does nothing; a feature without RPCs matches `match *command {}` in those two.
+  does nothing; a feature without RPCs says `command.absurd()` (`Never::absurd`) in those two.
 - The outbox, `AppCx`: `ask(thread_or_none, command, ctx)`, `open(menu)`,
-  `prompt(prompt, initial)`, `note(thread_or_none, note)`, `thread(&id, thread_intent)`; the
+  `prompt(prompt, initial)`, `note(thread_or_none, note)`, `thread(&id, thread_intent)`,
+  `settled(&id)`; the
   app carries them out after your step, in the order you said them. `cx.view()` is the app
   read-only: `active()`, `thread(id)`, `active_thread()`, `tui()`, `screens()`, `modes()`;
   a `ThreadView` has `core` and `slots` (read-only), `id()`, `is_running()`, `busy()`,
@@ -845,10 +846,15 @@ transcript line; its words are `src/features/<f>/strings.rs`).
 
 **Hooks.** `on_resumed(state, thread, cx)` (a resumed thread is applied and in use),
 `on_turn_end(part, end, cx)` (completed, failed or interrupted; `busy()` is as the hub left
-it), `on_interrupted(part, cx)` (right after the `on_turn_end` of an interrupt). They run over
+it), `on_interrupted(part, cx)` (right after the `on_turn_end` of an interrupt),
+`on_settled(part, cx)` (what held the thread's input back is over: another feature said
+`cx.settled(&thread)`, the goal was set; the queue resumes). They run over
 all features in the order of `feature_list!`: put the line where its hooks belong (a feature
 that sends the next message at the end of a turn goes before one that reads whether the
-thread is idle) and say so in a comment on the line when the order matters.
+thread is idle) and say so in a comment on the line when the order matters. A feature that
+needs another to go on never names it: it says the event (`cx.settled`), the hooks of every
+feature answer in their own words (`on_settled` was the one hook the `/goal` move added,
+because the goal-to-queue nudge was a `QueueResume` that named both).
 
 **The view half.** `impl FeatureView for Goal { fn note_words(note, &SessionStrings) -> String;
 fn menu_list(menu, &SelectStrings) -> List; }` in `src/features/<f>/mod.rs`. Views only: no
@@ -857,7 +863,9 @@ protocol, no model code, no `apply` (`views_never_name_protocol_shell_tokio_or_i
 widget of its own builds it in `pages/`, `sheets/` or `widgets/` as any screen; a menu row or a
 note leads to it by an intent.
 
-**Moving an existing feature in.** The tests stay as they are. The model and steps go to
+**Moving an existing feature in.** The step list with the `/goal` move worked in full is
+[refs/feature-slices.md](refs/feature-slices.md) and its mechanical half
+`refs/slice-codemod.py` (`new`, `move`, `hub`, `budget`). The tests stay as they are. The model and steps go to
 `core/src/features/<f>/`; the variants it had in `Menu`, `Picked`, `PromptKind`, `NoteKey`,
 `Command` / `ThreadAsk`, `ThreadEv`, `chat::ThreadIntent` become your own types; its arms in
 `apply_choice`, `picks`, `answered`, `prompt_submitted`, `threads::apply_ev` go with it; the
