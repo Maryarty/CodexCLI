@@ -17,7 +17,7 @@ use codex_tui_core::features::{FeatureCommand, FeatureMenu, FeatureNote, Feature
 use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::dialogs::{self, Open, PromptKind};
+use codex_tui_core::screens::dialogs::{self, PromptKind};
 use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
 use codex_tui_core::threads::queue::Dispatched;
@@ -320,7 +320,7 @@ fn the_edit_prompt_keeps_the_status_and_the_budget_of_the_goal() {
         ticket,
         goal::Reply::Goal(Some(goal("old", GoalStatus::Paused))),
     );
-    let Some(Open::Prompt(prompt)) = app.screens().dialogs.open.clone() else {
+    let Some(prompt) = app.screens().dialogs.prompt.clone() else {
         panic!("the edit prompt is open");
     };
     assert_eq!(prompt.initial, "old");
@@ -357,7 +357,7 @@ fn a_finished_goal_is_edited_back_to_active() {
         ticket,
         goal::Reply::Goal(Some(goal("old", GoalStatus::BudgetLimited))),
     );
-    let Some(Open::Prompt(prompt)) = app.screens().dialogs.open.clone() else {
+    let Some(prompt) = app.screens().dialogs.prompt.clone() else {
         panic!("the edit prompt is open");
     };
     assert!(matches!(
@@ -381,7 +381,7 @@ fn edit_over_no_goal_is_an_error_then_the_usage() {
             (Tone::Info, GoalNote::Usage(GoalHint::CreateFirst)),
         ]
     );
-    assert_eq!(app.screens().dialogs.open, None);
+    assert_eq!(app.screens().dialogs.prompt, None);
 
     // Before the session starts the same two lines come without an ask.
     let mut app = CodexApp::new();

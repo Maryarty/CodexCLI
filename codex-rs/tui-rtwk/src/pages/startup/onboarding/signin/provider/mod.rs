@@ -26,7 +26,11 @@ pub mod gov_cloud;
 pub mod strings;
 
 /// The wizard of the provider chosen; none while its wizard is not built.
-pub(super) fn body(wizard: &Wizard, guard: &crate::widgets::key_guard::KeyGuard) -> AnyWidget {
+pub(super) fn body(
+    wizard: &Wizard,
+    guard: &crate::widgets::key_guard::KeyGuard,
+    resting: &super::Resting,
+) -> AnyWidget {
     match wizard {
         Wizard::Bedrock(model) => bedrock::BedrockWizard {
             bedrock: model.clone(),
@@ -41,6 +45,7 @@ pub(super) fn body(wizard: &Wizard, guard: &crate::widgets::key_guard::KeyGuard)
         Wizard::Gateway(model) => gateway::GatewayWizard {
             gateway: model.clone(),
             guard: guard.clone(),
+            resting: resting.clone(),
         }
         .into(),
     }

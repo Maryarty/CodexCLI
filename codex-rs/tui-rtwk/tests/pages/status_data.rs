@@ -229,6 +229,25 @@ fn f2_opens_the_retained_warnings_and_dismissal_updates_the_count() {
     assert!(screen.contains("⚠ 2 warnings · f2 to view"), "{screen}");
 }
 
+// `k` saves the page it is on: it stays in the count when the viewer closes with F2 (the
+// keymap's `open_warnings`, not a key of the viewer), the pages left are dismissed.
+#[test]
+fn a_kept_warning_stays_when_the_viewer_closes_with_f2() {
+    let mut h = session(80, &retained(3));
+    h.press("f2");
+    h.wait_for("the viewer", |s| s.contains("warning 1"));
+    h.press("k");
+    h.wait_for("the second page", |s| s.contains("2 of 3"));
+    h.press("f2");
+    // Page 1 was saved, page 2 shown and dismissed; page 3 was never shown.
+    h.wait_for("the count", |s| s.contains("⚠ 2 warnings · f2 to view"));
+    h.press("f2");
+    h.wait_for("the viewer again", |s| s.contains("1 of 2"));
+    h.t.pump_for(crate::common::ms(300));
+    let screen = h.t.screen();
+    assert!(screen.contains("warning 1"), "{screen}");
+}
+
 // F2 with nothing retained shows the viewer's empty page.
 #[test]
 fn f2_without_warnings_shows_the_empty_viewer() {

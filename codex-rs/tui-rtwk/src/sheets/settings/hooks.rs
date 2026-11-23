@@ -7,9 +7,10 @@
 //! `SelectionController`, the list's scroll a `ListController` (the sheet owns
 //! them; going to a page puts them where the oracle's fresh `ScrollState`
 //! does), the keys come from the `FocusNode.onKeyEvent` of a `Focus`. Which
-//! page is open, what a hook is and what Enter, Space and `t` change are the
-//! model's (`Hooks`, `Intent::HookOpen`, `HookToggle`, `HookTrust`,
-//! `HookTrustAll`, `Close`, ADR-003). The mouse (ADR-011, beyond the oracle):
+//! page is open and what Space and `t` changed before the app takes it are
+//! the sheet's draft (`HooksDraft`); what a hook is, and what Space and `t`
+//! ask of the app, are the model's (`Hooks`, `Edit::HookEnabled`,
+//! `Edit::HookTrusted`, `Edit::HooksTrusted`, ADR-013). The mouse (ADR-011, beyond the oracle):
 //! a tap puts the cursor on a row, a tap on the row the cursor is on does
 //! what Enter does; the wheel scrolls the list.
 //!
@@ -30,24 +31,23 @@ use rtwk::layout::{
     Flexible, MainAxisSize, Padding, Row, SizedBox, UNBOUNDED,
 };
 use rtwk::overlay::{Dialog, close_dialog};
-use rtwk::prelude::{KeyCode, Mods};
-use rtwk::provider::{read, select};
+use rtwk::provider::select;
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::style::{Attrs, Style};
 use rtwk::text::{Text, TextAlign, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::settings::hooks::{
     EventRow, Hook, HookEvent, HookHandler, HookSource, HookTrust, Hooks,
 };
-use codex_tui_core::screens::settings::{Intent, Open};
+use codex_tui_core::screens::settings::{Offer, Which};
 
-use super::setup::{letter_of, move_of};
+use super::draft::{HooksDraft, HooksView};
+use super::keys::{Keys, ListKey, is_interrupt, is_letter, is_space, list_key};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
-use crate::app::view::Hs;
 use crate::widgets::dots::dots_end;
 use crate::widgets::session_list::{Move, Scrolled, target};
 
@@ -73,7 +73,8 @@ const COMMAND_LINES: usize = 3;
 
 /// Widget state: the controllers (R14).
 pub struct HooksState {
-    shown: bool,
+    keys: Keys,
+    draft: HooksDraft,
     /// The page the controllers were last put for (none: no page yet).
     seen: Cell<Option<usize>>,
     node: FocusNode,
@@ -106,19 +107,21 @@ pub enum Msg {
     Row(usize),
 }
 
-fn act_of(key: &KeyPress) -> Option<Act> {
-    if let Some(mv) = move_of(key) {
-        return Some(Act::Move(mv));
+fn act_of(keys: &Keymap, key: &KeyPress) -> Option<Act> {
+    if is_space(key) {
+        return Some(Act::Toggle);
     }
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    match (key.code, letter_of(key), ctrl, alt) {
-        (KeyCode::Char, Some(' '), false, false) if key.mods.is_empty() => Some(Act::Toggle),
-        (KeyCode::Char, Some('t'), false, false) if key.mods.is_empty() => Some(Act::Trust),
-        (KeyCode::Enter, _, false, false) => Some(Act::Accept),
-        (KeyCode::Escape, _, false, false) => Some(Act::Close),
-        (KeyCode::Char, Some('c'), true, false) => Some(Act::Dismiss),
-        _ => None,
+    if is_letter(key, 't') {
+        return Some(Act::Trust);
+    }
+    if is_interrupt(key) {
+        return Some(Act::Dismiss);
+    }
+    match list_key(keys, key, false)? {
+        ListKey::Move(mv) => Some(Act::Move(mv)),
+        ListKey::Accept => Some(Act::Accept),
+        ListKey::Cancel => Some(Act::Close),
+        ListKey::Left | ListKey::Right => None,
     }
 }
 
@@ -127,7 +130,8 @@ impl StatefulWidget for HooksSheet {
 
     fn create_state(&self) -> HooksState {
         HooksState {
-            shown: false,
+            keys: Keys::new(),
+            draft: HooksDraft::default(),
             seen: Cell::new(None),
             node: FocusNode::new(),
             events: SelectionController::new(),
@@ -140,17 +144,19 @@ impl StatefulWidget for HooksSheet {
 
 impl_widget!(stateful eq HooksSheet);
 
-/// The browser the model holds open.
-fn open_dialog(cx: &mut Cx<'_, HooksState>) -> Option<Hooks> {
-    select::<ScreenStates, Option<Hooks>, _>(cx, |states| match &states.settings.open {
-        Some(Open::Hooks(browser)) => Some(browser.clone()),
-        _ => None,
+/// The browser the model offers.
+fn offered(cx: &mut Cx<'_, HooksState>) -> Option<Hooks> {
+    select::<ScreenStates, Option<Hooks>, _>(cx, |states| {
+        match states.settings.offers.get(&Which::Hooks) {
+            Some(Offer::Hooks(browser)) => Some(browser.clone()),
+            _ => None,
+        }
     })
 }
 
 impl HooksState {
     /// The cursor of the page open, and how many rows it has.
-    fn active(&self, hooks: &Hooks) -> (&SelectionController<usize>, usize) {
+    fn active(&self, hooks: &HooksView) -> (&SelectionController<usize>, usize) {
         match hooks.page {
             None => (&self.events, HookEvent::ALL.len()),
             Some(event) => (&self.handlers, hooks.of(event).len()),
@@ -179,7 +185,7 @@ impl HooksState {
     /// the build (the model's change reaches no other hook of the state before
     /// the frame draws it) and by the first dependency change; the controllers
     /// are handles, so it takes `&self`.
-    fn arrive(&self, hooks: &Hooks) {
+    fn arrive(&self, hooks: &HooksView) {
         let page = hooks.page.map_or(0, |event| event.index() + 1);
         if self.seen.get() == Some(page) {
             return;
@@ -209,43 +215,51 @@ impl HooksState {
     }
 
     /// The key of the hook under the cursor of the hooks page.
-    fn hook_under_cursor<'a>(&self, hooks: &'a Hooks) -> Option<&'a Hook> {
+    fn hook_under_cursor<'a>(&self, hooks: &'a HooksView) -> Option<&'a Hook> {
         let event = hooks.page?;
         let at = self.handlers.cursor()?;
         hooks.of(event).get(at).copied()
     }
 
-    fn act(&mut self, act: Act, hooks: &Hooks, cx: &mut Cx<'_, Self>) {
-        let hs = read::<Hs, _>(cx);
-        let send = |cx: &mut Cx<'_, Self>, intent: Intent| {
-            cx.emit(&hs.screen, ScreenIntent::Settings(intent));
-        };
-        match act {
+    /// `offered` is the browser as the model has it.
+    fn act(&mut self, act: Act, offered: &Hooks, cx: &mut Cx<'_, Self>) {
+        let hooks = self.draft.view(offered);
+        let edit = match act {
             Act::Move(mv) => {
-                let (cursor, len) = self.active(hooks);
+                let (cursor, len) = self.active(&hooks);
                 if let Some(to) = target(len, cursor.cursor(), &|_| true, mv, WINDOW.min(len)) {
                     self.put(cursor, to);
                 }
+                None
             }
             Act::Accept if hooks.page.is_none() => {
                 if let Some(at) = self.events.cursor() {
-                    send(cx, Intent::HookOpen(HookEvent::ALL[at]));
+                    self.draft.page = Some(HookEvent::ALL[at]);
                 }
+                None
             }
             Act::Accept | Act::Toggle if hooks.page.is_some() => {
-                if let Some(hook) = self.hook_under_cursor(hooks) {
-                    send(cx, Intent::HookToggle(hook.key.clone()));
-                }
+                let key = self.hook_under_cursor(&hooks).map(|hook| hook.key.clone());
+                key.and_then(|key| self.draft.toggle(offered, &key))
             }
-            Act::Accept | Act::Toggle => {}
-            Act::Trust if hooks.page.is_none() => send(cx, Intent::HookTrustAll),
+            Act::Accept | Act::Toggle => None,
+            Act::Trust if hooks.page.is_none() => self.draft.trust_all(offered),
             Act::Trust => {
-                if let Some(hook) = self.hook_under_cursor(hooks) {
-                    send(cx, Intent::HookTrust(hook.key.clone()));
-                }
+                let key = self.hook_under_cursor(&hooks).map(|hook| hook.key.clone());
+                key.and_then(|key| self.draft.trust(offered, &key))
             }
-            Act::Close => send(cx, Intent::Close),
-            Act::Dismiss => send(cx, Intent::HookClose),
+            // Esc: the hooks of an event go back to the events; the events close.
+            Act::Close if hooks.page.is_some() => {
+                self.draft.page = None;
+                None
+            }
+            Act::Close | Act::Dismiss => {
+                close_dialog::<_, ()>(cx, None);
+                None
+            }
+        };
+        if let Some(edit) = edit {
+            super::request(cx, edit);
         }
     }
 }
@@ -256,14 +270,16 @@ impl State for HooksState {
 
     fn init_state(&mut self, _: &HooksSheet, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
-        self.node
-            .set_on_key_event(Some(Rc::new(move |_, key| match act_of(&key) {
+        let keys = self.keys.clone();
+        self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            match act_of(&keys.get(), &key) {
                 Some(act) => {
                     send(Msg::Act(act));
                     KeyEventResult::Handled
                 }
                 None => KeyEventResult::Ignored,
-            })));
+            }
+        })));
     }
 
     fn dispose(&mut self) {
@@ -273,26 +289,23 @@ impl State for HooksState {
     }
 
     fn did_change_dependencies(&mut self, _: &HooksSheet, cx: &mut Cx<'_, Self>) {
-        let dialog = open_dialog(cx);
-        if dialog.is_none() && self.shown {
-            close_dialog::<_, ()>(cx, None);
-        }
-        self.shown = dialog.is_some();
-        if let Some(hooks) = &dialog {
-            self.arrive(hooks);
+        self.keys.refresh(cx);
+        if let Some(offered) = offered(cx) {
+            self.arrive(&self.draft.view(&offered));
         }
     }
 
     fn update(&mut self, msg: Msg, _: &HooksSheet, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Some(hooks) = open_dialog(cx) else {
+        let Some(offered) = offered(cx) else {
             return Rebuild::No;
         };
         match msg {
-            Msg::Act(act) => self.act(act, &hooks, cx),
+            Msg::Act(act) => self.act(act, &offered, cx),
             Msg::Row(row) => {
+                let hooks = self.draft.view(&offered);
                 let (cursor, len) = self.active(&hooks);
                 if cursor.cursor() == Some(row) {
-                    self.act(Act::Accept, &hooks, cx);
+                    self.act(Act::Accept, &offered, cx);
                 } else if row < len {
                     let cursor = cursor.clone();
                     self.put(&cursor, row);
@@ -305,9 +318,10 @@ impl State for HooksState {
     fn build(&self, _: &HooksSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
-        let Some(hooks) = open_dialog(cx) else {
+        let Some(offered) = offered(cx) else {
             return Dialog::bare(Text::new(String::new())).into();
         };
+        let hooks = self.draft.view(&offered);
         self.arrive(&hooks);
         let surface = tokens.prompt_surface(cx, false);
         let hint = footer_hint(s, &hooks, self.hook_under_cursor(&hooks));
@@ -362,7 +376,7 @@ impl State for HooksState {
 }
 
 /// The footer's hint (`render_footer`, the default keymap).
-fn footer_hint(s: &Strings, hooks: &Hooks, hook: Option<&Hook>) -> &'static str {
+fn footer_hint(s: &Strings, hooks: &HooksView, hook: Option<&Hook>) -> &'static str {
     match hooks.page {
         None if hooks.review_total() > 0 => s.hooks_hint_events_review,
         None => s.hooks_hint_events,
@@ -380,7 +394,7 @@ fn footer_hint(s: &Strings, hooks: &Hooks, hook: Option<&Hook>) -> &'static str 
 struct Page {
     s: &'static Strings,
     tokens: Tokens,
-    hooks: Rc<Hooks>,
+    hooks: Rc<HooksView>,
     cursor: SelectionController<usize>,
     list: ListController,
     scroll: Rc<ValueNotifier<Scrolled>>,
@@ -720,7 +734,11 @@ impl Page {
                 .child(Self::blank());
             return column.into();
         }
-        let selected = self.cursor.cursor().and_then(|at| hooks.get(at)).cloned();
+        let selected = self
+            .cursor
+            .cursor()
+            .and_then(|at: usize| hooks.get(at))
+            .cloned();
         let index_width = hooks.len().to_string().len().max(2);
         let hooks = Rc::new(hooks);
         let page = self.clone();

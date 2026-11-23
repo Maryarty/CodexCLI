@@ -20,12 +20,13 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{DefaultTextStyle, Text, TextOverflow, TextWrap};
 use rtwk_rich::markdown::MarkdownTheme;
 
-use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::Shared;
 use codex_tui_core::screens::agents::display_directory;
 use codex_tui_core::screens::resume::{
-    Density, Load, Model, Preview, PreviewLine, Row as Saved, Sort, Speaker,
+    Key as RowKey, Load, Model, Preview, PreviewLine, Row as Saved, Sort, Speaker,
 };
 
+use super::density::Density;
 use super::look::Look;
 use super::strings::Strings;
 use crate::widgets::age::age;
@@ -50,7 +51,9 @@ pub struct Rows {
     pub look: Look,
     pub strings: &'static Strings,
     pub num: NumSyms,
-    pub screens: Rc<ScreenStates>,
+    pub model: Shared<Model>,
+    pub density: Density,
+    pub expanded: Option<RowKey>,
     /// The index in `model.rows` of each row the list shows.
     pub shown: Rc<Vec<usize>>,
     pub home: Option<Rc<str>>,
@@ -68,7 +71,7 @@ fn one_line(text: Text) -> Text {
 
 impl Rows {
     fn model(&self) -> &Model {
-        &self.screens.resume
+        &self.model
     }
 
     fn saved(&self, index: usize) -> &Saved {
@@ -82,10 +85,9 @@ impl Rows {
 
     /// The row `index` of what the list shows, the cursor on it or not.
     pub fn row(&self, index: usize, selected: bool) -> AnyWidget {
-        let model = self.model();
         let row = self.saved(index);
         let expanded =
-            selected && !row.id.as_str().is_empty() && model.expanded.as_ref() == Some(&row.key());
+            selected && !row.id.as_str().is_empty() && self.expanded.as_ref() == Some(&row.key());
         let fill = if selected {
             self.look.selected.clone()
         } else if index.is_multiple_of(2) {
@@ -93,7 +95,7 @@ impl Rows {
         } else {
             Style::new()
         };
-        let dense = model.density == Density::Dense;
+        let dense = self.density == Density::Dense;
         let summary = self.summary(row, selected, expanded, dense, &fill);
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)

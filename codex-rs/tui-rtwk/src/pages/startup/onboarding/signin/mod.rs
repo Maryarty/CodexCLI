@@ -26,6 +26,8 @@
 use std::rc::Rc;
 use std::time::Duration;
 
+use rtwk::foundation::ValueNotifier;
+
 use rtwk::binding::{AppBinding, InputListener};
 use rtwk::editing::{TextEditingController, TextField, copy_to_clipboard};
 use rtwk::focus::{Focus, FocusNode, FocusOnKeyEventCallback, KeyEventResult, KeyPress};
@@ -39,7 +41,9 @@ use rtwk::provider::read;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_core::input::{InputEvent, KeyCode, KeyKind};
+use rtwk_core::input::{InputEvent, KeyKind};
+
+use keys::is_key;
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
@@ -52,6 +56,7 @@ use crate::widgets::key_guard::{GuardKey, KeyGuard};
 use crate::widgets::measure;
 use crate::widgets::options::{Options, Stacked, StackedRow};
 
+pub mod keys;
 pub mod provider;
 pub mod strings;
 use strings::Strings;
@@ -62,6 +67,33 @@ use strings::Strings;
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignInStep {
     pub sign_in: SignIn,
+    pub resting: Resting,
+}
+
+/// Whether the gateway form's mark rests on Save: a signal from the wizard up to the page, which
+/// fades its logo only while a field has the keys (the form's mark is the wizard's state,
+/// ADR-013, so the core model cannot say). Flutter's `ValueNotifier` the page listens to.
+#[derive(Clone)]
+pub struct Resting(pub Rc<ValueNotifier<bool>>);
+
+impl Default for Resting {
+    fn default() -> Self {
+        Resting(Rc::new(ValueNotifier::new(false)))
+    }
+}
+
+impl Eq for Resting {}
+
+impl PartialEq for Resting {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl std::fmt::Debug for Resting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Resting").field(&self.0.value()).finish()
+    }
 }
 
 /// A row of the menu (`SignInOption`).
@@ -299,11 +331,11 @@ impl SignInState {
                 self.cursor.set(0);
                 Self::emit(cx, auth::Intent::Menu);
             }
-            MenuRow::ChatGpt => Self::emit(cx, auth::Intent::Choose(Method::ChatGpt)),
-            MenuRow::DeviceCode => Self::emit(cx, auth::Intent::Choose(Method::DeviceCode)),
-            MenuRow::ApiKey => Self::emit(cx, auth::Intent::Choose(Method::ApiKey)),
+            MenuRow::ChatGpt => Self::emit(cx, auth::Intent::UseMethod(Method::ChatGpt)),
+            MenuRow::DeviceCode => Self::emit(cx, auth::Intent::UseMethod(Method::DeviceCode)),
+            MenuRow::ApiKey => Self::emit(cx, auth::Intent::UseMethod(Method::ApiKey)),
             MenuRow::Provider(provider) => {
-                Self::emit(cx, auth::Intent::Choose(Method::Provider(provider)));
+                Self::emit(cx, auth::Intent::UseMethod(Method::Provider(provider)));
             }
         }
     }
@@ -542,7 +574,7 @@ impl State for SignInState {
             // The provider's wizard (S03); one whose wizard is not built
             // has an empty place, and Esc comes back to the menu.
             auth::State::Provider(_) => match &w.sign_in.wizard {
-                Some(wizard) => provider::body(wizard, &self.guard),
+                Some(wizard) => provider::body(wizard, &self.guard, &w.resting),
                 None => SizedBox::shrink().into(),
             },
             auth::State::ProviderConfigured(chosen) => {
@@ -601,9 +633,12 @@ impl State for SignInState {
                 KeyKind::Repeat => {
                     let now = clock.as_ref().map_or(Duration::ZERO, |clock| clock.now());
                     guard.held(guard_key, now);
-                    let moves = matches!(key.code, KeyCode::Up | KeyCode::Down)
+                    let held = KeyPress::from_event(key);
+                    let is = |want: KeyPress| held.as_ref().is_some_and(|held| is_key(held, &want));
+                    let moves = is(KeyPress::UP)
+                        || is(KeyPress::DOWN)
                         || (pick && matches!(guard_key, Some(GuardKey::Char('j' | 'k'))));
-                    let edits = entry && matches!(key.code, KeyCode::Backspace | KeyCode::Escape);
+                    let edits = entry && (is(KeyPress::BACKSPACE) || is(KeyPress::ESC));
                     !(moves || edits)
                 }
                 _ => false,

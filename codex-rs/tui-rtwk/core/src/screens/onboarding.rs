@@ -1205,7 +1205,7 @@ mod tests {
         let mut m = m;
         intent(
             &mut m,
-            Intent::SignIn(auth::Intent::Choose(auth::Method::Provider(
+            Intent::SignIn(auth::Intent::UseMethod(auth::Method::Provider(
                 auth::Provider::Gcp,
             ))),
         );
@@ -1433,7 +1433,7 @@ mod tests {
         })]);
         let started = intent(
             &mut m,
-            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+            Intent::SignIn(auth::Intent::UseMethod(auth::Method::ChatGpt)),
         );
         let [Ask::Login { request, .. }] = started[..] else {
             panic!("a login asked: {started:?}");
@@ -1470,7 +1470,7 @@ mod tests {
         })]);
         let started = intent(
             &mut m,
-            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+            Intent::SignIn(auth::Intent::UseMethod(auth::Method::ChatGpt)),
         );
         let [Ask::Login { request, .. }] = started[..] else {
             panic!("a login asked: {started:?}");
@@ -1679,7 +1679,7 @@ mod tests {
         })]);
         let started = intent(
             &mut m,
-            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+            Intent::SignIn(auth::Intent::UseMethod(auth::Method::ChatGpt)),
         );
         let [Ask::Login { request, .. }] = started[..] else {
             panic!("a login asked: {started:?}");

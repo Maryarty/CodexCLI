@@ -16,7 +16,7 @@ use codex_tui_core::screens::agents::{
     Command as AgentsCommand, Ev as AgentsEv, Reply as AgentsReply,
 };
 use codex_tui_core::screens::resume::{
-    Action, ArchiveState, Command as ResumeCommand, Control, CwdFilter, Density, Dir, Ev, Filter,
+    Action, ArchiveState, Command as ResumeCommand, Control, CwdFilter, Dir, Ev, Filter,
     Intent as ResumeIntent, Launch, Load, PageMode, Pick, Preview, Problem, Reply as ResumeReply,
     Row, Scope, Sort, Status, TranscriptState,
 };
@@ -259,7 +259,7 @@ fn a_page_adds_its_rows_sorted_and_without_duplicates() {
     assert_eq!(names(&app), vec!["b", "a"], "newest first");
     assert_eq!(app.screens().resume.load, Load::Idle);
     // A later page repeating a row does not add it twice.
-    let fx = intent(&mut app, ResumeIntent::End);
+    let fx = intent(&mut app, ResumeIntent::LoadMore);
     let (ticket, command) = only(&fx);
     assert_eq!(cursor_of(&command).as_deref(), Some("c1"));
     answer(&mut app, ticket, page(&[("b", 30), ("c", 20)], None));
@@ -404,35 +404,36 @@ fn a_paste_is_folded_into_the_query() {
 }
 
 #[test]
-fn the_cursor_near_the_end_asks_for_the_next_page() {
-    // Oracle: `LOAD_NEAR_THRESHOLD` (5 rows from the end).
-    let ids: Vec<String> = (0..12).map(|index| format!("s{index}")).collect();
-    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let mut app = listed(&refs, Some("c1"));
-    let far = intent(&mut app, ResumeIntent::Cursor(2));
-    assert!(asked(&far).is_empty(), "9 rows below the cursor: enough");
-    let near = intent(&mut app, ResumeIntent::Cursor(8));
-    let (ticket, command) = only(&near);
+fn reaching_for_more_asks_for_the_next_page_one_at_a_time() {
+    // Oracle: `load_more_if_needed`. When the list reaches (the cursor near
+    // its end, room left, the End key) is the page's rule; core reads a page
+    // for the reach, once, and none when the sources ended.
+    let mut app = listed(&["a", "b"], Some("c1"));
+    let fx = intent(&mut app, ResumeIntent::LoadMore);
+    let (ticket, command) = only(&fx);
     assert_eq!(cursor_of(&command).as_deref(), Some("c1"));
-    // One page at a time.
-    assert!(asked(&intent(&mut app, ResumeIntent::Cursor(9))).is_empty());
-    answer(&mut app, ticket, page(&[("tail", 1)], None));
     assert!(
-        asked(&intent(&mut app, ResumeIntent::Cursor(12))).is_empty(),
+        asked(&intent(&mut app, ResumeIntent::LoadMore)).is_empty(),
+        "one page at a time"
+    );
+    answer(&mut app, ticket, page(&[("c", 1)], None));
+    assert!(
+        asked(&intent(&mut app, ResumeIntent::LoadMore)).is_empty(),
         "the list ended"
     );
 }
 
 #[test]
-fn the_end_key_and_a_roomy_list_ask_for_more() {
-    let mut app = listed(&["a", "b"], Some("c1"));
-    let fx = intent(&mut app, ResumeIntent::Room(1));
-    assert!(asked(&fx).is_empty(), "the rows fill the room");
-    let fx = intent(&mut app, ResumeIntent::Room(30));
-    let (ticket, _) = only(&fx);
-    answer(&mut app, ticket, page(&[("c", 1)], Some("c2")));
-    let fx = intent(&mut app, ResumeIntent::End);
-    assert_eq!(cursor_of(&only(&fx).1).as_deref(), Some("c2"));
+fn dismissing_the_problem_clears_the_line_under_the_list() {
+    let mut app = listed(&["a"], None);
+    event(&mut app, Ev::Problem(Problem::NoTranscript));
+    assert_eq!(
+        app.screens().resume.inline_error,
+        Some(Problem::NoTranscript)
+    );
+    let fx = intent(&mut app, ResumeIntent::DismissProblem);
+    assert!(asked(&fx).is_empty());
+    assert_eq!(app.screens().resume.inline_error, None);
 }
 
 #[test]
@@ -451,7 +452,7 @@ fn sources_page_on_their_own_cursors_and_one_failing_does_not_stop_the_other() {
     assert_eq!(model.inline_error, Some(Problem::OneBackend));
     assert_eq!(names(&app), vec!["l1"]);
     // The next page goes to the live source only.
-    let fx = intent(&mut app, ResumeIntent::End);
+    let fx = intent(&mut app, ResumeIntent::LoadMore);
     let (_, command) = only(&fx);
     assert_eq!(command.backend(), LOCAL);
     assert_eq!(cursor_of(&command).as_deref(), Some("local-next"));
@@ -467,13 +468,13 @@ fn a_failed_first_page_shows_on_the_search_line() {
 #[test]
 fn a_failed_later_page_is_an_inline_error_and_the_rows_stay() {
     let mut app = listed(&["a"], Some("c1"));
-    let fx = intent(&mut app, ResumeIntent::End);
+    let fx = intent(&mut app, ResumeIntent::LoadMore);
     let (ticket, _) = only(&fx);
     fail(&mut app, ticket, "boom");
     assert_eq!(app.screens().resume.inline_error, Some(Problem::MoreFailed));
     assert_eq!(names(&app), vec!["a"]);
     assert!(
-        asked(&intent(&mut app, ResumeIntent::End)).is_empty(),
+        asked(&intent(&mut app, ResumeIntent::LoadMore)).is_empty(),
         "no retry loop"
     );
 }
@@ -485,7 +486,6 @@ fn db_first_app() -> CodexApp {
         Ev::Launched {
             action: Action::Resume,
             launch: Launch::Startup,
-            density: Density::Comfortable,
             db_first: true,
         },
     );
@@ -523,7 +523,7 @@ fn an_empty_later_page_of_the_index_ends_the_list() {
     let mut app = db_first_app();
     let (ticket, _) = only(&intent(&mut app, ResumeIntent::Open));
     answer(&mut app, ticket, page(&[("a", 1)], Some("c1")));
-    let (ticket, _) = only(&intent(&mut app, ResumeIntent::End));
+    let (ticket, _) = only(&intent(&mut app, ResumeIntent::LoadMore));
     let fx = answer(&mut app, ticket, page(&[], None));
     assert!(
         asked(&fx).is_empty(),
@@ -718,21 +718,13 @@ fn the_repository_filter_shows_the_rows_of_linked_checkouts() {
     assert_eq!(names(&app), vec!["linked"]);
 }
 
-#[test]
-fn density_toggles_without_reading_anything() {
-    let mut app = listed(&["a"], None);
-    let fx = intent(&mut app, ResumeIntent::ToggleDensity);
-    assert!(asked(&fx).is_empty());
-    assert_eq!(app.screens().resume.density, Density::Dense);
-}
-
 // Preview and transcript.
 
 #[test]
-fn expanding_a_row_reads_its_turns_once_as_the_threads_own_rpc() {
+fn opening_a_rows_details_reads_its_turns_once_as_the_threads_own_rpc() {
     let mut app = listed(&["a"], None);
     let id = ThreadId::new("a");
-    let fx = intent(&mut app, ResumeIntent::Expand(id.clone()));
+    let fx = intent(&mut app, ResumeIntent::LoadPreview(id.clone()));
     assert!(asked(&fx).is_empty(), "not a picker RPC: the thread's own");
     let found = turns_asked(&fx);
     assert_eq!(found.len(), 1);
@@ -747,19 +739,17 @@ fn expanding_a_row_reads_its_turns_once_as_the_threads_own_rpc() {
         app.screens().resume.previews.get(&key),
         Some(&Preview::Loaded(Vec::new()))
     );
-    // Collapse and expand again: the cached preview is used.
-    intent(&mut app, ResumeIntent::Expand(id.clone()));
-    assert_eq!(app.screens().resume.expanded, None);
-    let fx = intent(&mut app, ResumeIntent::Expand(id));
+    // Opened again (the page collapsed and expanded the row): the cached
+    // preview is used.
+    let fx = intent(&mut app, ResumeIntent::LoadPreview(id));
     assert!(turns_asked(&fx).is_empty());
-    assert_eq!(app.screens().resume.expanded, Some(key));
 }
 
 #[test]
 fn a_failed_preview_is_marked_failed() {
     let mut app = listed(&["a"], None);
     let id = ThreadId::new("a");
-    let fx = intent(&mut app, ResumeIntent::Expand(id.clone()));
+    let fx = intent(&mut app, ResumeIntent::LoadPreview(id.clone()));
     fail(&mut app, turns_asked(&fx)[0].0, "no such thread");
     assert_eq!(
         app.screens().resume.previews.get(&(LOCAL, id)),
@@ -771,7 +761,11 @@ fn a_failed_preview_is_marked_failed() {
 fn a_late_preview_of_an_archived_row_is_ignored() {
     // Oracle: "Archiving removes the owned cache entry; ignore its late preview."
     let mut app = listed(&["a", "b"], None);
-    let preview = turns_asked(&intent(&mut app, ResumeIntent::Expand(ThreadId::new("a"))))[0].0;
+    let preview = turns_asked(&intent(
+        &mut app,
+        ResumeIntent::LoadPreview(ThreadId::new("a")),
+    ))[0]
+        .0;
     let (archive, _) = only(&intent(&mut app, ResumeIntent::Archive(ThreadId::new("a"))));
     answer(&mut app, archive, ResumeReply::Archived);
     turns(&mut app, preview);
@@ -808,7 +802,7 @@ fn esc_cancels_a_transcript_that_is_loading_and_its_late_reply_is_dropped() {
 fn archiving_a_row_removes_it_and_a_page_in_flight_cannot_bring_it_back() {
     // Oracle: the archived session's seen key stays as a tombstone.
     let mut app = listed(&["a", "b"], Some("c1"));
-    let (page_ticket, _) = only(&intent(&mut app, ResumeIntent::End));
+    let (page_ticket, _) = only(&intent(&mut app, ResumeIntent::LoadMore));
     let (archive, command) = only(&intent(&mut app, ResumeIntent::Archive(ThreadId::new("a"))));
     assert!(matches!(command, ResumeCommand::Archive { .. }));
     assert!(matches!(
@@ -853,7 +847,6 @@ fn the_current_session_is_not_archived_from_the_picker() {
             launch: Launch::Session {
                 current: ThreadId::new("current"),
             },
-            density: Density::Comfortable,
             db_first: false,
         },
     );

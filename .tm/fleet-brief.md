@@ -86,6 +86,9 @@
   run. A red: fix, `check`, then that same one call again. Never nextest without a root.
   Core tests: `-p codex-tui-core --test all` or `--lib`, never bare `-p codex-tui-core` (4-6 CPU s
   more); a call with no root costs ~67 CPU s against 13-23 for one root (build-speed-3, 8.6).
+- Which root holds a test file: `grep -l 'pages/<x>.rs' codex-rs/tui-rtwk/tests/*.rs` — `tests/pages/*.rs`
+  are split between `--test screens` and `--test pages` (batch 7: a usage red hid from a call that named
+  only `pages`).
 - With that call: `--test rules`. Before hand-in: your KEY oracle tests by name through
   `--test oracle -E 'test(=a)|test(=b)'` (not `summary.py --run`), the feature's pty run, fmt +
   clippy of what you touched. Never the whole workspace nextest, never land-check.

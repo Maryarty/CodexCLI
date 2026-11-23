@@ -12,7 +12,7 @@
 use rtwk::Handler;
 use rtwk::layout::SizedBox;
 use rtwk::navigation::{Navigator, PageRoute, PopInvoked, PopScope};
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::onboarding::Intent as StartupIntent;
@@ -176,12 +176,14 @@ impl State for StartupGateState {
     type Msg = GateMsg;
 
     fn did_change_dependencies(&mut self, _: &StartupGate, cx: &mut Cx<'_, Self>) {
-        let onboarding = &watch::<ScreenStates, _>(cx).onboarding;
-        if !self.pushed && onboarding.due() {
+        let (due, settled) = select::<ScreenStates, (bool, bool), _>(cx, |states| {
+            (states.onboarding.due(), states.onboarding.settled())
+        });
+        if !self.pushed && due {
             self.pushed = true;
             let push = cx.send(GateMsg::Push);
             cx.emit(&push, ());
-        } else if !self.pushed && onboarding.settled() {
+        } else if !self.pushed && settled {
             self.open = true;
         }
     }

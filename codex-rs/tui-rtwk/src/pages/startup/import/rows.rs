@@ -35,10 +35,16 @@ pub enum ReviewRow {
 }
 
 /// The lines of `view`.
-pub fn of(view: View, model: &Model, strings: &Strings, num: &NumSyms) -> Vec<ReviewRow> {
+pub fn of(
+    view: View,
+    model: &Model,
+    checked: &[bool],
+    strings: &Strings,
+    num: &NumSyms,
+) -> Vec<ReviewRow> {
     match view {
-        View::Summary => summary(model, strings, num),
-        View::Customize => checklist(model, strings, num),
+        View::Summary => summary(model, checked, strings, num),
+        View::Customize => checklist(model, checked, strings, num),
     }
 }
 
@@ -51,18 +57,18 @@ pub fn cursor_row(rows: &[ReviewRow], at: Option<usize>) -> Option<usize> {
     })
 }
 
-fn summary(model: &Model, strings: &Strings, num: &NumSyms) -> Vec<ReviewRow> {
+fn summary(model: &Model, checked: &[bool], strings: &Strings, num: &NumSyms) -> Vec<ReviewRow> {
     let mut rows = Vec::new();
     for (index, group) in model.groups.iter().enumerate() {
         let chosen = group
             .items
             .iter()
-            .filter_map(|at| model.items.get(*at))
-            .filter(|sel| sel.enabled);
+            .filter(|at| checked.get(**at).copied().unwrap_or(false))
+            .filter_map(|at| model.items.get(*at));
         let summary = labels::count_summary(strings, chosen);
         rows.push(ReviewRow::Group {
             index,
-            mark: model.mark(group),
+            mark: Model::mark(group, checked),
             label: labels::group(strings, group, num),
         });
         rows.push(ReviewRow::Detail(
@@ -75,7 +81,7 @@ fn summary(model: &Model, strings: &Strings, num: &NumSyms) -> Vec<ReviewRow> {
     rows
 }
 
-fn checklist(model: &Model, strings: &Strings, num: &NumSyms) -> Vec<ReviewRow> {
+fn checklist(model: &Model, checked: &[bool], strings: &Strings, num: &NumSyms) -> Vec<ReviewRow> {
     let mut rows = Vec::new();
     let mut scope: Option<Option<String>> = None;
     for (index, sel) in model.items.iter().enumerate() {
@@ -89,7 +95,7 @@ fn checklist(model: &Model, strings: &Strings, num: &NumSyms) -> Vec<ReviewRow> 
         }
         rows.push(ReviewRow::Entry {
             index,
-            enabled: sel.enabled,
+            enabled: checked.get(index).copied().unwrap_or(false),
             label: labels::item(strings, sel.kind()),
         });
         rows.push(ReviewRow::Detail(labels::description(

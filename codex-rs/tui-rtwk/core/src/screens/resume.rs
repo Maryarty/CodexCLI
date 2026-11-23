@@ -29,15 +29,15 @@ use crate::threads::ThreadFx;
 
 pub use listing::{Listing, PageMode, Request, Source};
 pub use proto::{PAGE_SIZE, PREVIEW_LINES, preview_lines, row_of};
-pub use toolbar::{Action, Control, Density, Dir, Filter, Pick, Sort, Status};
+pub use toolbar::{Action, Control, Dir, Filter, Pick, Sort, Status};
 
 pub const NAME: &str = "resume";
 pub const ID: &str = "S18";
 pub const KIND: Kind = Kind::Route;
 
-/// The cursor is this near the end of the loaded rows: the next page is asked
-/// for (oracle: `LOAD_NEAR_THRESHOLD`).
-const LOAD_NEAR: usize = 5;
+/// The cursor is this near the end of the loaded rows: the page asks for the
+/// next page (oracle: `LOAD_NEAR_THRESHOLD`).
+pub const LOAD_NEAR: usize = 5;
 
 /// What a thread is called across the picker's caches: its backend and id.
 pub type Key = (BackendId, ThreadId);
@@ -92,7 +92,6 @@ pub struct Model {
     pub filter: Filter,
     pub status: Status,
     pub sort: Sort,
-    pub density: Density,
     /// The clock the expanded details write times with (oracle:
     /// `ClockFormat`): the 24-hour one, else the 12-hour one.
     pub clock_24h: bool,
@@ -102,7 +101,8 @@ pub struct Model {
     /// A one-line error under the list (oracle: `inline_error`), cleared by
     /// the next thing the user does. The words are the view's.
     pub inline_error: Option<Problem>,
-    pub expanded: Option<Key>,
+    /// The conversation previews asked of the backend, by the thread they
+    /// are for (the request record; which row is open is the page's).
     pub previews: BTreeMap<Key, Preview>,
     pub archive: ArchiveState,
     /// The transcript being loaded or last opened (ctrl+t).
@@ -287,7 +287,6 @@ pub enum Ev {
     Launched {
         action: Action,
         launch: Launch,
-        density: Density,
         db_first: bool,
     },
     /// A page of a source, as the backend answered (a script's seed).
@@ -316,23 +315,21 @@ pub enum Intent {
     Change(Control, Dir),
     /// A tap on a value of the toolbar: that value is picked.
     Pick(Pick),
-    /// Ctrl+O.
-    ToggleDensity,
-    /// Ctrl+E on this row.
-    Expand(ThreadId),
+    /// The page opened this row's details: its conversation preview is asked
+    /// for, unless it was already.
+    LoadPreview(ThreadId),
     /// Ctrl+T on this row.
     OpenTranscript(ThreadId),
     /// Esc while the transcript loads.
     CancelTranscript,
     /// Ctrl+A on this row.
     Archive(ThreadId),
-    /// The cursor is on this index of the visible rows: when it is near the
-    /// end another page is asked for. Any key clears the inline error.
-    Cursor(usize),
-    /// The list shows this many rows and has room for more.
-    Room(usize),
-    /// The list is scrolled to the last loaded row.
-    End,
+    /// The list reaches for more rows (its cursor is near the last loaded
+    /// one, it has room left, it is scrolled to its end): the next page of
+    /// every source that has one is asked for.
+    LoadMore,
+    /// The user acted: the line under the list is cleared.
+    DismissProblem,
 }
 
 /// An RPC to make and what it is for (the app mints the ticket).
@@ -547,7 +544,6 @@ impl Model {
     fn restart(&mut self) -> Vec<Out> {
         self.rows.clear();
         self.seen.clear();
-        self.expanded = None;
         self.load = Load::Loading;
         let search = if self.query.is_empty() {
             None
@@ -667,12 +663,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Launched {
             action,
             launch,
-            density,
             db_first,
         } => {
             model.action = action;
             model.launch = launch;
-            model.density = density;
             model.listing.initial_mode = if db_first {
                 PageMode::StateDbOnly
             } else {
@@ -712,11 +706,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         }
         Intent::Change(control, dir) => change(model, control, dir),
         Intent::Pick(pick) => pick_value(model, pick),
-        Intent::ToggleDensity => {
-            model.density = model.density.toggled();
-            Vec::new()
-        }
-        Intent::Expand(id) => expand(model, &id),
+        Intent::LoadPreview(id) => load_preview(model, &id),
         Intent::OpenTranscript(id) => open_transcript(model, &id),
         Intent::CancelTranscript => {
             if let Some(transcript) = model.transcript.take()
@@ -727,28 +717,14 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             Vec::new()
         }
         Intent::Archive(id) => archive(model, &id),
-        Intent::Cursor(index) => {
-            let remaining = model.visible().len().saturating_sub(index + 1);
-            if remaining <= LOAD_NEAR && !model.visible().is_empty() && model.listing.can_page() {
-                let search = model.listing.search;
-                return model.load_more(search);
-            }
-            Vec::new()
-        }
-        Intent::Room(rows) => {
-            if rows > model.visible().len() && model.listing.can_page() {
-                let search = model.listing.search;
-                return model.load_more(search);
-            }
-            Vec::new()
-        }
-        Intent::End => {
+        Intent::LoadMore => {
             if model.listing.can_page() {
                 let search = model.listing.search;
                 return model.load_more(search);
             }
             Vec::new()
         }
+        Intent::DismissProblem => Vec::new(),
     }
 }
 
@@ -832,16 +808,11 @@ fn resume(model: &mut Model, id: &ThreadId) -> Vec<Out> {
     Vec::new()
 }
 
-fn expand(model: &mut Model, id: &ThreadId) -> Vec<Out> {
+fn load_preview(model: &mut Model, id: &ThreadId) -> Vec<Out> {
     let Some(row) = model.row(id).cloned() else {
         return Vec::new();
     };
     let key = row.key();
-    if model.expanded.as_ref() == Some(&key) {
-        model.expanded = None;
-        return Vec::new();
-    }
-    model.expanded = Some(key.clone());
     if model.previews.contains_key(&key) {
         return Vec::new();
     }
@@ -1052,9 +1023,6 @@ fn archive_answer(model: &mut Model, key: Key, result: Result<Reply, RpcError>) 
     // cannot put the archived session back.
     model.rows.retain(|row| row.key() != key);
     model.previews.remove(&key);
-    if model.expanded.as_ref() == Some(&key) {
-        model.expanded = None;
-    }
     if matches!(&model.transcript, Some(transcript) if transcript.key == key) {
         model.transcript = None;
     }
@@ -1149,8 +1117,6 @@ enum SeedEv {
         fork: bool,
         #[serde(default)]
         current: Option<String>,
-        #[serde(default)]
-        dense: bool,
         #[serde(default)]
         db_first: bool,
     },
@@ -1256,18 +1222,12 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         SeedEv::Launched {
             fork,
             current,
-            dense,
             db_first,
         } => Ev::Launched {
             action: if fork { Action::Fork } else { Action::Resume },
             launch: current.map_or(Launch::Startup, |current| Launch::Session {
                 current: ThreadId::new(current),
             }),
-            density: if dense {
-                Density::Dense
-            } else {
-                Density::Comfortable
-            },
             db_first,
         },
         SeedEv::Paged {

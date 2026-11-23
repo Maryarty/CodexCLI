@@ -2,7 +2,8 @@
 //! custom gateways the app server has saved, to use one as the default
 //! provider, or a form to save a new one. Creating a gateway returns to the
 //! picker with it marked; only a gateway picked completes the sign-in.
-//! The text of the form's fields is the view's (it passes it with `Enter`).
+//! The text of the form's fields, the field marked and the picker's cursor are the view's
+//! (ADR-013: it passes the text with `Save`).
 
 use super::{Effect, Setup, Settled};
 use crate::screens::onboarding::Request;
@@ -57,12 +58,13 @@ impl Page {
     }
 }
 
-/// The picker: the page, the row the list starts on (none: the first) and
-/// the note under it (a refused selection, an unconfirmed save).
+/// The picker: the saved gateways, the row the list lands on when it is shown again after a
+/// save or a refused selection (none: the first; a one-shot hint for the view's cursor) and the
+/// note under it (a refused selection, an unconfirmed save).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Picker {
-    pub page: Page,
-    pub selected: Option<usize>,
+    pub list: Page,
+    pub lands_on: Option<usize>,
     pub notice: Option<String>,
 }
 
@@ -79,11 +81,9 @@ pub enum FormError {
     Server(String),
 }
 
-/// The form: the field marked (the fields in turn, then Save) and the
-/// error, which stays until the next save replaces it.
+/// The form: the error, which stays until the next save replaces it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Form {
-    pub selected: usize,
     pub error: Option<FormError>,
     variables: Vec<String>,
 }
@@ -113,15 +113,9 @@ fn value(text: &str) -> Option<String> {
 impl Form {
     fn new(page: &Page) -> Form {
         Form {
-            selected: 0,
             error: None,
             variables: page.variables(),
         }
-    }
-
-    /// Save is marked.
-    pub fn on_save(&self) -> bool {
-        self.selected == FIELDS
     }
 
     /// The saved variable `text` is the start of (`ProviderForm::suggestion`;
@@ -196,15 +190,12 @@ pub struct Gateway {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// Enter on a row of the picker: use that gateway, or the last row
-    /// creates one.
-    Activate(usize),
-    /// A field of the form, or Save, is marked (`move_provider_field`,
-    /// a click).
-    Mark(usize),
-    /// Enter on the form, with the text of the fields: the next field, or
-    /// save from Save.
-    Enter(Fields),
+    /// The saved gateway at this index of the picker's list is to be the default.
+    Use(usize),
+    /// The row that creates a gateway: the form opens.
+    Create,
+    /// Save the form, with the text of the fields.
+    Save(Fields),
 }
 
 impl Gateway {
@@ -222,9 +213,10 @@ impl Gateway {
         )
     }
 
-    /// The form's fields have the keys (`is_text_entry_active`: not on Save).
+    /// The form is up: its fields take the keys (`is_text_entry_active`; on Save the view
+    /// says it does not).
     pub fn is_text_entry(&self) -> bool {
-        matches!(&self.stage, Stage::Editing { form, .. } if !form.on_save())
+        matches!(&self.stage, Stage::Editing { .. })
     }
 
     /// A request is out and the wizard waits for it.
@@ -250,38 +242,29 @@ impl Gateway {
 
     pub fn apply(&mut self, intent: Intent, request: &mut dyn FnMut() -> Request) -> Effect {
         match (&mut self.stage, intent) {
-            (Stage::Picking(picker), Intent::Activate(index)) => {
+            (Stage::Picking(picker), Intent::Use(index)) => {
+                let picker = picker.clone();
+                let Some(saved) = picker.list.gateways.get(index) else {
+                    return Effect::None;
+                };
+                let id = saved.id.clone();
+                let request = request();
+                self.stage = Stage::Selecting {
+                    picker,
+                    index,
+                    request,
+                };
+                Effect::Ask(request, Setup::GatewaySelect(id))
+            }
+            (Stage::Picking(picker), Intent::Create) => {
                 let mut picker = picker.clone();
-                picker.selected = Some(index);
-                match picker.page.gateways.get(index) {
-                    Some(saved) => {
-                        let id = saved.id.clone();
-                        let request = request();
-                        self.stage = Stage::Selecting {
-                            picker,
-                            index,
-                            request,
-                        };
-                        Effect::Ask(request, Setup::GatewaySelect(id))
-                    }
-                    // Past the saved ones: the create row.
-                    None => {
-                        picker.selected = Some(picker.page.create_row());
-                        let form = Form::new(&picker.page);
-                        self.stage = Stage::Editing { picker, form };
-                        Effect::None
-                    }
-                }
-            }
-            (Stage::Editing { form, .. }, Intent::Mark(index)) => {
-                form.selected = index.min(FIELDS);
+                // Esc on the form lands the list on the row that opened it.
+                picker.lands_on = Some(picker.list.create_row());
+                let form = Form::new(&picker.list);
+                self.stage = Stage::Editing { picker, form };
                 Effect::None
             }
-            (Stage::Editing { form, .. }, Intent::Enter(_)) if !form.on_save() => {
-                form.selected += 1;
-                Effect::None
-            }
-            (Stage::Editing { picker, form }, Intent::Enter(fields)) => match Form::patch(&fields) {
+            (Stage::Editing { picker, form }, Intent::Save(fields)) => match Form::patch(&fields) {
                 Ok(patch) => {
                     let request = request();
                     self.stage = Stage::Saving {
@@ -320,8 +303,8 @@ impl Gateway {
                 match outcome {
                     Ok(Answer::Gateways(page)) => {
                         self.stage = Stage::Picking(Picker {
-                            page,
-                            selected: None,
+                            list: page,
+                            lands_on: None,
                             notice: notice.take(),
                         });
                     }
@@ -340,9 +323,9 @@ impl Gateway {
             ) if *waiting == request => match outcome {
                 Ok(Answer::GatewaySaved(saved)) => {
                     let mut picker = picker.clone();
-                    picker.selected = Some(picker.page.gateways.len());
+                    picker.lands_on = Some(picker.list.gateways.len());
                     picker.notice = None;
-                    picker.page.gateways.push(saved);
+                    picker.list.gateways.push(saved);
                     self.stage = Stage::Picking(picker);
                     Settled::Waiting
                 }
@@ -377,7 +360,7 @@ impl Gateway {
             ) if *waiting == request => match outcome {
                 Ok(Answer::GatewaySelected) => {
                     let id = picker
-                        .page
+                        .list
                         .gateways
                         .get(*index)
                         .map(|saved| saved.id.clone())
@@ -387,7 +370,7 @@ impl Gateway {
                 Ok(_) => Settled::Waiting,
                 Err(message) => {
                     let mut picker = picker.clone();
-                    picker.selected = Some(*index);
+                    picker.lands_on = Some(*index);
                     picker.notice = Some(message);
                     self.stage = Stage::Picking(picker);
                     Settled::Waiting
@@ -421,10 +404,17 @@ mod tests {
     fn picking(gateways: Vec<Saved>) -> Gateway {
         Gateway {
             stage: Stage::Picking(Picker {
-                page: page(gateways),
-                selected: None,
+                list: page(gateways),
+                lands_on: None,
                 notice: None,
             }),
+        }
+    }
+
+    fn gateway_rows(gateway: &Gateway) -> usize {
+        match &gateway.stage {
+            Stage::Picking(picker) => picker.list.gateways.len(),
+            _ => 0,
         }
     }
 
@@ -438,10 +428,11 @@ mod tests {
 
     fn editing(gateway: &mut Gateway) {
         let create = match &gateway.stage {
-            Stage::Picking(picker) => picker.page.create_row(),
+            Stage::Picking(picker) => picker.list.create_row(),
             _ => panic!("not picking"),
         };
-        gateway.apply(Intent::Activate(create), &mut || 0);
+        assert_eq!(create, gateway_rows(gateway));
+        gateway.apply(Intent::Create, &mut || 0);
     }
 
     // gateway_tests.rs:33 select_a_saved_gateway_during_sign_in (the wizard's part)
@@ -466,8 +457,8 @@ mod tests {
         assert_eq!(
             gateway.stage,
             Stage::Picking(Picker {
-                page: found,
-                selected: None,
+                list: found,
+                lands_on: None,
                 notice: None
             })
         );
@@ -480,11 +471,11 @@ mod tests {
     #[test]
     fn a_saved_gateway_is_selected_by_asking_the_server_to_make_it_the_default() {
         let mut gateway = picking(vec![saved("office", None), saved("team", None)]);
-        let effect = gateway.apply(Intent::Activate(1), &mut || 7);
+        let effect = gateway.apply(Intent::Use(1), &mut || 7);
         assert_eq!(effect, Effect::Ask(7, Setup::GatewaySelect("team".into())));
         // No cancel and no second activation while the server works.
         assert_eq!(gateway.back(), Effect::None);
-        assert_eq!(gateway.apply(Intent::Activate(0), &mut || 8), Effect::None);
+        assert_eq!(gateway.apply(Intent::Use(0), &mut || 8), Effect::None);
         assert_eq!(
             gateway.answer(7, Ok(Answer::GatewaySelected), &mut || 9),
             Settled::Selected("team".into())
@@ -494,31 +485,23 @@ mod tests {
     #[test]
     fn a_refused_selection_returns_to_the_picker_on_its_row_with_the_message() {
         let mut gateway = picking(vec![saved("office", None), saved("team", None)]);
-        gateway.apply(Intent::Activate(1), &mut || 7);
+        gateway.apply(Intent::Use(1), &mut || 7);
         gateway.answer(7, Err("overridden".into()), &mut || 9);
         let Stage::Picking(picker) = &gateway.stage else {
             panic!("not picking: {:?}", gateway.stage);
         };
-        assert_eq!(picker.selected, Some(1));
+        assert_eq!(picker.lands_on, Some(1));
         assert_eq!(picker.notice.as_deref(), Some("overridden"));
     }
 
-    // editor.rs `ProviderForm::input`: Enter moves to the next field, and
-    // from Save validates and saves.
+    // editor.rs `ProviderForm::input`: from Save the form validates and saves (the move from
+    // field to field is the view's).
     #[test]
-    fn enter_goes_field_by_field_and_save_validates_before_it_asks() {
+    fn save_validates_before_it_asks() {
         let mut gateway = picking(Vec::new());
         editing(&mut gateway);
         assert!(gateway.is_text_entry());
-        let enter = |gateway: &mut Gateway, f: Fields| gateway.apply(Intent::Enter(f), &mut || 7);
-        for _ in 0..3 {
-            assert_eq!(enter(&mut gateway, fields("", "", "")), Effect::None);
-        }
-        let Stage::Editing { form, .. } = &gateway.stage else {
-            panic!("not editing");
-        };
-        assert!(form.on_save() && form.error.is_none());
-        assert!(!gateway.is_text_entry());
+        let enter = |gateway: &mut Gateway, f: Fields| gateway.apply(Intent::Save(f), &mut || 7);
         let refuse = |gateway: &mut Gateway, f: Fields, error: FormError| {
             assert_eq!(enter(gateway, f), Effect::None);
             let Stage::Editing { form, .. } = &gateway.stage else {
@@ -562,7 +545,7 @@ mod tests {
         let Stage::Picking(picker) = &gateway.stage else {
             panic!("not picking");
         };
-        assert_eq!(picker.selected, Some(1));
+        assert_eq!(picker.lands_on, Some(1));
         assert_eq!(gateway.back(), Effect::Leave);
     }
 
@@ -571,8 +554,7 @@ mod tests {
     fn a_saved_gateway_is_marked_in_the_picker_not_selected() {
         let mut gateway = picking(vec![saved("office", None)]);
         editing(&mut gateway);
-        gateway.apply(Intent::Mark(FIELDS), &mut || 0);
-        gateway.apply(Intent::Enter(fields("Team", "https://t/v1", "")), &mut || 7);
+        gateway.apply(Intent::Save(fields("Team", "https://t/v1", "")), &mut || 7);
         let settled = gateway.answer(
             7,
             Ok(Answer::GatewaySaved(saved("team", None))),
@@ -582,21 +564,19 @@ mod tests {
         let Stage::Picking(picker) = &gateway.stage else {
             panic!("not picking");
         };
-        assert_eq!(picker.selected, Some(1));
-        assert_eq!(picker.page.gateways.len(), 2);
+        assert_eq!(picker.lands_on, Some(1));
+        assert_eq!(picker.list.gateways.len(), 2);
     }
 
     #[test]
-    fn a_refused_save_returns_to_the_form_with_the_message_and_keeps_its_place() {
+    fn a_refused_save_returns_to_the_form_with_the_message() {
         let mut gateway = picking(Vec::new());
         editing(&mut gateway);
-        gateway.apply(Intent::Mark(FIELDS), &mut || 0);
-        gateway.apply(Intent::Enter(fields("Team", "https://t/v1?", "")), &mut || 7);
+        gateway.apply(Intent::Save(fields("Team", "https://t/v1?", "")), &mut || 7);
         gateway.answer(7, Err("Enter an HTTP(S) base URL.".into()), &mut || 9);
         let Stage::Editing { form, .. } = &gateway.stage else {
             panic!("not editing");
         };
-        assert_eq!(form.selected, FIELDS);
         assert_eq!(
             form.error,
             Some(FormError::Server("Enter an HTTP(S) base URL.".into()))
@@ -607,8 +587,7 @@ mod tests {
     fn a_save_without_a_confirmed_reply_reads_the_list_again_with_a_note() {
         let mut gateway = picking(Vec::new());
         editing(&mut gateway);
-        gateway.apply(Intent::Mark(FIELDS), &mut || 0);
-        gateway.apply(Intent::Enter(fields("Team", "https://t/v1", "")), &mut || 7);
+        gateway.apply(Intent::Save(fields("Team", "https://t/v1", "")), &mut || 7);
         let settled = gateway.answer(7, Ok(Answer::GatewayUnconfirmed), &mut || 8);
         assert_eq!(settled, Settled::Ask(8, Setup::GatewayList));
         gateway.answer(

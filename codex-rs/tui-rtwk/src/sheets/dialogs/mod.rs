@@ -15,6 +15,8 @@ use rtwk::AnyWidget;
 use rtwk::Cx;
 use rtwk::overlay::{DialogResult, show_dialog};
 
+pub use dialog::Page;
+
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
@@ -77,19 +79,35 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Dialog(|_| dialog::SmallDialog.into()),
+            open: EntryOpen::Dialog(match name {
+                "shortcut_overlay" => |_| dialog::SmallDialog::of(Page::Shortcuts).into(),
+                "warnings" | "warnings_long" => |_| dialog::SmallDialog::of(Page::Warnings).into(),
+                "feedback_categories" => |_| dialog::SmallDialog::of(Page::Feedback).into(),
+                _ => |_| dialog::SmallDialog::of(Page::Consent).into(),
+            }),
         })
         .collect()
 }
 
-/// Opens the dialog from the widget that asks (`show_dialog`); it reads the
-/// dialog the model holds, and what the user does returns as intents.
-pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+/// Opens the dialog of `page` from the widget that asks (`show_dialog`); what the user decides
+/// returns as intents.
+pub fn open_page<S>(cx: &mut Cx<'_, S>, page: Page) -> DialogResult<()> {
     show_dialog(
         cx,
-        move |_| dialog::SmallDialog.into(),
+        move |_| dialog::SmallDialog::of(page).into(),
         crate::sheets::sheet_options(),
     )
+}
+
+/// The text prompt a feature asked for (the model holds the request).
+pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    open_page(cx, Page::Prompt)
+}
+
+/// F2 and `/warnings`: the viewer over the warnings the session retains (with none it shows
+/// its empty page, `No warnings`).
+pub fn open_warnings<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    open_page(cx, Page::Warnings)
 }
 
 /// Opens the dialogs with no seeded model (debug menu): nothing to show.

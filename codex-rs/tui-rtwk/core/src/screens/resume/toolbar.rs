@@ -1,7 +1,7 @@
 //! The picker's toolbar and list settings: the filter, status and sort
-//! controls, which control has the keyboard focus, and the list density.
+//! controls and which control has the keyboard focus.
 //! Oracle: `resume_picker.rs` (`SessionFilterMode`, `SessionStatus`,
-//! `ToolbarControl`, `SessionListDensity`).
+//! `ToolbarControl`).
 
 /// Which directories' sessions the list shows (oracle: `SessionFilterMode`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -143,22 +143,6 @@ impl Control {
             Self::Status => Self::Filter,
             Self::Sort if action == Action::Resume => Self::Status,
             Self::Sort => Self::Filter,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Density {
-    #[default]
-    Comfortable,
-    Dense,
-}
-
-impl Density {
-    pub fn toggled(self) -> Self {
-        match self {
-            Self::Comfortable => Self::Dense,
-            Self::Dense => Self::Comfortable,
         }
     }
 }
