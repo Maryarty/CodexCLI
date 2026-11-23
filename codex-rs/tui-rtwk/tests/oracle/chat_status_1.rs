@@ -273,41 +273,44 @@ fn app_server_model_verification_renders_warning() {
 // ORACLE chatwidget/tests/status_and_layout.rs:464 status_line_git_summary_items_render_values kind=ui owner=ui-pane
 #[test]
 fn status_line_git_summary_items_render_values() {
-    kit::pending(
-        Owner::UiPane,
-        "no git summary fact: StatusFacts.git (PR number + url, additions/deletions; chunk-live's) and the host's probe (`branch_summary`, host/src/facts.rs) are needs; the items `pull-request-number` (a link) and `branch-changes` (`+3 -1` / `No changes`) are written once they exist",
-    );
     // oracle: git summary PR 20252 and +143 -22 render as the PR number and branch-changes status values.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: status line items PR number and branch changes; git summary for the cwd
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_status_1/git_summary.jsonl"))
+        .open();
     s.assert_contains("PR #20252");
     s.assert_contains("+143 -22");
+    s.assert_link("PR #20252", "https://github.com/openai/codex/pull/20252");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:505 status_line_branch_changes_render_no_changes kind=ui owner=ui-pane
 #[test]
 fn status_line_branch_changes_render_no_changes() {
-    kit::pending(
-        Owner::UiPane,
-        "no git summary fact: StatusFacts.git (chunk-live's); the item `branch-changes` reads `No changes` for 0/0 once it exists",
-    );
     // oracle: a zero diff renders "No changes" in the branch-changes item.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: status line item branch changes; git summary with zero additions and deletions
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_status_1/git_no_changes.jsonl"))
+        .open();
     s.assert_contains("No changes");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:546 raw_output_mode_can_change_without_inserting_notice kind=ui owner=ui-pane
 #[test]
 fn raw_output_mode_can_change_without_inserting_notice() {
-    kit::pending(
-        Owner::UiPane,
-        "no raw-output fact: StatusFacts.raw_output (chunk-live's) and the `/raw` toggle; the item `raw-output` (`raw output`) follows",
-    );
     // oracle: enabling raw output inserts no history; disabling it inserts the notice.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: raw output on, then raw output off
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_status_1/raw_output.jsonl"))
+        .open();
+    s.assert_absent("raw output");
+    // Alt+R turns it on without a word in the transcript
+    s.keys("alt+r");
+    s.assert_contains("raw output");
+    s.assert_absent("Raw output mode");
+    // `/raw` turns it off and says so
+    s.type_text("/raw").keys("enter");
     s.assert_contains("Raw output mode off: rich transcript rendering restored.");
+    s.assert_absent("raw output ");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:617 flush_answer_stream_requests_scrollback_reflow_for_tables kind=ui owner=ui-pane

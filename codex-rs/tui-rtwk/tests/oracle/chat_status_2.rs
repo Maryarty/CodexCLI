@@ -66,37 +66,51 @@ fn status_line_hostname_renders_current_machine_hostname() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3258 status_line_context_used_renders_labeled_percent kind=ui owner=ui-pane
 #[test]
 fn status_line_context_used_renders_labeled_percent() {
-    kit::pending(
-        Owner::UiPane,
-        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's)",
+    let s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/context_used.jsonl"))
+        .open();
+    assert!(
+        s.rows().iter().any(|row| row.trim() == "Context 0% used"),
+        "the status line is `Context 0% used`
+{}",
+        s.text()
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = context-used
-    s.assert_contains("Context 0% used");
+    s.assert_absent("invalid");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3273 status_line_context_remaining_renders_labeled_percent kind=ui owner=ui-pane
 #[test]
 fn status_line_context_remaining_renders_labeled_percent() {
-    kit::pending(
-        Owner::UiPane,
-        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's)",
+    let s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!(
+            "fixtures/chat_status_2/context_remaining.jsonl"
+        ))
+        .open();
+    assert!(
+        s.rows().iter().any(|row| row.trim() == "Context 100% left"),
+        "the status line is `Context 100% left`
+{}",
+        s.text()
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = context-remaining
-    s.assert_contains("Context 100% left");
+    s.assert_absent("invalid");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3291 status_line_legacy_context_usage_renders_context_used_percent kind=ui owner=ui-pane
 #[test]
 fn status_line_legacy_context_usage_renders_context_used_percent() {
-    kit::pending(
-        Owner::UiPane,
-        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's)",
+    let s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/context_usage.jsonl"))
+        .open();
+    assert!(
+        s.rows().iter().any(|row| row.trim() == "Context 0% used"),
+        "the status line is `Context 0% used`
+{}",
+        s.text()
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = context-usage (legacy item)
-    s.assert_contains("Context 0% used");
+    s.assert_absent("invalid");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3306 status_line_estimated_thread_cost_fetches_and_renders_backend_estimate kind=ui owner=ui-pane
@@ -151,13 +165,19 @@ fn status_line_estimated_thread_cost_footer_snapshot() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3950 status_line_workspace_headline_renders_cached_value kind=ui owner=ui-pane
 #[test]
 fn status_line_workspace_headline_renders_cached_value() {
-    kit::pending(
-        Owner::UiPane,
-        "no workspace headline fact: StatusFacts.workspace_headline (chunk-live's) and the host's throttled `account/workspaceMessages/read` (host/src/facts.rs) are needs; the item follows",
+    let s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/headline.jsonl"))
+        .open();
+    assert!(
+        s.rows()
+            .iter()
+            .any(|row| row.trim() == "Workspace maintenance starts at 5pm"),
+        "the status line is `Workspace maintenance starts at 5pm`
+{}",
+        s.text()
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = workspace-headline; cached headline 'Workspace maintenance starts at 5pm'
-    s.assert_contains("Workspace maintenance starts at 5pm");
+    s.assert_absent("invalid");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4210 interrupted_turn_clears_visible_running_hook kind=snap owner=ui-pane snap=interrupted_turn_clears_visible_running_hook
@@ -187,40 +207,71 @@ fn completed_turn_clears_visible_running_hook() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4264 status_line_processing_tier_updates_with_selection kind=snap owner=ui-pane
 #[test]
 fn status_line_processing_tier_updates_with_selection() {
+    // The oracle's last step runs the `remote-only-provider` (not in `config.model_providers`),
+    // which offers no Flex tier: the provider table is no fact here, only the provider's id is.
     kit::pending(
         Owner::UiPane,
-        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's)",
+        "the provider table is no fact: `remote-only-provider` (an id outside `config.model_providers`) shows `Standard` in the oracle, `Flex` here; StatusFacts carries the provider's id only (host feed, chunk-live's)",
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: fast-mode test catalog; status_line = fast-mode, terminal_title = fast-mode
-    s.assert_contains("Standard");
+    let status = |model: &str, tier: Option<&str>, fast_mode: bool, provider: &str| {
+        let tier = tier.map_or(String::new(), |tier| format!(r#""service_tier":"{tier}","#));
+        format!(
+            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}",{tier}"fast_mode":{fast_mode},"provider":"{provider}","items":["fast-mode"],"terminal_title":["fast-mode"]}}}}}}"#
+        )
+    };
+    let line = |s: &Screen, text: &str| {
+        assert!(
+            s.rows().iter().any(|row| row.trim() == text),
+            "the status line is `{text}`\n{}",
+            s.text()
+        );
+    };
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/fast_tier.jsonl"))
+        .open();
+    line(&s, "Standard");
+    s.feed(&status("gpt-5.4", Some("priority"), true, "openai"));
+    line(&s, "fast");
     s.assert_title("fast");
-    // then the tier changes to Flex (set_service_tier) and fast mode is disabled: the status line follows
+    s.feed(&status("gpt-5.4", Some("priority"), false, "openai"));
+    line(&s, "Standard");
+    s.assert_title("Standard");
+    s.feed(&status("gpt-5.2", Some("flex"), true, "openai"));
+    line(&s, "Flex");
+    s.feed(&status("gpt-5.2", Some("flex"), true, "amazon-bedrock"));
+    line(&s, "Standard");
+    // then the provider the oracle does not know: `Standard`
+    s.feed(&status(
+        "gpt-5.2",
+        Some("flex"),
+        true,
+        "remote-only-provider",
+    ));
+    line(&s, "Standard");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4319 status_line_fast_mode_footer_snapshot kind=snap owner=ui-pane snap=status_line_fast_mode_footer
 #[test]
 fn status_line_fast_mode_footer_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: fast-mode test catalog, status_line = fast-mode and model items, reasoning high
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!("fixtures/chat_status_2/fast_mode.jsonl"))
+        .open();
     s.assert_snap("status_line_fast_mode_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4375 terminal_title_model_updates_on_model_change_without_manual_refresh kind=snap owner=ui-pane snap=terminal_title_model_display_name
 #[test]
 fn terminal_title_model_updates_on_model_change_without_manual_refresh() {
-    kit::pending(
-        Owner::UiPane,
-        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: terminal_title = model; the title shows the model display name
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/title_model.jsonl"))
+        .open();
     s.assert_title("GPT-5.5");
-    // then the model changes to gpt-5.2 and the title follows without a refresh (title gpt-5.2)
+    // the model changes to gpt-5.2 and the title follows without a refresh
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.2","terminal_title":["model"]}}}"#);
+    s.assert_title("gpt-5.2");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4391 status_line_and_terminal_title_reasoning_render_only_effort kind=ui owner=ui-pane
@@ -242,22 +293,16 @@ fn status_line_and_terminal_title_reasoning_render_only_effort() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4444 status_line_model_with_reasoning_plan_mode_footer_snapshot kind=snap owner=ui-pane snap=status_line_model_with_reasoning_plan_mode_footer
 #[test]
 fn status_line_model_with_reasoning_plan_mode_footer_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no collaboration-mode fact (the Plan mask changes the reasoning shown; chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: collaboration modes on, status_line = model-with-reasoning, reasoning high, plan mask
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!("fixtures/chat_status_2/model_plan.jsonl"))
+        .open();
     s.assert_snap("status_line_model_with_reasoning_plan_mode_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4471 renamed_thread_footer_title_snapshot kind=snap owner=ui-pane snap=renamed_thread_footer_title
 #[test]
 fn renamed_thread_footer_title_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "rows 0-4 equal; the hint row differs: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts`: needs a kit option or a StatusFacts flag for it (chunk-live's / kit owner's)",
-    );
     // oracle: the thread is renamed; the status line shows the new title after the model.
     let s = Screen::build(Owner::UiPane)
         .size(80, 6)
@@ -269,71 +314,132 @@ fn renamed_thread_footer_title_snapshot() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4509 status_line_model_with_reasoning_speed_footer_snapshots kind=snap owner=ui-pane snap=status_line_model_with_reasoning_fast_footer snap=status_line_model_with_reasoning_ultrafast_footer
 #[test]
 fn status_line_model_with_reasoning_speed_footer_snapshots() {
-    kit::pending(
-        Owner::UiPane,
-        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: model-with-reasoning, reasoning high, fast tier
+    let status = |tier: &str, items: &str| {
+        format!(
+            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","effort":"xhigh","service_tier":"{tier}","cwd":"/tmp/project","items":{items},"terminal_title":["model-with-reasoning"]}}}}}}"#
+        )
+    };
+    let all = r#"["model-with-reasoning","context-used","current-dir"]"#;
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!("fixtures/chat_status_2/model_speed.jsonl"))
+        .open();
+    s.assert_title("gpt-5.4 xhigh Fast");
     s.assert_snap("status_line_model_with_reasoning_fast_footer");
     // then the ultrafast tier on the same chat
+    s.feed(&status("ultrafast", all));
+    s.assert_title("gpt-5.4 xhigh Ultrafast");
     s.assert_snap("status_line_model_with_reasoning_ultrafast_footer");
+    s.feed(&status("flex", r#"["model-with-reasoning"]"#));
+    assert!(
+        s.rows()
+            .iter()
+            .any(|row| row.trim() == "gpt-5.4 xhigh flex"),
+        "the flex tier\n{}",
+        s.text()
+    );
+    s.feed(&status("low_latency", r#"["model-with-reasoning"]"#));
+    assert!(
+        s.rows()
+            .iter()
+            .any(|row| row.trim() == "gpt-5.4 xhigh low latency"),
+        "the low latency tier\n{}",
+        s.text()
+    );
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4583 status_line_model_with_reasoning_context_remaining_footer_snapshot kind=snap owner=ui-pane snap=status_line_model_with_reasoning_context_remaining_footer
 #[test]
 fn status_line_model_with_reasoning_context_remaining_footer_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: model-with-reasoning and context-remaining items
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!(
+            "fixtures/chat_status_2/model_context_remaining.jsonl"
+        ))
+        .open();
     s.assert_snap("status_line_model_with_reasoning_context_remaining_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4617 status_line_goal_active_token_budget_footer_snapshot kind=snap owner=ui-pane snap=status_line_goal_active_token_budget_footer
 #[test]
 fn status_line_goal_active_token_budget_footer_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no goal fact (ThreadPart.goal from `thread/goal/updated`, chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: goals on, an active goal with a 5K token budget, status_line = goal items
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!("fixtures/chat_status_2/goal_active.jsonl"))
+        .open();
     s.assert_snap("status_line_goal_active_token_budget_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4654 status_line_goal_complete_elapsed_footer_snapshot kind=snap owner=ui-pane snap=status_line_goal_complete_elapsed_footer
 #[test]
 fn status_line_goal_complete_elapsed_footer_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no goal fact (ThreadPart.goal from `thread/goal/updated`, chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: goals on, a completed goal with elapsed time
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!("fixtures/chat_status_2/goal_complete.jsonl"))
+        .open();
     s.assert_snap("status_line_goal_complete_elapsed_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4847 goal_status_indicator_line_formats_goal_text kind=ui owner=ui-pane
 #[test]
 fn goal_status_indicator_line_formats_goal_text() {
-    kit::pending(
-        Owner::UiPane,
-        "no goal fact (ThreadPart.goal from `thread/goal/updated`, chunk-live's): the indicator's text (`Pursuing goal (40K / 50K)`) is formatted by the footer once it exists",
-    );
+    // (status, token budget, tokens used, seconds used, the indicator's line); the oracle builds
+    // the indicator by hand, here a goal of that status makes it. `Goal achieved` without a usage
+    // has no goal behind it: a finished goal always has its time or tokens.
     let cases = [
-        "Pursuing goal (4K / 5K)",              // Active, usage 4K / 5K
-        "Goal unmet (4K / 5K tokens)",          // BudgetLimited, usage 4K / 5K tokens
-        "Goal paused (/goal resume)",           // Paused
-        "Goal stalled (/goal resume)",          // Blocked
-        "Goal hit usage limits (/goal resume)", // UsageLimited
-        "Goal abandoned",                       // BudgetLimited without usage
+        (
+            "active",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Pursuing goal (4K / 5K)",
+        ),
+        (
+            "budgetLimited",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal unmet (4K / 5K tokens)",
+        ),
+        (
+            "paused",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal paused (/goal resume)",
+        ),
+        (
+            "blocked",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal stalled (/goal resume)",
+        ),
+        (
+            "usageLimited",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal hit usage limits (/goal resume)",
+        ),
+        ("budgetLimited", None, 4_000, 1_800, "Goal abandoned"),
+        (
+            "complete",
+            None,
+            4_000,
+            10 * 3600 + 12 * 60,
+            "Goal achieved (10h 12m)",
+        ),
     ];
-    for expected in cases {
-        // seed: the goal indicator of the case (the kit has no goal seed)
-        let s = Screen::build(Owner::UiPane).live().open();
+    for (status, budget, used, secs, expected) in cases {
+        let budget = budget.map_or("null".to_string(), |b: i64| b.to_string());
+        let mut s = Screen::build(Owner::UiPane)
+            .size(100, 24)
+            .script(include_str!("fixtures/chat_status_2/goal_base.jsonl"))
+            .open();
+        s.feed(&format!(
+            r#"{{"step":"notify","message":{{"method":"thread/goal/updated","params":{{"threadId":"thread-1","turnId":null,"goal":{{"threadId":"thread-1","objective":"Keep improving the benchmark","status":"{status}","tokenBudget":{budget},"tokensUsed":{used},"timeUsedSeconds":{secs},"createdAt":0,"updatedAt":0}}}}}}}}"#
+        ));
         s.assert_contains(expected);
     }
 }

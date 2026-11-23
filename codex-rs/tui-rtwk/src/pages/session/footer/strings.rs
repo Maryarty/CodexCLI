@@ -6,6 +6,8 @@
 
 use rtwk::l10n::{Arg, DependCx, Fmt, Msg, NumSyms, msg};
 
+use codex_tui_core::screens::chat::facts::{GoalIndicator, GoalUsage};
+
 use crate::l10n::Tables;
 use crate::l10n::lang;
 
@@ -50,6 +52,38 @@ pub struct Strings {
     /// while the tier is active.
     pub prompt_max: &'static str,
     pub prompt_ultra: &'static str,
+    /// `footer.rs` `CollaborationModeIndicator::styled_line`: `Plan mode`, then
+    /// ` (`, the cycle key, ` to cycle)` while the key works.
+    pub plan_mode: &'static str,
+    pub plan_cycle_open: &'static str,
+    pub plan_cycle_key: &'static str,
+    pub plan_cycle_close: &'static str,
+    /// `footer.rs` `goal_status_indicator_line`: one line per status, the
+    /// usage (`40K / 50K`) in the parentheses.
+    pub goal_active: &'static str,
+    pub goal_active_usage: Msg<1>,
+    pub goal_paused: &'static str,
+    pub goal_blocked: &'static str,
+    pub goal_usage_limited: &'static str,
+    pub goal_unmet: Msg<1>,
+    pub goal_abandoned: &'static str,
+    pub goal_achieved: &'static str,
+    pub goal_achieved_usage: Msg<1>,
+    /// The unit after the figure of a closed goal's token count.
+    pub goal_tokens: &'static str,
+    /// `textarea.rs` `vim_mode_indicator_span`.
+    pub vim_normal: &'static str,
+    pub vim_insert: &'static str,
+    pub vim_replace: &'static str,
+    /// `footer_hint_items_line`: the cell between a hint override's key and its label.
+    pub key_gap: &'static str,
+    /// `footer.rs` `side_conversation_context_line`: the word the label opens
+    /// with (it is drawn bold) and the endings that mark a key hint, longest
+    /// match first as the oracle tries them.
+    pub side_word: &'static str,
+    pub side_actions: [&'static str; 4],
+    /// The separator the label's parts are split at.
+    pub side_join: &'static str,
     pub num: NumSyms,
 }
 
@@ -72,6 +106,28 @@ impl Strings {
             self.warning_many
         };
         Fmt::new(table, [Arg::Text(&count.to_string())], &self.num).to_string()
+    }
+
+    /// `Pursuing goal (40K / 50K)` and the other lines of `indicator`.
+    pub fn goal(&self, indicator: &GoalIndicator) -> String {
+        let with = |table: Msg<1>, usage: &GoalUsage| {
+            let figure = match usage.tokens {
+                true => format!("{}{}", usage.figure, self.goal_tokens),
+                false => usage.figure.clone(),
+            };
+            Fmt::new(table, [Arg::Text(&figure)], &self.num).to_string()
+        };
+        match indicator {
+            GoalIndicator::Active { usage: Some(usage) } => with(self.goal_active_usage, usage),
+            GoalIndicator::Active { usage: None } => self.goal_active.to_owned(),
+            GoalIndicator::Paused => self.goal_paused.to_owned(),
+            GoalIndicator::Blocked => self.goal_blocked.to_owned(),
+            GoalIndicator::UsageLimited => self.goal_usage_limited.to_owned(),
+            GoalIndicator::BudgetLimited { usage: Some(usage) } => with(self.goal_unmet, usage),
+            GoalIndicator::BudgetLimited { usage: None } => self.goal_abandoned.to_owned(),
+            GoalIndicator::Complete { usage: Some(usage) } => with(self.goal_achieved_usage, usage),
+            GoalIndicator::Complete { usage: None } => self.goal_achieved.to_owned(),
+        }
     }
 
     /// `123K used` (`used` is the compact count).
@@ -105,6 +161,27 @@ pub const EN: Strings = Strings {
     effort_ultra: "ULTRA",
     prompt_max: "\u{203a}",
     prompt_ultra: "\u{00bb}",
+    plan_mode: "Plan mode",
+    plan_cycle_open: " (",
+    plan_cycle_key: "\u{21e7}tab",
+    plan_cycle_close: " to cycle)",
+    goal_active: "Pursuing goal",
+    goal_active_usage: msg!("Pursuing goal ({0})"),
+    goal_paused: "Goal paused (/goal resume)",
+    goal_blocked: "Goal stalled (/goal resume)",
+    goal_usage_limited: "Goal hit usage limits (/goal resume)",
+    goal_unmet: msg!("Goal unmet ({0})"),
+    goal_abandoned: "Goal abandoned",
+    goal_achieved: "Goal achieved",
+    goal_achieved_usage: msg!("Goal achieved ({0})"),
+    goal_tokens: " tokens",
+    vim_normal: "Vim: Normal",
+    vim_insert: "Vim: Insert",
+    vim_replace: "Vim: Replace",
+    key_gap: " ",
+    side_word: "Side",
+    side_actions: [" to switch", " to close", " to archive", " for side"],
+    side_join: " \u{b7} ",
     num: NumSyms::ENGLISH,
 };
 

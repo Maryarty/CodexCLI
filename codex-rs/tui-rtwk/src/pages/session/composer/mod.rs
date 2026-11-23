@@ -40,7 +40,7 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::actions::prompt;
-use crate::pages::session::footer::{Aura, Prompt};
+use crate::pages::session::footer::{Aura, Flash, Prompt, Tone};
 use crate::pages::session::popup;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::thread_ui::ThreadUi;
@@ -85,7 +85,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: include_str!("fixtures/alone.jsonl"),
             open: EntryOpen::Route(|seeded: &Seeded| {
                 let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
-                alone::Alone { ui }.into()
+                alone::Alone::new(ui).into()
             }),
         },
         DebugEntry {
@@ -94,7 +94,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: include_str!("fixtures/alone_history.jsonl"),
             open: EntryOpen::Route(|seeded: &Seeded| {
                 let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
-                alone::Alone { ui }.into()
+                alone::Alone::new(ui).into()
             }),
         },
         DebugEntry {
@@ -103,7 +103,51 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: include_str!("fixtures/alone_history_separators.jsonl"),
             open: EntryOpen::Route(|seeded: &Seeded| {
                 let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
-                alone::Alone { ui }.into()
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_plan",
+            description: "the composer with its key footer in Plan mode",
+            script: include_str!("fixtures/alone_plan.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_queue",
+            description: "the composer with its key footer while a turn runs, 98% of the context left",
+            script: include_str!("fixtures/alone_queue.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_plan_queue",
+            description: "the composer with its key footer in Plan mode while a turn runs",
+            script: include_str!("fixtures/alone_plan_queue.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_flash",
+            description: "the composer with its key footer: the hint override `K label` under a ten-second flash `FLASH`",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui)
+                    .hint_override(vec![("K".to_owned(), "label".to_owned())])
+                    .flash(Flash {
+                        text: "FLASH".to_owned(),
+                        tone: Tone::Plain,
+                        epoch: 1,
+                        lasts: std::time::Duration::from_secs(10),
+                    })
+                    .into()
             }),
         },
         DebugEntry {
@@ -112,7 +156,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: include_str!("fixtures/alone_running.jsonl"),
             open: EntryOpen::Route(|seeded: &Seeded| {
                 let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
-                alone::Alone { ui }.into()
+                alone::Alone::new(ui).into()
             }),
         },
     ]

@@ -19,6 +19,12 @@ pub(super) struct StatusContext<'a> {
     pub strings: &'a Shared,
     /// The model catalog: the tier the model runs on and its name.
     pub catalog: &'a codex_tui_core::screens::select::models::Catalog,
+    /// The app-wide facts: the git summary and the workspace headline the probes found.
+    pub chat: &'a chat::facts::Facts,
+    /// `/raw`: the transcript is in raw scrollback mode.
+    pub raw_output: bool,
+    /// The resumed thread has counted no tokens yet (`token_usage_pending`).
+    pub usage_pending: bool,
 }
 
 impl StatusContext<'_> {
@@ -30,6 +36,20 @@ impl StatusContext<'_> {
         .into_iter()
         .filter_map(|id| self.value_for(id, facts).map(|text| (id.to_string(), text)))
         .collect()
+    }
+
+    /// What the item `id` links to: the pull request number, to its page
+    /// (`status_line_pull_request_url`).
+    pub fn link_for(&self, id: &str) -> Option<String> {
+        (id == "pull-request-number")
+            .then(|| {
+                self.chat
+                    .git_summary()?
+                    .pull_request
+                    .as_ref()
+                    .map(|pr| pr.url.clone())
+            })
+            .flatten()
     }
 
     /// The terminal title (`terminal_title_text_for_selections`): the configured items (or the
@@ -79,7 +99,7 @@ impl StatusContext<'_> {
                     .map(str::to_owned)
             })?,
             "thread" => self.value_for("thread-title", facts)?,
-            _ => self.value_for(id, facts)?,
+            _ => self.value_on(id, facts, true)?,
         };
         Some(match title_cut(id) {
             Some(max) => cut(value, max),
@@ -88,6 +108,12 @@ impl StatusContext<'_> {
     }
 
     fn value_for(&self, id: &str, facts: &StatusFacts) -> Option<String> {
+        self.value_on(id, facts, false)
+    }
+
+    /// The value of an item on the status line, or (`title`) in the terminal title, which spells
+    /// the tier of `model-with-reasoning` as the catalog names it where the line lowercases it.
+    fn value_on(&self, id: &str, facts: &StatusFacts, title: bool) -> Option<String> {
         let thread = self.thread;
         let name = thread
             .and_then(|thread| thread.name.as_deref())
@@ -113,6 +139,14 @@ impl StatusContext<'_> {
                 .find(|preset| Some(preset.model.as_str()) == slug)
                 .map_or(model, |preset| preset.name.as_str())
         });
+        // an empty model reads as the default display name (`model_display_name`)
+        let model = model.map(|model| {
+            if model.is_empty() {
+                chat::facts::LOADING_MODEL
+            } else {
+                model
+            }
+        });
         let effort = thread
             .and_then(|thread| thread.effort.as_deref())
             .unwrap_or_else(|| facts.effort_label());
@@ -137,9 +171,17 @@ impl StatusContext<'_> {
         let usage = self.usage.filter(|usage| usage.received);
         let tokens = usage.map(|usage| usage.tokens);
         let context_usage = usage.and_then(|usage| usage.context);
+        // `status_line_context_remaining_percent`: a full window until a count and a window are
+        // known; nothing while a resumed thread waits for its first count
+        let remaining =
+            (!self.usage_pending).then(|| context_usage.map_or(100, |r| r.percent_left));
+        let counted = |count: fn(&status::Tokens) -> i64| {
+            (!self.usage_pending).then(|| tokens.map_or(0, |t| count(&t)))
+        };
         match id {
             "model" | "model-name" => model.map(str::to_owned),
             "model-with-reasoning" => model.map(|model| match &tier_name {
+                Some(name) if title => format!("{model} {effort} {name}"),
                 Some(name) if name == "Fast" => self.strings.status_model_fast(model, effort),
                 Some(name) => format!("{model} {effort} {}", name.to_lowercase()),
                 None => format!("{model} {effort}"),
@@ -172,6 +214,10 @@ impl StatusContext<'_> {
                 .or(facts.provider.as_deref())
                 .map(|name| format_label("provider", name)),
             "codex-version" => facts.version.clone(),
+            "pull-request-number" => self.chat.git_summary()?.pull_request_text(),
+            "branch-changes" => self.chat.git_summary()?.changes_text(),
+            "workspace-headline" => self.chat.headline().map(str::to_owned),
+            "raw-output" => self.raw_output.then(|| "raw output".to_string()),
             "status" | "run-state" => self.run_state.map(str::to_owned),
             "permissions" => Some(
                 match facts.profile {
@@ -181,19 +227,17 @@ impl StatusContext<'_> {
                 }
                 .to_string(),
             ),
-            "context-remaining" => {
-                context_usage.map(|r| self.strings.status_context(r.percent_left, false))
-            }
+            "context-remaining" => remaining.map(|left| self.strings.status_context(left, false)),
             "context-used" | "context-usage" => {
-                context_usage.map(|r| self.strings.status_context(r.percent_left, true))
+                remaining.map(|left| self.strings.status_context(left, true))
             }
             "context-window-size" => context_usage.map(|r| format_units(r.window, "window")),
             "used-tokens" => tokens
                 .map(|t| t.blended_total())
                 .filter(|total| *total > 0)
                 .map(|total| format_units(total, "used")),
-            "total-input-tokens" => tokens.map(|t| format_units(t.input, "in")),
-            "total-output-tokens" => tokens.map(|t| format_units(t.output, "out")),
+            "total-input-tokens" => counted(|t| t.input).map(|n| format_units(n, "in")),
+            "total-output-tokens" => counted(|t| t.output).map(|n| format_units(n, "out")),
             "five-hour-limit" => percent_remaining(self.rate_limits?, 300)
                 .map(|percent| self.strings.status_quota("5h", percent)),
             "weekly-limit" => percent_remaining(self.rate_limits?, 7 * 24 * 60)

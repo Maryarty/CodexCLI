@@ -385,16 +385,35 @@ fn custom_model_display_name_in_pickers_preserves_selection_slug() {
 // ORACLE chatwidget/tests/model_display_name_tests.rs:62 custom_model_display_name_in_status_line_and_fallback kind=snap owner=dialogs-pane snap=custom_model_display_name_status_line
 #[test]
 fn custom_model_display_name_in_status_line_and_fallback() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no status line with the model-name and model-with-reasoning items (tui.status_line) and no custom model seed in the port",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 6).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 6)
+        .script(include_str!(
+            "fixtures/chat_popups_1/custom_model_status_line.jsonl"
+        ))
+        .open();
     s.assert_snap("custom_model_display_name_status_line");
+    let line = |s: &Screen, text: &str| {
+        assert!(
+            s.rows().iter().any(|row| row.trim() == text),
+            "the status line is `{text}`\n{}",
+            s.text()
+        );
+    };
     // the catalog is cleared: the status line shows the slug; Luna Reserve by its reserve slug;
     // an empty model shows the default display name (its text is a constant of the oracle).
-    s.assert_contains("us.openai.gpt-5.6-luna");
-    s.assert_contains("Luna Reserve");
+    let status = |model: &str| {
+        format!(
+            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}","items":["model-name"]}}}}}}"#
+        )
+    };
+    // (a catalog without the model: an empty list is no answer and keeps the old catalog)
+    s.feed(r#"{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"gpt-5.5","name":"GPT-5.5"}]}}"#);
+    s.feed(&status("us.openai.gpt-5.6-luna"));
+    line(&s, "us.openai.gpt-5.6-luna");
+    s.feed(&status("gpt-reserve"));
+    line(&s, "Luna Reserve");
+    s.feed(&status(""));
+    line(&s, "loading");
 }
 
 // ---- oracle: chatwidget/tests/model_picker_tests.rs (2 screen-level tests here; 0 state tests left to dialogs-pane)

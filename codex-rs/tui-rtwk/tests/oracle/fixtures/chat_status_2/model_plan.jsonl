@@ -1,0 +1,6 @@
+# Collaboration modes on, status line model-with-reasoning, reasoning high, the Plan mask applied: the thread runs Plan at medium (status_and_layout.rs:4444).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":true}}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.2","effort":"high","items":["model-with-reasoning"]}}}
+{"step":"notify","message":{"method":"thread/settings/updated","params":{"threadId":"thread-1","threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,"model":"gpt-5.2","modelProvider":"openai","serviceTier":null,"effort":"medium","summary":null,"collaborationMode":{"mode":"plan","settings":{"model":"gpt-5.2","reasoning_effort":"medium","developer_instructions":null}},"personality":null}}}}
