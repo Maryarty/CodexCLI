@@ -1,11 +1,15 @@
 //! What the host announces to the open conversation: a newer release (`UpdateAvailable`) and the
 //! connected server's other version (`ServerVersion`), and the Daybreak facts that word a cyber
 //! refusal. (Oracle `app/startup.rs`: the notices are inserted into the first session's history
-//! once it exists; `chatwidget/turn_runtime.rs` `cyber_policy_notice`.)
+//! once it exists; `chatwidget/turn_runtime.rs` `cyber_policy_notice`), and the card a
+//! conversation opens with (`history_cell/session.rs` `new_session_info`).
+
+use std::rc::Rc;
 
 use super::{AppFx, CodexApp, apply_thread};
 use crate::ids::ThreadId;
-use crate::screens::cells::Daybreak;
+use crate::screens::cells::{Daybreak, SessionInfo};
+use crate::screens::tips;
 use crate::threads::{Item, Notice, ThreadEv};
 
 /// Puts `notice` in the shown conversation's history; with none yet it waits for the first one.
@@ -33,6 +37,55 @@ pub(super) fn error_line(app: &mut CodexApp, message: String, fx: &mut AppFx) {
 pub(super) fn flush(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
     for notice in std::mem::take(&mut app.pending_notices) {
         append(app, thread, notice, fx);
+    }
+}
+
+/// The host's startup facts came: the shown conversation, when one attached before them, gets the
+/// card it would have opened with.
+pub(super) fn startup(app: &mut CodexApp, fx: &mut AppFx) {
+    if let Some(thread) = app.session.active.clone() {
+        session_card(app, &thread, fx);
+    }
+}
+
+/// The card `thread` opens with, once (oracle `on_session_configured`): the help of the user's
+/// first run, else a tip (the model-availability notice the host found, for the first
+/// conversation, else the pick of the catalog) and the model note. The host's startup facts
+/// open the door; without them (a test's bare app) no card.
+pub(super) fn session_card(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    let Some(startup) = app.screens.cells.startup.as_ref() else {
+        return;
+    };
+    let first_run = startup.first_run;
+    let Some(model) = app.threads.get(thread) else {
+        return;
+    };
+    let carded = model
+        .transcript()
+        .iter()
+        .any(|(_, item)| matches!(item, Item::Notice(Notice::SessionInfo(_))));
+    if carded {
+        return;
+    }
+    let used = model.screen_slots().chat.model.clone();
+    // the oracle takes the override at every session, whether the tip is shown or not
+    let announced = Rc::make_mut(&mut app.screens)
+        .cells
+        .startup
+        .as_mut()
+        .and_then(|startup| startup.tooltip.take());
+    let used = used.as_deref().unwrap_or_default();
+    // the oracle's requested model is the chat's current one, which the session just set to the
+    // used one unless a collaboration mask names another; ours carry none
+    let info = SessionInfo::opening(
+        first_run,
+        app.tui.show_tooltips,
+        || announced.or_else(|| tips::pick(thread, &app.keymap)),
+        used,
+        used,
+    );
+    if let Some(info) = info {
+        append(app, thread, Notice::SessionInfo(info), fx);
     }
 }
 
