@@ -31,8 +31,8 @@ use codex_tui_core::threads::ThreadModel;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::keymap::{keymap, label};
-use crate::pages::session::cells::status::strings as status_strings;
 use crate::l10n::strings as l10n;
+use crate::pages::session::cells::status::strings as status_strings;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::measure;
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
@@ -291,7 +291,11 @@ fn reset_when(
     let at = banner.reset_at()?;
     let clock = states.cells.clock;
     let offset = clock.utc_offset.unwrap_or(states.status.utc_offset_secs);
-    let read_at = if states.status.now > 0 { states.status.now } else { at };
+    let read_at = if states.status.now > 0 {
+        states.status.now
+    } else {
+        at
+    };
     let hour24 = clock.format == ClockFormat::TwentyFourHour;
     Some(words.when(&reset_time(at, read_at, offset), hour24))
 }

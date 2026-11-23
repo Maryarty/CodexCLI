@@ -95,11 +95,17 @@ fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
         s.feed(&(answer(&response) + &model_step("test-model-a", true)));
         s.assert_same_rows(&initial);
         s.keys("esc");
-        assert_eq!(s.text().contains("Selected model usage exhausted"), !dismissible);
+        assert_eq!(
+            s.text().contains("Selected model usage exhausted"),
+            !dismissible
+        );
         s.feed(&model_step("test-model-b", false));
         s.assert_absent("Selected model usage exhausted");
         s.feed(&model_step("test-model-a", false));
-        assert_eq!(s.text().contains("Selected model usage exhausted"), !dismissible);
+        assert_eq!(
+            s.text().contains("Selected model usage exhausted"),
+            !dismissible
+        );
     }
 }
 
@@ -122,9 +128,7 @@ fn backend_banner_fallback_candidates_and_notice_follow_selected_model() {
     let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
     // the catalog the picker lists (a hidden model among them), a ChatGPT login, and the
     // server accepting the settings update
-    let preset = |model: &str, visible: bool| {
-        serde_json::json!({"model": model, "name": model, "show_in_picker": visible})
-    };
+    let preset = |model: &str, visible: bool| serde_json::json!({"model": model, "name": model, "show_in_picker": visible});
     s.feed(&format!(
         "{}\n{}\n{}\n",
         serde_json::json!({"step": "screen", "dir": "select", "ev": {"kind": "catalog", "presets": [
