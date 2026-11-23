@@ -2,9 +2,9 @@
 //! permissions menu are data in the model (`Menu`), their words are here
 //! (ADR-010). A `Menu::List` is already the generic form.
 
+use crate::widgets::picker::list::{Columns, Item, List, Role, Secondary, Span};
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::select::apps;
-use crate::widgets::picker::list::{Columns, Item, List, Role, Secondary, Span};
 use codex_tui_core::screens::select::models::{
     self, Apply, Choice, Effort, Heading, Kind, PlanSource,
 };

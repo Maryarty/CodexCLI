@@ -16,6 +16,7 @@ use rtwk::overlay::DialogOptions;
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx};
 
+use crate::widgets::picker::list::List;
 use codex_tui_core::app::Intent;
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::feature_list;
@@ -23,7 +24,6 @@ use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureInterest, FeatureMenu, FeatureNote, FeaturePrompt,
     FeatureStates, FeatureWish, Scope,
 };
-use crate::widgets::picker::list::List;
 
 use crate::app::view::Hs;
 

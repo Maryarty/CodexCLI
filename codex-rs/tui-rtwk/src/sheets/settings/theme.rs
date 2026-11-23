@@ -35,10 +35,10 @@ use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk::{Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
+use crate::widgets::picker::list::{SIDE_GAP, Side, SideWidth};
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use crate::widgets::picker::list::{SIDE_GAP, Side, SideWidth};
 use codex_tui_core::screens::settings::{Edit, Intent, Offer, ThemePicker, Which};
 
 use super::keys::{Keys, ListKey, list_key};

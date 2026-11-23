@@ -1274,13 +1274,12 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             None => {}
         },
-        Intent::Secondary(id) => match model.stack.last() {
-            Some(Menu::Model(menu)) => {
+        Intent::Secondary(id) => {
+            if let Some(Menu::Model(menu)) = model.stack.last() {
                 let step = menu.choose(&model.catalog, &id, true);
                 model.step_from(id, step);
             }
-            _ => {}
-        },
+        }
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
         Intent::PlanAnswer(_) => {}
         Intent::Close => {

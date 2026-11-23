@@ -8,9 +8,9 @@
 
 use rtwk::{Cx, overlay::DialogResult};
 
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::approvals::guardian::{Denial, Denials};
-use crate::widgets::picker::list::{Columns, Item, List};
 
 use super::guardian::summary;
 use super::strings::{self, Strings};

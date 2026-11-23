@@ -137,11 +137,8 @@ pub enum Surface {
 /// footer yields before the title, the controls and the selected result
 /// (`render`'s `footer_rows`).
 pub fn split(height: u16, footer: u16, sizes: Sizes, surface: Surface) -> (u16, u16, u16) {
-    let minimum = u16::from(surface == Surface::Panel)
-        + sizes.header.min(1)
-        + sizes.tabs
-        + sizes.search
-        + 1;
+    let minimum =
+        u16::from(surface == Surface::Panel) + sizes.header.min(1) + sizes.tabs + sizes.search + 1;
     let footer = match surface {
         Surface::Multi => footer.min(height),
         _ => footer.min(height.saturating_sub(minimum)),
@@ -180,19 +177,39 @@ mod tests {
         assert_eq!((top, content, footer), (1, 4, 1));
         let h = heights(content, browser, Surface::Panel);
         assert_eq!(
-            (h.header, h.header_gap, h.tabs, h.tab_gap, h.search, h.above, h.rows),
+            (
+                h.header,
+                h.header_gap,
+                h.tabs,
+                h.tab_gap,
+                h.search,
+                h.above,
+                h.rows
+            ),
             (1, 0, 1, 0, 1, 0, 1)
         );
         // 48x7: the subtitle comes back.
         let (_, content, _) = split(7, 1, browser, Surface::Panel);
         let h = heights(content, browser, Surface::Panel);
-        assert_eq!((h.header, h.tabs, h.search, h.above, h.rows), (2, 1, 1, 0, 1));
+        assert_eq!(
+            (h.header, h.tabs, h.search, h.above, h.rows),
+            (2, 1, 1, 0, 1)
+        );
         // 48x13: the gaps, the arrows and three results.
         let (top, content, footer) = split(13, 1, browser, Surface::Panel);
         assert_eq!((top, content, footer), (1, 11, 1));
         let h = heights(content, browser, Surface::Panel);
         assert_eq!(
-            (h.header, h.header_gap, h.tabs, h.tab_gap, h.search, h.above, h.rows, h.below),
+            (
+                h.header,
+                h.header_gap,
+                h.tabs,
+                h.tab_gap,
+                h.search,
+                h.above,
+                h.rows,
+                h.below
+            ),
             (2, 1, 1, 1, 1, 1, 3, 1)
         );
         assert_eq!(h.total(), 11);

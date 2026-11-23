@@ -41,10 +41,13 @@ pub struct ListSheet {
     pub purpose: Purpose,
 }
 
+/// The picker's list vocabulary as the sheet's working copy (the picker brick's own type, not
+/// a model of a screen).
+type Rows = List;
+
 pub struct ListSheetState {
-    /// The rows as the user left them: the toggles flipped, the order moved. Replaced when the
-    /// opener gives the sheet another list.
-    list: List,
+    /// The rows as the user left them: the toggles flipped, the order moved.
+    list: Rows,
 }
 
 impl StatefulWidget for ListSheet {

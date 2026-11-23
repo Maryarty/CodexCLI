@@ -10,14 +10,14 @@
 use rtwk::Cx;
 use rtwk::provider::{read, select};
 
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat::plan_mode::{Answer, Used};
-use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::threads::ThreadModel;
 
-use crate::sheets::select::Purpose;
 use crate::pages::session::strings::{self, Strings};
+use crate::sheets::select::Purpose;
 
 /// The list of the prompt (`plan_implementation::selection_view_params`): three numbered rows,
 /// the context's usage in the second row's note.
@@ -83,6 +83,10 @@ impl Seen {
         let status = &thread.screen_slots().status;
         let used = codex_tui_core::screens::chat::plan_mode::used(status.context, status.tokens);
         let list = menu(strings::of(cx), used);
-        drop(crate::sheets::select::pick(cx, list, Purpose::PlanImplementation));
+        drop(crate::sheets::select::pick(
+            cx,
+            list,
+            Purpose::PlanImplementation,
+        ));
     }
 }

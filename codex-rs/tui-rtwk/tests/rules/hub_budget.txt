@@ -17,9 +17,9 @@
 # The slash list has no generic `Feature` variant yet: a Need of the ADR-012 owner.
 enum core/src/commands/dispatch.rs SessionIntent 44
 enum core/src/screens/select.rs Note 37
-enum core/src/screens/select.rs Picked 13
-enum core/src/screens/select.rs Menu 9
-enum core/src/screens/select.rs Intent 23
+enum core/src/screens/select.rs Picked 10
+enum core/src/screens/select.rs Menu 8
+enum core/src/screens/select.rs Intent 21
 enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4

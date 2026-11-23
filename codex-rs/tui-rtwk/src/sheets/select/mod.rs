@@ -67,89 +67,417 @@ fn fixture_sheet(json: &str) -> AnyWidget {
 /// fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
     vec![
-        entry!("model_picker", "three models, the first in use", "fixtures/model_picker"),
-        entry!("models_quick", "the quick /model menu: an auto mode and All models", "fixtures/models_quick"),
-        entry!("model_reasoning", "the reasoning menu of one model, More reasoning… last", "fixtures/model_reasoning"),
-        entry!("model_advanced", "the advanced reasoning menu: Max and Ultra", "fixtures/model_advanced"),
-        entry!("model_plan_scope", "where a reasoning change in Plan mode applies", "fixtures/model_plan_scope"),
-        entry!("model_loading", "the /model menu while the catalog loads", "fixtures/model_loading"),
-        entry!("permissions_menu", "the /permissions menu", "fixtures/permissions_menu"),
-        entry!("profile_permissions", "the /permissions menu on a catalog: the built-in modes, :workspace in use", "fixtures/profile_permissions"),
-        entry!("profile_permissions_disallowed_full_access", "the /permissions menu with Full Access disabled by requirements", "fixtures/profile_permissions_disallowed_full_access"),
-        entry!("profile_permissions_custom", "the /permissions menu with the server's custom profiles", "fixtures/profile_permissions_custom"),
-        entry!("permission_discovery_loading", "the /permissions menu while the catalog is read", "fixtures/permission_discovery_loading"),
-        entry!("permission_discovery_remote", "the /permissions menu on a remote server's catalog", "fixtures/permission_discovery_remote"),
-        entry!("permission_discovery_empty", "the /permissions menu of an empty catalog", "fixtures/permission_discovery_empty"),
-        entry!("permission_discovery_failure", "the /permissions menu after a failed read, with Retry", "fixtures/permission_discovery_failure"),
-        entry!("permissions_unnamed_server_profile", "the /permissions menu with Approve for me in use", "fixtures/permissions_unnamed_server_profile"),
-        entry!("permissions_constrained", "the /permissions preset menu with Full Access forbidden by the config", "fixtures/permissions_constrained"),
-        entry!("permissions_cyber_full_access", "the full-access confirmation of a cyber model", "fixtures/permissions_cyber_full_access"),
-        list_entry!("secondary_action", "one row with a secondary action (key s)", "fixtures/secondary_action"),
-        list_entry!("secondary_action_disabled", "the same row, disabled", "fixtures/secondary_action_disabled"),
-        list_entry!("secondary_action_searchable", "the same row under a search line", "fixtures/secondary_action_searchable"),
-        list_entry!("approval_modes", "the approval-mode list under its title", "fixtures/approval_modes"),
-        list_entry!("approval_modes_subtitle", "approval modes under a title and a subtitle", "fixtures/approval_modes_subtitle"),
-        list_entry!("footer_note", "one approval row with a footer note that wraps", "fixtures/footer_note"),
-        list_entry!("searchable_approval", "a searchable one-row list", "fixtures/searchable_approval"),
-        list_entry!("empty_searchable", "a searchable list with no items", "fixtures/empty_searchable"),
-        list_entry!("branch_search", "two branches under a search line", "fixtures/branch_search"),
-        list_entry!("single_main_searchable", "a searchable one-item list", "fixtures/single_main_searchable"),
-        list_entry!("two_tabs_beta", "two tabs opening on Beta, with a search line", "fixtures/two_tabs_beta"),
-        list_entry!("two_tabs_current", "two tabs whose second item is the current one", "fixtures/two_tabs_current"),
-        list_entry!("plugin_toggle", "a searchable row with a toggle", "fixtures/plugin_toggle"),
-        list_entry!("multi_select", "three checkbox rows, Enter confirms", "fixtures/multi_select"),
-        list_entry!("single_line_long", "one single-line row longer than the width", "fixtures/single_line_long"),
-        list_entry!("auto_columns", "two single-line rows, label column as wide as needed", "fixtures/auto_columns"),
-        list_entry!("name_column_18", "the same rows with a name column of 18 cells", "fixtures/name_column_18"),
-        list_entry!("read_only_searchable", "a searchable one-item list", "fixtures/read_only_searchable"),
-        list_entry!("disabled_current", "disabled rows, one of them the current one", "fixtures/disabled_current"),
-        list_entry!("twelve_trailing_disabled", "twelve items, the last four disabled", "fixtures/twelve_trailing_disabled"),
-        list_entry!("approval_long_command", "two options, the second a long command", "fixtures/approval_long_command"),
-        list_entry!("three_models_effort", "the three models under Select Model and Effort", "fixtures/three_models_effort"),
-        list_entry!("three_long_descriptions", "three rows with a ten-x description", "fixtures/three_long_descriptions"),
-        list_entry!("halfwidth_marks", "two rows with halfwidth sound marks", "fixtures/halfwidth_marks"),
-        list_entry!("stacked_side_content", "preview too wide to sit beside: the stacked one", "fixtures/stacked_side_content"),
-        list_entry!("side_content", "one item with a preview beside the rows", "fixtures/side_content"),
-        list_entry!("side_content_blue", "one item with a preview on a blue background beside the rows", "fixtures/side_content_blue"),
-        list_entry!("skills_menu", "the skills menu: list skills or enable and disable them", "fixtures/skills_menu"),
-        list_entry!("copy_picker", "the copy picker: the whole status or one of its fields", "fixtures/copy_picker"),
-        list_entry!("apps_loading", "the apps list while it loads: one disabled row", "fixtures/apps_loading"),
-        entry!("app_link_installed", "the link dialog of an installed app: its page, the switch and Back", "fixtures/app_link_installed"),
-        entry!("app_link_install", "the link dialog of an app that is not installed: install, then the confirmation", "fixtures/app_link_install"),
-        list_entry!("worktrees_conversation", "where the conversation goes", "fixtures/worktrees_conversation"),
-        list_entry!("worktrees_fork", "where the forked conversation runs", "fixtures/worktrees_fork"),
-        list_entry!("worktrees_new", "where the new conversation runs", "fixtures/worktrees_new"),
-        list_entry!("col_width_auto_visible", "nine rows, label column from the rows in view", "fixtures/col_width_auto_visible"),
-        list_entry!("col_width_auto_all_rows", "nine rows, the label column from all rows", "fixtures/col_width_auto_all_rows"),
-        list_entry!("twelve_items", "twelve plain items", "fixtures/twelve_items"),
-        list_entry!("first_second_searchable", "two items under a search line", "fixtures/first_second_searchable"),
-        list_entry!("filled_tabs_seven", "seven tabs, the first active", "fixtures/filled_tabs_seven"),
-        list_entry!("filled_tabs_unicode", "three tabs, the second with wide letters", "fixtures/filled_tabs_unicode"),
+        entry!(
+            "model_picker",
+            "three models, the first in use",
+            "fixtures/model_picker"
+        ),
+        entry!(
+            "models_quick",
+            "the quick /model menu: an auto mode and All models",
+            "fixtures/models_quick"
+        ),
+        entry!(
+            "model_reasoning",
+            "the reasoning menu of one model, More reasoning… last",
+            "fixtures/model_reasoning"
+        ),
+        entry!(
+            "model_advanced",
+            "the advanced reasoning menu: Max and Ultra",
+            "fixtures/model_advanced"
+        ),
+        entry!(
+            "model_plan_scope",
+            "where a reasoning change in Plan mode applies",
+            "fixtures/model_plan_scope"
+        ),
+        entry!(
+            "model_loading",
+            "the /model menu while the catalog loads",
+            "fixtures/model_loading"
+        ),
+        entry!(
+            "permissions_menu",
+            "the /permissions menu",
+            "fixtures/permissions_menu"
+        ),
+        entry!(
+            "profile_permissions",
+            "the /permissions menu on a catalog: the built-in modes, :workspace in use",
+            "fixtures/profile_permissions"
+        ),
+        entry!(
+            "profile_permissions_disallowed_full_access",
+            "the /permissions menu with Full Access disabled by requirements",
+            "fixtures/profile_permissions_disallowed_full_access"
+        ),
+        entry!(
+            "profile_permissions_custom",
+            "the /permissions menu with the server's custom profiles",
+            "fixtures/profile_permissions_custom"
+        ),
+        entry!(
+            "permission_discovery_loading",
+            "the /permissions menu while the catalog is read",
+            "fixtures/permission_discovery_loading"
+        ),
+        entry!(
+            "permission_discovery_remote",
+            "the /permissions menu on a remote server's catalog",
+            "fixtures/permission_discovery_remote"
+        ),
+        entry!(
+            "permission_discovery_empty",
+            "the /permissions menu of an empty catalog",
+            "fixtures/permission_discovery_empty"
+        ),
+        entry!(
+            "permission_discovery_failure",
+            "the /permissions menu after a failed read, with Retry",
+            "fixtures/permission_discovery_failure"
+        ),
+        entry!(
+            "permissions_unnamed_server_profile",
+            "the /permissions menu with Approve for me in use",
+            "fixtures/permissions_unnamed_server_profile"
+        ),
+        entry!(
+            "permissions_constrained",
+            "the /permissions preset menu with Full Access forbidden by the config",
+            "fixtures/permissions_constrained"
+        ),
+        entry!(
+            "permissions_cyber_full_access",
+            "the full-access confirmation of a cyber model",
+            "fixtures/permissions_cyber_full_access"
+        ),
+        list_entry!(
+            "secondary_action",
+            "one row with a secondary action (key s)",
+            "fixtures/secondary_action"
+        ),
+        list_entry!(
+            "secondary_action_disabled",
+            "the same row, disabled",
+            "fixtures/secondary_action_disabled"
+        ),
+        list_entry!(
+            "secondary_action_searchable",
+            "the same row under a search line",
+            "fixtures/secondary_action_searchable"
+        ),
+        list_entry!(
+            "approval_modes",
+            "the approval-mode list under its title",
+            "fixtures/approval_modes"
+        ),
+        list_entry!(
+            "approval_modes_subtitle",
+            "approval modes under a title and a subtitle",
+            "fixtures/approval_modes_subtitle"
+        ),
+        list_entry!(
+            "footer_note",
+            "one approval row with a footer note that wraps",
+            "fixtures/footer_note"
+        ),
+        list_entry!(
+            "searchable_approval",
+            "a searchable one-row list",
+            "fixtures/searchable_approval"
+        ),
+        list_entry!(
+            "empty_searchable",
+            "a searchable list with no items",
+            "fixtures/empty_searchable"
+        ),
+        list_entry!(
+            "branch_search",
+            "two branches under a search line",
+            "fixtures/branch_search"
+        ),
+        list_entry!(
+            "single_main_searchable",
+            "a searchable one-item list",
+            "fixtures/single_main_searchable"
+        ),
+        list_entry!(
+            "two_tabs_beta",
+            "two tabs opening on Beta, with a search line",
+            "fixtures/two_tabs_beta"
+        ),
+        list_entry!(
+            "two_tabs_current",
+            "two tabs whose second item is the current one",
+            "fixtures/two_tabs_current"
+        ),
+        list_entry!(
+            "plugin_toggle",
+            "a searchable row with a toggle",
+            "fixtures/plugin_toggle"
+        ),
+        list_entry!(
+            "multi_select",
+            "three checkbox rows, Enter confirms",
+            "fixtures/multi_select"
+        ),
+        list_entry!(
+            "single_line_long",
+            "one single-line row longer than the width",
+            "fixtures/single_line_long"
+        ),
+        list_entry!(
+            "auto_columns",
+            "two single-line rows, label column as wide as needed",
+            "fixtures/auto_columns"
+        ),
+        list_entry!(
+            "name_column_18",
+            "the same rows with a name column of 18 cells",
+            "fixtures/name_column_18"
+        ),
+        list_entry!(
+            "read_only_searchable",
+            "a searchable one-item list",
+            "fixtures/read_only_searchable"
+        ),
+        list_entry!(
+            "disabled_current",
+            "disabled rows, one of them the current one",
+            "fixtures/disabled_current"
+        ),
+        list_entry!(
+            "twelve_trailing_disabled",
+            "twelve items, the last four disabled",
+            "fixtures/twelve_trailing_disabled"
+        ),
+        list_entry!(
+            "approval_long_command",
+            "two options, the second a long command",
+            "fixtures/approval_long_command"
+        ),
+        list_entry!(
+            "three_models_effort",
+            "the three models under Select Model and Effort",
+            "fixtures/three_models_effort"
+        ),
+        list_entry!(
+            "three_long_descriptions",
+            "three rows with a ten-x description",
+            "fixtures/three_long_descriptions"
+        ),
+        list_entry!(
+            "halfwidth_marks",
+            "two rows with halfwidth sound marks",
+            "fixtures/halfwidth_marks"
+        ),
+        list_entry!(
+            "stacked_side_content",
+            "preview too wide to sit beside: the stacked one",
+            "fixtures/stacked_side_content"
+        ),
+        list_entry!(
+            "side_content",
+            "one item with a preview beside the rows",
+            "fixtures/side_content"
+        ),
+        list_entry!(
+            "side_content_blue",
+            "one item with a preview on a blue background beside the rows",
+            "fixtures/side_content_blue"
+        ),
+        list_entry!(
+            "skills_menu",
+            "the skills menu: list skills or enable and disable them",
+            "fixtures/skills_menu"
+        ),
+        list_entry!(
+            "copy_picker",
+            "the copy picker: the whole status or one of its fields",
+            "fixtures/copy_picker"
+        ),
+        list_entry!(
+            "apps_loading",
+            "the apps list while it loads: one disabled row",
+            "fixtures/apps_loading"
+        ),
+        entry!(
+            "app_link_installed",
+            "the link dialog of an installed app: its page, the switch and Back",
+            "fixtures/app_link_installed"
+        ),
+        entry!(
+            "app_link_install",
+            "the link dialog of an app that is not installed: install, then the confirmation",
+            "fixtures/app_link_install"
+        ),
+        list_entry!(
+            "worktrees_conversation",
+            "where the conversation goes",
+            "fixtures/worktrees_conversation"
+        ),
+        list_entry!(
+            "worktrees_fork",
+            "where the forked conversation runs",
+            "fixtures/worktrees_fork"
+        ),
+        list_entry!(
+            "worktrees_new",
+            "where the new conversation runs",
+            "fixtures/worktrees_new"
+        ),
+        list_entry!(
+            "col_width_auto_visible",
+            "nine rows, label column from the rows in view",
+            "fixtures/col_width_auto_visible"
+        ),
+        list_entry!(
+            "col_width_auto_all_rows",
+            "nine rows, the label column from all rows",
+            "fixtures/col_width_auto_all_rows"
+        ),
+        list_entry!(
+            "twelve_items",
+            "twelve plain items",
+            "fixtures/twelve_items"
+        ),
+        list_entry!(
+            "first_second_searchable",
+            "two items under a search line",
+            "fixtures/first_second_searchable"
+        ),
+        list_entry!(
+            "filled_tabs_seven",
+            "seven tabs, the first active",
+            "fixtures/filled_tabs_seven"
+        ),
+        list_entry!(
+            "filled_tabs_unicode",
+            "three tabs, the second with wide letters",
+            "fixtures/filled_tabs_unicode"
+        ),
         list_entry!("filled_tab_all", "one tab", "fixtures/filled_tab_all"),
-        list_entry!("multi_orderable", "a multi-select with a fixed row, a rule and two orderable rows", "fixtures/multi_orderable"),
-        list_entry!("multi_orderable_two", "two orderable multi-select rows", "fixtures/multi_orderable_two"),
-        list_entry!("section_break", "a multi-select whose first row has a rule under it", "fixtures/section_break"),
-        list_entry!("multi_alpha_jupiter", "a searchable multi-select of alpha and jupiter", "fixtures/multi_alpha_jupiter"),
-        list_entry!("multi_appearance", "twelve fields with a rule, ordering and a preview line", "fixtures/multi_appearance"),
-        list_entry!("multi_fields_twelve", "twelve orderable fields", "fixtures/multi_fields_twelve"),
-        list_entry!("browser_keymap", "the keymap browser: five tabs of thirty actions, search", "fixtures/browser_keymap"),
-        list_entry!("browser_single_line", "the browser, single-line rows", "fixtures/browser_single_line"),
-        list_entry!("browser_wrapped", "the browser, wrapped rows", "fixtures/browser_wrapped"),
-        list_entry!("description_hide_when_narrow", "two rows whose description column hides when narrow", "fixtures/description_hide_when_narrow"),
-        list_entry!("description_hide_numbered", "the same two rows, the blocked one numbered by hand as the oracle's raw rows are", "fixtures/description_hide_numbered"),
-        list_entry!("shared_menu", "the shared menu: a title, a subtitle, three rows", "fixtures/shared_menu"),
-        list_entry!("multi_twelve", "twelve multi-select rows", "fixtures/multi_twelve"),
-        list_entry!("accept_alternative", "a searchable row, accept bound to a printable key", "fixtures/accept_alternative"),
-        list_entry!("toggle_then_next", "a toggle row and the row after it, searchable", "fixtures/toggle_then_next"),
-        list_entry!("animations_checkbox", "one checkbox row", "fixtures/animations_checkbox"),
-        list_entry!("first_second_searchable", "two rows under a search line", "fixtures/first_second_searchable"),
-        list_entry!("first_second_searchable_second", "two rows under a search line, the second highlighted", "fixtures/first_second_searchable_second"),
-        list_entry!("twelve_items", "twelve rows, no title", "fixtures/twelve_items"),
-        list_entry!("hint_default", "one row, the standard footer", "fixtures/hint_default"),
-        list_entry!("hint_picker", "one row, the standard footer, shared picker preset", "fixtures/hint_picker"),
-        list_entry!("semantic_spans", "a row with underlined, success and dim runs", "fixtures/semantic_spans"),
-        list_entry!("selected_row", "one highlighted row in the accent style", "fixtures/selected_row"),
-        list_entry!("hard_breaks", "a two-line name, a two-line description", "fixtures/hard_breaks"),
+        list_entry!(
+            "multi_orderable",
+            "a multi-select with a fixed row, a rule and two orderable rows",
+            "fixtures/multi_orderable"
+        ),
+        list_entry!(
+            "multi_orderable_two",
+            "two orderable multi-select rows",
+            "fixtures/multi_orderable_two"
+        ),
+        list_entry!(
+            "section_break",
+            "a multi-select whose first row has a rule under it",
+            "fixtures/section_break"
+        ),
+        list_entry!(
+            "multi_alpha_jupiter",
+            "a searchable multi-select of alpha and jupiter",
+            "fixtures/multi_alpha_jupiter"
+        ),
+        list_entry!(
+            "multi_appearance",
+            "twelve fields with a rule, ordering and a preview line",
+            "fixtures/multi_appearance"
+        ),
+        list_entry!(
+            "multi_fields_twelve",
+            "twelve orderable fields",
+            "fixtures/multi_fields_twelve"
+        ),
+        list_entry!(
+            "browser_keymap",
+            "the keymap browser: five tabs of thirty actions, search",
+            "fixtures/browser_keymap"
+        ),
+        list_entry!(
+            "browser_single_line",
+            "the browser, single-line rows",
+            "fixtures/browser_single_line"
+        ),
+        list_entry!(
+            "browser_wrapped",
+            "the browser, wrapped rows",
+            "fixtures/browser_wrapped"
+        ),
+        list_entry!(
+            "description_hide_when_narrow",
+            "two rows whose description column hides when narrow",
+            "fixtures/description_hide_when_narrow"
+        ),
+        list_entry!(
+            "description_hide_numbered",
+            "the same two rows, the blocked one numbered by hand as the oracle's raw rows are",
+            "fixtures/description_hide_numbered"
+        ),
+        list_entry!(
+            "shared_menu",
+            "the shared menu: a title, a subtitle, three rows",
+            "fixtures/shared_menu"
+        ),
+        list_entry!(
+            "multi_twelve",
+            "twelve multi-select rows",
+            "fixtures/multi_twelve"
+        ),
+        list_entry!(
+            "accept_alternative",
+            "a searchable row, accept bound to a printable key",
+            "fixtures/accept_alternative"
+        ),
+        list_entry!(
+            "toggle_then_next",
+            "a toggle row and the row after it, searchable",
+            "fixtures/toggle_then_next"
+        ),
+        list_entry!(
+            "animations_checkbox",
+            "one checkbox row",
+            "fixtures/animations_checkbox"
+        ),
+        list_entry!(
+            "first_second_searchable",
+            "two rows under a search line",
+            "fixtures/first_second_searchable"
+        ),
+        list_entry!(
+            "first_second_searchable_second",
+            "two rows under a search line, the second highlighted",
+            "fixtures/first_second_searchable_second"
+        ),
+        list_entry!(
+            "twelve_items",
+            "twelve rows, no title",
+            "fixtures/twelve_items"
+        ),
+        list_entry!(
+            "hint_default",
+            "one row, the standard footer",
+            "fixtures/hint_default"
+        ),
+        list_entry!(
+            "hint_picker",
+            "one row, the standard footer, shared picker preset",
+            "fixtures/hint_picker"
+        ),
+        list_entry!(
+            "semantic_spans",
+            "a row with underlined, success and dim runs",
+            "fixtures/semantic_spans"
+        ),
+        list_entry!(
+            "selected_row",
+            "one highlighted row in the accent style",
+            "fixtures/selected_row"
+        ),
+        list_entry!(
+            "hard_breaks",
+            "a two-line name, a two-line description",
+            "fixtures/hard_breaks"
+        ),
     ]
 }
 

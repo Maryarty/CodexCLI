@@ -30,15 +30,15 @@ use rtwk::style::{Attrs, Style};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
+use crate::app::theme;
+use crate::keymap::{combo_of, keymap, label, pressed};
+use crate::widgets::session_list::page_rows;
+use crate::widgets::tab_strip::Tabs;
 use codex_tui_core::keymap::actions::{
     LIST_ACCEPT, LIST_CANCEL, LIST_JUMP_BOTTOM, LIST_JUMP_TOP, LIST_MOVE_DOWN, LIST_MOVE_LEFT,
     LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
 use codex_tui_core::keymap::{ActionId, Keymap, Stroke};
-use crate::app::theme;
-use crate::keymap::{combo_of, keymap, label, pressed};
-use crate::widgets::session_list::page_rows;
-use crate::widgets::tab_strip::Tabs;
 
 pub mod layout;
 pub mod list;
