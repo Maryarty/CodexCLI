@@ -101,7 +101,7 @@ fn follow(sandbox: &mut Sandbox) {
             None => at += 1,
             Some(Next::Close) => sandbox.pages.clear(),
             Some(Next::Replace(menu)) => {
-                sandbox.pages[at] = menu;
+                sandbox.pages[at] = *menu;
                 at += 1;
             }
             Some(Next::GiveUp(why)) => {
@@ -923,7 +923,9 @@ fn a_page_acts_on_the_answer_of_its_own_request_only() {
     catalog.presets = presets();
     assert_eq!(
         loading.next(&catalog),
-        Some(Next::Replace(ModelMenu::Models(Current::new("gpt-5.5"))))
+        Some(Next::Replace(Box::new(ModelMenu::Models(Current::new(
+            "gpt-5.5"
+        )))))
     );
 }
 

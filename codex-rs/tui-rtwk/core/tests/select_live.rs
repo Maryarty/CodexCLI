@@ -17,7 +17,7 @@ use codex_tui_core::screens::select::models::{
 use codex_tui_core::screens::select::permissions::{
     Chosen, Current as PermsCurrent, Failure, Heading, PermissionsMenu, Phase, Profile, Recommend,
 };
-use codex_tui_core::screens::select::{self, Intent as SelectIntent, Menu, Opening};
+use codex_tui_core::screens::select::{self, Intent as SelectIntent, Opening};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply};
 use pretty_assertions::assert_eq;
 use serde_json::json;
