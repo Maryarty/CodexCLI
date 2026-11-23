@@ -5,6 +5,7 @@
 
 use std::io::IsTerminal;
 
+use codex_core::config::Config;
 use codex_terminal_detection::{TerminalInfo, TerminalName, terminal_info};
 use codex_tui_core::app::AppEv;
 use codex_tui_core::screens::ScreenEv;
@@ -40,8 +41,9 @@ fn link_display(info: &TerminalInfo, term: Option<&str>) -> LinkDisplay {
     }
 }
 
-/// The two facts as events of the cells screen.
-pub fn events() -> [AppEv; 2] {
+/// The facts as events of the cells screen: the terminal's links, the clock and the config's
+/// `show_raw_agent_reasoning`.
+pub fn events(config: &Config) -> [AppEv; 3] {
     let display = if !std::io::stdout().is_terminal() || std::env::var_os("STY").is_some() {
         LinkDisplay::WithDestination
     } else {
@@ -58,6 +60,9 @@ pub fn events() -> [AppEv; 2] {
     [
         AppEv::Screen(ScreenEv::Cells(Ev::LinkDisplay(display))),
         AppEv::Screen(ScreenEv::Cells(Ev::Clock(clock))),
+        AppEv::Screen(ScreenEv::Cells(Ev::RawReasoning(
+            config.show_raw_agent_reasoning,
+        ))),
     ]
 }
 

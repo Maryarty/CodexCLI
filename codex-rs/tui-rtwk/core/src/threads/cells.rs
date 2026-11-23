@@ -337,10 +337,16 @@ fn file_url(path: &str) -> String {
 pub(super) fn entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, super::Item)> {
     use super::Item;
     Some(match payload {
-        ThreadItemPayload::Reasoning { id, summary, .. } => (
+        ThreadItemPayload::Reasoning {
+            id,
+            summary,
+            content,
+        } => (
             ItemId::new(id),
             Item::Reasoning {
                 summary: summary_text(summary),
+                with_raw: (!content.is_empty())
+                    .then(|| summary_text(&[summary.as_slice(), content.as_slice()].concat())),
             },
         ),
         ThreadItemPayload::Plan { id, text } => {
@@ -447,6 +453,33 @@ fn file_name(path: &str) -> &str {
     path.rsplit(['/', '\\'])
         .find(|part| !part.is_empty())
         .unwrap_or(path)
+}
+
+/// The reasoning item of a history page (oracle `thread_items_to_transcript_cells`), the form a
+/// resumed thread's older turns take: the raw content follows the split summary body as it is,
+/// so a heading of its own stays (the live and snapshot form, `entry`, joins the raw parts to
+/// the summary parts first, and the split takes a leading bold line as the status header).
+pub(super) fn history(
+    payload: &ThreadItemPayload,
+    entry: (ItemId, super::Item),
+) -> (ItemId, super::Item) {
+    match (payload, entry) {
+        (
+            ThreadItemPayload::Reasoning { content, .. },
+            (id, super::Item::Reasoning { summary, .. }),
+        ) => {
+            let with_raw = (!content.is_empty()).then(|| {
+                let raw = content.join("\n\n");
+                if summary.is_empty() {
+                    raw
+                } else {
+                    format!("{summary}\n\n{raw}")
+                }
+            });
+            (id, super::Item::Reasoning { summary, with_raw })
+        }
+        (_, entry) => entry,
+    }
 }
 
 /// The summary parts as the Markdown body the transcript shows (oracle

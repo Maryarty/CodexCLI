@@ -113,9 +113,13 @@ pub enum Item {
     },
     Tool(Arc<ToolActivity>),
     /// The model's reasoning summary; shown only in the detailed transcript
-    /// (oracle `ReasoningSummaryCell::transcript_only`).
+    /// (oracle `ReasoningSummaryCell::transcript_only`). `with_raw` is the same
+    /// body with the raw reasoning content after the summary parts, kept only when
+    /// the item has content: the oracle joins it under `show_raw_agent_reasoning`
+    /// (`replace_reasoning_parts`), which the view reads (`Item::reasoning_text`).
     Reasoning {
         summary: String,
+        with_raw: Option<String>,
     },
     Patch(Arc<PatchActivity>),
     Plan {
@@ -176,6 +180,18 @@ pub enum Item {
 }
 
 impl Item {
+    /// The Markdown body of a reasoning item (empty for another kind): the summary, and with
+    /// `show_raw` (`show_raw_agent_reasoning`) the raw reasoning content after it.
+    pub fn reasoning_text(&self, show_raw: bool) -> &str {
+        match self {
+            Self::Reasoning { summary, with_raw } => match with_raw {
+                Some(text) if show_raw => text,
+                _ => summary,
+            },
+            _ => "",
+        }
+    }
+
     /// Entries only the detailed transcript (Ctrl+T) shows: the reasoning
     /// summary, the server's warnings and its deprecation notices.
     pub fn is_detailed_only(&self) -> bool {

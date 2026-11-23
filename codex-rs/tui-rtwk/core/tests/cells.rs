@@ -86,7 +86,7 @@ fn failed_file_change_keeps_its_status() {
 
 fn reasoning(summary: Value) -> String {
     match completed(json!({"type": "reasoning", "id": "r", "content": [], "summary": summary})) {
-        Item::Reasoning { summary } => summary,
+        Item::Reasoning { summary, .. } => summary,
         other => panic!("not a reasoning entry: {other:?}"),
     }
 }
@@ -119,6 +119,87 @@ fn reasoning_summary_keeps_a_header_that_does_not_end_its_line() {
     assert_eq!(
         reasoning(json!(["**Confirming backend JSONL source**"])),
         "**Confirming backend JSONL source**"
+    );
+}
+
+fn reasoning_with_raw(summary: Value, content: Value) -> (String, Option<String>) {
+    match completed(json!({"type": "reasoning", "id": "r", "content": content, "summary": summary}))
+    {
+        Item::Reasoning { summary, with_raw } => (summary, with_raw),
+        other => panic!("not a reasoning entry: {other:?}"),
+    }
+}
+
+#[test]
+fn reasoning_without_content_has_no_raw_form() {
+    // oracle chatwidget/streaming.rs replace_reasoning_parts: `show_raw_agent_reasoning` adds the
+    // `content` parts; an item without any has nothing to add, and the view shows the summary.
+    let (summary, with_raw) = reasoning_with_raw(json!(["**Plan**\n\nSteps."]), json!([]));
+    assert_eq!(with_raw, None);
+    let item = Item::Reasoning { summary, with_raw };
+    assert_eq!(item.reasoning_text(true), "\n\nSteps.");
+    assert_eq!(item.reasoning_text(false), "\n\nSteps.");
+}
+
+#[test]
+fn reasoning_raw_content_follows_the_summary_parts_and_is_split_with_them() {
+    // The live and snapshot form joins the raw parts to the summary parts, then splits: the
+    // leading bold line of the whole is the status header, a heading of the raw part stays.
+    let (summary, with_raw) = reasoning_with_raw(
+        json!(["**Plan**\n\nSteps."]),
+        json!(["**Raw heading**\n\nthinking", "more"]),
+    );
+    assert_eq!(summary, "\n\nSteps.");
+    assert_eq!(
+        with_raw.as_deref(),
+        Some("\n\nSteps.\n\n**Raw heading**\n\nthinking\n\nmore")
+    );
+    let item = Item::Reasoning { summary, with_raw };
+    assert_eq!(item.reasoning_text(false), "\n\nSteps.");
+    assert_eq!(
+        item.reasoning_text(true),
+        "\n\nSteps.\n\n**Raw heading**\n\nthinking\n\nmore"
+    );
+    // No summary part: the raw parts lead and their first bold line is the status header.
+    let (_, only_raw) = reasoning_with_raw(json!([]), json!(["**Raw heading**\n\nthinking"]));
+    assert_eq!(only_raw.as_deref(), Some("\n\nthinking"));
+}
+
+#[test]
+fn a_loaded_turns_raw_reasoning_keeps_its_own_heading() {
+    // oracle thread_transcript.rs thread_items_to_transcript_cells: the split summary, then the
+    // content joined by blank lines as it is, so its heading is not taken for a status header.
+    let mut app = ready();
+    let turn: codex_app_server_protocol::Turn = serde_json::from_value(json!({
+        "id": "turn-old", "itemsView": "full", "status": "completed",
+        "items": [{"type": "reasoning", "id": "r1", "summary": [],
+            "content": ["**Raw heading**\n\nthinking", "more"]}]
+    }))
+    .expect("turn");
+    codex_tui_core::app::apply_thread(
+        &mut app,
+        &ThreadId::new("thread-1"),
+        codex_tui_core::threads::history_page(&[turn], None),
+        &mut AppFx::default(),
+    );
+    let items: Vec<_> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .filter(|(_, item)| matches!(item, Item::Reasoning { .. }))
+        .map(|(_, item)| {
+            (
+                item.reasoning_text(false).to_owned(),
+                item.reasoning_text(true).to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        items,
+        [(
+            String::new(),
+            "**Raw heading**\n\nthinking\n\nmore".to_owned()
+        )]
     );
 }
 

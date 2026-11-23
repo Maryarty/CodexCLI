@@ -81,7 +81,7 @@ pub fn lines(item: &Item, strings: &Strings) -> Option<Vec<String>> {
         Item::Plan { text } => source_lines(text),
         // the summary (`transcript_only` cells have no raw form in the
         // scrollback, and the detailed transcript is not raw)
-        Item::Reasoning { summary } => source_lines(summary.trim()),
+        Item::Reasoning { summary, .. } => source_lines(summary.trim()),
         Item::Delegated(message) => {
             let mut lines = vec![strings.label(strings.delegated_attribution, &message.source)];
             lines.extend(message.markdown.lines().map(str::to_owned));

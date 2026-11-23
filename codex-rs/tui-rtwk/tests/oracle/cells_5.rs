@@ -7,7 +7,6 @@
 use crate::kit::{self, Owner, Screen};
 
 const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws the agent exec cell's `display_lines` (command under `  │ `, output under `  └ ` with its stderr tail); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Ran <first line> …` and the last three output rows), which the port's exec cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
-const REASONING_CELL: &str = "no reasoning-summary cell in S11: the transcript does not split the summary header from its body, drop the HTML-comment parts or show the transcript-only variant (Ctrl+T)";
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
 const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
@@ -343,25 +342,22 @@ fn reasoning_summary_block() {
 // ORACLE history_cell/tests.rs:2755 reasoning_summary_height_matches_wrapped_rendering_for_url_like_content kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_height_matches_wrapped_rendering_for_url_like_content() {
-    kit::pending(Owner::ChatLive, REASONING_CELL);
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(24, 24)
         .script(include_str!(
             "fixtures/cells_5/reasoning_summary_height_matches_wrapped_rendering_for_url_like_content.jsonl"
         ))
         .open();
+    // The oracle's cell here is built with `transcript_only: false`; the app's reasoning block is
+    // the transcript-only one, so the detailed view (Ctrl+T) is where it draws.
+    s.keys("ctrl+t");
     // The first row keeps the summary bullet; the wrapped height (desired_height) is a value, not drawn.
-    s.assert_contains("•");
-    s.assert_contains("example.test/api/v1/");
+    s.assert_contains("• example.test/api/v1/");
 }
 
 // ORACLE history_cell/tests.rs:2799 reasoning_summary_block_returns_reasoning_cell_when_feature_disabled kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_returns_reasoning_cell_when_feature_disabled() {
-    kit::pending(
-        Owner::ChatLive,
-        "no feature-flag seed: the oracle test runs with the reasoning-summary feature off and the kit cannot set features; the reasoning cell itself is not in S11 yet; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -375,10 +371,6 @@ fn reasoning_summary_block_returns_reasoning_cell_when_feature_disabled() {
 // ORACLE history_cell/tests.rs:2810 reasoning_summary_block_respects_config_overrides kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_respects_config_overrides() {
-    kit::pending(
-        Owner::ChatLive,
-        "no config seed (the oracle sets the model to gpt-3.5-turbo; the kit cannot set config) and no reasoning-summary cell in S11. The body checks absence only, which passes without the cell (probe: stale, vacuous); probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -454,10 +446,6 @@ fn reasoning_summary_block_splits_header_and_summary_when_present() {
 // ORACLE history_cell/tests.rs:2884 reasoning_summary_block_hides_empty_html_comment_parts kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_hides_empty_html_comment_parts() {
-    kit::pending(
-        Owner::ChatLive,
-        "no reasoning-summary cell in S11. The body checks absence only, which passes on any screen without the text (probe: stale, vacuous); the oracle's claim that the block draws nothing in both views needs a positive control from the cell; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -469,6 +457,14 @@ fn reasoning_summary_block_hides_empty_html_comment_parts() {
     s.keys("ctrl+t");
     s.assert_absent("Checking the first thing");
     s.assert_absent("<!--");
+    // The block draws nothing (no bullet row of its own, no blank row above it): the Working row
+    // is the only bullet of the screen.
+    let bullets = s
+        .rows()
+        .iter()
+        .filter(|row| row.trim_start().starts_with('•'))
+        .count();
+    assert_eq!(bullets, 1, "{}", s.text());
 }
 
 // ORACLE history_cell/tests.rs:2901 reasoning_summary_block_preserves_bold_content_after_empty_html_comment_part kind=ui owner=chat-live

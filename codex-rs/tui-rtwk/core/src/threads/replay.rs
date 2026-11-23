@@ -177,7 +177,7 @@ pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
                 _ => {}
             }
             if let Some(entry) = item_entry(payload, true) {
-                items.push(entry);
+                items.push(super::cells::history(payload, entry));
             }
         }
         let items = match turn.items_view {

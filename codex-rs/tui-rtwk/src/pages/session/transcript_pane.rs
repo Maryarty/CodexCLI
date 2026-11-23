@@ -224,6 +224,8 @@ impl State for ViewportState {
         let can_load = thread.can_load_history();
         let detailed = widget.detailed;
         let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
+        let show_raw_reasoning =
+            select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
         let rows = self.rows(&thread, detailed);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
@@ -276,6 +278,7 @@ impl State for ViewportState {
                     cwd: cwd.as_deref(),
                     detailed,
                     raw,
+                    show_raw_reasoning,
                 },
                 &place,
             );

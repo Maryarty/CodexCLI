@@ -552,11 +552,7 @@ fn older_tool_projection_matches_initial_replay() {
 // ORACLE chatwidget/tests/history_projection.rs:180 snapshot_formatter_reasoning_matches_compact_and_detailed_replay kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_reasoning_matches_compact_and_detailed_replay() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `show_raw_agent_reasoning` setting on the chat: the Visible half (`Raw detail.` under the summary) is not drawn; the snapshot is also the Debug dump of the compact cell lines (`compact: []`), not a screen",
-    );
-    let mut s = resumed(vec![kit::replay_turn(
+    let mut s = resumed_raw(vec![kit::replay_turn(
         "turn",
         serde_json::json!([{
             "type": "reasoning", "id": "reasoning",
@@ -572,11 +568,7 @@ fn snapshot_formatter_reasoning_matches_compact_and_detailed_replay() {
 // ORACLE chatwidget/tests/history_projection.rs:250 raw_reasoning_keeps_its_own_heading kind=snap owner=chat-live
 #[test]
 fn raw_reasoning_keeps_its_own_heading() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `show_raw_agent_reasoning` setting on the chat: a reasoning item with raw content only draws nothing",
-    );
-    let mut s = resumed(vec![kit::replay_turn(
+    let mut s = resumed_raw(vec![kit::replay_turn(
         "turn-1",
         serde_json::json!([{
             "type": "reasoning", "id": "raw", "summary": [],
@@ -657,6 +649,17 @@ fn resumed(mut turns: Vec<serde_json::Value>) -> Screen {
     Screen::build(Owner::ChatLive)
         .size(80, 24)
         .replay(turns)
+        .live()
+        .open()
+}
+
+/// `resumed` with the config's `show_raw_agent_reasoning` on.
+fn resumed_raw(mut turns: Vec<serde_json::Value>) -> Screen {
+    turns.reverse();
+    Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .replay(turns)
+        .raw_reasoning()
         .live()
         .open()
 }
@@ -1063,11 +1066,7 @@ fn replayed_reasoning_item_preserves_summary_parts_and_hides_raw_reasoning_when_
 // ORACLE chatwidget/tests/history_replay.rs:1328 replayed_reasoning_item_shows_raw_reasoning_when_enabled kind=ui owner=chat-live
 #[test]
 fn replayed_reasoning_item_shows_raw_reasoning_when_enabled() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `show_raw_agent_reasoning` setting on the chat: the replayed reasoning item's raw content is never drawn",
-    );
-    let mut s = resumed(vec![kit::replay_turn(
+    let mut s = resumed_raw(vec![kit::replay_turn(
         "turn-1",
         serde_json::json!([{
             "type": "reasoning", "id": "reasoning-1",
