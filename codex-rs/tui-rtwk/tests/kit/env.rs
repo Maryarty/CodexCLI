@@ -27,6 +27,8 @@
 //!   notices the host announces to the first conversation (`AppEv::Announce`): the
 //!   update banner (the running version is the source build's `0.0.0`) and the
 //!   other-version notice of the connected service.
+//! - `thread_start(response)`: the server's `thread/start` answer of the session (the
+//!   instruction sources, model and cwd the thread starts with).
 //! - `daybreak(models)`: what the host knows of the account's cyber access (an eligible
 //!   account and the catalog's `(model, standard, daybreak)` programs) that words a refusal.
 //! - `raw_reasoning()`: the config's `show_raw_agent_reasoning` is on (a reasoning block also
@@ -100,6 +102,8 @@ pub(super) struct Env {
     announced: Vec<Notice>,
     /// What the host knows of the account's cyber access.
     daybreak: Option<Access>,
+    /// The server's answer to the session's `thread/start` (its instruction sources, settings).
+    pub(super) thread_start: Option<serde_json::Value>,
     /// `show_raw_agent_reasoning` is on.
     raw_reasoning: bool,
     /// How the run started, as the host says.
@@ -348,6 +352,13 @@ impl Open {
                 })
                 .collect(),
         });
+        self
+    }
+
+    /// The server answers the session's `thread/start` with `response` (a `ThreadStartResponse`:
+    /// the instruction sources the thread loaded, its model and cwd) instead of the fake's own.
+    pub fn thread_start(mut self, response: serde_json::Value) -> Open {
+        self.env.thread_start = Some(response);
         self
     }
 

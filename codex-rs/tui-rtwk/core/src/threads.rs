@@ -21,6 +21,7 @@ mod message;
 mod note;
 pub mod queue;
 pub mod replay;
+pub mod status;
 pub mod stream_preview;
 mod user_prompt;
 
@@ -175,8 +176,12 @@ pub enum Item {
     Decision(screens::approvals::decided::Decided),
     /// A line `/auto-review` or the reviewer's paths added.
     Review(ReviewLine),
-    /// The card of a `/status` command (oracle `StatusHistoryCell`).
-    Status(Arc<screens::status::StatusCard>),
+    /// The card of a `/status` command (oracle `StatusHistoryCell`). `request`
+    /// is the refresh of the rate limits the card still waits for.
+    Status {
+        card: Arc<screens::status::StatusCard>,
+        request: Option<u64>,
+    },
 }
 
 impl Item {
@@ -415,18 +420,6 @@ impl Transcript {
         self.order
             .iter()
             .filter_map(|key| self.item(key).map(|item| (key, item)))
-    }
-
-    /// The card of the newest `/status` entry (oracle `last_status_copy_targets`: the copy
-    /// picker offers the last one).
-    pub fn last_status(&self) -> Option<&Arc<screens::status::StatusCard>> {
-        self.order
-            .iter()
-            .rev()
-            .find_map(|key| match self.item(key) {
-                Some(Item::Status(card)) => Some(card),
-                _ => None,
-            })
     }
 
     fn item(&self, key: &ItemKey) -> Option<&Item> {
@@ -2650,6 +2643,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 && !matches!(&model.turn, TurnState::Running(running) if &running.turn == turn)
             {
                 return;
+            }
+            // The card of a `/status` is a cell of the transcript: its refresh ends there.
+            if let ScreenThreadEv::Status(screens::status::ThreadEv::Refreshed {
+                request,
+                limits,
+            }) = &ev
+            {
+                model.transcript.finish_status(*request, limits.clone());
             }
             screens::apply_thread_ev(&mut model.slots, ev, fx);
             append_history(model);

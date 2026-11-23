@@ -34,6 +34,9 @@ codex-terminal-detection = { path = "/Users/admin/.cache/codexcli/backend-pin/co
 codex-utils-absolute-path = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/absolute-path" }
 codex-utils-path-uri = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/path-uri" }
 codex-utils-cli = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/cli" }
+codex-model-provider = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/model-provider" }
+codex-model-provider-info = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/model-provider-info" }
+codex-utils-sandbox-summary = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/sandbox-summary" }
 codex-utils-path = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/path-utils" }
 codex-worktree = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/worktree" }
 codex-tui-rtwk = { path = ".." }

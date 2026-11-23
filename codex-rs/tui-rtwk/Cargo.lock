@@ -3666,6 +3666,8 @@ dependencies = [
  "codex-http-client",
  "codex-install-context",
  "codex-login",
+ "codex-model-provider",
+ "codex-model-provider-info",
  "codex-protocol",
  "codex-terminal-detection",
  "codex-tui-core",
@@ -3674,6 +3676,7 @@ dependencies = [
  "codex-utils-cli",
  "codex-utils-path",
  "codex-utils-path-uri",
+ "codex-utils-sandbox-summary",
  "codex-worktree",
  "dunce",
  "futures",
@@ -4175,6 +4178,14 @@ name = "codex-utils-rustls-provider"
 version = "0.170.0"
 dependencies = [
  "rustls",
+]
+
+[[package]]
+name = "codex-utils-sandbox-summary"
+version = "0.170.0"
+dependencies = [
+ "codex-protocol",
+ "codex-utils-path-uri",
 ]
 
 [[package]]

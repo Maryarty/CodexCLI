@@ -123,6 +123,7 @@ pub fn reply(
             match decode::<GetAccountRateLimitsResponse>("account/rateLimits/read", result) {
                 Ok(response) => {
                     let reserve = crate::screens::chat::Reserve::of(&response);
+                    let read = crate::screens::status::RateRead::from_response(&response);
                     let plan = response.rate_limits.plan_type;
                     let banner = response.rate_limit_upsell.and_then(|raw| {
                         crate::screens::chat::Banner::parse(raw, response.account_id, plan)
@@ -131,7 +132,7 @@ pub fn reply(
                         .rate_limits_by_limit_id
                         .and_then(|mut limits| limits.remove("codex"))
                         .unwrap_or(response.rate_limits);
-                    Reply::account_rate_limits(limits.into(), banner, reserve)
+                    Reply::account_rate_limits(limits.into(), banner, reserve, read)
                 }
                 Err(error) => Reply::error(error),
             },
@@ -155,7 +156,24 @@ pub fn reply(
         Command::StartThread { ticket, .. } => Some((
             *ticket,
             match decode::<ThreadStartResponse>("thread/start", result) {
-                Ok(response) => Reply::thread_started(ThreadId::new(response.thread.id)),
+                Ok(response) => {
+                    // The oracle's split (`compose_agents_summary`): a path in
+                    // the host's own convention is shown relative to the
+                    // directory, any other as the server spells it.
+                    let sources = response
+                        .instruction_source_path_uris()
+                        .into_iter()
+                        .map(|uri| match uri.to_abs_path() {
+                            Ok(path) => screens::status::AgentsSource::Native(
+                                path.as_path().display().to_string(),
+                            ),
+                            Err(_) => screens::status::AgentsSource::Foreign(
+                                uri.inferred_native_path_string(),
+                            ),
+                        })
+                        .collect();
+                    Reply::thread_started_with(ThreadId::new(response.thread.id), sources)
+                }
                 Err(error) => Reply::error(error),
             },
         )),

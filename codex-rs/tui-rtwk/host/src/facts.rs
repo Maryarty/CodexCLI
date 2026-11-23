@@ -9,6 +9,7 @@
 use std::future::Future;
 use std::path::Path;
 
+use codex_app_server_client::RemoteAppServerEndpoint;
 use codex_app_server_protocol::{
     Account, ClientRequest, GetAccountParams, GetAccountResponse, Model, ModelListParams,
     ModelListResponse,
@@ -19,11 +20,17 @@ use codex_core::config::Config;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::keymap::{Keymap, KeymapSpec};
 use codex_tui_core::rpc::ServerError;
+use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::chat::{NotificationPolicy, StatusFacts};
 use codex_tui_core::screens::dialogs::Warning;
 use codex_tui_core::screens::select::permissions::{Facts, Limit, Limits};
+use codex_tui_core::screens::status::{
+    Account as CardAccount, Approval, CardFacts, CatalogModel, Ev as StatusEv,
+    Remote as CardRemote, SandboxKind,
+};
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_rtwk::services::backend::rpc::Ids;
+use codex_utils_path_uri::PathUri;
 
 /// `format_directory_display` without a width: `~` for the home, `~/x` below
 /// it, the path as it is otherwise.
@@ -117,6 +124,7 @@ pub async fn status(config: &Config) -> StatusFacts {
         starfield_effect: config.tui_effects.starfield,
         account_usage: config.model_provider.requires_openai_auth,
         empty_state: config.tui_effects.welcome,
+        card: card(config),
         notification_policy: NotificationPolicy {
             enabled,
             always: notifications.condition == NotificationCondition::Always,
@@ -125,6 +133,181 @@ pub async fn status(config: &Config) -> StatusFacts {
         permissions: permissions(config),
         agent_threads: Some(config.multi_agent_v2.max_concurrent_threads_per_session),
     }
+}
+
+/// What the card needs of the config beyond the status line: the permission
+/// profile as the oracle's `status_permission_summary` classifies it, the
+/// workspace roots, the provider and reasoning settings.
+fn card(config: &Config) -> CardFacts {
+    let profile = config.permissions.effective_permission_profile();
+    let cwd = PathUri::from_abs_path(&config.cwd);
+    let roots = config.effective_workspace_roots();
+    let summary = codex_utils_sandbox_summary::summarize_permission_profile(&profile, &cwd, &roots);
+    let sandbox = if summary.starts_with("read-only") {
+        SandboxKind::ReadOnly
+    } else if summary.starts_with("workspace-write") {
+        SandboxKind::Workspace
+    } else if summary.starts_with("custom permissions") {
+        SandboxKind::Custom
+    } else if summary.starts_with("external-sandbox") {
+        SandboxKind::ExternalSandbox
+    } else {
+        SandboxKind::DangerFullAccess
+    };
+    CardFacts {
+        cwd: config.cwd.display().to_string(),
+        profile: config
+            .permissions
+            .active_permission_profile()
+            .map(|active| active.id.to_string()),
+        sandbox,
+        network: summary.ends_with("(network access enabled)"),
+        disabled: profile == codex_protocol::models::PermissionProfile::Disabled,
+        extra_roots: roots
+            .iter()
+            .filter(|root| root.to_string() != cwd.to_string())
+            .map(PathUri::inferred_native_path_string)
+            .collect(),
+        approval: match config.permissions.approval_policy.value() {
+            codex_protocol::protocol::AskForApproval::UnlessTrusted => Approval::UnlessTrusted,
+            codex_protocol::protocol::AskForApproval::OnRequest => Approval::OnRequest,
+            codex_protocol::protocol::AskForApproval::Granular(_) => Approval::Granular,
+            codex_protocol::protocol::AskForApproval::Never => Approval::Never,
+        },
+        reasoning: config.model_provider.wire_api == codex_model_provider_info::WireApi::Responses,
+        reasoning_summary: config
+            .model_reasoning_summary
+            .map(|summary| summary.to_string()),
+        first_party_provider: config
+            .model_providers
+            .get(&config.model_provider_id)
+            .is_some_and(codex_model_provider::provider_uses_first_party_auth_path),
+        context_window: config.model_context_window,
+    }
+}
+
+/// The account the card's Account row shows (`status::Ev::Account`), as the oracle's
+/// `SessionAccount` makes its display: the email and plan of a ChatGPT login with the workspace
+/// name and its routing id, or the API key. `None` when the read fails; a provider without a
+/// display (Bedrock, Gcp) is `Some(None)`.
+pub async fn card_account<F, Fut>(ids: Ids, send: F) -> Option<AppEv>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let response = send(ClientRequest::GetAccount {
+        request_id: ids.next(),
+        params: GetAccountParams {
+            refresh_token: false,
+        },
+    })
+    .await
+    .ok()?;
+    let response = serde_json::from_value::<GetAccountResponse>(response).ok()?;
+    Some(AppEv::Screen(ScreenEv::Status(StatusEv::Account(
+        card_account_of(response),
+    ))))
+}
+
+fn card_account_of(response: GetAccountResponse) -> Option<CardAccount> {
+    match response.account? {
+        Account::Chatgpt {
+            email,
+            plan_type,
+            workspace_name,
+        } => Some(CardAccount::ChatGpt {
+            email,
+            plan: Some(plan_type),
+            workspace: workspace_display(workspace_name, response.workspace_routing),
+        }),
+        Account::ApiKey {} => Some(CardAccount::ApiKey),
+        _ => None,
+    }
+}
+
+/// `workspace_display` of the oracle: the name and the routing id, `Name (id)`.
+fn workspace_display(
+    name: Option<String>,
+    routing: Option<codex_app_server_protocol::WorkspaceRouting>,
+) -> Option<String> {
+    let name = name
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty() && !name.chars().any(char::is_control));
+    let id = routing.map(|routing| routing.chatgpt_account_id);
+    match (name, id) {
+        (Some(name), Some(id)) => Some(format!("{name} ({id})")),
+        (name, id) => name.or(id),
+    }
+}
+
+/// The models the card looks its display name and default reasoning up in
+/// (`status::Ev::Catalog`): the server's whole list, hidden models too, as the oracle's catalog.
+pub async fn card_catalog<F, Fut>(ids: Ids, send: F) -> Option<AppEv>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let mut models = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = send(ClientRequest::ModelList {
+            request_id: ids.next(),
+            params: ModelListParams {
+                cursor: cursor.take(),
+                include_hidden: Some(true),
+                ..Default::default()
+            },
+        })
+        .await
+        .ok()?;
+        let page = serde_json::from_value::<ModelListResponse>(page).ok()?;
+        models.extend(page.data);
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    Some(AppEv::Screen(ScreenEv::Status(StatusEv::Catalog(
+        models
+            .into_iter()
+            .map(|model| CatalogModel {
+                model: model.model,
+                display_name: model.display_name,
+                default_effort: Some(model.default_reasoning_effort.to_string()),
+            })
+            .collect(),
+    ))))
+}
+
+/// The server row of the card (oracle `remote_connection_status_value`): none for the in-process
+/// server; the address of the socket or the websocket without its credentials, and the version
+/// the server reports.
+pub fn card_remote(
+    endpoint: Option<&RemoteAppServerEndpoint>,
+    local_daemon: bool,
+    server_version: Option<&str>,
+) -> Option<CardRemote> {
+    let address = match endpoint? {
+        RemoteAppServerEndpoint::WebSocket { websocket_url, .. } => url::Url::parse(websocket_url)
+            .ok()
+            .map(|mut url| {
+                let _ = url.set_username("");
+                let _ = url.set_password(None);
+                url.set_query(None);
+                url.set_fragment(None);
+                url.to_string()
+            })
+            .unwrap_or_else(|| "<invalid websocket URL>".to_string()),
+        RemoteAppServerEndpoint::UnixSocket { socket_path } => {
+            format!("unix://{}", socket_path.display())
+        }
+    };
+    Some(CardRemote {
+        address,
+        version: server_version
+            .map_or_else(|| "unknown".to_string(), |version| format!("v{version}")),
+        local_daemon,
+    })
 }
 
 /// What `/permissions` reads of the config: the guardian feature, what the
