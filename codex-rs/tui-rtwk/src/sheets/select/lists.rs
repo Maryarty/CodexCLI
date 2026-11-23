@@ -1,13 +1,10 @@
-//! The named parameterisations as the generic list: the `/model` family and the
-//! permissions menu are data in the model (`Menu`), their words are here
-//! (ADR-010). A `Menu::List` is already the generic form.
+//! The named parameterisations as the generic list: the `/model` family and the apps directory
+//! are data in the model (`Menu`), their words are here (ADR-010). (The permission menus are a
+//! sheet of their own: `permissions.rs`.)
 
 use crate::widgets::picker::list::{Columns, Item, List, Role, Secondary, Span};
 use codex_tui_core::screens::select::models::{
     self, Apply, Choice, Effort, Heading, Kind, PlanSource,
-};
-use codex_tui_core::screens::select::permissions::{
-    self, Disabled, Notice, Preset, Recommend, Reviewer,
 };
 use codex_tui_core::screens::select::{Confirm, Menu, Page};
 
@@ -21,115 +18,8 @@ const SESSION_KEY: char = 's';
 pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
     Some(match (menu, page) {
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
-        (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
         _ => return None,
     })
-}
-
-/// A menu of the `/permissions` family (`permissions_menu.rs`,
-/// `permission_popups.rs`, `permission_discovery.rs`).
-fn permissions(page: &permissions::Page, s: &Strings) -> List {
-    let (title, subtitle, header) = match &page.heading {
-        permissions::Heading::Permissions { notice } => (
-            s.permissions_title.to_string(),
-            notice.as_ref().map(|notice| match notice {
-                Notice::NoProfiles => s.permissions_no_profiles.to_string(),
-                Notice::Failed(failure) => s.failure(failure),
-            }),
-            Vec::new(),
-        ),
-        permissions::Heading::FullAccess { cyber } => (
-            s.full_title.to_string(),
-            None,
-            full_access_header(cyber.as_ref(), s),
-        ),
-    };
-    List {
-        title: Some(title),
-        subtitle,
-        header,
-        standard_hint: true,
-        items: page
-            .rows
-            .iter()
-            .map(|row| permission_item(row, s))
-            .collect(),
-        ..List::default()
-    }
-}
-
-/// The header under `Enable full access?` (`open_full_access_confirmation`):
-/// one paragraph with the caution in red; a cyber model's has blank rows
-/// between its sentences and its first sentence in red.
-fn full_access_header(cyber: Option<&Recommend>, s: &Strings) -> Vec<Vec<Span>> {
-    let run = |text: &str, role| Span {
-        text: text.to_string(),
-        role,
-    };
-    match cyber {
-        None => vec![vec![
-            run(s.full_warning, Role::Plain),
-            run(s.full_caution, Role::Danger),
-        ]],
-        Some(recommend) => vec![
-            Vec::new(),
-            vec![run(s.full_warning.trim_end(), Role::Plain)],
-            Vec::new(),
-            vec![
-                run(s.cyber_risk, Role::Danger),
-                run(s.cyber_safeguards, Role::Plain),
-                run(
-                    match recommend {
-                        Recommend::AutoReview => s.cyber_recommend_auto,
-                        Recommend::Ask => s.cyber_recommend_ask,
-                    },
-                    Role::Plain,
-                ),
-            ],
-        ],
-    }
-}
-
-fn permission_item(row: &permissions::Row, s: &Strings) -> Item {
-    let words = |name: &str, description: &str| (name.to_string(), Some(description.to_string()));
-    let (name, description) = match &row.kind {
-        permissions::Kind::Mode { preset, reviewer } => match (preset, reviewer) {
-            (Preset::Auto, Reviewer::AutoReview) => {
-                words(s.mode_approve, s.mode_approve_description)
-            }
-            (Preset::Auto, _) => words(s.mode_ask, s.mode_ask_description),
-            (Preset::FullAccess, _) => words(s.mode_full, s.mode_full_description),
-            (Preset::ReadOnly, _) => words(s.mode_read, s.mode_read_description),
-        },
-        permissions::Kind::Profile { description } => (
-            row.name.clone(),
-            Some(
-                description
-                    .clone()
-                    .unwrap_or_else(|| s.profile_configured.to_string()),
-            ),
-        ),
-        permissions::Kind::Unlisted => (row.name.clone(), Some(s.profile_unlisted.to_string())),
-        permissions::Kind::Loading => (s.permissions_loading.to_string(), None),
-        permissions::Kind::Retry => (s.permissions_retry.to_string(), None),
-        permissions::Kind::Continue => words(s.full_continue, s.full_continue_description),
-        permissions::Kind::Cancel => words(s.full_cancel, s.full_cancel_description),
-    };
-    let reason = match &row.disabled {
-        Some(Disabled::NotOnServer) => Some(s.not_on_server.to_string()),
-        Some(Disabled::Requirements) => Some(s.disabled_by_requirements.to_string()),
-        Some(Disabled::Reason(text)) => Some(text.clone()),
-        Some(Disabled::Idle) | None => None,
-    };
-    Item {
-        id: row.id.clone(),
-        name,
-        description,
-        current: row.current,
-        disabled: matches!(row.disabled, Some(Disabled::Idle)),
-        disabled_reason: reason,
-        ..Item::default()
-    }
 }
 
 /// A menu of the `/model` family: the heading says what it is, each row what

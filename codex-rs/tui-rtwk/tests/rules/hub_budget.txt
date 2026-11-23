@@ -33,8 +33,12 @@ enum core/src/screens/select.rs Picked 8
 # page of an app is opened in the browser) and `AppUnlinked` (an app with no page was picked: a note).
 # `Menu::Quick` (`/presets`) is a sheet too (`Opening::Quick`, its pages the routes of a nested
 # navigator; `Menu` 3 -> 2); `Draft` is `Preset` (what a page asks of the model).
-enum core/src/screens/select.rs Menu 2
-enum core/src/screens/select.rs Intent 28
+# ADR-013 (select, Permissions family): `Menu::Permissions` is a sheet of its own too (`Opening::
+# Permissions`, the pages of `/permissions` its own state), `Menu` 2 -> 1. `Intent` +3:
+# `SetPermissions` (the selection a page settled on), `LoadProfiles` (the catalog asked for, also
+# the Retry row) and `AbandonPermissions` (Esc: an inline pick that waited on the sheet is given up).
+enum core/src/screens/select.rs Menu 1
+enum core/src/screens/select.rs Intent 31
 enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4

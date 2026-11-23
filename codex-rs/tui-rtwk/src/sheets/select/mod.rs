@@ -10,6 +10,7 @@ mod confirm;
 mod dialog;
 mod generic;
 mod lists;
+mod permissions;
 pub(crate) mod prompt;
 mod quick;
 mod review;
@@ -42,6 +43,19 @@ macro_rules! entry {
             description: $description,
             script: include_str!(concat!($file, ".jsonl")),
             open: EntryOpen::Dialog(|_| dialog::MenuDialog.into()),
+        }
+    };
+}
+
+/// A debug entry of a `/permissions` page: the script's model has asked for the menu, the sheet
+/// of the show is built from it (`permissions::seeded`).
+macro_rules! permissions_entry {
+    ($name:literal, $description:literal, $file:literal) => {
+        DebugEntry {
+            name: $name,
+            description: $description,
+            script: include_str!(concat!($file, ".jsonl")),
+            open: EntryOpen::Dialog(permissions::seeded),
         }
     };
 }
@@ -129,57 +143,57 @@ fn fixture_entries() -> Vec<DebugEntry> {
             "the /model menu while the catalog loads",
             "fixtures/model_loading"
         ),
-        entry!(
+        permissions_entry!(
             "permissions_menu",
             "the /permissions menu",
             "fixtures/permissions_menu"
         ),
-        entry!(
+        permissions_entry!(
             "profile_permissions",
             "the /permissions menu on a catalog: the built-in modes, :workspace in use",
             "fixtures/profile_permissions"
         ),
-        entry!(
+        permissions_entry!(
             "profile_permissions_disallowed_full_access",
             "the /permissions menu with Full Access disabled by requirements",
             "fixtures/profile_permissions_disallowed_full_access"
         ),
-        entry!(
+        permissions_entry!(
             "profile_permissions_custom",
             "the /permissions menu with the server's custom profiles",
             "fixtures/profile_permissions_custom"
         ),
-        entry!(
+        permissions_entry!(
             "permission_discovery_loading",
             "the /permissions menu while the catalog is read",
             "fixtures/permission_discovery_loading"
         ),
-        entry!(
+        permissions_entry!(
             "permission_discovery_remote",
             "the /permissions menu on a remote server's catalog",
             "fixtures/permission_discovery_remote"
         ),
-        entry!(
+        permissions_entry!(
             "permission_discovery_empty",
             "the /permissions menu of an empty catalog",
             "fixtures/permission_discovery_empty"
         ),
-        entry!(
+        permissions_entry!(
             "permission_discovery_failure",
             "the /permissions menu after a failed read, with Retry",
             "fixtures/permission_discovery_failure"
         ),
-        entry!(
+        permissions_entry!(
             "permissions_unnamed_server_profile",
             "the /permissions menu with Approve for me in use",
             "fixtures/permissions_unnamed_server_profile"
         ),
-        entry!(
+        permissions_entry!(
             "permissions_constrained",
             "the /permissions preset menu with Full Access forbidden by the config",
             "fixtures/permissions_constrained"
         ),
-        entry!(
+        permissions_entry!(
             "permissions_cyber_full_access",
             "the full-access confirmation of a cyber model",
             "fixtures/permissions_cyber_full_access"
@@ -541,6 +555,7 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
         Opening::Worktree(menu) => (worktree::sheet(menu.clone()), worktree::options()),
         Opening::Apps => (apps::sheet(), apps::options()),
         Opening::Quick(menu) => (quick::sheet(menu), quick::options()),
+        Opening::Permissions(menu) => (permissions::sheet(menu.clone()), permissions::options()),
     }
 }
 
