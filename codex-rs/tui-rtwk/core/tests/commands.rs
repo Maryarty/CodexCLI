@@ -1646,6 +1646,72 @@ mod effects {
         assert_eq!(json["params"]["threadId"], T);
     }
 
+    /// `/review <text>` reviews the text as instructions; the popup's pick
+    /// reviews its target. Both are `review/start`, inline on the thread.
+    #[test]
+    fn review_with_text_and_the_popups_pick_start_an_inline_review() {
+        use codex_tui_core::threads::ReviewTarget;
+        let mut app = ready();
+        let fx = command(
+            &mut app,
+            SlashCommand::Review,
+            SessionIntent::Review {
+                args: Some("  the auth module ".into()),
+            },
+        );
+        let sent: Vec<_> = fx
+            .commands()
+            .iter()
+            .filter_map(|c| match c {
+                Command::Screen {
+                    thread,
+                    command: ScreenCommand::Chat(chat::Command::Review(target)),
+                    ..
+                } if thread.as_str() == T => Some(target.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            sent,
+            [ReviewTarget::Custom {
+                instructions: "the auth module".into()
+            }],
+            "{:?}",
+            fx.commands()
+        );
+        let target = ReviewTarget::BaseBranch {
+            branch: "main".into(),
+        };
+        let fx = command(
+            &mut app,
+            SlashCommand::Review,
+            SessionIntent::StartReview {
+                target: target.clone(),
+            },
+        );
+        assert!(
+            fx.commands().iter().any(|c| matches!(
+                c,
+                Command::Screen {
+                    command: ScreenCommand::Chat(chat::Command::Review(t)),
+                    ..
+                } if *t == target
+            )),
+            "{:?}",
+            fx.commands()
+        );
+        let request = chat::wire(
+            &chat::Command::Review(target),
+            &ThreadId::new(T),
+            RequestId::Integer(9),
+        );
+        let json = serde_json::to_value(&request).expect("json");
+        assert_eq!(json["method"], "review/start");
+        assert_eq!(json["params"]["threadId"], T);
+        assert_eq!(json["params"]["target"]["type"], "baseBranch");
+        assert_eq!(json["params"]["delivery"], "inline");
+    }
+
     #[test]
     fn memory_maintenance_is_a_stub_error() {
         let mut app = ready();

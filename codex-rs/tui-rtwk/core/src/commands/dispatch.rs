@@ -225,6 +225,9 @@ pub enum SessionIntent {
     Rollout,
     App,
     Review { args: Option<String> },
+    /// The review popup's pick (or `/review <text>` once typed): `review/start`
+    /// inline on this thread, with the target chosen.
+    StartReview { target: crate::threads::ReviewTarget },
     Model { args: Option<String> },
     Permissions { args: Option<String> },
     Title { args: Option<String> },

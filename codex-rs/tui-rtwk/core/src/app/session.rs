@@ -155,6 +155,14 @@ pub(super) fn session_intent(
             fx.commands.push(super::start_thread(app, ticket, backend));
         }
         S::Cd { path } => change_directory(app, source, &path, fx),
+        // `slash_dispatch.rs`: `/review <text>` reviews the text as instructions.
+        S::Review { args: Some(instructions) } => {
+            let target = crate::threads::ReviewTarget::Custom {
+                instructions: instructions.trim().to_owned(),
+            };
+            start_review(app, source, target, fx);
+        }
+        S::StartReview { target } => start_review(app, source, target, fx),
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
         S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
         S::Compact | S::Rename { name: Some(_) } => {
@@ -273,7 +281,7 @@ pub(super) fn session_intent(
         | S::Hooks
         | S::DebugConfig
         | S::Ps
-        | S::Review { .. }
+        | S::Review { args: None }
         | S::Model { .. }
         | S::Permissions { .. }
         | S::Title { .. }
@@ -285,6 +293,19 @@ pub(super) fn session_intent(
             Note::from(crate::commands::Notice::NotAvailable(command)),
             fx,
         ),
+    }
+}
+
+/// `review/start` inline on the thread: the review runs as a turn of it.
+fn start_review(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    target: crate::threads::ReviewTarget,
+    fx: &mut AppFx,
+) {
+    if let Some(thread) = source {
+        let ev = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::Review(target)));
+        apply_thread(app, &thread, ev, fx);
     }
 }
 

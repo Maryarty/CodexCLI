@@ -561,6 +561,9 @@ pub enum ThreadIntent {
     /// (`AppCommand::clean_background_terminals`).
     CleanTerminals,
     Rename(String),
+    /// `/review <text>` and the review popup's pick: `review/start` inline on
+    /// this thread (the oracle's `AppCommand::review`).
+    Review(crate::threads::ReviewTarget),
     /// `!cmd` from the composer: a user shell command (the oracle's
     /// `AppCommand::RunUserShellCommand`), run while a turn runs too.
     Shell(String),
@@ -767,6 +770,7 @@ pub enum Command {
     Compact,
     CleanTerminals,
     Rename(String),
+    Review(crate::threads::ReviewTarget),
     Shell(String),
     /// `turn/steer`: the message joins the running turn `turn`.
     Steer {
@@ -795,6 +799,7 @@ pub enum Ctx {
     Compact,
     CleanTerminals,
     Rename,
+    Review,
     Shell,
     /// A steer in flight: `threads::apply` reads its reply (the queue and the
     /// previews are the thread's, not the slot's); `retried` once the turn id
@@ -831,6 +836,10 @@ pub fn apply_thread_intent(
         ThreadIntent::Rename(name) if !name.trim().is_empty() => {
             part.error = None;
             fx.request(Ctx::Rename, Command::Rename(name));
+        }
+        ThreadIntent::Review(target) => {
+            part.error = None;
+            fx.request(Ctx::Review, Command::Review(target));
         }
         ThreadIntent::Shell(command) if !command.trim().is_empty() => {
             part.error = None;
@@ -912,6 +921,10 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             thread: thread.to_string(),
             name: name.clone(),
         },
+        Command::Review(target) => crate::threads::ThreadAsk::Review {
+            thread: thread.to_string(),
+            target: target.clone(),
+        },
         Command::Shell(command) => crate::threads::ThreadAsk::Shell {
             thread: thread.to_string(),
             command: command.clone(),
@@ -938,7 +951,8 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     use codex_app_server_protocol::{
-        ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse, ThreadSetNameResponse,
+        ReviewStartResponse, ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse,
+        ThreadSetNameResponse,
         ThreadPrepareApprovedPlanResponse, ThreadShellCommandResponse, TurnSteerResponse,
     };
     let decoded = match command {
@@ -947,6 +961,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
             serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result).map(|_| Reply::Ack)
         }
         Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
+        Command::Review(_) => serde_json::from_value::<ReviewStartResponse>(result).map(|_| Reply::Ack),
         Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
         Command::Mode(_) => Ok(Reply::Ack),
         Command::ApprovePlan(_) => serde_json::from_value::<ThreadPrepareApprovedPlanResponse>(result)
