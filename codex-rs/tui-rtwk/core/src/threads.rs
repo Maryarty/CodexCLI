@@ -39,7 +39,7 @@ pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
-pub use note::{CdRefusal, CopyLabel, ExportNote, ModeNote, Note, NoteKey, RemoveNote, Stub, Tone};
+pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
 pub use user_prompt::{Shown, UserPrompt};
@@ -2795,6 +2795,11 @@ fn feature_reply(
     result: Result<features::FeatureReply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
+    // An RPC of a feature that failed is the thread's last failure, as a turn start's is: the
+    // feature words what else it wants said (a note), and need not set the error line itself.
+    if let Err(error) = &result {
+        model.last_error = Some(Failure::from(error.clone()));
+    }
     with_features(model, fx, |parts, cx| {
         features::apply_thread_reply(parts, ctx, result, cx);
     });

@@ -5,17 +5,19 @@
 //! writes at once, the Markdown is what the UI's renderer made of the thread, and the host's
 //! answers are the notes of the conversation. The words are the view's: these tests read data.
 
-use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
+use codex_tui_core::app::effects::{
+    Ask, CopyDestination, CopyFormat, CopyStatus, Done, FEATURE_REQUEST_BIT,
+};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, TranscriptText, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
+use codex_tui_core::features::export::{self, Note as ExportNote, Prompt as ExportPrompt};
+use codex_tui_core::features::{FeatureMenu, FeatureNote, FeaturePrompt};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::dialogs::{self, Open, PromptKind};
-use codex_tui_core::screens::select::export::{self, Row};
-use codex_tui_core::screens::select::list::{Item, List};
 use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
 use codex_tui_core::screens::{ScreenIntent, chat};
-use codex_tui_core::threads::{CopyLabel, ExportNote, Item as Entry, Note, NoteKey, Tone};
+use codex_tui_core::threads::{Item as Entry, Note, NoteKey, Tone};
 use pretty_assertions::assert_eq;
 
 const T: &str = "thread-1";
@@ -62,25 +64,19 @@ fn export_command(app: &mut CodexApp, path: Option<&str>) -> AppFx {
     )
 }
 
-/// The picker as the view builds it: a generic list over the rows' ids.
-fn pick(app: &mut CodexApp, row: Row) -> AppFx {
-    let item = |row: Row| Item {
-        id: row.id().to_owned(),
-        name: row.id().to_owned(),
-        ..Item::default()
-    };
-    let list = List {
-        items: vec![item(Row::Clipboard), item(Row::File)],
-        ..List::default()
-    };
-    let select = |app: &mut CodexApp, intent| {
-        run(
-            app,
-            AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
-        )
-    };
-    select(app, SelectIntent::Open(Menu::List(Box::new(list))));
-    select(app, SelectIntent::Choose(row.id().to_owned()))
+/// A row of the destination picker the bare `/export` opened.
+fn pick(app: &mut CodexApp, row: &str) -> AppFx {
+    export_command(app, None);
+    assert_eq!(
+        app.screens().select.menu(),
+        Some(&Menu::Feature(FeatureMenu::Export(export::Menu::Destination)))
+    );
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Select(SelectIntent::Choose(
+            row.to_owned(),
+        )))),
+    )
 }
 
 fn asks(fx: &AppFx) -> Vec<(u64, Ask)> {
@@ -93,15 +89,15 @@ fn asks(fx: &AppFx) -> Vec<(u64, Ask)> {
         .collect()
 }
 
-fn exports(app: &CodexApp) -> Vec<NoteKey> {
+fn exports(app: &CodexApp) -> Vec<ExportNote> {
     app.active_thread()
         .transcript()
         .iter()
         .filter_map(|(_, item)| match item {
             Entry::Note(Note {
-                key: key @ (NoteKey::Export(_) | NoteKey::Copy { .. }),
+                key: NoteKey::Feature(FeatureNote::Export(note)),
                 ..
-            }) => Some(key.clone()),
+            }) => Some(note.clone()),
             _ => None,
         })
         .collect()
@@ -114,8 +110,7 @@ fn a_path_writes_the_conversation_there() {
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1);
     let (request, ask) = &asks[0];
-    assert!(request & dialogs::prompt::REQUEST_BIT == 0);
-    assert!(*request & export::REQUEST_BIT != 0);
+    assert!(*request & FEATURE_REQUEST_BIT != 0);
     let Ask::Export {
         thread,
         path,
@@ -133,7 +128,7 @@ fn a_path_writes_the_conversation_there() {
 #[test]
 fn the_clipboard_row_copies_the_markdown_as_plain_text() {
     let mut app = ready();
-    let fx = pick(&mut app, Row::Clipboard);
+    let fx = pick(&mut app, export::CLIPBOARD);
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(
@@ -150,12 +145,15 @@ fn the_clipboard_row_copies_the_markdown_as_plain_text() {
 #[test]
 fn the_file_row_opens_the_filename_prompt_and_its_submit_writes() {
     let mut app = ready();
-    let fx = pick(&mut app, Row::File);
+    let fx = pick(&mut app, export::FILE);
     assert!(asks(&fx).is_empty(), "nothing is asked before the filename");
     let Some(Open::Prompt(prompt)) = &app.screens().dialogs.open else {
         panic!("no prompt: {:?}", app.screens().dialogs.open);
     };
-    assert_eq!(prompt.kind, PromptKind::ExportFile);
+    assert_eq!(
+        prompt.kind,
+        PromptKind::Feature(FeaturePrompt::Export(ExportPrompt::File))
+    );
     assert_eq!(prompt.initial, "codex-session-thread-1.md");
 
     let fx = run(
@@ -177,7 +175,7 @@ fn the_file_row_opens_the_filename_prompt_and_its_submit_writes() {
 #[test]
 fn the_prompt_filename_has_no_thread_before_one_exists() {
     let mut app = CodexApp::new();
-    pick(&mut app, Row::File);
+    pick(&mut app, export::FILE);
     let Some(Open::Prompt(prompt)) = &app.screens().dialogs.open else {
         panic!("no prompt");
     };
@@ -187,28 +185,18 @@ fn the_prompt_filename_has_no_thread_before_one_exists() {
 #[test]
 fn a_saved_file_is_said_with_its_path_and_a_failure_with_its_reason() {
     let mut app = ready();
-    let request = asks(&export_command(&mut app, Some("a.md")))[0].0;
-    run(
-        &mut app,
-        AppEv::Effect {
-            request,
-            done: Done::Export(Ok("/work/a.md".to_owned())),
-        },
-    );
-    run(
-        &mut app,
-        AppEv::Effect {
-            request,
-            done: Done::Export(Err("could not create /work/a.md: exists".to_owned())),
-        },
-    );
+    for done in [
+        Done::Export(Ok("/work/a.md".to_owned())),
+        Done::Export(Err("could not create /work/a.md: exists".to_owned())),
+    ] {
+        let request = asks(&export_command(&mut app, Some("a.md")))[0].0;
+        run(&mut app, AppEv::Effect { request, done });
+    }
     assert_eq!(
         exports(&app),
         vec![
-            NoteKey::Export(ExportNote::Saved("/work/a.md".to_owned())),
-            NoteKey::Export(ExportNote::Failed(
-                "could not create /work/a.md: exists".to_owned()
-            )),
+            ExportNote::Saved("/work/a.md".to_owned()),
+            ExportNote::Failed("could not create /work/a.md: exists".to_owned()),
         ]
     );
     let tones = app
@@ -216,7 +204,9 @@ fn a_saved_file_is_said_with_its_path_and_a_failure_with_its_reason() {
         .transcript()
         .iter()
         .filter_map(|(_, item)| match item {
-            Entry::Note(note) if matches!(note.key, NoteKey::Export(_)) => Some(note.tone),
+            Entry::Note(note) if matches!(note.key, NoteKey::Feature(FeatureNote::Export(_))) => {
+                Some(note.tone)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -226,24 +216,24 @@ fn a_saved_file_is_said_with_its_path_and_a_failure_with_its_reason() {
 #[test]
 fn a_copy_says_pending_first_and_its_status_when_settled() {
     let mut app = ready();
-    let request = asks(&pick(&mut app, Row::Clipboard))[0].0;
-    for result in [
-        Ok(CopyStatus::Pending(7)),
-        Ok(CopyStatus::Confirmed),
-        Err("no clipboard".to_owned()),
-    ] {
-        run(
-            &mut app,
-            AppEv::Effect {
-                request,
-                done: Done::Copy(result),
-            },
-        );
-    }
-    let copy = |result| NoteKey::Copy {
-        label: CopyLabel::Conversation,
-        result,
+    let answers = |app: &mut CodexApp, results: Vec<Result<CopyStatus, String>>| {
+        let request = asks(&pick(app, export::CLIPBOARD))[0].0;
+        for result in results {
+            run(
+                app,
+                AppEv::Effect {
+                    request,
+                    done: Done::Copy(result),
+                },
+            );
+        }
     };
+    answers(
+        &mut app,
+        vec![Ok(CopyStatus::Pending(7)), Ok(CopyStatus::Confirmed)],
+    );
+    answers(&mut app, vec![Err("no clipboard".to_owned())]);
+    let copy = ExportNote::Copy;
     assert_eq!(
         exports(&app),
         vec![
@@ -252,6 +242,22 @@ fn a_copy_says_pending_first_and_its_status_when_settled() {
             copy(Err("no clipboard".to_owned())),
         ]
     );
+}
+
+#[test]
+fn an_answer_after_the_last_one_of_an_ask_is_dropped() {
+    let mut app = ready();
+    let request = asks(&pick(&mut app, export::CLIPBOARD))[0].0;
+    for result in [Ok(CopyStatus::Confirmed), Ok(CopyStatus::Unconfirmed)] {
+        run(
+            &mut app,
+            AppEv::Effect {
+                request,
+                done: Done::Copy(result),
+            },
+        );
+    }
+    assert_eq!(exports(&app), vec![ExportNote::Copy(Ok(CopyStatus::Confirmed))]);
 }
 
 #[test]
@@ -272,7 +278,7 @@ fn nothing_to_export_is_the_failure_line_and_no_ask() {
     let mut app = start(CodexApp::new().with_transcript_text(TranscriptText::new(|_| None)));
     let fx = export_command(&mut app, Some("a.md"));
     assert!(asks(&fx).is_empty());
-    assert_eq!(exports(&app), vec![NoteKey::Export(ExportNote::NoContent)]);
+    assert_eq!(exports(&app), vec![ExportNote::NoContent]);
 }
 
 #[test]
@@ -292,13 +298,23 @@ fn without_a_thread_the_failure_is_a_note_of_the_chat() {
     assert!(asks(&fx).is_empty());
     let notes = &app.screens().chat.notes;
     assert_eq!(notes.len(), 1, "{notes:?}");
-    assert_eq!(notes[0].key, NoteKey::Export(ExportNote::NoConversation));
+    assert_eq!(
+        notes[0].key,
+        NoteKey::Feature(FeatureNote::Export(ExportNote::NoConversation))
+    );
     assert_eq!(notes[0].tone, Tone::Error);
 }
 
 #[test]
-fn the_row_ids_are_the_pickers_and_nothing_else() {
-    assert_eq!(Row::of_row(export::CLIPBOARD), Some(Row::Clipboard));
-    assert_eq!(Row::of_row(export::FILE), Some(Row::File));
-    assert_eq!(Row::of_row("plan.yes"), None);
+fn a_row_of_another_menu_does_nothing_here() {
+    let mut app = ready();
+    export_command(&mut app, None);
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Select(SelectIntent::Choose(
+            "plan.yes".to_owned(),
+        )))),
+    );
+    assert!(asks(&fx).is_empty());
+    assert!(app.screens().select.menu().is_some(), "the picker stays");
 }

@@ -7,6 +7,7 @@
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
 };
+use crate::app::TranscriptText;
 use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
 use crate::ids::{ThreadId, Ticket};
@@ -24,6 +25,7 @@ pub struct AppView<'a> {
     screens: &'a ScreenStates,
     tui: &'a TuiSettings,
     modes: &'a [Mask],
+    transcript: Option<&'a TranscriptText>,
 }
 
 impl<'a> AppView<'a> {
@@ -33,6 +35,7 @@ impl<'a> AppView<'a> {
         screens: &'a ScreenStates,
         tui: &'a TuiSettings,
         modes: &'a [Mask],
+        transcript: Option<&'a TranscriptText>,
     ) -> Self {
         Self {
             active,
@@ -40,6 +43,7 @@ impl<'a> AppView<'a> {
             screens,
             tui,
             modes,
+            transcript,
         }
     }
 
@@ -71,6 +75,24 @@ impl<'a> AppView<'a> {
     /// The server's collaboration-mode presets.
     pub fn modes(&self) -> &'a [Mask] {
         self.modes
+    }
+
+    /// The conversation of `thread` as the Markdown of an export, as the UI's renderer makes it
+    /// (`CodexApp::with_transcript_text`); none for a thread this process does not hold, a
+    /// conversation with nothing in it to export, or an app that was given no renderer.
+    pub fn transcript_text(&self, thread: &ThreadId) -> Option<String> {
+        let model = self.threads.get(thread)?;
+        self.transcript?.render(model)
+    }
+
+    /// `config.cwd`: the directory of `thread`, else the one the host read for the status line
+    /// (empty when neither is known).
+    pub fn working_directory(&self, thread: Option<&ThreadId>) -> String {
+        thread
+            .and_then(|id| self.threads.get(id))
+            .and_then(|model| model.screen_slots().chat.cwd.clone())
+            .or_else(|| self.screens.chat.status.cwd.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -119,6 +141,11 @@ impl<'a> ThreadView<'a> {
     pub fn has_writer(&self) -> bool {
         self.core.attached() && self.slots.chat.provider_error.is_none()
     }
+
+    /// The thread's name, when it has one (`/rename`).
+    pub fn name(&self) -> Option<&'a str> {
+        self.slots.chat.name.as_deref()
+    }
 }
 
 /// What an `AppCx` call asked for, in order; the app carries it out after the call.
@@ -136,10 +163,18 @@ pub enum Out {
     Effect { ask: Ask, ctx: FeatureCtx },
     /// A menu of the generic selection dialog, replacing the stack.
     Menu(FeatureMenu),
-    /// A text prompt, prefilled with `initial`.
+    /// A text prompt, prefilled with `initial`; `suggesting` says that a generated suggestion
+    /// is awaited (the dialog shows its loading line until `Suggest`).
     Prompt {
         prompt: FeaturePrompt,
         initial: String,
+        suggesting: bool,
+    },
+    /// The suggestion for the open `prompt` (none: nothing came out). It fills the field only
+    /// while that prompt is still the one open, still waiting, and the user has not typed.
+    Suggest {
+        prompt: FeaturePrompt,
+        text: Option<String>,
     },
     /// A line in the transcript of `thread` (none: the thread in use, or the chat before
     /// any thread).
@@ -209,6 +244,31 @@ impl<'a> AppCx<'a> {
         self.out.push(Out::Prompt {
             prompt: prompt.into(),
             initial: initial.into(),
+            suggesting: false,
+        });
+    }
+
+    /// Opens a text prompt that awaits a generated suggestion (the title `/rename` asks the host
+    /// for): the dialog says so until `suggest` answers it, and the user's own typing wins over
+    /// the suggestion. The ask itself is `effect`, its answer `effect_done`.
+    pub fn prompt_suggesting(
+        &mut self,
+        prompt: impl Into<FeaturePrompt>,
+        initial: impl Into<String>,
+    ) {
+        self.out.push(Out::Prompt {
+            prompt: prompt.into(),
+            initial: initial.into(),
+            suggesting: true,
+        });
+    }
+
+    /// The suggestion for `prompt` (none: nothing came out). A prompt that is no longer the one
+    /// open, or that the user already typed in, takes nothing.
+    pub fn suggest(&mut self, prompt: impl Into<FeaturePrompt>, text: Option<String>) {
+        self.out.push(Out::Suggest {
+            prompt: prompt.into(),
+            text,
         });
     }
 
