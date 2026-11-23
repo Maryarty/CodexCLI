@@ -581,6 +581,9 @@ pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
                 goal::edited(app, thread, status, token_budget, objective, fx);
             }
         }
+        PromptKind::Feature(prompt) => {
+            super::features::prompt_submitted(app, prompt, submitted.text, fx);
+        }
     }
 }
 
