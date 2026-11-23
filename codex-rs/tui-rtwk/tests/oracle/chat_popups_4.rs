@@ -710,18 +710,85 @@ fn saved_quick_dials_save_and_clear_picker_snapshots() {
 // ORACLE chatwidget/tests/review_picker_tests.rs:7 review_picker_filtered_accept_and_cancel_preserve_parent_and_draft kind=ui owner=dialogs-pane
 #[test]
 fn review_picker_filtered_accept_and_cancel_preserve_parent_and_draft() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no review picker in the port (`/review`): the commit picker with its filter and the f3 select / f2 back keys has no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("Keep this draft");
+    use codex_tui_core::app::Command;
+    use codex_tui_core::app::effects::{Ask, Done};
+    use codex_tui_core::screens::ScreenCommand;
+    use codex_tui_core::screens::chat;
+    use codex_tui_core::screens::select::review::Commit;
+    use codex_tui_core::threads::ReviewTarget;
+
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
+        .live()
+        .open();
+    let commits = || {
+        Done::GitLog(vec![
+            Commit {
+                sha: "1111111".into(),
+                subject: "First commit".into(),
+            },
+            Commit {
+                sha: "abcdef2".into(),
+                subject: "Selected commit".into(),
+            },
+        ])
+    };
+    // the oracle's draft is in the composer before the popup opens; here the command that opens
+    // it takes the composer, so the draft is what the line left: nothing
     s.type_text("/review");
     s.keys("enter");
-    s.assert_contains("› 3. Review a commit");
-    s.assert_contains("f3 select · f2 back");
-    s.keys("f2");
-    s.assert_contains("Keep this draft");
+    s.assert_contains("Select a review preset");
+    s.keys("down down f3");
+    let asked = |s: &Screen| {
+        s.commands()
+            .into_iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    Command::Effect {
+                        ask: Ask::GitLog { .. },
+                        ..
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let asks = asked(&s);
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    s.answer_effect(&asks[0], commits());
+    s.assert_contains("Select a commit to review");
+    s.keys("a f2");
+    let parent = s.text();
+    assert!(parent.contains("› 3. Review a commit"), "{parent}");
+    assert!(parent.contains("f3 select · f2 back"), "{parent}");
+    s.keys("f3");
+    let asks = asked(&s);
+    assert_eq!(asks.len(), 2, "{asks:?}");
+    s.answer_effect(&asks[1], commits());
+    s.type_text("abcdef2");
+    s.keys("f3");
+    let started: Vec<_> = s
+        .commands()
+        .into_iter()
+        .filter_map(|c| match c {
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Review(target)),
+                ..
+            } => Some(target),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        started,
+        [ReviewTarget::Commit {
+            sha: "abcdef2".into(),
+            title: Some("Selected commit".into())
+        }]
+    );
+    s.assert_absent("Select a commit to review");
+    s.assert_absent("Select a review preset");
+    s.assert_composer("");
 }
 
 // ---- oracle: chatwidget/tests/security_setup_tests.rs (5 screen-level tests here; 0 state tests left to dialogs-pane)
