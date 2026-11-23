@@ -1,12 +1,12 @@
 //! The read-only notice in place of the editor when another process holds the writer.
 
+use codex_tui_core::keymap::actions::GLOBAL_OPEN_TRANSCRIPT;
 use rtwk::gestures::GestureDetector;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Row,
 };
 use rtwk::style::Span;
 use rtwk::widgets::Text;
-use codex_tui_core::keymap::actions::GLOBAL_OPEN_TRANSCRIPT;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
 use crate::app::theme::Tokens;
@@ -69,11 +69,7 @@ pub(super) fn notice(
 /// The hints under the card, wrapped at the word like the oracle's
 /// `footer_lines`; the transcript entry names the key the keymap binds and is
 /// left out while none is.
-pub(super) fn footer(
-    cx: &mut Cx<'_, ChatState>,
-    strings: &Strings,
-    tokens: &Tokens,
-) -> AnyWidget {
+pub(super) fn footer(cx: &mut Cx<'_, ChatState>, strings: &Strings, tokens: &Tokens) -> AnyWidget {
     let keymap = crate::keymap::keymap(cx);
     let transcript = crate::keymap::label(&keymap, GLOBAL_OPEN_TRANSCRIPT);
     let mut entries = vec![
