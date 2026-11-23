@@ -16,7 +16,7 @@ pub use session::export::TranscriptText;
 pub mod worktree;
 
 use session::{
-    active_backend, confirmed, open_status, refresh_rates, removed, session_intent, session_note,
+    active_backend, confirmed, refresh_rates, removed, session_intent, session_note,
 };
 
 use crate::threads::ThreadAsk;
@@ -1381,6 +1381,13 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     )));
                     apply_thread(app, &ThreadId::new(thread), ev, fx);
                 }
+                // A card a script seeds is an entry of the shown thread, as `/status` makes it.
+                ScreenEv::Status(status::Ev::Card(card)) => {
+                    if let Some(thread) = app.session.active.clone() {
+                        let item = threads::Item::Status(std::sync::Arc::new((**card).clone()));
+                        apply_thread(app, &thread, ThreadEv::Appended { turn: None, item }, fx);
+                    }
+                }
                 ScreenEv::Chat(chat::Ev::Pending { thread, pending }) => {
                     apply_thread(
                         app,
@@ -1922,7 +1929,6 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::Screen(ScreenIntent::Usage(crate::screens::usage::Intent::RefreshRateLimits)) => {
             refresh_rates(app, active_backend(app), fx)
         }
-        Intent::Screen(ScreenIntent::Status(status::Intent::Open)) => open_status(app, fx),
         Intent::Interrupt(thread) => apply_thread(app, &thread, ThreadEv::Interrupt, fx),
         Intent::ThreadScreen { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
@@ -2061,12 +2067,6 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
 }
 
 fn install_rates(app: &mut CodexApp, backend: BackendId, limits: status::RateLimits) {
-    if backend == active_backend(app)
-        && app.screens.status.card.is_some()
-        && let Some(card) = &mut Rc::make_mut(&mut app.screens).status.card
-    {
-        card.limits = limits.card_limits();
-    }
     Rc::make_mut(&mut app.session)
         .rate_limits
         .insert(backend, limits);

@@ -2,21 +2,16 @@
 //! configuration and usage as labelled rows over the card the model holds.
 //! Oracle: `codex-rs/tui/src/status/`.
 //!
-//! Two views of the same card stand here until the chat makes `/status` a
-//! cell of the transcript through `apply` (tm status-card-adr003): `StatusCell`,
-//! the oracle's cell, and `CardDialog`, the dialog the live app still opens.
+//! `/status` is a cell of the thread's transcript (`Item::Status`, ADR-003):
+//! `StatusCell` draws the card it holds. The debug entries open the same cell on
+//! the card a fixture script put into the thread.
 
-mod card;
+mod bar;
 mod cell;
-mod format;
 
 pub use cell::StatusCell;
 
-use std::sync::Arc;
-
 use rtwk::AnyWidget;
-use rtwk::Cx;
-use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -25,14 +20,12 @@ use crate::app::debug::seeded::Seeded;
 
 pub mod strings;
 
-/// The cell of the card a script seeded (`status_card`), as the page of a
-/// route; nothing when no card was seeded.
+/// The cell of the card a script put into the shown thread (`status_card`), as the
+/// page of a route; nothing when no card was seeded.
 fn cell(seeded: &Seeded<'_>) -> AnyWidget {
-    match &seeded.core.screens().status.cell {
-        Some(card) => StatusCell {
-            card: Arc::new(card.clone()),
-        }
-        .into(),
+    let thread = seeded.core.active_thread();
+    match thread.transcript().last_status() {
+        Some(card) => StatusCell { card: card.clone() }.into(),
         None => AnyWidget::default(),
     }
 }
@@ -152,27 +145,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "context_last_usage",
             "the cell: the context window of the last usage"
         ),
-        DebugEntry {
-            name: "card_dialog",
-            description: "the card dialog the app opens now: reasoning details, two limits",
-            script: include_str!("fixtures/card_dialog.jsonl"),
-            open: EntryOpen::Dialog(|_| card::CardDialog.into()),
-        },
     ]
 }
 
-/// Opens the card from the widget that asks (`show_dialog`); it reads the
-/// card the model holds. A modal sheet (centred) over the page until chat-live
-/// makes `/status` a cell of the transcript, as the oracle has it.
-pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    show_dialog(
-        cx,
-        move |_| card::CardDialog.into(),
-        DialogOptions::default(),
-    )
-}
-
-/// Opens the card with no seeded model (debug menu): nothing to show.
+/// Opens the empty form of this directory (debug menu): nothing seeded, nothing
+/// to show.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|_| AnyWidget::default())
+    DebugOpen::Route(|_| AnyWidget::default())
 }

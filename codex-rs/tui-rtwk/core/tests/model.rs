@@ -93,6 +93,29 @@ fn thread(app: &CodexApp) -> Rc<codex_tui_core::threads::ThreadModel> {
     app.active_thread()
 }
 
+/// `/status` typed in the shown thread: the session command the chat sends.
+fn status_command(app: &mut CodexApp) -> AppFx {
+    use codex_tui_core::commands::{SessionIntent, SlashCommand};
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: Some(ThreadId::new(T)),
+            command: SlashCommand::Status,
+            intent: SessionIntent::Status,
+        }))),
+    )
+}
+
+/// The newest status card of the shown thread's transcript.
+#[allow(clippy::expect_used)]
+fn status_card(app: &CodexApp) -> std::sync::Arc<codex_tui_core::screens::status::StatusCard> {
+    thread(app)
+        .transcript()
+        .last_status()
+        .expect("a status card in the transcript")
+        .clone()
+}
+
 fn key(item: &str) -> ItemKey {
     ItemKey {
         turn: TurnId::new("turn-1"),
@@ -871,14 +894,10 @@ fn streaming_commits_complete_utf8_lines_and_keeps_a_preview() {
 #[test]
 fn rate_limit_notification_supersedes_the_outstanding_account_read() {
     use codex_tui_core::ids::BackendId;
-    use codex_tui_core::screens::ScreenIntent;
-    use codex_tui_core::screens::status::{Intent as StatusIntent, RateLimits};
+    use codex_tui_core::screens::status::RateLimits;
 
     let mut app = ready();
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Status(StatusIntent::Open))),
-    );
+    let fx = status_command(&mut app);
     let [
         Command::ReadRateLimits {
             ticket, backend, ..
@@ -901,8 +920,13 @@ fn rate_limit_notification_supersedes_the_outstanding_account_read() {
         AppEv::Reply(*ticket, Reply::rate_limits(RateLimits::default())),
     );
 
-    let card = app.screens().status.card.as_ref().expect("status card");
-    assert_eq!(card.limits[0].used_percent, 30);
+    assert_eq!(
+        app.session().rate_limits[backend]
+            .primary
+            .expect("primary")
+            .used_percent,
+        30
+    );
     assert_eq!(
         app.session().rate_limits[backend]
             .primary
@@ -914,8 +938,6 @@ fn rate_limit_notification_supersedes_the_outstanding_account_read() {
 
 #[test]
 fn status_reads_token_usage_from_its_thread_slot() {
-    use codex_tui_core::screens::{ScreenIntent, status};
-
     let mut app = ready();
     let usage = serde_json::json!({
         "totalTokens": 15000,
@@ -933,11 +955,8 @@ fn status_reads_token_usage_from_its_thread_slot() {
     }))
     .expect("token usage notification");
     notification(&mut app, BackendEv::Notification(Box::new(update)));
-    run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Status(status::Intent::Open))),
-    );
-    let card = app.screens().status.card.as_ref().expect("status card");
+    status_command(&mut app);
+    let card = status_card(&app);
     assert_eq!(card.tokens.blended_total(), 14500);
     assert_eq!(card.context.expect("context").percent_left, 70);
 }
@@ -1545,14 +1564,8 @@ fn a_reverted_thread_clears_its_transcript_and_reads_the_retained_turns() {
 fn choosing_a_banner_row_opens_its_page_and_keeps_the_banner() {
     use codex_tui_core::ids::{BackendId, Ticket};
     use codex_tui_core::protocol;
-    use codex_tui_core::screens::ScreenIntent;
-    use codex_tui_core::screens::status::Intent as StatusIntent;
-
     let mut app = ready();
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Status(StatusIntent::Open))),
-    );
+    let fx = status_command(&mut app);
     let [read @ Command::ReadRateLimits { backend, .. }] = fx.commands() else {
         panic!("expected the account read: {:?}", fx.commands());
     };
@@ -1602,12 +1615,8 @@ fn choosing_a_banner_row_opens_its_page_and_keeps_the_banner() {
 /// for it); returns the backend the banner belongs to.
 fn read_banner(app: &mut CodexApp, banner: serde_json::Value) -> codex_tui_core::ids::BackendId {
     use codex_tui_core::protocol;
-    use codex_tui_core::screens::status::Intent as StatusIntent;
 
-    let fx = run(
-        app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Status(StatusIntent::Open))),
-    );
+    let fx = status_command(app);
     let [read @ Command::ReadRateLimits { backend, .. }] = fx.commands() else {
         panic!("expected the account read: {:?}", fx.commands());
     };

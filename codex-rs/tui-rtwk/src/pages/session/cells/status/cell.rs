@@ -23,7 +23,7 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::screens::status::{Account, LimitData, LimitRow, RowValue, StatusCard};
 
-use super::card::{BAR_CELLS, bar};
+use super::bar::{BAR_CELLS, bar};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 use crate::widgets::measure::{self, Measure};

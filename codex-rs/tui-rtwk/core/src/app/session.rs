@@ -1,6 +1,7 @@
 //! App-scoped session commands and account status.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub(super) mod export;
 pub(super) mod rename;
@@ -14,7 +15,8 @@ use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
 };
 use crate::threads::{
-    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, UserMessage,
+    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, ThreadModel,
+    UserMessage,
 };
 
 /// The Desktop app's link to a thread (`desktop_thread_deeplink`), the thread's
@@ -46,40 +48,106 @@ pub(super) fn refresh_rates(app: &mut CodexApp, backend: BackendId, fx: &mut App
         .push(Command::ReadRateLimits { ticket, backend });
 }
 
-pub(super) fn open_status(app: &mut CodexApp, fx: &mut AppFx) {
-    let backend = active_backend(app);
-    let facts = &app.screens.chat.status;
-    let thread = app.active_thread();
-    let part = &thread.screen_slots().status;
-    let card = status::Card {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        model: facts.model.clone().unwrap_or_default(),
-        reasoning_effort: facts.effort.clone(),
-        reasoning_summary: None,
-        directory: facts.cwd.clone().unwrap_or_default(),
-        profile: facts.profile,
-        approval: match facts.approval_policy.as_deref() {
-            Some("never") => status::Approval::Never,
-            Some("on-failure") => status::Approval::OnFailure,
-            Some("untrusted") => status::Approval::UnlessTrusted,
-            _ => status::Approval::OnRequest,
-        },
-        auto_review: facts.auto_review,
-        agents: Vec::new(),
-        tokens: part.tokens,
-        context: part.context,
-        limits: app
-            .session
-            .rate_limits
-            .get(&backend)
-            .map_or_else(Vec::new, status::RateLimits::card_limits),
+/// `/status` (oracle `SlashCommand::Status`, `add_status_output`): the card is an
+/// entry of the transcript of the thread the command ran in, appended through that
+/// thread's `apply` (ADR-003); the app keeps no copy of it. With no thread yet
+/// there is no transcript to put it in.
+fn status_command(app: &mut CodexApp, source: Option<ThreadId>, fx: &mut AppFx) {
+    let Some(id) = source.or_else(|| app.session.active.clone()) else {
+        return;
     };
-    status::apply(
-        &mut Rc::make_mut(&mut app.screens).status,
-        status::Ev::Shown(card),
-        fx,
-    );
+    let Some(thread) = app.threads.get(&id).cloned() else {
+        return;
+    };
+    let backend = app.screens.agents.owner_of(id.as_str());
+    let card = status_card(app, &thread, backend);
+    let item = Item::Status(Arc::new(card));
+    apply_thread(app, &id, ThreadEv::Appended { turn: None, item }, fx);
+    // The limits the next card shows.
     refresh_rates(app, backend, fx);
+}
+
+/// The card of a `/status` that runs now, from the facts the app holds: the
+/// loaded config, the thread's own facts and the limits last read for its backend.
+fn status_card(app: &CodexApp, thread: &ThreadModel, backend: BackendId) -> status::StatusCard {
+    let facts = &app.screens.chat.status;
+    let slots = thread.screen_slots();
+    let (chat, own) = (&slots.chat, &slots.status);
+    let screen = &app.screens.status;
+    let approval = match facts.approval_policy.as_deref() {
+        Some("never") => status::Approval::Never,
+        Some("on-failure") => status::Approval::OnFailure,
+        Some("untrusted") => status::Approval::UnlessTrusted,
+        _ => status::Approval::OnRequest,
+    };
+    let sandbox = match facts.profile {
+        status::Profile::ReadOnly => status::SandboxKind::ReadOnly,
+        status::Profile::Workspace => status::SandboxKind::Workspace,
+        status::Profile::Full => status::SandboxKind::DangerFullAccess,
+    };
+    let window = |rate: &status::RateWindow| status::Window {
+        used_percent: rate.used_percent,
+        window_minutes: rate.window_minutes,
+        resets_at: rate.resets_at,
+    };
+    let snapshots = app
+        .session
+        .rate_limits
+        .get(&backend)
+        .filter(|rates| rates.primary.is_some() || rates.secondary.is_some())
+        .map(|rates| status::Snapshot {
+            name: "codex".to_string(),
+            captured_at: screen.now,
+            primary: rates.primary.as_ref().map(window),
+            secondary: rates.secondary.as_ref().map(window),
+            credits: None,
+            individual_limit: None,
+        })
+        .into_iter()
+        .collect();
+    status::StatusCard {
+        version: facts.version.clone().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
+        remote: None,
+        model: chat
+            .model
+            .clone()
+            .or_else(|| facts.model.clone())
+            .unwrap_or_else(|| "loading".to_string()),
+        reasoning: chat.effort.clone().or_else(|| facts.effort.clone()).map(|effort| {
+            status::Reasoning {
+                effort,
+                summary: Some("auto".to_string()),
+            }
+        }),
+        provider: chat.provider.clone().or_else(|| facts.provider.clone()),
+        directory: chat.cwd.clone().or_else(|| facts.cwd.clone()).unwrap_or_default(),
+        home: facts.home_directory.clone(),
+        permissions: status::Permissions {
+            profile: facts.permission_profile.clone(),
+            sandbox,
+            network: false,
+            disabled: facts.profile == status::Profile::Full,
+            approval,
+            auto_review: facts.auto_review,
+            extra_roots: Vec::new(),
+        },
+        agents: Vec::new(),
+        account: None,
+        thread_name: chat.name.clone(),
+        session_id: Some(thread.id().to_string()),
+        forked_from: None,
+        collaboration_mode: None,
+        usage_link: facts.account_usage,
+        tokens: own.tokens,
+        context: own.context,
+        limits: status::Limits {
+            snapshots,
+            now: screen.now,
+            utc_offset_secs: screen.utc_offset_secs,
+            refreshing: false,
+        },
+        hour24: false,
+    }
 }
 
 pub(super) fn session_intent(
@@ -178,6 +246,7 @@ pub(super) fn session_intent(
             Note::from(crate::commands::Notice::SideRename),
             fx,
         ),
+        S::Status => status_command(app, source, fx),
         S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {
