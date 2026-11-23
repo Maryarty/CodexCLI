@@ -1,0 +1,7 @@
+# The composer alone in Plan mode: the footer says `Plan mode (⇧tab to cycle)`.
+# Oracle data: chat_composer.rs footer_collapse_snapshots (`set_collaboration_modes_enabled`,
+# `set_collaboration_mode_indicator(Some(Plan))`, 100% of the context left).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":true}}}
+{"step":"notify","message":{"method":"thread/settings/updated","params":{"threadId":"thread-1","threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,"model":"gpt-5.4","modelProvider":"openai","serviceTier":null,"effort":null,"summary":null,"collaborationMode":{"mode":"plan","settings":{"model":"gpt-5.4","reasoning_effort":null,"developer_instructions":null}},"personality":null}}}}

@@ -1,0 +1,5 @@
+# The status line is `branch-changes`; the git probe found no diff (status_and_layout.rs:505).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":["branch-changes"]}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"cwd":"/w"}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"git_summary":{"request":1,"summary":{"changes":{"additions":0,"deletions":0}}}}}}

@@ -126,10 +126,6 @@ pub enum Notice {
     /// `Prefix a command with ! to run it locally` / `Example: !ls`: a bare
     /// `!` was submitted (`USER_SHELL_COMMAND_HELP_*`, an info line).
     ShellHelp,
-    /// `Thread name cannot be empty.` (a submitted rename prompt).
-    ThreadNameEmpty,
-    /// `Side conversations cannot be renamed.`
-    SideRename,
     /// `Message exceeds the maximum length of N characters (M provided).`
     InputTooLarge { provided: usize },
 }

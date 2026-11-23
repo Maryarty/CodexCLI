@@ -1,0 +1,7 @@
+# Two warnings kept on the thread (warning_notice_tests.rs: `set_warning_count(2)`): the
+# footer says `⚠ 2 warnings · /warnings to view`.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"First warning"}}}
+{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Second warning"}}}

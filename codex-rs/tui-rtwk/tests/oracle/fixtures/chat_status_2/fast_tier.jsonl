@@ -1,0 +1,5 @@
+# The fast-mode test catalog (gpt-5.4 offers the fast tier, gpt-5.2 does not), the status line and the title are `fast-mode` (status_and_layout.rs:4264).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"gpt-5.4","name":"gpt-5.4","description":"gpt-5.4 description","service_tiers":[{"id":"priority","name":"fast","description":"Fastest inference with increased plan usage"}]},{"model":"gpt-5.2","name":"gpt-5.2","description":"gpt-5.2 description"}]}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.4","items":["fast-mode"],"terminal_title":["fast-mode"]}}}

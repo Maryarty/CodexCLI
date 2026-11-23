@@ -1,0 +1,4 @@
+# The status line is `model-with-reasoning` and `fast-mode`, reasoning high (status_and_layout.rs:4319).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.2","effort":"high","items":["model-with-reasoning","fast-mode"]}}}

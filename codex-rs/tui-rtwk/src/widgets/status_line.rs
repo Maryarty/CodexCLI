@@ -94,7 +94,12 @@ pub fn item_style(id: &str, colors: bool, tokens: &Tokens) -> Style {
 /// The spans of the line of `items` (id and text, in order), empty when there
 /// are none (`status_line_from_segments` returns `None`). Control characters
 /// are dropped from the texts.
-pub fn status_spans<I, S>(items: I, colors: bool, tokens: &Tokens) -> Vec<Span>
+pub fn status_spans<I, S>(
+    items: I,
+    colors: bool,
+    tokens: &Tokens,
+    link: impl Fn(&str) -> Option<String>,
+) -> Vec<Span>
 where
     I: IntoIterator<Item = (S, String)>,
     S: AsRef<str>,
@@ -105,7 +110,13 @@ where
             spans.push(Span::styled(SEPARATOR, tokens.dim()));
         }
         let text: String = text.chars().filter(|c| !c.is_control()).collect();
-        spans.push(Span::styled(text, item_style(id.as_ref(), colors, tokens)));
+        let style = item_style(id.as_ref(), colors, tokens);
+        // the pull request number opens its page (`status_line_hyperlink`)
+        let style = match link(id.as_ref()) {
+            Some(url) => style.link(url),
+            None => style,
+        };
+        spans.push(Span::styled(text, style));
     }
     spans
 }
@@ -118,7 +129,7 @@ where
     I: IntoIterator<Item = (S, String)>,
     S: AsRef<str>,
 {
-    let spans = status_spans(items, colors, tokens);
+    let spans = status_spans(items, colors, tokens, |_| None);
     (!spans.is_empty()).then(|| {
         Text::rich(spans)
             .max_lines(Some(3))
