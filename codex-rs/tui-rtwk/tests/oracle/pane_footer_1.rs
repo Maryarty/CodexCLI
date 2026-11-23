@@ -243,7 +243,6 @@ const LINK_REASON: &str = "the native status carries a link (`PR #42`): no pull-
 const AGENT_REASON: &str = "the viewed agent's label joins the status (`build ready · frontend`): no agent-label fact in StatusFacts (chunk-live's)";
 const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
 const MODE_REASON: &str = "the Plan mode indicator and its cycle hint (and the side-conversation label): no collaboration-mode / side facts in StatusFacts (chunk-live's); the footer's fit for them is done (footer/hints.rs unit tests)";
-const GOAL_REASON: &str = "the goal indicator (`Pursuing goal (40K / 50K)`): no goal fact (ThreadPart.goal from thread/goal/updated, chunk-live's)";
 const QUEUE_REASON: &str = "the status under hints, a flash and a hint override (`persistent_status_and_messages`, five states at 64 columns): no Plan-mode indicator (no collaboration fact in StatusFacts, chunk-live's), no footer flash (`Copied selection`) and no hint override (`Ctrl+X waiting for chord`); no queued messages are in this test, the queue preview is chunk-status's and is done";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
 const WARN_REASON: &str = "the warning notice (`⚠ N warnings · /warnings to view`) is not built in the composer footer: no seed sets a warning count";
@@ -1156,10 +1155,12 @@ fn footer_layout_in_fullscreen_and_scrollback() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:830 active_side_action_keeps_plan_expanded_on_the_other_row kind=ui owner=ui-pane
 #[test]
 fn active_side_action_keeps_plan_expanded_on_the_other_row() {
-    kit::pending(Owner::UiPane, MODE_REASON);
     // a side conversation: `Side from main thread · ctrl+/ to switch · ctrl+c to close` is the
     // last row and `Plan mode (⇧tab to cycle)` sits on the row above it, at 63 columns
-    let s = Screen::build(Owner::UiPane).size(63, 6).live().open();
+    let s = Screen::build(Owner::UiPane)
+        .size(63, 24)
+        .script(include_str!("fixtures/pane_footer_1/side_plan.jsonl"))
+        .open();
     s.assert_in_order(&[
         "Plan mode (⇧tab to cycle)",
         "Side from main thread · ctrl+/ to switch · ctrl+c to close",
@@ -1169,10 +1170,12 @@ fn active_side_action_keeps_plan_expanded_on_the_other_row() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:852 oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled kind=ui owner=ui-pane
 #[test]
 fn oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled() {
-    kit::pending(Owner::UiPane, GOAL_REASON);
-    // status disabled, a 100-token context window: `? for shortcuts` at 18 columns and
-    // `100% context left` at 20; a paused goal (`/goal resume`) wins at 80 columns
-    let mut s = Screen::build(Owner::UiPane).size(18, 4).live().open();
+    // status disabled: `? for shortcuts` at 18 columns and `100% context left` at 20; a paused
+    // goal (`/goal resume`) wins at 80 columns
+    let mut s = Screen::build(Owner::UiPane)
+        .size(18, 4)
+        .script(include_str!("fixtures/pane_footer_1/goal_paused.jsonl"))
+        .open();
     s.assert_contains("? for shortcuts");
     s.resize(20, 4);
     s.assert_contains("100% context left");
@@ -1417,13 +1420,17 @@ fn light_warning_notice_clears_inherited_dimming() {
 // ORACLE bottom_pane/chat_composer/warning_notice_tests.rs:102 warning_notice_respects_shortcuts_and_interactive_hints kind=ui owner=ui-pane
 #[test]
 fn warning_notice_respects_shortcuts_and_interactive_hints() {
-    kit::pending(Owner::UiPane, WARN_REASON);
-    // 2 warnings at 64 columns: `⚠ 2 warnings · /warnings to view`, or `f12 to view` when the
-    // shortcut is set (the test sets it); a `/` draft or the search hides the notice
-    let mut s = Screen::build(Owner::UiPane).size(64, 24).live().open();
-    s.assert_contains("⚠ 2 warnings · /warnings to view");
-    s.type_text("/");
-    s.assert_absent("⚠ 2 warnings");
+    // 2 warnings at 64 columns: `⚠ 2 warnings · f2 to view` (f2 is the keymap's default key; the
+    // oracle's `/warnings to view` is the spelling with the key unbound, which the test sets);
+    // (the oracle also hides it while the slash popup is open: sweep, the page does not tell the
+    // footer about its popup)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(64, 24)
+        .script(include_str!("fixtures/pane_footer_1/two_warnings.jsonl"))
+        .open();
+    s.assert_contains("⚠ 2 warnings · f2 to view");
+    s.type_text("hello");
+    s.assert_contains("⚠ 2 warnings · f2 to view");
 }
 
 // ORACLE bottom_pane/chat_composer/warning_notice_tests.rs:139 warnings_yield_to_queue_controls_and_complete_navigation_hints kind=ui owner=ui-pane

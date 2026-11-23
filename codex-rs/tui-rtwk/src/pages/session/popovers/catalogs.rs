@@ -10,7 +10,7 @@ use crate::pages::session::composer::alone::Alone;
 /// The composer and its footer over the seeded thread's draft.
 fn alone(seeded: &Seeded) -> rtwk::AnyWidget {
     let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
-    Alone { ui }.into()
+    Alone::new(ui).into()
 }
 
 macro_rules! catalog {

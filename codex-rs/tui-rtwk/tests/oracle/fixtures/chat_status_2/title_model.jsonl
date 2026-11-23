@@ -1,0 +1,4 @@
+# The terminal title is the `model` item; the catalog names gpt-5.5 `GPT-5.5` (status_and_layout.rs:4375).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"gpt-5.5","name":"GPT-5.5"}]}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","terminal_title":["model"]}}}

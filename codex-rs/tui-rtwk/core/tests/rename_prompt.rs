@@ -9,12 +9,14 @@
 use codex_app_server_protocol::{ServerNotification, ThreadNameUpdatedNotification};
 use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
-use codex_tui_core::commands::{CommandFlags, Notice, SessionIntent, SlashCommand};
+use codex_tui_core::commands::{CommandFlags, SessionIntent, SlashCommand};
+use codex_tui_core::features::rename::{self, Note as RenameNote};
+use codex_tui_core::features::{FeatureCommand, FeatureNote, FeaturePrompt, FeatureReply};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::dialogs::{self, Open, Prompt, PromptKind, Suggestion};
-use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, chat};
-use codex_tui_core::threads::{Item, Note, NoteKey};
+use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
+use codex_tui_core::threads::{Failure, Item, Note, NoteKey};
 use pretty_assertions::assert_eq;
 
 const T: &str = "thread-1";
@@ -101,27 +103,34 @@ fn answer(app: &mut CodexApp, request: u64, title: Option<&str>) {
 
 fn renamed_to(fx: &AppFx) -> Option<String> {
     fx.commands().iter().find_map(|c| match c {
-        Command::Screen {
+        Command::Feature {
             thread,
-            command: ScreenCommand::Chat(chat::Command::Rename(name)),
+            command: FeatureCommand::Rename(rename::Command::SetName(name)),
             ..
         } if thread.as_str() == T => Some(name.clone()),
         _ => None,
     })
 }
 
-fn notices(app: &CodexApp) -> Vec<Notice> {
+fn notices(app: &CodexApp) -> Vec<RenameNote> {
     app.active_thread()
         .transcript()
         .iter()
         .filter_map(|(_, item)| match item {
             Item::Note(Note {
-                key: NoteKey::Command(notice),
+                key: NoteKey::Feature(FeatureNote::Rename(note)),
                 ..
-            }) => Some(notice.clone()),
+            }) => Some(note.clone()),
             _ => None,
         })
         .collect()
+}
+
+fn name_prompt(renaming: bool) -> PromptKind {
+    PromptKind::Feature(FeaturePrompt::Rename(rename::Prompt::Name {
+        thread: ThreadId::new(T),
+        renaming,
+    }))
 }
 
 #[test]
@@ -130,18 +139,11 @@ fn a_bare_rename_opens_the_prompt_with_the_name_and_asks_for_a_suggestion() {
     named(&mut app, "Old name");
     let fx = rename(&mut app, None);
     let open = prompt(&app);
-    assert_eq!(
-        open.kind,
-        PromptKind::Rename {
-            thread: ThreadId::new(T)
-        }
-    );
+    assert_eq!(open.kind, name_prompt(true), "the title says Rename thread");
     assert_eq!(open.initial, "Old name");
-    assert!(open.renaming(), "the title says Rename thread");
     assert_eq!(open.suggestion, Suggestion::Loading);
     assert!(!open.edited);
-    let request = asked(&fx);
-    assert!(open.waits_for(request));
+    asked(&fx);
 }
 
 #[test]
@@ -150,7 +152,7 @@ fn a_thread_without_a_name_starts_empty_and_is_named() {
     rename(&mut app, None);
     let open = prompt(&app);
     assert_eq!(open.initial, "");
-    assert!(!open.renaming(), "the title says Name thread");
+    assert_eq!(open.kind, name_prompt(false), "the title says Name thread");
 }
 
 #[test]
@@ -163,7 +165,12 @@ fn the_suggestion_fills_the_field_while_the_user_has_not_typed() {
         open.suggestion,
         Suggestion::Applied("Fix the build".to_owned())
     );
-    assert!(!open.waits_for(request), "answered once");
+    // answered once: a second answer finds nothing waiting
+    answer(&mut app, request, Some("Another"));
+    assert_eq!(
+        prompt(&app).suggestion,
+        Suggestion::Applied("Fix the build".to_owned())
+    );
 }
 
 #[test]
@@ -190,7 +197,6 @@ fn an_answer_to_another_request_is_not_the_prompts() {
     let request = asked(&rename(&mut app, None));
     answer(&mut app, request + 1, Some("Other"));
     assert_eq!(prompt(&app).suggestion, Suggestion::Loading);
-    assert!(prompt(&app).waits_for(request));
 }
 
 #[test]
@@ -222,7 +228,7 @@ fn an_empty_name_is_the_error_line_and_renames_nothing() {
     rename(&mut app, None);
     let fx = dialog(&mut app, dialogs::Intent::Submit("   ".to_owned()));
     assert_eq!(renamed_to(&fx), None);
-    assert_eq!(notices(&app), [Notice::ThreadNameEmpty]);
+    assert_eq!(notices(&app), [RenameNote::NameEmpty]);
 }
 
 #[test]
@@ -245,7 +251,10 @@ fn a_side_conversation_cannot_be_renamed() {
     );
     let fx = rename(&mut app, Some("Name"));
     assert_eq!(renamed_to(&fx), None);
-    assert_eq!(notices(&app), [Notice::SideRename, Notice::SideRename]);
+    assert_eq!(
+        notices(&app),
+        [RenameNote::SideRename, RenameNote::SideRename]
+    );
 }
 
 #[test]
@@ -254,4 +263,75 @@ fn a_rename_with_a_name_still_renames_directly() {
     let fx = rename(&mut app, Some("Direct"));
     assert_eq!(renamed_to(&fx), Some("Direct".to_owned()));
     assert_eq!(app.screens().dialogs.open, None);
+}
+
+/// The ticket of the thread's `thread/name/set` in `fx`.
+fn rename_ticket(fx: &AppFx, thread: &str) -> Ticket {
+    fx.commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::Feature {
+                ticket,
+                thread: asked,
+                command: FeatureCommand::Rename(rename::Command::SetName(_)),
+                ..
+            } if asked.as_str() == thread => Some(*ticket),
+            _ => None,
+        })
+        .expect("a thread/name/set")
+}
+
+#[test]
+fn a_new_conversation_with_a_name_is_named_once_it_has_started() {
+    let mut app = ready();
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: Some(ThreadId::new(T)),
+            command: SlashCommand::New,
+            intent: SessionIntent::New {
+                name: Some("Topic".to_owned()),
+            },
+        }))),
+    );
+    assert_eq!(renamed_to(&fx), None, "nothing to name before it starts");
+    let ticket = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::StartThread { ticket, .. } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a StartThread");
+    let fx = run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("thread-2"))),
+    );
+    rename_ticket(&fx, "thread-2");
+}
+
+#[test]
+fn a_rename_the_server_refused_is_the_threads_failure() {
+    let mut app = ready();
+    let fx = rename(&mut app, Some("Direct"));
+    let ticket = rename_ticket(&fx, T);
+    assert_eq!(app.active_thread().last_error(), None);
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::failed("no such thread")),
+    );
+    assert_eq!(
+        app.active_thread().last_error(),
+        Some(&Failure::Message("no such thread".to_owned()))
+    );
+}
+
+#[test]
+fn an_accepted_rename_leaves_no_failure() {
+    let mut app = ready();
+    let fx = rename(&mut app, Some("Direct"));
+    let ticket = rename_ticket(&fx, T);
+    let ack = Reply::feature(FeatureReply::Rename(rename::Reply::Ack));
+    run(&mut app, AppEv::Reply(ticket, ack));
+    assert_eq!(app.active_thread().last_error(), None);
 }

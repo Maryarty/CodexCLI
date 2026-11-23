@@ -110,6 +110,9 @@ pub struct Model {
     pub clock: ViewerClock,
     /// The runtime metrics of a turn (its id), as the host last reported them.
     pub runtime_metrics: BTreeMap<TurnId, RuntimeMetrics>,
+    /// `show_raw_agent_reasoning` of the config: a reasoning block also shows the model's raw
+    /// reasoning after its summary (off, as the oracle's default, until the host says).
+    pub show_raw_reasoning: bool,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -120,6 +123,8 @@ pub enum Ev {
     LinkDisplay(LinkDisplay),
     /// What the host found out about the viewer's clock.
     Clock(ViewerClock),
+    /// `show_raw_agent_reasoning` of the config.
+    RawReasoning(bool),
     /// The totals so far of one turn's runtime metrics (they replace the earlier ones).
     RuntimeMetrics {
         turn: TurnId,
@@ -136,6 +141,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::LinkDisplay(display) => model.link_display = display,
         Ev::Clock(clock) => model.clock = clock,
+        Ev::RawReasoning(show) => model.show_raw_reasoning = show,
         Ev::RuntimeMetrics { turn, metrics } => {
             model.runtime_metrics.insert(turn, metrics);
         }

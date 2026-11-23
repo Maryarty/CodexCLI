@@ -2198,6 +2198,7 @@ mod raw_mode {
         );
         let reasoning = Item::Reasoning {
             summary: "first thought\n\nsecond thought\n".into(),
+            with_raw: None,
         };
         assert_eq!(
             text(reasoning).unwrap(),
@@ -2227,10 +2228,11 @@ mod raw_mode {
         assert_eq!(rows[at + 4], "```text", "{raw}");
         assert_eq!(rows[at + 5], "copy me", "{raw}");
         assert_eq!(rows[at + 6], "```", "{raw}");
-        assert!(raw.contains("Raw output mode on"), "{raw}");
+        // Alt+R is the silent path (`apply_raw_output_mode(notify: false)`): no notice
+        assert!(!raw.contains("Raw output mode"), "{raw}");
         h.press("alt+r");
         h.wait_for("the rendering", |s| !s.contains("**markdown**"));
-        assert!(h.t.screen().contains("Raw output mode off"));
+        assert!(!h.t.screen().contains("Raw output mode"));
     }
 
     #[test]
@@ -2239,7 +2241,7 @@ mod raw_mode {
         let mut h = chat_with_an_answer();
         assert!(h.t.screen().contains("› hi"), "{}", h.t.screen());
         h.press("alt+r");
-        h.wait_for("raw", |s| s.contains("Raw output mode on"));
+        h.wait_for("raw", |s| s.lines().any(|row| row.trim_end() == "hi"));
         let screen = h.t.screen();
         assert!(!screen.contains("› hi"), "{screen}");
         assert!(screen.lines().any(|row| row.trim_end() == "hi"), "{screen}");
@@ -3345,7 +3347,10 @@ mod text_contract {
                 text: md.into(),
                 phase: None,
             },
-            Item::Reasoning { summary: md.into() },
+            Item::Reasoning {
+                summary: md.into(),
+                with_raw: None,
+            },
             Item::Plan { text: md.into() },
             Item::User(prompt(md)),
         ] {

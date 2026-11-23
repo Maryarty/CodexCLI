@@ -11,7 +11,7 @@ use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::chat::plan_mode;
-use crate::screens::select::{self, apps, export, permissions, plugins, review};
+use crate::screens::select::{self, apps, permissions, plugins, review};
 use crate::screens::{ScreenCommand, ScreenReply};
 
 /// An intent of the select screen, and the asks it left open.
@@ -221,8 +221,7 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 | select::Picked::Review(_)
                 | select::Picked::Worktree(_)
                 | select::Picked::Feature(_)
-        ) || matches!(pick, select::Picked::Item(id)
-            if plan_mode::Answer::of_row(id).is_some() || export::Row::of_row(id).is_some())
+        ) || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
     };
     if !app.screens.select.picked.iter().any(ours) {
         return;
@@ -258,8 +257,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
             select::Picked::Item(id) => {
                 if let Some(answer) = plan_mode::Answer::of_row(&id) {
                     super::session::plan_answer(app, answer, fx);
-                } else if let Some(row) = export::Row::of_row(&id) {
-                    super::session::export::picked(app, row, fx);
                 }
             }
             _ => {}
