@@ -131,7 +131,7 @@ pub enum Intent {
     /// The wizard is up: ask the server for the credentials it finds.
     Discover,
     /// A method of the list (Enter on the cursor's row, or its digit).
-    Choose(Method),
+    Authenticate(Method),
     /// Enter in the profile, API key or region field, with its text.
     Submit(String),
     /// Enter in the access keys, with the three fields' text.
@@ -358,7 +358,7 @@ impl Bedrock {
                 self.stage = Stage::Discovering(request);
                 Effect::Ask(request, Setup::BedrockDiscover)
             }
-            Intent::Choose(method) => {
+            Intent::Authenticate(method) => {
                 if !matches!(
                     self.stage,
                     Stage::Methods(_) | Stage::EnvironmentInstructions
@@ -505,7 +505,7 @@ mod tests {
             vec![env(CredentialKind::BedrockApiKey, Some("us-east-2"))],
         );
         assert_eq!(
-            run(&mut both, Intent::Choose(Method::OtherMethods)),
+            run(&mut both, Intent::Authenticate(Method::OtherMethods)),
             Effect::None
         );
         assert_eq!(both.methods(), ALL.to_vec());
@@ -530,7 +530,7 @@ mod tests {
             ),
         ] {
             let mut bedrock = found(profiles, environment);
-            run(&mut bedrock, Intent::Choose(method));
+            run(&mut bedrock, Intent::Authenticate(method));
             assert!(matches!(bedrock.stage, Stage::RegionEntry { .. }));
             assert!(bedrock.is_text_entry());
         }
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn a_region_found_sets_up_at_once_and_a_refusal_returns_to_it() {
         let mut bedrock = found(vec![profile("engineering", Some("us-east-2"))], Vec::new());
-        let effect = run(&mut bedrock, Intent::Choose(Method::Profile(0)));
+        let effect = run(&mut bedrock, Intent::Authenticate(Method::Profile(0)));
         let credential = Credential::Profile("engineering".into());
         assert_eq!(
             effect,
@@ -621,7 +621,7 @@ mod tests {
         assert_eq!(bedrock.methods(), ALL.to_vec());
         assert_eq!(bedrock.error, Some(Error::Discover("no daemon".into())));
         // Esc on the first list leaves; on another, returns to it.
-        run(&mut bedrock, Intent::Choose(Method::ApiKey));
+        run(&mut bedrock, Intent::Authenticate(Method::ApiKey));
         assert_eq!(bedrock.back(), Effect::None);
         assert_eq!(bedrock.back(), Effect::Leave);
     }

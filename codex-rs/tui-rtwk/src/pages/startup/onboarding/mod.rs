@@ -14,10 +14,11 @@
 //! `Intent::SlotDone`.
 
 use rtwk::focus::{Focus, KeyPress};
+use rtwk::foundation::ValueListenableBuilder;
 use rtwk::layout::{Column, CrossAxisAlignment, FlexFit, Flexible, MainAxisSize, SizedBox};
 use rtwk::navigation::{Navigator, PageRoute, PopInvoked};
 use rtwk::prelude::Mods;
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -268,6 +269,9 @@ pub struct StartupPageState {
     answers_from: usize,
     /// A startup prompt was asked and is not on screen yet.
     asking: bool,
+    /// Told by the gateway wizard whether its form's mark rests on Save (the logo then keeps
+    /// its colour).
+    resting: signin::Resting,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -286,6 +290,7 @@ impl StatefulWidget for StartupPage {
             import_from: 0,
             answers_from: 0,
             asking: false,
+            resting: signin::Resting::default(),
         }
     }
 }
@@ -306,14 +311,13 @@ impl State for StartupPageState {
         let Some(at) = self.at else {
             return;
         };
-        let screens = watch::<ScreenStates, _>(cx);
+        let screens = slice(cx);
         let next = match at {
             // the import step (`/import`) is run by the import flow: the page
             // goes on, past its last step, when the flow it opened is done
             Step::Import => {
-                let import = &screens.import;
-                let done =
-                    import.phase == ImportPhase::Done && import.generation() > self.import_from;
+                let done = screens.import_phase == ImportPhase::Done
+                    && screens.import_generation > self.import_from;
                 (!done).then_some(Step::Import)
             }
             Step::Device | Step::Prompts => self.after_steps(&screens, cx),
@@ -334,7 +338,7 @@ impl State for StartupPageState {
     fn update(&mut self, msg: Msg, w: &StartupPage, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Leave => {
-                let screens = watch::<ScreenStates, _>(cx);
+                let screens = read::<ScreenStates, _>(cx);
                 let model = &screens.onboarding;
                 let answers = screens.startup.answers.get(self.answers_from..);
                 let quit = quits(model) || answers.is_some_and(|a| a.iter().any(|a| exits(*a)));
@@ -369,7 +373,7 @@ impl State for StartupPageState {
     }
 
     fn build(&self, _: &StartupPage, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let screens = watch::<ScreenStates, _>(cx);
+        let screens = slice(cx);
         let model = &screens.onboarding;
         let strings = strings::of(cx);
         let bold = Tokens::of(cx).bold();
@@ -394,6 +398,7 @@ impl State for StartupPageState {
             Some(step @ (Step::SignIn | Step::Provider)) => match &model.sign_in {
                 Some(sign_in) => signin::SignInStep {
                     sign_in: sign_in.clone(),
+                    resting: self.resting.clone(),
                 }
                 .into(),
                 None => Slot {
@@ -429,26 +434,33 @@ impl State for StartupPageState {
             .is_some_and(codex_tui_core::screens::onboarding::auth::SignIn::freezes_animations);
         // A text entry open (`text_entry_context().active`) fades it
         // (`Presentation::Faded`).
-        let faded = model
+        // (not while the gateway form's mark rests on Save: the wizard says so).
+        let typing = model
             .sign_in
             .as_ref()
             .is_some_and(codex_tui_core::screens::onboarding::auth::SignIn::is_text_entry);
-        let page = LayoutBuilder::new(move |_, constraints| {
-            let logo = welcome::shows_logo(
-                welcome_model.animations && !frozen,
-                constraints.max_width,
-                constraints.max_height,
-            );
-            Column::new()
-                .main_axis_size(MainAxisSize::Min)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(welcome::header(strings, bold.clone(), logo, replay, faded))
-                .child(Flexible {
-                    fit: FlexFit::Loose,
-                    ..Flexible::new(1, body.clone())
+        let page =
+            ValueListenableBuilder::new(self.resting.0.clone(), move |_, resting: &bool, _| {
+                let faded = typing && !*resting;
+                let (bold, body) = (bold.clone(), body.clone());
+                LayoutBuilder::new(move |_, constraints| {
+                    let logo = welcome::shows_logo(
+                        welcome_model.animations && !frozen,
+                        constraints.max_width,
+                        constraints.max_height,
+                    );
+                    Column::new()
+                        .main_axis_size(MainAxisSize::Min)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .child(welcome::header(strings, bold.clone(), logo, replay, faded))
+                        .child(Flexible {
+                            fit: FlexFit::Loose,
+                            ..Flexible::new(1, body.clone())
+                        })
+                        .into()
                 })
                 .into()
-        });
+            });
         // The logo's replay key (oracle `keys::TOGGLE_ANIMATION`).
         let mut focus = Focus::new(page);
         if welcome_model.animations {
@@ -463,7 +475,7 @@ impl State for StartupPageState {
 impl StartupPageState {
     /// Past the steps (`run_ratatui_app`): the gateway's device code while
     /// it is shown, then the launch's startup prompts.
-    fn after_steps(&mut self, screens: &ScreenStates, cx: &mut Cx<'_, Self>) -> Option<Step> {
+    fn after_steps(&mut self, screens: &Slice, cx: &mut Cx<'_, Self>) -> Option<Step> {
         if screens.onboarding.device_code().is_some() {
             return Some(Step::Device);
         }
@@ -476,9 +488,9 @@ impl StartupPageState {
     /// the first one due of the startup screen. None once they are answered
     /// (or for a launch that ends with its steps, or a fixture that read no
     /// facts).
-    fn prompts(&mut self, screens: &ScreenStates, cx: &mut Cx<'_, Self>) -> Option<Step> {
+    fn prompts(&mut self, screens: &Slice, cx: &mut Cx<'_, Self>) -> Option<Step> {
         let model = &screens.onboarding;
-        if screens.startup.open.is_some() {
+        if screens.prompt_asked {
             self.asking = false;
             return Some(Step::Prompts);
         }
@@ -495,6 +507,26 @@ impl StartupPageState {
         cx.emit(&hs.screen, ScreenIntent::Onboarding(Intent::PromptAsked));
         Some(Step::Prompts)
     }
+}
+
+/// What the page reads of the screen states: the onboarding model, whether a startup prompt is
+/// asked, and the import flow's phase and generation (a `select` of these, not the whole of
+/// `ScreenStates`).
+#[derive(Clone, PartialEq)]
+struct Slice {
+    onboarding: core::Model,
+    prompt_asked: bool,
+    import_phase: ImportPhase,
+    import_generation: u64,
+}
+
+fn slice(cx: &mut Cx<'_, StartupPageState>) -> Slice {
+    select::<ScreenStates, Slice, _>(cx, |states| Slice {
+        onboarding: states.onboarding.clone(),
+        prompt_asked: states.startup.asked.is_some(),
+        import_phase: states.import.phase,
+        import_generation: states.import.generation(),
+    })
 }
 
 /// Whether a startup prompt's answer ends the app (Ctrl-C on a prompt, the

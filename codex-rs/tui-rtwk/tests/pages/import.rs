@@ -118,7 +118,8 @@ fn texts(lines: &[Line]) -> String {
 /// with, as the model holds them.
 fn notices_of_the_flow() -> (import::Started, import::Finished) {
     let mut model = reviewing(selected_items(), None);
-    apply_intent(&mut model, Intent::Proceed, &mut AppFx::default());
+    let all: Vec<usize> = (0..model.items.len()).collect();
+    apply_intent(&mut model, Intent::Proceed(all), &mut AppFx::default());
     let Some(import::Request::Import { request, .. }) = model.request() else {
         panic!("an import request");
     };
@@ -306,7 +307,7 @@ fn the_checklist_and_summary_rows_are_the_oracles() {
     // (the customize snapshot's text, the plugin lines, the descriptions).
     use ReviewRow as Row;
     let model = reviewing(sample_items(), None);
-    let summary = rows::of(View::Summary, &model, &EN, &NUM);
+    let summary = rows::of(View::Summary, &model, &model.preselected(), &EN, &NUM);
     assert_eq!(summary.len(), 9);
     assert_eq!(
         summary[..3],
@@ -336,7 +337,7 @@ fn the_checklist_and_summary_rows_are_the_oracles() {
     );
     assert_eq!(summary[8], Row::Importing(Some("Chat sessions 1".into())));
 
-    let rows = rows::of(View::Customize, &model, &EN, &NUM);
+    let rows = rows::of(View::Customize, &model, &model.preselected(), &EN, &NUM);
     let details: Vec<String> = rows
         .iter()
         .filter_map(|row| match row {

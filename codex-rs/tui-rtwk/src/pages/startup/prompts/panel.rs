@@ -7,7 +7,7 @@
 //! scroll, the room the rest leaves), the key hint and a blank row; the keys
 //! are a `Focus` with the bindings of `keys.rs` (key -> `Cmd`), answered by
 //! core's `Prompt::{step, number, take}` (what a key does is the oracle's,
-//! tested in `keys.rs` and core). The prompt is read from the model (`ScreenStates.startup.open`);
+//! tested in `keys.rs` and core). The prompt is read from the model (`ScreenStates.startup.asked`);
 //! the widget keeps the cursor only (ADR-003).
 
 use std::rc::Rc;
@@ -75,7 +75,7 @@ impl StatefulWidget for Panel {
 impl_widget!(stateful eq Panel);
 
 fn open(cx: &mut Cx<'_, PanelState>) -> Option<Prompt> {
-    select::<ScreenStates, Option<Prompt>, _>(cx, |states| states.startup.open.clone())
+    select::<ScreenStates, Option<Prompt>, _>(cx, |states| states.startup.asked.clone())
 }
 
 impl State for PanelState {

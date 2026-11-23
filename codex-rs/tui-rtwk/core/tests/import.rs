@@ -166,11 +166,16 @@ fn send(model: &mut Model, intents: &[Intent]) {
     }
 }
 
+/// Every item of `sample_items` checked (the page's checklist sends the indexes).
+fn all() -> Vec<usize> {
+    vec![0, 1, 2, 3]
+}
+
 #[test]
 fn proceed_returns_selected_items() {
     let mut model = reviewing(sample_items(), None);
     assert_eq!(model.phase, Phase::Review);
-    send(&mut model, &[Intent::Proceed]);
+    send(&mut model, &[Intent::Proceed(all())]);
     assert_eq!(model.phase, Phase::Importing);
     let Some(Request::Import { source, items, .. }) = model.request() else {
         panic!("an import request");
@@ -180,12 +185,12 @@ fn proceed_returns_selected_items() {
 }
 
 #[test]
-fn toggle_item_then_proceed_keeps_remaining_selection() {
+fn unchecking_an_item_then_proceed_keeps_remaining_selection() {
     let items = sample_items();
     let mut model = reviewing(items.clone(), None);
-    send(&mut model, &[Intent::Toggle(0)]);
-    assert_eq!(model.selected_count(), 3);
-    send(&mut model, &[Intent::Proceed]);
+    // the page's checklist unchecked the first item: it sends the rest
+    send(&mut model, &[Intent::Proceed(vec![1, 2, 3])]);
+    assert_eq!(model.selected_items().len(), 3);
     let Some(Request::Import { items: chosen, .. }) = model.request() else {
         panic!("an import request");
     };
@@ -195,9 +200,9 @@ fn toggle_item_then_proceed_keeps_remaining_selection() {
 #[test]
 fn an_empty_selection_does_not_proceed() {
     let mut model = reviewing(sample_items(), Some(Vec::new()));
-    send(&mut model, &[Intent::Proceed]);
+    send(&mut model, &[Intent::Proceed(Vec::new())]);
     assert_eq!(model.phase, Phase::Review);
-    send(&mut model, &[Intent::SetAll(true), Intent::Proceed]);
+    send(&mut model, &[Intent::Proceed(all())]);
     assert_eq!(model.phase, Phase::Importing);
 }
 
@@ -319,7 +324,7 @@ fn a_detection_cancelled_before_it_answers_drops_the_late_answer() {
 #[test]
 fn a_failed_import_returns_to_the_review_with_the_selection_and_the_error() {
     let mut model = reviewing(sample_items(), None);
-    send(&mut model, &[Intent::Toggle(0), Intent::Proceed]);
+    send(&mut model, &[Intent::Proceed(vec![1, 2, 3])]);
     let Some(Request::Import { request, .. }) = model.request() else {
         panic!("an import request");
     };
@@ -342,7 +347,7 @@ fn a_failed_import_returns_to_the_review_with_the_selection_and_the_error() {
     );
     assert_eq!(model.phase, Phase::Review);
     assert_eq!(model.error.as_deref(), Some("boom"));
-    assert_eq!(model.selected_count(), 3);
+    assert_eq!(model.selected_items().len(), 3);
     assert_eq!(
         model.review_id, 2,
         "a new review opened: the view's `Nav` starts again"
@@ -352,7 +357,7 @@ fn a_failed_import_returns_to_the_review_with_the_selection_and_the_error() {
 #[test]
 fn a_started_import_tells_what_remains_and_blocks_the_next_one() {
     let mut model = reviewing(sample_items(), None);
-    send(&mut model, &[Intent::Toggle(0), Intent::Proceed]);
+    send(&mut model, &[Intent::Proceed(vec![1, 2, 3])]);
     let Some(Request::Import { request, .. }) = model.request() else {
         panic!("an import request");
     };
@@ -448,8 +453,7 @@ fn proceeding_asks_the_import_of_the_checked_items_of_the_source() {
     let items = sample_items();
     let mut model = reviewing(items.clone(), None);
     let mut fx = AppFx::default();
-    apply_intent(&mut model, Intent::Toggle(0), &mut fx);
-    apply_intent(&mut model, Intent::Proceed, &mut fx);
+    apply_intent(&mut model, Intent::Proceed(vec![1, 2, 3]), &mut fx);
     assert_eq!(
         asked(&fx),
         [Request::Import {
@@ -465,14 +469,13 @@ fn a_flow_that_asks_nothing_makes_no_request() {
     // an empty selection does not proceed
     let mut model = reviewing(sample_items(), Some(Vec::new()));
     let mut fx = AppFx::default();
-    apply_intent(&mut model, Intent::Proceed, &mut fx);
-    // a cancelled flow, a toggle
-    apply_intent(&mut model, Intent::Toggle(0), &mut fx);
+    apply_intent(&mut model, Intent::Proceed(Vec::new()), &mut fx);
+    // a cancelled flow
     apply_intent(&mut model, Intent::Cancel, &mut fx);
     assert_eq!(asked(&fx), Vec::<Request>::new());
     // one import runs: the next `/import` is refused, nothing is asked
     let mut model = reviewing(sample_items(), None);
-    send(&mut model, &[Intent::Proceed]);
+    send(&mut model, &[Intent::Proceed(all())]);
     let Some(Request::Import { request, .. }) = model.request() else {
         panic!("an import")
     };
@@ -487,7 +490,8 @@ fn a_flow_that_asks_nothing_makes_no_request() {
 }
 
 fn started(model: &mut Model, id: &str) {
-    send(model, &[Intent::Proceed]);
+    let checked = (0..model.items.len()).collect();
+    send(model, &[Intent::Proceed(checked)]);
     let Some(Request::Import { request, .. }) = model.request() else {
         panic!("an import")
     };
