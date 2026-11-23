@@ -29,7 +29,7 @@ use rtwk::layout::{
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
-use rtwk::style::{Attrs, Span, Style};
+use rtwk::style::{Attrs, Span, Style, TerminalBrightness};
 use rtwk::text::{Text, TextAlign, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk::{Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -118,14 +118,45 @@ impl StatefulWidget for ThemeSheet {
 
 impl_widget!(stateful eq ThemeSheet);
 
-/// The picker the model offers.
+/// The picker the model offers, as the sheet draws it: the theme in force is the one the
+/// config names when it is among the themes, else the terminal's default theme
+/// (`build_theme_picker_params`: `effective_name`), so the cursor starts on it and the row says
+/// "(current)".
 fn open_picker(cx: &mut Cx<'_, ThemeState>) -> Option<ThemePicker> {
+    let offered = offered_picker(cx)?;
+    let in_force = offered
+        .original
+        .clone()
+        .filter(|name| offered.themes.contains(name))
+        .unwrap_or_else(|| adaptive_default(TerminalBrightness::background_of(cx)).to_owned());
+    Some(ThemePicker {
+        original: Some(in_force),
+        ..offered
+    })
+}
+
+/// The picker as the model offers it: `original` is the theme the config names, if any.
+fn offered_picker(cx: &mut Cx<'_, ThemeState>) -> Option<ThemePicker> {
     select::<ScreenStates, Option<ThemePicker>, _>(cx, |states| {
         match states.settings.offers.get(&Which::Theme) {
             Some(Offer::Theme(picker)) => Some(picker.clone()),
             _ => None,
         }
     })
+}
+
+/// The theme a terminal gets when the config names none (`adaptive_default_theme_selection`):
+/// catppuccin-mocha, catppuccin-latte when its background is light (luma above 128).
+fn adaptive_default(terminal_bg: Option<u32>) -> &'static str {
+    let light = terminal_bg.is_some_and(|rgb| {
+        let [_, r, g, b] = rgb.to_be_bytes();
+        0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b) > 128.0
+    });
+    if light {
+        "catppuccin-latte"
+    } else {
+        "catppuccin-mocha"
+    }
 }
 
 impl ThemeState {
@@ -169,12 +200,14 @@ impl ThemeState {
         });
     }
 
-    /// Esc: the theme in force is the one the picker opened on again.
-    fn cancel(&self, picker: &ThemePicker, cx: &mut Cx<'_, Self>) {
+    /// Esc: the theme in force is the one the picker opened on again (the config's, if it names
+    /// one: none is the terminal's default).
+    fn cancel(&self, cx: &mut Cx<'_, Self>) {
+        let original = offered_picker(cx).and_then(|picker| picker.original);
         let hs = read::<Hs, _>(cx);
         cx.emit(
             &hs.screen,
-            ScreenIntent::Settings(Intent::SyntaxTheme(picker.original.clone())),
+            ScreenIntent::Settings(Intent::SyntaxTheme(original)),
         );
         close_dialog::<_, ()>(cx, None);
     }
@@ -198,9 +231,9 @@ impl ThemeState {
                     );
                     close_dialog::<_, ()>(cx, None);
                 }
-                None => self.cancel(picker, cx),
+                None => self.cancel(cx),
             },
-            Act::Close => self.cancel(picker, cx),
+            Act::Close => self.cancel(cx),
         }
     }
 }

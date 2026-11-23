@@ -762,8 +762,10 @@ fn syntax_theme(h: &Harness) -> Option<String> {
 fn slash_theme_opens_the_picker_over_the_bundled_themes() {
     let h = theme_command();
     let screen = h.t.screen();
-    assert!(screen.contains("› 1337"), "{screen}");
-    assert!(screen.contains("ansi"), "{screen}");
+    // The config names no theme: the cursor starts on the terminal's default theme, which the
+    // row says is in force (`build_theme_picker_params`: `effective_name`).
+    assert!(screen.contains("› catppuccin-mocha (current)"), "{screen}");
+    assert!(screen.contains("base16-ocean-light"), "{screen}");
     let themes =
         h.t.read_app(
             |app: &UiApp| match app.core.screens().settings.offers.get(&Which::Theme) {
@@ -779,12 +781,12 @@ fn the_cursor_previews_in_the_model_and_esc_restores_the_theme_in_force() {
     let mut h = theme_command();
     assert_eq!(syntax_theme(&h), None);
     h.press("down");
-    h.wait_until("the model previews ansi", |h| {
-        syntax_theme(h).as_deref() == Some("ansi")
+    h.wait_until("the model previews coldark-cold", |h| {
+        syntax_theme(h).as_deref() == Some("coldark-cold")
     });
     h.press("down");
-    h.wait_until("the model previews base16", |h| {
-        syntax_theme(h).as_deref() == Some("base16")
+    h.wait_until("the model previews coldark-dark", |h| {
+        syntax_theme(h).as_deref() == Some("coldark-dark")
     });
     h.press("esc");
     h.wait_until("Esc restores the theme in force", |h| {
@@ -800,13 +802,13 @@ fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
     h.press("down");
     h.press("enter");
     h.wait_until("the picked theme is in force and recorded", |h| {
-        syntax_theme(h).as_deref() == Some("base16")
+        syntax_theme(h).as_deref() == Some("coldark-dark")
             && h.t
                 .read_app(|app: &UiApp| !app.core.screens().settings.edits.is_empty())
     });
     let edits =
         h.t.read_app(|app: &UiApp| app.core.screens().settings.edits.clone());
-    assert_eq!(edits, vec![Edit::ThemeSelected("base16".to_string())]);
+    assert_eq!(edits, vec![Edit::ThemeSelected("coldark-dark".to_string())]);
     assert!(!h.t.screen().contains("Select Syntax Theme"));
 }
 
