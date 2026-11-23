@@ -171,6 +171,8 @@ pub enum Item {
     Decision(screens::approvals::decided::Decided),
     /// A line `/auto-review` or the reviewer's paths added.
     Review(ReviewLine),
+    /// The card of a `/status` command (oracle `StatusHistoryCell`).
+    Status(Arc<screens::status::StatusCard>),
 }
 
 impl Item {
@@ -380,6 +382,18 @@ impl Transcript {
         self.order
             .iter()
             .filter_map(|key| self.item(key).map(|item| (key, item)))
+    }
+
+    /// The card of the newest `/status` entry (oracle `last_status_copy_targets`: the copy
+    /// picker offers the last one).
+    pub fn last_status(&self) -> Option<&Arc<screens::status::StatusCard>> {
+        self.order
+            .iter()
+            .rev()
+            .find_map(|key| match self.item(key) {
+                Some(Item::Status(card)) => Some(card),
+                _ => None,
+            })
     }
 
     fn item(&self, key: &ItemKey) -> Option<&Item> {

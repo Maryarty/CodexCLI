@@ -878,7 +878,7 @@ fn slash_clear_is_disabled_while_task_running() {
     // Commands that may run during a task still do.
     assert_eq!(
         dispatch("/status", &busy),
-        open(Target::Status, SlashCommand::Status, "")
+        session(SlashCommand::Status, SessionIntent::Status)
     );
 }
 
@@ -1105,7 +1105,7 @@ fn side_conversation_and_review_gates() {
     );
     assert_eq!(
         dispatch("/status", &side),
-        open(Target::Status, SlashCommand::Status, "")
+        session(SlashCommand::Status, SessionIntent::Status)
     );
     let review = DispatchCx {
         review_mode: true,
@@ -1138,7 +1138,6 @@ fn every_screen_opening_command_names_its_target() {
         ("/agents", Target::Agents),
         ("/subagents", Target::AgentPicker),
         ("/diff", Target::Pager),
-        ("/status", Target::Status),
         ("/usage", Target::Usage),
         ("/warnings", Target::Dialogs),
         ("/feedback", Target::Dialogs),
@@ -1158,7 +1157,6 @@ fn every_screen_opening_command_names_its_target() {
         Target::Agents,
         Target::Import,
         Target::Usage,
-        Target::Status,
         Target::Select,
         Target::Settings,
         Target::Dialogs,
@@ -1372,7 +1370,6 @@ fn only_the_five_pages_are_routes() {
         assert_eq!(target.opens(), Opens::Page, "{target:?}");
     }
     for target in [
-        Target::Status,
         Target::Select,
         Target::Settings,
         Target::Approvals,

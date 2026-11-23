@@ -79,7 +79,6 @@ command_opens! {
     slash_agents_opens_the_agents: "/agents" => "agents";
     slash_resume_opens_the_picker: "/resume" => "resume";
     slash_import_opens_the_import: "/import" => "import";
-    slash_status_opens_the_status_card: "/status" => "status";
     slash_usage_opens_the_usage_dashboard: "/usage" => "usage";
     slash_usage_weekly_opens_the_usage_dashboard: "/usage weekly" => "usage";
     slash_warnings_opens_the_dialogs: "/warnings" => "dialogs";
@@ -115,11 +114,11 @@ fn slash_subagents_opens_the_agent_picker_not_the_command_center() {
 fn a_command_picked_in_the_popup_opens_its_screen() {
     let mut h = chat();
     let before = h.t.screen();
-    h.t.type_text("/stat");
+    h.t.type_text("/usag");
     h.t.pump_for(ms(100));
     h.press("enter");
-    wait_shows(&mut h, "/stat + enter", "status");
-    assert!(shows(&h, "status"), "{}", h.t.screen());
+    wait_shows(&mut h, "/usag + enter", "usage");
+    assert!(shows(&h, "usage"), "{}", h.t.screen());
     escape_closes(&mut h, &before);
     assert_chat_back(&h, None, &before);
 }

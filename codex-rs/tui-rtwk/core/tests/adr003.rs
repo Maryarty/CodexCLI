@@ -204,8 +204,12 @@ fn every_intent_in_every_lifecycle_state_keeps_the_model_consistent() {
             intent: ScreenThreadIntent::Chat(codex_tui_core::screens::chat::ThreadIntent::Compact),
         },
         || {
-            Intent::Screen(codex_tui_core::screens::ScreenIntent::Status(
-                codex_tui_core::screens::status::Intent::Open,
+            Intent::Screen(codex_tui_core::screens::ScreenIntent::Chat(
+                codex_tui_core::screens::chat::Intent::Session {
+                    thread: Some(ThreadId::new(A)),
+                    command: codex_tui_core::commands::SlashCommand::Status,
+                    intent: codex_tui_core::commands::SessionIntent::Status,
+                },
             ))
         },
     ];
