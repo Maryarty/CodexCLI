@@ -183,7 +183,14 @@ pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
         let items = match turn.items_view {
             TurnItemsView::Full => TurnSnapshot::Full(items),
             TurnItemsView::Summary => TurnSnapshot::Summary(items),
-            TurnItemsView::NotLoaded => continue,
+            // Oracle `replay_thread_turns`: a finished turn's rows wait for their page, but an
+            // active or failed turn restores its lifecycle before any item is available.
+            TurnItemsView::NotLoaded
+                if matches!(turn.status, TurnStatus::Completed | TurnStatus::Interrupted) =>
+            {
+                continue;
+            }
+            TurnItemsView::NotLoaded => TurnSnapshot::Summary(items),
         };
         projected.push(HistoryTurn {
             turn: turn_id,

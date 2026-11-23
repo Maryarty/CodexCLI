@@ -888,6 +888,18 @@ impl ComposerDraft {
         self.0.borrow_mut().prompts.record_local_submission(entry);
     }
 
+    /// A user message of a replayed transcript (`record_replayed_user_message_history`):
+    /// kept for Up and Ctrl+R as a local entry, and remembered so the history
+    /// file's copy of it is not offered twice. A message the recall holds
+    /// already (the page seeds again from the whole list when older turns
+    /// came) is not added twice.
+    pub fn replayed(&self, entry: HistoryEntry) {
+        let mut inner = self.0.borrow_mut();
+        if !inner.prompts.local().contains(&entry) {
+            inner.prompts.record_replayed_submission(entry);
+        }
+    }
+
     /// Ctrl+C on a draft (`clear_for_ctrl_c`): the draft is kept for Up and
     /// Ctrl+R whole, its placeholders and what they stand for with it.
     pub fn cancelled(&self, c: &TextEditingController) {
