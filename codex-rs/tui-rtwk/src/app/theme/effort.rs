@@ -142,6 +142,12 @@ pub(crate) fn band_style(color: Rgb) -> Style {
     Style::new().bg(rgb(color))
 }
 
+/// A sparkle dot's style (`render_stars`): `color`, the dot's blend of the
+/// terminal's foreground into the cell's background, as the glyph's colour.
+pub(crate) fn dot_style(color: Rgb) -> Style {
+    Style::new().fg(rgb(color))
+}
+
 /// The Ultra wave's spark: the first hue, bold.
 pub(crate) fn spark_style(color: Rgb) -> Style {
     Style::new().fg(rgb(color)).attrs(Attrs::BOLD)

@@ -1,0 +1,5 @@
+# A fresh thread on `gpt-5.5` (animations and the starfield effect on) with four entries of input history, the
+# newest last: the oracle's `record_local_submission` of sparkle_tests.rs.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5"}}}
+{"step":"screen","dir":"popovers","ev":{"history":["git status","/status","stored draft","history prompt"]}}

@@ -15,6 +15,7 @@ use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::backtrack::{Backtrack, EscStep, Selection, Targets};
 
 use crate::widgets::composer_draft::ComposerDraft;
+use crate::widgets::composer_sparkle::SparkleController;
 
 /// The controllers of one thread.
 #[derive(Clone, Default, PartialEq)]
@@ -27,6 +28,8 @@ pub struct ThreadUi {
     pub follow: Follow,
     /// The modes of the transcript sheet (browsing prompts).
     pub modes: Modes,
+    /// The composer's sparkle: what the draft did to it, what shows.
+    pub sparkle: SparkleController,
 }
 
 /// The mode of one thread's transcript sheet, as Flutter's
