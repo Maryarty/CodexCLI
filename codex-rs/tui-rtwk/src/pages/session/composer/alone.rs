@@ -109,12 +109,17 @@ impl State for AloneState {
 
     fn build(&self, w: &Alone, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
-        let composer = Composer::new(w.ui.clone(), self.node.clone()).on_changed(cx.map(|_| Msg::Changed));
+        let composer =
+            Composer::new(w.ui.clone(), self.node.clone()).on_changed(cx.map(|_| Msg::Changed));
         let footer: AnyWidget = if let Some((query, status)) = w.ui.draft.search_state() {
             search::footer(cx, query, status)
         } else {
             Footer {
-                line: if self.shortcuts { Line::Close } else { Line::Passive },
+                line: if self.shortcuts {
+                    Line::Close
+                } else {
+                    Line::Passive
+                },
                 agents: false,
                 draft_empty: self.draft_empty,
                 shell: self.draft_shell,
@@ -132,13 +137,13 @@ impl State for AloneState {
             body = body.child(shortcut_panel(cx, running).0);
         }
         body.child(Expanded::new(
-                1,
-                BoxWidget::new()
-                    .style(tokens.prompt_surface(cx, false))
-                    .padding(EdgeInsets::only(0, 1, 1, 1))
-                    .child(composer),
-            ))
-            .child(footer)
-            .into()
+            1,
+            BoxWidget::new()
+                .style(tokens.prompt_surface(cx, false))
+                .padding(EdgeInsets::only(0, 1, 1, 1))
+                .child(composer),
+        ))
+        .child(footer)
+        .into()
     }
 }
