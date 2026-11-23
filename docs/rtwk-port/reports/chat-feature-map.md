@@ -1,8 +1,8 @@
 # Карта функциональности экрана чата: oracle (codex-rs/tui) против порта (codex-rs/tui-rtwk)
 
-Дата: 2026-11-23. Факт-финдинг, код не менялся. Строки обновлены после батчей 3 (0130f3747), 4 (51abab645), 5 (de6ff75d3: картинки и Vim composer) и 6 (60d7f4fa6: семьи ADR-013 resume, dialogs-pets, startup, settings) по пакам parity, сообщениям коммитов и тестам oracle, без нового прогона шардов.
+Дата: 2026-11-23. Факт-финдинг, код не менялся. Строки обновлены после батчей 3 (0130f3747), 4 (51abab645), 5 (de6ff75d3: картинки и Vim composer), 6 (60d7f4fa6: семьи ADR-013 resume, dialogs-pets, startup, settings), 7 (9e2d8ae75: usage-agents, approvals), 8 (3955761c0: composer, пилот /plugins) и 9 (ee6bad4e8: session, features-trait, тесты по корням) по пакам parity и сообщениям коммитов; батчи 7-9 архитектурные, поведение у них меняют только строки, названные в hand-in (/feedback, /rename, /goal, /export, /plugins). Тесты oracle: полный прогон на ee6bad4e8 (см. «Прогон oracle на ee6bad4e8» в конце); числа «зелёные/всего» в строках остались с прежних пересчётов, не перебирались.
 
-**Итог.** 291 строка-функция: ✅ 123, 🟡 68, ❌ 96, «?» 4 (статус не установлен) — на 60d7f4fa6; на 51abab645 было 289 строк, 123/63/99/4. С 51abab645 статус сменили: /vim ❌→✅; remote-картинки 🟡→✅; Vim-клавиши 🟡→✅; Ctrl+V/Alt+V (строка composer и строка клавиш) ❌→🟡; /memories, «Settings: Theme, Memories», «Memories settings и reset», оверлей шорткатов ✅→🟡 (в бинаре /memories ничего не открывает: лента фактов host не подключена; оверлей «?» из чата достижим только из debug-меню). Добавлены две строки: SelectionList (тап) 🟡 и Resume picker (клавиши oracle) ✅. До этого: история между сессиями ❌→✅, @-упоминания 🟡→✅, копирование выделения и «Shift-клик/правая кнопка» ❌→🟡 (двойной/тройной клик остался ❌: проверки нет); у остальных строк правки только в тексте. Тесты oracle (2607 на 87ad7733c, не пересчитаны, шарды после батчей 5 и 6 здесь не гонялись): 865 зелёные, 1432 pending, 12 красных, 297 n/a; после 87ad7733c добавились зелёные из паков (chat_status_2 +5, composer +9, history pages +4, chat_commands_2 +5, chat_live_2 +2, markdown +5) и из батча 5 (vim-тесты composer_1, composer_3, chat_live_4, chat_commands_1; тесты с remote-картинками в chat_commands_1, composer_2, composer_3, composer_4; счёт не взят). Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
+**Итог.** 291 строка-функция: ✅ 123, 🟡 69, ❌ 95, «?» 4 (статус не установлен) — на ee6bad4e8; на 60d7f4fa6 было 291 строка, 123/68/96/4 (с тех пор: строка «Plugins: список, вкладки, поиск, деталь» ❌→🟡 — /plugins влит ещё в 8c492bcbc, а эта строка не была обновлена); на 51abab645 было 289 строк, 123/63/99/4. Тесты oracle на ee6bad4e8: 1075 зелёные, 1228 pending, 6 красных, 301 n/a из 2610 (было 581 зелёные на 252acefb6, 22 ноября; 865 зелёные на 87ad7733c). Миграция ADR-013 (до возобновления feature-блоков): осталась семья select (14 ratchet-строк в tests/rules/adr013_ratchets/select.txt, plugins.txt пуст); идут пять select-семей и select-finish, settings-slice, debt-b9-session, adr013-keys. С 51abab645 статус сменили: /vim ❌→✅; remote-картинки 🟡→✅; Vim-клавиши 🟡→✅; Ctrl+V/Alt+V (строка composer и строка клавиш) ❌→🟡; /memories, «Settings: Theme, Memories», «Memories settings и reset», оверлей шорткатов ✅→🟡 (в бинаре /memories ничего не открывает: лента фактов host не подключена; оверлей «?» из чата достижим только из debug-меню). Добавлены две строки: SelectionList (тап) 🟡 и Resume picker (клавиши oracle) ✅. До этого: история между сессиями ❌→✅, @-упоминания 🟡→✅, копирование выделения и «Shift-клик/правая кнопка» ❌→🟡 (двойной/тройной клик остался ❌: проверки нет); у остальных строк правки только в тексте. Тесты oracle (2607 на 87ad7733c, не пересчитаны, шарды после батчей 5 и 6 здесь не гонялись): 865 зелёные, 1432 pending, 12 красных, 297 n/a; после 87ad7733c добавились зелёные из паков (chat_status_2 +5, composer +9, history pages +4, chat_commands_2 +5, chat_live_2 +2, markdown +5) и из батча 5 (vim-тесты composer_1, composer_3, chat_live_4, chat_commands_1; тесты с remote-картинками в chat_commands_1, composer_2, composer_3, composer_4; счёт не взят). Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
 **Пять самых больших дыр.**
 1. Транскрипт: нет поиска (F3/F4), клавиатурного выделения, copy mode, закреплённой шапки prompt, раскрытия деталей хода. Копирование выделения мышью есть (542959815: отпускание, правая кнопка, Ctrl+C, Enter); нет Shift-клика/расширения с клавиатуры (rtwk-gap: у SelectionAreaController нет чтения start/end), Markdown-копии, X11 primary; клавиши ctrl+home / alt+< для старых страниц истории. transcript_view_4: 0 из 60 зелёные, transcript_view_5: 1 из 59.
 2. Слэш-команды: ≈24 из ≈65 отвечают «NotAvailable» или открывают пустой слот (/vim с батча 5 работает): /side /btw /copy /worktree /mcp /ps /recap /voice /tui /diff /hooks /keymap /config /experimental /skills /title /statusline /logout /ide /daybreak /debug-config /subagents.
@@ -14,9 +14,9 @@
 
 - Статус: ✅ работает; 🟡 частично (в «Чего нет» сказано чего); ❌ нет; «?» не удалось установить (причина в строке). «работает, тест не включён» — функция по коду есть, а её тесты в oracle-шардах pending по причине обвязки (probe-stale).
 - Колонка тестов: зелёные/всего (n/a не считаются) среди тестов oracle, чьё имя совпало с шаблоном строки; «не вкл. N» — сколько из них stale. Совпадение по имени приблизительное: для широких строк (markdown, /status, футер) это весь семейный счёт. Прочерк — подходящих тестов не нашлось (у клавиш счёта нет: их проверяют функции выше).
-- Задача — alias в tm (статусы на 60d7f4fa6: feature-блоки ПРИОСТАНОВЛЕНЫ на миграцию ADR-013 — tm-контейнер adr013-migrate, решение 2026-11-23 «сначала архитектуру»; новых задач из блоков не берут, пока он не закрыт. Миграция ADR-013: семьи resume, dialogs-pets, startup и settings влиты (батч 6); composer и пилот plugins идут; usage-agents и approvals в посадке. Сделаны в батчах 3-5: chunk-status-card, chunk-composer-live-mentions, chunk-composer-history, chunk-cells-rendering-prefs, chunk-live-banner-fallback, chunk-commands (/rename), chunk-transcript-2 (выделение и копирование), chunk-transcript-2-history-pages, а в батче 5 — chunk-composer-images (remote-картинки) и chunk-composer-vim (/vim); остальные задачи остались в состоянии до миграции — created, часть held/claimed раньше: chunk-popups-plugins, chunk-status-sparkle, settings). «—» — задачи нет или функция готова.
+- Задача — alias в tm (статусы на ee6bad4e8: feature-блоки ПРИОСТАНОВЛЕНЫ на миграцию ADR-013 — tm-контейнер adr013-migrate, решение 2026-11-23 «сначала архитектуру»; новых задач из блоков не берут, пока он не закрыт. Миграция ADR-013: семьи resume, dialogs-pets, startup и settings влиты (батч 6); usage-agents и approvals (батч 7); composer и пилот /plugins (батч 8); session и features-trait (батч 9); идут пять select-семей (worktree, quick, apps, models, permissions) и select-finish, settings-slice, debt-b9-session, debt-b9-features (ждёт settings-slice), adr013-keys; батч 10 их ждёт. Сделаны в батчах 3-5: chunk-status-card, chunk-composer-live-mentions, chunk-composer-history, chunk-cells-rendering-prefs, chunk-live-banner-fallback, chunk-commands (/rename), chunk-transcript-2 (выделение и копирование), chunk-transcript-2-history-pages, а в батче 5 — chunk-composer-images (remote-картинки) и chunk-composer-vim (/vim); остальные задачи остались в состоянии до миграции — created, часть held/claimed раньше: chunk-popups-plugins, chunk-status-sparkle, settings). «—» — задачи нет или функция готова.
 - Источники: slash_command.rs, research/codex-tui-features.csv, `core/src/commands/dispatch.rs`, `core/src/app/session.rs`, `src/pages/session/{actions,open,keys,session_page}.rs`, verdicts oracle-шардов (summary.py + probe), tests/pages и core/tests как свидетельства работы.
-- Известные оговорки: 12 красных тестов — отдельные расхождения, не функции (cells_1: computer_activity, wrap_styled_spans; cells_4: 4 web search; chat_live_4: plan_slash_hidden_shell_paste; composer_1: deleting_prefix_keeps_bang_literal; markdown_streaming_4: recomputing_after_resize; resume_2: page_and_jump_navigation; small_dialogs_2: warning_pages_wrap; transcript_view_2: ordinary_click_opens_links).
+- Известные оговорки: 6 красных тестов на ee6bad4e8 — отдельные расхождения, не функции; их ведёт debt-b9-session (chat_live_4: plan_slash_hidden_shell_paste; composer_1: deleting_prefix_keeps_bang_literal; transcript_view_2: ordinary_click_opens_links; markdown_streaming_4: recomputing_after_resize; chat_popups_2: plugins_popup_preserves…; small_dialogs_2: warning_pages_wrap). Красные cells_1 (computer_activity, wrap_styled_spans), cells_4 (4 web search) и resume_2 (page_and_jump_navigation) из прежних 12 больше не красные.
 
 ## Транскрипт и ячейки
 
@@ -148,7 +148,7 @@
 | /import — перенос из других агентов | ✅ | route Import; shard import 16/16 | 16/16 | — |
 | /hooks | ❌ | NotAvailable; sheet settings/hooks.rs не подключён; hooks_popup_shows_list_diagnostics | 0/1 | settings |
 | /review — выбор ветки/коммита/custom | ✅ | branch/commit picker snapshots ждут (review_*_picker, 2 pending) | 32/74 (не вкл. 6) | — |
-| /rename — имя треда | ✅ | landed a15c35bf8 (95826e191): с аргументом и bare prompt (slice features/rename); 29abc1aa5: вид prompt `src/sheets/dialogs/prompt.rs`, чат показывает любой открытый моделью prompt (так же файловый prompt /export и edit /goal), 5 тестов chat_commands_2 зелёные, pty rename-prompt проходит в обоих бинарях. Нет: предложение имени — хост отвечает Done::Title(None), oracle генерирует через ephemeral thread (thread_title.rs); нужен backend SuggestTitle в services/rpc | 1/7 (+5 chat_commands_2 после 29abc1aa5) | small-dialogs |
+| /rename — имя треда | ✅ | landed a15c35bf8 (95826e191): с аргументом и bare prompt (slice features/rename); батч 9 (features-trait): prompt — UI-половина `src/features/rename/prompt.rs` на общем виде `features/prompt.rs` (Menu/Pick/Prompt у Feature убраны), pty rename-prompt в land-check батча; 29abc1aa5: вид prompt `src/sheets/dialogs/prompt.rs`, чат показывает любой открытый моделью prompt (так же файловый prompt /export и edit /goal), 5 тестов chat_commands_2 зелёные, pty rename-prompt проходит в обоих бинарях. Нет: предложение имени — хост отвечает Done::Title(None), oracle генерирует через ephemeral thread (thread_title.rs); нужен backend SuggestTitle в services/rpc | 1/7 (+5 chat_commands_2 после 29abc1aa5) | small-dialogs |
 | /new | 🟡 | новый тред ✅; выбор checkout-директории (worktree choice) ❌ | 0/2 | chunk-popups-worktree |
 | /archive | ✅ | confirm sheet + RPC | 2/2 | — |
 | /delete | ✅ | confirm sheet + RPC | 1/1 | — |
@@ -162,11 +162,11 @@
 | /recap | ❌ | NotAvailable; ячейка recap | 0/5 | chunk-commands |
 | /plan [prompt] | ✅ | маска из каталога, уведомления disabled/unavailable | 1/8 (не вкл. 2) | chunk-popups-plan |
 | /voice | ❌ | VoiceControl NotAvailable; F8 открывает sheet voice (пустая папка) | 0/5 | voice |
-| /goal [цель/pause/resume/clear] | 🟡 работает, тест не включён | команда и модель (features/goal) ✅; меню goal и edit prompt (snapshots) ❌ | 1/20 (не вкл. 4) | chunk-popups-goal |
+| /goal [цель/pause/resume/clear] | 🟡 работает, тест не включён | команда и модель (features/goal) ✅; батч 9 (features-trait): у цели своя UI-половина `src/features/goal/` (sheet.rs: меню цели и edit prompt, общий вид prompt `features/prompt.rs`), `Target::Feature`; снимки меню и edit prompt не включены | 1/20 (не вкл. 4) | chunk-popups-goal |
 | /agents — центр агентов | ✅ | Target::Agents route | 0/1 | — |
 | /side, /btw | ❌ | нет; тесты отказов в side-треде тоже ждут | 4/33 (не вкл. 2) | chunk-commands |
 | /copy — копировать ответ | ❌ | NotAvailable(Copy); выбор copy picker и Ctrl+O не готовы | 0/11 (не вкл. 2) | chunk-transcript-2-copy-mode |
-| /export | ✅ | landed a15c35bf8 (95826e191): путь, picker назначения, prompt имени (slice features/export) | 0/2 | chunk-commands-export |
+| /export | ✅ | landed a15c35bf8 (95826e191): путь, picker назначения, prompt имени (slice features/export); батч 9: UI-половина `src/features/export/` (sheet.rs), `Target::Feature` | 0/2 | chunk-commands-export |
 | /raw | ✅ | режим + заметка, Alt+R | 19/35 (не вкл. 1) | — |
 | /tui — быстрые настройки TUI | ❌ | NotAvailable | — | settings |
 | /diff | ❌ | Target::Pager показывает «not yet» | — | pager |
@@ -184,10 +184,10 @@
 | /pets, /pet | 🟡 работает, тест не включён | sheet pets открывается; ambient-часть и тесты не включены | 2/13 (не вкл. 4) | pets |
 | /mcp | ❌ | NotAvailable; ячейка инвентаря | 0/4 | chunk-cells-mcp-inventory |
 | /apps | ✅ | диалог ссылки приложения, вкл/выкл, сброс при смене аккаунта, обновление каталога (b2eeacb7c); partial-snapshot тесты n/a (нет is_final:false в протоколе) | 9/10 | — |
-| /plugins | 🟡 | влит 8c492bcbc: список, установка, marketplaces; расхождения: Esc на карточке, заметка fresh, OpenUrl (core-popups) | 39/41 | core-popups |
+| /plugins | 🟡 | влит 8c492bcbc: список, установка, marketplaces. Пилот ADR-013 (батч 8, 454b13f11): Esc как у oracle (закрывает на карточке, loading и failure; возвращает только на подтверждении удаления и prompt add-marketplace), `Back to plugins` — строка карточки (курсор, вкладка и запрос сохраняются), setup-ссылка через `Ask::OpenUrl`, страницы — маршруты вложенного Navigator; pty рядом с oracle: браузер, вкладки, поиск, карточка, add-marketplace равны. Различия: усечение `…` после пробела (общий TextOverflow::Ellipsis пикера), переход prompt → failure add-marketplace не гонялся; красный на tip chat_popups_2 `plugins_popup_preserves…` (debt-b9-session) | 39/41 (chat_popups_3: 48 pass, 0 red на пилоте) | chunk-popups-plugins (сделана) |
 | /logout | ❌ | NotAvailable | — | chunk-commands |
 | /quit, /exit | ✅ | — | 7/16 (не вкл. 2) | — |
-| /feedback | 🟡 | sheet dialogs/feedback.rs есть; upload-consent/diagnostics снимки ждут (27 тестов) | 3/30 (не вкл. 1) | chunk-popups-feedback |
+| /feedback | 🟡 | батч 9 (features-trait, d776d1a43): `/feedback` открывает страницу Feedback листа dialogs (категория, consent) — раньше открывал пустой лист; заметка и загрузка логов не написаны; upload-consent/diagnostics снимки ждут (27 тестов) | 3/30 (не вкл. 1) | chunk-popups-feedback |
 | /rollout | ✅ | — | 2/2 | — |
 | /ps — фоновые терминалы | ❌ | NotAvailable | 1/1 | chunk-cells-background-terminals |
 | /stop, /clean | ✅ | чистит терминалы + заметка | 1/1 | — |
@@ -205,18 +205,18 @@
 | Reasoning picker и Alt+,/. , Shift+Up/Down | ✅ | reach_max (красный), ultra, advanced-only ждут | 2/3 | chunk-popups-picker-rest |
 | Permissions popup: пресеты, профили, retry discovery | 🟡 | full access confirm, Windows sandbox prompts, history cell решения | 9/40 | chunk-popups-permission-args |
 | Windows sandbox: prompts, help-ссылки, fallback | ❌ | весь блок (≈10 тестов); только Windows | 1/9 | chunk-popups-windows-sandbox |
-| Goal: меню и edit prompt, resume-paused prompt | 🟡 работает, тест не включён | команда есть, меню/prompt снимки нет; resume-paused работает, тест не включён | 0/8 (не вкл. 2) | chunk-popups-goal |
+| Goal: меню и edit prompt, resume-paused prompt | 🟡 работает, тест не включён | меню и edit prompt — лист фичи `features/goal/sheet.rs` (батч 9); снимки не включены; resume-paused работает, тест не включён | 0/8 (не вкл. 2) | chunk-popups-goal |
 | Plan: popup реализации и scope reasoning | ✅ | — | 9/12 | chunk-popups-plan |
 | Collaboration / mode catalog | 🟡 работает, тест не включён | каталог недоступен (тест не включён) | 0/1 (не вкл. 1) | chunk-popups-plan |
 | Worktree/checkout picker | ❌ | модель в core, нет вида | 0/5 | chunk-popups-worktree |
 | Quick dials (saved dials: save/clear picker) | ❌ | модель в core, не открывается | 0/1 | chunk-popups-quick-dials |
-| Plugins: список, вкладки, поиск, деталь, install, marketplaces | ❌ | ≈40 тестов; задача в работе | 1/44 | chunk-popups-plugins |
+| Plugins: список, вкладки, поиск, деталь, install, marketplaces | 🟡 | влит 8c492bcbc и пилот ADR-013 (см. строку /plugins); осталось: усечение после пробела, add-marketplace failure не гонялся, красный plugins_popup_preserves… | 39/44 | chunk-popups-plugins (сделана) |
 | Apps/connectors: список, статус, install-only | 🟡 | простые состояния ✅; partial refresh ❌ | 3/9 | chunk-popups-apps-rest |
 | Hooks popup: список, диагностика | ❌ | sheet есть, не открывается | 0/1 | settings |
 | Experimental features popup (toggle сохраняется на выходе) | ❌ | — | 3/7 (не вкл. 1) | settings |
-| Feedback: выбор, consent upload, диагностика, note | 🟡 | sheet есть; снимки ждут | 3/30 (не вкл. 1) | chunk-popups-feedback |
+| Feedback: выбор, consent upload, диагностика, note | 🟡 | страница Feedback открывается из `/feedback` (батч 9); note и логи нет; снимки ждут | 3/30 (не вкл. 1) | chunk-popups-feedback |
 | Review picker (ветка/коммит/custom) | ✅ | — | 1/1 | — |
-| Copy/export picker (кастомные клавиши, payload) | ❌ | — | 0/1 | chunk-commands-export |
+| Copy/export picker (кастомные клавиши, payload) | ❌ | export-назначение есть (`features/export`, см. /export); `/copy` picker и payload нет | 0/1 | chunk-commands-export |
 | Reset-limit picker и подтверждение (usage menu) | ❌ | ≈30 тестов chat_live_6 | 0/11 | chunk-usage-reset |
 | Security setup / security prompts | ❌ | security_setup_* (≥4) | 0/5 | chunk-popups-sweep |
 | Memories settings и reset | 🟡 | экран и reset готовы; в бинаре не открывается без ленты фактов host (см. /memories) | 2/3 | settings |
@@ -235,7 +235,7 @@
 | Permissions request approval, MCP elicitation форма | ✅ | — | 0/8 | — |
 | Guardian review (approved/denied/timed out, aggregate status) | ❌ | 0 из 11 | 1/11 | chunk-live-safety |
 | Auto-review denials popup | ❌ | — | 0/1 | chunk-popups-picker-rest |
-| request_user_input: вопросы с вариантами, цифры/буквы | ✅ | — | 9/16 | — |
+| request_user_input: вопросы с вариантами, цифры/буквы | ✅ | батч 7 (b3ae82940): клавиши диалогов вопросов через keymap (`keys.rs`), `Draft.selected` → `choice`; поведение то же | 9/16 | — |
 | Вопросы: черновики, навигация, replay черновиков | ❌ | question_drafts_survive_*, turn_end drafts (≈10) | 0/8 | chunk-cells-question-result |
 | Вопросы: поиск по истории, Vim в поле ответа | ❌ | history search; Vim в поле ответа не подключён (approvals_1, chat_approvals_2 ждут, батч 5 их не трогал) | 0/2 | chunk-composer-vim |
 | Асинхронные вопросы (desktop answer, уведомления) | 🟡 | уведомления n/a; многое n/a — другой клиент | 0/2 | — |
@@ -299,7 +299,7 @@
 |---|---|---|---|---|
 | Предупреждения (/warnings, F2): страницы, wrap | 🟡 | warning_pages_wrap красный | 0/2 | small-dialogs |
 | Шорткаты: оверлей «?» со всеми действиями | 🟡 | ab78ae687 (батч 6): страница шорткатов — состояние sheet на границе ADR-013, F2 и копирование через keymap; gap: из чата оверлей достижим только из debug-меню | 2/4 | small-dialogs |
-| Rename thread prompt (bare /rename) | ✅ | slice features/rename (a15c35bf8), вид prompt 29abc1aa5; нет предложения имени (Done::Title(None), нужен SuggestTitle) | — | small-dialogs |
+| Rename thread prompt (bare /rename) | ✅ | slice features/rename (a15c35bf8), вид prompt 29abc1aa5; с батча 9 prompt — UI-половина фичи (`features/rename/prompt.rs`); нет предложения имени (Done::Title(None), нужен SuggestTitle; gap из hand-in батча 9: предложение имени не в поле ввода — нужно покрытие pty/oracle) | — | small-dialogs |
 | Confirm: archive/delete треда | ✅ | — | 12/19 | — |
 | Daemon (подключение к daemon) | ❌ | — | 1/2 | small-dialogs |
 | Ссылка на приложение (app link) диалог | ❌ | — | — | small-dialogs |
@@ -307,20 +307,20 @@
 | Верификация пользователя (user verification) | ❌ | — | 1/3 | small-dialogs |
 | Settings: Theme, Memories (из чата) | 🟡 | Theme ✅; Memories в бинаре не открывается, пока не подключена лента фактов host (см. /memories); строки Theme и настройки принимают тап (`GestureDetector`, tests/sheets/settings.rs) | 5/11 (не вкл. 1) | settings |
 | Settings: Config / Statusline / Title / Experimental / Skills / Hooks / Keymap | ❌ | из чата открывается пустой слот; после 790cc44a6 у Config и Keymap нет и sheet (старые `Activate`/`KeymapPick` убраны); нужны шаг фикстуры фактов features для Experimental и `core/src/app/settings.rs` (исполнитель `take_edits`, статус-строка и title) | 7/19 (не вкл. 1) | settings |
-| Feedback (диалог) | 🟡 | ab78ae687: шаг feedback — состояние sheet; gap: из чата достижим только из debug-меню; снимки consent/diagnostics ждут | 3/30 (не вкл. 1) | chunk-popups-feedback |
+| Feedback (диалог) | 🟡 | ab78ae687: шаг feedback — состояние sheet; с батча 9 из чата достижим командой `/feedback` (страница Feedback); снимки consent/diagnostics ждут | 3/30 (не вкл. 1) | chunk-popups-feedback |
 | Pets (диалог выбора) | 🟡 | ab78ae687: курсор и превью — состояние sheet; глаголы LoadPreview, ReleasePreview; ambient-часть и тесты не включены | 2/13 (не вкл. 4) | pets |
 | Voice (диалог, F8) | ❌ | — | 0/5 | voice |
 | Trust on open (запрос доверия к каталогу) | ? | в startup-шарде 29/32 зелёные; из чата не вызывается | 10/11 | trust-on-open |
 | Model provider switch (блокирует кэш выбора) | ❌ | provider_switch_* | 0/1 | chunk-popups-picker-rest |
 | Debug menu F12 | ✅ | — | 0/2 | — |
 | Список выбора (SelectionList): тап по строке | 🟡 | gap (2f68c2c75): тап по строке только двигает курсор, как у rtwk-виджета; выбор строки — клавишей | — | small-dialogs |
-| Resume picker: клавиши oracle (ctrl-p/n/k/j/h/l/b/f), ctrl+e на пустом id | ✅ | landed 656a4d753 (батч 6, adr013-resume): список и курсор — через keymap (`LIST_*`), плотность и открытая строка — состояние страницы, дозагрузка — один verb `LoadMore`; ctrl+e на пустом id игнорируется как у oracle. Красный resume_2 `page_and_jump_navigation` в этом пересмотре не перепроверялся (шарды не гонялись) | — | — |
+| Resume picker: клавиши oracle (ctrl-p/n/k/j/h/l/b/f), ctrl+e на пустом id | ✅ | landed 656a4d753 (батч 6, adr013-resume): список и курсор — через keymap (`LIST_*`), плотность и открытая строка — состояние страницы, дозагрузка — один verb `LoadMore`; ctrl+e на пустом id игнорируется как у oracle. На ee6bad4e8 resume_2 `page_and_jump_navigation` больше не красный (resume_1 + resume_2: 49 зелёные, 12 pending, 0 red) | — | — |
 
 ## /usage
 
 | Функция | Статус | Чего нет | Тесты зелёные/всего | Задача |
 |---|---|---|---|---|
-| Страница аналитики: бары, вкладки, часы плана, narrow-графики | 🟡 работает, тест не включён | рендер работает, 43 теста не включены | 3/46 (не вкл. 43) | usage |
+| Страница аналитики: бары, вкладки, часы плана, narrow-графики | 🟡 работает, тест не включён | рендер работает, 43 теста не включены; батч 7 (usage-agents, f1675bfa8, ecdfcbed1): usage live/Leave, группы не в Pos, нет whole-state watch, диалог ошибки по привязанным ключам, помощь закрывается, когда секция не меняется; поведение то же | 3/46 (не вкл. 43) | usage |
 | Меню /usage: Analytics, Refresh, Reset | 🟡 | в чате 0 из 25: пункты меню и reset не подключены | 0/2 | chunk-usage-reset |
 | Reset лимита: пикер, подтверждение, idempotency-ключ, in-flight | ❌ | — | 0/10 | chunk-usage-reset |
 | Billing и enterprise-планы | ❌ | — | 0/4 | chunk-usage-reset |
@@ -387,3 +387,40 @@
 - Попапы и селекторы: Collaboration / mode catalog (chunk-popups-plan)
 - Approvals и вопросы: Approval network host (разово/сессия) (chunk-cells-question-result)
 - /usage: Страница аналитики: бары, вкладки, часы плана, narrow-графики (usage)
+
+## Архитектура ADR-013: что изменили батчи 7-9
+
+Строки-функции выше этой секции не считаются: она описывает архитектурные шаги, у которых нет собственной функции. Граница ADR-013: в ядре (core) живёт только то, что нужно IO — факты сервера и host, записи запросов и статус операций по ключу домена, шаги жизненного цикла и одноразовые сигналы; всё нарисованное (курсор, выделение, прокрутка, вкладка, стек страниц листа, раскрытие, плотность, текст поля до отправки) — состояние UI. Ядро принимает глаголы, не жесты.
+
+| Семья | Батч (коммит) | Что изменилось | Поведение |
+|---|---|---|---|
+| usage-agents | 7 (f1675bfa8, ecdfcbed1) | usage live/Leave, нулевые группы в `Pos` страницы, нет whole-state watch, диалог ошибки по привязанным ключам; Pick/Step перестраивают страницу, чтобы помощь закрывалась при той же секции; ratchet-файл удалён | то же |
+| approvals | 7 (b3ae82940) | диалоги вопросов читают клавиши через keymap (`keys.rs`), `Draft.selected` → `choice`; ratchet-файл удалён | то же |
+| composer | 8 (9932d915e) | `core::data`, kit не называет экраны, 32 именованных fixed keymap action; новые правила на нуле | то же |
+| пилот /plugins | 8 (454b13f11, bded969d6) | typed keys, `RpcError`, без registry, `Ask::OpenUrl`; страницы — маршруты вложенного Navigator (O1); шаблон фичи `core/src/features/<f>` + `src/features/<f>` | Esc как у oracle по страницам; setup-ссылка через `Ask::OpenUrl` |
+| session | 9 (94cbf1660) | без ticket и whole-state watch, restore читается в одном месте, один слушатель directives, клавиши через keymap; session.txt удалён | то же |
+| features-trait | 9 (998f16cd4) | `Feature` без Menu/Pick/Prompt; /goal, /export, /rename получают UI-половину (`src/features/<f>/`, общий `features/prompt.rs`), `Target::Feature` + `OpenArgs`; features.txt удалён | `/feedback` открывает страницу Feedback (раньше пустой лист); rename prompt и goal/export-листы — через UI-половину фичи |
+| unit-tests-2 | 9 (c53a6b031) | 28 модулей unit-тестов перенесены в корни скриптом, 35 оставлены (приватность) | нет |
+| select-shared | не влит (b695efb19, в батч 10) | Model.shows + present_shows; Confirm и Review вне стека (review_sheet.rs — шаблон вложенного Navigator) | то же |
+
+Не влито, идёт: пять семей select (worktree, quick, apps, models, permissions) и select-finish; settings-slice; debt-b9-session (6 красных oracle-тестов, keep-list, directives, KeyPress-литералы); debt-b9-features (ждёт settings-slice); adr013-keys (несёт debt-b8: fuzzy и allowlist в kit, `Key::` → fixed actions, keys.txt 25 → 0). Батч 10 их ждёт. Ratchet-файлы на ee6bad4e8: `adr013_ratchets/select.txt` — 14 строк, `plugins.txt` — пуст; после нуля возобновляются feature-блоки и тесты (решение человека 2026-11-23).
+
+## Прогон oracle на ee6bad4e8
+
+Полный прогон 23 ноября (shards.py, junit профиля oracle): 1075 pass / 301 n/a / 1228 pending / 6 red из 2610. Причины pending (эвристика по тексту причины): не построено в порте 622, не хватает кита/seed 358, пробел rtwk 195, ждёт keymap 53. Красные: см. «Известные оговорки».
+
+| Группа шардов | pass | n/a | pending | red | всего |
+|---|---|---|---|---|---|
+| Подтверждения (approvals_1/2, chat_approvals_1/2) | 53 | 54 | 120 | 0 | 227 |
+| Пикеры и попапы (picker, chat_popups_1-4) | 147 | 25 | 76 | 1 | 249 |
+| Настройки и мелкие диалоги (small_dialogs_1/2) | 33 | 0 | 58 | 1 | 92 |
+| Слэш-команды (chat_commands_1-3) | 38 | 38 | 85 | 0 | 161 |
+| Композер (composer_1-4, composer_popups, textarea) | 199 | 15 | 116 | 1 | 331 |
+| Resume (resume_1/2) | 49 | 14 | 12 | 0 | 75 |
+| Pager и транскрипт (pager, transcript_view_1-5) | 31 | 60 | 203 | 1 | 295 |
+| Ячейки и Markdown (cells_1-5, markdown_streaming_1-5, renderer_internals) | 258 | 21 | 210 | 1 | 490 |
+| Статус и футер (chat_status_1-3, pane_footer_1/2, status) | 103 | 26 | 183 | 0 | 312 |
+| Живой ход (chat_live_1-6) | 90 | 37 | 116 | 1 | 244 |
+| StartupPage (signin, onboarding, startup_prompts, import) | 71 | 11 | 6 | 0 | 88 |
+| Usage (usage) | 3 | 0 | 43 | 0 | 46 |
+| Всего | 1075 | 301 | 1228 | 6 | 2610 |
