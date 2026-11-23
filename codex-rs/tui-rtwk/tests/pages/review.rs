@@ -168,6 +168,34 @@ fn a_tap_on_a_commit_starts_the_review_of_it_with_its_subject() {
 }
 
 #[test]
+fn the_wheel_scrolls_a_long_commit_list_and_a_tap_picks_a_row_it_brought_in() {
+    let mut s = presets();
+    s.keys("down down enter");
+    let asks = asked(&s);
+    let commits = (0..40)
+        .map(|n| Commit {
+            sha: format!("{n:07x}"),
+            subject: format!("Change number {n}"),
+        })
+        .collect();
+    s.answer_effect(&asks[0], Done::GitLog(commits));
+    s.assert_contains("Change number 0");
+    s.assert_absent("Change number 30");
+    // the picker sits at the bottom of the 80x24 screen: row 18 is one of its rows
+    s.wheel_down(10, 18, 20);
+    s.assert_absent("Change number 0");
+    s.assert_contains("Change number 30");
+    s.click_text("Change number 30");
+    assert_eq!(
+        started(&s),
+        [ReviewTarget::Commit {
+            sha: format!("{:07x}", 30),
+            title: Some("Change number 30".into())
+        }]
+    );
+}
+
+#[test]
 fn the_commit_filter_matches_the_sha_as_well_as_the_subject() {
     let mut s = presets();
     s.keys("down down enter");
