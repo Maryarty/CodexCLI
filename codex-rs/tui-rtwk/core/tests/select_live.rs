@@ -13,9 +13,9 @@ use codex_tui_core::rpc::{Reply, RpcError};
 use codex_tui_core::screens::select::apps::{App, Cache, Status};
 use codex_tui_core::screens::select::models::{Current as ModelCurrent, Preset};
 use codex_tui_core::screens::select::permissions::{
-    Current as PermsCurrent, Failure, PermissionsMenu, Profile,
+    Chosen, Current as PermsCurrent, Failure, Heading, PermissionsMenu, Phase, Profile, Recommend,
 };
-use codex_tui_core::screens::select::{self, Intent as SelectIntent, Menu};
+use codex_tui_core::screens::select::{self, Intent as SelectIntent, Menu, Opening};
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -110,10 +110,37 @@ fn model_menu() -> PermsCurrent {
     }
 }
 
+/// The menu of the last permissions sheet the screen asked for (no presenter runs in these
+/// tests: the shows wait).
 fn permissions_menu(app: &CodexApp) -> PermissionsMenu {
-    match app.screens().select.stack.last() {
-        Some(Menu::Permissions(menu)) => (**menu).clone(),
-        other => panic!("expected a permissions menu, got {other:?}"),
+    let asked = app
+        .screens()
+        .select
+        .shows
+        .pending()
+        .filter_map(|show| match &show.opening {
+            Opening::Permissions(menu) => Some(menu.clone()),
+            _ => None,
+        })
+        .last();
+    asked.expect("a permissions sheet was asked for")
+}
+
+/// What the menu is showing over what the model holds.
+fn phase(app: &CodexApp) -> Phase {
+    permissions_menu(app).phase(&app.screens().select.profiles)
+}
+
+/// What a sheet on that menu says to the model for the row `id`.
+fn verb(app: &CodexApp, id: &str) -> SelectIntent {
+    let select = &app.screens().select;
+    match permissions_menu(app)
+        .choose(&select.profiles, id)
+        .expect("a row that can be chosen")
+    {
+        Chosen::Done(selection) => SelectIntent::SetPermissions(selection),
+        Chosen::Retry => SelectIntent::LoadProfiles,
+        Chosen::Menu(menu) => panic!("the pick asks first: {menu:?}"),
     }
 }
 
@@ -211,10 +238,7 @@ fn the_model_catalog_is_warmed_for_the_cyber_warning() {
     }))
     .expect("preset");
     answer(&mut app, models[0], select::Reply::Models(vec![cyber]));
-    assert!(
-        matches!(permissions_menu(&app), PermissionsMenu::Loading(_)),
-        "the answer is not for a picker"
-    );
+    assert_eq!(phase(&app), Phase::Loading, "the answer is not for a picker");
     let (ticket, _) = asked(&fx);
     let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
     let (ticket, _) = asked(&fx);
@@ -226,11 +250,17 @@ fn the_model_catalog_is_warmed_for_the_cyber_warning() {
             next: None,
         },
     );
-    open(&mut app, SelectIntent::Choose(":danger-full-access".into()));
-    match permissions_menu(&app) {
-        PermissionsMenu::FullAccess { current, .. } => assert!(current.cyber),
-        other => panic!("expected the confirmation, got {other:?}"),
-    }
+    // the pick asks first; the confirmation reads the model catalog for its warning
+    let select = &app.screens().select;
+    let Some(Chosen::Menu(confirm)) = permissions_menu(&app).choose(&select.profiles, ":danger-full-access")
+    else {
+        panic!("expected the confirmation");
+    };
+    assert!(matches!(confirm, PermissionsMenu::FullAccess { .. }));
+    assert_eq!(
+        confirm.page(&select.profiles, &select.catalog).heading,
+        Heading::FullAccess { cyber: Some(Recommend::Ask) }
+    );
 }
 
 /// `/permissions` reads the requirements, then page after page of the
@@ -241,10 +271,7 @@ fn permissions_read_the_requirements_then_every_page() {
     let fx = open(&mut app, SelectIntent::OpenPermissions(model_menu()));
     let (ticket, command) = asked(&fx);
     assert!(matches!(command, select::Command::Requirements { .. }));
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Loading(_)
-    ));
+    assert_eq!(phase(&app), Phase::Loading);
 
     let fx = answer(&mut app, ticket, select::Reply::Requirements(None));
     let (ticket, command) = asked(&fx);
@@ -266,10 +293,7 @@ fn permissions_read_the_requirements_then_every_page() {
         panic!("expected the second page");
     };
     assert_eq!(cursor.as_deref(), Some("c2"));
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Loading(_)
-    ));
+    assert_eq!(phase(&app), Phase::Loading);
 
     let fx = answer(
         &mut app,
@@ -280,10 +304,7 @@ fn permissions_read_the_requirements_then_every_page() {
         },
     );
     assert!(fx.commands().is_empty());
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Profiles(_)
-    ));
+    assert_eq!(phase(&app), Phase::Listed);
     let found = app
         .screens()
         .select
@@ -320,10 +341,11 @@ fn pages_that_never_end_stop_after_ten() {
         );
     }
     assert!(fx.commands().is_empty(), "no eleventh page is asked");
-    let PermissionsMenu::Failed { failure, .. } = permissions_menu(&app) else {
-        panic!("expected the failure menu");
-    };
-    assert_eq!(failure, Failure::Pagination);
+    assert_eq!(phase(&app), Phase::Failed);
+    assert_eq!(
+        app.screens().select.profiles.failure,
+        Some(Failure::Pagination)
+    );
 }
 
 /// A failed read shows the error's own text, and `Retry` asks again.
@@ -336,20 +358,17 @@ fn a_failed_read_shows_the_error_and_retry_asks_again() {
         &mut app,
         AppEv::Reply(ticket, Reply::error(RpcError::Remote("no route".into()))),
     );
-    let PermissionsMenu::Failed { failure, .. } = permissions_menu(&app) else {
-        panic!("expected the failure menu");
-    };
-    assert_eq!(failure, Failure::Other("no route".into()));
-    let fx = open(
-        &mut app,
-        SelectIntent::Choose(select::permissions::RETRY.into()),
+    assert_eq!(phase(&app), Phase::Failed);
+    assert_eq!(
+        app.screens().select.profiles.failure,
+        Some(Failure::Other("no route".into()))
     );
+    let verb = verb(&app, select::permissions::RETRY);
+    assert_eq!(verb, SelectIntent::LoadProfiles);
+    let fx = open(&mut app, verb);
     let (_, command) = asked(&fx);
     assert!(matches!(command, select::Command::Requirements { .. }));
-    assert!(matches!(
-        permissions_menu(&app),
-        PermissionsMenu::Loading(_)
-    ));
+    assert_eq!(phase(&app), Phase::Loading);
 }
 
 /// The opener reads the thread's facts: the status line's model and effort
@@ -514,7 +533,8 @@ fn a_permission_pick_updates_the_thread_and_says_so() {
         &mut app,
         SelectIntent::OpenPermissions(PermsCurrent::default()),
     );
-    let fx = open(&mut app, SelectIntent::Choose(":workspace".into()));
+    let verb = verb(&app, ":workspace");
+    let fx = open(&mut app, verb);
     let asks = all(&fx);
     let [(_, select::Command::Settings { thread, patch })] = &asks[..] else {
         panic!("expected one settings update, got {asks:?}");
@@ -556,7 +576,8 @@ fn a_catalog_pick_is_said_after_the_server_took_it() {
                 next: None,
             },
         );
-        let fx = open(&mut app, SelectIntent::Choose(":workspace".into()));
+        let verb = verb(&app, ":workspace");
+        let fx = open(&mut app, verb);
         let asks = all(&fx);
         assert_eq!(asks.len(), expected, "{asks:?}");
         assert!(said(&app).is_empty(), "nothing before the answer");
