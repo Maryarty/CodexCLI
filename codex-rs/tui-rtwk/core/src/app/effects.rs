@@ -125,6 +125,17 @@ pub enum Ask {
     WorktreeRemove { cwd: String, root: String },
 }
 
+impl Ask {
+    /// How many characters a copy puts on the clipboard (the oracle's feedback counts what was
+    /// copied, not what is selected, and in characters, not bytes or cells); none for another ask.
+    pub fn characters(&self) -> usize {
+        match self {
+            Ask::Copy { text, .. } => text.chars().count(),
+            _ => 0,
+        }
+    }
+}
+
 /// What the host answers, one variant per `Ask`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Done {

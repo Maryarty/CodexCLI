@@ -11,7 +11,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use codex_config::types::CopyOnSelect;
 use codex_core::config::Config;
+use codex_terminal_detection::{TerminalInfo, TerminalName, terminal_info};
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::effects::Ask;
@@ -43,10 +45,64 @@ pub(crate) struct Effects {
     terminal: Terminal,
 }
 
+/// Copy on release unless a direct terminal is known to forward its default copy shortcut
+/// (oracle `local_settings.rs` `copy_on_select`): multiplexers, unknown terminals and Ghostty
+/// without a recognized version default to copying.
+fn copy_on_select(mode: CopyOnSelect, terminal: &TerminalInfo) -> bool {
+    match mode {
+        CopyOnSelect::Always => true,
+        CopyOnSelect::Never => false,
+        CopyOnSelect::Auto => {
+            terminal.multiplexer.is_some()
+                || match terminal.name {
+                    // Since 1.2, both Ghostty's Cmd-C and Ctrl-Shift-C bindings are
+                    // "performable": they forward the key if Ghostty has no selection.
+                    TerminalName::Ghostty => !terminal
+                        .version
+                        .as_deref()
+                        .and_then(version_at_least_1_2)
+                        .unwrap_or(false),
+                    // Kitty's Cmd-C uses copy_or_noop. Its Ctrl-Shift-C consumes the key.
+                    TerminalName::Kitty => !cfg!(target_os = "macos"),
+                    // Windows Terminal's Copy action forwards its key when unselected,
+                    // including when the CLI runs in WSL.
+                    TerminalName::WindowsTerminal => false,
+                    // VS Code gates Copy on native selection. Only Windows' default (plain
+                    // Ctrl-C) is also forwarded by the legacy xterm.js encoder.
+                    TerminalName::VsCode => !cfg!(target_os = "windows"),
+                    TerminalName::AppleTerminal
+                    | TerminalName::Iterm2
+                    | TerminalName::WarpTerminal
+                    | TerminalName::WezTerm
+                    | TerminalName::Rex
+                    | TerminalName::Alacritty
+                    | TerminalName::Konsole
+                    | TerminalName::GnomeTerminal
+                    | TerminalName::Vte
+                    | TerminalName::Dumb
+                    | TerminalName::Unknown => true,
+                }
+        }
+    }
+}
+
+/// Whether `version` (semantic: `major.minor.patch`, a pre-release or build suffix allowed) is
+/// 1.2.0 or later; none when it is not one.
+fn version_at_least_1_2(version: &str) -> Option<bool> {
+    let core = version.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    parts.next()?.parse::<u64>().ok()?;
+    parts.next().is_none().then_some((major, minor) >= (1, 2))
+}
+
 /// `[tui]` as the views read it (oracle `local_settings.tui`).
 pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
     let rendering = config.tui_rendering;
     TuiSettings {
+        copy_on_select: copy_on_select(config.tui_copy_on_select, &terminal_info()),
+        deselect_after_copy: config.tui_copy_on_select_clear_selection,
         collapse_turn_details: config.tui_collapse_turn_details,
         show_tooltips: config.show_tooltips,
         rendering: Rendering {
@@ -298,6 +354,48 @@ fn base64(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn copy_on_select_follows_the_terminal() {
+        use codex_terminal_detection::Multiplexer;
+        let info = |name, version: Option<&str>, multiplexer| TerminalInfo {
+            name,
+            term_program: None,
+            version: version.map(str::to_owned),
+            term: None,
+            multiplexer,
+            backend: None,
+        };
+        let auto = |terminal: &TerminalInfo| super::copy_on_select(CopyOnSelect::Auto, terminal);
+        // the settings decide outright
+        assert!(super::copy_on_select(
+            CopyOnSelect::Always,
+            &info(TerminalName::WindowsTerminal, None, None)
+        ));
+        assert!(!super::copy_on_select(
+            CopyOnSelect::Never,
+            &info(TerminalName::Unknown, None, None)
+        ));
+        // a direct terminal that forwards its own copy shortcut leaves the copy to it
+        assert!(!auto(&info(TerminalName::WindowsTerminal, None, None)));
+        assert!(!auto(&info(TerminalName::Ghostty, Some("1.2.0"), None)));
+        assert!(!auto(&info(
+            TerminalName::Ghostty,
+            Some("1.10.3-dev+abc"),
+            None
+        )));
+        assert!(auto(&info(TerminalName::Ghostty, Some("1.1.9"), None)));
+        assert!(auto(&info(TerminalName::Ghostty, None, None)));
+        assert!(auto(&info(TerminalName::Ghostty, Some("tip"), None)));
+        // a multiplexer in front of it, or a terminal unknown, copies
+        assert!(auto(&info(
+            TerminalName::WindowsTerminal,
+            None,
+            Some(Multiplexer::Tmux { version: None })
+        )));
+        assert!(auto(&info(TerminalName::Unknown, None, None)));
+        assert!(auto(&info(TerminalName::Iterm2, None, None)));
+    }
+
     use std::path::Path;
     use std::sync::Mutex;
     use std::time::Instant;

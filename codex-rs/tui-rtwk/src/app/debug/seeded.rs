@@ -22,6 +22,7 @@ use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
 
 use crate::app::view::Hs;
+use crate::pages::session::transcript::copy::{self, CopyJob, Shown};
 use crate::widgets::thread_ui::ThreadUiMap;
 
 /// What a debug entry's builder sees of the seeded model.
@@ -55,6 +56,7 @@ pub enum SeededMsg {
     LoadHistory(ThreadId),
     Interrupt(ThreadId),
     Cycle,
+    Copy(CopyJob),
     Quit,
 }
 
@@ -104,6 +106,11 @@ impl State for SeededScopeState {
             SeededMsg::LoadHistory(id) => Intent::LoadOlderHistory(id),
             SeededMsg::Interrupt(id) => Intent::Interrupt(id),
             SeededMsg::Cycle => Intent::CycleBackend,
+            // the seeded page keeps no log of its copies: the host answers under the one number
+            SeededMsg::Copy(job) => Intent::Effect {
+                request: copy::REQUEST_BIT,
+                ask: job.ask(),
+            },
             // The seeded screen is a page of the debug menu: leaving it is the
             // menu's own back key.
             SeededMsg::Quit => return Rebuild::No,
@@ -133,6 +140,7 @@ impl State for SeededScopeState {
             interrupt: cx.map(SeededMsg::Interrupt),
             quit: cx.map(|()| SeededMsg::Quit),
             cycle: cx.map(|()| SeededMsg::Cycle),
+            copy: cx.map(SeededMsg::Copy),
         };
         let child = (w.build)(&Seeded {
             core,
@@ -148,6 +156,7 @@ impl State for SeededScopeState {
                 Provider::value(core.agents_threads()).update_should_notify(|old, new| old != new),
             )
             .with(Provider::value(core.tui()).update_should_notify(|old, new| old != new))
+            .with(Provider::value(Shown::default()).update_should_notify(|_, _| false))
             .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
             .child(child)
             .into()

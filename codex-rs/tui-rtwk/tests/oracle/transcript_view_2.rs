@@ -543,22 +543,20 @@ fn selection_hints_follow_selected_text_instead_of_mouse_down() {
 // ORACLE transcript_view/footer_tests.rs:173 loading_preserves_selected_content_and_copy_action kind=snap owner=chat-live snap=loading_preserves_selected_content_and_copy_action
 #[test]
 fn loading_preserves_selected_content_and_copy_action() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no history loading state (`↑ Loading earlier messages…`) and no retry footer",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 3)
-        .script(include_str!(
-            "fixtures/transcript_view_2/selected_words.jsonl"
-        ))
+        .size(80, 14)
+        .replay(Vec::new())
         .open();
+    s.at_the_top_of_a_partial_history(12, kit::Page::Loading);
     // the oracle: a triple click selects the line; loading keeps the selection and its copy action
-    s.click(0, 0);
-    s.click(0, 0);
-    s.click(0, 0);
-    s.assert_contains("selected words");
+    s.click_text("row 00");
+    s.click_text("row 00");
+    s.click_text("row 00");
+    s.assert_contains("row 00");
     s.assert_contains("↑ Loading earlier messages… · ⌃c copy · enter copy & follow");
+    // the selection is held through the page that joins
+    s.history_page(vec![kit::agent_turn("turn-older", &["row older"])], None);
+    s.assert_contains("⌃c copy · enter copy & follow");
 }
 
 // ORACLE transcript_view/footer_tests.rs:233 loading_and_failure_preserve_search_query_and_caret kind=snap owner=chat-live snap=loading_and_failure_preserve_search_query_and_caret

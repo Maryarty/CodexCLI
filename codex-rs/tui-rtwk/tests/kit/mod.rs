@@ -23,6 +23,7 @@ mod input;
 mod labels;
 mod markdown_gutter;
 mod probe;
+mod replies;
 mod seed;
 mod settings;
 mod verdict;
@@ -35,8 +36,11 @@ pub use env::{ColorDepth, REPLAYED, replay_turn};
 pub use grid::{Grid, check_style, color_name, modifier_name};
 #[allow(unused_imports)]
 pub use input::event_bytes_of;
+
 #[allow(unused_imports)]
 pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_labels};
+#[allow(unused_imports)]
+pub use replies::{Page, agent_turn};
 #[allow(unused_imports)]
 pub use verdict::{Owner, missing, na, pending, todo};
 
@@ -60,6 +64,8 @@ pub struct Screen {
     entry: bool,
     /// Columns at the left the oracle's rows do not have (`Open::markdown`).
     gutter: usize,
+    /// How many history page requests the test has answered (`kit/replies.rs`).
+    answered_pages: usize,
 }
 
 impl From<Harness> for Screen {
@@ -68,6 +74,7 @@ impl From<Harness> for Screen {
             h,
             entry: false,
             gutter: 0,
+            answered_pages: 0,
         }
     }
 }
@@ -368,6 +375,16 @@ impl Screen {
             .iter()
             .map(|r| r.trim_end().to_string())
             .collect()
+    }
+
+    /// Whether the cell at column `x`, row `y` is drawn reversed (the oracle's selection and
+    /// the marked prompt are).
+    pub fn reversed(&self, x: u16, y: u16) -> bool {
+        self.h
+            .t
+            .cell(usize::from(x), usize::from(y))
+            .attrs
+            .intersects(rtwk_core::style::Attrs::REVERSE)
     }
 
     /// The screen as text, for a failure message.

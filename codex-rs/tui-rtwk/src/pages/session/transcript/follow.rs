@@ -14,25 +14,31 @@ use std::rc::Rc;
 
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
-use rtwk::foundation::ListenableBuilder;
+use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
 use rtwk::layout::{Center, Column, Expanded, Flexible, MainAxisSize, Row, SizedBox};
 use rtwk::prelude::KeyCode;
+use rtwk::provider::{select, watch};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::composer::trigger;
+use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
-use crate::widgets::thread_ui::Follow;
+use crate::widgets::thread_ui::{Follow, TextSelection};
 
+use super::copy::Shown;
+use super::copy_feedback::CopyFeedback;
+use super::history;
 use super::strings::{self, Strings};
 
 /// The row above the composer, there while the window has the room (the oracle
 /// reserves it, so the composer does not move when the control appears; it is
 /// a flexible child of the bottom pane, the first thing a short window clips):
-/// the control while the reader is away. With `status_above` (the working line
+/// the control while the reader is away, or the result of the last copy (the oracle's
+/// `composer_gap.rs`: it wins over the control). With `status_above` (the working line
 /// or the previews are above), a blank row precedes the control to set it
 /// apart.
 pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidget {
@@ -44,27 +50,39 @@ pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidg
         Some(fg) => surface.fg(fg),
         None => surface,
     };
+    let copied = watch::<Shown, _>(cx);
     let listenable = Rc::new(follow.listenable());
     let builder = ListenableBuilder::new(listenable, move |_, _| {
         let blank: AnyWidget = SizedBox::new(None, Some(1), None).into();
-        if !follow.away() {
-            return blank;
-        }
-        let control = FollowControl {
-            follow: follow.clone(),
-            unseen: follow.unseen(),
-            table,
-            style: style.clone(),
-        };
-        let row: AnyWidget = SizedBox::new(None, Some(1), Some(Center::new(control).into())).into();
-        if status_above {
-            Column::new()
-                .main_axis_size(MainAxisSize::Min)
-                .child(blank)
-                .child(row)
-                .into()
+        let plain = if follow.away() {
+            let control = FollowControl {
+                follow: follow.clone(),
+                unseen: follow.unseen(),
+                table,
+                style: style.clone(),
+            };
+            let row: AnyWidget =
+                SizedBox::new(None, Some(1), Some(Center::new(control).into())).into();
+            if status_above {
+                Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .child(blank)
+                    .child(row)
+                    .into()
+            } else {
+                row
+            }
         } else {
-            row
+            blank
+        };
+        match &copied.0 {
+            Some(feedback) => CopyFeedback {
+                feedback: feedback.clone(),
+                lead: status_above,
+                fallback: plain,
+            }
+            .into(),
+            None => plain,
         }
     });
     Flexible::new(1, builder).into()
@@ -168,52 +186,105 @@ impl State for FollowControlState {
     }
 }
 
-/// The footer while the reader is away: the keys that return, `keys` (the
-/// footer of the page) otherwise. `enter`: an Enter on the empty composer
-/// returns too. The news is named first, then in short, then dropped, as the
-/// width allows (`footer.rs`).
-pub fn footer<S>(cx: &mut Cx<'_, S>, follow: Follow, enter: bool, keys: AnyWidget) -> AnyWidget {
+/// The footer while something is selected (the keys of the selection), the reader is away (the
+/// keys that return) or an older page is on its way or was refused (`history`): `keys` (the
+/// footer of the page) otherwise. `enter`: an Enter on the empty composer returns too. The row is
+/// the one `history` spells for the width: the news named first, then in short, then dropped
+/// (`footer.rs`).
+pub fn footer<S>(
+    cx: &mut Cx<'_, S>,
+    follow: Follow,
+    selection: TextSelection,
+    enter: bool,
+    keys: AnyWidget,
+) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
     let (key_style, dim) = (tokens.bold(), tokens.dim());
-    let listenable = Rc::new(follow.listenable());
+    let look = history::Look {
+        accent: tokens.accent(),
+        dim: dim.clone(),
+        key: key_style.clone(),
+    };
+    let state = select::<ThreadModel, _, _>(cx, ThreadModel::history_state);
+    let listenable = Rc::new(<dyn Listenable>::merge([
+        Some(follow.listenable()),
+        Some(selection.listenable()),
+    ]));
     ListenableBuilder::new(listenable, move |_, _| {
-        if !follow.away() {
+        let selected = selection.held();
+        let pending = history::pending(state);
+        if !follow.away() && !selected && !pending {
             return keys.clone();
         }
-        let unseen = follow.unseen();
-        let (key_style, dim) = (key_style.clone(), dim.clone());
+        let (away, unseen) = (follow.away(), follow.unseen());
+        let (key_style, dim, look) = (key_style.clone(), dim.clone(), look.clone());
         let hint: AnyWidget = LayoutBuilder::new(move |cx, constraints| {
             let segmenter = segmenter_of(cx);
-            let navigation = |lead: &'static str| -> Vec<Span> {
-                let mut spans = Vec::new();
-                if !lead.is_empty() {
-                    spans.push(Span::styled(lead, dim.clone()));
-                    spans.push(Span::styled(table.footer_joiner, dim.clone()));
-                }
-                spans.push(Span::styled(
-                    if enter {
-                        table.latest_keys_enter
-                    } else {
-                        table.latest_keys
-                    },
-                    key_style.clone(),
-                ));
-                spans.push(Span::styled(table.latest_action, dim.clone()));
-                spans
-            };
-            let candidates: Vec<Vec<Span>> = if unseen {
+            // the way back, once the reader is away
+            let latest: Vec<Span> = if away {
                 vec![
-                    navigation(table.new_activity),
-                    navigation(table.new_short),
-                    navigation(""),
+                    Span::styled(
+                        if enter {
+                            table.latest_keys_enter
+                        } else {
+                            table.latest_keys
+                        },
+                        key_style.clone(),
+                    ),
+                    Span::styled(table.latest_action, dim.clone()),
                 ]
             } else {
-                vec![navigation("")]
+                Vec::new()
             };
-            let fits = |spans: &Vec<Span>| {
+            // what the keys of a selection do: pairs of keys and their action
+            let hint = |pairs: &[(&'static str, &'static str)]| -> Vec<Span> {
+                let mut spans = Vec::new();
+                for (index, (keys, action)) in pairs.iter().enumerate() {
+                    if index > 0 {
+                        spans.push(Span::styled(table.footer_joiner, dim.clone()));
+                    }
+                    spans.push(Span::styled(*keys, key_style.clone()));
+                    if !action.is_empty() {
+                        spans.push(Span::styled(*action, dim.clone()));
+                    }
+                }
+                spans
+            };
+            let fits = |spans: &[Span]| {
                 let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
                 i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
+            };
+            let candidates: Vec<Vec<Span>> = if selected {
+                // the widest hint, led by the news while the reader is away and has some, or by
+                // the page on its way (`status_line_with_navigation`), then the hints alone
+                let mut all = Vec::new();
+                if unseen || pending {
+                    all.push(history::whole(
+                        table,
+                        &look,
+                        &history::Say {
+                            history: state,
+                            news: unseen,
+                            navigation: &hint(table.selection_hints[0]),
+                            selected: true,
+                        },
+                    ));
+                }
+                all.extend(table.selection_hints.iter().map(|pairs| hint(pairs)));
+                all
+            } else {
+                history::candidates(
+                    table,
+                    &look,
+                    &history::Say {
+                        history: state,
+                        news: unseen,
+                        navigation: &latest,
+                        selected: false,
+                    },
+                    &fits,
+                )
             };
             // none fits: the shortest, clipped
             let mut chosen = candidates
@@ -223,7 +294,7 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, follow: Follow, enter: bool, keys: AnyWidge
                 .cloned()
                 .unwrap_or_default();
             // an empty composer adds the key of its shortcuts when it fits
-            if enter {
+            if enter && !selected {
                 let shortcuts = [
                     Span::styled(table.footer_joiner, dim.clone()),
                     Span::styled(table.shortcuts_key, key_style.clone()),

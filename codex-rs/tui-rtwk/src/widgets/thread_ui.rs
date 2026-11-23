@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 use rtwk::editing::TextEditingController;
 use rtwk::foundation::{Listenable, ValueNotifier};
+use rtwk::gestures::SelectionAreaController;
 use rtwk::scroll::ListController;
 
 use codex_tui_core::ids::ThreadId;
@@ -30,6 +31,57 @@ pub struct ThreadUi {
     pub modes: Modes,
     /// The composer's sparkle: what the draft did to it, what shows.
     pub sparkle: SparkleController,
+    /// What the reader has selected in the transcript (Flutter's `SelectableRegion` controller):
+    /// the transcript's selection area is served by it, and the page's keys (copy, Esc) and a
+    /// right click read it from outside the area.
+    pub selection: TextSelection,
+}
+
+/// The controller of the transcript's selection, shared by the area it serves, the keys of the
+/// page and the footer that hints at them; equal to its own clones. It lives as long as the
+/// thread's controllers do (its listener holds it), so the footer can listen to whether
+/// something is selected: Flutter's `ValueNotifier<bool>` over `SelectableRegion`'s controller.
+#[derive(Clone)]
+pub struct TextSelection(Rc<Selected>);
+
+struct Selected {
+    controller: SelectionAreaController,
+    held: Rc<ValueNotifier<bool>>,
+}
+
+impl Default for TextSelection {
+    fn default() -> TextSelection {
+        let controller = SelectionAreaController::new();
+        let held = Rc::new(ValueNotifier::new(false));
+        let (watched, notifier) = (controller.clone(), held.clone());
+        controller.add_listener(Rc::new(move || {
+            notifier.set_value(watched.has_selection());
+        }));
+        TextSelection(Rc::new(Selected { controller, held }))
+    }
+}
+
+impl TextSelection {
+    /// The controller the selection area is given.
+    pub fn controller(&self) -> SelectionAreaController {
+        self.0.controller.clone()
+    }
+
+    /// Whether something is selected.
+    pub fn held(&self) -> bool {
+        self.0.held.value()
+    }
+
+    /// Notifies when something comes to be selected and when nothing is any more.
+    pub fn listenable(&self) -> Rc<dyn Listenable> {
+        self.0.held.clone()
+    }
+}
+
+impl PartialEq for TextSelection {
+    fn eq(&self, other: &TextSelection) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// The mode of one thread's transcript sheet, as Flutter's
@@ -41,6 +93,8 @@ pub struct ThreadUi {
 #[derive(Clone)]
 pub struct Modes {
     machine: Rc<RefCell<Backtrack>>,
+    /// The mode of input the reader holds the transcript in (select, copy).
+    input: Rc<Cell<Input>>,
     /// The transcript shows its details (Ctrl+T).
     detailed: Rc<Cell<bool>>,
     /// Whether it showed them when browsing began: browsing shows the plain
@@ -50,10 +104,23 @@ pub struct Modes {
     ticks: Rc<ValueNotifier<u32>>,
 }
 
+/// How the transcript takes keys over the chat's: the plain chat, the cursor that selects text
+/// (oracle `select_mode`), the picker that copies a block (`copy_mode`). The state each mode
+/// keeps is its own (its page or sheet); this is only which one is held, so that the keys, the
+/// footer and the area that selects read the same answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Input {
+    #[default]
+    Plain,
+    Select,
+    Copy,
+}
+
 impl Default for Modes {
     fn default() -> Self {
         Modes {
             machine: Rc::default(),
+            input: Rc::default(),
             detailed: Rc::default(),
             origin: Rc::default(),
             ticks: Rc::new(ValueNotifier::new(0)),
@@ -72,6 +139,18 @@ impl Modes {
         let result = f(&mut self.machine.borrow_mut());
         self.ticks.set_value(self.ticks.value().wrapping_add(1));
         result
+    }
+
+    /// How the transcript takes keys now.
+    pub fn input(&self) -> Input {
+        self.input.get()
+    }
+
+    /// The transcript takes keys as `input` says; leaving a mode is `Input::Plain`.
+    pub fn hold(&self, input: Input) {
+        if self.input.get() != input {
+            self.moved(|_| self.input.set(input));
+        }
     }
 
     /// The first Esc has been pressed: the next starts browsing.
@@ -110,6 +189,7 @@ impl Modes {
         self.moved(|machine| {
             machine.reset();
             self.origin.set(None);
+            self.input.set(Input::Plain);
             self.detailed.set(false);
         });
     }
@@ -384,5 +464,34 @@ impl ThreadUiMap {
             Rc::new(ThreadUi::default())
         };
         self.threads.insert(thread.clone(), ui);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mode_of_input_is_held_until_the_transcript_closes() {
+        let modes = Modes::default();
+        assert_eq!(modes.input(), Input::Plain);
+        let ticks = modes.listenable().value();
+        modes.hold(Input::Select);
+        assert_eq!(modes.input(), Input::Select);
+        assert_ne!(modes.listenable().value(), ticks);
+        // holding the same mode again is no news
+        let ticks = modes.listenable().value();
+        modes.hold(Input::Select);
+        assert_eq!(modes.listenable().value(), ticks);
+        modes.close();
+        assert_eq!(modes.input(), Input::Plain);
+    }
+
+    #[test]
+    fn the_selection_tells_whether_something_is_selected() {
+        let selection = TextSelection::default();
+        assert!(!selection.held());
+        assert!(selection == selection.clone());
+        assert!(selection != TextSelection::default());
     }
 }
