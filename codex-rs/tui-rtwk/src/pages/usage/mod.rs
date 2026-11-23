@@ -17,7 +17,7 @@ use rtwk::layout::{
     EdgeInsets, Expanded, Padding, Row, SizedBox, UNBOUNDED,
 };
 use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
@@ -845,7 +845,7 @@ impl State for ScreenState {
 
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
-        let model = watch::<ScreenStates, _>(cx).usage.clone();
+        let model = read::<ScreenStates, _>(cx).usage.clone();
         let visible = model.visible_sections();
         let section = model.section;
         let mut rebuild = Rebuild::No;
@@ -935,18 +935,19 @@ impl State for ScreenState {
                 let rows = model.chat_row_count();
                 let probe = ChatPos {
                     cursor: index,
-                    detail: None,
+                    ..ChatPos::default()
                 };
                 self.chat.pick(index, rows, model.chat_has_details(&probe));
                 rebuild = Rebuild::Yes;
                 None
             }
             Msg::ZeroGroups => {
+                // Only drawn: the details list the free groups or not.
                 if model.control_available(Control::ZeroCreditGroups, self.chat.detail.is_some()) {
-                    Some(UsageIntent::ZeroCreditGroups)
-                } else {
-                    None
+                    self.chat.zero_groups = !self.chat.zero_groups;
+                    rebuild = Rebuild::Yes;
                 }
+                None
             }
             Msg::SortMetric => {
                 if model.control_available(Control::TaskMetric, false) {
@@ -959,7 +960,7 @@ impl State for ScreenState {
             }
             Msg::Refresh => Some(UsageIntent::Refresh),
             Msg::Close => {
-                cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
+                cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Leave));
                 Navigator::maybe_pop(cx);
                 None
             }
@@ -975,10 +976,10 @@ impl State for ScreenState {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let keymap = crate::keymap::keymap(cx);
-        let screens = watch::<ScreenStates, _>(cx);
+        let usage = select::<ScreenStates, Model, _>(cx, |screens| screens.usage.clone());
         let panels_only = w.panels;
         let taps = self.taps.clone();
-        let section = screens.usage.section as usize;
+        let section = usage.section as usize;
         let shown = report::Shown {
             cursor: self.cursors[section],
             detail: self.details[section],
@@ -1005,7 +1006,7 @@ impl State for ScreenState {
         };
         let shown_keymap = keymap.clone();
         let body = LayoutBuilder::new(move |_, constraints| {
-            let model = &screens.usage;
+            let model = &usage;
             if panels_only {
                 panels(model, strings, &look)
             } else {

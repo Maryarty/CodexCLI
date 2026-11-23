@@ -1,5 +1,0 @@
-# ADR-013 ratchets of the usage-agents family (format and rules: tests/rules/adr013_ratchets.txt).
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:Model.open 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/usage/mod.rs:Intent::Close 1
-ratchet adr013_no_whole_state_watch src/pages/usage/mod.rs 2
-ratchet adr006_keycode_only_in_keymap src/pages/agents/dialogs.rs 2

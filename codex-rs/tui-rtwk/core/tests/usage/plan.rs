@@ -231,7 +231,7 @@ fn a_refresh_and_a_close_drop_the_history() {
     assert!(model.plan.ready().is_some());
     step(&mut model, Intent::Refresh);
     assert!(matches!(model.plan, Load::Unavailable));
-    step(&mut model, Intent::Close);
+    step(&mut model, Intent::Leave);
     assert!(matches!(model.plan, Load::Unavailable));
 }
 
