@@ -765,10 +765,12 @@ fn slash_theme_opens_the_picker_over_the_bundled_themes() {
     assert!(screen.contains("› 1337"), "{screen}");
     assert!(screen.contains("ansi"), "{screen}");
     let themes =
-        h.t.read_app(|app: &UiApp| match app.core.screens().settings.offers.get(&Which::Theme) {
-            Some(Offer::Theme(picker)) => picker.themes.len(),
-            _ => 0,
-        });
+        h.t.read_app(
+            |app: &UiApp| match app.core.screens().settings.offers.get(&Which::Theme) {
+                Some(Offer::Theme(picker)) => picker.themes.len(),
+                _ => 0,
+            },
+        );
     assert_eq!(themes, 32);
 }
 
