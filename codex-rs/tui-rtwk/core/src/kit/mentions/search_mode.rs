@@ -2,7 +2,7 @@
 //! which kinds of row show. Left and Right walk them (`TabController` in
 //! the view).
 
-use super::candidate::MentionType;
+use crate::screens::composer::mentions::candidate::MentionType;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchMode {

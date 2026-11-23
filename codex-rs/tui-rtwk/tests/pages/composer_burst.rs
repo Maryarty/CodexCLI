@@ -115,7 +115,7 @@ mod timer {
     use std::rc::Rc;
     use std::time::Duration;
 
-    use codex_tui_core::screens::composer::paste_burst::PasteBurst;
+    use codex_tui_core::kit::paste_burst::PasteBurst;
     use codex_tui_rtwk::pages::session::composer::burst::{BurstEnv, on_timer};
     use codex_tui_rtwk::widgets::composer_draft::ComposerDraft;
     use rtwk::editing::TextEditingController;

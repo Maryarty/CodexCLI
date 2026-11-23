@@ -1,5 +1,5 @@
 //! What the draft keeps for modal (Vim) editing: the engine's state
-//! (`core::screens::composer::vim`), the register next to the kill ring, the
+//! (`core::kit::vim`), the register next to the kill ring, the
 //! whole-draft undo history and the `/` query, and the `VimText` that lets
 //! the engine edit the controller's text with the draft's elements kept whole
 //! (`chat_composer/vim_history.rs`, `vim_register.rs`, `textarea.rs`).
@@ -10,7 +10,7 @@ use std::rc::Rc;
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use rtwk::focus::KeyPress;
 
-use codex_tui_core::screens::composer::vim::{
+use codex_tui_core::kit::vim::{
     EditorAction, History, Persistent, Register, RegisterKind, Vim, VimText,
 };
 

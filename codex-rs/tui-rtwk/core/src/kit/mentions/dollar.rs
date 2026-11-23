@@ -6,8 +6,8 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
-use super::candidate::uri;
-use super::catalog::{Mention, MentionKind};
+use crate::screens::composer::mentions::candidate::uri;
+use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
 use crate::commands::fuzzy_match;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-use super::task;
+use crate::screens::composer::mentions::task;
 use crate::screens::composer::history::TextElement;
 
 /// Default plaintext sigil for tools (`codex_utils_plugins::mention_syntax`).

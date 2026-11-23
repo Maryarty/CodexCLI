@@ -16,9 +16,10 @@ use std::rc::Rc;
 
 use rtwk::editing::{Suggestion, TextEditingController};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 
 use super::ComposerMsg;
+use crate::keymap::fixed::{Fixed, FixedKey};
 
 /// The suggestions shown, shared by the key hook and the popup's builder.
 #[derive(Default)]
@@ -160,7 +161,7 @@ impl Suggest {
         key: &KeyPress,
         tell: &dyn Fn(ComposerMsg),
     ) -> bool {
-        if key.code != KeyCode::Char || key.ch != Some('/') || key.mods != Mods::NONE {
+        if key.fixed() != Fixed::Char || key.ch != Some('/') || key.mods != Mods::NONE {
             return false;
         }
         let (at, naming) = {
@@ -197,18 +198,18 @@ impl Suggest {
         };
         let plain = key.mods == Mods::NONE;
         let ctrl = key.mods == Mods::CTRL;
-        match (key.code, key.ch) {
-            (KeyCode::Up, _) if plain => self.step(n - 1),
-            (KeyCode::Char, Some('p')) if ctrl => self.step(n - 1),
-            (KeyCode::Down, _) if plain => self.step(1),
-            (KeyCode::Char, Some('n')) if ctrl => self.step(1),
-            (KeyCode::Enter, _) if plain => {
+        match (key.fixed(), key.ch) {
+            (Fixed::Up, _) if plain => self.step(n - 1),
+            (Fixed::Char, Some('p')) if ctrl => self.step(n - 1),
+            (Fixed::Down, _) if plain => self.step(1),
+            (Fixed::Char, Some('n')) if ctrl => self.step(1),
+            (Fixed::Enter, _) if plain => {
                 if let Some(text) = self.pick(c, at) {
                     tell(ComposerMsg::Picked(text));
                 }
                 return true;
             }
-            (KeyCode::Tab, _) if plain => {
+            (Fixed::Tab, _) if plain => {
                 // `/skills` is the one command Tab runs, as Enter does
                 let runs = self
                     .0

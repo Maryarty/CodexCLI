@@ -5,7 +5,9 @@
 
 use rtwk::editing::Suggestion;
 
-use codex_tui_core::commands::{CommandPopup, CommandPopupFlags, SlashCommandItem};
+use codex_tui_core::commands::{
+    CommandFlags, CommandPopup, CommandPopupFlags, ServiceTierCommand, SlashCommandItem,
+};
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::composer::{TriggerKind, trigger};
 
@@ -14,27 +16,17 @@ use super::strings::Strings;
 /// The most rows a popup shows at once (`MAX_POPUP_ROWS`).
 pub const ROWS: usize = codex_tui_core::commands::MAX_POPUP_ROWS;
 
-/// The suggestions for `before`, the composer's text up to the caret.
-pub fn suggestions(
-    states: &ScreenStates,
-    strings: &Strings,
-    model: Option<&str>,
-    before: &str,
-) -> Vec<Suggestion> {
-    match trigger(before) {
-        Some(trigger) if trigger.kind == TriggerKind::Slash => {
-            commands(states, strings, model, before)
-        }
-        _ => Vec::new(),
-    }
+/// What the slash popup is made of, the slice of the app's states it draws: the service-tier
+/// commands of the thread's model and the gates of the commands. A composer `select`s it, so it
+/// wakes when these change and not on every change of any screen.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Slash {
+    tiers: Vec<ServiceTierCommand>,
+    flags: CommandFlags,
 }
 
-fn commands(
-    states: &ScreenStates,
-    strings: &Strings,
-    model: Option<&str>,
-    before: &str,
-) -> Vec<Suggestion> {
+/// The slice of `states` the popup draws for a thread whose model is `model`.
+pub fn slash(states: &ScreenStates, model: Option<&str>) -> Slash {
     let tiers = codex_tui_core::screens::chat::facts::tier_commands(
         &states.chat.status,
         model,
@@ -43,7 +35,19 @@ fn commands(
     );
     let mut flags = states.chat.flags;
     flags.service_tier_commands_enabled = !tiers.is_empty();
-    let mut popup = CommandPopup::new(CommandPopupFlags::from(flags), tiers);
+    Slash { tiers, flags }
+}
+
+/// The suggestions for `before`, the composer's text up to the caret.
+pub fn suggestions(slash: &Slash, strings: &Strings, before: &str) -> Vec<Suggestion> {
+    match trigger(before) {
+        Some(trigger) if trigger.kind == TriggerKind::Slash => commands(slash, strings, before),
+        _ => Vec::new(),
+    }
+}
+
+fn commands(slash: &Slash, strings: &Strings, before: &str) -> Vec<Suggestion> {
+    let mut popup = CommandPopup::new(CommandPopupFlags::from(slash.flags), slash.tiers.clone());
     popup.on_composer_text_change(before.to_string());
     popup
         .rows()

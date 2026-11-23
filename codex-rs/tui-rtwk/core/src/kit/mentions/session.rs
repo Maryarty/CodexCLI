@@ -9,11 +9,11 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use super::candidate::Selection;
-use super::catalog::{Mention, MentionKind, build_search_catalog};
+use crate::screens::composer::mentions::candidate::Selection;
+use crate::screens::composer::mentions::catalog::{Mention, MentionKind, build_search_catalog};
 use super::codec::is_mention_name_char;
 use super::dollar::{self, MentionItem, mention_items};
-use super::files::{FileMatches, FileSearchAsk};
+use crate::screens::composer::mentions::files::{FileMatches, FileSearchAsk};
 use super::popup::Popup;
 use super::search_mode::SearchMode;
 use super::target::{
@@ -21,8 +21,8 @@ use super::target::{
     current_prefixed_token_range_with_dollar_predicate, dollar_query_kind,
     prefixed_token_range_is_editable,
 };
-use super::task::{TaskMention, valid_thread_path};
-use super::usage::MentionUsage;
+use crate::screens::composer::mentions::task::{TaskMention, valid_thread_path};
+use crate::screens::composer::mentions::usage::MentionUsage;
 
 /// What the popups are fed from: the model's data.
 #[derive(Clone, Copy)]
@@ -597,8 +597,8 @@ fn dollar_target(doc: &Doc, mentions: &[Mention]) -> Option<Target> {
 #[cfg(test)]
 #[allow(clippy::single_range_in_vec_init)] // a draft with one element
 mod tests {
-    use super::super::candidate::uri;
-    use super::super::catalog::MentionKind;
+    use crate::screens::composer::mentions::candidate::uri;
+    use crate::screens::composer::mentions::catalog::MentionKind;
     use super::*;
     use crate::ids::ThreadId;
     use pretty_assertions::assert_eq;

@@ -6,7 +6,7 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use codex_tui_core::screens::composer::vim::{
+use codex_tui_core::kit::vim::{
     Direction, EditorAction, Find, Input, Motion, Normal, Object, Operator, OperatorKey, Pending,
     Register, RegisterKind, Scope, Vim, VimText,
 };

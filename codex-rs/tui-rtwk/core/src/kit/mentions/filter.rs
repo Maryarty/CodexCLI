@@ -1,8 +1,8 @@
 //! Which rows a query leaves of the catalog and the file matches, in what
 //! order (`mentions_v2/filter.rs`, carried).
 
-use super::candidate::{Candidate, MentionType, Row, Selection};
-use super::files::{FileMatch, MatchType};
+use crate::screens::composer::mentions::candidate::{Candidate, MentionType, Row, Selection};
+use crate::screens::composer::mentions::files::{FileMatch, MatchType};
 use super::search_mode::SearchMode;
 use crate::commands::fuzzy_match;
 

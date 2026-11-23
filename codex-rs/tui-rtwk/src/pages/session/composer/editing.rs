@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, editing_key};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 
 use codex_tui_core::keymap::actions::{
     COMPOSER_QUEUE, COMPOSER_SUBMIT, EDITOR_DELETE_BACKWARD, EDITOR_DELETE_BACKWARD_WORD,
@@ -21,10 +21,10 @@ use codex_tui_core::keymap::actions::{
     EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_TOGGLE_VIM_MODE,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::screens::composer::history::Store;
+use codex_tui_core::kit::history::Store;
 use codex_tui_core::screens::composer::restricted::Restricted;
-use codex_tui_core::screens::composer::vim::{EditorAction, Pending};
-use codex_tui_core::screens::{ScreenStates, Shared};
+use codex_tui_core::kit::vim::{EditorAction, Pending};
+use codex_tui_core::screens::{Shared, popovers};
 
 use super::ComposerMsg;
 use super::burst::{self, BurstEnv};
@@ -32,6 +32,7 @@ use super::mentions;
 use super::search;
 use super::suggest::Suggest;
 use super::vim;
+use crate::keymap::fixed::{Fixed, FixedKey};
 use crate::keymap::pressed;
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
@@ -52,8 +53,8 @@ pub struct KeyData {
     /// The user's bindings (`tui.keymap`): the Composer and Editor contexts
     /// say which key is which edit.
     pub keymap: Rc<Keymap>,
-    /// The app's data the mention popups read (their sources).
-    pub states: Rc<ScreenStates>,
+    /// What the app holds for the popups: their sources, the clipboard's answers.
+    pub popovers: Rc<popovers::Model>,
     /// Why the composer may only edit and run a few commands (`None`: it is
     /// whole).
     pub restricted: Option<Restricted>,
@@ -124,7 +125,7 @@ fn sparkle_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Spa
     let plain = !key.mods.contains(Mods::CTRL)
         && !key.mods.contains(Mods::ALT)
         && !key.mods.contains(Mods::SUPER);
-    let plain_char = if plain && key.code == KeyCode::Char {
+    let plain_char = if plain && key.fixed() == Fixed::Char {
         key.text().and_then(|text| text.chars().next())
     } else {
         None
@@ -248,7 +249,7 @@ fn restricted_key(
     data.suggest.hide(c.text());
     let submit = pressed(&data.keymap, COMPOSER_SUBMIT, key);
     let queue = pressed(&data.keymap, COMPOSER_QUEUE, key);
-    let plain = key.mods == Mods::NONE && matches!(key.code, KeyCode::Enter | KeyCode::Tab);
+    let plain = key.mods == Mods::NONE && matches!(key.fixed(), Fixed::Enter | Fixed::Tab);
     if !(submit || queue || plain) {
         return None;
     }
@@ -263,14 +264,14 @@ fn restricted_key(
 /// (`image_paste_key_action`). A repeat within a quarter of a second is
 /// swallowed. Outside an app there is no clipboard to ask: the field's key.
 fn paste_image(data: &KeyData, key: &KeyPress) -> bool {
-    let is_v = key.code == KeyCode::Char && key.ch.is_some_and(|ch| ch.eq_ignore_ascii_case(&'v'));
+    let is_v = key.fixed() == Fixed::Char && key.ch.is_some_and(|ch| ch.eq_ignore_ascii_case(&'v'));
     if !is_v || !(key.mods.contains(Mods::CTRL) || key.mods.contains(Mods::ALT)) {
         return false;
     }
     let Some(env) = &data.burst else {
         return false;
     };
-    let answers = data.states.popovers.pasted.answers();
+    let answers = data.popovers.pasted.answers();
     if data.draft.ask_for_image((env.now)(), answers) {
         (data.tell)(ComposerMsg::PasteImage);
     }
@@ -288,10 +289,10 @@ fn remote_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool
         return false;
     };
     let took = key.mods == Mods::NONE
-        && match key.code {
-            KeyCode::Up => draft.remote_up(c),
-            KeyCode::Down => draft.remote_down(c),
-            KeyCode::Delete | KeyCode::Backspace => {
+        && match key.fixed() {
+            Fixed::Up => draft.remote_up(c),
+            Fixed::Down => draft.remote_down(c),
+            Fixed::Delete | Fixed::Backspace => {
                 draft.remote_removable(c) && {
                     draft.vim_direct(c, || draft.remote_remove(c, &*env.image));
                     true
@@ -313,9 +314,9 @@ fn remote_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool
 /// them (the Editor context does not see it: Composer shadows it).
 fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Option<bool> {
     let keymap = &*data.keymap;
-    let plain = |code: KeyCode| key.code == code && key.mods == Mods::NONE;
+    let plain = |code: Fixed| key.fixed() == code && key.mods == Mods::NONE;
     if pressed(keymap, COMPOSER_SUBMIT, key) {
-        if plain(KeyCode::Enter) {
+        if plain(Fixed::Enter) {
             return Some(false);
         }
         (data.tell)(ComposerMsg::Submitted(c.text()));
@@ -328,13 +329,13 @@ fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Op
             (data.tell)(ComposerMsg::Submitted(c.text()));
             return Some(true);
         }
-        if plain(KeyCode::Tab) {
+        if plain(Fixed::Tab) {
             return Some(false);
         }
         (data.tell)(ComposerMsg::Queue);
         return Some(true);
     }
-    plain(KeyCode::Tab).then_some(true)
+    plain(Fixed::Tab).then_some(true)
 }
 
 /// The Editor-context actions the composer carries out itself, each with the
@@ -385,19 +386,19 @@ impl Edit {
     /// the user bound to it is carried out as this one.
     fn canonical(self) -> Option<KeyPress> {
         let ctrl = |ch: char| KeyPress::char(ch).with_mods(Mods::CTRL);
-        let alt = |code: KeyCode| KeyPress::code(code).with_mods(Mods::ALT);
+        let alt = |code: Fixed| code.press().with_mods(Mods::ALT);
         Some(match self {
             Edit::Newline | Edit::KillWholeLine => return None,
-            Edit::Left => KeyPress::code(KeyCode::Left),
-            Edit::Right => KeyPress::code(KeyCode::Right),
-            Edit::Up => KeyPress::code(KeyCode::Up),
-            Edit::Down => KeyPress::code(KeyCode::Down),
-            Edit::WordLeft => alt(KeyCode::Left),
-            Edit::WordRight => alt(KeyCode::Right),
-            Edit::LineStart => KeyPress::code(KeyCode::Home),
-            Edit::LineEnd => KeyPress::code(KeyCode::End),
-            Edit::DeleteBackward => KeyPress::code(KeyCode::Backspace),
-            Edit::DeleteForward => KeyPress::code(KeyCode::Delete),
+            Edit::Left => Fixed::Left.press(),
+            Edit::Right => Fixed::Right.press(),
+            Edit::Up => Fixed::Up.press(),
+            Edit::Down => Fixed::Down.press(),
+            Edit::WordLeft => alt(Fixed::Left),
+            Edit::WordRight => alt(Fixed::Right),
+            Edit::LineStart => Fixed::Home.press(),
+            Edit::LineEnd => Fixed::End.press(),
+            Edit::DeleteBackward => Fixed::Backspace.press(),
+            Edit::DeleteForward => Fixed::Delete.press(),
             Edit::DeleteBackwardWord => ctrl('w'),
             Edit::DeleteForwardWord => KeyPress::char('d').with_mods(Mods::ALT),
             Edit::KillLineStart => ctrl('u'),
@@ -536,20 +537,20 @@ fn move_line(c: &TextEditingController, down: bool) {
 /// Carries out `key` as the field's own editing would (the caret moves and
 /// the character deletions, as `rtwk` writes them).
 fn field_edit(c: &TextEditingController, key: &KeyPress) {
-    match key.code {
-        KeyCode::Up => move_line(c, false),
-        KeyCode::Down => move_line(c, true),
-        KeyCode::Backspace if c.selection().is_collapsed() => {
+    match key.fixed() {
+        Fixed::Up => move_line(c, false),
+        Fixed::Down => move_line(c, true),
+        Fixed::Backspace if c.selection().is_collapsed() => {
             let caret = c.selection().extent_offset;
             let from = c.buffer().character_start_before(caret);
             c.replace(from, caret, "");
         }
-        KeyCode::Delete if c.selection().is_collapsed() => {
+        Fixed::Delete if c.selection().is_collapsed() => {
             let caret = c.selection().extent_offset;
             let to = c.buffer().character_end_after(caret);
             c.replace(caret, to, "");
         }
-        KeyCode::Backspace | KeyCode::Delete => {
+        Fixed::Backspace | Fixed::Delete => {
             let s = c.selection();
             c.replace(s.start(), s.end(), "");
         }
@@ -578,7 +579,7 @@ fn edit_key(
             // Shift+Enter and Alt+Enter are the field's own line break;
             // any other key of the action (Enter, once submit is
             // elsewhere) breaks the line here
-            if key.code == KeyCode::Enter
+            if key.fixed() == Fixed::Enter
                 && (key.mods.contains(Mods::SHIFT) || key.mods.contains(Mods::ALT))
             {
                 return false;
@@ -666,8 +667,8 @@ fn edit_arms(
     let plain = only(key, Mods::NONE);
     let ctrl = only(key, Mods::CTRL);
     let alt = only(key, Mods::ALT);
-    match (key.code, key.ch) {
-        (KeyCode::Char, Some(ch))
+    match (key.fixed(), key.ch) {
+        (Fixed::Char, Some(ch))
             if (plain || only(key, Mods::SHIFT))
                 && typed_char(draft, &*data.tell, c, ch, skill_space) =>
         {
@@ -675,31 +676,31 @@ fn edit_arms(
         }
         // Shell mode: Backspace at the start and Esc on an empty draft
         // leave it.
-        (KeyCode::Backspace, _) if plain && collapsed && caret == 0 && draft.shell() => {
+        (Fixed::Backspace, _) if plain && collapsed && caret == 0 && draft.shell() => {
             draft.set_shell(false);
             (data.tell)(ComposerMsg::Shell);
             true
         }
-        (KeyCode::Escape, _) if draft.shell() && c.text().is_empty() => {
+        (Fixed::Escape, _) if draft.shell() && c.text().is_empty() => {
             draft.set_shell(false);
             (data.tell)(ComposerMsg::Shell);
             true
         }
-        (KeyCode::Backspace, _) if plain && collapsed => {
+        (Fixed::Backspace, _) if plain && collapsed => {
             let Some(e) = draft.ending_at(c, caret) else {
                 return false;
             };
             c.replace(e.start, e.end, "");
             true
         }
-        (KeyCode::Delete, _) if plain && collapsed => {
+        (Fixed::Delete, _) if plain && collapsed => {
             let Some(e) = draft.starting_at(c, caret) else {
                 return false;
             };
             c.replace(e.start, e.end, "");
             true
         }
-        (KeyCode::Left, _) if plain || only(key, Mods::SHIFT) => {
+        (Fixed::Left, _) if plain || only(key, Mods::SHIFT) => {
             if plain && !collapsed {
                 return false;
             }
@@ -709,7 +710,7 @@ fn edit_arms(
             c.move_caret(e.start, !plain);
             true
         }
-        (KeyCode::Right, _) if plain || only(key, Mods::SHIFT) => {
+        (Fixed::Right, _) if plain || only(key, Mods::SHIFT) => {
             if plain && !collapsed {
                 return false;
             }
@@ -719,8 +720,8 @@ fn edit_arms(
             c.move_caret(e.end, !plain);
             true
         }
-        (KeyCode::Up | KeyCode::Down, _) if plain => walk_history(data, c, key.code == KeyCode::Up),
-        (KeyCode::Char, Some('k')) if ctrl && collapsed => {
+        (Fixed::Up | Fixed::Down, _) if plain => walk_history(data, c, key.fixed() == Fixed::Up),
+        (Fixed::Char, Some('k')) if ctrl && collapsed => {
             let text = c.buffer();
             let end = text.line_end(text.line_of(caret));
             let to = if end == caret {
@@ -735,7 +736,7 @@ fn edit_arms(
             kill(draft, c, caret, to);
             true
         }
-        (KeyCode::Char, Some('u')) if ctrl && collapsed => {
+        (Fixed::Char, Some('u')) if ctrl && collapsed => {
             let text = c.buffer();
             let start = text.line_start(text.line_of(caret));
             let from = if start == caret {
@@ -746,33 +747,33 @@ fn edit_arms(
             kill(draft, c, from, caret);
             true
         }
-        (KeyCode::Char, Some('w')) if ctrl && collapsed => {
+        (Fixed::Char, Some('w')) if ctrl && collapsed => {
             let from = c.buffer().word_start_before(caret, false);
             kill(draft, c, from, caret);
             true
         }
-        (KeyCode::Backspace, _) if (alt || ctrl) && collapsed => {
+        (Fixed::Backspace, _) if (alt || ctrl) && collapsed => {
             let from = c.buffer().word_start_before(caret, false);
             kill(draft, c, from, caret);
             true
         }
-        (KeyCode::Char, Some('d')) if alt && collapsed => {
+        (Fixed::Char, Some('d')) if alt && collapsed => {
             let to = c.buffer().word_end_after(caret, false);
             kill(draft, c, caret, to);
             true
         }
-        (KeyCode::Delete, _) if (alt || ctrl) && collapsed => {
+        (Fixed::Delete, _) if (alt || ctrl) && collapsed => {
             let to = c.buffer().word_end_after(caret, false);
             kill(draft, c, caret, to);
             true
         }
         // `clear_for_ctrl_c`: a draft is cleared (and kept in history)
         // before Ctrl+C interrupts or quits.
-        (KeyCode::Char, Some('c')) if ctrl && !c.text().is_empty() => {
+        (Fixed::Char, Some('c')) if ctrl && !c.text().is_empty() => {
             (data.tell)(ComposerMsg::ClearForCtrlC);
             true
         }
-        (KeyCode::Char, Some('y')) if ctrl => {
+        (Fixed::Char, Some('y')) if ctrl => {
             draft.yank(c);
             // a yank at the start is a prefix insertion: a leading `!`
             // becomes shell mode (`sync_bash_mode_from_text`)
@@ -821,7 +822,7 @@ mod tests {
             burst: None,
             suggest: Rc::default(),
             keymap: Rc::new(Keymap::defaults()),
-            states: Rc::default(),
+            popovers: Rc::default(),
             restricted: None,
             sparkle: SparkleController::default(),
         }
@@ -855,7 +856,7 @@ mod tests {
         press(
             &d,
             &c,
-            KeyPress::code(KeyCode::Backspace).with_mods(Mods::ALT),
+            Fixed::Backspace.press().with_mods(Mods::ALT),
         );
         assert_eq!(state(&c), ("foo r".into(), 4));
         let c = at("foo bar", 7);
@@ -918,11 +919,11 @@ mod tests {
         d.draft.insert_element(&c, "[P]", "payload");
         assert_eq!(state(&c), ("a[P]b".into(), 4));
         assert_eq!(d.draft.expanded(&c), "apayloadb");
-        press(&d, &c, KeyPress::code(KeyCode::Left));
+        press(&d, &c, Fixed::Left.press());
         assert_eq!(c.selection().extent_offset, 1);
-        press(&d, &c, KeyPress::code(KeyCode::Right));
+        press(&d, &c, Fixed::Right.press());
         assert_eq!(c.selection().extent_offset, 4);
-        press(&d, &c, KeyPress::code(KeyCode::Backspace));
+        press(&d, &c, Fixed::Backspace.press());
         assert_eq!(state(&c), ("ab".into(), 1));
         assert_eq!(d.draft.expanded(&c), "ab");
     }
@@ -969,7 +970,7 @@ mod tests {
 
     #[test]
     fn tab_submits_a_plain_text_draft_and_is_the_pages_in_the_chat() {
-        let key = KeyPress::code(KeyCode::Tab);
+        let key = Fixed::Tab.press();
         let (d, sent) = told(ComposerDraft::plain());
         let c = at("!keep this literal", 18);
         assert_eq!(composer_key(&d, &c, &key), Some(true));
@@ -1018,7 +1019,7 @@ mod tests {
         }
 
         fn enter() -> KeyPress {
-            KeyPress::code(KeyCode::Enter)
+            Fixed::Enter.press()
         }
 
         #[test]
@@ -1029,7 +1030,7 @@ mod tests {
             assert_eq!(told.borrow().len(), 1);
             let c = at("/status", 7);
             assert!(key(&d, &c, enter()));
-            assert!(key(&d, &c, KeyPress::code(KeyCode::Tab)));
+            assert!(key(&d, &c, Fixed::Tab.press()));
             assert_eq!(told.borrow().len(), 1, "nothing else was told");
             assert_eq!(c.text().as_ref(), "/status");
             let c = at("hello", 5);
@@ -1102,12 +1103,12 @@ mod tests {
         let c = at("abc", 3);
         // Enter is `editor.insert_newline` too, but Composer shadows it: it submits
         assert_eq!(
-            composer_key(&d, &c, &KeyPress::code(KeyCode::Enter)),
+            composer_key(&d, &c, &Fixed::Enter.press()),
             Some(false)
         );
         // the page's own binding queues
         assert_eq!(
-            composer_key(&d, &c, &KeyPress::code(KeyCode::Tab)),
+            composer_key(&d, &c, &Fixed::Tab.press()),
             Some(false)
         );
         assert_eq!(composer_key(&d, &c, &KeyPress::char('a')), None);
@@ -1117,12 +1118,12 @@ mod tests {
     fn a_remapped_submit_frees_enter_for_the_line_break_and_swallows_tab_when_unbound() {
         let d = keyed("composer", "submit", &["ctrl-s"]);
         let c = at("ab", 2);
-        assert_eq!(composer_key(&d, &c, &KeyPress::code(KeyCode::Enter)), None);
-        press(&d, &c, KeyPress::code(KeyCode::Enter));
+        assert_eq!(composer_key(&d, &c, &Fixed::Enter.press()), None);
+        press(&d, &c, Fixed::Enter.press());
         assert_eq!(c.text().as_ref(), "ab\n");
         let d = keyed("composer", "queue", &["f5"]);
         assert_eq!(
-            composer_key(&d, &c, &KeyPress::code(KeyCode::Tab)),
+            composer_key(&d, &c, &Fixed::Tab.press()),
             Some(true)
         );
     }
@@ -1131,10 +1132,10 @@ mod tests {
     fn a_key_rebound_to_an_editor_action_is_carried_out_as_it_and_the_old_key_does_nothing() {
         let d = keyed("editor", "move_left", &["f2"]);
         let c = at("abc", 2);
-        press(&d, &c, KeyPress::code(KeyCode::F2));
+        press(&d, &c, Fixed::F2.press());
         assert_eq!(state(&c), ("abc".into(), 1));
         // `left` is no longer bound to anything: it does not fall back
-        press(&d, &c, KeyPress::code(KeyCode::Left));
+        press(&d, &c, Fixed::Left.press());
         assert_eq!(state(&c), ("abc".into(), 1));
     }
 
@@ -1200,8 +1201,8 @@ mod tests {
                 .collect()
         }
 
-        fn key(code: KeyCode) -> KeyPress {
-            KeyPress::code(code)
+        fn key(code: Fixed) -> KeyPress {
+            code.press()
         }
 
         #[test]
@@ -1237,20 +1238,20 @@ mod tests {
             let r = rig();
             let c = at("hello", 0);
             r.data.draft.set_remote_images(&c, urls(3), image);
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Up)));
             assert_eq!(r.data.draft.remote_selected(), Some(2));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Up)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Up)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Up)));
             assert_eq!(
                 r.data.draft.remote_selected(),
                 Some(0),
                 "the first row stays"
             );
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Down)));
             assert_eq!(r.data.draft.remote_selected(), Some(1));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Down)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Down)));
             assert_eq!(r.data.draft.remote_selected(), None, "past the last row");
             assert!(r.told.borrow().iter().all(|m| m == "Remote"));
         }
@@ -1260,17 +1261,17 @@ mod tests {
             let r = rig();
             let c = at("hello", 2);
             r.data.draft.set_remote_images(&c, urls(2), image);
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(!remote_key(&r.data, &c, &key(Fixed::Up)));
+            assert!(!remote_key(&r.data, &c, &key(Fixed::Down)));
             let c = at("hello", 0);
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(!remote_key(&r.data, &c, &key(Fixed::Down)));
             assert_eq!(r.data.draft.remote_selected(), None);
             // a selected stretch of text keeps Up for the text
             c.set_selection(TextSelection {
                 base_offset: 0,
                 extent_offset: 3,
             });
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(!remote_key(&r.data, &c, &key(Fixed::Up)));
             assert!(r.told.borrow().is_empty());
         }
 
@@ -1284,9 +1285,9 @@ mod tests {
                 .attach_image(&c, std::path::PathBuf::from("/tmp/a.png"), image);
             assert_eq!(&*c.text(), "[Image #3]");
             c.set_selection(TextSelection::collapsed(0));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Delete)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Up)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Up)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Delete)));
             assert_eq!(r.data.draft.remote_images(), urls(2)[1..].to_vec());
             assert_eq!(
                 &*c.text(),
@@ -1295,7 +1296,7 @@ mod tests {
             );
             assert_eq!(r.data.draft.remote_selected(), Some(0));
             // Backspace removes the last one; no row is left to select
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Backspace)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Backspace)));
             assert_eq!(r.data.draft.remote_count(), 0);
             assert_eq!(r.data.draft.remote_selected(), None);
             assert_eq!(&*c.text(), "[Image #1]");
@@ -1306,7 +1307,7 @@ mod tests {
             let r = rig();
             let c = at("", 0);
             r.data.draft.set_remote_images(&c, urls(1), image);
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(Fixed::Up)));
             assert!(!remote_key(&r.data, &c, &KeyPress::char('a')));
             assert_eq!(r.data.draft.remote_selected(), None);
         }

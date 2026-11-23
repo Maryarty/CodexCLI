@@ -4,7 +4,7 @@
 //! composer's `History` (a reply goes to the store, then the composer polls).
 //! A read the oracle sent as an `AppEvent` is a `Lookup` in `fx`.
 
-use codex_tui_core::screens::composer::history::{
+use codex_tui_core::kit::history::{
     Direction, History, HistoryEntry, Lookup, MAX_BATCH_READ_RETRIES, Response, SearchResult, Store,
 };
 use pretty_assertions::assert_eq;

@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 
 use codex_tui_core::screens::backtrack::Prompt;
-use codex_tui_core::screens::composer::history::{HistoryEntry, MentionBinding, TextElement};
-use codex_tui_core::screens::composer::mentions::codec::{
+use codex_tui_core::kit::history::{HistoryEntry, MentionBinding, TextElement};
+use codex_tui_core::kit::mentions::codec::{
     PLUGIN_TEXT_MENTION_SIGIL, TOOL_MENTION_SIGIL,
 };
 use codex_tui_core::threads::UserMessage;

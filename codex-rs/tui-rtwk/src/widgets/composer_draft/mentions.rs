@@ -16,13 +16,13 @@ use rtwk::editing::{TextEditingController, TextSelection};
 use rtwk::foundation::ChangeNotifier;
 use rtwk::scroll::ListController;
 
-use codex_tui_core::screens::composer::mentions::files::FileSearchAsk;
-use codex_tui_core::screens::composer::mentions::search_mode::SearchMode;
-use codex_tui_core::screens::composer::mentions::session::{
+use codex_tui_core::kit::mentions::FileSearchAsk;
+use codex_tui_core::kit::mentions::search_mode::SearchMode;
+use codex_tui_core::kit::mentions::session::{
     Active, Pick, PickAction, Separator, Session, Sources, completion_separator,
     starts_after_element,
 };
-use codex_tui_core::screens::composer::mentions::target::Doc;
+use codex_tui_core::kit::mentions::target::Doc;
 
 use super::ComposerDraft;
 use crate::services::images;

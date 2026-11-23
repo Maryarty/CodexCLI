@@ -6,8 +6,8 @@
 use std::collections::HashSet;
 
 use super::candidate::{Candidate, Capability, MentionType, Selection, uri};
-use super::codec::{is_common_env_var, is_mention_name_char};
-use super::session::Binding;
+use crate::kit::mentions::codec::{is_common_env_var, is_mention_name_char};
+use crate::kit::mentions::session::Binding;
 use super::task::{MAX_TASK_TITLE_CHARS, TaskMention};
 use crate::threads::ToolMention;
 

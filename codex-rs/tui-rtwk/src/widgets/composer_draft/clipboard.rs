@@ -1,13 +1,11 @@
 //! A Ctrl+V the draft waits for: the host reads the clipboard's image and
-//! answers with a file (`core::screens::composer::clipboard`); the draft that
+//! answers with a file (what the app holds as `Pasted`); the draft that
 //! asked attaches it as the next `[Image #N]`, and no other draft does.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use rtwk::editing::TextEditingController;
-
-use codex_tui_core::screens::composer::clipboard::Pasted;
 
 use super::ComposerDraft;
 
@@ -43,13 +41,11 @@ impl ComposerDraft {
     }
 
     /// Whether an image the draft asked for has come (the draw may attach
-    /// it): what `take_pasted_image` would give.
-    pub fn image_arrived(&self, pasted: &Pasted) -> bool {
+    /// it): what `take_pasted_image` would give. `arrived(n)`: the host has
+    /// answered with a file after its `n`-th answer.
+    pub fn image_arrived(&self, arrived: impl Fn(u64) -> bool) -> bool {
         let inner = self.0.borrow();
-        inner
-            .clipboard
-            .asked_at
-            .is_some_and(|asked| pasted.after(asked).is_some())
+        inner.clipboard.asked_at.is_some_and(arrived)
     }
 
     /// The image the draft asked for, attached at the selection as the next
@@ -58,13 +54,13 @@ impl ComposerDraft {
     pub fn take_pasted_image(
         &self,
         c: &TextEditingController,
-        pasted: &Pasted,
+        after: impl Fn(u64) -> Option<PathBuf>,
         image: impl Fn(usize) -> String,
     ) -> bool {
         let path: Option<PathBuf> = {
             let mut inner = self.0.borrow_mut();
             let asked = inner.clipboard.asked_at;
-            let path = asked.and_then(|asked| pasted.after(asked)).map(Into::into);
+            let path = asked.and_then(after);
             if path.is_some() {
                 inner.clipboard.asked_at = None;
             }

@@ -9,15 +9,16 @@
 use rtwk::Cx;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 use rtwk::provider::read;
 
-use codex_tui_core::screens::composer::mentions::session::{Active, Pick, PickAction};
+use codex_tui_core::kit::mentions::session::{Active, Pick, PickAction};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 
 use super::editing::KeyData;
 use super::vim;
 use super::{Composer, ComposerMsg, ComposerState};
+use crate::keymap::fixed::{Fixed, FixedKey};
 use crate::app::view::Hs;
 
 /// Whether the popup takes `key`: Up and Down (Ctrl+P, Ctrl+N) move the
@@ -33,26 +34,26 @@ pub(super) fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress
     let plain = key.mods == Mods::NONE;
     let ctrl = key.mods == Mods::CTRL;
     let unified = mentions.read(|session| matches!(session.active(), Active::At(_)));
-    match (key.code, key.ch) {
-        (KeyCode::Up, _) => mentions.step(false),
-        (KeyCode::Char, Some('p')) if ctrl => mentions.step(false),
-        (KeyCode::Down, _) => mentions.step(true),
-        (KeyCode::Char, Some('n')) if ctrl => mentions.step(true),
-        (KeyCode::Left | KeyCode::Right, _) if plain => {
+    match (key.fixed(), key.ch) {
+        (Fixed::Up, _) => mentions.step(false),
+        (Fixed::Char, Some('p')) if ctrl => mentions.step(false),
+        (Fixed::Down, _) => mentions.step(true),
+        (Fixed::Char, Some('n')) if ctrl => mentions.step(true),
+        (Fixed::Left | Fixed::Right, _) if plain => {
             if !data.draft.can_switch_search_mode(c) {
                 return false;
             }
-            mentions.switch_search_mode(key.code == KeyCode::Right);
+            mentions.switch_search_mode(key.fixed() == Fixed::Right);
         }
-        (KeyCode::Escape, _) => data
+        (Fixed::Escape, _) => data
             .draft
-            .dismiss_mentions(c, &data.states.popovers.sources()),
-        (KeyCode::Tab, _) => {
+            .dismiss_mentions(c, &data.popovers.sources()),
+        (Fixed::Tab, _) => {
             if let Some(at) = mentions.cursor() {
                 (data.tell)(ComposerMsg::MentionPick(at));
             }
         }
-        (KeyCode::Enter, _) if plain => match mentions.cursor() {
+        (Fixed::Enter, _) if plain => match mentions.cursor() {
             Some(at) => (data.tell)(ComposerMsg::MentionPick(at)),
             // the unified popup closes and the Enter is a submit
             None if unified => return false,

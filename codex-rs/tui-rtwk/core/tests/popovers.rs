@@ -5,7 +5,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
-use codex_tui_core::screens::composer::history::{History, Lookup, Store};
+use codex_tui_core::kit::history::{History, Lookup, Store};
 use codex_tui_core::screens::composer::{Trigger, TriggerKind, trigger};
 use codex_tui_core::screens::popovers::*;
 use pretty_assertions::assert_eq;
@@ -179,7 +179,7 @@ fn only_a_match_has_a_preview() {
 /// keeps the preview; a failed read returns to the draft saying nothing.
 #[test]
 fn a_pending_read_keeps_the_preview_and_an_unavailable_one_restores_the_draft() {
-    use codex_tui_core::screens::composer::history::SearchResult;
+    use codex_tui_core::kit::history::SearchResult;
     let mut w = Walk::new();
     w.set_query("cargo");
     assert_eq!(w.preview(), Some("cargo test"));

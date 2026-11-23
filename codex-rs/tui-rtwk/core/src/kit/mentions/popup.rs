@@ -4,8 +4,8 @@
 //! (`SelectionController`, `ListController`); [`Popup::position_of`] lets
 //! the view keep a highlight on the same pick when rows change.
 
-use super::candidate::{Candidate, Row, Selection};
-use super::files::{Empty, FileMatch, FileSearch};
+use crate::screens::composer::mentions::candidate::{Candidate, Row, Selection};
+use crate::screens::composer::mentions::files::{Empty, FileMatch, FileSearch};
 use super::filter::filtered_candidates;
 use super::search_mode::SearchMode;
 
@@ -101,8 +101,8 @@ impl Popup {
 
 #[cfg(test)]
 mod tests {
-    use super::super::candidate::MentionType;
-    use super::super::files::MatchType;
+    use crate::screens::composer::mentions::candidate::MentionType;
+    use crate::screens::composer::mentions::files::MatchType;
     use super::*;
 
     fn skill(name: &str) -> Candidate {

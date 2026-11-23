@@ -1,14 +1,14 @@
 //! Reverse history search (Ctrl+R) in the draft: the search's own state
-//! (`core::screens::popovers::HistorySearch`), the draft as it was when the
+//! (`core::kit::history::HistorySearch`), the draft as it was when the
 //! search opened, and the previews that stand in the draft's place while the
 //! query is typed (`chat_composer/history_search.rs`,
 //! `history_search_draft.rs`).
 
 use rtwk::editing::TextEditingController;
 
-use codex_tui_core::screens::composer::history::{Lookup, SearchResult, Store};
-use codex_tui_core::screens::composer::vim::History;
-use codex_tui_core::screens::popovers::{Direction, HistorySearch, Preview, SearchStatus};
+use codex_tui_core::kit::history::{Lookup, SearchResult, Store};
+use codex_tui_core::kit::vim::History;
+use codex_tui_core::kit::history::{Direction, HistorySearch, Preview, SearchStatus};
 
 use super::{ComposerDraft, Snapshot};
 

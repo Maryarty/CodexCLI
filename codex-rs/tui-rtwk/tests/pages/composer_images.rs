@@ -189,7 +189,7 @@ mod draft {
 
     #[test]
     fn a_kept_draft_comes_back_with_its_remote_images() {
-        use codex_tui_core::screens::composer::history::Store;
+        use codex_tui_core::kit::history::Store;
         let c = TextEditingController::new("hello");
         let d = ComposerDraft::default();
         d.set_remote_images(&c, urls(&["a", "b"]), image);

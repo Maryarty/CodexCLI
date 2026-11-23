@@ -15,10 +15,10 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::Shared;
 use crate::screens::composer::clipboard::Pasted;
-use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
+use crate::screens::composer::history::{Lookup, Store};
 use crate::screens::composer::mentions::candidate::Capability;
 use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
-use crate::screens::composer::mentions::session::Sources;
+use crate::kit::mentions::session::Sources;
 use crate::screens::composer::mentions::sources;
 use crate::screens::composer::mentions::task::TaskMention;
 use crate::screens::composer::mentions::usage::MentionUsage;
@@ -116,132 +116,6 @@ impl Model {
     /// The asks not taken yet, oldest first.
     pub fn pending_asks(&self) -> &[Ask] {
         &self.asks
-    }
-}
-
-/// Where reverse history search stands (`HistorySearchStatus`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SearchStatus {
-    /// The query is empty (or a read failed): the draft shows as it was.
-    #[default]
-    Idle,
-    /// A persistent read is outstanding.
-    Searching,
-    /// A match is previewed.
-    Match,
-    NoMatch,
-}
-
-/// What the draft shows after a search step.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Preview {
-    /// The entry that was found.
-    Show(HistoryEntry),
-    /// The draft as it was when the search opened.
-    Original,
-    /// What is shown stays.
-    Keep,
-}
-
-/// Reverse history search: the query and where it stands
-/// (`chat_composer/history_search.rs`); the walk over the entries is the
-/// composer's [`History`]. The composer owns it with the draft it will
-/// restore (UI state, one per thread's draft).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct HistorySearch {
-    pub query: String,
-    pub status: SearchStatus,
-}
-
-/// Which way the search walks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Direction {
-    Older,
-    Newer,
-}
-
-impl HistorySearch {
-    /// Opens without previewing anything: Ctrl+R on an empty composer must not
-    /// replace it with the latest prompt.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// The query as the footer shows it: a newline and a tab as marks
-    /// (`display_query`); matching keeps the query as it is.
-    pub fn display_query(&self) -> String {
-        self.query.replace('\n', "\u{21b5}").replace('\t', "\u{21e5}")
-    }
-
-    /// The query changed (`update_history_search_query`): the draft goes
-    /// back to its original first, the search restarts from the newest
-    /// entry, and an empty query ends the walk and stays open.
-    pub fn set_query(
-        &mut self,
-        query: String,
-        history: &mut History,
-        store: &Store,
-        fx: &mut Vec<Lookup>,
-    ) -> Preview {
-        self.query = query;
-        self.status = SearchStatus::Searching;
-        if self.query.is_empty() {
-            history.reset_search();
-            self.status = SearchStatus::Idle;
-            return Preview::Original;
-        }
-        let result = history.search(store, &self.query, Direction::Older, true, fx);
-        match self.apply(result) {
-            Preview::Show(entry) => Preview::Show(entry),
-            _ => Preview::Original,
-        }
-    }
-
-    /// The next older or newer match (`history_search_in_direction`); at the
-    /// end of the matches the current one stays (no "no match" flicker).
-    pub fn step(
-        &mut self,
-        direction: Direction,
-        history: &mut History,
-        store: &Store,
-        fx: &mut Vec<Lookup>,
-    ) -> Preview {
-        if self.query.is_empty() {
-            history.reset_search();
-            self.status = SearchStatus::Idle;
-            return Preview::Original;
-        }
-        let result = history.search(store, &self.query, direction, false, fx);
-        self.apply(result)
-    }
-
-    /// What a step or a read that came in says (`apply_history_search_result`):
-    /// `Found` previews, `Pending` waits, `AtBoundary` keeps the match,
-    /// `NotFound` puts the original back with "no match" and `Unavailable`
-    /// with nothing said.
-    pub fn apply(&mut self, result: SearchResult) -> Preview {
-        match result {
-            SearchResult::Found(entry) => {
-                self.status = SearchStatus::Match;
-                Preview::Show(entry)
-            }
-            SearchResult::Pending => {
-                self.status = SearchStatus::Searching;
-                Preview::Keep
-            }
-            SearchResult::AtBoundary => {
-                self.status = SearchStatus::Match;
-                Preview::Keep
-            }
-            SearchResult::NotFound => {
-                self.status = SearchStatus::NoMatch;
-                Preview::Original
-            }
-            SearchResult::Unavailable => {
-                self.status = SearchStatus::Idle;
-                Preview::Original
-            }
-        }
     }
 }
 

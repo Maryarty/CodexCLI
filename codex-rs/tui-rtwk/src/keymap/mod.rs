@@ -12,6 +12,8 @@
 //! `KeyCombo` is what the framework matches a key press against, so the quirks
 //! of a terminal (`ctrl+j` arriving as Enter) are rtwk's, in one place.
 
+pub mod fixed;
+
 use std::rc::Rc;
 
 use rtwk::Cx;
