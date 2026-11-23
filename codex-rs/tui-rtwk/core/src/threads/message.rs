@@ -31,6 +31,9 @@ pub enum ToolMention {
 pub struct UserMessage {
     pub text: String,
     pub images: Vec<LocalImage>,
+    /// The URLs of the images above the draft (`remote_image_urls`): no placeholder stands for
+    /// them in the text, the turn sends them before the local ones.
+    pub remote_images: Vec<String>,
     pub mentions: Vec<ToolMention>,
 }
 
@@ -39,6 +42,7 @@ impl UserMessage {
         Self {
             text: text.into(),
             images: Vec::new(),
+            remote_images: Vec::new(),
             mentions: Vec::new(),
         }
     }
@@ -62,13 +66,14 @@ impl UserMessage {
         Self {
             text,
             images,
+            remote_images: self.remote_images,
             mentions: self.mentions,
         }
     }
 
-    /// Nothing to send: no text and no image.
+    /// Nothing to send: no text and no image, remote or local.
     pub fn is_empty(&self) -> bool {
-        self.text.is_empty() && self.images.is_empty()
+        self.text.is_empty() && self.images.is_empty() && self.remote_images.is_empty()
     }
 }
 
@@ -88,7 +93,7 @@ mod tests {
         let message = UserMessage {
             text: "  [Image #1] hi\n".into(),
             images: vec![image(2, 12)],
-            mentions: Vec::new(),
+            ..UserMessage::default()
         };
         let message = message.trimmed();
         assert_eq!(message.text, "[Image #1] hi");
@@ -100,9 +105,19 @@ mod tests {
         let message = UserMessage {
             text: String::new(),
             images: vec![image(0, 0)],
-            mentions: Vec::new(),
+            ..UserMessage::default()
         };
         assert!(!message.is_empty());
         assert!(UserMessage::text("").is_empty());
+    }
+
+    #[test]
+    fn remote_images_alone_are_a_message_and_survive_trimming() {
+        let message = UserMessage {
+            remote_images: vec!["https://x/a.png".into()],
+            ..UserMessage::default()
+        };
+        assert!(!message.is_empty());
+        assert_eq!(message.trimmed().remote_images, vec!["https://x/a.png"]);
     }
 }

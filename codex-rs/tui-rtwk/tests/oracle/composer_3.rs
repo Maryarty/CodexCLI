@@ -241,31 +241,53 @@ fn submit_captures_recent_mention_bindings_before_clearing_textarea() {
 // ORACLE bottom_pane/chat_composer.rs:11047 history_navigation_restores_remote_and_local_image_attachments kind=ui owner=chat-live
 #[test]
 fn history_navigation_restores_remote_and_local_image_attachments() {
-    kit::pending(
-        Owner::ChatLive,
-        "no remote image URLs and no prompt history on the chat composer: a submitted local image comes back as '[Image #2]' on Up, after the remote one",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .remote_images(&["https://example.com/remote.png"])
+        .open();
     // oracle: one remote image URL, a local image attached, Enter, then Up in an empty draft
-    s.paste("/tmp/image1.png");
+    let path = s.attach_image("image1.png");
+    s.assert_row(prompt(&s), "› [Image #2]");
     s.keys("enter");
+    s.wait_for("› Ask Codex to do anything");
+    // the turn carries the remote image and the local one numbered after it
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "{:?}", s.commands());
+    assert_eq!(
+        turns[0].remote_images,
+        vec!["https://example.com/remote.png"]
+    );
+    assert_eq!(turns[0].images.len(), 1);
+    assert_eq!(turns[0].images[0].path, path);
     s.keys("up");
     s.assert_row(prompt(&s), "› [Image #2]");
+    s.assert_contains("[Image #1]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11081 history_navigation_restores_remote_only_submissions kind=ui owner=chat-live
 #[test]
 fn history_navigation_restores_remote_only_submissions() {
-    kit::pending(
-        Owner::ChatLive,
-        "the kit has no seed for set_remote_image_urls, and a remote-only submit is not recorded: `UserMessage` has no remote_images (the draft restores them from history, tests/pages/composer_images.rs)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .remote_images(&["https://example.com/one.png", "https://example.com/two.png"])
+        .open();
     // oracle: two remote image URLs and no text; Enter records the empty submission
     s.keys("enter");
+    s.wait_for("› Ask Codex to do anything");
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "{:?}", s.commands());
+    assert_eq!(
+        turns[0].remote_images,
+        vec!["https://example.com/one.png", "https://example.com/two.png"]
+    );
+    assert!(turns[0].text.is_empty());
     // oracle: Up restores it: the text is empty and the remote images come back
     s.keys("up");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
+    s.assert_contains("[Image #1]");
+    s.assert_contains("[Image #2]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11113 history_navigation_leaves_cursor_at_end_of_line kind=ui owner=chat-live
@@ -475,14 +497,27 @@ fn deleting_one_of_duplicate_image_placeholders_removes_one_entry() {
 // ORACLE bottom_pane/chat_composer.rs:11701 deleting_reordered_image_one_renumbers_text_in_place kind=ui owner=chat-live
 #[test]
 fn deleting_reordered_image_one_renumbers_text_in_place() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment and no draft seed on the chat composer: the oracle sets 'Test [Image #2] test [Image #1]' with both images; no key sequence builds that draft",
-    );
-    let s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    // oracle: the draft 'Test [Image #2] test [Image #1]' (set_text_content, two images), the cursor
-    // after [Image #1], Backspace: the text becomes 'Test [Image #1] test ' (#2 renumbered in place)
+    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    // oracle: the draft 'Test [Image #2] test [Image #1]' (set_text_content, two images): the
+    // first image attached, then the second one before it
+    let first = s.attach_image("image_first.png");
+    s.keys("home");
+    s.type_text("Test ");
+    let second = s.attach_image("image_second.png");
+    s.type_text(" test ");
+    s.assert_row(prompt(&s), "› Test [Image #2] test [Image #1]");
+    // the cursor after [Image #1], Backspace: the text becomes 'Test [Image #1] test ' (#2
+    // renumbered in place)
+    s.keys("end backspace");
     s.assert_row(prompt(&s), "› Test [Image #1] test ");
+    // what the draft sends is the second image alone
+    s.keys("enter");
+    s.wait_for("› Ask Codex to do anything");
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "{:?}", s.commands());
+    assert_eq!(turns[0].images.len(), 1);
+    assert_eq!(turns[0].images[0].path, second);
+    assert_ne!(turns[0].images[0].path, first);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11764 deleting_first_text_element_renumbers_following_text_element kind=ui owner=chat-live
@@ -680,16 +715,17 @@ fn current_text_with_pending_expands_overlapping_placeholders() {
 // ORACLE bottom_pane/chat_composer.rs:12706 delete_selected_remote_image_relabels_local_placeholders kind=ui owner=chat-live
 #[test]
 fn delete_selected_remote_image_relabels_local_placeholders() {
-    kit::pending(
-        Owner::ChatLive,
-        "no remote image URLs on the chat composer: two remote images sit above the draft, Up selects one and Delete removes it, relabelling the local image",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .remote_images(&["https://example.com/one.png", "https://example.com/two.png"])
+        .open();
     // oracle: two remote image URLs; a local image attached (label #3); the cursor to 0
-    s.paste("/tmp/local.png");
+    s.attach_image("local.png");
+    s.assert_row(prompt(&s), "› [Image #3]");
+    // oracle: Up selects the last remote image, Delete removes it
     s.keys("home up delete");
     s.assert_row(prompt(&s), "› [Image #2]");
-    // oracle: Up selects the last remote image, Delete removes it
     s.keys("up delete");
     s.assert_row(prompt(&s), "› [Image #1]");
 }

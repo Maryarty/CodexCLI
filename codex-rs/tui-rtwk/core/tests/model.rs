@@ -1256,6 +1256,7 @@ fn restored_messages_merge_with_renumbered_image_placeholders() {
     let with_image = UserMessage {
         text: "[Image #1] first".into(),
         images: vec![image(0, 10)],
+        remote_images: Vec::new(),
         mentions: Vec::new(),
     };
     chat_intent(

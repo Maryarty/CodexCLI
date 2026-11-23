@@ -503,8 +503,12 @@ impl State for ChatState {
             ChatMsg::Submit(text) => {
                 // The same Enter may have run it through a popup's pick. A
                 // draft in shell mode has the `!` as its mode, not as text: a
-                // bare `!` is the help line (`submit_shell_command`).
-                if !w.ui.composer.text().is_empty() || w.ui.draft.shell() {
+                // bare `!` is the help line (`submit_shell_command`). Remote
+                // images alone are a message of their own.
+                if !w.ui.composer.text().is_empty()
+                    || w.ui.draft.shell()
+                    || w.ui.draft.remote_count() > 0
+                {
                     run_line(&text, w, cx, &hs, Delivery::Submit);
                     // a command that took the line cleared the composer
                     self.sync_draft(w);
@@ -532,7 +536,7 @@ impl State for ChatState {
             }
             ChatMsg::QueueDraft => {
                 let draft = submission(&w.ui);
-                if !draft.is_empty() {
+                if !draft.is_empty() || w.ui.draft.remote_count() > 0 {
                     // Tab queues behind a running turn and submits otherwise.
                     let running = read::<ThreadModel, _>(cx).is_running();
                     let send = if running {

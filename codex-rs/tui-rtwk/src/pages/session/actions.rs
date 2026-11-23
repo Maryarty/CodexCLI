@@ -120,8 +120,9 @@ pub(super) fn reasoning_shortcut(
 
 pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, send: Delivery) {
     // An empty line is nothing to run: the composer was already taken by the
-    // pick or the submit that came with the same Enter.
-    if line.trim().is_empty() {
+    // pick or the submit that came with the same Enter. Remote images alone
+    // are a message (`user_message.remote_image_urls.is_empty()`).
+    if line.trim().is_empty() && w.ui.draft.remote_count() == 0 {
         return;
     }
     let states = read::<ScreenStates, _>(cx);
@@ -217,7 +218,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
             // the message; the composer clears when it has.
-            if !line.trim().is_empty() {
+            if !line.trim().is_empty() || w.ui.draft.remote_count() > 0 {
                 record(cx);
                 // the draft's images go with its text; a line that is not
                 // the draft (a popup's pick) goes as text

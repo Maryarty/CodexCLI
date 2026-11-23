@@ -71,10 +71,16 @@ pub(super) fn walk_history(data: &KeyData, c: &TextEditingController, up: bool) 
         return false;
     }
     let shell = draft.shell();
+    let remote = draft.remote_images();
     let mut asks = Vec::new();
     let took = draft.history_step(c, &data.history, up, &mut asks);
     if !asks.is_empty() {
         (data.tell)(ComposerMsg::Lookups(asks));
+    }
+    // an entry's remote images stand above the draft: the rows change with
+    // no change of the text
+    if took && draft.remote_images() != remote {
+        (data.tell)(ComposerMsg::Remote);
     }
     // an entry's leading `!` is shell mode again
     if draft.shell() != shell {

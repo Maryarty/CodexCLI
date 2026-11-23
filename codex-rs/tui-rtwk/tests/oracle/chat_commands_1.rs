@@ -295,17 +295,34 @@ fn handoff_image_survives_model_rejection_and_submission_failure() {
 fn local_clipboard_image_does_not_turn_a_held_bang_into_a_shell_command() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a clipboard image (alt+v) that arrives after a held '!' (the shell prefix) and the paste-burst timer; the kit cannot advance the paste burst",
+        "the oracle attaches the clipboard's image in the same instant the `!` is held (a paste detector's 9 ms first-char hold, `attach_image` at once): the draft is `[Image #1]!` and the held `!` goes in after it. The host's answer reaches the composer one frame later (`ComposerMsg::ImageArrived` at the next build), by when the `!` has gone in as the shell prefix, and Enter in that window is a newline before the image",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.type_text("!");
-    s.keys("alt+v");
+    // the `!` is the first char of the draft: the paste detector holds it for a moment, and the
+    // clipboard's image arrives while it is held
+    s.type_burst("!");
+    let path = kit::image_file("image.png");
+    s.paste_clipboard_image_at_once("alt+v", &path);
     s.keys("enter");
+    // the oracle's draft is `[Image #1]!` with shell mode off: nothing is sent yet
+    assert!(s.turns().is_empty(), "{:?}", s.commands());
+    assert!(
+        !s.commands()
+            .iter()
+            .any(|c| format!("{c:?}").contains("Shell")),
+        "{:?}",
+        s.commands()
+    );
     s.wait(1000);
     s.keys("enter");
-    // The oracle's draft is "[Image #1]!" with shell mode off, and the sent
-    // turn is the image then the text, never a shell command.
-    s.assert_contains("[Image #1]!");
+    s.wait_for("› Ask Codex to do anything");
+    // the turn is the image then the text, never a shell command
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "{:?}", s.commands());
+    assert_eq!(turns[0].text, "[Image #1]!");
+    assert_eq!(turns[0].images.len(), 1);
+    assert_eq!(turns[0].images[0].path, path);
+    assert_eq!(turns[0].images[0].range, 0.."[Image #1]".len());
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:626 submission_preserves_text_elements_and_local_images kind=ui owner=chat-nav-pane
@@ -338,37 +355,68 @@ fn submission_omits_active_permission_profile_for_legacy_snapshot() {
 // ORACLE chatwidget/tests/composer_submission.rs:838 submission_with_remote_and_local_images_keeps_local_placeholder_numbering kind=ui owner=chat-nav-pane
 #[test]
 fn submission_with_remote_and_local_images_keeps_local_placeholder_numbering() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a thread session with a remote image URL attached (set_remote_image_urls) beside a local image; the submitted items are not reachable by the kit",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.type_text("[Image #2] submit mixed");
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .remote_images(&["https://example.com/remote.png"])
+        .open();
+    // oracle: the draft `[Image #2] submit mixed` with one local image beside the remote one
+    let path = s.attach_image("submitted-mixed.png");
+    s.type_text(" submit mixed");
     s.assert_contains("[Image #2] submit mixed");
     s.keys("enter");
+    s.wait_for("› Ask Codex to do anything");
+    // the turn is the remote image, then the local one, then the text: the local placeholder
+    // keeps the number after the remote images
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "{:?}", s.commands());
+    assert_eq!(
+        turns[0].remote_images,
+        vec!["https://example.com/remote.png"]
+    );
+    assert_eq!(turns[0].images.len(), 1);
+    assert_eq!(turns[0].images[0].path, path);
+    assert_eq!(turns[0].images[0].range, 0.."[Image #2]".len());
+    assert_eq!(turns[0].text, "[Image #2] submit mixed");
+    // ... and the history shows the submitted message
+    s.assert_contains("[Image #2] submit mixed");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:939 enter_with_only_remote_images_submits_user_turn kind=ui owner=chat-nav-pane
 #[test]
 fn enter_with_only_remote_images_submits_user_turn() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for remote image attachments on an empty composer (set_remote_image_urls); the oracle has no row literal for the cleared composer and the sent image-only turn",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .remote_images(&["https://example.com/remote-only.png"])
+        .open();
+    s.assert_composer("");
     s.keys("enter");
+    s.wait_for("› Ask Codex to do anything");
+    // the turn is the image alone; the draft's remote images are taken
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "{:?}", s.commands());
+    assert_eq!(
+        turns[0].remote_images,
+        vec!["https://example.com/remote-only.png"]
+    );
+    assert!(turns[0].images.is_empty());
+    assert_eq!(turns[0].text, "");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1009 shift_enter_with_only_remote_images_does_not_submit_user_turn kind=ui owner=chat-nav-pane
 #[test]
 fn shift_enter_with_only_remote_images_does_not_submit_user_turn() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for remote image attachments on an empty composer (set_remote_image_urls); the oracle has no row literal for the composer and the attachment",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .remote_images(&["https://example.com/remote-only.png"])
+        .open();
+    s.assert_composer("");
     s.keys("shift+enter");
-    // The oracle asserts the composer stays empty and the remote image stays attached.
+    // the oracle asserts no submission and the remote image kept
+    assert!(s.turns().is_empty(), "{:?}", s.commands());
+    s.assert_contains("[Image #1]");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1051 enter_with_only_remote_images_does_not_submit_when_modal_is_active kind=ui owner=chat-nav-pane
@@ -403,7 +451,7 @@ fn submission_prefers_selected_duplicate_skill_path() {
 fn blocked_image_restore_preserves_mention_bindings() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a blocked image submission restored into the composer (restore_blocked_image_submission) on a model without image input; the mention bindings are not rows",
+        "no model input modalities in the core's catalog: nothing marks a model as one without image input, so a submission with an image is never blocked and restored (restore_blocked_image_submission) with the warning \"does not support image inputs\"",
     );
     let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.assert_contains("[Image #1] check $file");

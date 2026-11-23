@@ -89,6 +89,21 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }),
         },
         DebugEntry {
+            name: "alone_remote",
+            description: "the composer with its key footer and two remote images above the draft",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                // the oracle's `set_remote_image_urls` of its remote-rows snapshots
+                let urls = ["https://example.com/one.png", "https://example.com/two.png"]
+                    .map(String::from)
+                    .to_vec();
+                ui.draft
+                    .set_remote_images(&ui.composer, urls, |n| strings::EN.image(n));
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
             name: "alone_history",
             description: "the composer with its key footer and two prompts of history (Ctrl+R)",
             script: include_str!("fixtures/alone_history.jsonl"),

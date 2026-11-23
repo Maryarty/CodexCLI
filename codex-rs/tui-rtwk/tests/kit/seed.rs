@@ -20,6 +20,7 @@
 use codex_tui_core::app::{AppEv, BackendEv};
 use codex_tui_core::fixtures::script::{self, Step};
 use codex_tui_core::screens::seed_ev;
+use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
 use super::env::Env;
@@ -48,6 +49,8 @@ pub struct Open {
     pub(super) gutter: usize,
     pub(super) keymap: Option<&'static [(&'static str, &'static str)]>,
     pub(super) env: Env,
+    /// The remote image URLs the chat's draft starts with (`Open::remote_images`).
+    pub(super) remote_images: Vec<String>,
 }
 
 impl Screen {
@@ -65,6 +68,7 @@ impl Screen {
             gutter: 0,
             keymap: None,
             env: Env::default(),
+            remote_images: Vec::new(),
         }
     }
 }
@@ -125,14 +129,26 @@ impl Open {
         self
     }
 
+    /// The chat's draft starts with `urls` as remote images above the text (the oracle's
+    /// `set_remote_image_urls`): the rows `[Image #1]`.. over the prompt, the local images
+    /// numbered after them. For the live chat (`live()`, `script(..)`).
+    pub fn remote_images(mut self, urls: &[&str]) -> Open {
+        self.remote_images = urls.iter().map(|url| (*url).to_string()).collect();
+        self
+    }
+
     pub fn open(self) -> Screen {
         let gutter = self.gutter;
+        let remote = self.remote_images.clone();
         let mut screen = match self.seed {
             Seed::Live => Screen::from(self.live_harness()),
             Seed::Entry { dir, entry } => self.open_entry(dir, entry),
             Seed::Script(text) => self.open_script(text),
         };
         screen.gutter = gutter;
+        if !remote.is_empty() {
+            screen.set_remote_images(remote);
+        }
         screen
     }
 
@@ -208,6 +224,63 @@ impl Open {
 }
 
 impl Screen {
+    /// The remote images of the chat's draft are `urls` now (`Open::remote_images`, the oracle's
+    /// `set_remote_image_urls`): UI state of the open thread, so the seed reaches it as a
+    /// handler would, then the frame shows the rows.
+    pub fn remote_images(&mut self, urls: &[&str]) -> &mut Screen {
+        self.set_remote_images(urls.iter().map(|url| (*url).to_string()).collect());
+        self
+    }
+
+    /// The host answers the clipboard-image ask (`Ask::ClipboardImage`, asked by Ctrl+V or Alt+V)
+    /// with the PNG file at `path`: the composer attaches it where the caret is. The system
+    /// clipboard itself is the host's, so a test hands over the answer.
+    pub fn clipboard_image(&mut self, path: &std::path::Path) -> &mut Screen {
+        self.answer_clipboard_image(path);
+        self.h.advance(100);
+        self
+    }
+
+    /// `key` (Ctrl+V or Alt+V) pressed and the host's answer with the PNG at `path` at once, a
+    /// millisecond apart and with nothing waited after: what the paste detector holds is still
+    /// held (the oracle's `handle_key_event` then `attach_image`, no time between).
+    pub fn paste_clipboard_image_at_once(
+        &mut self,
+        key: &str,
+        path: &std::path::Path,
+    ) -> &mut Screen {
+        self.press_key(key);
+        self.h.t.pump_for(crate::common::ms(1));
+        self.answer_clipboard_image(path);
+        self.h.t.pump_for(crate::common::ms(1));
+        self
+    }
+
+    fn answer_clipboard_image(&mut self, path: &std::path::Path) {
+        use codex_tui_core::app::AppEv;
+        use codex_tui_core::screens::{ScreenEv, popovers};
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h.fake.inject(
+            epoch,
+            AppEv::Screen(ScreenEv::Popovers(popovers::Ev::ImagePasted(
+                path.to_path_buf(),
+            ))),
+        );
+    }
+
+    fn set_remote_images(&mut self, urls: Vec<String>) {
+        assert!(
+            !self.entry,
+            "remote images seed the live chat's draft: a debug entry has none"
+        );
+        self.h.t.update_app(move |app: &mut UiApp, _| {
+            let ui = app.ui.thread_ui.get(app.core.session().active.as_ref());
+            ui.draft
+                .set_remote_images(&ui.composer, urls, |n| format!("[Image #{n}]"));
+        });
+        self.h.advance(100);
+    }
+
     /// Applies more steps of a JSONL script to the open screen, as a server
     /// and the user would deliver them: `notify`, `request`, a directory's
     /// `screen` events, then its `key` and `resize` steps.

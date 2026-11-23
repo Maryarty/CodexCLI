@@ -16,6 +16,7 @@ use codex_app_server_protocol::AddCreditsNudgeEmailStatus;
 use codex_app_server_protocol::ByteRange;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
+use codex_app_server_protocol::ImageReference;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SendAddCreditsNudgeEmailParams;
@@ -281,17 +282,21 @@ pub fn dismissal() -> JSONRPCErrorError {
     }
 }
 
-/// The input of a turn (`input_submission.rs`): the local images first,
-/// then the text with a text element for each image's placeholder.
+/// The input of a turn (`input_submission.rs`): the remote images first, then the local ones,
+/// then the text with a text element for each local image's placeholder.
 pub(crate) fn turn_input(message: &UserMessage) -> Vec<UserInput> {
     let mut input: Vec<UserInput> = message
-        .images
+        .remote_images
         .iter()
-        .map(|image| UserInput::LocalImage {
-            path: image.path.clone(),
+        .map(|url| UserInput::Image {
+            image: ImageReference::Inline { url: url.clone() },
             detail: None,
         })
         .collect();
+    input.extend(message.images.iter().map(|image| UserInput::LocalImage {
+        path: image.path.clone(),
+        detail: None,
+    }));
     if !message.text.is_empty() {
         let mut elements: Vec<TextElement> = message
             .images
@@ -340,7 +345,7 @@ mod turn_input_tests {
                 path: "/tmp/a.png".into(),
                 range: 4..14,
             }],
-            mentions: Vec::new(),
+            ..UserMessage::default()
         };
         let input = turn_input(&message);
         assert!(matches!(&input[0], UserInput::LocalImage { path, .. } if path.ends_with("a.png")));
@@ -369,7 +374,41 @@ mod turn_input_tests {
                 path: "/tmp/a.png".into(),
                 range: 0..0,
             }],
-            mentions: Vec::new(),
+            ..UserMessage::default()
+        };
+        assert_eq!(turn_input(&message).len(), 1);
+    }
+
+    #[test]
+    fn the_remote_images_go_before_the_local_ones() {
+        let message = UserMessage {
+            text: "see [Image #2]".into(),
+            images: vec![LocalImage {
+                path: "/tmp/a.png".into(),
+                range: 4..14,
+            }],
+            remote_images: vec!["https://x/a.png".into(), "https://x/b.png".into()],
+            ..UserMessage::default()
+        };
+        let input = turn_input(&message);
+        assert_eq!(input.len(), 4);
+        assert!(matches!(
+            &input[0],
+            UserInput::Image { image: ImageReference::Inline { url }, .. } if url == "https://x/a.png"
+        ));
+        assert!(matches!(
+            &input[1],
+            UserInput::Image { image: ImageReference::Inline { url }, .. } if url == "https://x/b.png"
+        ));
+        assert!(matches!(&input[2], UserInput::LocalImage { .. }));
+        assert!(matches!(&input[3], UserInput::Text { .. }));
+    }
+
+    #[test]
+    fn remote_images_alone_send_no_text() {
+        let message = UserMessage {
+            remote_images: vec!["https://x/a.png".into()],
+            ..UserMessage::default()
         };
         assert_eq!(turn_input(&message).len(), 1);
     }
@@ -379,6 +418,7 @@ mod turn_input_tests {
         let message = UserMessage {
             text: "use $deploy and $Figma".into(),
             images: Vec::new(),
+            remote_images: Vec::new(),
             mentions: vec![
                 ToolMention::Skill {
                     name: "deploy".into(),
