@@ -667,9 +667,6 @@ impl Strings {
             NoteKey::Export(ExportNote::NoContent) => {
                 "Export failed: No conversation content to export.".to_owned()
             }
-            // The words of the goal notes are the view task's (chunk-popups-goal); the oracle's
-            // English stands until its catalog entries exist.
-            NoteKey::Goal(note) => goal_note(note),
             // The words of the mode notes are the view task's (chunk-popups-plan); the oracle's
             // English stands until its catalog entries exist.
             NoteKey::Mode(note) => mode_note(note),
@@ -1147,100 +1144,6 @@ fn mode_note(note: &codex_tui_core::threads::ModeNote) -> String {
                 ),
                 None => format!("Model changed to {} for {mode} mode.", change.model),
             }
-        }
-    }
-}
-
-fn goal_note(note: &codex_tui_core::threads::GoalNote) -> String {
-    use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
-    use codex_tui_core::screens::select::goal::Hint;
-    use codex_tui_core::threads::{Goal, GoalAction, GoalFailure, GoalHint, GoalNote, GoalStatus};
-    const USAGE: &str = "Usage: /goal [<objective>|clear|edit|pause|resume]";
-    fn label(status: GoalStatus) -> &'static str {
-        match status {
-            GoalStatus::Active => "active",
-            GoalStatus::Paused => "paused",
-            GoalStatus::Blocked => "stalled",
-            GoalStatus::UsageLimited => "usage limited",
-            GoalStatus::BudgetLimited => "limited by budget",
-            GoalStatus::Complete => "complete",
-        }
-    }
-    fn usage_summary(goal: &Goal) -> String {
-        let mut parts = vec![format!("Objective: {}", goal.objective)];
-        if goal.time_used_seconds > 0 {
-            parts.push(format!(
-                "Time: {}.",
-                format_goal_elapsed_seconds(goal.time_used_seconds)
-            ));
-        }
-        if let Some(budget) = goal.token_budget {
-            parts.push(format!(
-                "Tokens: {}/{}.",
-                format_tokens_compact(goal.tokens_used),
-                format_tokens_compact(budget)
-            ));
-        }
-        parts.join(" ")
-    }
-    match note {
-        GoalNote::Usage(hint) => {
-            let hint = match hint {
-                GoalHint::Example => "Example: /goal improve benchmark coverage",
-                GoalHint::NoGoal => "No goal is currently set.",
-                GoalHint::StartToChange => "The session must start before you can change a goal.",
-                GoalHint::StartToSet => "The session must start before you can set a goal.",
-                GoalHint::CreateFirst => "Create a goal before editing it.",
-            };
-            format!("{USAGE}\n{hint}")
-        }
-        GoalNote::Summary(goal) => {
-            let mut lines = vec![
-                "Goal".to_owned(),
-                format!("Status: {}", label(goal.status)),
-                format!("Objective: {}", goal.objective),
-                format!(
-                    "Time used: {}",
-                    format_goal_elapsed_seconds(goal.time_used_seconds)
-                ),
-                format!("Tokens used: {}", format_tokens_compact(goal.tokens_used)),
-            ];
-            if let Some(budget) = goal.token_budget {
-                lines.push(format!("Token budget: {}", format_tokens_compact(budget)));
-            }
-            lines.push(String::new());
-            lines.push(
-                match Hint::of(goal.status) {
-                    Hint::Pause => "Commands: /goal edit, /goal pause, /goal clear",
-                    Hint::Resume => "Commands: /goal edit, /goal resume, /goal clear",
-                    Hint::Finished => "Commands: /goal edit, /goal clear",
-                }
-                .to_owned(),
-            );
-            lines.join("\n")
-        }
-        GoalNote::Status(goal) => format!("Goal {}\n{}", label(goal.status), usage_summary(goal)),
-        GoalNote::Cleared => "Goal cleared".to_owned(),
-        GoalNote::NothingToClear => {
-            "No goal to clear\nThis thread does not currently have a goal.".to_owned()
-        }
-        GoalNote::NoGoalToEdit => "No goal is currently set.".to_owned(),
-        GoalNote::Failed {
-            failure: GoalFailure::Ephemeral,
-            ..
-        } => "Goals need a saved session. This session is temporary.\nRun `codex` to start a saved session, or `codex resume` / `/resume` to reopen one.".to_owned(),
-        GoalNote::Failed {
-            action,
-            failure: GoalFailure::Other(error),
-        } => {
-            let action = match action {
-                GoalAction::Read => "read",
-                GoalAction::Replace => "replace",
-                GoalAction::Set => "set",
-                GoalAction::Update => "update",
-                GoalAction::Clear => "clear",
-            };
-            format!("Failed to {action} thread goal: {error}")
         }
     }
 }

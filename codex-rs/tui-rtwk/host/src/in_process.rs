@@ -534,7 +534,10 @@ async fn run(
 fn asks_thread(command: &Command) -> bool {
     matches!(
         command,
-        Command::StartThread { .. } | Command::StartTurn { .. } | Command::Screen { .. }
+        Command::StartThread { .. }
+            | Command::StartTurn { .. }
+            | Command::Screen { .. }
+            | Command::Feature { .. }
     )
 }
 

@@ -560,6 +560,7 @@ async fn run_as(
                 });
             }
             other @ (Command::Screen { .. }
+            | Command::Feature { .. }
             | Command::ReadRateLimits { .. }
             | Command::SendAddCreditsNudge { .. }) => {
                 let (responder, facts) = shared
