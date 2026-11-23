@@ -78,6 +78,13 @@ impl ComposerDraft {
         inner.vim.query.clear();
     }
 
+    /// Vim on with text entry going on: Insert mode, not Normal
+    /// (`enable_vim_in_insert_mode`: a new draft of `tui.vim_mode_default`).
+    pub fn start_in_vim_insert(&self, c: &TextEditingController) {
+        self.set_vim_enabled(true);
+        self.vim_reset_mode(c);
+    }
+
     /// Runs `f` on the engine. The engine is out of the draft meanwhile (its
     /// host edits the draft), so a callback must not ask the draft for it.
     pub fn with_vim<R>(&self, f: impl FnOnce(&mut Vim) -> R) -> R {
