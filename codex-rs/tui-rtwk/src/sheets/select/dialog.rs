@@ -15,7 +15,6 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::select::models::Heading;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
 
 use super::lists;
@@ -157,53 +156,12 @@ impl State for MenuDialogState {
             return AnyWidget::default();
         };
         let words = strings::of(cx);
-        let cursor = head
-            .depth
-            .checked_sub(1)
-            .and_then(|at| self.kept.get(&at))
-            .map(String::as_str);
-        let list = match &head.menu {
-            menu => {
-                let mut page = head.page.clone();
-                // The row that opened the menu above this one: the cursor starts on it.
-                if let (Some(Page::Model(page)), Some(id)) = (&mut page, cursor)
-                    && let Some(at) = page.rows.iter().position(|row| row.id == id)
-                {
-                    page.initial = Some(at);
-                }
-                lists::of(menu, page.as_ref(), words)
-            }
-        };
+        let list = lists::of(&head.menu, head.page.as_ref(), words);
         let Some(list) = list else {
             return AnyWidget::default();
         };
         let picker = Picker::new(Rc::new(list), cx.map(Msg::Picked));
         let picker: AnyWidget = picker.into();
-        // Another page of the family (the quick menu a refresh made of the model list) is a new
-        // picker with its own start; a refresh of the same page keeps cursor and scroll.
-        let shape = match &head.page {
-            Some(Page::Model(page)) => shape(&page.heading),
-            _ => 0,
-        };
-        picker.with_key(
-            u32::try_from(head.depth)
-                .unwrap_or(0)
-                .saturating_mul(8)
-                .saturating_add(shape),
-        )
-    }
-}
-
-/// Which page of the `/model` family a heading is; the reasoning menus of two models are the
-/// same page (they sit at different depths).
-fn shape(heading: &Heading) -> u32 {
-    match heading {
-        Heading::Loading => 1,
-        Heading::Quick => 2,
-        Heading::All => 3,
-        Heading::Reasoning { .. } => 4,
-        Heading::Advanced => 5,
-        Heading::PlanScope { .. } => 6,
-        Heading::Reserve => 7,
+        picker.with_key(u32::try_from(head.depth).unwrap_or(0))
     }
 }

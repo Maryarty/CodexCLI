@@ -42,12 +42,16 @@ mod composer_suggest;
 mod composer_vim;
 #[path = "pages/history_pages.rs"]
 mod history_pages;
+#[path = "pages/models.rs"]
+mod models;
 #[path = "pages/onboarding_focus.rs"]
 mod onboarding_focus;
 #[path = "pages/permissions.rs"]
 mod permissions;
 #[path = "pages/plugins.rs"]
 mod plugins;
+#[path = "pages/quick_dials.rs"]
+mod quick_dials;
 #[path = "pages/resume_focus.rs"]
 mod resume_focus;
 #[path = "pages/review.rs"]

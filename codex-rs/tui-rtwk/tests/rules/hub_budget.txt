@@ -37,8 +37,11 @@ enum core/src/screens/select.rs Picked 8
 # Permissions`, the pages of `/permissions` its own state), `Menu` 2 -> 1. `Intent` +3:
 # `SetPermissions` (the selection a page settled on), `LoadProfiles` (the catalog asked for, also
 # the Retry row) and `AbandonPermissions` (Esc: an inline pick that waited on the sheet is given up).
-enum core/src/screens/select.rs Menu 1
-enum core/src/screens/select.rs Intent 31
+# The `/model` family is a sheet of its own too (`Opening::Models`; its pages are the routes of a
+# nested navigator, `ModelMenu::choose` leads from one to the next): `Menu::Model` goes (1 -> 0),
+# `Intent` +2 for `Settle` (the pick a page settled on) and `GiveUp` (the sheet could not go on).
+enum core/src/screens/select.rs Menu 0
+enum core/src/screens/select.rs Intent 33
 enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4

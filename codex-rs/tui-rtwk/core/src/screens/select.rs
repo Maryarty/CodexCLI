@@ -27,7 +27,7 @@ pub mod reasoning;
 pub mod review;
 pub mod worktree;
 pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
-use models::{Effort, PlanSource, Step};
+use models::{Answer, Effort, GaveUp, PlanSource};
 pub use permissions::{PermissionsMenu, Profiles};
 
 pub const NAME: &str = "select";
@@ -56,9 +56,6 @@ impl Confirm {
 /// parameterisation, its rows data (the words are the view's).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Menu {
-    /// A menu of the `/model` family (`models.rs`): its rows come from the
-    /// catalog and the thread's settings as they were when it opened.
-    Model(Box<ModelMenu>),
 }
 
 /// A sheet the screen wants shown, once (ADR-013 Ж): the decision is the domain's (a thread is
@@ -93,6 +90,11 @@ pub enum Opening {
     /// `/permissions`, its inline pick and its shortcut (`permissions.rs`): the menu the sheet
     /// opens on; the page it is on after a pick is the sheet's.
     Permissions(PermissionsMenu),
+    /// `/model`: the page it opens on (`Loading models…` while the catalog is empty, else the
+    /// quick menu); the pages over it and what Esc does on each are the sheet's
+    /// (`models.rs`: the pages are `ModelMenu`s and `ModelMenu::choose` leads from one to the
+    /// next).
+    Models(ModelMenu),
 }
 
 /// The shows nobody has shown yet.
@@ -114,6 +116,11 @@ impl Shows {
     /// The show `seq` was shown (or is given up): it is gone from the queue.
     fn shown(&mut self, seq: u64) {
         self.queue.retain(|show| show.seq != seq);
+    }
+
+    /// The shows of the `/model` family not shown yet are given up (a provider write came first).
+    fn forget_models(&mut self) {
+        self.queue.retain(|show| !matches!(show.opening, Opening::Models(_)));
     }
 
     /// The shows still to show, oldest first.
@@ -151,7 +158,6 @@ pub enum Picked {
 /// A typed menu as rows: what the view turns into its list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Page {
-    Model(models::Page),
 }
 
 /// What the picker says in the history (`add_info_message`/`add_error_message`):
@@ -342,7 +348,6 @@ impl Model {
     /// The rows of the menu shown now, if it is one of the typed families.
     pub fn page(&self) -> Option<Page> {
         match self.menu()? {
-            Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
         }
     }
 
@@ -461,10 +466,11 @@ impl Model {
         }
     }
 
-    /// `dismiss_stale_model_picker`: the model menus go, with the request they waited for.
+    /// `dismiss_stale_model_picker`: the request the pickers waited for is dropped, and the sheet
+    /// of the family (which reads `Catalog::provider`) closes itself.
     fn dismiss_stale_models(&mut self) {
         self.catalog.pending = None;
-        self.stack.retain(|menu| !matches!(menu, Menu::Model(_)));
+        self.shows.forget_models();
     }
 
     /// Whether the app directory knows the app `id` as installed (the setup of a plugin's apps
@@ -473,25 +479,6 @@ impl Model {
         self.apps
             .ready()
             .is_some_and(|apps| apps.iter().any(|app| app.id == id && app.installed))
-    }
-
-    fn step(&mut self, step: Step) {
-        match step {
-            Step::None => {}
-            Step::Push(menu) => self.stack.push(Menu::Model(Box::new(menu))),
-            Step::Replace(menu) => {
-                self.stack.pop();
-                self.stack.push(Menu::Model(Box::new(menu)));
-            }
-            Step::Done(selection) => {
-                self.stack.clear();
-                self.picked.push(Picked::Selection(selection));
-            }
-            Step::Prompt(menu) => {
-                self.stack.clear();
-                self.stack.push(Menu::Model(Box::new(menu)));
-            }
-        }
     }
 
     /// An inline pick is given up (`recover_inline_permission_profile_selection`): what waits in
@@ -619,29 +606,19 @@ impl Model {
         if menu.is_empty(&self.catalog) {
             self.notes.push(if menu.is_reserve() { Note::ReserveUnavailable } else { Note::NoAdditionalModels });
         } else {
-            self.stack.push(Menu::Model(Box::new(menu)));
+            self.shows.push(Opening::Models(menu));
         }
     }
 
     /// A catalog arrived (the startup one, or the answer of a request): a
-    /// catalog that differs and is not empty replaces the held one, and the
-    /// pickers open on it show it without being reopened; one left with no
-    /// choice is dismissed (`refresh_open_model_picker`).
+    /// catalog that differs and is not empty replaces the held one. The pickers open on it show
+    /// it without being reopened (they read it), and one left with no choice gives itself up
+    /// (`refresh_open_model_picker`: `Intent::GiveUp`).
     fn accept(&mut self, presets: Vec<Preset>) {
         if presets.is_empty() || self.catalog.presets == presets {
             return;
         }
         self.catalog.presets = presets;
-        let catalog = &self.catalog;
-        let mut dismissed = Vec::new();
-        self.stack.retain(|menu| match menu {
-            Menu::Model(menu) if menu.is_empty(catalog) => {
-                dismissed.push(if menu.is_reserve() { Note::ReserveUnavailable } else { Note::NoAdditionalModels });
-                false
-            }
-            _ => true,
-        });
-        self.notes.extend(dismissed);
     }
 }
 
@@ -651,10 +628,13 @@ impl Model {
 pub enum Ev {
     /// A menu was opened: the only one on the stack.
     Opened(Menu),
+    /// A sheet is asked for (a seed of the debug entries; the intents that ask for one make
+    /// the show themselves).
+    Showing(Opening),
     /// The catalog the app started with.
     Loaded(Vec<Preset>),
     /// The default provider's write state changed (`provider_write`): a write in flight or
-    /// committed dismisses the model menus and drops the answer in flight
+    /// committed closes the sheet of the family and drops the answer in flight
     /// (`dismiss_stale_model_picker`), and blocks `/model` until the restart.
     Provider(Provider),
     /// The permission catalog the app holds; the menus open on it show it in
@@ -731,6 +711,11 @@ pub enum Intent {
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
     OpenModels(Current),
+    /// A page of the `/model` sheet settled on a model and effort: the app applies it.
+    Settle(Selection),
+    /// The sheet of `/model` gave up and closed: `Loading models…` that could not be read, or a
+    /// list a refresh left with no choice. Only the sheet knows the user was looking at it.
+    GiveUp(GaveUp),
     /// The catalog is asked for, with no menu: the app does it when it connects.
     LoadModels,
     /// `/permissions`: the menu for what the thread has now; the catalog is
@@ -828,6 +813,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
+        Ev::Showing(opening) => model.shows.push(opening),
         Ev::Loaded(presets) => model.accept(presets),
         // The list stays as a fact under its request (`Worktree::listing`): the loading page
         // replaces itself with the browser, or closes; a failure is said unless it was given up.
@@ -907,26 +893,14 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 return;
             }
             model.catalog.pending = None;
-            let loading = match model.stack.last() {
-                Some(Menu::Model(menu)) => match &**menu {
-                    ModelMenu::Loading(current) => Some(current.clone()),
-                    _ => None,
-                },
-                _ => None,
-            };
-            if let Some(current) = loading {
-                model.stack.pop();
-                match result {
-                    Ok(presets) => {
-                        if !presets.is_empty() {
-                            model.catalog.presets = presets;
-                        }
-                        model.open_models(current);
-                    }
-                    Err(_) => model.notes.push(Note::ModelsNotLoaded),
+            // The sheet that waited on `Loading models…` reads the answer under its request and
+            // goes on (the quick menu, or the note of what it could not do).
+            match result {
+                Ok(presets) => {
+                    model.catalog.answered = Some((request, Answer::Listed));
+                    model.accept(presets);
                 }
-            } else if let Ok(presets) = result {
-                model.accept(presets);
+                Err(_) => model.catalog.answered = Some((request, Answer::Failed)),
             }
         }
     }
@@ -949,16 +923,21 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.notes.push(Note::ModelPickerUnavailable(why));
                 return;
             }
-            model.stack.clear();
-            model.catalog.request();
+            let request = model.catalog.request();
             if model.catalog.presets.is_empty() {
-                model
-                    .stack
-                    .push(Menu::Model(Box::new(ModelMenu::Loading(current))));
+                model.shows.push(Opening::Models(ModelMenu::Loading { current, request }));
             } else {
                 model.open_models(current);
             }
         }
+        // A pick of the sheet of `/model`: the app applies it (`Picked::Selection`).
+        Intent::Settle(selection) => model.picked.push(Picked::Selection(selection)),
+        // A sheet of `/model` gave up for a reason only it could tell (the user was looking).
+        Intent::GiveUp(why) => model.notes.push(match why {
+            GaveUp::NotLoaded => Note::ModelsNotLoaded,
+            GaveUp::Empty { reserve: true } => Note::ReserveUnavailable,
+            GaveUp::Empty { reserve: false } => Note::NoAdditionalModels,
+        }),
         Intent::LoadModels => {
             if model.catalog.unavailable().is_none() {
                 model.catalog.request();
@@ -1044,18 +1023,10 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenAppPage(_) => {}
         Intent::AppUnlinked(id) => model.app_unlinked(&id),
         Intent::Choose(id) => match model.stack.last_mut() {
-            Some(Menu::Model(menu)) => {
-                let step = menu.choose(&model.catalog, &id, false);
-                model.step(step);
-            }
             None => {}
         },
-        Intent::Secondary(id) => {
-            if let Some(Menu::Model(menu)) = model.stack.last() {
-                let step = menu.choose(&model.catalog, &id, true);
-                model.step(step);
-            }
-        }
+        // No menu of the stack has a secondary action any more (`s` of `/model` is the sheet's).
+        Intent::Secondary(_) => {}
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
         Intent::PlanAnswer(_) => {}
         Intent::Close => {
@@ -1338,11 +1309,11 @@ enum SeedPermissions {
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
-    let model = |menu| Ev::Opened(Menu::Model(Box::new(menu)));
+    let model = |menu| Ev::Showing(Opening::Models(menu));
     Ok(match seed {
         SeedEv::Catalog { presets } => Ev::Loaded(presets),
         SeedEv::Provider { state } => Ev::Provider(state),
-        SeedEv::Loading { current } => model(ModelMenu::Loading(current)),
+        SeedEv::Loading { current } => model(ModelMenu::Loading { current, request: 0 }),
         SeedEv::Models { current } => model(ModelMenu::Models(current)),
         SeedEv::AllModels { current } => model(ModelMenu::AllModels(current)),
         SeedEv::Reasoning { preset, current } => model(ModelMenu::Reasoning { preset, current }),

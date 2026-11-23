@@ -173,6 +173,25 @@ pub enum Provider {
     Changed,
 }
 
+/// How the `model/list` the pickers waited for was answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// The list came (it may be empty).
+    Listed,
+    /// The request failed.
+    Failed,
+}
+
+/// Why a sheet of the family gave up (the sheet decides, because it alone knows whether the user
+/// was still looking at it) and what the history says of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GaveUp {
+    /// `Loading models…` was on screen and the list could not be read.
+    NotLoaded,
+    /// A list with no choice was on screen (`reserve`: the Reserve-only one).
+    Empty { reserve: bool },
+}
+
 /// The models the account can pick from, as the last `model/list` (or the
 /// startup's) answered, and the request the next answer must belong to.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -183,6 +202,9 @@ pub struct Catalog {
     /// The `model/list` the open picker waits for
     /// (`model_popup_request_id`): an answer of another request is dropped.
     pub pending: Option<u64>,
+    /// The last answer of a request of the pickers, by the request it belongs to: a sheet that
+    /// opened on `Loading models…` reads its own there (ADR-013: a fact under a request key).
+    pub answered: Option<(u64, Answer)>,
     issued: u64,
 }
 
@@ -336,12 +358,13 @@ pub struct Selection {
     pub warning: Option<usize>,
 }
 
-/// The menus of the `/model` family on the stack.
+/// The menus (pages) of the `/model` family.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelMenu {
     /// `Loading models…`: the catalog is empty until the first answer; the
     /// quick menu opens on it then.
-    Loading(Current),
+    /// `request` is the `model/list` it waits for (`Catalog::answered` is the answer, by it).
+    Loading { current: Current, request: u64 },
     /// The quick menu: the auto modes and "All models" (the whole list when
     /// the catalog has no auto mode).
     Models(Current),
@@ -416,9 +439,21 @@ pub struct Page {
     pub initial: Option<usize>,
 }
 
-/// What a choice does to the stack.
+/// What a page does on its own when the facts of the catalog say so (the sheet asks after every
+/// change of them): the page is the sheet's, the decision is the domain's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Step {
+pub enum Next {
+    /// The default provider was written (`dismiss_stale_model_picker`): the sheet is stale.
+    Close,
+    /// The answer of the request the loading page waits for came: this page takes its place.
+    Replace(ModelMenu),
+    /// The page cannot go on and leaves, saying why (`Intent::GiveUp`).
+    GiveUp(GaveUp),
+}
+
+/// What a choice does to the pages of the sheet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Onward {
     /// Nothing: the id is not a row, or the row is not for this key.
     None,
     /// A menu on top of this one; this one stays below (Esc comes back).
@@ -435,7 +470,7 @@ impl ModelMenu {
     /// The menu as rows.
     pub fn page(&self, catalog: &Catalog) -> Page {
         match self {
-            ModelMenu::Loading(_) => Page { heading: Heading::Loading, rows: Vec::new(), initial: None },
+            ModelMenu::Loading { .. } => Page { heading: Heading::Loading, rows: Vec::new(), initial: None },
             ModelMenu::Models(current) => quick(catalog, current),
             ModelMenu::AllModels(current) => Page {
                 heading: Heading::All,
@@ -463,9 +498,34 @@ impl ModelMenu {
         }
     }
 
+    /// What this page does with the catalog as it stands: the provider write closes every page;
+    /// the loading page goes on with the answer of its own request (never one of another); a
+    /// list a refresh left with no choice gives itself up (`refresh_open_model_picker`), and the
+    /// pages above it stay (they hold the model they were opened on).
+    pub fn next(&self, catalog: &Catalog) -> Option<Next> {
+        if catalog.provider != Provider::Settled {
+            return Some(Next::Close);
+        }
+        let gave_up = |menu: &ModelMenu| Next::GiveUp(GaveUp::Empty { reserve: menu.is_reserve() });
+        match self {
+            ModelMenu::Loading { current, request } => match catalog.answered {
+                Some((answered, Answer::Failed)) if answered == *request => {
+                    Some(Next::GiveUp(GaveUp::NotLoaded))
+                }
+                Some((answered, Answer::Listed)) if answered == *request => {
+                    let menu = ModelMenu::Models(current.clone());
+                    Some(if menu.is_empty(catalog) { gave_up(&menu) } else { Next::Replace(menu) })
+                }
+                _ => None,
+            },
+            ModelMenu::Models(_) | ModelMenu::AllModels(_) if self.is_empty(catalog) => Some(gave_up(self)),
+            _ => None,
+        }
+    }
+
     /// Whether the picker has nothing to offer from `catalog`: it is then
     /// dismissed with a note (`open_all_models_popup_with_view_id`).
-    pub(super) fn is_empty(&self, catalog: &Catalog) -> bool {
+    pub fn is_empty(&self, catalog: &Catalog) -> bool {
         match self {
             ModelMenu::Models(_) | ModelMenu::AllModels(_) => self.page(catalog).rows.is_empty(),
             _ => false,
@@ -473,25 +533,25 @@ impl ModelMenu {
     }
 
     /// The Reserve-only list.
-    pub(super) fn is_reserve(&self) -> bool {
+    pub fn is_reserve(&self) -> bool {
         matches!(self, ModelMenu::Models(current) if current.reserve.is_some())
     }
 
     /// A row was chosen with the primary key, or with `s` (`session`).
-    pub(super) fn choose(&self, catalog: &Catalog, id: &str, session: bool) -> Step {
+    pub fn choose(&self, catalog: &Catalog, id: &str, session: bool) -> Onward {
         let page = self.page(catalog);
         let Some(row) = page.rows.iter().find(|row| row.id == id) else {
-            return Step::None;
+            return Onward::None;
         };
         if session {
             return match (&row.session, row_model(self, row)) {
-                (true, Some(model)) => Step::Done(Selection {
+                (true, Some(model)) => Onward::Done(Selection {
                     apply: if model == RESERVE_MODEL { Apply::Reserve } else { Apply::Session },
                     model,
                     effort: row.effort.clone(),
                     warning: warning(self.current(), row.effort.as_ref()),
                 }),
-                _ => Step::None,
+                _ => Onward::None,
             };
         }
         // The quick menu of a catalog without an auto mode is the list of all
@@ -503,21 +563,21 @@ impl ModelMenu {
         if let (ModelMenu::Models(current), Kind::Model) = (self, &row.kind)
             && current.reserve.is_some()
         {
-            let Some(preset) = reserve_preset(catalog, current) else { return Step::None };
+            let Some(preset) = reserve_preset(catalog, current) else { return Onward::None };
             let mut preset = preset.clone();
             preset.model = RESERVE_MODEL.to_string();
             return reasoning_of(&preset, current);
         }
         match (self, &row.kind) {
             (ModelMenu::Models(current) | ModelMenu::AllModels(current), Kind::Model) if listing => {
-                let Some(preset) = catalog.find(&row.id) else { return Step::None };
+                let Some(preset) = catalog.find(&row.id) else { return Onward::None };
                 reasoning_of(preset, current)
             }
-            (ModelMenu::Models(current), Kind::AllModels) => Step::Replace(ModelMenu::AllModels(current.clone())),
+            (ModelMenu::Models(current), Kind::AllModels) => Onward::Replace(ModelMenu::AllModels(current.clone())),
             (ModelMenu::Models(current), Kind::Model) => {
-                let Some(preset) = catalog.find(&row.id) else { return Step::None };
+                let Some(preset) = catalog.find(&row.id) else { return Onward::None };
                 if preset.needs_advanced() {
-                    return Step::Push(ModelMenu::Reasoning {
+                    return Onward::Push(ModelMenu::Reasoning {
                         preset: preset.clone(),
                         current: current.clone(),
                     });
@@ -527,7 +587,7 @@ impl ModelMenu {
             (ModelMenu::Reasoning { preset, current }, Kind::Effort { effort, .. }) => {
                 settle(current, &preset.model, Some(effort.clone()))
             }
-            (ModelMenu::Reasoning { preset, current }, Kind::More(_)) => Step::Push(ModelMenu::Advanced {
+            (ModelMenu::Reasoning { preset, current }, Kind::More(_)) => Onward::Push(ModelMenu::Advanced {
                 preset: preset.clone(),
                 current: current.clone(),
             }),
@@ -535,14 +595,14 @@ impl ModelMenu {
                 settle(current, &preset.model, Some(effort.clone()))
             }
             (ModelMenu::PlanScope { model, effort, warning, .. }, Kind::Scope(apply)) => {
-                Step::Done(Selection {
+                Onward::Done(Selection {
                     model: model.clone(),
                     effort: effort.clone(),
                     apply: *apply,
                     warning: *warning,
                 })
             }
-            _ => Step::None,
+            _ => Onward::None,
         }
     }
 
@@ -552,7 +612,7 @@ impl ModelMenu {
             | ModelMenu::AllModels(current)
             | ModelMenu::Reasoning { current, .. }
             | ModelMenu::Advanced { current, .. } => Some(current),
-            ModelMenu::Loading(_) | ModelMenu::PlanScope { .. } => None,
+            ModelMenu::Loading { .. } | ModelMenu::PlanScope { .. } => None,
         }
     }
 }
@@ -562,7 +622,7 @@ fn row_model(menu: &ModelMenu, row: &Choice) -> Option<String> {
     match menu {
         ModelMenu::Models(_) | ModelMenu::AllModels(_) => Some(row.id.clone()),
         ModelMenu::Reasoning { preset, .. } | ModelMenu::Advanced { preset, .. } => Some(preset.model.clone()),
-        ModelMenu::Loading(_) | ModelMenu::PlanScope { .. } => None,
+        ModelMenu::Loading { .. } | ModelMenu::PlanScope { .. } => None,
     }
 }
 
@@ -582,30 +642,30 @@ fn asks_scope(current: &Current, model: &str, effort: &Option<Effort>) -> bool {
 
 /// A final pick of `model` with `effort`: the plan scope prompt first when
 /// Plan mode asks for it.
-fn settle(current: &Current, model: &str, effort: Option<Effort>) -> Step {
+fn settle(current: &Current, model: &str, effort: Option<Effort>) -> Onward {
     let warning = warning(Some(current), effort.as_ref());
     // The Reserve is temporary: its effort is the task's, never a default, and never asks
     // where it applies in Plan mode.
     if model == RESERVE_MODEL {
-        return Step::Done(Selection { model: model.into(), effort, apply: Apply::Reserve, warning });
+        return Onward::Done(Selection { model: model.into(), effort, apply: Apply::Reserve, warning });
     }
     if asks_scope(current, model, &effort) {
         let source = current.plan.as_ref().map_or(PlanSource::Unknown, |plan| plan.source.clone());
-        return Step::Prompt(ModelMenu::PlanScope { model: model.into(), effort, source, warning });
+        return Onward::Prompt(ModelMenu::PlanScope { model: model.into(), effort, source, warning });
     }
     let apply = if effort == Some(Effort::Ultra) { Apply::Advanced } else { Apply::Selection };
-    Step::Done(Selection { model: model.into(), effort, apply, warning })
+    Onward::Done(Selection { model: model.into(), effort, apply, warning })
 }
 
 /// The reasoning step of a model chosen in the all-models list: a model with
 /// one standard effort is picked at once; the others open the menu above the
 /// list (`open_reasoning_popup`).
-fn reasoning_of(preset: &Preset, current: &Current) -> Step {
+fn reasoning_of(preset: &Preset, current: &Current) -> Onward {
     let (standard, advanced) = preset.split_efforts();
     if standard.len() == 1 && advanced.is_empty() {
         return settle(current, &preset.model, standard.first().cloned());
     }
-    Step::Push(ModelMenu::Reasoning { preset: preset.clone(), current: current.clone() })
+    Onward::Push(ModelMenu::Reasoning { preset: preset.clone(), current: current.clone() })
 }
 
 fn model_row(preset: &Preset, current: &Current, effort: Option<Effort>, session: bool) -> Choice {
