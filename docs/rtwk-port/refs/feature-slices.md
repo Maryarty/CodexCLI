@@ -48,7 +48,7 @@ reads whether the thread is busy. A feature without RPCs keeps `wire` / `decode`
 | `select::Command::Goal(..)` / `Ctx::Goal` / `Reply::Goal*` and `ThreadAsk::Goal*` | `type Command = goal::Ask`, `type Ctx = goal::Ctx`, `type Reply = goal::Reply`; `wire` builds the `ClientRequest`, `decode` reads the result | `Command::Feature`, `AppCtx::Feature`, `Answer::Feature` (one each, generic) |
 | `Menu::Goal(..)`, its `choose` arm, its `page()` arm | `type Menu = goal::Menu`, `choose(menu, row) -> Choice::{Stay, Dismiss, Pick, Replace}`; the rows are `FeatureView::menu_list` in `src/features/goal/strings.rs` | `Menu::Feature` |
 | `Picked::Goal(..)` and the arm in `core/src/app/select.rs` | `type Pick = goal::Pick`; `fn picked(state, pick, cx)` acts | `Picked::Feature` |
-| `PromptKind::GoalEdit` + `Prompt::goal_edit` + the arm in `session.rs` | `type Prompt = goal::Prompt` (`Edit { .. }`); `cx.prompt(prompt, initial)` opens, `fn prompt_submitted` takes the text | `PromptKind::Feature` |
+| `PromptKind::GoalEdit` + `Prompt::goal_edit` + the arm in `session.rs` | `type Prompt = goal::Prompt` (`Edit { .. }`); `cx.prompt(prompt, initial)` opens, `fn prompt_submitted` takes the text; the dialog's title and placeholder are `FeatureView::prompt_words` in `src/features/goal/strings.rs` | `PromptKind::Feature` |
 | `NoteKey::Goal(..)` + the tone arm in `threads/note.rs` + `goal_note` in `pages/session/strings.rs` | `type Note = goal::Note`; `fn note_tone(note) -> Tone`; the words are `src/features/goal/strings.rs::note` (`FeatureView::note_words`) | `NoteKey::Feature` |
 | a call in `core/src/app.rs` after a resume (`session::goal::after_resume`) | `fn on_resumed(state, thread, cx)` | `features::resumed` (already there) |
 | a step of the hub that waited for the feature's answer | the feature's `answered(state, ctx, result, cx)`; an answer for a thread that is no longer the one in use is dropped there | the generic `features::answer` |
@@ -123,6 +123,23 @@ FeatureCommand::Goal(_), .. }`.
 3. `Command::Feature` in the host's thread routing and in `backend_of` (listed above).
 4. The `#![allow(unreachable_code, unused_variables)]` header of `cx.rs` was a step-0 stand-in
    for the empty list; it is gone, a real feature uses what it declares.
+5. (early review F1) A cross-feature nudge that used to name both must still do its job:
+   `Out::Settled` also resumes the queue (`app/features.rs`); the regression test is
+   `core/tests/goal.rs` `a_goal_set_lets_the_queue_go_on`. Move a nudge, then test the
+   end-to-end behaviour the oracle has (`maybe_send_next_queued_input` after the goal is set).
+6. (F2) The tickets of a step are the model's only after the whole `apply`: `ThreadView::busy`
+   counts a turn start said before the hooks (`ThreadFx::start_said`); `ThreadView` no longer
+   exposes `core` / `slots` (the raw `core.busy()` is stale mid-step).
+7. (R1) `ThreadCx::new` is none unless this process writes the thread; `threads::with_features`
+   runs a hook only then (intents, replies, turn end, interrupt).
+8. (R3) `FeatureView::prompt_words` (title, placeholder) for the prompt dialog; the codemod's
+   view skeleton has it.
+9. (R4/R5) `Out`, the non-feature variants of `FeatureThreadIntent` and the `Feature` trait's
+   methods are ratchets in `hub_budget.txt`; a hook is for a thread or app lifecycle fact, never
+   for one producer and one consumer (ADR-012 "What is not a slice").
+10. The queue is not a slice (option B of the early review): thread lifecycle state stays in
+   `core/src/threads/`; its five intents moved out of `threads::apply_ev` into
+   `threads::queue::{takes, apply}`.
 
 ## 8. Done when
 

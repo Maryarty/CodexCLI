@@ -16,6 +16,7 @@ use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::dialogs::{Open, Prompt};
 use crate::screens::select::{self, Menu};
+use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
 
 /// Runs one step of the features with the app as a view, then carries out what it said.
@@ -76,6 +77,12 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Settled { thread } => {
             let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
+            // The queue is still the thread's own (`threads.rs`), no feature's `on_settled`:
+            // what waited for the settled thing goes on (`maybe_send_next_queued_input`). It
+            // runs after the features' hooks, as its own event, so it sees a turn they started.
+            let resume =
+                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::QueueResume));
+            apply_thread(app, &thread, resume, fx);
         }
     }
 }

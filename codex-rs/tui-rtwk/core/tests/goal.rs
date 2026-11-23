@@ -14,12 +14,16 @@ use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::goal::{self, Ask};
 use codex_tui_core::features::{FeatureCommand, FeatureMenu, FeatureNote, FeaturePrompt};
+use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::dialogs::{self, Open, PromptKind};
 use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
-use codex_tui_core::screens::{ScreenIntent, chat};
-use codex_tui_core::threads::{Goal, GoalStatus, Item, Note, NoteKey, Tone};
+use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
+use codex_tui_core::threads::queue::Dispatched;
+use codex_tui_core::threads::{
+    Goal, GoalStatus, Item, Note, NoteKey, Queued, Ran, Tone, UserMessage,
+};
 use goal::{Action as GoalAction, Failure as GoalFailure, Note as GoalNote, UsageHint as GoalHint};
 use pretty_assertions::assert_eq;
 
@@ -524,4 +528,66 @@ fn goals_are_set_cleared_and_read_as_the_user() {
             },
         }
     );
+}
+
+/// What the thread started, as texts.
+fn started_texts(fx: &AppFx) -> Vec<String> {
+    fx.commands()
+        .iter()
+        .filter_map(|c| match c {
+            Command::StartTurn { message, .. } => Some(message.text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `maybe_send_next_queued_input` after the goal is set (oracle
+/// `app/thread_goal_actions.rs`): `/goal` stops the queue while the screen runs it, and the set
+/// goal lets it go on.
+#[test]
+fn a_goal_set_lets_the_queue_go_on() {
+    let mut app = ready();
+    run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+    let tab = |app: &mut CodexApp, text: &str| {
+        run(
+            app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: ThreadId::new(T),
+                intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(Queued::of(
+                    UserMessage::text(text),
+                    false,
+                ))),
+            }),
+        )
+    };
+    tab(&mut app, "/goal ship it");
+    tab(&mut app, "hello");
+    let fx = run(&mut app, AppEv::Backend(turn_completed(T, "turn-1")));
+    assert!(
+        started_texts(&fx).is_empty(),
+        "the command is handed to the screen first"
+    );
+    // the screen ran the command it was handed: `/goal` stops the queue
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::ThreadScreen {
+            thread: ThreadId::new(T),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(Ran::Dispatched(
+                Dispatched {
+                    command: Some(SlashCommand::Goal),
+                    modal: false,
+                    can_change_directory: true,
+                    managed_worktree: false,
+                },
+            ))),
+        }),
+    );
+    assert!(started_texts(&fx).is_empty(), "the goal stops the queue");
+    let (ticket, ask) = only(&command(&mut app, true, Some("ship it")));
+    assert_eq!(ask, Ask::Get);
+    let (ticket, ask) = only(&answer(&mut app, ticket, goal::Reply::Goal(None)));
+    assert!(matches!(ask, Ask::Set { .. }));
+    let set = goal("ship it", GoalStatus::Active);
+    let fx = answer(&mut app, ticket, goal::Reply::Goal(Some(set)));
+    assert_eq!(started_texts(&fx), ["hello"]);
 }

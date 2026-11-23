@@ -41,6 +41,7 @@ pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
 pub use note::{CdRefusal, CopyLabel, ExportNote, ModeNote, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use queue::{DueCommand, Queued, Ran};
+use queue::{enqueue, send_next};
 pub use user_prompt::{Shown, UserPrompt};
 
 use std::collections::BTreeMap;
@@ -74,7 +75,6 @@ use codex_app_server_protocol::TurnStatus;
 
 use crate::app::AppFx;
 use crate::app::Command;
-use crate::commands::QueueDrain;
 use crate::features::{self, FeatureCtx, FeatureThreadIntent, ThreadCx, ThreadView};
 use crate::ids::ItemId;
 use crate::ids::ThreadId;
@@ -1782,6 +1782,11 @@ impl<'a> ThreadFx<'a> {
         self.modes
     }
 
+    /// A turn start was said in this step and its ticket is not in the model yet.
+    pub(crate) fn start_said(&self) -> bool {
+        self.registered.iter().any(|(_, ctx)| is_start_turn(ctx))
+    }
+
     /// A fresh ticket, for an acceptance that sends no RPC.
     pub fn mint(&mut self) -> Ticket {
         self.mint.next()
@@ -2477,34 +2482,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 _ => {}
             }
         }
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Queue(
-            message,
-        ))) if model.has_writer() => enqueue(model, message, fx),
-        // The screen ran the queued command it was handed: the rule of the next item reads what
-        // it opened (`submit_queued_slash_prompt`).
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-            screens::chat::ThreadIntent::QueueRan(ran),
-        )) if model.has_writer() => {
-            if model.due.take().is_none() {
-                return;
-            }
-            let busy = model.is_running() || model.outgoing.any(is_start_turn);
-            let stop = match ran {
-                Ran::Submitted => true,
-                Ran::Dispatched(ran) => ran.drain(busy) == QueueDrain::Stop,
-            };
-            if !stop {
-                send_next(model, fx);
-            }
-        }
-        // What stopped the queue is over (the sheet closed, a settings pick was applied): the
-        // next item goes on (`maybe_send_next_queued_input`).
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-            screens::chat::ThreadIntent::QueueResume,
-        )) if model.has_writer() => {
-            if !model.is_running() && !model.outgoing.any(is_start_turn) {
-                send_next(model, fx);
-            }
+        // The queue's five intents (Tab, the screen's report of a command it ran, what stopped
+        // the queue is over, the hold and the edit key): `threads/queue.rs` owns them.
+        ThreadEv::ScreenIntent(intent) if model.has_writer() && queue::takes(&intent) => {
+            queue::apply(model, intent, fx);
         }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::InterruptForSteers,
@@ -2564,26 +2545,6 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-            screens::chat::ThreadIntent::HoldQueue,
-        )) if model.has_writer() => {
-            model.recovered |= !model.queue.is_empty()
-                || !model.rejected_steers.is_empty()
-                || !model.pending_steers.is_empty();
-        }
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-            screens::chat::ThreadIntent::EditQueued,
-        )) if model.has_writer() => {
-            let message = model
-                .queue
-                .pop()
-                .map(Queued::into_message)
-                .or_else(|| model.rejected_steers.pop());
-            if let Some(message) = message {
-                give_back(model, vec![message], true);
-            }
-            model.recovered &= !model.queue.is_empty() || !model.rejected_steers.is_empty();
-        }
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::CleanTerminals,
         )) if model.has_writer() => {
             model.terminals.clear();
@@ -2599,11 +2560,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Draft(
             text,
         ))) => give_back(model, vec![UserMessage::text(text)], true),
-        ThreadEv::FeatureIntent(intent) if model.has_writer() => {
-            let (parts, view) = model.split_features();
-            features::apply_thread_intent(parts, intent, &mut ThreadCx::new(view, fx));
-        }
-        ThreadEv::FeatureIntent(_) => {}
+        ThreadEv::FeatureIntent(intent) => with_features(model, fx, |parts, cx| {
+            features::apply_thread_intent(parts, intent, cx);
+        }),
         ThreadEv::ScreenIntent(intent) if model.has_writer() => {
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
@@ -2769,8 +2728,6 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     }
 }
 
-/// A unified-exec command that runs is a background terminal until its item
-/// completes (oracle `track_unified_exec_process_begin` / `_end`).
 /// The answer of a feature's RPC on this thread.
 fn feature_reply(
     model: &mut ThreadModel,
@@ -2778,22 +2735,38 @@ fn feature_reply(
     result: Result<features::FeatureReply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let (parts, view) = model.split_features();
-    features::apply_thread_reply(parts, ctx, result, &mut ThreadCx::new(view, fx));
+    with_features(model, fx, |parts, cx| {
+        features::apply_thread_reply(parts, ctx, result, cx);
+    });
 }
 
 /// The lifecycle hooks of the features (ADR-012), in list order, after the thread's own
 /// turn-end work.
 fn feature_turn_ended(model: &mut ThreadModel, end: TurnEnd, fx: &mut ThreadFx<'_>) {
-    let (parts, view) = model.split_features();
-    features::on_turn_end(parts, end, &mut ThreadCx::new(view, fx));
+    with_features(model, fx, |parts, cx| features::on_turn_end(parts, end, cx));
 }
 
 fn feature_interrupted(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
-    let (parts, view) = model.split_features();
-    features::on_interrupted(parts, &mut ThreadCx::new(view, fx));
+    with_features(model, fx, features::on_interrupted);
 }
 
+/// Runs one step of the features over this thread: their parts `&mut`, the rest read-only,
+/// and only where this process writes the thread (ADR-003: a feature changes its part and
+/// the thread's effects under the writer; `ThreadCx::new` is none elsewhere, and the step
+/// is not run).
+fn with_features(
+    model: &mut ThreadModel,
+    fx: &mut ThreadFx<'_>,
+    step: impl FnOnce(&mut features::FeatureThreadParts, &mut ThreadCx<'_, '_>),
+) {
+    let (parts, view) = model.split_features();
+    if let Some(mut cx) = ThreadCx::new(view, fx) {
+        step(parts, &mut cx);
+    }
+}
+
+/// A unified-exec command that runs is a background terminal until its item
+/// completes (oracle `track_unified_exec_process_begin` / `_end`).
 fn track_terminal(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
     let Item::Tool(tool) = item else {
         return;
@@ -2934,17 +2907,6 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
         give_back(model, messages, false);
     }
     model.pending_steers = later;
-}
-
-/// A message to the queue, behind the running turn; with none running and
-/// nothing older waiting it goes out at once.
-fn enqueue(model: &mut ThreadModel, message: Queued, fx: &mut ThreadFx<'_>) {
-    let busy = model.is_running() || model.outgoing.any(is_start_turn);
-    model.queue.push(message);
-    model.last_submit = Some(fx.mint());
-    if !busy {
-        send_next(model, fx);
-    }
 }
 
 /// `turn/steer` of `message` to `turn`.
@@ -3172,64 +3134,6 @@ fn renumbered(placeholder: &str, number: usize) -> String {
         return placeholder.to_string();
     }
     format!("{head}{number}{}", &placeholder[body.len()..])
-}
-
-/// The next queued message becomes the next turn (one per turn end); a queued command is
-/// handed to the screen and a shell line runs, after which the queue goes on or stops by the
-/// command's rule (`maybe_send_next_queued_input`).
-fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
-    // a refused thread keeps what waits (oracle `suppress_queue_autosend`); a command the screen
-    // runs is waited for
-    if model.slots.chat.mcp.is_starting()
-        || model.slots.chat.provider_error.is_some()
-        || model.recovered
-        || model.due.is_some()
-    {
-        return;
-    }
-    // Steers the server refused go first, as one message
-    // (`pop_next_queued_user_message`).
-    if !model.rejected_steers.is_empty() {
-        let merged = merge_messages(std::mem::take(&mut model.rejected_steers));
-        fx.start_turn(merged);
-        return;
-    }
-    while !model.queue.is_empty() {
-        match model.queue.remove(0) {
-            Queued::Message(message) | Queued::Literal(message) => {
-                fx.start_turn(message);
-                return;
-            }
-            // `submit_queued_slash_prompt`: the screen dispatches it; the queue goes on when it
-            // reports (`ThreadIntent::QueueRan`).
-            Queued::Command(line) => {
-                model.due_seq += 1;
-                model.due = Some(DueCommand::handed(model.due_seq, line));
-                return;
-            }
-            // `submit_queued_shell_prompt`: a bare `!` says how to use it and the queue goes
-            // on; a command runs, and the turn it makes stops the queue.
-            Queued::Shell(line) => {
-                let command = line.text.strip_prefix('!').unwrap_or(&line.text).trim();
-                if command.is_empty() {
-                    apply_appended(
-                        model,
-                        None,
-                        Item::Note(Note::from(crate::commands::Notice::ShellHelp)),
-                    );
-                    continue;
-                }
-                let intent = screens::chat::ThreadIntent::Shell(command.to_string());
-                screens::apply_thread_intent(
-                    &mut model.slots,
-                    ScreenThreadIntent::Chat(intent),
-                    false,
-                    fx,
-                );
-                return;
-            }
-        }
-    }
 }
 
 fn is_start_turn(ctx: &ThreadCtx) -> bool {

@@ -3,11 +3,12 @@
 
 pub mod strings;
 
-use codex_tui_core::features::goal::{Goal, Menu, Note};
+use codex_tui_core::features::goal::{Goal, Menu, Note, Prompt};
 use codex_tui_core::screens::select::list::List;
 
-use super::FeatureView;
+use super::{FeatureView, PromptWords};
 use crate::pages::session::strings::Strings as SessionStrings;
+use crate::sheets::dialogs::strings::Strings as DialogStrings;
 use crate::sheets::select::strings::Strings as SelectStrings;
 
 impl FeatureView for Goal {
@@ -17,5 +18,9 @@ impl FeatureView for Goal {
 
     fn menu_list(menu: &Menu, _words: &SelectStrings) -> List {
         strings::menu(menu)
+    }
+
+    fn prompt_words(prompt: &Prompt, _words: &DialogStrings) -> PromptWords {
+        strings::prompt(prompt)
     }
 }

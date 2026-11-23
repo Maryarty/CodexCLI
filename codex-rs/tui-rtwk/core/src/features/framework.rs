@@ -20,7 +20,7 @@ use crate::app::facts::TuiSettings;
 use crate::ids::{ThreadId, TicketMint};
 use crate::rpc::RpcError;
 use crate::screens::ScreenStates;
-use crate::threads::{Origin, ThreadFx, ThreadSet};
+use crate::threads::{Origin, ThreadEv, ThreadFx, ThreadSet, UserMessage};
 
 /// What a hook saw.
 #[derive(Debug, PartialEq, Eq)]
@@ -224,12 +224,23 @@ fn app_step(step: impl FnOnce(&mut AppCx<'_>)) {
 
 /// Runs `step` over the model of a thread this process holds, with its effects.
 fn with_thread(step: impl FnOnce(&mut ThreadCx<'_, '_>)) {
+    with_thread_after(|_| {}, step);
+}
+
+/// Like `with_thread`, after `said` made the thread's own effects (what `end_turn`'s
+/// `send_next` does before the features' hooks run).
+fn with_thread_after(
+    said: impl FnOnce(&mut ThreadFx<'_>),
+    step: impl FnOnce(&mut ThreadCx<'_, '_>),
+) {
     let id = ThreadId::new("t1");
     let mut threads = ThreadSet::default();
     let model = threads.open(&id, Origin::Resumed);
     let (mut out, mut mint) = (AppFx::default(), TicketMint::default());
     let mut fx = ThreadFx::new(&id, &mut out, &mut mint);
-    step(&mut ThreadCx::new(model.view(), &mut fx));
+    said(&mut fx);
+    let mut cx = ThreadCx::new(model.view(), &mut fx).expect("a thread this process writes");
+    step(&mut cx);
 }
 
 #[test]
@@ -348,6 +359,61 @@ fn thread_hooks_run_in_list_order_with_the_thread_read_only() {
         ]
     );
     assert_eq!((parts.alpha, parts.beta), (1, 1));
+}
+
+/// ADR-012: "a feature after it sees the thread already busy". The thread's own `send_next`
+/// says a start before the hooks run, and its ticket is the model's only after the whole
+/// `apply`: the view of the step still has to know.
+#[test]
+fn every_hook_sees_a_turn_start_that_was_said_before_it() {
+    let mut parts = FeatureThreadParts::default();
+    logged();
+    with_thread(|cx| on_turn_end(&mut parts, TurnEnd::Completed, cx));
+    assert_eq!(
+        logged(),
+        [
+            ("alpha", Hook::TurnEnd(TurnEnd::Completed, false)),
+            ("beta", Hook::TurnEnd(TurnEnd::Completed, false)),
+        ],
+        "an idle thread is not busy"
+    );
+    with_thread_after(
+        |fx| {
+            fx.start_turn(UserMessage::text("next"));
+        },
+        |cx| on_turn_end(&mut parts, TurnEnd::Completed, cx),
+    );
+    assert_eq!(
+        logged(),
+        [
+            ("alpha", Hook::TurnEnd(TurnEnd::Completed, true)),
+            ("beta", Hook::TurnEnd(TurnEnd::Completed, true)),
+        ]
+    );
+}
+
+/// ADR-003: the features change a thread's part and its effects under the thread's writer.
+#[test]
+fn a_thread_this_process_does_not_write_gets_no_feature_context() {
+    let id = ThreadId::new("t1");
+    let (mut out, mut mint) = (AppFx::default(), TicketMint::default());
+    for (origin, connection_lost, has_context) in [
+        (Origin::Resumed, false, true),
+        (Origin::ForeignWriter, false, false),
+        (Origin::Resumed, true, false),
+    ] {
+        let mut threads = ThreadSet::default();
+        let model = threads.open(&id, origin);
+        let mut fx = ThreadFx::new(&id, &mut out, &mut mint);
+        if connection_lost {
+            crate::threads::apply(model, ThreadEv::ConnectionLost, &mut fx);
+        }
+        assert_eq!(
+            ThreadCx::new(model.view(), &mut fx).is_some(),
+            has_context,
+            "{origin:?}, connection lost: {connection_lost}"
+        );
+    }
 }
 
 #[test]

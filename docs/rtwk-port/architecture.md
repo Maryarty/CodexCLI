@@ -57,7 +57,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | ADR-009 | migration | foundation → main chat screen → screen slices in parallel → inline mode and rtwk gaps |
 | ADR-010 | localization | the app's strings are typed `const` tables (rtwk-l10n's form), one `strings.rs` per screen directory plus `src/l10n/`; English is the oracle's text byte for byte; the locale is negotiated once and reaches the tree as rtwk's `TwkLocalizations`; a rules test bans user-visible literals in widget code |
 | ADR-011 | mouse | mouse support is added though codex-tui has none (the person, 2026-11-18): capture on, wheel scrolls, click selects, click on the selected row or double click accepts, tabs and buttons clickable; tested with rtwk_test mouse events |
-| ADR-012 | core feature slices | a feature of the core that is a flow, not a screen (`/goal`, `/export`, `/rename`, `/plugins`, the queue) is a slice: `core/src/features/<f>/` and `src/features/<f>/`, registered by one line in `feature_list!`, which generates the root enums and their dispatch as `screen_list!` does for screens; it reads the app through `AppView` / `ThreadView` and acts through an `AppCx` outbox, never names `CodexApp` or `ThreadModel`; hooks run in list order; the hub enums only shrink (ratchet) |
+| ADR-012 | core feature slices | a feature of the core that is a flow, not a screen (`/goal`, `/export`, `/rename`, `/plugins`) is a slice (thread lifecycle state, the queue and the turn starts, stays the thread's own): `core/src/features/<f>/` and `src/features/<f>/`, registered by one line in `feature_list!`, which generates the root enums and their dispatch as `screen_list!` does for screens; it reads the app through `AppView` / `ThreadView` and acts through an `AppCx` outbox, never names `CodexApp` or `ThreadModel`; hooks run in list order; the hub enums only shrink (ratchet) |
 
 ## 1. What we build (facts and the screen map)
 
@@ -739,6 +739,24 @@ thread's writer (ADR-003 unchanged). Its RPCs go out through `AppCx::ask` and
 `threads.rs` and `protocol/mod.rs` only. The generic menu, prompt and notes carry
 `FeatureMenu` / `FeaturePrompt` / `FeatureNote`, never a per-feature variant of their own.
 
+**What is not a slice (amendment 2026-11-23, after the early review
+[research/core-slices/review-early.md](research/core-slices/review-early.md), option B).**
+Thread lifecycle state is the thread's own, not a feature's: the queue (`threads/queue.rs`: the
+lines, the command due, the held flag, `send_next`), the steers, `last_submit`, the turn starts.
+It is a pipeline of about twenty sites interlocked with `recovered`, the steers, `provider_error`
+and the interrupt, the same kind of thing as `turn/start` itself, and a slice for it would need a
+hook on every feature per interlock (`hold_submit`, `on_start_refused`, ...) and a write into
+`ThreadCore` that `ThreadCx`'s shared view forbids. The queue's five intents left `apply_ev` for
+`threads::queue::{takes, apply}` (the views' door stays `chat::ThreadIntent`); `AppCx::settled`
+is the generic "input released" event, and the app turns it into the queue's resume
+(`app/features.rs`, `Out::Settled`) beside every feature's `on_settled`. A feature that must
+start a turn or give a message back asks through a `ThreadCx` effect, each one a decision.
+**A hook is added to `Feature` only for a thread or app lifecycle fact** (a turn ended, a
+thread resumed, the input released), never for one producer and one consumer; the count of the
+trait's methods, of `Out` and of the generated root's non-feature variants is a ratchet
+(`tests/rules/hub_budget.txt`, `the_feature_trait_has_the_hooks_the_budget_says`), raised only
+with a paragraph here.
+
 **The counterpart.** In Flutter this is feature-first folders (`features/goal/` with its data,
 domain and presentation, not `models/`, `screens/`, `blocs/` across the app). The generated
 root is Redux's `combineReducers` and the elm-spa generated `Main` (one `Model`, one `Msg`,
@@ -764,14 +782,24 @@ subscriptions` with default no-ops.
   as Flutter's `showDialog<T>` does.
 - **Hook order is the order of `feature_list!`.** Every hook that runs over all features
   (`on_resumed`, `on_turn_end`, `on_interrupted`) runs them in list order, so a line's
-  position is a decision (the queue's `on_turn_end` sends the next message; a feature after
-  it sees the thread already busy). `core/src/features/framework.rs` tests it with two
-  probe features registered in a list of their own.
+  position is a decision (a feature whose `on_turn_end` starts a turn goes before one that
+  reads whether the thread is idle). What a hook sees is the thread as the step left it:
+  the turn start the thread's own `send_next` said before the hooks counts
+  (`ThreadView::busy`), the ticket being the model's only after the whole `apply`.
+  `core/src/features/framework.rs` tests it with two probe features registered in a list of
+  their own.
+- **A thread step has a context only where this process is the writer** (ADR-003):
+  `ThreadCx::new` is none for a detached thread, one another process writes, or one the server
+  refused for its provider, so no hook runs there and no effect can be said. `ThreadView`'s
+  `core` and `slots` are private: the thread is read through the methods a feature needs.
 
 **Enforced** (`tests/rules/layers.rs`, each with a test that bites on a synthetic source):
 `hub_enums_only_shrink` (ratchet of the hub enums' variants, `tests/rules/hub_budget.txt`),
 `threads_apply_matches_no_screen_or_feature_intent` (the arms of `threads::apply_ev` that name
-a screen's thread intent by name: 14 now, to 0 as features move; a feature's: always 0),
+a screen's thread intent by name: 9 now, to 0 as they move behind `chat::apply_thread_intent`
+or into `threads/queue.rs`; a feature's: always 0), `the_feature_trait_has_the_hooks_the_budget_says`
+(the methods of `Feature`, the variants of `Out` and of the generated `FeatureThreadIntent`
+that are no feature's: a ratchet raised only with a paragraph here),
 `features_are_named_only_through_the_list` (no `features::<f>` outside the feature's two
 folders, the two lists and the slash router that builds an intent), `features_hold_no_app`
 (no `CodexApp` or `ThreadModel` in `core/src/features`), `feature_slices_ask_only_through_the_outbox`
@@ -788,16 +816,20 @@ that has gone; a feature that has not moved is still in the hub and counted ther
 
 **Edges known at step 0** (decide in the first slice that meets them): a feature RPC on a
 thread must be listed with `Command::Screen` where the host routes by thread
-(`host/src/in_process.rs` `asks_thread`, `host/src/cloud.rs`); a feature that changes a
-`ThreadCore` field it does not own (the queue gives a message back to the composer) gets a
-`ThreadCx` method for it, in `cx.rs`; the words of a note see the session strings only
-(`FeatureView::note_words`), a feature that needs another table adds its own.
+(`host/src/in_process.rs` `asks_thread`, `host/src/cloud.rs`; `Command::Feature` is, since the
+`/goal` move); a feature that changes a `ThreadCore` field it does not own gets a `ThreadCx`
+effect for it, in `cx.rs` (an outbox the thread carries out, one decision each; the queue does
+not need one: it is not a slice); the words of a note see the session strings only
+(`FeatureView::note_words`), a feature that needs another table adds its own; a host effect
+(`/export`'s file write is `effects::Ask::Export`, no `ClientRequest`) has no door yet, the
+framework task that adds `AppCx::effect` comes before the migration.
 
 ### Recipe: a feature as a slice
 
 For a flow that is not a screen: a slash command that opens a menu or a prompt, asks the
-server and says what happened in the transcript (`/goal`, `/export`, `/rename`), or thread
-state that reacts to the turn (the queue). A screen is still a `screen_list!` directory.
+server and says what happened in the transcript (`/goal`, `/export`, `/rename`). Thread
+lifecycle state (the queue, the steers, the turn starts) is not one (see "What is not a slice").
+A screen is still a `screen_list!` directory.
 
 **Files.** You edit only these, plus one line in `feature_list!`:
 
@@ -835,8 +867,10 @@ transcript line; its words are `src/features/<f>/strings.rs`).
   `has_writer()`.
 - On a thread (`ThreadCx`, in `thread_intent`, `thread_answered`, `on_turn_end`,
   `on_interrupted`): `cx.view` is the thread read-only, `&mut` is your `ThreadPart` only,
-  `cx.request(ctx, command)` is the RPC. More effects (start a turn, give a message back) are
-  methods you add to `ThreadCx` in `cx.rs`, each one a decision.
+  `cx.request(ctx, command)` is the RPC; the step exists only for a thread this process
+  writes. More effects (start a turn, give a message back) are methods you add to `ThreadCx`
+  in `cx.rs`, each one a decision (a start must refuse while `cx.view.busy()`: the thread
+  arbitrates starts, so no hook order can double-start).
 - A menu: `choose(menu, row) -> Choice::{Stay, Dismiss, Pick(p), Replace(m)}` says what a row
   did in your terms (`Pick` closes the menu and `picked(state, pick, cx)` acts); the rows are
   the UI's (`FeatureView::menu_list`).
@@ -848,16 +882,19 @@ transcript line; its words are `src/features/<f>/strings.rs`).
 `on_turn_end(part, end, cx)` (completed, failed or interrupted; `busy()` is as the hub left
 it), `on_interrupted(part, cx)` (right after the `on_turn_end` of an interrupt),
 `on_settled(part, cx)` (what held the thread's input back is over: another feature said
-`cx.settled(&thread)`, the goal was set; the queue resumes). They run over
+`cx.settled(&thread)`, the goal was set; the queue, the thread's own, resumes beside them). They run over
 all features in the order of `feature_list!`: put the line where its hooks belong (a feature
 that sends the next message at the end of a turn goes before one that reads whether the
 thread is idle) and say so in a comment on the line when the order matters. A feature that
 needs another to go on never names it: it says the event (`cx.settled`), the hooks of every
 feature answer in their own words (`on_settled` was the one hook the `/goal` move added,
-because the goal-to-queue nudge was a `QueueResume` that named both).
+because the goal-to-queue nudge was a `QueueResume` that named both). A new hook is for a
+lifecycle fact only (see "What is not a slice").
 
 **The view half.** `impl FeatureView for Goal { fn note_words(note, &SessionStrings) -> String;
-fn menu_list(menu, &SelectStrings) -> List; }` in `src/features/<f>/mod.rs`. Views only: no
+fn menu_list(menu, &SelectStrings) -> List; fn prompt_words(prompt, &DialogStrings) ->
+PromptWords; }` in `src/features/<f>/mod.rs` (the prompt dialog words a `PromptKind::Feature`
+through `features::prompt_words`: its title and placeholder). Views only: no
 protocol, no model code, no `apply` (`views_never_name_protocol_shell_tokio_or_io`,
 `screen_dirs_hold_view_files_only` cover `src/features/`). A feature with a page, a sheet or a
 widget of its own builds it in `pages/`, `sheets/` or `widgets/` as any screen; a menu row or a

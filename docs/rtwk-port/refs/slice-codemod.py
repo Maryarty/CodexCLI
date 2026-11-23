@@ -70,8 +70,9 @@ use codex_tui_core::features::Never;
 use codex_tui_core::features::{f}::{marker};
 use codex_tui_core::screens::select::list::List;
 
-use super::FeatureView;
+use super::{{FeatureView, PromptWords}};
 use crate::pages::session::strings::Strings as SessionStrings;
+use crate::sheets::dialogs::strings::Strings as DialogStrings;
 use crate::sheets::select::strings::Strings as SelectStrings;
 
 impl FeatureView for {marker} {{
@@ -81,6 +82,10 @@ impl FeatureView for {marker} {{
 
     fn menu_list(menu: &Never<Self>, _words: &SelectStrings) -> List {{
         menu.absurd()
+    }}
+
+    fn prompt_words(prompt: &Never<Self>, _words: &DialogStrings) -> PromptWords {{
+        prompt.absurd()
     }}
 }}
 '''
@@ -240,7 +245,7 @@ def budget():
     for file, name, count in re.findall(r"(\S+\.rs) (\w+): (\d+) < the budget \d+;", out):
         text, n = re.subn(rf"^(enum {re.escape(file)} {name} )\d+$", rf"\g<1>{count}", text, flags=re.M)
         changed += n
-    for file, fn, pattern, count in re.findall(r"(\S+\.rs) (\w+) (\S+): (\d+) < the budget \d+", out):
+    for file, fn, pattern, count in re.findall(r"([^\s\"]+\.rs) (\w+) names (\S+): (\d+) < the budget \d+", out):
         text, n = re.subn(rf"^(arms {re.escape(file)} {fn} {re.escape(pattern)} )\d+$", rf"\g<1>{count}", text, flags=re.M)
         changed += n
     BUDGET.write_text(text)

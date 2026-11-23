@@ -2,11 +2,15 @@
 //! its transcript notes and the rows of its two confirmations. The wording is the oracle's
 //! English until the catalog has these entries.
 
-use codex_tui_core::features::goal::{Action, CommandsHint, Failure, Menu, Note, UsageHint};
+use codex_tui_core::features::goal::{
+    Action, CommandsHint, Failure, Menu, Note, Prompt, UsageHint,
+};
 use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
 use codex_tui_core::screens::select::list::{Columns, Item, List};
 use codex_tui_core::threads::{Goal, GoalStatus};
 use rtwk_core::unicode::grapheme_boundaries;
+
+use crate::features::PromptWords;
 
 const USAGE: &str = "Usage: /goal [<objective>|clear|edit|pause|resume]";
 
@@ -119,6 +123,16 @@ fn cut(text: &str, max: usize) -> String {
 
 /// The list of one of the two confirmations (`show_resume_paused_goal_prompt`, the replace
 /// confirmation of `thread_goal_actions.rs`), shaped as `SelectionViewParams::confirmation()`.
+/// The edit prompt (oracle `show_goal_edit_prompt`).
+pub fn prompt(prompt: &Prompt) -> PromptWords {
+    match prompt {
+        Prompt::Edit { .. } => PromptWords {
+            title: "Edit goal".into(),
+            placeholder: "Type a goal objective and press Enter".into(),
+        },
+    }
+}
+
 pub fn menu(menu: &Menu) -> List {
     let (title, subtitle, rows) = match menu {
         Menu::Resume { objective, .. } => (
