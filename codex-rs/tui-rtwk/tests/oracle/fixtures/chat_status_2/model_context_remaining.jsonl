@@ -1,0 +1,5 @@
+# model-with-reasoning, context-remaining and current-dir on the fast tier (status_and_layout.rs:4583).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"gpt-5.4","name":"gpt-5.4","description":"gpt-5.4 description","service_tiers":[{"id":"priority","name":"fast","description":"Fastest inference with increased plan usage"}]},{"model":"gpt-5.2","name":"gpt-5.2","description":"gpt-5.2 description"}]}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.4","effort":"xhigh","service_tier":"priority","cwd":"/tmp/project","items":["model-with-reasoning","context-remaining","current-dir"],"terminal_title":["model-with-reasoning"]}}}

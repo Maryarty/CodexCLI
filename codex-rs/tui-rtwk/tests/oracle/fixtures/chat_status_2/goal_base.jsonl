@@ -1,0 +1,3 @@
+# A thread to put a goal on (goal_status_indicator_line_formats_goal_text feeds the goal).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}

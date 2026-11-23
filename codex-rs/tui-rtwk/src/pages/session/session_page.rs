@@ -669,16 +669,13 @@ impl State for ChatState {
                         ScreenIntent::from(chat::Intent::Note { thread, note }),
                     );
                 }
-                // `toggle_raw_output_mode_and_notify`: what `/raw` does
+                // Alt+R (`apply_raw_output_mode(.., notify: false)`): the mode alone, where
+                // `/raw` says which one it is now
                 Action::ToggleRaw => {
-                    let thread = read::<SessionSlice, _>(cx).active.clone();
+                    let on = !read::<ScreenStates, _>(cx).chat.raw_output;
                     cx.emit(
                         &hs.screen,
-                        ScreenIntent::from(chat::Intent::Session {
-                            thread,
-                            command: SlashCommand::Raw,
-                            intent: codex_tui_core::commands::SessionIntent::Raw { on: None },
-                        }),
+                        ScreenIntent::from(chat::Intent::RawOutput(on)),
                     );
                 }
                 Action::OpenWarnings => open_warnings(cx, &hs),
@@ -970,8 +967,16 @@ impl State for ChatState {
             run_state: Some(run.word(&session, reconnecting)),
             strings,
             catalog: &states.select.catalog,
+            chat: &states.chat.facts,
+            raw_output: states.chat.raw_output,
+            usage_pending: chat::facts::usage_pending(slots),
         };
-        let line = status_spans(context.items_for(facts), facts.colors, &tokens);
+        let line = status_spans(
+            context.items_for(facts),
+            facts.colors,
+            &tokens,
+            |id| context.link_for(id),
+        );
         // The backend control above the composer (`rendering.rs`,
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session

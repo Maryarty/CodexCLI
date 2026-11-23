@@ -1,0 +1,6 @@
+# A goal on thread-1, the status line is `model-name` (status_and_layout.rs:4617-4700): active.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"gpt-5.5","name":"GPT-5.5"}]}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","items":["model-name"]}}}
+{"step":"notify","message":{"method":"thread/goal/updated","params":{"threadId":"thread-1","turnId":null,"goal":{"threadId":"thread-1","objective":"Keep improving the benchmark","status":"active","tokenBudget":50000,"tokensUsed":40000,"timeUsedSeconds":1800,"createdAt":0,"updatedAt":0}}}}

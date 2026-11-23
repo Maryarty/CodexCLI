@@ -236,11 +236,10 @@ fn recalled_plugin_at_mentions_keep_plugin_accent_style() {
 // ORACLE bottom_pane/chat_composer.rs:5631 status_line_hyperlink_marks_pr_number_cells kind=ui owner=chat-live
 #[test]
 fn status_line_hyperlink_marks_pr_number_cells() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a status line with a PR number item linked to its pull request: the composer's status line is not built",
-    );
-    let s = Screen::build(Owner::ChatLive).size(40, 6).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(40, 6)
+        .script(include_str!("fixtures/composer_1/pr_link.jsonl"))
+        .open();
     s.assert_link("PR #20252", "https://github.com/openai/codex/pull/20252");
 }
 

@@ -1,0 +1,5 @@
+# model-with-reasoning, context-used and current-dir on the fast tier; the catalog offers Fast, Ultrafast and Low Latency (status_and_layout.rs:4509).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"gpt-5.4","name":"gpt-5.4","description":"gpt-5.4 description","service_tiers":[{"id":"priority","name":"Fast","description":"Fastest inference with increased plan usage"},{"id":"ultrafast","name":"Ultrafast","description":"Ultrafast processing"},{"id":"low_latency","name":"Low Latency","description":""}]}]}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.4","effort":"xhigh","service_tier":"priority","cwd":"/tmp/project","items":["model-with-reasoning","context-used","current-dir"],"terminal_title":["model-with-reasoning"]}}}

@@ -1,0 +1,5 @@
+# The status line is `pull-request-number` and `branch-changes`; the git probe answered PR 20252 and +143 -22 (status_and_layout.rs:464).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":["pull-request-number","branch-changes"]}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"cwd":"/w"}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"git_summary":{"request":1,"summary":{"pull_request":{"number":20252,"url":"https://github.com/openai/codex/pull/20252"},"changes":{"additions":143,"deletions":22}}}}}}
