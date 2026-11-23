@@ -62,9 +62,6 @@ pub enum Menu {
     /// A menu of the `/permissions` family (`permissions.rs`): the presets,
     /// the server's profiles, the full-access confirmation.
     Permissions(Box<PermissionsMenu>),
-    /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
-    /// settings, the editor and the confirmation of a change.
-    Quick(Box<quick_dials::Menu>),
 }
 
 /// A sheet the screen wants shown, once (ADR-013 Ж): the decision is the domain's (a thread is
@@ -93,6 +90,9 @@ pub enum Opening {
     /// the list) and the link dialog of the app picked from it; the sheet reads the directory as
     /// a fact and its pages are its own.
     Apps,
+    /// `/presets`: the page the sheet opens on (the slot picker, the sources or the editor); the
+    /// pages over it (`Menu::choose`, `Menu::submit`) and what Esc does on each are the sheet's.
+    Quick(Box<quick_dials::Menu>),
 }
 
 /// The shows nobody has shown yet.
@@ -345,7 +345,6 @@ impl Model {
         match self.menu()? {
             Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
-            Menu::Quick(_) => None,
         }
     }
 
@@ -389,25 +388,23 @@ impl Model {
         }
     }
 
-    /// `/presets`: a menu of the presets, or a preset recalled.
+    /// `/presets`: the sheet of the presets on the page asked for, or a preset recalled.
     fn open_quick(&mut self, gate: quick_dials::Gate, open: quick_dials::Open) {
         use quick_dials::{Menu as Quick, Open, PickerMode};
         if !self.quick_available(gate) {
             return;
         }
-        match open {
-            Open::Picker(mode) => {
-                self.stack = vec![Menu::Quick(Box::new(Quick::Slots { mode, dial: None }))];
-            }
+        let page = match open {
+            Open::Picker(mode) => Quick::Slots { mode, dial: None },
             Open::Save(dial) => {
                 if let Err(reason) = dial.validate() {
                     self.notes.push(Note::PresetInvalid(reason));
                     return;
                 }
-                self.stack = vec![Menu::Quick(Box::new(Quick::Slots {
+                Quick::Slots {
                     mode: PickerMode::Save,
                     dial: Some(dial),
-                }))];
+                }
             }
             Open::Editor { target, dial, composer } => {
                 let dial = dial.unwrap_or_else(|| {
@@ -423,11 +420,10 @@ impl Model {
                     };
                     quick_dials::Dial::new(input)
                 });
-                self.stack = vec![Menu::Quick(Box::new(Quick::Editor { target, dial }))];
+                Quick::Editor { target, dial }
             }
             Open::Prefills(settings) => {
-                let rows = quick_dials::sources(&settings, &self.catalog);
-                self.stack = vec![Menu::Quick(Box::new(Quick::Sources(rows)))];
+                Quick::Sources(quick_dials::sources(&settings, &self.catalog))
             }
             Open::Recall(slot) => {
                 let Some(saved) = self.quick.get(slot) else { return };
@@ -435,22 +431,10 @@ impl Model {
                     Ok(()) => self.picked.push(Picked::Recall(saved.dial.input.clone())),
                     Err(reason) => self.notes.push(Note::PresetBroken { slot, reason }),
                 }
+                return;
             }
-        }
-    }
-
-    /// `confirm_quick_dial`: the question of replacing, deleting or saving; nothing to ask when
-    /// there is nothing to delete.
-    fn quick_confirm(&mut self, slot: u8, new: Option<quick_dials::Dial>) {
-        if let Some(Err(reason)) = new.as_ref().map(quick_dials::Dial::validate) {
-            self.notes.push(Note::PresetInvalid(reason));
-            return;
-        }
-        let old = self.quick.get(slot).map(|saved| saved.dial.clone());
-        if old.is_none() && new.is_none() {
-            return;
-        }
-        self.stack.push(Menu::Quick(Box::new(quick_dials::Menu::Confirm { slot, old, new })));
+        };
+        self.shows.push(Opening::Quick(Box::new(page)));
     }
 
     /// `save_quick_dial`: a refused write says why and shows the editor again; an allowed one is
@@ -468,13 +452,14 @@ impl Model {
         }
     }
 
-    /// `restore_quick_dial_editor`: what was being saved is not lost.
+    /// `restore_quick_dial_editor`: what was being saved is not lost; the sheet that asked for the
+    /// write is gone, a new one opens on the editor.
     fn restore_editor(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
         if let Some(dial) = dial {
-            self.stack = vec![Menu::Quick(Box::new(quick_dials::Menu::Editor {
+            self.shows.push(Opening::Quick(Box::new(quick_dials::Menu::Editor {
                 target: quick_dials::Target::Slot(slot),
                 dial,
-            }))];
+            })));
         }
     }
 
@@ -860,8 +845,9 @@ pub enum Intent {
         gate: quick_dials::Gate,
         open: quick_dials::Open,
     },
-    /// The text submitted at the preset editor.
-    Draft(String),
+    /// What a page of `/presets` asks of the model (`quick_dials::Ask`): a write of a slot, or
+    /// the note that the text typed is not a preset.
+    Preset(quick_dials::Ask),
     /// The link dialog of an app switched it on or off (`SetAppEnabled`): the dialog shows the
     /// switch at once, the app writes the config and, once it is saved, tells the directory
     /// (`Ev::AppSwitched`).
@@ -1093,21 +1079,13 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             model.apps.refresh(true);
         }
         Intent::Quick { gate, open } => model.open_quick(gate, open),
-        // The text submitted at the preset editor: the slot picker, or the confirmation.
-        Intent::Draft(text) => {
-            use quick_dials::{Dial, Menu as Quick, Target};
-            let Some(Menu::Quick(menu)) = model.stack.last() else { return };
-            let Quick::Editor { target, dial } = &**menu else { return };
-            let (target, dial) = (*target, Dial { input: text, label: dial.label.clone() });
-            model.stack.pop();
-            match target {
-                Target::PickSlot => model.open_quick(
-                    quick_dials::Gate::Ready,
-                    quick_dials::Open::Save(dial),
-                ),
-                Target::Slot(slot) => model.quick_confirm(slot, Some(dial)),
+        // What a page of the presets asked: the write (the sheet closed), or why the text is no preset.
+        Intent::Preset(ask) => match ask {
+            quick_dials::Ask::Write(quick_dials::Write { slot, dial }) => {
+                model.quick_write(slot, dial);
             }
-        }
+            quick_dials::Ask::Invalid(reason) => model.notes.push(Note::PresetInvalid(reason)),
+        },
         // The app writes the config (`app/select.rs`); the directory follows the saved write. The
         // dialog of the app shows its switch at once, the screen keeps no copy of it.
         Intent::SetApp { .. } => {}
@@ -1122,22 +1100,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             Some(Menu::Permissions(menu)) => {
                 let step = menu.choose(&model.profiles, &id);
                 model.permissions_step(step);
-            }
-            Some(Menu::Quick(menu)) => {
-                use quick_dials::Chosen;
-                match menu.choose(&id, &model.quick) {
-                    Some(Chosen::Push(next)) => {
-                        model.stack.push(Menu::Quick(Box::new(next)));
-                    }
-                    Some(Chosen::Confirm { slot, new }) => {
-                        model.quick_confirm(slot, new);
-                    }
-                    Some(Chosen::Write { slot, dial }) => {
-                        model.stack.clear();
-                        model.quick_write(slot, dial);
-                    }
-                    None => {}
-                }
             }
             None => {}
         },
@@ -1350,7 +1312,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// (`{"kind":"models","current":{"model":..}}`, `all_models`, `loading`,
 /// `reasoning` and `advanced` with a `preset`), `{"kind":"profiles",
 /// "discovery":{..}}` (the permission catalog), `{"kind":"permissions",
-/// "menu":"profiles","current":{..}}`.
+/// "menu":"profiles","current":{..}}`, `{"kind":"dials","slots":[{"slot":1,"input":"..","label":".."}]}` (the presets the config holds).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -1385,6 +1347,10 @@ enum SeedEv {
         #[serde(default)]
         warning: Option<usize>,
     },
+    /// The presets of the user config (`Ev::Dials`).
+    Dials {
+        slots: Vec<SeedSlot>,
+    },
     /// The profiles the app holds (a startup read of the catalog).
     Profiles {
         discovery: permissions::Discovery,
@@ -1399,6 +1365,15 @@ enum SeedEv {
         #[serde(default)]
         failure: Option<String>,
     },
+}
+
+/// A preset the user config holds, as a script tells it.
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedSlot {
+    slot: u8,
+    input: String,
+    #[serde(default)]
+    label: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
@@ -1437,6 +1412,19 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             source,
             warning,
         }),
+        SeedEv::Dials { slots } => Ev::Dials(
+            slots
+                .into_iter()
+                .map(|seed| quick_dials::Slot {
+                    slot: seed.slot,
+                    dial: quick_dials::Dial {
+                        input: seed.input,
+                        label: seed.label,
+                    },
+                    origin: quick_dials::Origin::User,
+                })
+                .collect(),
+        ),
         SeedEv::Profiles { discovery } => Ev::Listed(discovery),
         SeedEv::Permissions {
             menu,

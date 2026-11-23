@@ -1,0 +1,4 @@
+# `/presets` with no preset saved: every slot is empty.
+# Oracle: chatwidget/tests/quick_dials_tests.rs
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"dials","slots":[]}}

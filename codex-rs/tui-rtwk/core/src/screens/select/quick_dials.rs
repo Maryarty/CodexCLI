@@ -1,10 +1,15 @@
 //! `/presets` (oracle `chatwidget/quick_dials.rs`, `app/quick_dials.rs`): the numbered prompts and
-//! slash commands of the config (`tui.presets`), as typed menus of the select screen: the slot
-//! picker (save, edit, delete), the sources among the current settings, the editor and the
-//! confirmation. The menus are data (the slots, the dials, what is unavailable and why); the
+//! slash commands of the config (`tui.presets`), as typed pages of the sheet of the presets: the
+//! slot picker (save, edit, delete), the sources among the current settings, the editor and the
+//! confirmation. The pages are data (the slots, the dials, what is unavailable and why); the
 //! words (`Save preset to slot`, `Replace preset 3?`, the reasons) are the view's. The shortcut
-//! menu on the composer (`n`, `s`, `e`, `d`, a digit) is the view's: it asks for these menus
+//! menu on the composer (`n`, `s`, `e`, `d`, a digit) is the view's: it asks for these pages
 //! with `Intent::Quick`, with the gate (`quick_dials_available`) and the composer it knows.
+//!
+//! Which page leads where is the pure `Menu::choose` (a row picked) and `Menu::submit` (the
+//! editor's text): a page to push over this one, or a verb for the model (`Ask`). The stack of
+//! the pages is the sheet's own (a nested Navigator, ADR-013 O1); the model keeps what IO needs:
+//! the slots, the write and the notes.
 //!
 //! The slots are the config's (`Quick::slots`, told by `Ev::Dials`: the host reads them with the
 //! layer each comes from); a write is one `config/batchWrite` of `tui.presets.<slot>`
@@ -152,7 +157,7 @@ pub enum Menu {
     Slots { mode: PickerMode, dial: Option<Dial> },
     /// `Start preset from current settings`: the four sources.
     Sources(Vec<SourceRow>),
-    /// The text prompt (`New preset`, `Edit preset {slot}`): its answer is `Intent::Draft`.
+    /// The text prompt (`New preset`, `Edit preset {slot}`): its answer is `Menu::submit`.
     Editor { target: Target, dial: Dial },
     /// `{Replace|Delete|Save} preset {slot}?`: one row, Enter confirms; `old` is what the slot
     /// holds, `new` what it will (none: deleted).
@@ -323,14 +328,23 @@ pub enum Open {
     Recall(u8),
 }
 
-/// What a pick of a row did to the stack.
-pub(super) enum Chosen {
-    /// A menu opens over this one.
+/// What a pick of a row, or the text of the editor, leads to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Chosen {
+    /// A page opens over this one (Esc shows this one again).
     Push(Menu),
-    /// The confirmation of the slot's change is asked (after validating it).
-    Confirm { slot: u8, new: Option<Dial> },
-    /// The change is settled: every menu closes and the config is asked to write it.
-    Write { slot: u8, dial: Option<Dial> },
+    /// The model is told (`Intent::Preset`).
+    Ask(Ask),
+}
+
+/// What a page of the sheet asks of the model.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// The change is settled: the sheet closes and the config is asked to write it
+    /// (`save_quick_dial`).
+    Write(Write),
+    /// The text typed is not a preset: the model says why in the history and the editor stays.
+    Invalid(Invalid),
 }
 
 impl Menu {
@@ -385,34 +399,36 @@ impl Menu {
         }
     }
 
-    pub(super) fn choose(&self, id: &str, quick: &Quick) -> Option<Chosen> {
+    /// Where a row of this page leads (`None`: nothing, a disabled or unknown row).
+    pub fn choose(&self, id: &str, quick: &Quick) -> Option<Chosen> {
         match self {
             Menu::Slots { mode, dial } => {
                 let slot = slot_of(id)?;
                 let saved = quick.get(slot).map(|saved| saved.dial.clone());
                 match mode {
                     PickerMode::Save => {
-                        let dial = dial.clone()?;
-                        Some(if saved.is_some() {
-                            Chosen::Confirm {
+                        let new = dial.clone()?;
+                        Some(match saved {
+                            Some(old) => Chosen::Push(Menu::Confirm {
                                 slot,
-                                new: Some(dial),
-                            }
-                        } else {
-                            Chosen::Write {
+                                old: Some(old),
+                                new: Some(new),
+                            }),
+                            None => Chosen::Ask(Ask::Write(Write {
                                 slot,
-                                dial: Some(dial),
-                            }
+                                dial: Some(new),
+                            })),
                         })
                     }
                     PickerMode::Edit => Some(Chosen::Push(Menu::Editor {
                         target: Target::Slot(slot),
                         dial: saved?,
                     })),
-                    PickerMode::Clear => {
-                        saved?;
-                        Some(Chosen::Confirm { slot, new: None })
-                    }
+                    PickerMode::Clear => Some(Chosen::Push(Menu::Confirm {
+                        slot,
+                        old: Some(saved?),
+                        new: None,
+                    })),
                 }
             }
             Menu::Sources(rows) => {
@@ -423,12 +439,45 @@ impl Menu {
                     dial,
                 }))
             }
-            Menu::Confirm { slot, new, .. } if id == CONFIRM => Some(Chosen::Write {
-                slot: *slot,
-                dial: new.clone(),
-            }),
+            Menu::Confirm { slot, new, .. } if id == CONFIRM => {
+                Some(Chosen::Ask(Ask::Write(Write {
+                    slot: *slot,
+                    dial: new.clone(),
+                })))
+            }
             Menu::Confirm { .. } | Menu::Editor { .. } => None,
         }
+    }
+
+    /// Where the text of the editor leads (`None`: this is not an editor, or the text is blank:
+    /// nothing is submitted): the slot picker for a new preset, the confirmation of the change of
+    /// a slot, or the reason the text is not a preset (`open_quick_dial_save_picker`,
+    /// `confirm_quick_dial`: the editor stays under what opens).
+    pub fn submit(&self, text: &str, quick: &Quick) -> Option<Chosen> {
+        let Menu::Editor { target, dial } = self else {
+            return None;
+        };
+        if text.trim().is_empty() {
+            return None;
+        }
+        let new = Dial {
+            input: text.to_string(),
+            label: dial.label.clone(),
+        };
+        if let Err(reason) = new.validate() {
+            return Some(Chosen::Ask(Ask::Invalid(reason)));
+        }
+        Some(Chosen::Push(match target {
+            Target::PickSlot => Menu::Slots {
+                mode: PickerMode::Save,
+                dial: Some(new),
+            },
+            Target::Slot(slot) => Menu::Confirm {
+                slot: *slot,
+                old: quick.get(*slot).map(|saved| saved.dial.clone()),
+                new: Some(new),
+            },
+        }))
     }
 }
 

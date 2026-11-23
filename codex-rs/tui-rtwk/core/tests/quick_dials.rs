@@ -1,9 +1,12 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! `/presets` (oracle `chatwidget/quick_dials.rs`, `app/quick_dials.rs`,
-//! `tests/quick_dials_tests.rs`): the current settings as sources, the slot pickers, the
-//! editor and the confirmation, and the write of a slot into the config
-//! (`tui.presets.<slot>`), which changes the slot only once the config took it.
+//! `tests/quick_dials_tests.rs`): the sheet the model asks for (`Opening::Quick`, a one-shot the
+//! presenter shows), what each row and each text of the editor leads to (the pure `Menu::choose`
+//! and `Menu::submit`: a page over this one, or a verb for the model), and the write of a slot
+//! into the config (`tui.presets.<slot>`), which changes the slot only once the config took it.
+//! The pages themselves, the cursor, the editor's text and what Esc does on each page are the
+//! sheet's own (`tests/pages/quick_dials.rs`).
 
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::{ThreadId, Ticket};
@@ -11,10 +14,10 @@ use codex_tui_core::rpc::{Reply, RpcError};
 use codex_tui_core::screens::chat::StatusFacts;
 use codex_tui_core::screens::select::models::{Current, Preset};
 use codex_tui_core::screens::select::quick_dials::{
-    self as quick, Action, Composer, Dial, Gate, Invalid, Menu as Quick, Open, Origin, PickerMode,
-    Settings, Slot, Source, Target, Unavailable,
+    self as quick, Action, Ask, Chosen, Composer, Dial, Gate, Invalid, Menu as Page, Open, Origin,
+    PickerMode, Settings, Slot, Source, Target, Unavailable, Write,
 };
-use codex_tui_core::screens::select::{self, Intent as Select, Menu, Note, Picked};
+use codex_tui_core::screens::select::{self, Intent as Select, Note, Opening, Picked};
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -62,15 +65,38 @@ fn quick(app: &mut CodexApp, open: Open) -> AppFx {
     )
 }
 
-fn choose(app: &mut CodexApp, id: &str) -> AppFx {
-    select(app, Select::Choose(id.to_owned()))
+/// What a page of the sheet asked of the model.
+fn ask(app: &mut CodexApp, ask: Ask) -> AppFx {
+    select(app, Select::Preset(ask))
 }
 
-fn menu(app: &CodexApp) -> Option<Quick> {
-    match app.screens().select.menu() {
-        Some(Menu::Quick(menu)) => Some((**menu).clone()),
-        _ => None,
-    }
+/// The pages the model asked the sheet to open, oldest first, taken as the presenter takes them
+/// (it says it showed each).
+fn opened(app: &mut CodexApp) -> Vec<Page> {
+    let shows: Vec<_> = app
+        .screens()
+        .select
+        .shows
+        .pending()
+        .map(|show| (show.seq, show.opening.clone()))
+        .collect();
+    shows
+        .into_iter()
+        .map(|(seq, opening)| {
+            select(app, Select::Shown(seq));
+            match opening {
+                Opening::Quick(page) => *page,
+                other => panic!("expected the presets sheet, got {other:?}"),
+            }
+        })
+        .collect()
+}
+
+/// The one page the model asked for.
+fn page(app: &mut CodexApp) -> Page {
+    let mut pages = opened(app);
+    assert_eq!(pages.len(), 1, "one sheet, got {pages:?}");
+    pages.remove(0)
 }
 
 fn catalog(app: &mut CodexApp) {
@@ -126,9 +152,11 @@ fn settings(facts: &StatusFacts) -> Box<Settings> {
     Box::new(Settings::from_facts(facts, Current::from_facts(facts)))
 }
 
-fn sources(app: &CodexApp) -> Vec<(Source, Result<String, Unavailable>)> {
-    match menu(app) {
-        Some(Quick::Sources(rows)) => rows
+/// The sources the sheet opened on, as the settings gave them.
+fn sources(app: &mut CodexApp, facts: &StatusFacts) -> Vec<(Source, Result<String, Unavailable>)> {
+    quick(app, Open::Prefills(settings(facts)));
+    match page(app) {
+        Page::Sources(rows) => rows
             .into_iter()
             .map(|row| (row.source, row.dial.map(|dial| dial.input)))
             .collect(),
@@ -188,14 +216,42 @@ fn said(app: &CodexApp) -> Vec<Note> {
         .collect()
 }
 
+/// Where a row leads, over the slots the model holds.
+fn chose(app: &CodexApp, on: &Page, id: &str) -> Option<Chosen> {
+    on.choose(id, &app.screens().select.quick)
+}
+
+/// Where the editor's text leads, over the slots the model holds.
+fn submitted(app: &CodexApp, on: &Page, text: &str) -> Option<Chosen> {
+    on.submit(text, &app.screens().select.quick)
+}
+
+/// The page a pick or a text opens over this one.
+fn pushed(chosen: Option<Chosen>) -> Page {
+    match chosen {
+        Some(Chosen::Push(page)) => page,
+        other => panic!("expected a page over this one, got {other:?}"),
+    }
+}
+
+/// What a pick or a text settles with the model.
+fn asked(chosen: Option<Chosen>) -> Ask {
+    match chosen {
+        Some(Chosen::Ask(ask)) => ask,
+        other => panic!("expected a verb for the model, got {other:?}"),
+    }
+}
+
+fn dial(input: &str) -> Dial {
+    Dial::new(input)
+}
+
 #[test]
 fn the_current_settings_are_offered_as_model_permissions_title_and_status_layout() {
     let mut app = ready();
     catalog(&mut app);
-    let facts = facts();
-    quick(&mut app, Open::Prefills(settings(&facts)));
     assert_eq!(
-        sources(&app),
+        sources(&mut app, &facts()),
         vec![
             (
                 Source::Model,
@@ -230,8 +286,7 @@ fn a_source_that_cannot_be_recalled_says_why() {
     facts.terminal_title = Some(vec!["removed-title-item".into()]);
     facts.items = Some(vec!["model".into()]);
     facts.colors = true;
-    quick(&mut app, Open::Prefills(settings(&facts)));
-    let rows = sources(&app);
+    let rows = sources(&mut app, &facts);
     assert_eq!(rows[0].1, Err(Unavailable::Effort));
     assert_eq!(
         rows[1].1,
@@ -242,27 +297,31 @@ fn a_source_that_cannot_be_recalled_says_why() {
     );
     assert_eq!(rows[2].1, Err(Unavailable::TitleItems));
     assert_eq!(rows[3].1, Ok("/statusline model --colors".to_owned()));
-    // an unavailable row does nothing
-    choose(&mut app, quick::TERMINAL_TITLE);
-    assert!(matches!(menu(&app), Some(Quick::Sources(_))));
+
+    // an unavailable row leads nowhere
+    quick(&mut app, Open::Prefills(settings(&facts)));
+    let page = page(&mut app);
+    assert_eq!(chose(&app, &page, quick::TERMINAL_TITLE), None);
+    assert_eq!(chose(&app, &page, quick::MODEL), None);
+    assert!(
+        chose(&app, &page, quick::STATUS_LINE).is_some(),
+        "an available one does"
+    );
 
     // a model the catalog does not list, a speed it does not offer, no named profile
     let mut other = facts.clone();
     other.model = Some("unlisted".into());
     other.permission_profile = None;
-    quick(&mut app, Open::Prefills(settings(&other)));
-    let rows = sources(&app);
+    let rows = sources(&mut app, &other);
     assert_eq!(rows[0].1, Err(Unavailable::Model));
     assert_eq!(rows[1].1, Err(Unavailable::NoProfile));
     let mut speed = facts;
     speed.effort = None;
     speed.service_tier = Some("ultrafast".into());
-    quick(&mut app, Open::Prefills(settings(&speed)));
-    assert_eq!(sources(&app)[0].1, Err(Unavailable::Speed));
+    assert_eq!(sources(&mut app, &speed)[0].1, Err(Unavailable::Speed));
     speed.service_tier = Some("priority".into());
-    quick(&mut app, Open::Prefills(settings(&speed)));
     assert_eq!(
-        sources(&app)[0].1,
+        sources(&mut app, &speed)[0].1,
         Ok("/model gpt-5.5 --speed=priority".to_owned())
     );
 }
@@ -278,8 +337,7 @@ fn empty_layouts_are_cleared_and_granular_policies_and_names_are_quoted() {
     facts.approval_policy = Some("granular".into());
     facts.approval_granular = Some(r#"{"granular":{"rules":true}}"#.into());
     facts.permission_profile = Some("team review".into());
-    quick(&mut app, Open::Prefills(settings(&facts)));
-    let rows = sources(&app);
+    let rows = sources(&mut app, &facts);
     assert_eq!(rows[2].1, Ok("/title --clear".to_owned()));
     assert_eq!(rows[3].1, Ok("/statusline --clear --colors".to_owned()));
     assert_eq!(
@@ -292,7 +350,7 @@ fn empty_layouts_are_cleared_and_granular_policies_and_names_are_quoted() {
 }
 
 #[test]
-fn a_source_opens_the_editor_and_the_text_goes_to_a_slot_picker_on_the_first_empty_slot() {
+fn a_source_leads_to_the_editor_and_its_text_to_a_slot_picker_on_the_first_empty_slot() {
     let mut app = ready();
     catalog(&mut app);
     slots(
@@ -302,36 +360,60 @@ fn a_source_opens_the_editor_and_the_text_goes_to_a_slot_picker_on_the_first_emp
             saved(2, "hello", Origin::User),
         ],
     );
-    let facts = facts();
-    quick(&mut app, Open::Prefills(settings(&facts)));
-    choose(&mut app, quick::PERMISSIONS);
-    let Some(Quick::Editor { target, dial }) = menu(&app) else {
-        panic!("expected the editor, got {:?}", menu(&app));
+    quick(&mut app, Open::Prefills(settings(&facts())));
+    let sources = page(&mut app);
+    let editor = pushed(chose(&app, &sources, quick::PERMISSIONS));
+    let Page::Editor { target, dial } = &editor else {
+        panic!("expected the editor, got {editor:?}");
     };
-    assert_eq!(target, Target::PickSlot);
+    assert_eq!(*target, Target::PickSlot);
     assert!(dial.input.starts_with("/permissions :workspace"));
-    // Esc shows the sources again, on the row that opened the editor
-    select(&mut app, Select::Close);
-    assert!(matches!(menu(&app), Some(Quick::Sources(_))));
-    choose(&mut app, quick::PERMISSIONS);
 
-    select(&mut app, Select::Draft("/permissions edited".into()));
-    let Some(
-        menu @ Quick::Slots {
-            mode: PickerMode::Save,
-            ..
-        },
-    ) = self::menu(&app)
-    else {
-        panic!("expected the save picker, got {:?}", self::menu(&app));
-    };
-    let page = menu.page(&app.screens().select.quick).expect("rows");
-    assert_eq!(page.rows.len(), 10);
-    assert_eq!(page.initial, Some(2), "the first empty slot is 3");
-    assert!(page.rows.iter().all(|row| !row.disabled));
+    let picker = pushed(submitted(&app, &editor, "/permissions edited"));
     assert_eq!(
-        page.rows[0].saved.as_ref().map(|d| d.input.as_str()),
+        picker,
+        Page::Slots {
+            mode: PickerMode::Save,
+            dial: Some(self::dial("/permissions edited")),
+        }
+    );
+    let rows = picker.page(&app.screens().select.quick).expect("rows");
+    assert_eq!(rows.rows.len(), 10);
+    assert_eq!(rows.initial, Some(2), "the first empty slot is 3");
+    assert!(rows.rows.iter().all(|row| !row.disabled));
+    assert_eq!(
+        rows.rows[0].saved.as_ref().map(|d| d.input.as_str()),
         Some("/compact")
+    );
+    // the pages that lead nowhere
+    assert_eq!(chose(&app, &editor, quick::CONFIRM), None);
+    assert_eq!(submitted(&app, &sources, "text"), None);
+}
+
+#[test]
+fn the_editors_text_is_checked_before_a_page_opens() {
+    let app = ready();
+    let editor = Page::Editor {
+        target: Target::PickSlot,
+        dial: dial("seed"),
+    };
+    assert_eq!(
+        submitted(&app, &editor, "   "),
+        None,
+        "a blank text submits nothing"
+    );
+    assert_eq!(
+        asked(submitted(&app, &editor, "!ls")),
+        Ask::Invalid(Invalid::Shell)
+    );
+    // whitespace the user typed stays as typed
+    let picker = pushed(submitted(&app, &editor, "  two words  "));
+    assert_eq!(
+        picker,
+        Page::Slots {
+            mode: PickerMode::Save,
+            dial: Some(dial("  two words  ")),
+        }
     );
 }
 
@@ -349,13 +431,22 @@ fn saving_into_an_empty_slot_writes_the_config_and_the_slot_follows_the_answer()
             },
         },
     );
-    let Some(Quick::Editor { dial, .. }) = menu(&app) else {
-        panic!("expected the editor");
+    let editor = page(&mut app);
+    let Page::Editor { dial, .. } = &editor else {
+        panic!("expected the editor, got {editor:?}");
     };
     assert_eq!(dial.input, "write the tests");
-    select(&mut app, Select::Draft("write the tests now".into()));
-    let fx = choose(&mut app, &quick::slot_id(4));
-    assert_eq!(app.screens().select.menu(), None, "every menu closes");
+    let picker = pushed(submitted(&app, &editor, "write the tests now"));
+    let write = asked(chose(&app, &picker, &quick::slot_id(4)));
+    assert_eq!(
+        write,
+        Ask::Write(Write {
+            slot: 4,
+            dial: Some(self::dial("write the tests now")),
+        })
+    );
+    let fx = ask(&mut app, write);
+    assert_eq!(opened(&mut app), vec![], "the sheet is gone, nothing opens");
     let (ticket, slot, dial) = written(&fx);
     assert_eq!(slot, 4);
     let dial = dial.expect("a dial");
@@ -395,26 +486,26 @@ fn the_write_is_one_batch_edit_of_the_slot_table_and_a_delete_clears_the_path() 
 fn replacing_or_deleting_a_saved_slot_asks_first() {
     let mut app = ready();
     slots(&mut app, vec![saved(3, "old text", Origin::User)]);
-    quick(&mut app, Open::Save(Dial::new("new text")));
-    let fx = choose(&mut app, &quick::slot_id(3));
-    assert!(
-        fx.commands().is_empty(),
-        "nothing is written before the confirmation"
-    );
-    let confirm = menu(&app).expect("the confirmation");
+    let fx = quick(&mut app, Open::Save(dial("new text")));
+    assert!(fx.commands().is_empty());
+    let picker = page(&mut app);
+    // a saved slot leads to the confirmation, nothing is written before it
+    let confirm = pushed(chose(&app, &picker, &quick::slot_id(3)));
     assert_eq!(confirm.action(), Some(Action::Replace));
     assert_eq!(
         confirm,
-        Quick::Confirm {
+        Page::Confirm {
             slot: 3,
             old: Some(Dial {
                 input: "old text".into(),
                 label: Some(String::new())
             }),
-            new: Some(Dial::new("new text")),
+            new: Some(dial("new text")),
         }
     );
-    let fx = choose(&mut app, quick::CONFIRM);
+    assert_eq!(chose(&app, &confirm, &quick::slot_id(3)), None);
+    let write = asked(chose(&app, &confirm, quick::CONFIRM));
+    let fx = ask(&mut app, write);
     let (ticket, slot, dial) = written(&fx);
     assert_eq!(
         (slot, dial.map(|d| d.input)),
@@ -431,17 +522,16 @@ fn replacing_or_deleting_a_saved_slot_asks_first() {
     );
 
     quick(&mut app, Open::Picker(PickerMode::Clear));
-    let Some(picker) = menu(&app) else {
-        panic!("the delete picker")
-    };
-    let page = picker.page(&app.screens().select.quick).expect("rows");
+    let picker = page(&mut app);
+    let rows = picker.page(&app.screens().select.quick).expect("rows");
     assert_eq!(
-        page.rows.iter().map(|r| r.slot).collect::<Vec<_>>(),
+        rows.rows.iter().map(|r| r.slot).collect::<Vec<_>>(),
         vec![3]
     );
-    choose(&mut app, &quick::slot_id(3));
-    assert_eq!(menu(&app).and_then(|m| m.action()), Some(Action::Delete));
-    let fx = choose(&mut app, quick::CONFIRM);
+    let confirm = pushed(chose(&app, &picker, &quick::slot_id(3)));
+    assert_eq!(confirm.action(), Some(Action::Delete));
+    let write = asked(chose(&app, &confirm, quick::CONFIRM));
+    let fx = ask(&mut app, write);
     let (ticket, slot, dial) = written(&fx);
     assert_eq!((slot, dial), (3, None));
     took(&mut app, ticket);
@@ -449,7 +539,59 @@ fn replacing_or_deleting_a_saved_slot_asks_first() {
 }
 
 #[test]
-fn a_slot_of_another_layer_is_not_written_and_the_editor_comes_back() {
+fn the_slot_pickers_list_the_slots_their_mode_acts_on() {
+    let mut app = ready();
+    slots(
+        &mut app,
+        vec![
+            saved(2, "two", Origin::User),
+            saved(0, "zero", Origin::User),
+        ],
+    );
+    let rows = |mode, dial: Option<Dial>| {
+        Page::Slots { mode, dial }
+            .page(&app.screens().select.quick)
+            .expect("rows")
+    };
+    let slots_of = |page: &quick::Page| page.rows.iter().map(|r| r.slot).collect::<Vec<_>>();
+    // Edit and Delete list the saved slots, in the oracle's order (1 to 9, then 0)
+    for mode in [PickerMode::Edit, PickerMode::Clear] {
+        let page = rows(mode, None);
+        assert_eq!(slots_of(&page), vec![2, 0]);
+        assert_eq!(page.initial, None);
+    }
+    // Save lists all ten and opens on the first empty one
+    let save = rows(PickerMode::Save, Some(dial("x")));
+    assert_eq!(save.rows.len(), 10);
+    assert_eq!(save.initial, Some(0));
+    // with nothing to save every row is disabled and leads nowhere
+    let none = Page::Slots {
+        mode: PickerMode::Save,
+        dial: None,
+    };
+    let page = none.page(&app.screens().select.quick).expect("rows");
+    assert!(page.rows.iter().all(|row| row.disabled));
+    assert_eq!(chose(&app, &none, &quick::slot_id(4)), None);
+    // Edit leads to the editor on the slot's own text, an empty slot to nothing
+    let edit = Page::Slots {
+        mode: PickerMode::Edit,
+        dial: None,
+    };
+    assert_eq!(
+        pushed(chose(&app, &edit, &quick::slot_id(2))),
+        Page::Editor {
+            target: Target::Slot(2),
+            dial: Dial {
+                input: "two".into(),
+                label: Some(String::new()),
+            },
+        }
+    );
+    assert_eq!(chose(&app, &edit, &quick::slot_id(5)), None);
+}
+
+#[test]
+fn an_edited_slot_asks_to_replace_and_a_slot_of_another_layer_is_not_written() {
     let mut app = ready();
     slots(
         &mut app,
@@ -460,36 +602,57 @@ fn a_slot_of_another_layer_is_not_written_and_the_editor_comes_back() {
     );
     // Edit shows the saved slots only
     quick(&mut app, Open::Picker(PickerMode::Edit));
-    choose(&mut app, &quick::slot_id(1));
-    select(&mut app, Select::Draft("changed".into()));
-    let confirm = menu(&app).expect("the replace confirmation");
+    let picker = page(&mut app);
+    let editor = pushed(chose(&app, &picker, &quick::slot_id(1)));
+    let confirm = pushed(submitted(&app, &editor, "changed"));
     assert_eq!(confirm.action(), Some(Action::Replace));
-    let fx = choose(&mut app, quick::CONFIRM);
+    let write = asked(chose(&app, &confirm, quick::CONFIRM));
+    let fx = ask(&mut app, write);
     assert!(fx.commands().is_empty(), "nothing is written");
     assert_eq!(said(&app), vec![Note::PresetOutside(1)]);
-    let Some(Quick::Editor { target, dial }) = menu(&app) else {
-        panic!("the editor is shown again, got {:?}", menu(&app));
-    };
-    assert_eq!((target, dial.input.as_str()), (Target::Slot(1), "changed"));
+    // the editor comes back on the slot, with what was typed
+    assert_eq!(
+        page(&mut app),
+        Page::Editor {
+            target: Target::Slot(1),
+            dial: Dial {
+                input: "changed".into(),
+                label: Some(String::new()),
+            },
+        }
+    );
 
     // a shadowing user slot is replaced, but not cleared
     quick(&mut app, Open::Picker(PickerMode::Clear));
-    choose(&mut app, &quick::slot_id(2));
-    let fx = choose(&mut app, quick::CONFIRM);
+    let picker = page(&mut app);
+    let confirm = pushed(chose(&app, &picker, &quick::slot_id(2)));
+    let write = asked(chose(&app, &confirm, quick::CONFIRM));
+    let fx = ask(&mut app, write);
     assert!(fx.commands().is_empty());
     assert_eq!(said(&app).last(), Some(&Note::PresetOutside(2)));
-    quick(&mut app, Open::Save(Dial::new("again")));
-    choose(&mut app, &quick::slot_id(2));
-    let fx = choose(&mut app, quick::CONFIRM);
+    assert_eq!(
+        opened(&mut app),
+        vec![],
+        "a delete has no editor to restore"
+    );
+    quick(&mut app, Open::Save(dial("again")));
+    let picker = page(&mut app);
+    let confirm = pushed(chose(&app, &picker, &quick::slot_id(2)));
+    assert_eq!(confirm.action(), Some(Action::Replace));
+    let write = asked(chose(&app, &confirm, quick::CONFIRM));
+    let fx = ask(&mut app, write);
     written(&fx);
 }
 
 #[test]
 fn a_refused_write_keeps_the_slot_and_shows_the_editor_again() {
     let mut app = ready();
-    quick(&mut app, Open::Save(Dial::new("keep me")));
-    let fx = choose(&mut app, &quick::slot_id(5));
+    quick(&mut app, Open::Save(dial("keep me")));
+    let picker = page(&mut app);
+    let write = asked(chose(&app, &picker, &quick::slot_id(5)));
+    let fx = ask(&mut app, write);
     let (ticket, ..) = written(&fx);
+    assert_eq!(opened(&mut app), vec![], "the sheet closed with the write");
     run(
         &mut app,
         AppEv::Reply(ticket, Reply::error(RpcError::Remote("read-only".into()))),
@@ -502,21 +665,34 @@ fn a_refused_write_keeps_the_slot_and_shows_the_editor_again() {
             error: "read-only".into()
         }]
     );
-    let Some(Quick::Editor { target, dial }) = menu(&app) else {
-        panic!("the editor is shown again");
-    };
-    assert_eq!((target, dial.input.as_str()), (Target::Slot(5), "keep me"));
+    assert_eq!(
+        page(&mut app),
+        Page::Editor {
+            target: Target::Slot(5),
+            dial: dial("keep me"),
+        }
+    );
 }
 
 #[test]
 fn an_input_that_is_not_a_preset_is_refused() {
     let mut app = ready();
-    quick(&mut app, Open::Save(Dial::new("!ls")));
-    assert_eq!(menu(&app), None);
+    quick(&mut app, Open::Save(dial("!ls")));
+    assert_eq!(opened(&mut app), vec![]);
     assert_eq!(said(&app), vec![Note::PresetInvalid(Invalid::Shell)]);
     for (text, reason) in [("   ", Invalid::Empty), ("!ls", Invalid::Shell)] {
-        assert_eq!(Dial::new(text).validate(), Err(reason));
+        assert_eq!(dial(text).validate(), Err(reason));
     }
+    // the editor says so for the text typed, and stays (the sheet's page is not the model's)
+    ask(&mut app, Ask::Invalid(Invalid::Shell));
+    assert_eq!(
+        said(&app),
+        vec![
+            Note::PresetInvalid(Invalid::Shell),
+            Note::PresetInvalid(Invalid::Shell)
+        ]
+    );
+    assert_eq!(opened(&mut app), vec![]);
 }
 
 #[test]
@@ -530,7 +706,7 @@ fn presets_are_gated_where_the_user_is() {
                 open: Open::Picker(PickerMode::Save),
             },
         );
-        assert_eq!(menu(&app), None);
+        assert_eq!(opened(&mut app), vec![]);
     }
     assert_eq!(
         said(&app),
@@ -562,7 +738,7 @@ fn the_editor_starts_empty_when_the_composer_holds_images_or_mentions() {
                 composer,
             },
         );
-        let Some(Quick::Editor { dial, .. }) = menu(&app) else {
+        let Page::Editor { dial, .. } = page(&mut app) else {
             panic!("the editor");
         };
         assert_eq!(dial.input, "");
@@ -604,4 +780,5 @@ fn a_saved_preset_is_recalled_as_typed_and_a_broken_one_says_so() {
             reason: Invalid::Shell
         }]
     );
+    assert_eq!(opened(&mut app), vec![], "a recall opens no sheet");
 }

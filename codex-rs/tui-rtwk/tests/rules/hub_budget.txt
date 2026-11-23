@@ -31,7 +31,9 @@ enum core/src/screens/select.rs Picked 8
 # link dialog are the routes of a nested navigator, `Menu::Apps` and `Picked::App` go): `Menu`
 # 4 -> 3, `Intent` +2 for the verbs the sheet says that are facts for the app, `OpenAppPage` (the
 # page of an app is opened in the browser) and `AppUnlinked` (an app with no page was picked: a note).
-enum core/src/screens/select.rs Menu 3
+# `Menu::Quick` (`/presets`) is a sheet too (`Opening::Quick`, its pages the routes of a nested
+# navigator; `Menu` 3 -> 2); `Draft` is `Preset` (what a page asks of the model).
+enum core/src/screens/select.rs Menu 2
 enum core/src/screens/select.rs Intent 28
 enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
