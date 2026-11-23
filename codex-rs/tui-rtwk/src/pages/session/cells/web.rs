@@ -11,8 +11,8 @@ use codex_tui_core::threads::{WebAction, WebActivity};
 use crate::app::theme::Tokens;
 
 use super::one_row::one_row;
-use super::text::Part;
 use super::strings::Strings;
+use super::text::Part;
 use super::tool_rows::glyph_row;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

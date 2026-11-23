@@ -153,7 +153,11 @@ fn web_search_history_cell_without_detail_snapshot() {
             "fixtures/cells_4/web_search_history_cell_without_detail_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("web_search_history_cell_without_detail_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "web_search_history_cell_without_detail_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:1437 web_search_history_cell_truncates kind=ui owner=chat-live
@@ -190,7 +194,11 @@ fn web_search_history_cell_transcript_snapshot() {
         ))
         .open();
     s.keys("ctrl+t");
-    s.assert_snap_region("web_search_history_cell_transcript_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "web_search_history_cell_transcript_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:1491 active_mcp_tool_call_snapshot kind=snap owner=chat-live snap=active_mcp_tool_call_snapshot
@@ -302,7 +310,11 @@ fn completed_mcp_tool_call_success_snapshot() {
             "fixtures/cells_4/completed_mcp_tool_call_success_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("completed_mcp_tool_call_success_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "completed_mcp_tool_call_success_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:1657 completed_mcp_tool_call_image_after_text_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_image_after_text_snapshot
@@ -315,7 +327,11 @@ fn completed_mcp_tool_call_image_after_text_snapshot() {
             "fixtures/cells_4/completed_mcp_tool_call_image_after_text_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("completed_mcp_tool_call_image_after_text_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "completed_mcp_tool_call_image_after_text_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:1688 completed_mcp_tool_call_accepts_data_url_image_blocks kind=snap owner=chat-live snap=completed_mcp_tool_call_accepts_data_url_image_blocks
@@ -362,7 +378,11 @@ fn completed_mcp_tool_call_error_snapshot() {
             "fixtures/cells_4/completed_mcp_tool_call_error_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("completed_mcp_tool_call_error_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "completed_mcp_tool_call_error_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:1768 completed_mcp_tool_call_multiple_outputs_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_multiple_outputs_snapshot
@@ -375,7 +395,11 @@ fn completed_mcp_tool_call_multiple_outputs_snapshot() {
             "fixtures/cells_4/completed_mcp_tool_call_multiple_outputs_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("completed_mcp_tool_call_multiple_outputs_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "completed_mcp_tool_call_multiple_outputs_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:1808 completed_mcp_tool_call_wrapped_outputs_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_wrapped_outputs_snapshot
@@ -388,7 +412,11 @@ fn completed_mcp_tool_call_wrapped_outputs_snapshot() {
             "fixtures/cells_4/completed_mcp_tool_call_wrapped_outputs_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("completed_mcp_tool_call_wrapped_outputs_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "completed_mcp_tool_call_wrapped_outputs_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:1840 completed_mcp_tool_call_multiple_outputs_inline_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_multiple_outputs_inline_snapshot
@@ -529,7 +557,11 @@ fn single_line_command_compact_when_fits() {
             "fixtures/cells_4/single_line_command_compact_when_fits.jsonl"
         ))
         .open();
-    s.assert_snap_region("single_line_command_compact_when_fits", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "single_line_command_compact_when_fits",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2158 single_line_command_wraps_with_four_space_continuation kind=snap owner=chat-live snap=single_line_command_wraps_with_four_space_continuation

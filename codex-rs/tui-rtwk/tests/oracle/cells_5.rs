@@ -68,7 +68,11 @@ fn stderr_tail_more_than_five_lines_snapshot() {
             "fixtures/cells_5/stderr_tail_more_than_five_lines_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("stderr_tail_more_than_five_lines_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "stderr_tail_more_than_five_lines_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2294 ran_cell_multiline_with_stderr_snapshot kind=snap owner=chat-live snap=ran_cell_multiline_with_stderr_snapshot
@@ -81,7 +85,11 @@ fn ran_cell_multiline_with_stderr_snapshot() {
             "fixtures/cells_5/ran_cell_multiline_with_stderr_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_region("ran_cell_multiline_with_stderr_snapshot", first_cell_row(&s), 0);
+    s.assert_snap_region(
+        "ran_cell_multiline_with_stderr_snapshot",
+        first_cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2339 user_history_cell_wraps_and_prefixes_each_line_snapshot kind=snap owner=chat-live snap=user_history_cell_wraps_and_prefixes_each_line_snapshot
