@@ -1,9 +1,10 @@
 //! `/export` as a feature slice (ADR-012; oracle `chatwidget/transcript_export.rs`
 //! `show_transcript_export_popup`, `app/transcript_export.rs` `export_transcript`): the
 //! conversation in use as Markdown, copied to the clipboard or written to a file, and the line
-//! saying how it went. A bare `/export` opens the destination picker (`Menu::Destination`), whose
-//! "Copy to clipboard" row copies at once and whose "Save to file" row opens the filename prompt
-//! (`Prompt::File`); `/export <path>` writes at once. Words and rows: `src/features/export/`.
+//! saying how it went. The destination picker of a bare `/export` and its filename prompt are the
+//! UI half's (`src/features/export/`, opened as `Target::Feature(FeatureTarget::Export)`); what
+//! they decide arrives as the verb `Intent::Export`, as `/export <path>` does. Words:
+//! `src/features/export/`.
 //!
 //! The Markdown is rendered from the cells' text, which is the UI's: it hands the app its
 //! renderer once (`CodexApp::with_transcript_text`), a pure function of a thread's model that
@@ -13,7 +14,7 @@
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Choice, Feature, Never};
+use super::{AppCx, Feature, Never};
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -22,45 +23,28 @@ use crate::threads::Tone;
 /// The marker type of the feature.
 pub struct Export;
 
-/// The row ids of the destination picker, in order (oracle: "Copy to clipboard", "Save to
-/// file").
-pub const CLIPBOARD: &str = "export.clipboard";
-pub const FILE: &str = "export.file";
+/// Where an exported transcript goes (oracle `TranscriptExportDestination`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Destination {
+    /// "Copy to clipboard": the complete Markdown transcript is copied.
+    Clipboard,
+    /// A path as typed: `~/` is the home directory, a relative path is under the thread's
+    /// directory; a file that exists is never overwritten.
+    File(String),
+}
 
 /// What the user asks of `/export`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// `/export` (no path: the destination picker) and `/export <path>` (written at once).
-    Command { path: Option<String> },
+    /// Export the conversation in use to `destination` (`/export <path>`, or a row of the
+    /// destination picker, or the filename typed in its prompt).
+    Export { destination: Destination },
 }
 
 /// What an ask of the host was for: the export of the conversation in use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Conversation,
-}
-
-/// The destination picker.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Menu {
-    /// `Export conversation`: `Copy to clipboard`, `Save to file`.
-    Destination,
-}
-
-/// A row of the destination picker.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Pick {
-    /// "Copy to clipboard": the complete Markdown transcript is copied.
-    Clipboard,
-    /// "Save to file": a filename is asked for (`Prompt::File`).
-    File,
-}
-
-/// The filename prompt (oracle `show_transcript_export_file_prompt`, `Save conversation`). The
-/// conversation is the one in use when it is submitted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Prompt {
-    File,
 }
 
 /// What `/export` says in the transcript (`export_transcript`, `show_copy_result`).
@@ -76,14 +60,6 @@ pub enum Note {
     NoContent,
     /// How the copy of the conversation went: the delivery status, or the clipboard's failure.
     Copy(Result<CopyStatus, String>),
-}
-
-/// Where an exported transcript goes (oracle `TranscriptExportDestination`).
-enum Destination {
-    Clipboard,
-    /// A path as typed: `~/` is the home directory, a relative path is under the thread's
-    /// directory; a file that exists is never overwritten.
-    File(String),
 }
 
 /// `ExportTranscript`: renders the conversation in use and asks the host to put it on the
@@ -118,15 +94,6 @@ fn run(cx: &mut AppCx<'_>, destination: Destination) {
     cx.effect(ask, Ctx::Conversation);
 }
 
-/// The filename the prompt starts with, for the conversation in use (`codex-session-{thread}.md`,
-/// `codex-session.md` before a thread exists): a filename, not prose, so the oracle's own.
-fn filename(thread: Option<&ThreadId>) -> String {
-    thread.map_or_else(
-        || "codex-session.md".to_owned(),
-        |thread| ["codex-session-", thread.as_str(), ".md"].concat(),
-    )
-}
-
 impl Feature for Export {
     const NAME: &'static str = "export";
 
@@ -137,19 +104,14 @@ impl Feature for Export {
     type Command = Never<Self>;
     type Reply = Never<Self>;
     type Ctx = Ctx;
-    type Menu = Menu;
-    type Pick = Pick;
-    type Prompt = Prompt;
     type Note = Note;
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
-        match intent {
-            Intent::Command { path: Some(path) } => run(cx, Destination::File(path)),
-            Intent::Command { path: None } => cx.open(Menu::Destination),
-        }
+        let Intent::Export { destination } = intent;
+        run(cx, destination);
     }
 
     /// The host's answer to the export's ask, said in the conversation in use: the copy's status
@@ -163,30 +125,6 @@ impl Feature for Export {
             _ => return,
         };
         cx.note(None, note);
-    }
-
-    fn choose(_menu: &Menu, row: &str) -> Choice<Menu, Pick> {
-        match row {
-            CLIPBOARD => Choice::Pick(Pick::Clipboard),
-            FILE => Choice::Pick(Pick::File),
-            _ => Choice::Stay,
-        }
-    }
-
-    fn picked(_state: &mut (), pick: Pick, cx: &mut AppCx<'_>) {
-        match pick {
-            Pick::Clipboard => run(cx, Destination::Clipboard),
-            Pick::File => {
-                let initial = filename(cx.view().active());
-                cx.prompt(Prompt::File, initial);
-            }
-        }
-    }
-
-    /// The typed filename is the destination.
-    fn prompt_submitted(_state: &mut (), prompt: Prompt, text: String, cx: &mut AppCx<'_>) {
-        let Prompt::File = prompt;
-        run(cx, Destination::File(text));
     }
 
     fn note_tone(note: &Note) -> Tone {

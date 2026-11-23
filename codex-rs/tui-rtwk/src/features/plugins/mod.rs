@@ -21,27 +21,15 @@ use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx};
 
-use codex_tui_core::commands::SlashCommand;
-use codex_tui_core::features::plugins::{Intent, Interest, Plugins, Say, State, Wish};
-use codex_tui_core::features::{FeatureInterest, FeatureStates, Never, Scope};
+use codex_tui_core::features::plugins::{Intent, Interest, Plugins, Say, Wish};
+use codex_tui_core::features::{FeatureInterest, FeatureStates, Scope};
 use codex_tui_core::ids::Cwd;
-use codex_tui_core::screens::select::list::List;
 
 use self::sheet::PluginsSheet;
-use super::{FeatureView, PromptWords, Shown, verb};
+use super::{FeatureView, Shown, verb};
 use crate::pages::session::strings::Strings as SessionStrings;
-use crate::sheets::dialogs::strings::Strings as DialogStrings;
-use crate::sheets::select::strings::Strings as SelectStrings;
 
 impl FeatureView for Plugins {
-    const SHEET: Option<SlashCommand> = Some(SlashCommand::Plugins);
-
-    fn open_sheet<S: 'static>(cx: &mut Cx<'_, S>, scope: &Scope) {
-        if let Scope::Cwd(cwd) = scope {
-            open(cx, Args { cwd: cwd.clone() });
-        }
-    }
-
     /// The setup of the apps of an installed plugin: the sheet of its directory shows the page
     /// from the feature's state (`State::setups_in`); the wish only has one opened when none
     /// is open for the directory, which the sheet's interest tells.
@@ -50,7 +38,7 @@ impl FeatureView for Plugins {
         let Scope::Cwd(cwd) = scope else {
             return None;
         };
-        let held_by = FeatureInterest::from(Interest::Listing { cwd: cwd.clone() });
+        let held_by = Some(FeatureInterest::from(Interest::Listing { cwd: cwd.clone() }));
         let cwd = cwd.clone();
         Some(Shown {
             held_by,
@@ -61,15 +49,6 @@ impl FeatureView for Plugins {
 
     fn note_words(note: &Say, _words: &SessionStrings) -> String {
         strings::note(note)
-    }
-
-    // The feature has no menu and no prompt of its own: its pages are the sheet's routes.
-    fn menu_list(menu: &Never<Plugins>, _state: &State, _words: &SelectStrings) -> List {
-        menu.absurd()
-    }
-
-    fn prompt_words(prompt: &Never<Plugins>, _words: &DialogStrings) -> PromptWords {
-        prompt.absurd()
     }
 }
 

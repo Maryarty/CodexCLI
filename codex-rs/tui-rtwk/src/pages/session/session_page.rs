@@ -88,9 +88,6 @@ pub struct ChatState {
     /// How many removals (the app counts them) the chat has answered with
     /// the command center.
     removed: Option<u32>,
-    /// A text prompt of the model (`/rename`, the file name of `/export`) is open and this page
-    /// opened its dialog.
-    prompt_shown: bool,
     /// The read-only thread this page asked to fork and heard no answer of
     /// (the oracle's `fork_in_progress`): its notice gives way to "Forking
     /// conversation…" and the keys wait. A failed fork ends it.
@@ -200,7 +197,6 @@ impl StatefulWidget for Chat {
             edited: None,
             plan: PlanSeen::default(),
             removed: None,
-            prompt_shown: false,
             forking: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
@@ -459,16 +455,6 @@ impl State for ChatState {
                 open(cx, Target::Agents);
             }
             Some(_) => {}
-        }
-        // A text prompt the model opened (a command's, or the pick of a menu) is shown over the
-        // chat once the chat is in front; the dialog closes itself when the model drops it.
-        let prompting =
-            select::<ScreenStates, bool, _>(cx, |states| states.dialogs.prompt.is_some());
-        if !prompting {
-            self.prompt_shown = false;
-        } else if !self.prompt_shown && Route::is_current_of(cx) {
-            self.prompt_shown = true;
-            open(cx, Target::Dialogs);
         }
         let states = watch::<ScreenStates, _>(cx);
         let session = watch::<SessionSlice, _>(cx);

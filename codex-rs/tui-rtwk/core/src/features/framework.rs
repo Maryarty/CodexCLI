@@ -15,7 +15,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
-use super::{AppCx, AppView, Choice, Feature, Never, Out, ThreadCx, Tone, TurnEnd};
+use super::{AppCx, AppView, Feature, Never, Out, ThreadCx, Tone, TurnEnd};
 use crate::app::AppFx;
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
@@ -47,7 +47,7 @@ fn logged() -> Vec<(&'static str, Hook)> {
 }
 
 /// A probe: counts what reaches it, and logs its hooks. Alpha has every component of its
-/// own; beta has none of the menu, pick, prompt and note (`Never<Self>`), which is the case
+/// own; beta has none of the note, fact, wish and interest (`Never<Self>`), which is the case
 /// the root `From` impls must survive twice.
 macro_rules! probe {
     ($module:ident, $marker:ident, $name:literal, $($rest:tt)*) => {
@@ -78,9 +78,6 @@ macro_rules! probe {
                 type Command = Command;
                 type Reply = Reply;
                 type Ctx = Ctx;
-                type Menu = Menu;
-                type Pick = Pick;
-                type Prompt = Prompt;
                 type Note = Note;
                 type Fact = Fact;
                 type Wish = Wish;
@@ -165,12 +162,6 @@ macro_rules! probe {
     // the components of a feature that has them
     (@components $marker:ident, full) => {
         #[derive(Clone, Debug, PartialEq, Eq)]
-        pub struct Menu(pub &'static str);
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub struct Pick(pub &'static str);
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub struct Prompt(pub &'static str);
-        #[derive(Clone, Debug, PartialEq, Eq)]
         pub struct Note(pub &'static str);
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub struct Fact(pub u32);
@@ -181,32 +172,12 @@ macro_rules! probe {
     };
     // and of one that has none
     (@components $marker:ident, bare) => {
-        pub type Menu = Never<$marker>;
-        pub type Pick = Never<$marker>;
-        pub type Prompt = Never<$marker>;
         pub type Note = Never<$marker>;
         pub type Fact = Never<$marker>;
         pub type Wish = Never<$marker>;
         pub type Interest = Never<$marker>;
     };
     (@steps full) => {
-        fn choose(menu: &Menu, row: &str) -> Choice<Menu, Pick> {
-            match row {
-                "pick" => Choice::Pick(Pick(menu.0)),
-                "next" => Choice::Replace(Menu("second")),
-                "close" => Choice::Dismiss,
-                _ => Choice::Stay,
-            }
-        }
-
-        fn picked(state: &mut u32, pick: Pick, _cx: &mut AppCx<'_>) {
-            *state += pick.0.len() as u32;
-        }
-
-        fn prompt_submitted(state: &mut u32, prompt: Prompt, text: String, _cx: &mut AppCx<'_>) {
-            *state += prompt.0.len() as u32 + text.len() as u32;
-        }
-
         fn note_tone(note: &Note) -> Tone {
             if note.0 == "error" { Tone::Error } else { Tone::Info }
         }
@@ -235,11 +206,11 @@ mod probe_list {
 }
 
 use probe_list::{
-    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureMenu,
-    FeatureNote, FeaturePick, FeaturePrompt, FeatureReply, FeatureStates, FeatureThreadIntent,
+    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest,
+    FeatureNote, FeatureReply, FeatureStates, FeatureThreadIntent,
     FeatureThreadParts, alpha, answered, apply_intent, apply_thread_intent, apply_thread_reply,
-    beta, choose, decode, effect_done, names, note_tone, on_fact, on_interest, on_interrupted,
-    on_resumed, on_turn_end, picked, prompt_submitted, wire,
+    beta, decode, effect_done, names, note_tone, on_fact, on_interest, on_interrupted,
+    on_resumed, on_turn_end, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -419,29 +390,7 @@ fn a_feature_asks_the_host_through_the_outbox() {
 }
 
 #[test]
-fn a_menu_row_settles_in_the_features_own_terms_and_a_pick_and_prompt_reach_it() {
-    let menu = FeatureMenu::from(alpha::Menu("first"));
-    assert_eq!(choose(&menu, "other"), super::Choice::Stay);
-    assert_eq!(choose(&menu, "close"), super::Choice::Dismiss);
-    assert_eq!(
-        choose(&menu, "next"),
-        super::Choice::Replace(FeatureMenu::Alpha(alpha::Menu("second")))
-    );
-    let Choice::Pick(pick) = choose(&menu, "pick") else {
-        panic!("the pick row picks");
-    };
-    assert_eq!(pick, FeaturePick::Alpha(alpha::Pick("first")));
-    let mut states = FeatureStates::default();
-    app_step(|cx| picked(&mut states, pick, cx));
-    app_step(|cx| {
-        prompt_submitted(
-            &mut states,
-            FeaturePrompt::from(alpha::Prompt("ab")),
-            "xyz".to_owned(),
-            cx,
-        )
-    });
-    assert_eq!((*states.alpha, *states.beta), (5 + 2 + 3, 0));
+fn a_notes_tone_is_the_features_own() {
     assert_eq!(
         note_tone(&FeatureNote::from(alpha::Note("error"))),
         Tone::Error
