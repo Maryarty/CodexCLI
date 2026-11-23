@@ -24,6 +24,93 @@ fn row_of(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+const ASTRA: &str = include_str!("fixtures/pane_footer_1/astra.jsonl");
+
+/// The oracle's sparkle palette (`palette()`: foreground `(230, 216, 255)`, background `(36, 27, 53)`).
+const FOREGROUND: u32 = 0xe6_d8_ff;
+const BACKGROUND: u32 = 0x24_1b_35;
+
+/// A fresh thread on an Astra model, in the palette the oracle's sparkle tests draw in.
+fn astra(width: u16, height: u16) -> Screen {
+    Screen::build(Owner::UiPane)
+        .size(width, height)
+        .script(ASTRA)
+        .terminal_colors(FOREGROUND, BACKGROUND)
+        .open()
+}
+
+/// The composer's three rows (the blank row above the prompt, the prompt and the blank row below it),
+/// trailing blanks cut: where the sparkle's dots are.
+fn composer_rows(rows: &[String]) -> Vec<String> {
+    let prompt = rows
+        .iter()
+        .position(|row| row.contains("Ask Codex") || row.starts_with("› ") || row.starts_with('›'))
+        .unwrap_or(usize::MAX);
+    rows[prompt.saturating_sub(1)..=(prompt + 1).min(rows.len() - 1)]
+        .iter()
+        .map(|row| row.trim_end().to_string())
+        .collect()
+}
+
+/// The composer's rows of the oracle's snapshot `name` after its row `marker` (`""`: from the start):
+/// the snapshots of these tests join several screens, each under a label row.
+fn oracle_composer(name: &str, marker: &str) -> Vec<String> {
+    let rows = kit::snap_rows(name, "");
+    let from = if marker.is_empty() {
+        0
+    } else {
+        rows.iter()
+            .position(|row| row.trim_end() == marker)
+            .map_or_else(|| panic!("{name}: no row `{marker}`"), |at| at + 1)
+    };
+    composer_rows(&rows[from..])
+}
+
+/// The dots of the screen are the oracle's (the composer's rows after the label row `marker`):
+/// everything but the dots is the same cell for cell. The oracle draws its snapshots at an exact
+/// instant (the unit `frame` of footer/sparkle.rs matches them exactly, in its tests), the screen
+/// at the last tick of the app's 150 ms clock before the capture, so a dot at the edge of its
+/// twinkle may have come or gone: at most a fifth of the dots may differ, and any that is in
+/// both is the same glyph.
+fn assert_stars(s: &Screen, name: &str, marker: &str) {
+    const DOTS: [char; 8] = ['⠁', '⠂', '⠄', '⠈', '⠐', '⠠', '⡀', '⢀'];
+    let want = oracle_composer(name, marker);
+    let got = composer_rows(&s.rows());
+    let bare = |rows: &[String]| -> Vec<String> {
+        rows.iter()
+            .map(|row| row.chars().map(|c| if DOTS.contains(&c) { ' ' } else { c }).collect::<String>().trim_end().to_string())
+            .collect()
+    };
+    pretty_assertions::assert_eq!(
+        bare(&want).join("\n"),
+        bare(&got).join("\n"),
+        "{name} / {marker}: ours (right) differs from the oracle (left) off the dots\n{}",
+        s.text()
+    );
+    let cells = |rows: &[String]| -> Vec<(usize, usize, char)> {
+        rows.iter()
+            .enumerate()
+            .flat_map(|(y, row)| {
+                row.chars().enumerate().filter(|(_, c)| DOTS.contains(c)).map(move |(x, c)| (x, y, c))
+            })
+            .collect()
+    };
+    let (want_dots, got_dots) = (cells(&want), cells(&got));
+    let differing = want_dots
+        .iter()
+        .filter(|d| !got_dots.contains(d))
+        .chain(got_dots.iter().filter(|d| !want_dots.contains(d)))
+        .count();
+    assert!(
+        differing * 5 <= want_dots.len() + got_dots.len(),
+        "{name} / {marker}: {differing} dots differ of {} and {}\nwant {:?}\ngot  {:?}",
+        want_dots.len(),
+        got_dots.len(),
+        want_dots,
+        got_dots
+    );
+}
+
 const FIND_REASON: &str = "the transcript Find footer (`Find: needle` above the composer, its cursor, the copy flash) is not built: the chat footer draws only the history-search row, and no key or seed opens a find footer";
 const SPARKLE_REASON: &str = "the composer sparkle (braille starfield dots in the placeholder of a fresh Astra task, with its 15 s idle deadline and 1 s fade) is not built: the chat draws no dots and no seed marks a fresh task";
 const HELP_REASON: &str = "the help itself is built (the `?` overlay above the composer); what these two wait for is the composer sparkle under it (braille dots in the placeholder, step 7 of chunk-status: no sparkle yet)";
@@ -91,16 +178,20 @@ fn interactive_query_keeps_focus_over_underlying_hints_but_empty_override_wins()
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:114 sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor kind=snap owner=ui-pane snap=sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor
 #[test]
 fn sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor() {
-    kit::pending(Owner::UiPane, SPARKLE_REASON);
     // a fresh Astra task: the dots fill the free cells of the composer, never the placeholder or
     // the cursor; the first typed character clears them (the oracle draws at 40 and 80 columns)
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_snap("sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor");
+    let name = "sparkle_matches_the_original_starfield_and_protects_the_placeholder_and_cursor";
+    let mut s = astra(80, 24);
+    assert_stars(&s, name, "80 columns, cursor Some((2, 1))");
     let plain = s.shot();
     s.wait(2_000);
     s.assert_rows_differ(&plain);
     s.type_text("x");
     assert_no_dots(&s);
+    let mut narrow = astra(40, 24);
+    assert_stars(&narrow, name, "40 columns, cursor Some((2, 1))");
+    narrow.type_text("x");
+    assert_no_dots(&narrow);
 }
 
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:176 sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds kind=snap owner=ui-pane snap=sparkle_fades_without_adding_dots_and_finishes_by_fifteen_seconds

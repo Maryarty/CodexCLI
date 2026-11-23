@@ -30,7 +30,7 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::composer::{Composer, clear_sent, submission};
-use crate::pages::session::footer::{Footer, Line, StatusRows};
+use crate::pages::session::footer::{Footer, Line, Sparkle, StatusRows};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::strings as chat_strings;
@@ -802,6 +802,16 @@ impl State for ChatState {
         let connection = session.connections.get(&backend);
         let slots = thread.screen_slots();
         let facts = &states.chat.status;
+        // what the sparkle needs to tell a command being typed from a message
+        let tiers = codex_tui_core::screens::chat::facts::tier_commands(
+            facts,
+            slots.chat.model.as_deref(),
+            &states.select.catalog,
+            &states.chat.service_tiers,
+        );
+        let mut command_flags = states.chat.flags;
+        command_flags.service_tier_commands_enabled = !tiers.is_empty();
+        w.ui.sparkle.know(command_flags, tiers, self.draft_shell);
         // Reverse history search: the footer's row and what it takes from the page
         let searching = w.ui.draft.search_state();
         // Ctrl+T shows the details in the chat's own transcript, the composer
@@ -998,12 +1008,20 @@ impl State for ChatState {
                 // and the footer's type changes below, and an unkeyed child
                 // between two changed neighbours is a new element (its state,
                 // and the messages queued for it, lost)
-                AnyWidget::from(
-                    BoxWidget::new()
+                AnyWidget::from(Sparkle {
+                    ui: w.ui.clone(),
+                    focus: self.node.clone(),
+                    eligible: slots.chat.sparkle_eligible(facts),
+                    // the footer's overlay and search row, and a turn that runs,
+                    // take the stage (`render_sparkle_at`)
+                    hidden: self.shortcuts || running || searching.is_some(),
+                    placeholder: strings.chat.placeholder,
+                    child: BoxWidget::new()
                         .style(tokens.prompt_surface(cx, false))
                         .padding(EdgeInsets::only(0, 1, 1, 1))
-                        .child(composer),
-                )
+                        .child(composer)
+                        .into(),
+                })
                 .with_key(Key::value("composer")),
             )
         };
