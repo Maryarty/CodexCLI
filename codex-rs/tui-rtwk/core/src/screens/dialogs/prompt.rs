@@ -6,6 +6,7 @@
 //! (`Rename thread`, `Name thread`, the placeholder, the two labels) are the view's.
 
 use crate::ids::ThreadId;
+use crate::threads::{Goal, GoalStatus};
 
 /// The effect requests of the prompt carry this bit: the UI's own request numbers never do.
 pub const REQUEST_BIT: u64 = 1 << 60;
@@ -19,6 +20,14 @@ pub enum PromptKind {
     /// `show_transcript_export_file_prompt`). The conversation is the one in use when it is
     /// submitted.
     ExportFile,
+    /// `/goal edit`: the objective of `thread`'s goal, which keeps the status and the token
+    /// budget it had (oracle `show_goal_edit_prompt`: `Edit goal`, `Type a goal objective and
+    /// press Enter`).
+    GoalEdit {
+        thread: ThreadId,
+        status: GoalStatus,
+        token_budget: Option<i64>,
+    },
 }
 
 /// The generated suggestion of a prompt (`with_text_suggestion`, `apply_text_suggestion`).
@@ -75,6 +84,21 @@ impl Prompt {
                 || "codex-session.md".to_owned(),
                 |thread| ["codex-session-", thread.as_str(), ".md"].concat(),
             ),
+            suggestion: Suggestion::Idle,
+            edited: false,
+            request: None,
+        }
+    }
+
+    /// The goal edit prompt, prefilled with the goal's objective.
+    pub(crate) fn goal_edit(thread: ThreadId, goal: &Goal) -> Self {
+        Prompt {
+            kind: PromptKind::GoalEdit {
+                thread,
+                status: crate::screens::select::goal::edited_status(goal.status),
+                token_budget: goal.token_budget,
+            },
+            initial: goal.objective.clone(),
             suggestion: Suggestion::Idle,
             edited: false,
             request: None,

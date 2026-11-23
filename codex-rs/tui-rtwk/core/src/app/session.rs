@@ -3,6 +3,7 @@
 use std::rc::Rc;
 
 pub(super) mod export;
+pub(super) mod goal;
 pub(super) mod rename;
 
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
@@ -276,6 +277,8 @@ pub(super) fn session_intent(
         // `AppEvent::ExportTranscript` with a path: the conversation is written there. The bare
         // command opens the destination picker, which is the view's list (`select::export`).
         S::Export { path: Some(path) } => export::run(app, Destination::File(path), fx),
+        // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`session/goal.rs`).
+        S::Goal { args } => goal::command(app, source, args, fx),
         // `/permissions <profile> ..`: the profile is picked without a menu (`select_permission_profile`);
         // the select screen holds the arguments while the catalog is read.
         S::Permissions { args: Some(args) } => {
@@ -287,7 +290,6 @@ pub(super) fn session_intent(
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
         | S::Worktree
-        | S::Goal { .. }
         | S::Side { .. }
         | S::Copy
         | S::Export { path: None }
@@ -534,6 +536,16 @@ pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
     match submitted.kind {
         PromptKind::Rename { thread } => rename::submitted(app, thread, &submitted.text, fx),
         PromptKind::ExportFile => export::submitted(app, submitted.text, fx),
+        PromptKind::GoalEdit {
+            thread,
+            status,
+            token_budget,
+        } => {
+            let objective = submitted.text.trim().to_owned();
+            if !objective.is_empty() {
+                goal::edited(app, thread, status, token_budget, objective, fx);
+            }
+        }
     }
 }
 

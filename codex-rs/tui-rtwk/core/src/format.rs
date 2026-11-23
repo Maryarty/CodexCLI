@@ -1,5 +1,33 @@
 //! Number words shared by pages, carried from the oracle.
 
+/// The time a goal has run: `45s`, `12m`, `3h`, `3h 20m`, `2d 5h 7m`.
+// oracle: ../goal_display.rs fn format_goal_elapsed_seconds
+pub fn format_goal_elapsed_seconds(seconds: i64) -> String {
+    let seconds = seconds.max(0) as u64;
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+
+    let minutes = seconds / 60;
+    if minutes < 60 {
+        return format!("{minutes}m");
+    }
+
+    let hours = minutes / 60;
+    let remaining_minutes = minutes % 60;
+    if hours >= 24 {
+        let days = hours / 24;
+        let remaining_hours = hours % 24;
+        return format!("{days}d {remaining_hours}h {remaining_minutes}m");
+    }
+
+    if remaining_minutes == 0 {
+        format!("{hours}h")
+    } else {
+        format!("{hours}h {remaining_minutes}m")
+    }
+}
+
 // oracle: ../status/helpers.rs fn format_tokens_compact
 pub fn format_tokens_compact(value: i64) -> String {
     let value = value.max(0);

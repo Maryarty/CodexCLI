@@ -2409,6 +2409,10 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         attach_thread_with_metadata(app, &id, backend, Origin::Resumed, Some(thread), fx);
         show_held_thread(app, id.clone(), fx);
         apply_thread(app, &id, threads::history_page(&thread.turns, None), fx);
+        // `maybe_prompt_resume_paused_goal_after_resume`: a resumed thread's stopped goal asks.
+        if matches!(ctx, agents::Ctx::Resume { .. }) {
+            session::goal::after_resume(app, &id, fx);
+        }
     }
     if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
         && agents::is_active_writer(error)
@@ -2497,6 +2501,9 @@ fn session_opened(
             apply_thread(app, &id, threads::history_page(&opened.turns, None), fx);
             fetch_history(app, &id, fx);
             send_queued(app, &id, fx);
+            if action == Action::Resume {
+                session::goal::after_resume(app, &id, fx);
+            }
         }
         Answer::Failed(error) if action == Action::Resume && agents::is_active_writer(&error) => {
             app.threads.open(&requested, Origin::ForeignWriter);

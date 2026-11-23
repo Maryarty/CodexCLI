@@ -2527,7 +2527,22 @@ fn an_answered_resume_asks_for_the_history() {
     let mut app = listed_app(vec![task.clone()]);
     let ticket = resume_ticket(&accept_task(&mut app, &target), &target);
     let effects = resumed(&mut app, ticket, Ok(Reply::Resumed(Box::new(task))));
-    assert!(matches!(effects.commands(), [AppCommand::Screen {
+    // the thread's goal is read after a resume (`/goal`: a stopped goal asks to resume), the
+    // history is asked for besides
+    let asked: Vec<_> = effects
+        .commands()
+        .iter()
+        .filter(|command| {
+            !matches!(
+                command,
+                AppCommand::Screen {
+                    command: ScreenCommand::Select(codex_tui_core::screens::select::Command::Goal { .. }),
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert!(matches!(asked.as_slice(), [AppCommand::Screen {
         command: ScreenCommand::Agents(Command::Thread(ThreadAsk::History { thread, cursor: None })), ..
     }] if thread == &target));
 }
