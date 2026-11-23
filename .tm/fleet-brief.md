@@ -61,9 +61,9 @@
 - The rules tests (`--test rules`) check all of this.
 
 ## Done (the person, 2026-11-23: function first, the full test sweep after)
-1. The feature works in the real binary beside the oracle (pty scenario or
-   check.py run); differing rows in the pack. No visual deltas accepted.
-2. Its KEY oracle tests green: the ones that show the feature's main forms
+1. The feature works in the real binary beside the oracle — VERIFIED IN THE BATCH (rule 4),
+   not by you; name the pty scenario. No visual deltas accepted.
+2. Its KEY oracle tests green IN THE BATCH (you name them, rule 4): the ones that show the feature's main forms
    (a handful, not the whole family). The rest of its oracle tests stay
    `pending` with a reason and are named in the deliverable as
    "sweep: <shard>::<test>..." — a filler batch un-pends them later. Do not
