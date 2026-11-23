@@ -15,7 +15,7 @@
 
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::layout::{Column, CrossAxisAlignment, FlexFit, Flexible, MainAxisSize, SizedBox};
-use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::navigation::{Navigator, PageRoute, PopInvoked};
 use rtwk::prelude::Mods;
 use rtwk::provider::{read, watch};
 use rtwk::widgets::Text;
@@ -218,19 +218,30 @@ fn quits(model: &Model) -> bool {
 
 /// Whether leaving the page opens the agents overview: the trust prompt was
 /// cancelled with that as its cancel.
-fn overview(model: &Model) -> bool {
+pub(crate) fn overview(model: &Model) -> bool {
     model.trust.as_ref().is_some_and(|t| {
         t.decision == Some(TrustDecision::Cancelled) && t.cancel == TrustCancel::AgentsOverview
     })
+}
+
+/// How the startup page tells the home it is gone (Flutter: the `onDone` of
+/// a route): the home waits for it to mount the chat.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Left {
+    /// The page popped back to the home.
+    pub page: Handler<()>,
+    /// The page was replaced by the command center (the trust prompt
+    /// cancelled at launch) and the center popped: it is the page the home
+    /// waited on from then on (`PopScope.onPopInvokedWithResult`).
+    pub center: Handler<PopInvoked>,
 }
 
 /// The startup page, opened at `step`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupPage {
     pub step: Step,
-    /// Told once the page popped back to the home (Flutter: the `onDone`
-    /// of a route): the home waits for it to mount a start page.
-    pub left: Option<Handler<()>>,
+    /// Told once the page is gone: the home mounts the chat then.
+    pub left: Option<Left>,
 }
 
 impl StartupPage {
@@ -334,16 +345,18 @@ impl State for StartupPageState {
                     return Rebuild::No;
                 }
                 // The trust prompt cancelled at launch opens the agents
-                // overview instead of the folder (lib.rs: `should_exit`).
+                // overview instead of the folder (lib.rs: `should_exit`): the
+                // center is the page the home waits on now.
                 if overview(model) {
-                    drop(Navigator::push_replacement::<(), _>(
-                        cx,
-                        crate::pages::agents::start_route(),
-                    ));
+                    let center = match &w.left {
+                        Some(left) => crate::pages::agents::start_route_then(left.center.clone()),
+                        None => crate::pages::agents::start_route(),
+                    };
+                    drop(Navigator::push_replacement::<(), _>(cx, center));
                 } else {
                     Navigator::maybe_pop(cx);
                     if let Some(left) = &w.left {
-                        cx.emit(left, ());
+                        cx.emit(&left.page, ());
                     }
                 }
                 Rebuild::No
@@ -545,8 +558,8 @@ pub fn route(step: Step) -> PageRoute<()> {
     PageRoute::new(move |_| StartupPage { step, left: None }.into())
 }
 
-/// The page at `step`, telling `left` once it popped back.
-pub fn route_then(step: Step, left: Handler<()>) -> PageRoute<()> {
+/// The page at `step`, telling `left` once it is gone.
+pub fn route_then(step: Step, left: Left) -> PageRoute<()> {
     PageRoute::new(move |_| {
         StartupPage {
             step,
