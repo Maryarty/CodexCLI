@@ -31,9 +31,7 @@ pub struct Draft {
 /// is edited back to active.
 pub fn edited_status(status: GoalStatus) -> GoalStatus {
     match status {
-        GoalStatus::Active | GoalStatus::BudgetLimited | GoalStatus::Complete => {
-            GoalStatus::Active
-        }
+        GoalStatus::Active | GoalStatus::BudgetLimited | GoalStatus::Complete => GoalStatus::Active,
         GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::UsageLimited => status,
     }
 }

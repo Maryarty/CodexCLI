@@ -100,8 +100,8 @@ struct SkillSeed {
 
 /// A script's `fact` step for the feature: the fact `value` makes.
 pub fn seed(value: serde_json::Value) -> Result<Fact, SeedError> {
-    let seed: SeedEv = serde_json::from_value(value)
-        .map_err(|err| SeedError::Bad(err.to_string()))?;
+    let seed: SeedEv =
+        serde_json::from_value(value).map_err(|err| SeedError::Bad(err.to_string()))?;
     Ok(Fact::Offered(match seed {
         SeedEv::FeaturesDiscovered {
             generation,

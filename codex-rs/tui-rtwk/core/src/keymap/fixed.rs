@@ -103,6 +103,9 @@ pub const SEARCH_ACCEPT: ActionId = composer("search_accept");
 pub const SEARCH_CANCEL: ActionId = composer("search_cancel");
 pub const SEARCH_ERASE: ActionId = composer("search_erase");
 pub const SEARCH_CLEAR: ActionId = composer("search_clear");
+/// The ETX byte (`0x03`) a terminal without the kitty protocol sends for Ctrl+C, typed as text
+/// into a search: it cancels like Esc.
+pub const SEARCH_CANCEL_BYTE: ActionId = composer("search_cancel_byte");
 /// The port's own hidden debug key: no field of the oracle's swallows it.
 pub const DEBUG_KEY: ActionId = ActionId::new(Context::Global, "debug_key");
 
@@ -154,7 +157,8 @@ pub const BROWSE_NEWER_VIM: ActionId = chat("browse_newer_vim");
 /// Esc on the chat: the page's own ladder (close the overlay, leave for another page, scroll back,
 /// interrupt, prime the backtrack); the catalogue's `interrupt_turn` is only one rung of it.
 pub const ESCAPE: ActionId = chat("escape");
-/// Ctrl+C on the chat: interrupts a running turn, else quits.
+/// Ctrl+C on the chat: interrupts a running turn, else quits (the shortcut overlay and the usage
+/// page name it too).
 pub const INTERRUPT_OR_QUIT: ActionId = chat("interrupt_or_quit");
 /// Ctrl+D on the chat: quits when the composer is empty and no turn runs.
 pub const QUIT_ON_EMPTY: ActionId = chat("quit_on_empty");
@@ -173,8 +177,6 @@ pub const PROVIDER_CONTINUE: ActionId = chat("provider_continue");
 /// Alt+Left and Alt+Right: the previous and the next subagent thread (empty prompt).
 pub const SUBAGENT_PREVIOUS: ActionId = chat("subagent_previous");
 pub const SUBAGENT_NEXT: ActionId = chat("subagent_next");
-/// Ctrl+C: quits, or interrupts while a turn runs.
-pub const QUIT_OR_INTERRUPT: ActionId = ActionId::new(Context::Global, "quit_or_interrupt");
 /// The transcript's own selection and jumps: Ctrl+Space starts a selection, Ctrl+Home and Ctrl+End
 /// (or Alt+Shift+, and Alt+Shift+.) go to the top and the latest.
 pub const SELECTION_START: ActionId = ActionId::new(Context::Pager, "selection_start");
@@ -187,6 +189,9 @@ pub const AGENTS_FILTER_NEXT: ActionId = ActionId::new(Context::Agents, "filter_
 pub const AGENTS_FILTER_PREVIOUS: ActionId = ActionId::new(Context::Agents, "filter_previous");
 /// The usage page's Shift+Tab goes to the previous tab.
 pub const USAGE_PREVIOUS_TAB: ActionId = list("usage_previous_tab");
+/// The agents page's confirm dialog (`ConfirmDialog`): Up and Down move the highlighted option.
+pub const CONFIRM_PREVIOUS: ActionId = list("confirm_previous");
+pub const CONFIRM_NEXT: ActionId = list("confirm_next");
 /// The import's source prompt (`handle_key`): j/k and the arrows walk the sources, Enter takes
 /// one, Esc, Ctrl+C and Ctrl+D leave.
 pub const IMPORT_PREVIOUS: ActionId = list("import_previous");
@@ -275,6 +280,10 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: SEARCH_CANCEL,
         bindings: &[any(Key::Esc), exact(Key::Char('c'), CTRL)],
+    },
+    Fixed {
+        id: SEARCH_CANCEL_BYTE,
+        bindings: &[exact(Key::Char('\u{3}'), Mods::NONE)],
     },
     Fixed {
         id: SEARCH_ERASE,
@@ -369,10 +378,6 @@ pub const TABLE: &[Fixed] = &[
         bindings: &[exact(Key::Right, ALT)],
     },
     Fixed {
-        id: QUIT_OR_INTERRUPT,
-        bindings: &[exact(Key::Char('c'), CTRL)],
-    },
-    Fixed {
         id: SELECTION_START,
         bindings: &[exact(Key::Char(' '), CTRL)],
     },
@@ -403,6 +408,14 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: USAGE_PREVIOUS_TAB,
         bindings: &[exact(Key::Tab, Mods::SHIFT)],
+    },
+    Fixed {
+        id: CONFIRM_PREVIOUS,
+        bindings: &[any(Key::Up)],
+    },
+    Fixed {
+        id: CONFIRM_NEXT,
+        bindings: &[any(Key::Down)],
     },
     Fixed {
         id: IMPORT_PREVIOUS,

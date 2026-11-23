@@ -140,13 +140,7 @@ fn open(cx: &mut AppCx<'_>, source: Option<ThreadId>) {
         .and_then(|view| view.name())
         .map(str::to_owned)
         .unwrap_or_default();
-    cx.wish(
-        thread.clone(),
-        Wish::Name {
-            thread,
-            existing,
-        },
-    );
+    cx.wish(thread.clone(), Wish::Name { thread, existing });
 }
 
 /// The name the user submitted: the thread is renamed, an empty name is the error line.

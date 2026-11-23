@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use rtwk::editing::{TextArea, TextEditingController};
-use rtwk::focus::{Focus, FocusNode, KeyPress};
+use rtwk::focus::{Focus, FocusNode};
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
     SizedBox,
@@ -17,7 +17,10 @@ use rtwk::style::Style;
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
+
 use crate::app::theme::Tokens;
+use crate::keymap::bind_fixed;
 
 /// What the editor answered.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,11 +125,10 @@ impl State for EditorState {
             .child(gap())
             .child(inset(Text::line(w.hint).style(tokens.dim()).into()));
         // The text area leaves Esc to the nodes above it.
-        Focus::new(Dialog::bare(
+        let focus = Focus::new(Dialog::bare(
             BoxWidget::new().style(Style::new()).child(column),
         ))
-        .can_request_focus(false)
-        .bind(KeyPress::ESC, cx.send(Msg::Back))
-        .into()
+        .can_request_focus(false);
+        bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Back)).into()
     }
 }

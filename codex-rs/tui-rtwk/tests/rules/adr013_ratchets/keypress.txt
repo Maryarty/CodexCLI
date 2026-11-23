@@ -1,11 +1,6 @@
 # ADR-013 ratchets of the KeyPress literals outside `keymap` (format and rules: tests/rules/adr013_ratchets.txt).
 # A hit is a `KeyPress::` literal or a `.text() == Some(..)` test in a view: the strokes become `keymap::fixed`
 # named actions in the family that owns the file (adr013-keys, the composer and the startup flows); the list only shrinks.
-ratchet adr006_keycode_only_in_keymap src/features/prompt.rs 1
-ratchet adr006_keycode_only_in_keymap src/pages/agents/dialogs.rs 5
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/editing.rs 34
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/search.rs 1
-ratchet adr006_keycode_only_in_keymap src/pages/session/transcript/sheet.rs 2
 ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/device.rs 3
 ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/mod.rs 2
 ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/keys.rs 1
@@ -25,4 +20,3 @@ ratchet adr006_keycode_only_in_keymap src/sheets/dialogs/warnings.rs 3
 ratchet adr006_keycode_only_in_keymap src/sheets/pets/mod.rs 3
 ratchet adr006_keycode_only_in_keymap src/sheets/select/app_link.rs 6
 ratchet adr006_keycode_only_in_keymap src/sheets/select/prompt.rs 1
-ratchet adr006_keycode_only_in_keymap src/sheets/select/quick/editor.rs 1

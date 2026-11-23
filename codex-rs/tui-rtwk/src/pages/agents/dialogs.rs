@@ -7,18 +7,20 @@
 //! `SelectionViewParams::confirmation()`) and `run_agents_overview_action`
 //! (the `LifecycleHeader` selection view of a refused removal).
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::overlay::close_dialog;
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::agents::Intent as AgentsIntent;
 use codex_tui_core::screens::agents::{Action, Model};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::{strings, view};
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 use crate::l10n::strings as shared;
 use crate::widgets::options::Options;
 
@@ -92,11 +94,10 @@ impl State for ConfirmDialogState {
         let panel = view::confirm_dialog(&look, strings, &num, &w.ask, &self.options);
         // The arrows, Enter and the digits are the dialog's; Esc is left to
         // the `Dialog`.
-        Focus::new(panel)
-            .can_request_focus(false)
-            .bind(KeyPress::UP, cx.send(Msg::Move(-1)))
-            .bind(KeyPress::DOWN, cx.send(Msg::Move(1)))
-            .bind(KeyPress::ENTER, cx.send(Msg::Enter))
+        let focus = Focus::new(panel).can_request_focus(false);
+        let focus = bind_fixed(focus, fixed::CONFIRM_PREVIOUS, cx.send(Msg::Move(-1)));
+        let focus = bind_fixed(focus, fixed::CONFIRM_NEXT, cx.send(Msg::Move(1)));
+        bind_fixed(focus, fixed::ENTER, cx.send(Msg::Enter))
             .bind('1', cx.send(Msg::Pick(0)))
             .bind('2', cx.send(Msg::Pick(1)))
             .into()
@@ -154,10 +155,9 @@ impl State for FailureDialogState {
         let Some(failure) = &agents.failure else {
             return AnyWidget::default();
         };
-        Focus::new(view::failure_dialog(&look, strings, failure))
-            .autofocus()
-            .bind(KeyPress::ESC, cx.send(Dismiss))
-            .bind(KeyPress::ENTER, cx.send(Dismiss))
+        let focus = Focus::new(view::failure_dialog(&look, strings, failure)).autofocus();
+        let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Dismiss));
+        bind_fixed(focus, fixed::ENTER, cx.send(Dismiss))
             .bind('1', cx.send(Dismiss))
             .into()
     }

@@ -837,8 +837,24 @@ mod tests {
         assert!(edit_key(d, c, &key, None), "the composer takes {key:?}");
     }
 
-    fn ctrl(ch: char) -> KeyPress {
-        KeyPress::char(ch).with_mods(Mods::CTRL)
+    /// The press of a hardwired action's first key (the defaults' for a configurable one).
+    fn of(id: ActionId) -> KeyPress {
+        nth(id, 0)
+    }
+
+    fn nth(id: ActionId, n: usize) -> KeyPress {
+        crate::keymap::presses(&Keymap::defaults(), id)
+            .into_iter()
+            .nth(n)
+            .expect("the action has the key")
+    }
+
+    /// The press of the first key the test's own keymap gives an action.
+    fn of_keyed(d: &KeyData, id: ActionId) -> KeyPress {
+        crate::keymap::presses(&d.keymap, id)
+            .into_iter()
+            .next()
+            .expect("the keymap binds the action")
     }
 
     fn state(c: &TextEditingController) -> (String, usize) {
@@ -849,25 +865,25 @@ mod tests {
     fn delete_backward_word_and_kill_line_variants() {
         let d = data();
         let c = at("hello   world  ", 15);
-        press(&d, &c, ctrl('w'));
+        press(&d, &c, of(FIELD_DELETE_BACKWARD_WORD));
         assert_eq!(state(&c), ("hello   ".into(), 8));
         let c = at("foo bar", 6);
-        press(&d, &c, KeyPress::BACKSPACE.with_mods(Mods::ALT));
+        press(&d, &c, nth(FIELD_DELETE_BACKWARD_WORD, 1));
         assert_eq!(state(&c), ("foo r".into(), 4));
         let c = at("foo bar", 7);
-        press(&d, &c, ctrl('w'));
+        press(&d, &c, of(FIELD_DELETE_BACKWARD_WORD));
         assert_eq!(state(&c), ("foo ".into(), 4));
         let c = at("abc\ndef", 1);
-        press(&d, &c, ctrl('k'));
+        press(&d, &c, of(FIELD_KILL_LINE_END));
         assert_eq!(state(&c), ("a\ndef".into(), 1));
         let c = at("abc\ndef", 3);
-        press(&d, &c, ctrl('k'));
+        press(&d, &c, of(FIELD_KILL_LINE_END));
         assert_eq!(state(&c), ("abcdef".into(), 3));
         let c = at("abc\ndef", 5);
-        press(&d, &c, ctrl('u'));
+        press(&d, &c, of(FIELD_KILL_LINE_START));
         assert_eq!(c.text().as_ref(), "abc\nef");
         let c = at("abc\ndef", 4);
-        press(&d, &c, ctrl('u'));
+        press(&d, &c, of(FIELD_KILL_LINE_START));
         assert_eq!(state(&c), ("abcdef".into(), 3));
     }
 
@@ -875,23 +891,23 @@ mod tests {
     fn yank_restores_last_kill() {
         let d = data();
         let c = at("hello", 0);
-        press(&d, &c, ctrl('k'));
+        press(&d, &c, of(FIELD_KILL_LINE_END));
         assert_eq!(state(&c), (String::new(), 0));
-        press(&d, &c, ctrl('y'));
+        press(&d, &c, of(FIELD_YANK));
         assert_eq!(state(&c), ("hello".into(), 5));
 
         let d = data();
         let c = at("hello world", 11);
-        press(&d, &c, ctrl('w'));
+        press(&d, &c, of(FIELD_DELETE_BACKWARD_WORD));
         assert_eq!(state(&c), ("hello ".into(), 6));
-        press(&d, &c, ctrl('y'));
+        press(&d, &c, of(FIELD_YANK));
         assert_eq!(state(&c), ("hello world".into(), 11));
 
         let d = data();
         let c = at("hello", 5);
-        press(&d, &c, ctrl('u'));
+        press(&d, &c, of(FIELD_KILL_LINE_START));
         assert_eq!(state(&c), (String::new(), 0));
-        press(&d, &c, ctrl('y'));
+        press(&d, &c, of(FIELD_YANK));
         assert_eq!(state(&c), ("hello".into(), 5));
     }
 
@@ -899,11 +915,11 @@ mod tests {
     fn kill_buffer_persists_across_set_text() {
         let d = data();
         let c = at("restore me", 0);
-        press(&d, &c, ctrl('k'));
+        press(&d, &c, of(FIELD_KILL_LINE_END));
         assert!(c.text().is_empty());
         c.set_text("/diff");
         c.set_text("");
-        press(&d, &c, ctrl('y'));
+        press(&d, &c, of(FIELD_YANK));
         assert_eq!(state(&c), ("restore me".into(), "restore me".len()));
     }
 
@@ -914,11 +930,11 @@ mod tests {
         d.draft.insert_element(&c, "[P]", "payload");
         assert_eq!(state(&c), ("a[P]b".into(), 4));
         assert_eq!(d.draft.expanded(&c), "apayloadb");
-        press(&d, &c, KeyPress::LEFT);
+        press(&d, &c, of(FIELD_LEFT));
         assert_eq!(c.selection().extent_offset, 1);
-        press(&d, &c, KeyPress::RIGHT);
+        press(&d, &c, of(FIELD_RIGHT));
         assert_eq!(c.selection().extent_offset, 4);
-        press(&d, &c, KeyPress::BACKSPACE);
+        press(&d, &c, of(FIELD_DELETE_BACKWARD));
         assert_eq!(state(&c), ("ab".into(), 1));
         assert_eq!(d.draft.expanded(&c), "ab");
     }
@@ -965,7 +981,7 @@ mod tests {
 
     #[test]
     fn tab_submits_a_plain_text_draft_and_is_the_pages_in_the_chat() {
-        let key = KeyPress::TAB;
+        let key = of(TAB);
         let (d, sent) = told(ComposerDraft::plain());
         let c = at("!keep this literal", 18);
         assert_eq!(composer_key(&d, &c, &key), Some(true));
@@ -1014,7 +1030,7 @@ mod tests {
         }
 
         fn enter() -> KeyPress {
-            KeyPress::ENTER
+            of(ENTER)
         }
 
         #[test]
@@ -1025,7 +1041,7 @@ mod tests {
             assert_eq!(told.borrow().len(), 1);
             let c = at("/status", 7);
             assert!(key(&d, &c, enter()));
-            assert!(key(&d, &c, KeyPress::TAB));
+            assert!(key(&d, &c, of(TAB)));
             assert_eq!(told.borrow().len(), 1, "nothing else was told");
             assert_eq!(c.text().as_ref(), "/status");
             let c = at("hello", 5);
@@ -1078,8 +1094,8 @@ mod tests {
             let (d, told) = told_by(Restricted::Disconnected);
             let c = at("abc def", 7);
             // the door lets it by, and the composer's own edit takes it
-            assert!(!key(&d, &c, ctrl('u')));
-            assert!(edit_key(&d, &c, &ctrl('u'), None));
+            assert!(!key(&d, &c, of(FIELD_KILL_LINE_START)));
+            assert!(edit_key(&d, &c, &of(FIELD_KILL_LINE_START), None));
             assert_eq!(c.text().as_ref(), "");
             assert!(told.borrow().is_empty());
         }
@@ -1097,21 +1113,21 @@ mod tests {
         let d = data();
         let c = at("abc", 3);
         // Enter is `editor.insert_newline` too, but Composer shadows it: it submits
-        assert_eq!(composer_key(&d, &c, &KeyPress::ENTER), Some(false));
+        assert_eq!(composer_key(&d, &c, &of(ENTER)), Some(false));
         // the page's own binding queues
-        assert_eq!(composer_key(&d, &c, &KeyPress::TAB), Some(false));
-        assert_eq!(composer_key(&d, &c, &KeyPress::char('a')), None);
+        assert_eq!(composer_key(&d, &c, &of(TAB)), Some(false));
+        assert_eq!(composer_key(&d, &c, &crate::keymap::typed('a')), None);
     }
 
     #[test]
     fn a_remapped_submit_frees_enter_for_the_line_break_and_swallows_tab_when_unbound() {
         let d = keyed("composer", "submit", &["ctrl-s"]);
         let c = at("ab", 2);
-        assert_eq!(composer_key(&d, &c, &KeyPress::ENTER), None);
-        press(&d, &c, KeyPress::ENTER);
+        assert_eq!(composer_key(&d, &c, &of(ENTER)), None);
+        press(&d, &c, of(ENTER));
         assert_eq!(c.text().as_ref(), "ab\n");
         let d = keyed("composer", "queue", &["f5"]);
-        assert_eq!(composer_key(&d, &c, &KeyPress::TAB), Some(true));
+        assert_eq!(composer_key(&d, &c, &of(TAB)), Some(true));
     }
 
     #[test]
@@ -1121,7 +1137,7 @@ mod tests {
         press(&d, &c, press_of(&Stroke::parse("f2").unwrap()).unwrap());
         assert_eq!(state(&c), ("abc".into(), 1));
         // `left` is no longer bound to anything: it does not fall back
-        press(&d, &c, KeyPress::LEFT);
+        press(&d, &c, of(FIELD_LEFT));
         assert_eq!(state(&c), ("abc".into(), 1));
     }
 
@@ -1129,7 +1145,7 @@ mod tests {
     fn kill_whole_line_is_unbound_until_the_user_binds_it() {
         let d = data();
         let c = at("abc\ndef\nghi", 5);
-        press(&d, &c, ctrl('u'));
+        press(&d, &c, of(FIELD_KILL_LINE_START));
         assert_eq!(
             c.text().as_ref(),
             "abc\nef\nghi",
@@ -1137,13 +1153,13 @@ mod tests {
         );
         let d = keyed("editor", "kill_whole_line", &["ctrl-o"]);
         let c = at("abc\ndef\nghi", 5);
-        press(&d, &c, ctrl('o'));
+        press(&d, &c, of_keyed(&d, EDITOR_KILL_WHOLE_LINE));
         assert_eq!(c.text().as_ref(), "abc\nghi");
         let c = at("abc\ndef", 5);
-        press(&d, &c, ctrl('o'));
+        press(&d, &c, of_keyed(&d, EDITOR_KILL_WHOLE_LINE));
         assert_eq!(c.text().as_ref(), "abc");
         // the killed line is in the ring
-        press(&d, &c, ctrl('y'));
+        press(&d, &c, of(FIELD_YANK));
         assert_eq!(c.text().as_ref(), "abc\ndef");
     }
     /// What the keys of the clipboard image and of the remote image rows ask
@@ -1194,15 +1210,15 @@ mod tests {
         #[test]
         fn ctrl_v_and_alt_v_ask_for_the_clipboard_image_once_per_quarter_second() {
             let r = rig();
-            assert!(paste_image(&r.data, &ctrl('v')));
+            assert!(paste_image(&r.data, &of(PASTE_IMAGE)));
             assert_eq!(*r.told.borrow(), ["PasteImage"]);
             // the repeat of a held key, 100 ms later, is swallowed
             r.now.set(Duration::from_millis(100));
-            assert!(paste_image(&r.data, &ctrl('v')));
+            assert!(paste_image(&r.data, &of(PASTE_IMAGE)));
             assert_eq!(r.told.borrow().len(), 1);
             // a press 250 ms after the last asks again, whichever its modifier
             r.now.set(Duration::from_millis(350));
-            let alt = KeyPress::char('v').with_mods(Mods::ALT);
+            let alt = nth(PASTE_IMAGE, 1);
             assert!(paste_image(&r.data, &alt));
             assert_eq!(r.told.borrow().len(), 2);
         }
@@ -1210,13 +1226,13 @@ mod tests {
         #[test]
         fn a_plain_v_is_typed_and_ctrl_v_outside_an_app_is_the_fields() {
             let r = rig();
-            assert!(!paste_image(&r.data, &KeyPress::char('v')));
+            assert!(!paste_image(&r.data, &crate::keymap::typed('v')));
             assert!(r.told.borrow().is_empty());
             let outside = KeyData {
                 burst: None,
                 ..data()
             };
-            assert!(!paste_image(&outside, &ctrl('v')));
+            assert!(!paste_image(&outside, &of(PASTE_IMAGE)));
         }
 
         #[test]
@@ -1224,20 +1240,20 @@ mod tests {
             let r = rig();
             let c = at("hello", 0);
             r.data.draft.set_remote_images(&c, urls(3), image);
-            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_UP))));
             assert_eq!(r.data.draft.remote_selected(), Some(2));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_UP))));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_UP))));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_UP))));
             assert_eq!(
                 r.data.draft.remote_selected(),
                 Some(0),
                 "the first row stays"
             );
-            assert!(remote_key(&r.data, &c, &key(KeyPress::DOWN)));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_DOWN))));
             assert_eq!(r.data.draft.remote_selected(), Some(1));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::DOWN)));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::DOWN)));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_DOWN))));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_DOWN))));
             assert_eq!(r.data.draft.remote_selected(), None, "past the last row");
             assert!(r.told.borrow().iter().all(|m| m == "Remote"));
         }
@@ -1247,17 +1263,17 @@ mod tests {
             let r = rig();
             let c = at("hello", 2);
             r.data.draft.set_remote_images(&c, urls(2), image);
-            assert!(!remote_key(&r.data, &c, &key(KeyPress::UP)));
-            assert!(!remote_key(&r.data, &c, &key(KeyPress::DOWN)));
+            assert!(!remote_key(&r.data, &c, &key(of(FIELD_UP))));
+            assert!(!remote_key(&r.data, &c, &key(of(FIELD_DOWN))));
             let c = at("hello", 0);
-            assert!(!remote_key(&r.data, &c, &key(KeyPress::DOWN)));
+            assert!(!remote_key(&r.data, &c, &key(of(FIELD_DOWN))));
             assert_eq!(r.data.draft.remote_selected(), None);
             // a selected stretch of text keeps Up for the text
             c.set_selection(TextSelection {
                 base_offset: 0,
                 extent_offset: 3,
             });
-            assert!(!remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(!remote_key(&r.data, &c, &key(of(FIELD_UP))));
             assert!(r.told.borrow().is_empty());
         }
 
@@ -1271,9 +1287,9 @@ mod tests {
                 .attach_image(&c, std::path::PathBuf::from("/tmp/a.png"), image);
             assert_eq!(&*c.text(), "[Image #3]");
             c.set_selection(TextSelection::collapsed(0));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
-            assert!(remote_key(&r.data, &c, &key(KeyPress::DELETE)));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_UP))));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_UP))));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_DELETE_FORWARD))));
             assert_eq!(r.data.draft.remote_images(), urls(2)[1..].to_vec());
             assert_eq!(
                 &*c.text(),
@@ -1282,7 +1298,7 @@ mod tests {
             );
             assert_eq!(r.data.draft.remote_selected(), Some(0));
             // Backspace removes the last one; no row is left to select
-            assert!(remote_key(&r.data, &c, &key(KeyPress::BACKSPACE)));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_DELETE_BACKWARD))));
             assert_eq!(r.data.draft.remote_count(), 0);
             assert_eq!(r.data.draft.remote_selected(), None);
             assert_eq!(&*c.text(), "[Image #1]");
@@ -1293,8 +1309,8 @@ mod tests {
             let r = rig();
             let c = at("", 0);
             r.data.draft.set_remote_images(&c, urls(1), image);
-            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
-            assert!(!remote_key(&r.data, &c, &KeyPress::char('a')));
+            assert!(remote_key(&r.data, &c, &key(of(FIELD_UP))));
+            assert!(!remote_key(&r.data, &c, &crate::keymap::typed('a')));
             assert_eq!(r.data.draft.remote_selected(), None);
         }
     }

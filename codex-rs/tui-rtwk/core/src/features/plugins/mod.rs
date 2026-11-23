@@ -16,16 +16,16 @@ mod wire;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
-use crate::commands::SlashCommand;
 use crate::app::effects::Done;
+use crate::commands::SlashCommand;
 use crate::ids::{Cwd, ThreadId};
 use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 pub use catalog::{
     Action, Catalog, Config, Configured, Detail, Kind, Location, Marketplace, Part, Placeholder,
-    Plugin, Product, Row, RowKey, Section, SectionError, Source, Status as PluginStatus, Tab, Target,
-    Toggle,
+    Plugin, Product, Row, RowKey, Section, SectionError, Source, Status as PluginStatus, Tab,
+    Target, Toggle,
 };
 pub use state::{Gen, Market, Op, OpKey, Outcome, PluginKey, Setup, State, Status};
 pub use wire::{AuthApp, Found, Want, Wanted, add_source, decode, wire_request};
@@ -41,21 +41,47 @@ pub struct Sheet;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// `/plugins` was run in `cwd`: says so when the feature is off.
-    Run { cwd: Cwd },
+    Run {
+        cwd: Cwd,
+    },
     /// The detail of a plugin of the list.
-    Read { key: PluginKey },
-    Install { key: PluginKey },
-    Uninstall { key: PluginKey },
+    Read {
+        key: PluginKey,
+    },
+    Install {
+        key: PluginKey,
+    },
+    Uninstall {
+        key: PluginKey,
+    },
     /// The switch of a plugin of the list set to `enabled` (coalesced while a write runs).
-    SetEnabled { key: PluginKey, enabled: bool },
-    AddMarketplace { cwd: Cwd, source: String },
-    RemoveMarketplace { cwd: Cwd, name: String },
+    SetEnabled {
+        key: PluginKey,
+        enabled: bool,
+    },
+    AddMarketplace {
+        cwd: Cwd,
+        source: String,
+    },
+    RemoveMarketplace {
+        cwd: Cwd,
+        name: String,
+    },
     /// One marketplace, or all of the configured git ones.
-    UpgradeMarketplace { cwd: Cwd, name: Option<String> },
+    UpgradeMarketplace {
+        cwd: Cwd,
+        name: Option<String>,
+    },
     /// The page of one of the apps of the setup (`app` is its id) opens in the browser.
-    OpenSetupPage { key: PluginKey, app: String },
+    OpenSetupPage {
+        key: PluginKey,
+        app: String,
+    },
     /// The setup of an installed plugin's apps is over.
-    EndSetup { key: PluginKey, how: SetupEnd },
+    EndSetup {
+        key: PluginKey,
+        how: SetupEnd,
+    },
 }
 
 /// How the setup of an installed plugin's apps ended.
@@ -117,18 +143,55 @@ impl Fact {
 /// number that tells it from an older ask of the same key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
-    List { cwd: Cwd, request: u64 },
-    Section { cwd: Cwd, request: u64, part: Part },
-    Read { key: PluginKey, request: u64 },
-    Install { key: PluginKey, at: Gen, name: String, target: Target },
-    Uninstall { key: PluginKey, at: Gen, name: String },
-    Add { cwd: Cwd, at: Gen },
-    Remove { cwd: Cwd, at: Gen, name: String, label: String },
-    Upgrade { cwd: Cwd, at: Gen, name: Option<String> },
-    Enable { cwd: Cwd, id: String, enabled: bool },
+    List {
+        cwd: Cwd,
+        request: u64,
+    },
+    Section {
+        cwd: Cwd,
+        request: u64,
+        part: Part,
+    },
+    Read {
+        key: PluginKey,
+        request: u64,
+    },
+    Install {
+        key: PluginKey,
+        at: Gen,
+        name: String,
+        target: Target,
+    },
+    Uninstall {
+        key: PluginKey,
+        at: Gen,
+        name: String,
+    },
+    Add {
+        cwd: Cwd,
+        at: Gen,
+    },
+    Remove {
+        cwd: Cwd,
+        at: Gen,
+        name: String,
+        label: String,
+    },
+    Upgrade {
+        cwd: Cwd,
+        at: Gen,
+        name: Option<String>,
+    },
+    Enable {
+        cwd: Cwd,
+        id: String,
+        enabled: bool,
+    },
     /// A page opened in the browser (the sign-in page of an app): the host's answer says whether
     /// it opened.
-    Page { url: String },
+    Page {
+        url: String,
+    },
 }
 
 /// What the feature says in the history.
@@ -137,23 +200,50 @@ pub enum Say {
     /// The plugins feature is off.
     Disabled,
     /// `Installed {name} plugin.`; the apps still to sign in (none: nothing more is needed).
-    Installed { name: String, apps: Vec<String> },
-    Uninstalled { name: String },
+    Installed {
+        name: String,
+        apps: Vec<String>,
+    },
+    Uninstalled {
+        name: String,
+    },
     /// The setup of the apps was given up, or went through.
-    Skipped { name: String },
-    Completed { name: String },
-    EnableFailed { id: String, error: RpcError },
-    MarketAdded { name: String, root: String, already: bool },
-    MarketRemoved { label: String, name: String, root: Option<String> },
+    Skipped {
+        name: String,
+    },
+    Completed {
+        name: String,
+    },
+    EnableFailed {
+        id: String,
+        error: RpcError,
+    },
+    MarketAdded {
+        name: String,
+        root: String,
+        already: bool,
+    },
+    MarketRemoved {
+        label: String,
+        name: String,
+        root: Option<String>,
+    },
     /// No configured git marketplace to upgrade.
     NothingToUpgrade,
-    UpToDate { selected: Vec<String> },
-    Upgraded { roots: Vec<String> },
+    UpToDate {
+        selected: Vec<String>,
+    },
+    Upgraded {
+        roots: Vec<String>,
+    },
     UpgradeFailed(Vec<(String, String)>),
     /// The request itself failed.
     UpgradeError(RpcError),
     /// The browser did not open `url`.
-    PageFailed { url: String, error: String },
+    PageFailed {
+        url: String,
+        error: String,
+    },
 }
 
 impl Say {
@@ -194,7 +284,11 @@ impl Feature for Plugins {
     }
 
     fn note_tone(note: &Say) -> Tone {
-        if note.error() { Tone::Error } else { Tone::Info }
+        if note.error() {
+            Tone::Error
+        } else {
+            Tone::Info
+        }
     }
 
     fn effect_done(_state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {

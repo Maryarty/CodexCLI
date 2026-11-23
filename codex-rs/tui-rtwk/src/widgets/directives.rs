@@ -20,8 +20,6 @@ use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::agents::Notice;
 use codex_tui_core::threads::{Restore, ThreadModel, UserMessage};
 
 /// What changed in the model that the page acts on once.
@@ -41,9 +39,8 @@ pub enum Edge {
     Plan,
     /// A thread was archived or deleted and the page is in front.
     Removed,
-    /// The error the command center's notice shows changed (a fork ends with an error of it):
-    /// its text, none when the notice is no error.
-    Error(Option<String>),
+    /// The server refused a fork (the copy never opens): the page stops waiting on it.
+    ForkFailed,
 }
 
 /// The numbers of a thread the listener compares from one change to the next.
@@ -62,17 +59,9 @@ struct Counters {
 struct Deps {
     counters: Counters,
     removed: u32,
-    error: Option<String>,
+    fork_failed: u32,
     /// The page is the route in front: a removal waits until it is.
     current: bool,
-}
-
-/// The text of the error a notice shows (what a fork that failed leaves in the command center).
-pub fn error_of(notice: &Option<Notice>) -> Option<String> {
-    match notice {
-        Some(Notice::Error(text)) => Some(text.clone()),
-        _ => None,
-    }
 }
 
 /// The one list of what the listener selects (asked by its `did_change_dependencies` and its
@@ -90,11 +79,11 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
         }
     });
     let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
-    let error = select::<ScreenStates, _, _>(cx, |states| error_of(&states.agents.notice));
+    let fork_failed = select::<SessionSlice, u32, _>(cx, |session| session.fork_failed);
     Deps {
         counters,
         removed,
-        error,
+        fork_failed,
         current: Route::is_current_of(cx),
     }
 }
@@ -110,7 +99,7 @@ pub struct Listener {
 #[derive(Default)]
 pub struct ListenerState {
     seen: Option<Counters>,
-    error: Option<Option<String>>,
+    fork_failed: Option<u32>,
     removed: Option<u32>,
 }
 
@@ -146,7 +135,7 @@ impl State for ListenerState {
         let Deps {
             counters: now,
             removed,
-            error,
+            fork_failed,
             current,
         } = deps(cx);
         let before = self.seen.replace(now.clone());
@@ -184,11 +173,11 @@ impl State for ListenerState {
             Some(_) => {}
         }
         if self
-            .error
-            .replace(error.clone())
-            .is_some_and(|seen| seen != error)
+            .fork_failed
+            .replace(fork_failed)
+            .is_some_and(|seen| seen < fork_failed)
         {
-            cx.emit(&w.on_edge, Edge::Error(error));
+            cx.emit(&w.on_edge, Edge::ForkFailed);
         }
     }
 

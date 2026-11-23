@@ -15,7 +15,8 @@
 use std::rc::Rc;
 
 use rtwk::Cx;
-use rtwk::focus::{KeyCombo, KeyPress};
+use rtwk::Handler;
+use rtwk::focus::{Focus, KeyCombo, KeyPress};
 use rtwk::prelude::{KeyCode, Mods as PressMods};
 use rtwk::provider::watch;
 
@@ -243,6 +244,23 @@ pub fn presses(keymap: &Keymap, id: ActionId) -> Vec<KeyPress> {
             .collect(),
         None => keymap.singles(id).iter().filter_map(press_of).collect(),
     }
+}
+
+/// `focus` with every key of a hardwired action bound to `handler` (a dialog's Esc and Enter: the
+/// keys are the action's, the dialog never spells them).
+pub fn bind_fixed(focus: Focus, id: ActionId, handler: Handler<()>) -> Focus {
+    fixed::bindings_of(id)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|binding| press_of(&Stroke::new(binding.key, binding.mods.pressed())))
+        .fold(focus, |focus, key| focus.bind(key, handler.clone()))
+}
+
+/// A typed character (a plain letter or digit: the text a key writes, no shortcut), for the tests
+/// that feed the field a key which is none.
+#[cfg(test)]
+pub fn typed(ch: char) -> KeyPress {
+    KeyPress::char(ch)
 }
 
 /// Whether a key press is one of a hardwired action's keys (`pressed` without a keymap, for the

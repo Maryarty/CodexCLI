@@ -2,8 +2,8 @@
 //! `thread_goal_get`, `thread_goal_set`, `thread_goal_clear`).
 
 use codex_app_server_protocol::{
-    ClientRequest, RequestId, ThreadGoalClearParams, ThreadGoalGetParams,
-    ThreadGoalMutationOrigin, ThreadGoalSetParams,
+    ClientRequest, RequestId, ThreadGoalClearParams, ThreadGoalGetParams, ThreadGoalMutationOrigin,
+    ThreadGoalSetParams,
 };
 
 use crate::ids::ThreadId;
