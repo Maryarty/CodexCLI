@@ -126,7 +126,8 @@ fn sparkle_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Spa
         text: c.text().to_string(),
         aside: data.draft.searching() || search::opens(data, key),
         vim_query: mode.searching,
-        vim_normal: mode.normal,
+        // (`/` on an empty draft goes into Insert mode first: the sparkle hears it as typed)
+        vim_normal: mode.normal && !vim::opens_slash(data, c, key, &mode),
     }
 }
 
@@ -149,14 +150,17 @@ fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> 
     if data.restricted.is_none() && data.draft.searching() {
         return search::key(data, c, key);
     }
-    let mode = vim::mode(&data.draft);
+    let mut mode = vim::mode(&data.draft);
     if mode.searching {
         return vim::search_key(data, c, key);
     }
-    if mode.normal
-        && let Some(took) = vim::early(data, c, key, &mode)
-    {
-        return took;
+    if mode.normal {
+        if let Some(took) = vim::early(data, c, key, &mode) {
+            return took;
+        }
+        // `/` on an empty draft went into Insert mode and is typed there: the key is read in the
+        // mode it left behind
+        mode = vim::mode(&data.draft);
     }
     // a `$skill` completion's space lasts for the next key only
     let skill_space = data.draft.take_skill_space();

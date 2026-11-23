@@ -331,6 +331,19 @@ fn typed_char(key: &KeyPress) -> Option<char> {
 
 // ---- Normal mode ------------------------------------------------------------
 
+/// `/` on an empty draft is the slash command's: Normal mode goes into Insert mode and types it
+/// (the search key of Vim is for a draft with text).
+pub fn opens_slash(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &Mode) -> bool {
+    mode.normal
+        && mode.pending == Pending::None
+        && !data.suggest.open()
+        && c.text().is_empty()
+        && key.code == KeyCode::Char
+        && key.ch == Some('/')
+        && key.mods == Mods::NONE
+        && pressed(&data.keymap, VIM_SEARCH_FORWARD, key)
+}
+
 /// The keys Normal mode answers before anything else of the composer: the
 /// `/` query starts (and `n`, `N`), `u` and Ctrl+R go through the draft's
 /// history. `None`: not one of them.
@@ -342,17 +355,8 @@ pub fn early(
 ) -> Option<bool> {
     let keymap = &*data.keymap;
     let draft = &data.draft;
-    let popup = data.suggest.open();
     if matches!(mode.pending, Pending::None | Pending::Operator(_)) {
-        // `/` on an empty draft is the slash command's: typed in Insert mode
-        if mode.pending == Pending::None
-            && !popup
-            && c.text().is_empty()
-            && key.code == KeyCode::Char
-            && key.ch == Some('/')
-            && key.mods == Mods::NONE
-            && pressed(keymap, VIM_SEARCH_FORWARD, key)
-        {
+        if opens_slash(data, c, key, mode) {
             draft.vim_begin_edit(c);
             run(data, c, |v, host| v.enter_insert(host));
             (data.tell)(ComposerMsg::Redraw);
@@ -380,7 +384,7 @@ pub fn early(
             }
         }
     }
-    if mode.pending == Pending::None && !popup {
+    if mode.pending == Pending::None && !data.suggest.open() {
         let redo = pressed(keymap, VIM_NORMAL_REDO, key);
         if redo || pressed(keymap, VIM_NORMAL_UNDO, key) {
             draft.vim_step(c, redo);

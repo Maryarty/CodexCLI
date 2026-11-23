@@ -13,6 +13,11 @@ use crate::kit::{self, Owner, Screen};
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
 /// The live chat with a side conversation active (`set_side_conversation_active`).
 const SIDE: &str = include_str!("fixtures/chat_commands_3/side.jsonl");
+/// A fresh thread on `gpt-6-astra` with animations and the starfield effect on (the oracle's
+/// `mark_fresh_task_for_sparkle`).
+const ASTRA: &str = include_str!("fixtures/chat_commands_3/astra.jsonl");
+/// The glyphs of the sparkle's dots.
+const SPARKLE_DOTS: &str = "⠁⠂⠄⠈⠐⠠⡀⢀";
 /// A thread whose rollout file is `/tmp/codex-test-rollout.jsonl` (`current_rollout_path`).
 const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 
@@ -747,15 +752,23 @@ fn transcript_copy_feedback_stays_in_the_footer_without_history_or_interrupts() 
 // ORACLE chatwidget/tests/sparkle_submission_tests.rs:11 ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering kind=ui owner=chat-nav-pane
 #[test]
 fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the sparkle (braille glyph) animation of a fresh task on gpt-6-astra with starfield is not seeded; the kit has no any-of-glyphs assertion for the sparkle set",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // the oracle submits twice, once as typed and once with images the host prepared (an
+    // `Op::UserTurn` built in code, no composer attachment): the dots of the fresh Astra thread
+    // show before the submit and are gone after it. Only the typed submit can be driven here: an
+    // image attached in the composer ends the sparkle at the attachment (pane_footer_1), so the
+    // dots would not show before the submit.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(ASTRA)
+        .terminal_colors(0xe6_d8_ff, 0x24_1b_35)
+        .open();
+    let shown = |s: &Screen| s.text().chars().any(|c| SPARKLE_DOTS.contains(c));
+    assert!(shown(&s), "the dots show on a fresh Astra thread:\n{}", s.text());
     s.type_text("describe");
     s.keys("enter");
-    // The oracle asserts the sparkle glyphs (⠁⠂⠄⠈⠐⠠⡀⢀) are drawn before the submit and gone after it:
-    // an any-of-set check the kit does not offer yet (kit gap, see the report).
+    assert!(!shown(&s), "the submit consumed the sparkle:\n{}", s.text());
+    s.wait(1_000);
+    assert!(!shown(&s), "and it does not come back:\n{}", s.text());
 }
 
 // ---- oracle: chatwidget/tests/startup_submission_tests.rs (9 screen-level tests here; 2 state tests left to chat-nav-pane)
