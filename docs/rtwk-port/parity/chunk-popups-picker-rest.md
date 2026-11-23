@@ -57,3 +57,10 @@ nextest rc=0, scenarios 39/41 (known reds error-context-window, multi-agent).
 
 ## Needs
 - block-settings, /theme sheet: items (1)-(3) above.
+
+## chunk-popups-sweep (landed 87ad7733c, 2026-11-23, batch 2)
+- /model family on the live picker: 13 tests of chat_popups_4 green; `reasoning_up_shortcuts_reach_max` red -> green. Shard: 29 pass / 7 n/a / 25 pending / 0 red.
+- Fixes: `src/sheets/select/dialog.rs` keys the cursor per page shape; a menu dialog closes when an intent leaves no menu (was an invisible dialog swallowing keys on /model with hidden models). Seed `{kind:"provider"}` -> `Ev::Provider`. `StatusFacts.agent_threads` from host (`multi_agent_v2.max_concurrent_threads_per_session`).
+- Binary beside the oracle: /model rows, cursor and hint equal.
+- Left: `ultra_reasoning_selection_warns_for_high_multi_agent_concurrency` pending (needs S16 pager; `drain()` in core/src/app/select.rs drops the warning, should record a hidden thread warning). Provider-write flow not ported: `/model <args>` still NotAvailable.
+- Land-check of batch 2 on 87ad7733c: nextest 3092/3092 (59 s after slow-tests), scenarios 7/7 (base + model-verification, reasoning), total 215 s.

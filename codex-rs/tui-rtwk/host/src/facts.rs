@@ -123,6 +123,7 @@ pub async fn status(config: &Config) -> StatusFacts {
             kinds,
         },
         permissions: permissions(config),
+        agent_threads: Some(config.multi_agent_v2.max_concurrent_threads_per_session),
     }
 }
 

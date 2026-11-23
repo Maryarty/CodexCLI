@@ -3,6 +3,7 @@
 //! binaries to build and link bought nothing (docs/rtwk-port/build-speed.md). A new rules
 //! file is a new line here (`every_test_file_is_registered` fails without it).
 
+mod adr013;
 mod carried;
 mod fixtures;
 mod layers;

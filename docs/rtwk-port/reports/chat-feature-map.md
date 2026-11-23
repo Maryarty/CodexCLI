@@ -2,7 +2,7 @@
 
 Дата: 2026-11-23. Факт-финдинг, код не менялся.
 
-**Итог.** 289 строк-функций: ✅ 120, 🟡 63, ❌ 102 (на a15c35bf8), «?» 4 (статус не установлен). Тесты oracle (2607): 865 зелёные, 1432 pending, 13 красных, 297 n/a. Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
+**Итог.** 289 строк-функций: ✅ 121, 🟡 62, ❌ 102 (на 87ad7733c), «?» 4 (статус не установлен). Тесты oracle (2607): 865 зелёные, 1432 pending, 12 красных, 297 n/a. Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
 **Пять самых больших дыр.**
 1. Транскрипт: нет поиска (F3/F4), клавиатурного выделения, copy mode, закреплённой шапки prompt, копирования выделения мышью (copy-on-select, двойной/тройной клик, правая кнопка), раскрытия деталей хода. transcript_view_4: 0 из 60 зелёные, transcript_view_5: 1 из 59.
 2. Слэш-команды: ≈25 из ≈65 отвечают «NotAvailable» или открывают пустой слот: /side /btw /copy /worktree /mcp /ps /recap /vim /voice /tui /diff /hooks /keymap /config /experimental /skills /title /statusline /logout /ide /daybreak /debug-config /subagents.
@@ -16,7 +16,7 @@
 - Колонка тестов: зелёные/всего (n/a не считаются) среди тестов oracle, чьё имя совпало с шаблоном строки; «не вкл. N» — сколько из них stale. Совпадение по имени приблизительное: для широких строк (markdown, /status, футер) это весь семейный счёт. Прочерк — подходящих тестов не нашлось (у клавиш счёта нет: их проверяют функции выше).
 - Задача — alias в tm (статусы на 2026-11-23: held — chunk-transcript-2, chunk-commands, chunk-composer-mention-seeds, chunk-status-card, settings; claimed — chunk-status-sparkle, chunk-popups-plugins; остальные created). «—» — задачи нет или функция готова.
 - Источники: slash_command.rs, research/codex-tui-features.csv, `core/src/commands/dispatch.rs`, `core/src/app/session.rs`, `src/pages/session/{actions,open,keys,session_page}.rs`, verdicts oracle-шардов (summary.py + probe), tests/pages и core/tests как свидетельства работы.
-- Известные оговорки: 13 красных теста — отдельные расхождения, не функции (cells_1: computer_activity, wrap_styled_spans; cells_4: 4 web search; chat_live_4: plan_slash_hidden_shell_paste; chat_popups_4: reasoning_up_shortcuts_reach_max; composer_1: deleting_prefix_keeps_bang_literal; markdown_streaming_4: recomputing_after_resize; resume_2: page_and_jump_navigation; small_dialogs_2: warning_pages_wrap; transcript_view_2: ordinary_click_opens_links).
+- Известные оговорки: 12 красных тестов — отдельные расхождения, не функции (cells_1: computer_activity, wrap_styled_spans; cells_4: 4 web search; chat_live_4: plan_slash_hidden_shell_paste; composer_1: deleting_prefix_keeps_bang_literal; markdown_streaming_4: recomputing_after_resize; resume_2: page_and_jump_navigation; small_dialogs_2: warning_pages_wrap; transcript_view_2: ordinary_click_opens_links).
 
 ## Транскрипт и ячейки
 
@@ -45,7 +45,7 @@
 | Предупреждения (warning, sqlite, config, guardian, model verification) | ✅ | wrap уведомления в narrow, notice_details_fit | 6/6 | — |
 | Deprecation / update-available / version-notice | ✅ | update-available и server-version от host (e263606f0); server-version дедуп в пределах запуска (oracle хранит last_shown) | 4/6 | — |
 | Часы/время в уведомлениях (clock facts) | 🟡 | Clock и LinkDisplay от host (host/src/viewer.rs, e263606f0); RuntimeMetrics без источника (G-runtime-metrics → host-счётчики, core-live-debts) | 1/4 (не вкл. 1) | core-live-debts |
-| Session info: шапка сессии (модель, cwd, подсказки, tooltips) | 🟡 | шапка есть; session_header из каталога, tooltips, 'initial header at top' ждут | 2/13 (не вкл. 1) | chunk-cells-session-info |
+| Session info: шапка сессии (модель, cwd, подсказки, tooltips) | ✅ | landed 87ad7733c: карточка шапки, каталог подсказок и выбор tip-строки, model-changed notes, стартовые факты от host | 2/13 (не вкл. 1) | chunk-cells-session-info |
 | Строка «Forked thread» / имя треда в истории | ❌ | fork-history line с именем/id, prompt-edit history line | 0/5 | chunk-cells-session-info |
 | Review-ячейки (баннер Current changes, request hint, prompt скрыт) | ✅ | — | 4/4 | — |
 | Compaction: статус, таймер, ячейка завершения | ❌ | timer, snapshot restore, clear on turn end | 1/5 | chunk-live-safety |
@@ -133,7 +133,7 @@
 
 | Функция | Статус | Чего нет | Тесты зелёные/всего | Задача |
 |---|---|---|---|---|
-| /model — выбор модели и effort | 🟡 | bare ✅ (OpenModels); /model <имя> NotAvailable; advanced effort, refresh каталога не включены | 12/27 | chunk-popups-picker-rest |
+| /model — выбор модели и effort | 🟡 | bare ✅ (OpenModels), landed 87ad7733c (chunk-popups-sweep): 13 тестов chat_popups_4 на живом пикере, курсор по форме страницы, скрытые модели; /model <имя> NotAvailable (provider-write не портирован); advanced effort, refresh каталога не включены | 12/27 | chunk-popups-picker-rest |
 | /presets — выбор пресета (Daybreak presets) | ❌ | core-модель select::presets есть, из чата не открывается | 1/1 | chunk-popups-picker-rest |
 | /daybreak | ❌ | NotAvailable; отказ Daybreak | 0/2 | chunk-commands |
 | /ide — контекст IDE | ❌ | NotAvailable | 0/4 | chunk-commands |
@@ -201,7 +201,7 @@
 | Функция | Статус | Чего нет | Тесты зелёные/всего | Задача |
 |---|---|---|---|---|
 | Список выбора: поиск, стрелки, цифры, disabled-строки, hint по биндингам | ✅ | — | 44/58 | — |
-| Model picker: каталог, discovery, bedrock/custom display, service tier | 🟡 | refresh каталога, скрытые модели, reasoning submenu (extra high, advanced), снимки | 13/24 | chunk-popups-picker-rest |
+| Model picker: каталог, discovery, bedrock/custom display, service tier | 🟡 | landed 87ad7733c: скрытые модели, seed провайдера, лимит потоков агента; осталось: refresh каталога, reasoning submenu (extra high, advanced), снимки | 13/24 | chunk-popups-picker-rest |
 | Reasoning picker и Alt+,/. , Shift+Up/Down | ✅ | reach_max (красный), ultra, advanced-only ждут | 2/3 | chunk-popups-picker-rest |
 | Permissions popup: пресеты, профили, retry discovery | 🟡 | full access confirm, Windows sandbox prompts, history cell решения | 9/40 | chunk-popups-permission-args |
 | Windows sandbox: prompts, help-ссылки, fallback | ❌ | весь блок (≈10 тестов); только Windows | 1/9 | chunk-popups-windows-sandbox |

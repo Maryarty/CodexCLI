@@ -1494,7 +1494,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 _ => {}
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
+            let startup = matches!(ev, ScreenEv::Cells(screens::cells::Ev::Startup(_)));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            if startup {
+                // The facts came after the first conversation attached: it opens with its card now.
+                notices::startup(app, fx);
+            }
             if reconnected && origin == BackendId::default() {
                 // The new server is told the startup facts again.
                 crate::screens::onboarding::connected(
@@ -2663,6 +2668,7 @@ fn attach_thread_with_metadata(
             app.attaching_events.push_back((source, id, ev));
         }
     }
+    notices::session_card(app, thread, fx);
     notices::flush(app, thread, fx);
 }
 
