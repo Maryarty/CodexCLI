@@ -23,10 +23,10 @@ enum core/src/app.rs Intent 15
 enum core/src/app.rs AppEv 18
 enum core/src/app.rs Command 20
 enum core/src/app.rs AppCtx 13
-enum core/src/threads/note.rs NoteKey 18
+enum core/src/threads/note.rs NoteKey 16
 enum core/src/screens/chat.rs ThreadIntent 16
 enum core/src/rpc.rs Answer 11
-enum core/src/screens/dialogs/prompt.rs PromptKind 2
+enum core/src/screens/dialogs/prompt.rs PromptKind 1
 enum core/src/app/effects.rs Ask 11
 enum core/src/app/effects.rs Done 11
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that

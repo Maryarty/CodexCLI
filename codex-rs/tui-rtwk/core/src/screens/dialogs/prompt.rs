@@ -5,15 +5,9 @@
 //! keystroke: which prompt this is, whether the user edited, the suggestion's state. The words
 //! (`Rename thread`, `Name thread`, the placeholder, the two labels) are the view's.
 
-use crate::ids::ThreadId;
-
 /// What a prompt asks a text for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PromptKind {
-    /// `/export`, "Save to file": the filename the transcript is written to (oracle
-    /// `show_transcript_export_file_prompt`). The conversation is the one in use when it is
-    /// submitted.
-    ExportFile,
     /// A prompt of a feature slice (ADR-012): the feature owns what its submission does.
     Feature(crate::features::FeaturePrompt),
 }
@@ -46,21 +40,6 @@ pub struct Prompt {
 }
 
 impl Prompt {
-    /// The export prompt, prefilled with the filename for the conversation in use
-    /// (`codex-session-{thread}.md`, `codex-session.md` before a thread exists).
-    pub(crate) fn export_file(thread: Option<&ThreadId>) -> Self {
-        Prompt {
-            kind: PromptKind::ExportFile,
-            // A filename, not prose: the oracle's own (`codex-session-{thread}.md`).
-            initial: thread.map_or_else(
-                || "codex-session.md".to_owned(),
-                |thread| ["codex-session-", thread.as_str(), ".md"].concat(),
-            ),
-            suggestion: Suggestion::Idle,
-            edited: false,
-        }
-    }
-
     /// A feature's prompt, its field starting with `initial`; `suggesting`: a generated
     /// suggestion is awaited (`Feature` asks the host and answers with `suggested_for`).
     pub(crate) fn feature(

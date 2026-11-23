@@ -7,6 +7,7 @@
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
 };
+use crate::app::TranscriptText;
 use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
 use crate::ids::{ThreadId, Ticket};
@@ -24,6 +25,7 @@ pub struct AppView<'a> {
     screens: &'a ScreenStates,
     tui: &'a TuiSettings,
     modes: &'a [Mask],
+    transcript: Option<&'a TranscriptText>,
 }
 
 impl<'a> AppView<'a> {
@@ -33,6 +35,7 @@ impl<'a> AppView<'a> {
         screens: &'a ScreenStates,
         tui: &'a TuiSettings,
         modes: &'a [Mask],
+        transcript: Option<&'a TranscriptText>,
     ) -> Self {
         Self {
             active,
@@ -40,6 +43,7 @@ impl<'a> AppView<'a> {
             screens,
             tui,
             modes,
+            transcript,
         }
     }
 
@@ -71,6 +75,24 @@ impl<'a> AppView<'a> {
     /// The server's collaboration-mode presets.
     pub fn modes(&self) -> &'a [Mask] {
         self.modes
+    }
+
+    /// The conversation of `thread` as the Markdown of an export, as the UI's renderer makes it
+    /// (`CodexApp::with_transcript_text`); none for a thread this process does not hold, a
+    /// conversation with nothing in it to export, or an app that was given no renderer.
+    pub fn transcript_text(&self, thread: &ThreadId) -> Option<String> {
+        let model = self.threads.get(thread)?;
+        self.transcript?.render(model)
+    }
+
+    /// `config.cwd`: the directory of `thread`, else the one the host read for the status line
+    /// (empty when neither is known).
+    pub fn working_directory(&self, thread: Option<&ThreadId>) -> String {
+        thread
+            .and_then(|id| self.threads.get(id))
+            .and_then(|model| model.screen_slots().chat.cwd.clone())
+            .or_else(|| self.screens.chat.status.cwd.clone())
+            .unwrap_or_default()
     }
 }
 

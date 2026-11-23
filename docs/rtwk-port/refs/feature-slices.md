@@ -210,6 +210,18 @@ FeatureCommand::Goal(_), .. }`.
     note (`/goal`) is untouched: it uses `AppCx::ask`, not a thread RPC.
 20. `AppView::screens()` reads the facts a feature decides by (the side-conversation flag,
     `chat.flags.side_conversation_active`); `ThreadView::name()` the thread's name.
+21. (migrate, /export) **The app's renderers and directory are facts a feature reads.**
+    `AppView::transcript_text(thread)` (the UI's renderer of the conversation as Markdown, handed
+    to the app once with `CodexApp::with_transcript_text`; `core/src/app/transcript_text.rs`) and
+    `AppView::working_directory(thread)` (`config.cwd`: the thread's own, else the status line's;
+    also read by `/cd`). The app keeps one renderer and a feature never names `ThreadModel`.
+    `AppView::new` takes the renderer as its last argument; `app/features.rs` `view(app)` builds
+    the read-only view for the app's own code.
+22. (migrate, /export) **An ask of the host answers once or twice, and the ask ends with the
+    last answer.** A copy says `Pending` and then how it ended: `effect_done` hears both (the
+    export notes both), a third answer for the same request is dropped (`Done::is_final`,
+    `effects::feature_answered`). A feature keeps nothing to tell a pending copy from a
+    final one: `Done` says it.
 
 ## 8. A feature that is half a slice: the menu half and the thread half
 

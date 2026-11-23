@@ -20,6 +20,18 @@ use crate::screens::select::{self, Menu};
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
 
+/// The app as a read-only view, for the code of the app that asks what a feature would read.
+pub(super) fn view(app: &CodexApp) -> AppView<'_> {
+    AppView::new(
+        app.session.active.as_ref(),
+        &app.threads,
+        &app.screens,
+        &app.tui,
+        &app.modes,
+        app.transcript_text.as_ref(),
+    )
+}
+
 /// Runs one step of the features with the app as a view, then carries out what it said.
 pub(super) fn run(
     app: &mut CodexApp,
@@ -33,6 +45,7 @@ pub(super) fn run(
             &app.screens,
             &app.tui,
             &app.modes,
+            app.transcript_text.as_ref(),
         );
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);

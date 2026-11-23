@@ -12,7 +12,8 @@ pub(crate) mod features;
 mod notices;
 mod select;
 mod session;
-pub use session::export::TranscriptText;
+mod transcript_text;
+pub use transcript_text::TranscriptText;
 pub mod worktree;
 
 use session::{
@@ -1358,7 +1359,6 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             features::effect_done(app, request, done, fx);
         }
         AppEv::Effect { request, done } => {
-            session::export::settled(app, request, &done, fx);
             if !select::reviewed(app, request, &done, fx) {
                 app.effects.settle(request, done);
             }

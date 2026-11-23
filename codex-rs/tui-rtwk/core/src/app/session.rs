@@ -2,12 +2,9 @@
 
 use std::rc::Rc;
 
-pub(super) mod export;
-
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
-use crate::screens::select::export::Destination;
 use crate::screens::select::{Confirm, Menu, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
@@ -248,9 +245,11 @@ pub(super) fn session_intent(
             session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
         }
         S::Plan { prompt } => plan(app, source, command, prompt, fx),
-        // `AppEvent::ExportTranscript` with a path: the conversation is written there. The bare
-        // command opens the destination picker, which is the view's list (`select::export`).
-        S::Export { path: Some(path) } => export::run(app, Destination::File(path), fx),
+        // `/export` (the destination picker) and `/export <path>` (written there): `features/export`.
+        S::Export { path } => {
+            let intent = crate::features::export::Intent::Command { path };
+            super::features::intent(app, intent.into(), fx);
+        }
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).
         S::Goal { args } => {
             let intent = crate::features::goal::Intent::Command { source, args };
@@ -269,7 +268,6 @@ pub(super) fn session_intent(
         | S::Worktree
         | S::Side { .. }
         | S::Copy
-        | S::Export { path: None }
         | S::Tui
         | S::Mcp { .. }
         | S::Apps
@@ -564,7 +562,6 @@ pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
         return;
     };
     match submitted.kind {
-        PromptKind::ExportFile => export::submitted(app, submitted.text, fx),
         PromptKind::Feature(prompt) => {
             super::features::prompt_submitted(app, prompt, submitted.text, fx);
         }
@@ -574,11 +571,7 @@ pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
 /// `config.cwd`: the directory of the thread, else the one the host read for
 /// the status line.
 fn working_directory(app: &CodexApp, thread: Option<&ThreadId>) -> String {
-    thread
-        .and_then(|id| app.threads.get(id))
-        .and_then(|model| model.screen_slots().chat.cwd.clone())
-        .or_else(|| app.screens.chat.status.cwd.clone())
-        .unwrap_or_default()
+    super::features::view(app).working_directory(thread)
 }
 
 /// What a command line answered with (oracle `add_info_message` /

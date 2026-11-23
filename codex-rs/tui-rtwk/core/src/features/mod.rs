@@ -270,6 +270,7 @@ macro_rules! feature_list {
         $callback! {
             goal => Goal;
             rename => Rename;
+            export => Export;
         }
     };
 }
