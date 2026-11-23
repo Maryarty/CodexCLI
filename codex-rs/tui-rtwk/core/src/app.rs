@@ -794,6 +794,7 @@ impl CodexApp {
         let agents = &self.screens.agents;
         let ticket = match command {
             Command::Screen { ticket, .. }
+            | Command::Feature { ticket, .. }
             | Command::CreateWorktree { ticket, .. }
             | Command::BindWorktree { ticket, .. } => Some(*ticket),
             _ => None,
@@ -830,7 +831,9 @@ impl CodexApp {
             | Command::SendAddCreditsNudge { backend, .. } => *backend,
             // The startup page reads and writes this machine's first backend.
             Command::Startup { .. } | Command::Import { .. } => BackendId::default(),
-            Command::Screen { thread, .. } if !thread.as_str().is_empty() => {
+            Command::Screen { thread, .. } | Command::Feature { thread, .. }
+                if !thread.as_str().is_empty() =>
+            {
                 agents.owner_of(thread.as_str())
             }
             _ => agents.displayed,
@@ -2451,7 +2454,6 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         apply_thread(app, &id, threads::history_page(&thread.turns, None), fx);
         // `maybe_prompt_resume_paused_goal_after_resume`: a resumed thread's stopped goal asks.
         if matches!(ctx, agents::Ctx::Resume { .. }) {
-            session::goal::after_resume(app, &id, fx);
             features::resumed(app, &id, fx);
         }
     }
@@ -2543,7 +2545,6 @@ fn session_opened(
             fetch_history(app, &id, fx);
             send_queued(app, &id, fx);
             if action == Action::Resume {
-                session::goal::after_resume(app, &id, fx);
                 features::resumed(app, &id, fx);
             }
         }

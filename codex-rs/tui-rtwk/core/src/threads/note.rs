@@ -5,9 +5,7 @@
 
 use crate::app::effects::CopyStatus;
 use crate::commands::Notice;
-use crate::rpc::RpcError;
 use crate::screens::agents::Action;
-use crate::threads::Goal;
 
 /// How a note reads: the oracle's `add_info_message` (a dim bullet, then the
 /// message) or `add_error_message` (a red `■ `).
@@ -91,8 +89,6 @@ pub enum NoteKey {
     },
     /// What `/export` answered with.
     Export(ExportNote),
-    /// What `/goal` answered with.
-    Goal(GoalNote),
     /// What a switch of the collaboration mode said.
     Mode(ModeNote),
     /// A line of a feature slice (ADR-012); its words are `src/features/<f>/strings.rs`.
@@ -110,83 +106,6 @@ pub enum ModeNote {
     PlanUnavailable,
     /// `Model changed to {model} {effort} for {mode} mode.`
     ModelChanged(crate::screens::select::collaboration::ModelChange),
-}
-
-/// What `/goal` answered with (`thread_goal_actions.rs`, `goal_menu.rs`, `slash_dispatch.rs`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GoalNote {
-    /// The usage line (`Usage: /goal [<objective>|clear|edit|pause|resume]`) with the hint
-    /// under it.
-    Usage(GoalHint),
-    /// The bare `/goal`: the goal as a summary (`goal_summary_lines`).
-    Summary(Goal),
-    /// `Goal {status}` with the usage summary under it: a goal was set or its status changed.
-    Status(Goal),
-    /// `Goal cleared`.
-    Cleared,
-    /// `No goal to clear` with `This thread does not currently have a goal.`
-    NothingToClear,
-    /// `No goal is currently set.` as an error (`/goal edit` over no goal).
-    NoGoalToEdit,
-    /// An ask failed: `Failed to {action} thread goal: {error}`, or the saved-session
-    /// explanation for a temporary thread.
-    Failed {
-        action: GoalAction,
-        failure: GoalFailure,
-    },
-}
-
-/// The hint under the usage line.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GoalHint {
-    /// `Example: /goal improve benchmark coverage` (the bare `/goal`, no thread yet).
-    Example,
-    /// `No goal is currently set.`
-    NoGoal,
-    /// `The session must start before you can change a goal.`
-    StartToChange,
-    /// `The session must start before you can set a goal.`
-    StartToSet,
-    /// `Create a goal before editing it.`
-    CreateFirst,
-}
-
-/// What the failed ask was doing (the verb of `Failed to {action} thread goal`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GoalAction {
-    Read,
-    Replace,
-    Set,
-    Update,
-    Clear,
-}
-
-/// Why a goal ask failed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GoalFailure {
-    /// The thread is temporary: goals need a saved session (`is_ephemeral_thread_goal_error`).
-    Ephemeral,
-    /// The server's own words.
-    Other(String),
-}
-
-impl GoalFailure {
-    pub fn of(error: &RpcError) -> Self {
-        let text = match error {
-            RpcError::Remote(text) | RpcError::Malformed(text) | RpcError::Prepare(text) => {
-                text.clone()
-            }
-            RpcError::Provider(error) => error.to_string(),
-            RpcError::Mismatch => String::new(),
-        };
-        if text.contains("ephemeral thread does not support goals")
-            || text.contains("thread goals require a persisted thread; this thread is ephemeral")
-        {
-            GoalFailure::Ephemeral
-        } else {
-            GoalFailure::Other(text)
-        }
-    }
 }
 
 /// What a copy put on the clipboard: the word in the line saying how it went.
@@ -220,8 +139,7 @@ impl NoteKey {
             NoteKey::Copy { result: Err(_), .. }
             | NoteKey::Export(
                 ExportNote::Failed(_) | ExportNote::NoConversation | ExportNote::NoContent,
-            )
-            | NoteKey::Goal(GoalNote::NoGoalToEdit | GoalNote::Failed { .. }) => Tone::Error,
+            ) => Tone::Error,
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
             | NoteKey::ModeBusy
@@ -235,7 +153,6 @@ impl NoteKey {
             | NoteKey::RawOutput(_)
             | NoteKey::Copy { .. }
             | NoteKey::Export(ExportNote::Saved(_))
-            | NoteKey::Goal(_)
             | NoteKey::Mode(_)
             | NoteKey::Server(_) => Tone::Info,
         }

@@ -10,7 +10,11 @@
 
 use std::ops::Deref;
 
+use super::{
+    Item, Note, ThreadFx, ThreadModel, apply_appended, give_back, is_start_turn, merge_messages,
+};
 use crate::commands::{QueueDrain, SlashCommand, queued_command_drain_result};
+use crate::screens::{self, ScreenThreadIntent};
 use crate::threads::UserMessage;
 
 /// A line of the queue.
@@ -144,6 +148,147 @@ impl Dispatched {
                 self.managed_worktree,
             ),
             None => QueueDrain::Continue,
+        }
+    }
+}
+
+/// The chat intents that are the queue's: `apply` runs them (the views' door stays
+/// `chat::ThreadIntent`; the queue is the thread's own, not a feature's: ADR-012 "thread
+/// lifecycle state").
+pub(super) fn takes(intent: &ScreenThreadIntent) -> bool {
+    use screens::chat::ThreadIntent as Chat;
+    matches!(
+        intent,
+        ScreenThreadIntent::Chat(
+            Chat::Queue(_)
+                | Chat::QueueRan(_)
+                | Chat::QueueResume
+                | Chat::HoldQueue
+                | Chat::EditQueued
+        )
+    )
+}
+
+/// One of the queue's intents on a thread this process writes.
+pub(super) fn apply(model: &mut ThreadModel, intent: ScreenThreadIntent, fx: &mut ThreadFx<'_>) {
+    use screens::chat::ThreadIntent as Chat;
+    let ScreenThreadIntent::Chat(intent) = intent else {
+        return;
+    };
+    match intent {
+        // Tab: the line waits behind the running turn.
+        Chat::Queue(message) => enqueue(model, message, fx),
+        // The screen ran the queued command it was handed: the rule of the next item reads what
+        // it opened (`submit_queued_slash_prompt`).
+        Chat::QueueRan(ran) => {
+            if model.due.take().is_none() {
+                return;
+            }
+            let busy = model.is_running() || model.outgoing.any(is_start_turn);
+            let stop = match ran {
+                Ran::Submitted => true,
+                Ran::Dispatched(ran) => ran.drain(busy) == QueueDrain::Stop,
+            };
+            if !stop {
+                send_next(model, fx);
+            }
+        }
+        // What stopped the queue is over (the sheet closed, a settings pick was applied, a goal
+        // was set): the next item goes on (`maybe_send_next_queued_input`).
+        Chat::QueueResume => {
+            if !model.is_running() && !model.outgoing.any(is_start_turn) {
+                send_next(model, fx);
+            }
+        }
+        // A settings pick that was to run before what waits went on failed: nothing goes out
+        // until the user sends again (`retain_input_after_failed_permission_selection`).
+        Chat::HoldQueue => {
+            model.recovered |= !model.queue.is_empty()
+                || !model.rejected_steers.is_empty()
+                || !model.pending_steers.is_empty();
+        }
+        // The edit-queued key: the newest line that waits goes back to the composer
+        // (`pop_latest_queued_composer_state`).
+        Chat::EditQueued => {
+            let message = model
+                .queue
+                .pop()
+                .map(Queued::into_message)
+                .or_else(|| model.rejected_steers.pop());
+            if let Some(message) = message {
+                give_back(model, vec![message], true);
+            }
+            model.recovered &= !model.queue.is_empty() || !model.rejected_steers.is_empty();
+        }
+        _ => {}
+    }
+}
+
+/// A message to the queue, behind the running turn; with none running and
+/// nothing older waiting it goes out at once.
+pub(super) fn enqueue(model: &mut ThreadModel, message: Queued, fx: &mut ThreadFx<'_>) {
+    let busy = model.is_running() || model.outgoing.any(is_start_turn);
+    model.queue.push(message);
+    model.last_submit = Some(fx.mint());
+    if !busy {
+        send_next(model, fx);
+    }
+}
+
+/// The next queued message becomes the next turn (one per turn end); a queued command is
+/// handed to the screen and a shell line runs, after which the queue goes on or stops by the
+/// command's rule (`maybe_send_next_queued_input`).
+pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
+    // a refused thread keeps what waits (oracle `suppress_queue_autosend`); a command the screen
+    // runs is waited for
+    if model.slots.chat.mcp.is_starting()
+        || model.slots.chat.provider_error.is_some()
+        || model.recovered
+        || model.due.is_some()
+    {
+        return;
+    }
+    // Steers the server refused go first, as one message
+    // (`pop_next_queued_user_message`).
+    if !model.rejected_steers.is_empty() {
+        let merged = merge_messages(std::mem::take(&mut model.rejected_steers));
+        fx.start_turn(merged);
+        return;
+    }
+    while !model.queue.is_empty() {
+        match model.queue.remove(0) {
+            Queued::Message(message) | Queued::Literal(message) => {
+                fx.start_turn(message);
+                return;
+            }
+            // `submit_queued_slash_prompt`: the screen dispatches it; the queue goes on when it
+            // reports (`ThreadIntent::QueueRan`).
+            Queued::Command(line) => {
+                model.due_seq += 1;
+                model.due = Some(DueCommand::handed(model.due_seq, line));
+                return;
+            }
+            // `submit_queued_shell_prompt`: a bare `!` says how to use it and the queue goes
+            // on; a command runs, and the turn it makes stops the queue.
+            Queued::Shell(line) => {
+                let command = line.text.strip_prefix('!').unwrap_or(&line.text).trim();
+                if command.is_empty() {
+                    apply_appended(
+                        model,
+                        None,
+                        Item::Note(Note::from(crate::commands::Notice::ShellHelp)),
+                    );
+                    continue;
+                }
+                let intent = screens::chat::ThreadIntent::Shell(command.to_string());
+                screens::apply_thread_intent(
+                    &mut model.slots,
+                    ScreenThreadIntent::Chat(intent),
+                    false,
+                    fx,
+                );
+                return;
+            }
         }
     }
 }

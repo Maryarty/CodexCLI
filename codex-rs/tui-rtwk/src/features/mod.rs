@@ -6,22 +6,36 @@
 //! its own, which a menu row or a note leads to and which are not routed here.
 //!
 //! The generic places call in: `Strings::note` words a `NoteKey::Feature` through
-//! `note_words`, the select sheet turns a `Menu::Feature` into its list through `menu_list`.
+//! `note_words`, the select sheet turns a `Menu::Feature` into its list through `menu_list`,
+//! the prompt dialog words a `PromptKind::Feature` through `prompt_words`.
 
 use codex_tui_core::feature_list;
-use codex_tui_core::features::{Feature, FeatureMenu, FeatureNote};
+use codex_tui_core::features::{Feature, FeatureMenu, FeatureNote, FeaturePrompt};
 use codex_tui_core::screens::select::list::List;
 
 use crate::pages::session::strings::Strings as SessionStrings;
+use crate::sheets::dialogs::strings::Strings as DialogStrings;
 use crate::sheets::select::strings::Strings as SelectStrings;
 
-/// What the view of a feature says: the words of its notes and the rows of its menus.
+/// What a text prompt of a feature shows (oracle `bottom_pane/custom_prompt_view.rs`): the
+/// title over the field and the placeholder of an empty field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PromptWords {
+    pub title: String,
+    pub placeholder: String,
+}
+
+/// What the view of a feature says: the words of its notes, the rows of its menus and the
+/// words of its text prompt.
 pub trait FeatureView: Feature {
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
     fn note_words(note: &Self::Note, words: &SessionStrings) -> String;
 
     /// The generic list one of the feature's menus is shown as.
     fn menu_list(menu: &Self::Menu, words: &SelectStrings) -> List;
+
+    /// The title and placeholder of one of the feature's text prompts.
+    fn prompt_words(prompt: &Self::Prompt, words: &DialogStrings) -> PromptWords;
 }
 
 macro_rules! view_mods {
@@ -38,6 +52,16 @@ macro_rules! view_dispatch {
             match *note {
                 $(FeatureNote::$variant(ref note) => {
                     <codex_tui_core::features::$name::$variant as FeatureView>::note_words(note, words)
+                })*
+            }
+        }
+
+        /// The title and placeholder of a feature's text prompt.
+        #[allow(unused_variables)]
+        pub fn prompt_words(prompt: &FeaturePrompt, words: &DialogStrings) -> PromptWords {
+            match *prompt {
+                $(FeaturePrompt::$variant(ref prompt) => {
+                    <codex_tui_core::features::$name::$variant as FeatureView>::prompt_words(prompt, words)
                 })*
             }
         }

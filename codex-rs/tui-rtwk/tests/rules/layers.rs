@@ -1091,6 +1091,64 @@ fn hub_enums_only_shrink() {
     assert!(found.is_empty(), "{found:#?}");
 }
 
+/// The number of methods of `trait name` in `text`: the `fn` items at the trait's own depth
+/// (four spaces in), up to the `}` that closes it at column 0.
+fn trait_methods(text: &str, name: &str) -> usize {
+    let header = |line: &str| {
+        let line = line.trim_start();
+        let line = line
+            .strip_prefix("pub(crate) ")
+            .or(line.strip_prefix("pub "))
+            .unwrap_or(line);
+        line.strip_prefix(&format!("trait {name}"))
+            .is_some_and(|rest| rest.starts_with([':', ' ', '<', '{']))
+    };
+    text.lines()
+        .skip_while(|line| !header(line))
+        .skip(1)
+        .take_while(|line| *line != "}")
+        .filter(|line| {
+            line.strip_prefix("    fn ")
+                .is_some_and(|rest| !rest.starts_with(' '))
+        })
+        .count()
+}
+
+/// Every cross-feature nudge that becomes a method of `Feature` on all features, or a variant of
+/// the generated roots, grows the hub under another name (review of the framework, R4/R5): a
+/// hook is added only for a thread or app lifecycle fact (a turn ended, a thread resumed, the
+/// input released), never for one producer and one consumer, and each one is a line of the
+/// budget raised with its ADR-012 paragraph.
+#[test]
+fn the_feature_trait_has_the_hooks_the_budget_says() {
+    let lines = budget_lines("methods");
+    assert!(!lines.is_empty(), "the budget lists the Feature trait");
+    let mut found = Vec::new();
+    for words in lines {
+        let [file, name, budget] = words.as_slice() else {
+            panic!("`methods <file> <Trait> <n>`: {words:?}");
+        };
+        let current = trait_methods(&read(file), name);
+        found.extend(ratchet(
+            &format!("{file} trait {name}"),
+            current,
+            budget.parse().expect("a count"),
+        ));
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn the_trait_method_count_bites() {
+    let text = "pub trait Hooks: 'static {\n    const NAME: &'static str;\n\n    fn a() {}\n\n    fn b(\n        x: u8,\n    ) {\n        fn inner() {}\n    }\n}\n\nfn outside() {}\n";
+    assert_eq!(trait_methods(text, "Hooks"), 2);
+    assert_eq!(
+        trait_methods(text, "Hook"),
+        0,
+        "a longer name is another trait"
+    );
+}
+
 #[test]
 fn the_variant_count_and_the_ratchet_bite() {
     let text = "/// docs\n#[derive(Clone, Debug)]\npub enum Hub {\n    /// one\n    One,\n    Two(u8, Vec<(u8, u8)>), // trailing\n    #[allow(dead_code)]\n    Three {\n        inner: u8,\n        Fake,\n    },\n    #[cfg_attr(\n        test,\n        derive(Debug)\n    )]\n    Four = 4,\n    Five(\"A { \"),\n}\n\npub enum Next {\n    Other,\n}\n";

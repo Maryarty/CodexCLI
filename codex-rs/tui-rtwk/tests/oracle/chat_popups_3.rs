@@ -4,15 +4,101 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use codex_tui_core::screens::select::plugins::{Location, Target, Want};
+use serde_json::json;
+
 use crate::kit::{self, Owner, Screen};
+
+#[path = "fixtures/chat_popups_3/mouse.rs"]
+mod mouse;
+#[path = "fixtures/chat_popups_3/seed.rs"]
+pub(crate) mod seed;
 
 // What these tests need is not in the port yet (each reason says which); the
 // bodies are the oracle's steps and visible assertions, written in full.
 // assert_snap compares the whole screen; the oracle's popup snapshots hold the
 // bottom popup only, so the popup slice sets the region (assert_snap_region).
-const PLUGINS: &str = "no /plugins browser in the port: the chat names /plugins only in its command list (src/screens/chat/strings.rs:221); no marketplace tabs, plugin rows, detail, install or remove popups, and no seed for the app server's plugin list or the Feature::Plugins gate";
 const APPS: &str = "/apps is live (core `select::apps`, the loading, failure and list pages, Retry); this test needs a step the kit and the protocol do not give yet: a partial directory snapshot (the oracle injects `on_connectors_loaded(.., is_final: false)`, no protocol message carries it), an RPC failure as the backend's answer (`respond` has only `result`), the `app/list/updated` notification routed to `select::Ev::AppsNotified` (core-wiring), the `$` mention popup and the plugin authentication popup (other owners)";
 const HOOKS: &str = "no /hooks popup in the port: no hooks list view with its warnings and errors, and no seed for the hooks list result";
+
+/// The first row that contains `text`; past the screen when none does (the kit then names the row it looked for).
+pub(crate) fn row_of(s: &Screen, text: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|r| r.contains(text))
+        .unwrap_or(usize::MAX)
+}
+
+/// The screen's text with every run of white space one space: a history cell the width wraps reads as one line.
+fn flat(s: &Screen) -> String {
+    s.text().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The plugin the marketplace tabs of these tests hold.
+fn debug_plugin() -> serde_json::Value {
+    seed::available(
+        "plugin-debug",
+        "debug",
+        "Debug Plugin",
+        "Debug marketplace plugin.",
+    )
+}
+
+/// A marketplace the user's config holds as a git one, shown as `Debug Marketplace`.
+fn debug_market() -> serde_json::Value {
+    seed::marketplace(
+        "debug",
+        Some(seed::path(
+            "marketplaces/debug/.agents/plugins/marketplace.json",
+        )),
+        Some("Debug Marketplace"),
+        vec![debug_plugin()],
+    )
+}
+
+/// The config of a user whose `names` are git marketplaces.
+fn config_with(names: &[&str]) -> codex_tui_core::screens::select::plugins::Config {
+    let mut config = seed::config();
+    config.configured = names.iter().map(|name| seed::git(name)).collect();
+    config
+}
+
+/// The browser over the curated marketplace holding `plugins` (the oracle's `render_loaded_plugins_popup`).
+fn browser(width: u16, plugins: Vec<serde_json::Value>) -> Screen {
+    let shelf = seed::shelf(vec![seed::curated(plugins)]);
+    seed::open(width, 24, seed::config(), &shelf)
+}
+
+/// A plugin of the oracle's tests: `(id, name, display, description, installed)`, on, installable.
+pub(crate) fn plugin(
+    id: &str,
+    name: &str,
+    display: &str,
+    description: &str,
+    installed: bool,
+) -> serde_json::Value {
+    seed::summary(
+        id,
+        name,
+        Some(display),
+        Some(description),
+        installed,
+        true,
+        "AVAILABLE",
+    )
+}
+
+/// The detail of the figma plugin of the detail snapshots.
+fn figma_detail(summary: serde_json::Value) -> serde_json::Value {
+    seed::detail(
+        summary,
+        Some("Turn Figma files into implementation context."),
+        &["design-review", "extract-copy"],
+        &[("preToolUse", 1), ("stop", 2)],
+        &["Figma", "Slack"],
+        &["figma-mcp", "docs-mcp"],
+    )
+}
 
 /// The `app/list` requests the app has made, oldest first.
 fn apps_asked(s: &Screen) -> Vec<codex_tui_core::app::Command> {
@@ -49,7 +135,7 @@ fn apps_answer(apps: &[(&str, &str, &str)]) -> serde_json::Value {
 }
 
 /// The oracle's `select_plugins_tab_containing`: moves the tab right until one shows `text`.
-fn select_tab(s: &mut Screen, text: &str) {
+pub(crate) fn select_tab(s: &mut Screen, text: &str) {
     for _ in 0..8 {
         if s.text().contains(text) {
             return;
@@ -62,26 +148,27 @@ fn select_tab(s: &mut Screen, text: &str) {
 // ORACLE chatwidget/tests/popups_and_settings.rs:66 plugins_popup_loading_state_snapshot kind=snap owner=dialogs-pane snap=plugins_popup_loading_state
 #[test]
 fn plugins_popup_loading_state_snapshot() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    // the marketplace list has not arrived: the server leaves `plugin/list` unanswered
+    let shelf = seed::shelf(Vec::new());
+    seed::with(&shelf, |held| {
+        held.held.insert("plugin/list");
+    });
+    let s = seed::open(100, 24, seed::config(), &shelf);
     s.assert_contains("Loading available plugins...");
-    s.assert_snap("plugins_popup_loading_state");
+    s.assert_snap_region("plugins_popup_loading_state", row_of(&s, "Plugins"), 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:81 marketplace_upgrade_loading_popup_snapshot kind=snap owner=dialogs-pane
 #[test]
 fn marketplace_upgrade_loading_popup_snapshot() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
     // the oracle opens the upgrade loading popup of `debug` directly; the port reaches it from the marketplace tab
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![seed::curated(Vec::new()), debug_market()]);
+    seed::with(&shelf, |held| {
+        held.held.insert("marketplace/upgrade");
+    });
+    let mut s = seed::open(100, 24, config_with(&["debug"]), &shelf);
+    select_tab(&mut s, "Debug Marketplace.");
+    s.keys("ctrl+u");
     s.assert_contains("Upgrading debug marketplace...");
     s.assert_contains("This updates when marketplace upgrade completes");
 }
@@ -89,17 +176,32 @@ fn marketplace_upgrade_loading_popup_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:101 marketplace_upgrade_failure_includes_backend_messages_snapshot kind=snap owner=dialogs-pane
 #[test]
 fn marketplace_upgrade_failure_includes_backend_messages_snapshot() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    // the upgrade result arrives from the app server (a script line); the history cell it inserts is the oracle's text
-    let s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.assert_contains("Failed to upgrade 2 marketplaces");
-    s.assert_contains(
+    // the upgrade result arrives from the app server; the history cell it inserts is the oracle's text
+    let shelf = seed::shelf(vec![seed::curated(Vec::new()), debug_market()]);
+    seed::with(&shelf, |held| {
+        held.replies.insert(
+            "marketplace/upgrade",
+            Ok(json!({
+                "selectedMarketplaces": ["debug", "tools"],
+                "upgradedRoots": [],
+                "errors": [
+                    { "marketplaceName": "debug", "message": "git ls-remote marketplace source failed with status 128: authentication failed" },
+                    { "marketplaceName": "tools", "message": "failed to validate upgraded marketplace root: marketplace root does not contain a supported manifest" },
+                ],
+            })),
+        );
+    });
+    let mut s = seed::open(100, 24, config_with(&["debug"]), &shelf);
+    select_tab(&mut s, "Debug Marketplace.");
+    s.keys("ctrl+u esc");
+    let text = flat(&s);
+    for fragment in [
+        "Failed to upgrade 2 marketplaces",
         "debug: git ls-remote marketplace source failed with status 128: authentication failed",
-    );
-    s.assert_contains("tools: failed to validate upgraded marketplace root");
+        "tools: failed to validate upgraded marketplace root",
+    ] {
+        assert!(text.contains(fragment), "{fragment}\n{}", s.text());
+    }
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:136 hooks_popup_shows_list_diagnostics kind=snap owner=dialogs-pane snap=hooks_popup_shows_list_diagnostics
@@ -117,13 +219,48 @@ fn hooks_popup_shows_list_diagnostics() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:160 plugins_popup_snapshot_shows_all_marketplaces_and_sorts_installed_then_name kind=snap owner=dialogs-pane snap=plugins_popup_curated_marketplace
 #[test]
 fn plugins_popup_snapshot_shows_all_marketplaces_and_sorts_installed_then_name() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(320, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
-    s.assert_snap("plugins_popup_curated_marketplace");
+    let shelf = seed::shelf(vec![
+        seed::curated(vec![
+            plugin(
+                "plugin-bravo",
+                "bravo",
+                "Bravo Search",
+                "Search docs and tickets.",
+                false,
+            ),
+            seed::summary(
+                "plugin-alpha",
+                "alpha",
+                Some("Alpha Sync"),
+                Some("Already installed but disabled."),
+                true,
+                false,
+                "AVAILABLE",
+            ),
+            seed::summary(
+                "plugin-starter",
+                "starter",
+                Some("Starter"),
+                Some("Included by default."),
+                false,
+                false,
+                "INSTALLED_BY_DEFAULT",
+            ),
+        ]),
+        seed::repo(vec![plugin(
+            "plugin-hidden",
+            "hidden",
+            "Hidden Repo Plugin",
+            "Should not be shown in /plugins.",
+            false,
+        )]),
+    ]);
+    let s = seed::open(320, 24, seed::config(), &shelf);
+    s.assert_snap_region(
+        "plugins_popup_curated_marketplace",
+        row_of(&s, "Plugins"),
+        0,
+    );
     s.assert_contains("Hidden Repo Plugin");
     s.assert_in_order(&[
         "Alpha Sync",
@@ -136,12 +273,14 @@ fn plugins_popup_snapshot_shows_all_marketplaces_and_sorts_installed_then_name()
 // ORACLE chatwidget/tests/popups_and_settings.rs:223 plugins_popup_keeps_loaded_marketplace_state_with_load_errors kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_keeps_loaded_marketplace_state_with_load_errors() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![seed::curated(Vec::new())]);
+    seed::with(&shelf, |held| {
+        held.errors.push(json!({
+            "marketplacePath": seed::path("marketplaces/broken"),
+            "message": "failed to load marketplace manifest",
+        }));
+    });
+    let s = seed::open(100, 24, seed::config(), &shelf);
     s.assert_contains("No marketplace plugins available");
     s.assert_absent("Marketplace unavailable");
 }
@@ -149,9 +288,25 @@ fn plugins_popup_keeps_loaded_marketplace_state_with_load_errors() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:244 plugins_popup_truncates_long_descriptions_in_list_rows kind=snap owner=dialogs-pane
 #[test]
 fn plugins_popup_truncates_long_descriptions_in_list_rows() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane).size(70, 24).live().open();
-    s.type_text("/plugins").keys("enter");
+    let s = browser(
+        70,
+        vec![
+            plugin(
+                "plugin-alpha",
+                "alpha",
+                "Alpha",
+                "Short description.",
+                false,
+            ),
+            plugin(
+                "plugin-verbose",
+                "verbose",
+                "Verbose Plugin",
+                "This description keeps going and going until the row would normally wrap.",
+                false,
+            ),
+        ],
+    );
     s.assert_contains("  [-] Verbose Plugin  Available · OpenAI Curated · This description k…");
     s.assert_absent("This description keeps going and going until the row would normally wrap.");
 }
@@ -159,53 +314,98 @@ fn plugins_popup_truncates_long_descriptions_in_list_rows() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:290 plugins_popup_add_marketplace_tab_opens_prompt_and_submits_source kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_add_marketplace_tab_opens_prompt_and_submits_source() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![seed::curated(Vec::new())]);
+    seed::with(&shelf, |held| {
+        held.held.insert("marketplace/add");
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     select_tab(&mut s, "Add a marketplace from a Git repo or local root.");
     s.assert_contains("Add a marketplace from a Git repo or local root.");
     s.keys("enter");
-    // OpenMarketplaceAddPrompt, OpenMarketplaceAddLoading and FetchMarketplaceAdd are events: not on screen
     s.assert_contains("owner/repo, git URL, or local marketplace path");
     s.paste("owner/repo").keys("enter");
+    // the add request goes out once, for the source typed
+    let adds: Vec<_> = seed::wants(&s)
+        .into_iter()
+        .filter(|want| matches!(want, Want::Add { .. }))
+        .collect();
+    assert_eq!(
+        adds,
+        vec![Want::Add {
+            source: "owner/repo".to_string()
+        }]
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:346 plugins_popup_upgrades_user_configured_git_marketplace_from_marketplace_tab kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_upgrades_user_configured_git_marketplace_from_marketplace_tab() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![
+        seed::curated(Vec::new()),
+        seed::repo(vec![debug_plugin()]),
+    ]);
+    seed::with(&shelf, |held| {
+        held.held.insert("marketplace/upgrade");
+    });
+    let mut s = seed::open(100, 24, config_with(&["repo"]), &shelf);
     select_tab(&mut s, "Repo Marketplace.");
     s.assert_contains("Repo Marketplace.");
     s.assert_contains("⌃u upgrade");
     s.assert_contains("⌃r remove");
     s.assert_contains("Debug Plugin");
     s.keys("ctrl+u ctrl+u");
-    // one OpenMarketplaceUpgradeLoading and one FetchMarketplaceUpgrade for `repo` (no duplicate): events, not rows
+    // one upgrade of `repo`, no duplicate
+    let upgrades: Vec<_> = seed::wants(&s)
+        .into_iter()
+        .filter(|want| matches!(want, Want::Upgrade { .. }))
+        .collect();
+    assert_eq!(
+        upgrades,
+        vec![Want::Upgrade {
+            name: Some("repo".to_string())
+        }]
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:415 marketplace_add_success_refreshes_to_new_marketplace_tab kind=snap owner=dialogs-pane snap=plugins_popup_newly_installed_marketplace
 #[test]
 fn marketplace_add_success_refreshes_to_new_marketplace_tab() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![seed::curated(Vec::new())]);
+    seed::with(&shelf, |held| {
+        held.held.insert("marketplace/add");
+    });
+    let mut s = seed::open(100, 24, config_with(&["debug"]), &shelf);
     select_tab(&mut s, "Add a marketplace from a Git repo or local root.");
     s.keys("enter");
     s.paste("owner/repo").keys("enter");
     s.assert_absent("owner/repo");
-    // the add result (debug marketplace installed) arrives from the app server: a script line
-    s.assert_snap("plugins_popup_newly_installed_marketplace");
+    // the server adds it: the add result, then the refreshed list
+    seed::with(&shelf, |held| {
+        held.held.remove("marketplace/add");
+        held.local = vec![seed::curated(Vec::new()), debug_market()];
+        held.replies.insert(
+            "marketplace/add",
+            Ok(json!({
+                "marketplaceName": "debug",
+                "installedRoot": seed::path("marketplaces/debug"),
+                "alreadyAdded": false,
+            })),
+        );
+    });
+    let add = seed::last(&s, |want| matches!(want, Want::Add { .. }));
+    s.answer_request(
+        &add,
+        json!({
+            "marketplaceName": "debug",
+            "installedRoot": seed::path("marketplaces/debug"),
+            "alreadyAdded": false,
+        }),
+    );
+    s.assert_snap_region(
+        "plugins_popup_newly_installed_marketplace",
+        row_of(&s, "Plugins"),
+        0,
+    );
     s.assert_contains("Debug Marketplace installed successfully.");
     s.assert_contains("⌃u upgrade");
     s.assert_contains("⌃r remove");
@@ -220,12 +420,14 @@ fn marketplace_add_success_refreshes_to_new_marketplace_tab() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:509 plugins_popup_removes_user_configured_marketplace_flow kind=snap owner=dialogs-pane snap=plugins_popup_marketplace_remove_confirmation
 #[test]
 fn plugins_popup_removes_user_configured_marketplace_flow() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![
+        seed::curated(Vec::new()),
+        seed::repo(vec![debug_plugin()]),
+    ]);
+    seed::with(&shelf, |held| {
+        held.held.insert("marketplace/remove");
+    });
+    let mut s = seed::open(100, 24, config_with(&["repo"]), &shelf);
     select_tab(&mut s, "Repo Marketplace.");
     s.assert_contains("Repo Marketplace.");
     s.assert_contains("⌃u upgrade");
@@ -235,11 +437,57 @@ fn plugins_popup_removes_user_configured_marketplace_flow() {
     s.assert_contains("Remove Repo Marketplace marketplace?");
     s.assert_contains("Remove marketplace");
     s.assert_contains("Back to plugins");
-    s.assert_snap("plugins_popup_marketplace_remove_confirmation");
+    // The oracle's snapshot is the confirmation over its composer, which holds the first 14
+    // columns of the rows (the composer is the chat's): the dialog's own columns are the rest.
+    let top = row_of(&s, "Plugins");
+    let dialog: Vec<String> = s.rows()[top..top + 10]
+        .iter()
+        .map(|row| {
+            row.chars()
+                .skip(14)
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        dialog,
+        [
+            "  Plugins",
+            "  Remove Repo Marketplace marketplace?",
+            "  This removes the configured marketplace from Codex.",
+            "",
+            "",
+            "› 1. Remove marketplace  Remove this marketplace from the available",
+            "                         plugin list",
+            "  2. Back to plugins     Keep this marketplace installed",
+            "",
+            "  enter select · esc close",
+        ],
+        "plugins_popup_marketplace_remove_confirmation, from the dialog's column"
+    );
     s.keys("enter");
     s.assert_contains("Removing Repo Marketplace...");
     s.assert_contains("Removing marketplace...");
-    // the removal result and the refreshed list arrive from the app server: script lines
+    assert_eq!(
+        seed::wants(&s)
+            .into_iter()
+            .filter(|want| matches!(want, Want::Remove { .. }))
+            .collect::<Vec<_>>(),
+        vec![Want::Remove {
+            name: "repo".to_string()
+        }]
+    );
+    // the removal result and the refreshed list arrive from the app server
+    seed::with(&shelf, |held| {
+        held.held.remove("marketplace/remove");
+        held.local = vec![seed::curated(Vec::new())];
+    });
+    let remove = seed::last(&s, |want| matches!(want, Want::Remove { .. }));
+    s.answer_request(
+        &remove,
+        json!({ "marketplaceName": "repo", "installedRoot": seed::path("marketplaces/repo") }),
+    );
     s.assert_contains("Browse plugins from available marketplaces.");
     s.assert_absent("Repo Marketplace");
     s.assert_absent("Debug Plugin");
@@ -249,44 +497,82 @@ fn plugins_popup_removes_user_configured_marketplace_flow() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:620 plugin_detail_popup_snapshot_labels_personal_marketplace_as_local kind=snap owner=dialogs-pane snap=plugin_detail_popup_installable
 #[test]
 fn plugin_detail_popup_snapshot_labels_personal_marketplace_as_local() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let figma = plugin("plugin-figma", "figma", "Figma", "Design handoff.", false);
+    let shelf = seed::shelf(vec![seed::marketplace(
+        "personal-marketplace",
+        Some(seed::personal_path()),
+        None,
+        vec![figma.clone()],
+    )]);
+    seed::with(&shelf, |held| {
+        let detail = seed::set(
+            figma_detail(figma),
+            &[
+                ("marketplaceName", json!("personal-marketplace")),
+                ("marketplacePath", json!(seed::personal_path())),
+            ],
+        );
+        held.details.insert("figma".to_string(), detail);
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("enter");
-    s.assert_snap("plugin_detail_popup_installable");
+    s.assert_snap_region("plugin_detail_popup_installable", row_of(&s, "Plugins"), 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:672 plugin_detail_popup_snapshot_shows_npm_source kind=snap owner=dialogs-pane snap=plugin_detail_popup_npm_source
 #[test]
 fn plugin_detail_popup_snapshot_shows_npm_source() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let figma = seed::set(
+        plugin("plugin-figma", "figma", "Figma", "Design handoff.", false),
+        &[(
+            "source",
+            json!({ "type": "npm", "package": "@acme/figma-plugin", "version": "^1.2.0", "registry": "https://npm.example.com" }),
+        )],
+    );
+    let shelf = seed::shelf(vec![seed::curated(vec![figma.clone()])]);
+    seed::with(&shelf, |held| {
+        held.details
+            .insert("figma".to_string(), figma_detail(figma));
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("enter");
-    s.assert_snap("plugin_detail_popup_npm_source");
+    s.assert_snap_region("plugin_detail_popup_npm_source", row_of(&s, "Plugins"), 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:717 plugin_detail_popup_distinguishes_admin_installed_from_enabled kind=snap owner=dialogs-pane snap=plugin_detail_popup_installed
 #[test]
 fn plugin_detail_popup_distinguishes_admin_installed_from_enabled() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let figma = seed::summary(
+        "plugin-figma",
+        "figma",
+        Some("Figma"),
+        Some("Design handoff."),
+        true,
+        true,
+        "INSTALLED_BY_DEFAULT",
+    );
+    let shelf = seed::shelf(vec![seed::curated(vec![figma.clone()])]);
+    seed::with(&shelf, |held| {
+        held.details
+            .insert("figma".to_string(), figma_detail(figma.clone()));
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("enter");
     s.assert_contains("Installed by admin");
     s.assert_absent("Uninstall plugin");
     s.assert_absent("Data shared with this app is subject to the app's");
-    s.assert_snap("plugin_detail_popup_installed");
-    // the second detail (not installed, not enabled) arrives from the app server: a script line
+    s.assert_snap_region("plugin_detail_popup_installed", row_of(&s, "Plugins"), 0);
+    // the second detail (not installed, not enabled) arrives from the app server
+    let unmaterialized = seed::set(
+        figma,
+        &[("installed", json!(false)), ("enabled", json!(false))],
+    );
+    seed::with(&shelf, |held| {
+        held.details
+            .insert("figma".to_string(), figma_detail(unmaterialized));
+    });
+    s.keys("esc");
+    s.keys("enter");
     s.assert_contains("Enabled by Admin");
     s.assert_contains("Install plugin");
     s.assert_absent("Installed by admin");
@@ -296,32 +582,89 @@ fn plugin_detail_popup_distinguishes_admin_installed_from_enabled() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:786 plugins_popup_remote_row_opens_remote_detail kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_remote_row_opens_remote_detail() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(Vec::new());
+    seed::with(&shelf, |held| {
+        held.held.insert("plugin/read");
+        held.remote = vec![seed::marketplace(
+            "workspace-directory",
+            None,
+            Some("Workspace"),
+            vec![seed::remote_summary(
+                "plugins~Plugin_calendar",
+                "calendar",
+                Some("Calendar"),
+                Some("Workspace schedules."),
+                false,
+            )],
+        )];
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.assert_contains("Calendar");
     s.assert_contains("Available");
     s.assert_contains("Press Enter to install or view plugin details");
     s.keys("enter");
-    // OpenPluginDetailLoading and FetchPluginDetail (remote marketplace name, plugin id) are events: not on screen
+    // the detail is asked of the remote marketplace, by the plugin's id
+    let target = Target {
+        location: Location::Remote {
+            marketplace: "workspace-directory".to_string(),
+        },
+        plugin: "plugins~Plugin_calendar".to_string(),
+    };
+    assert!(
+        seed::wants(&s).contains(&Want::Read(target)),
+        "{:?}",
+        seed::wants(&s)
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:842 plugin_detail_unmaterialized_default_uses_remote_install_path kind=ui owner=dialogs-pane
 #[test]
 fn plugin_detail_unmaterialized_default_uses_remote_install_path() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let linear = seed::set(
+        seed::remote_summary(
+            "plugins~Plugin_linear",
+            "linear",
+            Some("Linear"),
+            Some("Issue tracking."),
+            false,
+        ),
+        &[("installPolicy", json!("INSTALLED_BY_DEFAULT"))],
+    );
+    let shelf = seed::shelf(Vec::new());
+    seed::with(&shelf, |held| {
+        held.remote = vec![seed::marketplace(
+            "workspace-shared-with-me-private",
+            None,
+            Some("Shared with me"),
+            vec![linear.clone()],
+        )];
+        held.held.insert("plugin/install");
+        held.details.insert(
+            "plugins~Plugin_linear".to_string(),
+            seed::remote_detail(
+                "workspace-shared-with-me-private",
+                linear,
+                Some("Install shared Linear plugin."),
+            ),
+        );
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
+    s.keys("enter");
     s.assert_contains("Install plugin");
     s.assert_contains("Install this plugin now");
     s.keys("down enter");
-    // OpenPluginInstallLoading and FetchPluginInstall (remote location, plugin name) are events: not on screen
+    // the install is asked of the remote marketplace, by the plugin's id
+    let target = Target {
+        location: Location::Remote {
+            marketplace: "workspace-shared-with-me-private".to_string(),
+        },
+        plugin: "plugins~Plugin_linear".to_string(),
+    };
+    assert!(
+        seed::wants(&s).contains(&Want::Install(target)),
+        "{:?}",
+        seed::wants(&s)
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:922 plugin_detail_remote_uninstall_uses_remote_plugin_id kind=ui owner=dialogs-pane
@@ -336,12 +679,35 @@ fn plugin_detail_remote_uninstall_uses_remote_plugin_id() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:982 plugin_detail_remote_without_remote_id_disables_uninstall_action kind=ui owner=dialogs-pane
 #[test]
 fn plugin_detail_remote_without_remote_id_disables_uninstall_action() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(120, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    // the row names its plugin by a remote id (so Enter can ask for the detail); the detail the
+    // server answers has none: the oracle injects that detail while the browser is up
+    let row = seed::remote_summary(
+        "plugins~Plugin_linear",
+        "linear",
+        Some("Linear"),
+        Some("Issue tracking."),
+        true,
+    );
+    let detail = seed::set(row.clone(), &[("remotePluginId", serde_json::Value::Null)]);
+    let shelf = seed::shelf(Vec::new());
+    seed::with(&shelf, |held| {
+        held.remote = vec![seed::marketplace(
+            "workspace-shared-with-me-private",
+            None,
+            Some("Shared with me"),
+            vec![row],
+        )];
+        held.details.insert(
+            "*".to_string(),
+            seed::remote_detail(
+                "workspace-shared-with-me-private",
+                detail,
+                Some("Installed shared Linear plugin."),
+            ),
+        );
+    });
+    let mut s = seed::open(120, 24, seed::config(), &shelf);
+    s.wait_for("Linear");
     s.keys("enter");
     s.assert_contains("This remote plugin did not provide an uninstall identity");
     s.assert_absent("Remove this plugin now");
@@ -353,42 +719,84 @@ fn plugin_detail_remote_without_remote_id_disables_uninstall_action() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1037 plugin_detail_popup_shows_local_share_context_as_read_only_snapshot kind=snap owner=dialogs-pane snap=plugin_detail_popup_local_share_read_only
 #[test]
 fn plugin_detail_popup_shows_local_share_context_as_read_only_snapshot() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(120, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let share = json!({
+        "remotePluginId": "plugins~Plugin_docs", "remoteVersion": "7", "discoverability": "PRIVATE",
+        "shareUrl": "https://chatgpt.com/codex/plugins/share/docs", "creatorAccountUserId": null,
+        "creatorName": "Test User", "sharePrincipals": null, "canPublishToWorkspace": null,
+    });
+    let docs = seed::set(
+        plugin("plugin-docs", "docs", "Docs", "Workspace docs.", false),
+        &[("shareContext", share)],
+    );
+    let shelf = seed::shelf(vec![seed::curated(vec![docs.clone()])]);
+    seed::with(&shelf, |held| {
+        let detail = seed::set(
+            seed::detail(docs, Some("Workspace docs."), &[], &[], &[], &[]),
+            &[("marketplacePath", json!(seed::personal_path()))],
+        );
+        held.details.insert("docs".to_string(), detail);
+    });
+    let mut s = seed::open(120, 24, seed::config(), &shelf);
     s.keys("enter");
-    s.assert_snap("plugin_detail_popup_local_share_read_only");
+    s.assert_snap_region(
+        "plugin_detail_popup_local_share_read_only",
+        row_of(&s, "Plugins"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1080 plugin_detail_popup_shows_admin_disabled_status_snapshot kind=snap owner=dialogs-pane
 #[test]
 fn plugin_detail_popup_shows_admin_disabled_status_snapshot() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(120, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let blocked = seed::set(
+        plugin(
+            "plugin-admin-blocked",
+            "admin-blocked",
+            "Admin Blocked",
+            "Blocked by policy.",
+            false,
+        ),
+        &[("availability", json!("DISABLED_BY_ADMIN"))],
+    );
+    let shelf = seed::shelf(vec![seed::curated(vec![blocked.clone()])]);
+    seed::with(&shelf, |held| {
+        held.details.insert(
+            "admin-blocked".to_string(),
+            seed::detail(blocked, Some("Blocked by policy."), &[], &[], &[], &[]),
+        );
+    });
+    let mut s = seed::open(120, 24, seed::config(), &shelf);
     s.keys("enter");
     s.assert_contains("  Admin Blocked · Disabled by admin · ChatGPT Marketplace");
     s.assert_contains("This plugin is disabled by your workspace admin");
     s.assert_absent("Install this plugin now");
-    // the oracle then checks that no action event follows: events are not on screen
+    // no action goes out after the disabled install state is drawn
+    assert!(
+        !seed::wants(&s)
+            .iter()
+            .any(|want| matches!(want, Want::Install(_)))
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1132 plugins_popup_admin_disabled_installed_plugin_has_no_toggle_hint kind=snap owner=dialogs-pane snap=plugins_popup_admin_disabled_installed
 #[test]
 fn plugins_popup_admin_disabled_installed_plugin_has_no_toggle_hint() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(120, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
-    s.assert_snap("plugins_popup_admin_disabled_installed");
+    let blocked = seed::set(
+        plugin(
+            "plugin-admin-blocked",
+            "admin-blocked",
+            "Admin Blocked",
+            "Blocked by policy.",
+            true,
+        ),
+        &[("availability", json!("DISABLED_BY_ADMIN"))],
+    );
+    let mut s = browser(120, vec![blocked]);
+    s.assert_snap_region(
+        "plugins_popup_admin_disabled_installed",
+        row_of(&s, "Plugins"),
+        0,
+    );
     s.assert_contains("[!] Admin Blocked");
     s.assert_contains("Disabled");
     s.assert_contains("Press Enter to view plugin details");
@@ -397,17 +805,27 @@ fn plugins_popup_admin_disabled_installed_plugin_has_no_toggle_hint() {
     let before = s.shot();
     s.keys("tab");
     s.assert_same_rows(&before);
+    assert!(
+        !seed::wants(&s)
+            .iter()
+            .any(|want| matches!(want, Want::Enable { .. }))
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1176 plugins_popup_admin_disabled_available_plugin_has_view_only_hint kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_admin_disabled_available_plugin_has_view_only_hint() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let blocked = seed::set(
+        plugin(
+            "plugin-admin-blocked",
+            "admin-blocked",
+            "Admin Blocked",
+            "Blocked by policy.",
+            false,
+        ),
+        &[("availability", json!("DISABLED_BY_ADMIN"))],
+    );
+    let s = browser(100, vec![blocked]);
     s.assert_contains("Admin Blocked");
     s.assert_contains("Press Enter to view plugin details");
     s.assert_absent("install or view");
@@ -416,29 +834,45 @@ fn plugins_popup_admin_disabled_available_plugin_has_view_only_hint() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1210 plugins_popup_remote_section_fallback_states_when_remote_plugin_disabled_snapshot kind=snap owner=dialogs-pane snap=plugins_popup_empty_shared_section_hidden
 #[test]
 fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disabled_snapshot() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    // the oracle turns RemotePlugin off; the remote sections load from the app server (script lines)
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    // the remote plugin feature is off: the curated section is a request of its own, the sections load from the app server
+    let shelf = seed::shelf(vec![seed::curated(Vec::new())]);
+    seed::with(&shelf, |held| {
+        held.held.insert(seed::SECTIONS);
+    });
+    let mut config = seed::config();
+    config.sharing = true;
+    let mut s = seed::open(100, 24, config, &shelf);
     select_tab(&mut s, "Loading OpenAI Curated plugins...");
     s.assert_contains("Loading OpenAI Curated plugins...");
     select_tab(&mut s, "Loading Workspace plugins.");
     s.assert_contains("Loading Workspace plugins.");
     select_tab(&mut s, "Loading Shared with me plugins.");
     s.assert_contains("Loading Shared with me plugins.");
-    s.assert_snap("plugins_popup_empty_shared_section_hidden");
+    select_tab(&mut s, "Loading Workspace plugins.");
+    seed::serve_sections(&mut s, &shelf);
+    s.assert_snap_region(
+        "plugins_popup_empty_shared_section_hidden",
+        row_of(&s, "Plugins"),
+        0,
+    );
     s.assert_absent("Shared with me");
+    // the workspace section fails
+    seed::with(&shelf, |held| {
+        held.section_errors.insert(
+            "workspace-directory",
+            "Sign in to ChatGPT to load workspace plugins.".to_string(),
+        );
+    });
+    s.keys("esc");
+    s.type_text("/plugins").keys("enter");
     select_tab(&mut s, "Workspace unavailable.");
     s.assert_contains("Workspace unavailable.");
     s.assert_contains("Sign in to ChatGPT to load workspace plugins.");
-    let mut remote = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    remote.type_text("/plugins").keys("enter");
+    // the remote plugin feature on: the curated marketplace is the OpenAI Curated tab
+    let mut config = seed::config();
+    config.remote = true;
+    let shelf = seed::shelf(vec![seed::curated(Vec::new())]);
+    let mut remote = seed::open(100, 24, config, &shelf);
     select_tab(&mut remote, "No OpenAI Curated plugins available");
     remote.assert_contains("No OpenAI Curated plugins available");
 }
@@ -446,20 +880,88 @@ fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disabled_snap
 // ORACLE chatwidget/tests/popups_and_settings.rs:1317 plugins_popup_remote_detail_tracks_physical_and_policy_install_state kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_remote_detail_tracks_physical_and_policy_install_state() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let id = "plugins~Plugin_docs";
+    let market = "workspace-shared-with-me-private";
+    let share = json!({
+        "remotePluginId": id, "remoteVersion": null, "discoverability": null, "shareUrl": null,
+        "creatorAccountUserId": null, "creatorName": null, "sharePrincipals": null,
+        "canPublishToWorkspace": null,
+    });
+    let local = |policy: &str| {
+        seed::set(
+            seed::summary(
+                "plugin-docs",
+                "docs",
+                Some("Docs"),
+                Some("Local editable docs plugin."),
+                false,
+                true,
+                policy,
+            ),
+            &[("shareContext", share.clone())],
+        )
+    };
+    let remote = |installed: bool| {
+        seed::remote_marketplace(
+            market,
+            "Shared with me",
+            vec![seed::remote_summary(
+                id,
+                "docs",
+                Some("Docs"),
+                Some("Shared docs plugin."),
+                installed,
+            )],
+        )
+    };
+    let shelf = seed::shelf(vec![seed::curated(vec![local("INSTALLED_BY_DEFAULT")])]);
+    seed::with(&shelf, |held| {
+        held.held.insert("plugin/read");
+        held.remote = vec![remote(true)];
+    });
+    let mut config = seed::config();
+    config.sharing = true;
+    let mut s = seed::open(100, 24, config, &shelf);
     s.assert_contains("Installed 1 of 1 available plugins.");
     s.assert_contains("Docs");
+    s.assert_absent("Available");
     s.keys("right");
     s.assert_contains("Showing 1 installed plugins.");
     s.assert_contains("Docs");
     s.keys("enter");
-    // OpenPluginDetailLoading and FetchPluginDetail (remote marketplace, plugin id) are events: not on screen
-    // the policy refresh (an admin-assigned remote duplicate) arrives from the app server: a script line
+    // the detail is asked of the remote marketplace, by the remote id
+    let target = || Target {
+        location: Location::Remote {
+            marketplace: market.to_string(),
+        },
+        plugin: id.to_string(),
+    };
+    assert!(
+        seed::wants(&s).contains(&Want::Read(target())),
+        "{:?}",
+        seed::wants(&s)
+    );
+    // the policy refresh (an admin-assigned remote duplicate that is not installed) arrives
+    seed::with(&shelf, |held| held.remote = vec![remote(false)]);
+    let unmaterialized = seed::set(
+        seed::remote_summary(id, "docs", Some("Docs"), Some("Shared docs plugin."), false),
+        &[("installPolicy", json!("INSTALLED_BY_DEFAULT"))],
+    );
+    seed::with(&shelf, |held| {
+        held.remote = vec![seed::remote_marketplace(
+            market,
+            "Shared with me",
+            vec![unmaterialized],
+        )];
+    });
+    s.keys("esc");
+    seed::hold_list(&shelf);
+    s.type_text("/plugins").keys("enter");
+    seed::refresh(
+        &mut s,
+        &shelf,
+        vec![seed::curated(vec![local("AVAILABLE")])],
+    );
     s.assert_contains("Installed 0 of 1 available plugins.");
     s.assert_contains("Admin assigned");
     s.keys("right");
@@ -467,34 +969,65 @@ fn plugins_popup_remote_detail_tracks_physical_and_policy_install_state() {
     s.assert_contains("No installed plugins");
     s.assert_absent("Docs");
     s.keys("left enter");
+    let reads = seed::wants(&s)
+        .into_iter()
+        .filter(|want| *want == Want::Read(target()))
+        .count();
+    assert_eq!(reads, 2);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1464 plugin_detail_error_popup_skips_disabled_row_numbering kind=snap owner=dialogs-pane snap=plugin_detail_error_popup
 #[test]
 fn plugin_detail_error_popup_skips_disabled_row_numbering() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![seed::curated(vec![plugin(
+        "plugin-figma",
+        "figma",
+        "Figma",
+        "Design handoff.",
+        false,
+    )])]);
+    seed::with(&shelf, |held| {
+        held.replies.insert(
+            "plugin/read",
+            Err("Failed to load plugin details.".to_string()),
+        );
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("enter");
-    // the detail failure ("Failed to load plugin details.") arrives from the app server: a script line
-    s.assert_snap("plugin_detail_error_popup");
+    s.assert_snap_region("plugin_detail_error_popup", row_of(&s, "Plugins"), 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1492 plugins_popup_refresh_preserves_selected_row_position kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_refresh_preserves_selected_row_position() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let notion = || {
+        plugin(
+            "plugin-notion",
+            "notion",
+            "Notion",
+            "Workspace docs.",
+            false,
+        )
+    };
+    let slack = || plugin("plugin-slack", "slack", "Slack", "Team chat.", false);
+    let shelf = seed::shelf(vec![seed::curated(vec![notion(), slack()])]);
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
+    // the refresh of the list arrives while the cached one is shown
+    seed::reopen_held(&mut s, &shelf);
     s.keys("down");
     s.assert_contains("› [-] Slack");
-    // the refreshed list (Airtable, Notion, Slack) arrives from the app server: a script line
+    let airtable = plugin(
+        "plugin-airtable",
+        "airtable",
+        "Airtable",
+        "Structured records.",
+        false,
+    );
+    seed::refresh(
+        &mut s,
+        &shelf,
+        vec![seed::curated(vec![airtable, notion(), slack()])],
+    );
     s.assert_contains("› [-] Notion");
     s.assert_contains("Airtable");
     s.assert_contains("Slack");
@@ -503,15 +1036,26 @@ fn plugins_popup_refresh_preserves_selected_row_position() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1573 plugins_popup_refreshes_installed_counts_after_install kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_refreshes_installed_counts_after_install() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let calendar = |installed| {
+        plugin(
+            "plugin-calendar",
+            "calendar",
+            "Calendar",
+            "Schedule management.",
+            installed,
+        )
+    };
+    let drive = plugin("plugin-drive", "drive", "Drive", "Document access.", true);
+    let shelf = seed::shelf(vec![seed::curated(vec![calendar(false), drive.clone()])]);
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.assert_contains("Installed 1 of 2 available plugins.");
     s.assert_contains("Available");
-    // the refresh (both installed) arrives from the app server: a script line
+    seed::reopen_held(&mut s, &shelf);
+    seed::refresh(
+        &mut s,
+        &shelf,
+        vec![seed::curated(vec![calendar(true), drive])],
+    );
     s.assert_contains("Installed 2 of 2 available plugins.");
     s.assert_contains("Installed   Tab to disable; Enter view details");
 }
@@ -519,18 +1063,61 @@ fn plugins_popup_refreshes_installed_counts_after_install() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1642 plugins_popup_toggle_keys_preserve_search_and_selection kind=snap owner=dialogs-pane snap=plugins_popup_toggle_refresh_preserves_search
 #[test]
 fn plugins_popup_toggle_keys_preserve_search_and_selection() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![seed::curated(vec![
+        plugin(
+            "plugin-calendar",
+            "calendar",
+            "Calendar",
+            "Schedule management.",
+            true,
+        ),
+        plugin("plugin-drive", "drive", "Drive", "Document access.", true),
+    ])]);
+    seed::with(&shelf, |held| {
+        held.held.insert("config/value/write");
+        held.replies.insert("config/value/write", Ok(json!({})));
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("down space");
-    // SetPluginEnabled (plugin-drive disabled, then enabled) are events: not on screen
+    let enables = |s: &Screen| -> Vec<Want> {
+        seed::wants(s)
+            .into_iter()
+            .filter(|want| matches!(want, Want::Enable { .. }))
+            .collect()
+    };
+    assert_eq!(
+        enables(&s),
+        vec![Want::Enable {
+            id: "plugin-drive".to_string(),
+            enabled: false
+        }]
+    );
     s.type_text("dr");
     s.keys("tab");
-    // the enabled state is confirmed by the app server: a script line
-    s.assert_snap("plugins_popup_toggle_refresh_preserves_search");
+    // the write goes on: the server confirms the first, then the one that flips it back
+    seed::with(&shelf, |held| {
+        held.held.remove("config/value/write");
+    });
+    let first = seed::last(&s, |want| matches!(want, Want::Enable { .. }));
+    s.answer_request(&first, json!({}));
+    assert_eq!(
+        enables(&s),
+        vec![
+            Want::Enable {
+                id: "plugin-drive".to_string(),
+                enabled: false
+            },
+            Want::Enable {
+                id: "plugin-drive".to_string(),
+                enabled: true
+            },
+        ]
+    );
+    s.assert_snap_region(
+        "plugins_popup_toggle_refresh_preserves_search",
+        row_of(&s, "Plugins"),
+        0,
+    );
     s.assert_contains("› [*] Drive");
     s.assert_contains("Tab to disable");
     s.assert_contains("dr");
@@ -539,14 +1126,26 @@ fn plugins_popup_toggle_keys_preserve_search_and_selection() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1722 plugins_popup_hides_tab_toggle_hint_when_tab_is_configured kind=snap owner=dialogs-pane snap=plugins_popup_custom_tab_binding_hides_toggle_hint
 #[test]
 fn plugins_popup_hides_tab_toggle_hint_when_tab_is_configured() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .keymap(&[("list.move_down", "tab")])
-        .live()
-        .open();
+    let shelf = seed::shelf(vec![seed::curated(vec![plugin(
+        "plugin-drive",
+        "drive",
+        "Drive",
+        "Document access.",
+        true,
+    )])]);
+    let mut s = seed::start_with(
+        100,
+        24,
+        seed::config(),
+        &shelf,
+        &[("list.move_down", "tab")],
+    );
     s.type_text("/plugins").keys("enter");
-    s.assert_snap("plugins_popup_custom_tab_binding_hides_toggle_hint");
+    s.assert_snap_region(
+        "plugins_popup_custom_tab_binding_hides_toggle_hint",
+        row_of(&s, "Plugins"),
+        0,
+    );
     s.assert_contains("Installed   Press Enter to view plugin details");
     s.assert_absent("Tab to disable");
     s.assert_absent("tab toggle");
@@ -555,16 +1154,28 @@ fn plugins_popup_hides_tab_toggle_hint_when_tab_is_configured() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1754 plugins_popup_space_on_uninstalled_row_does_not_start_search kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_space_on_uninstalled_row_does_not_start_search() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let mut s = browser(
+        100,
+        vec![
+            plugin(
+                "plugin-calendar",
+                "calendar",
+                "Calendar",
+                "Schedule management.",
+                false,
+            ),
+            plugin("plugin-drive", "drive", "Drive", "Document access.", false),
+        ],
+    );
     let before = s.shot();
     s.keys("space");
-    // the oracle checks that Space sends no event: the rows stay the same
+    // Space sends no write and starts no search: the rows stay the same
     s.assert_same_rows(&before);
+    assert!(
+        !seed::wants(&s)
+            .iter()
+            .any(|want| matches!(want, Want::Enable { .. }))
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1795 plugins_popup_space_with_active_search_does_not_toggle_installed_plugin kind=ui owner=dialogs-pane
@@ -579,14 +1190,22 @@ fn plugins_popup_space_with_active_search_does_not_toggle_installed_plugin() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1835 plugins_popup_search_filters_visible_rows_snapshot kind=snap owner=dialogs-pane snap=plugins_popup_search_filtered
 #[test]
 fn plugins_popup_search_filters_visible_rows_snapshot() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let mut s = browser(
+        100,
+        vec![
+            plugin(
+                "plugin-calendar",
+                "calendar",
+                "Calendar",
+                "Schedule management.",
+                false,
+            ),
+            plugin("plugin-slack", "slack", "Slack", "Team chat.", false),
+            plugin("plugin-drive", "drive", "Drive", "Document access.", false),
+        ],
+    );
     s.type_text("sla");
-    s.assert_snap("plugins_popup_search_filtered");
+    s.assert_snap_region("plugins_popup_search_filtered", row_of(&s, "Plugins"), 0);
     s.assert_absent("Calendar");
     s.assert_absent("Drive");
 }
@@ -594,12 +1213,19 @@ fn plugins_popup_search_filters_visible_rows_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1883 plugins_popup_search_matches_plugin_descriptions kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_search_matches_plugin_descriptions() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let mut s = browser(
+        100,
+        vec![
+            plugin(
+                "plugin-calendar",
+                "calendar",
+                "Calendar",
+                "Schedule management.",
+                false,
+            ),
+            plugin("plugin-drive", "drive", "Drive", "Document access.", false),
+        ],
+    );
     s.type_text("document");
     s.assert_contains("Drive");
     s.assert_absent("Calendar");
@@ -608,12 +1234,19 @@ fn plugins_popup_search_matches_plugin_descriptions() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1921 plugins_popup_installed_tab_filters_rows_and_clears_search kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_installed_tab_filters_rows_and_clears_search() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let mut s = browser(
+        100,
+        vec![
+            plugin(
+                "plugin-calendar",
+                "calendar",
+                "Calendar",
+                "Schedule management.",
+                true,
+            ),
+            plugin("plugin-slack", "slack", "Slack", "Team chat.", false),
+        ],
+    );
     s.type_text("sla");
     s.keys("right");
     s.assert_contains("Installed plugins.");
@@ -626,12 +1259,23 @@ fn plugins_popup_installed_tab_filters_rows_and_clears_search() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:1968 plugins_popup_openai_curated_tab_omits_marketplace_in_rows kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_openai_curated_tab_omits_marketplace_in_rows() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let shelf = seed::shelf(vec![
+        seed::curated(vec![plugin(
+            "plugin-calendar",
+            "calendar",
+            "Calendar",
+            "Schedule management.",
+            false,
+        )]),
+        seed::repo(vec![plugin(
+            "plugin-repo",
+            "repo",
+            "Repo Plugin",
+            "Repo-only plugin.",
+            false,
+        )]),
+    ]);
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("right right");
     s.assert_contains("OpenAI Curated marketplace.");
     s.assert_contains("Calendar");
@@ -642,12 +1286,36 @@ fn plugins_popup_openai_curated_tab_omits_marketplace_in_rows() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2015 plugins_popup_refresh_preserves_duplicate_marketplace_tab_by_path kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_refresh_preserves_duplicate_marketplace_tab_by_path() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let duplicate = |file: &str, id: &str, name: &str, display: &str, description: &str| {
+        seed::marketplace(
+            "duplicate",
+            Some(seed::path(file)),
+            Some("Duplicate Marketplace"),
+            vec![plugin(id, name, display, description, false)],
+        )
+    };
+    let markets = || {
+        vec![
+            duplicate(
+                "marketplaces/home/marketplace.json",
+                "plugin-home",
+                "home",
+                "Home Plugin",
+                "Home marketplace plugin.",
+            ),
+            duplicate(
+                "marketplaces/repo/marketplace.json",
+                "plugin-repo",
+                "repo",
+                "Repo Plugin",
+                "Repo marketplace plugin.",
+            ),
+        ]
+    };
+    let shelf = seed::shelf(markets());
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
+    // the same two marketplaces arrive again while the second one's tab is shown
+    seed::reopen_held(&mut s, &shelf);
     for _ in 0..10 {
         let text = s.text();
         if text.contains("Duplicate Marketplace (2/2).")
@@ -658,7 +1326,7 @@ fn plugins_popup_refresh_preserves_duplicate_marketplace_tab_by_path() {
         }
         s.keys("right");
     }
-    // the same two marketplaces arrive again from the app server: a script line
+    seed::refresh(&mut s, &shelf, markets());
     s.assert_contains("Duplicate Marketplace (2/2).");
     s.assert_contains("Repo Plugin");
     s.assert_absent("Home Plugin");
@@ -667,12 +1335,19 @@ fn plugins_popup_refresh_preserves_duplicate_marketplace_tab_by_path() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2086 plugins_popup_search_no_matches_and_backspace_restores_results kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_search_no_matches_and_backspace_restores_results() {
-    kit::pending(Owner::DialogsPane, PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let mut s = browser(
+        100,
+        vec![
+            plugin(
+                "plugin-calendar",
+                "calendar",
+                "Calendar",
+                "Schedule management.",
+                false,
+            ),
+            plugin("plugin-slack", "slack", "Slack", "Team chat.", false),
+        ],
+    );
     s.type_text("zzz");
     s.assert_contains("zzz");
     s.assert_contains("no matches");
