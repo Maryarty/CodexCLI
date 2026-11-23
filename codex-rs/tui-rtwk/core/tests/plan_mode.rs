@@ -543,7 +543,7 @@ fn the_mask_lies_over_the_base_settings() {
         plan.settings
             .reasoning_effort
             .as_ref()
-            .map(|effort| effort.as_str()),
+            .map(codex_protocol::openai_models::ReasoningEffort::as_str),
         Some("medium")
     );
     assert_eq!(plan.settings.developer_instructions, None);
