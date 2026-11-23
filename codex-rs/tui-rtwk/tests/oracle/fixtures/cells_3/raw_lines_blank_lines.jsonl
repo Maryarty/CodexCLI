@@ -1,4 +1,4 @@
 # oracle history_cell/tests.rs:270 raw_lines_from_source_preserves_explicit_blank_lines (source alpha, blank, beta)
+# No turn/started: the oracle builds the cell alone, no turn runs (a running turn adds the Working row to the bottom pane).
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
 {"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","moderation":null,"id":"msg-1","text":"alpha\n\nbeta\n","phase":null,"memoryCitation":null,"delivery":null,"questions":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
