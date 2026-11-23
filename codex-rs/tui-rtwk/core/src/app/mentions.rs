@@ -60,7 +60,11 @@ pub(super) fn sync(app: &mut CodexApp, fx: &mut AppFx) {
     let mentions = sources::catalog(
         listed.skills.as_deref().unwrap_or_default(),
         listed.plugins.as_deref().unwrap_or_default(),
-        &listed.apps.as_deref().map(sources::apps).unwrap_or_default(),
+        &listed
+            .apps
+            .as_deref()
+            .map(sources::apps)
+            .unwrap_or_default(),
     );
     popovers::apply(
         &mut Rc::make_mut(&mut app.screens).popovers,

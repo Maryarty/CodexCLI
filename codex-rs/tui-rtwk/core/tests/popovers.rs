@@ -366,8 +366,12 @@ mod live {
         assert_eq!(
             asks,
             vec![
-                popovers::Command::Skills { cwd: "/work".into() },
-                popovers::Command::Plugins { cwd: "/work".into() },
+                popovers::Command::Skills {
+                    cwd: "/work".into()
+                },
+                popovers::Command::Plugins {
+                    cwd: "/work".into()
+                },
             ]
         );
         assert_eq!(asked(&poke(&mut app)).len(), 0, "once per thread");
@@ -424,7 +428,15 @@ mod live {
         let read = fx
             .commands()
             .iter()
-            .find(|command| matches!(command, Command::Screen { command: ScreenCommand::Select(_), .. }))
+            .find(|command| {
+                matches!(
+                    command,
+                    Command::Screen {
+                        command: ScreenCommand::Select(_),
+                        ..
+                    }
+                )
+            })
             .expect("app/list");
         answer(
             &mut app,
