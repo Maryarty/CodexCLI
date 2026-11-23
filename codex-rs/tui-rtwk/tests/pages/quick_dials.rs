@@ -166,11 +166,10 @@ fn the_delete_picker_lists_the_saved_slots_and_enter_asks_to_delete() {
 fn the_delete_picker_with_nothing_saved_has_no_row_to_pick() {
     let mut s = entry("quick_clear_empty", 24);
     s.assert_contains("Delete a preset");
+    // no row is selected: the oracle's `accept` with nothing under the cursor cancels the view
     s.keys("enter");
-    s.assert_contains("Delete a preset");
-    s.assert_absent("Delete preset");
-    s.keys("esc");
     s.assert_absent("Delete a preset");
+    s.assert_absent("Delete preset");
 }
 
 #[test]
@@ -236,7 +235,14 @@ fn the_editor_of_a_saved_slot_is_titled_edit_and_goes_to_the_confirmation() {
         "enter review changes · esc back",
     ]);
     s.keys("enter");
-    s.assert_in_order(&["Replace preset 1?", "coding", "› 1. Replace preset 1"]);
+    // the confirmation shows the saved text, not its label (oracle `confirm_quick_dial`)
+    s.assert_in_order(&[
+        "Replace preset 1?",
+        CODING,
+        "→ ",
+        CODING,
+        "› 1. Replace preset 1",
+    ]);
 }
 
 #[test]
@@ -247,7 +253,9 @@ fn the_sources_are_the_current_settings_and_a_row_opens_the_editor_on_it() {
         "› 1. Current model",
         "/model gpt-5.5 --speed=standard",
         " 2. Current permissions",
-        "/permissions :workspace --approval-policy=on-request --reviewer=user",
+        // the oracle wraps the value at the hyphen (snapshot `saved_quick_dials_source`)
+        "/permissions :workspace --approval-policy=on-",
+        "request --reviewer=user",
         " 3. Current terminal title",
         "/title model project-name model",
         " 4. Current status line",
