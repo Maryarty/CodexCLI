@@ -80,6 +80,24 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }),
         },
         DebugEntry {
+            name: "alone_history",
+            description: "the composer with its key footer and two prompts of history (Ctrl+R)",
+            script: include_str!("fixtures/alone_history.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone { ui }.into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_history_separators",
+            description: "the composer with its key footer and history holding pasted separators",
+            script: include_str!("fixtures/alone_history_separators.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone { ui }.into()
+            }),
+        },
+        DebugEntry {
             name: "alone_running",
             description: "the composer with its key footer while a turn runs",
             script: include_str!("fixtures/alone_running.jsonl"),

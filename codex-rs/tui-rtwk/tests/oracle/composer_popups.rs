@@ -65,11 +65,6 @@ fn large_draft_search() -> Screen {
 /// G-new-1: rtwk's `TextArea` paints no style per range of its text (a Flutter `TextEditingController.buildTextSpan`
 /// override), so the preview cannot mark the match.
 const MATCH_HIGHLIGHT: &str = "G-new-1: rtwk TextArea paints no per-range style, so the matched part of the previewed entry is not reversed and bold";
-/// The oracle's paste snapshots are a bare composer rendered at 5 rows (a two-row textarea, the cursor in the
-/// footer's query), not the chat screen: the chat draws the same composer on rows 1-4 under a gap row, so the
-/// rows differ by the textarea's spare row and the cursor is the composer's caret; the same checks run as page
-/// tests (`tests/pages/popovers.rs`, Ctrl+R in the composer).
-const BARE_COMPOSER: &str = "the snapshot is a bare composer at 5 rows (the textarea has a spare row, the cursor stands in the footer's query), the chat draws the composer under its gap row with its own caret; page tests hold the same checks";
 
 /// G68: the oracle's popup is the pane's rows under the prompt, its name and description in aligned
 /// columns with a `›` marker and a hint line; rtwk's `OptionList` in a `Popover` floats above the
@@ -356,10 +351,9 @@ fn history_search_no_match_restores_preview_but_keeps_search_open() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:46 history_search_paste_appends_query_and_accepts_match kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_query
 #[test]
 fn history_search_paste_appends_query_and_accepts_match() {
-    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
-        .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
+        .entry("composer", "alone_history")
         .open();
     s.type_text("draft").keys("ctrl+r");
     s.paste("git");
@@ -377,12 +371,15 @@ fn history_search_paste_appends_query_and_accepts_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:83 history_search_large_paste_clamps_cursor kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_large_paste_cursor
 #[test]
 fn history_search_large_paste_clamps_cursor() {
-    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
+    kit::pending(
+        Owner::ChatNavPane,
+        "pending(G-footer-caret): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
+    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 5)
-        .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
+        .entry("composer", "alone_history")
         .open();
-    s.keys("ctrl+r");
+    s.type_text("draft").keys("ctrl+r");
     s.paste(&"x".repeat(65536));
     s.assert_snap_region("codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_large_paste_cursor", 0, 0);
 }
@@ -390,10 +387,9 @@ fn history_search_large_paste_clamps_cursor() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:101 history_search_empty_paste_preserves_selected_match kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_empty_paste
 #[test]
 fn history_search_empty_paste_preserves_selected_match() {
-    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
-        .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
+        .entry("composer", "alone_history")
         .open();
     s.type_text("draft").keys("ctrl+r");
     s.paste("git");
@@ -408,10 +404,13 @@ fn history_search_empty_paste_preserves_selected_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:121 history_search_paste_shows_separators_and_matches_original_query kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_separators
 #[test]
 fn history_search_paste_shows_separators_and_matches_original_query() {
-    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
+    kit::pending(
+        Owner::ChatNavPane,
+        "pending(G-footer-caret): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
+    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
-        .script(include_str!("fixtures/composer_popups/h_separators.jsonl"))
+        .entry("composer", "alone_history_separators")
         .open();
     s.type_text("draft").keys("ctrl+r");
     s.paste("foo\nbar\tbaz");
