@@ -237,7 +237,7 @@ fn app_step(step: impl FnOnce(&mut AppCx<'_>)) {
         ScreenStates::default(),
         TuiSettings::default(),
     );
-    let mut cx = AppCx::new(AppView::new(None, &threads, &screens, &tui, &[]));
+    let mut cx = AppCx::new(AppView::new(None, &threads, &screens, &tui, &[], None));
     step(&mut cx);
     assert!(cx.into_out().is_empty(), "a probe says nothing");
 }
@@ -358,7 +358,7 @@ fn a_feature_asks_the_host_through_the_outbox() {
         ScreenStates::default(),
         TuiSettings::default(),
     );
-    let mut cx = AppCx::new(AppView::new(None, &threads, &screens, &tui, &[]));
+    let mut cx = AppCx::new(AppView::new(None, &threads, &screens, &tui, &[], None));
     cx.effect(Ask::ClipboardText, ctx.clone());
     cx.effect(
         Ask::SuggestTitle {

@@ -2,7 +2,7 @@
 
 Дата: 2026-11-23. Факт-финдинг, код не менялся.
 
-**Итог.** 289 строк-функций: ✅ 115, 🟡 66, ❌ 103 (на ea69879b9), «?» 5 (статус не установлен). Тесты oracle (2607): 865 зелёные, 1432 pending, 13 красных, 297 n/a. Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
+**Итог.** 289 строк-функций: ✅ 120, 🟡 63, ❌ 102 (на a15c35bf8), «?» 4 (статус не установлен). Тесты oracle (2607): 865 зелёные, 1432 pending, 13 красных, 297 n/a. Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
 **Пять самых больших дыр.**
 1. Транскрипт: нет поиска (F3/F4), клавиатурного выделения, copy mode, закреплённой шапки prompt, копирования выделения мышью (copy-on-select, двойной/тройной клик, правая кнопка), раскрытия деталей хода. transcript_view_4: 0 из 60 зелёные, transcript_view_5: 1 из 59.
 2. Слэш-команды: ≈25 из ≈65 отвечают «NotAvailable» или открывают пустой слот: /side /btw /copy /worktree /mcp /ps /recap /vim /voice /tui /diff /hooks /keymap /config /experimental /skills /title /statusline /logout /ide /daybreak /debug-config /subagents.
@@ -26,7 +26,7 @@
 | Ответ агента: стриминг markdown, списки, таблицы, код, ссылки | 🟡 работает, тест не включён | mermaid/math-блоки, часть markdown-рендера (140 из 283 markdown-тестов ждут) | 126/268 (не вкл. 11) | chunk-cells-rendering-prefs |
 | Подсветка кода и diff в ответах | ✅ | — | 14/55 (не вкл. 3) | — |
 | Гиперссылки в тексте (клик открывает) | 🟡 | обычный клик по ссылке красный (ordinary_click_opens_links), OSC-8 в активной ячейке ждёт | 3/17 (не вкл. 1) | chunk-transcript-2 |
-| Ячейка reasoning (сводка, сырой reasoning, заголовок) | 🟡 работает, тест не включён | raw reasoning с заголовком, компактный/подробный вид, повтор при завершении | 20/55 (не вкл. 3) | chunk-cells-reasoning |
+| Ячейка reasoning (сводка, сырой reasoning, заголовок) | ✅ | landed a15c35bf8: сводка live и в истории, raw reasoning по show_raw_agent_reasoning, пустые блоки (7 тестов зелёные) | 20/55 (не вкл. 3) | chunk-cells-reasoning |
 | Ячейка exec: команда, вывод, статус, длительность | 🟡 | компактная форма как у oracle (afd840c6e; non-zero exit — bold-буллет); нет: пульс буллета running (G-tool-bullet-pulse), форма `!cmd` с 50 строками (G-exec-user-shell), scrollback-снимки ждут inline-режима S27 | 5/50 (не вкл. 2) | chunk-cells-rendering-prefs, inline-mode |
 | Группы exploration (Read/List/Search свёрнуты в одну) | ❌ | группировка, прерывание, нулевой exit, порядок с reasoning (≈20 тестов) | 0/9 | chunk-cells-tool-cells |
 | Unified exec: фоновые терминалы, wait-streak, interaction-ячейка | ❌ | ячейка взаимодействия, «waited for», сохранение при interrupt | 2/19 | chunk-cells-background-terminals |
@@ -40,7 +40,7 @@
 | Ячейка delegated (делегированный вывод tool) | ✅ | — | 2/2 | — |
 | Ячейка hook (запущен/завершён) | ✅ | — | — | — |
 | Решение approval в транскрипте (Approved/Denied + команда) | ❌ | decision cell: усечение многострочных команд, network-allow, canceled host | 0/5 (не вкл. 2) | chunk-cells-question-result |
-| Результат вопроса request_user_input в транскрипте | ❌ | ячейка ответа, markdown из загруженной истории | 0/4 | chunk-cells-question-result |
+| Результат вопроса request_user_input в транскрипте | ✅ | landed a15c35bf8: ячейка ответа/прерывания (completed_and_interrupted_results); markdown из истории — sweep | 0/4 | chunk-cells-question-result |
 | Ячейка ошибки (upstream, cyber policy, overloaded, safety access) | ✅ | chained config error wrap (pending) | 3/9 | — |
 | Предупреждения (warning, sqlite, config, guardian, model verification) | ✅ | wrap уведомления в narrow, notice_details_fit | 6/6 | — |
 | Deprecation / update-available / version-notice | ✅ | update-available и server-version от host (e263606f0); server-version дедуп в пределах запуска (oracle хранит last_shown) | 4/6 | — |
@@ -148,7 +148,7 @@
 | /import — перенос из других агентов | ✅ | route Import; shard import 16/16 | 16/16 | — |
 | /hooks | ❌ | NotAvailable; sheet settings/hooks.rs не подключён; hooks_popup_shows_list_diagnostics | 0/1 | settings |
 | /review — выбор ветки/коммита/custom | ✅ | branch/commit picker snapshots ждут (review_*_picker, 2 pending) | 32/74 (не вкл. 6) | — |
-| /rename — имя треда | 🟡 | с аргументом ✅; bare без имени (prompt «Name thread») ?: в dispatch Dialogs, обработчик не найден | 1/7 | small-dialogs |
+| /rename — имя треда | ✅ | landed a15c35bf8 (95826e191): с аргументом и bare prompt с предложением имени (slice features/rename) | 1/7 | small-dialogs |
 | /new | 🟡 | новый тред ✅; выбор checkout-директории (worktree choice) ❌ | 0/2 | chunk-popups-worktree |
 | /archive | ✅ | confirm sheet + RPC | 2/2 | — |
 | /delete | ✅ | confirm sheet + RPC | 1/1 | — |
@@ -166,7 +166,7 @@
 | /agents — центр агентов | ✅ | Target::Agents route | 0/1 | — |
 | /side, /btw | ❌ | нет; тесты отказов в side-треде тоже ждут | 4/33 (не вкл. 2) | chunk-commands |
 | /copy — копировать ответ | ❌ | NotAvailable(Copy); выбор copy picker и Ctrl+O не готовы | 0/11 (не вкл. 2) | chunk-transcript-2-copy-mode |
-| /export | 🟡 | /export <путь> ✅ (core export::run); bare destination picker не подключён | 0/2 | chunk-commands-export |
+| /export | ✅ | landed a15c35bf8 (95826e191): путь, picker назначения, prompt имени (slice features/export) | 0/2 | chunk-commands-export |
 | /raw | ✅ | режим + заметка, Alt+R | 19/35 (не вкл. 1) | — |
 | /tui — быстрые настройки TUI | ❌ | NotAvailable | — | settings |
 | /diff | ❌ | Target::Pager показывает «not yet» | — | pager |
@@ -299,7 +299,7 @@
 |---|---|---|---|---|
 | Предупреждения (/warnings, F2): страницы, wrap | 🟡 | warning_pages_wrap красный | 0/2 | small-dialogs |
 | Шорткаты: оверлей «?» со всеми действиями | ✅ | — | 2/4 | — |
-| Rename thread prompt (bare /rename) | ? | не найден обработчик в actions.rs | — | small-dialogs |
+| Rename thread prompt (bare /rename) | ✅ | slice features/rename (a15c35bf8) | — | small-dialogs |
 | Confirm: archive/delete треда | ✅ | — | 12/19 | — |
 | Daemon (подключение к daemon) | ❌ | — | 1/2 | small-dialogs |
 | Ссылка на приложение (app link) диалог | ❌ | — | — | small-dialogs |

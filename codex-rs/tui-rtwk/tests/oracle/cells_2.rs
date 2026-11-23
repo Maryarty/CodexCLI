@@ -399,12 +399,48 @@ fn finalized_plan_file_citation_renders_as_local_path_snapshot() {
 // ORACLE history_cell/request_user_input_tests.rs:9 completed_and_interrupted_results kind=snap owner=chat-live snap=completed_and_interrupted_results
 #[test]
 fn completed_and_interrupted_results() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::request_input, rows of both frames equal in tests/pages/cells.rs notice_cells, the answer and flag colours checked); need: the host appends Notice::Questions when the request-user-input exchange ends, which the kit cannot seed; the oracle also pins the default colours (240,240,240 on 24,24,24), which the kit cannot set",
-    );
-    let s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
-    s.assert_snap_section("completed_and_interrupted_results", "completed");
+    // The exchange as the user has it: option 1 and a typed note, submitted; the transcript keeps
+    // the result cell (the oracle test builds the cell directly and snapshots it twice). The
+    // `interrupted` frame is the cell with its flag set and no answers: the oracle's own code
+    // never sets the flag (`submit_answers`, `submit_empty_auto_resolution`), so no exchange
+    // reaches it; the cell's rows for that frame are checked in tests/pages/cells.rs.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 24)
+        // the oracle's `with_test_default_colors`
+        .terminal_colors(0xf0_f0_f0, 0x18_18_18)
+        .script(include_str!(
+            "fixtures/cells_2/completed_and_interrupted_results.jsonl"
+        ))
+        .open();
+    s.keys("tab");
+    s.type_text("Preserve the behavior");
+    s.keys("enter");
+    let top = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("• Questions"))
+        .unwrap_or_else(|| panic!("no result cell:\n{}", s.text()));
+    // The snapshot's rows (frame `completed`), then the styles of its runs. The kit's frame
+    // compare also reads the blank cells' styles from the terminal, where the presenter leaves
+    // a dim or bold attribute off a blank (G46, `assert_painted`): so the runs are asserted by
+    // their text.
+    let rows = [
+        "• Questions 1/1 answered",
+        "  • Which approach should we use for the",
+        "    next step?",
+        "    answer: Keep it small",
+        "    note: Preserve the behavior",
+    ];
+    for (offset, row) in rows.into_iter().enumerate() {
+        s.assert_row(top + offset, row);
+    }
+    s.assert_text_style("Questions", "bold");
+    s.assert_text_style("1/1 answered", "dim");
+    s.assert_text_style("answer:", "dim");
+    s.assert_text_style("note:", "dim");
+    s.assert_text_style("Keep it small", "fg=Rgb(99, 168, 248) !dim");
+    s.assert_text_style("Preserve the behavior", "fg=Rgb(99, 168, 248) !dim");
+    s.assert_text_style("Which approach", "!dim !bold");
 }
 
 // ---- oracle: history_cell/search_tests.rs (4 screen-level tests here; 0 state tests left to chat-live)

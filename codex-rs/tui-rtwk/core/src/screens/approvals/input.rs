@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use super::{Question, RequestAnswer};
+use crate::screens::cells::AnsweredQuestion;
 
 /// A request that is not blocking waits this long before its countdown shows (the oracle's
 /// `AUTO_RESOLUTION_HIDDEN_GRACE`).
@@ -156,4 +157,23 @@ pub fn answer(questions: &[Question], drafts: &[Draft]) -> RequestAnswer {
         })
         .collect();
     RequestAnswer::UserInput(answers)
+}
+
+/// The exchange as the transcript's result cell records it (oracle `RequestUserInputResultCell
+/// { questions, answers }`, built where the overlay submits and where a request answers itself
+/// empty): every question in its order with the entries the answer map holds for its id. A
+/// question the map has no entry for, or an empty one, is unanswered.
+pub fn answered_questions(
+    questions: &[Question],
+    answers: &BTreeMap<String, Vec<String>>,
+) -> Vec<AnsweredQuestion> {
+    questions
+        .iter()
+        .map(|question| AnsweredQuestion {
+            question: question.text.clone(),
+            secret: question.is_secret,
+            has_options: has_options(question),
+            answers: answers.get(&question.id).cloned().unwrap_or_default(),
+        })
+        .collect()
 }

@@ -3,7 +3,6 @@
 //! it as an entry of the thread, so it stays where the conversation was when
 //! it was said. Typed keys, the UI's string tables hold the words (ADR-010).
 
-use crate::app::effects::CopyStatus;
 use crate::commands::Notice;
 use crate::screens::agents::Action;
 
@@ -82,13 +81,6 @@ pub enum NoteKey {
     /// What the server said when its work finished, in its own words
     /// (`modelProvider/authRecoveryCompleted`).
     ServerDone(String),
-    /// How a copy went (`show_copy_result`): the delivery status, or the clipboard's failure.
-    Copy {
-        label: CopyLabel,
-        result: Result<CopyStatus, String>,
-    },
-    /// What `/export` answered with.
-    Export(ExportNote),
     /// What a switch of the collaboration mode said.
     Mode(ModeNote),
     /// A line of a feature slice (ADR-012); its words are `src/features/<f>/strings.rs`.
@@ -108,26 +100,6 @@ pub enum ModeNote {
     ModelChanged(crate::screens::select::collaboration::ModelChange),
 }
 
-/// What a copy put on the clipboard: the word in the line saying how it went.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CopyLabel {
-    /// `/export`, "Copy to clipboard".
-    Conversation,
-}
-
-/// What `/export` answered with (`export_transcript`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ExportNote {
-    /// `Saved conversation to {path}`: the path written.
-    Saved(String),
-    /// `Export failed: {error}`: the host's reason the file was not written.
-    Failed(String),
-    /// `Export failed: No active conversation to export.`
-    NoConversation,
-    /// `Export failed: No conversation content to export.`
-    NoContent,
-}
-
 impl NoteKey {
     /// The oracle shows each answer as information or as an error.
     pub fn tone(&self) -> Tone {
@@ -136,10 +108,6 @@ impl NoteKey {
             NoteKey::Select(note) => note.tone(),
             NoteKey::Feature(note) => crate::features::note_tone(note),
             NoteKey::ServerDone(_) => Tone::Done,
-            NoteKey::Copy { result: Err(_), .. }
-            | NoteKey::Export(
-                ExportNote::Failed(_) | ExportNote::NoConversation | ExportNote::NoContent,
-            ) => Tone::Error,
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
             | NoteKey::ModeBusy
@@ -151,8 +119,6 @@ impl NoteKey {
             | NoteKey::DesktopOpened
             | NoteKey::StoppingTerminals
             | NoteKey::RawOutput(_)
-            | NoteKey::Copy { .. }
-            | NoteKey::Export(ExportNote::Saved(_))
             | NoteKey::Mode(_)
             | NoteKey::Server(_) => Tone::Info,
         }

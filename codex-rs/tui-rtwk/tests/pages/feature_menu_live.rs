@@ -71,3 +71,26 @@ fn a_feature_menu_keeps_its_cursor_when_a_feature_step_rebuilds_it() {
         "the rebuilt menu keeps the cursor:\n{screen}"
     );
 }
+
+/// `/export` (a slice with a menu of its own): the bare command opens the destination picker the
+/// feature built, with the oracle's header and rows, and the cursor on the first.
+#[test]
+fn the_bare_export_command_opens_the_feature_destination_picker() {
+    let mut h = start();
+    chat_with_history(&mut h);
+    h.t.type_text("/export");
+    h.press("enter");
+    h.wait_for("the destination picker", |s| {
+        s.contains("Export conversation")
+    });
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Save the complete conversation as Markdown"),
+        "{screen}"
+    );
+    assert!(
+        cursor_row(&screen).contains("Copy to clipboard"),
+        "the cursor starts on the first row:\n{screen}"
+    );
+    assert!(screen.contains("Save to file"), "{screen}");
+}
