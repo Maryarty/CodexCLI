@@ -18,6 +18,8 @@ use crate::common::{Harness, slot};
 mod chat_live;
 #[path = "commands.rs"]
 mod commands;
+#[path = "feature_menu_live.rs"]
+mod feature_menu_live;
 #[path = "permissions_live.rs"]
 mod permissions_live;
 #[path = "transitions.rs"]
@@ -67,7 +69,6 @@ fn target_of(dir: &str) -> Target {
         "agents" => Target::Agents,
         "import" => Target::Import,
         "usage" => Target::Usage,
-        "status" => Target::Status,
         "select" => Target::Select,
         "settings" => Target::Settings,
         "dialogs" => Target::Dialogs,
@@ -81,7 +82,7 @@ fn target_of(dir: &str) -> Target {
 
 /// The widget the screen of directory `dir` puts up: its own type, so a
 /// stub or the real screen is found by what it is, never by what it prints.
-/// (`status`, `select` and `dialogs` keep their dialogs private: found by type name.)
+/// (`select` and `dialogs` keep their dialogs private: found by type name.)
 fn widget_of(dir: &str) -> Finder {
     match dir {
         "resume" => find::by_type::<resume::Screen>(),
@@ -94,7 +95,6 @@ fn widget_of(dir: &str) -> Finder {
         "voice" => find::by_type::<voice::Screen>(),
         "approvals" => find::by_type::<approvals::Screen>(),
         "backtrack" => find::by_type::<backtrack::Screen>(),
-        "status" => find::widget_where("CardDialog", |w| w.type_name() == "CardDialog"),
         "select" => find::widget_where("MenuDialog", |w| w.type_name() == "MenuDialog"),
         _ => panic!("`{dir}` is not a screen the chat opens"),
     }

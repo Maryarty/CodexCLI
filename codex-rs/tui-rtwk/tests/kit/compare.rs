@@ -49,14 +49,26 @@ pub struct Want<'a> {
 /// the oracle wrote it), and, where the oracle's snapshot says them, the cell
 /// styles of its `Buffer` dump and the cursor of its `Cursor:` line.
 pub fn assert_snap(grid: &Grid, want: &Want<'_>) {
-    let rel = oracle_snap::find(want.name);
-    let frame = oracle_snap::frame(&rel, want.frame);
+    let frame = oracle_snap::frame(&oracle_snap::find(want.name), want.frame);
+    assert_frame(grid, want, frame, want.at);
+}
+
+/// `assert_snap` for a frame the oracle drew into the whole area (spare rows
+/// above its footer on the last row) where ours is a dialog as tall as its
+/// content (`dialog_region`).
+pub fn assert_dialog(grid: &Grid, want: &Want<'_>) {
+    let frame = oracle_snap::frame(&oracle_snap::find(want.name), want.frame);
+    let (frame, at) = dialog_region(grid, frame);
+    assert_frame(grid, want, frame, at);
+}
+
+fn assert_frame(grid: &Grid, want: &Want<'_>, frame: Frame, at: Option<(usize, usize)>) {
     let label = if want.frame.is_empty() {
         want.name.to_string()
     } else {
         format!("{} / {}", want.name, want.frame)
     };
-    let (row0, col0) = want.at.unwrap_or((0, 0));
+    let (row0, col0) = at.unwrap_or((0, 0));
     // A locator that found no row (`position(..)` unwrapped to MAX) is a wrong region, not a diff.
     assert!(
         row0 <= grid.rows(false).len() && col0 <= usize::from(u16::MAX),
@@ -66,9 +78,9 @@ pub fn assert_snap(grid: &Grid, want: &Want<'_>) {
     );
     // A wide glyph is one char in the oracle's Debug rows and a glyph and a
     // space in its buffer-to-text rows: one compare, either convention.
-    let mut tries = vec![compare_rows(grid, &frame, want.at, false)];
+    let mut tries = vec![compare_rows(grid, &frame, at, false)];
     if grid.has_wide() && tries[0].is_err() {
-        tries.push(compare_rows(grid, &frame, want.at, true));
+        tries.push(compare_rows(grid, &frame, at, true));
     }
     if tries.iter().all(Result::is_err) {
         let nearest = tries
@@ -99,6 +111,28 @@ pub fn assert_snap(grid: &Grid, want: &Want<'_>) {
             bad.join("\n")
         );
     }
+}
+
+/// The part of a full-area frame that a dialog as tall as its content shows: the
+/// rows from the blank ones above the first text to the last text, one blank
+/// row (the spacer above the hint), the footer on the frame's last row; placed
+/// where our first text row sits. Without that text on our screen the region
+/// starts at row `usize::MAX`, which `assert_snap` reports as a wrong region.
+fn dialog_region(grid: &Grid, mut frame: Frame) -> (Frame, Option<(usize, usize)>) {
+    let Some(footer) = frame.rows.pop() else {
+        return (frame, None);
+    };
+    while frame.rows.last().is_some_and(String::is_empty) {
+        frame.rows.pop();
+    }
+    let lead = frame.rows.iter().take_while(|r| r.is_empty()).count();
+    let first = frame.rows.get(lead).cloned().unwrap_or_default();
+    let top = (0..grid.height)
+        .find(|&y| grid.row(y, 0, grid.width, false).trim_end() == first)
+        .map_or(usize::MAX, |y| y.saturating_sub(lead));
+    frame.rows.push(String::new());
+    frame.rows.push(footer);
+    (frame, Some((top, 0)))
 }
 
 type Rows = (Vec<String>, Vec<String>);

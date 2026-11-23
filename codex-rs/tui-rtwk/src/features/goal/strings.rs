@@ -121,8 +121,6 @@ fn cut(text: &str, max: usize) -> String {
     format!("{}...", &text[..keep])
 }
 
-/// The list of one of the two confirmations (`show_resume_paused_goal_prompt`, the replace
-/// confirmation of `thread_goal_actions.rs`), shaped as `SelectionViewParams::confirmation()`.
 /// The edit prompt (oracle `show_goal_edit_prompt`).
 pub fn prompt(prompt: &Prompt) -> PromptWords {
     match prompt {
@@ -133,6 +131,8 @@ pub fn prompt(prompt: &Prompt) -> PromptWords {
     }
 }
 
+/// The list of one of the two confirmations (`show_resume_paused_goal_prompt`, the replace
+/// confirmation of `thread_goal_actions.rs`), shaped as `SelectionViewParams::confirmation()`.
 pub fn menu(menu: &Menu) -> List {
     let (title, subtitle, rows) = match menu {
         Menu::Resume { objective, .. } => (

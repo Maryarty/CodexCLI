@@ -23,7 +23,7 @@ use crate::pages::session::transcript_activity::ToolRow;
 use super::strings::Strings;
 use super::{
     agent, collab, delegated, deprecation, error, generated_image, hook, note, notice, patch, plan,
-    plan_update, raw, reasoning, user, viewed_image, warning, web,
+    plan_update, raw, reasoning, status, user, viewed_image, warning, web,
 };
 
 /// What every cell is drawn with: the theme, the tables and the view's modes.
@@ -194,6 +194,7 @@ pub fn cell(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             .into(),
         ),
         Item::Hook(run) => below(separator, hook::HookCell { run: run.clone() }.into()),
+        Item::Status(card) => below(separator, status::StatusCell { card: card.clone() }.into()),
         Item::PlanUpdate(update) => below(
             separator,
             plan_update::PlanUpdateCell {

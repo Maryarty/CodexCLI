@@ -143,6 +143,7 @@ impl State for SeededScopeState {
             .with(Provider::value_shared(core.active_thread()))
             .with(Provider::value_shared(core.requests().clone()))
             .with(Provider::value_shared(core.screens().clone()))
+            .with(Provider::value_shared(core.features().clone()))
             .with(
                 Provider::value(core.agents_threads()).update_should_notify(|old, new| old != new),
             )

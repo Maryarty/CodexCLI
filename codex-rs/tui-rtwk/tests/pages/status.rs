@@ -1,46 +1,51 @@
-//! Screen tests of S19 (the `/status` card). Expected text: the oracle's
-//! snapshot (`dialogs::oracle`). Oracle tests: `status/tests.rs`
-//! (`status_snapshot_includes_reasoning_details`), `status/helpers.rs`
+//! Screen tests of S19 (the `/status` card): the card is a cell of the thread's
+//! transcript. Oracle tests: `status/tests.rs`, `status/helpers.rs`
 //! (`format_tokens_compact`).
 
 use crate::common::{Harness, ms, start_clipping, start_sized};
-use crate::dialogs::oracle::assert_rows;
 
-fn open(entry: &str) -> Harness {
-    let mut h = start_sized(true, 100, 24);
-    h.open_debug_row("status", Some(entry));
-    h.t.pump_for(ms(800));
+/// `/status` is a command of the session (oracle: `slash_dispatch.rs`,
+/// `SlashCommand::Status`): the card is a cell of the transcript, put there
+/// through the thread's `apply` (ADR-003), never a dialog over the chat.
+fn chat_with_status() -> Harness {
+    let mut h = start_sized(false, 100, 40);
+    crate::chat::chat_with_history(&mut h);
+    h.t.type_text("/status");
+    h.press("enter");
+    h.wait_for("the status card", |s| s.contains(">_ OpenAI Codex"));
+    h.wait_idle();
     h
 }
 
 #[test]
-fn status_snapshot_includes_reasoning_details() {
-    let h = open("card_dialog");
-    assert_rows(
-        &h.t.screen(),
-        "status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap",
-    );
-}
-
-#[test]
-fn esc_closes_the_card() {
-    let mut h = open("card_dialog");
-    h.press("esc");
-    h.t.pump_for(ms(800));
-    assert!(!h.t.screen().contains("OpenAI Codex"), "{}", h.t.screen());
-}
-
-/// The limit bar (G40): the oracle draws `[██████░░░░░░░░░░░░░░]` for 28% left,
-/// 20 whole cells of `█` and `░` between brackets (`render_limit_progress_bar`);
-/// a `CustomPaint` in the card.
-#[test]
-fn limit_bar_is_a_custom_paint_of_whole_cells() {
-    let h = open("card_dialog");
+fn slash_status_puts_the_card_into_the_transcript_and_opens_no_dialog() {
+    let h = chat_with_status();
+    let screen = h.t.screen();
     assert!(
-        h.t.screen().contains("[██████░░░░░░░░░░░░░░] 28% left"),
-        "{}",
-        h.t.screen()
+        screen.contains("• Hello"),
+        "the transcript above it:\n{screen}"
     );
+    assert!(
+        screen.contains("/status"),
+        "the command that made it:\n{screen}"
+    );
+    assert!(screen.contains("Model:"), "{screen}");
+    assert!(screen.contains("Directory:"), "{screen}");
+    // The chat is still the chat: the composer takes the next line.
+    assert!(
+        !screen.contains("esc to close") && !screen.contains("Esc to close"),
+        "no dialog over the chat:\n{screen}"
+    );
+}
+
+/// The card scrolls away with the transcript (it is a cell, not an overlay):
+/// a later turn is below it and Escape closes nothing.
+#[test]
+fn the_card_stays_in_the_transcript_when_the_chat_goes_on() {
+    let mut h = chat_with_status();
+    h.press("esc");
+    h.t.pump_for(ms(400));
+    assert!(h.t.screen().contains(">_ OpenAI Codex"), "{}", h.t.screen());
 }
 
 // ---- the cell (oracle `status/card.rs`): what the width decides ----------------------------

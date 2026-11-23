@@ -124,6 +124,38 @@ impl Tokens {
         Style::new().bg(Color::lerp(Color::rgb(r, g, b), toward, strength))
     }
 
+    /// The background a content keeps when it names a colour of its own (the
+    /// side preview of a picker, `preserve_side_content_bg`): ratatui's names of
+    /// the sixteen ANSI colours (`blue`, `light_red`, `dark_gray`, ...), the
+    /// terminal's own palette. A name that is none of them keeps no fill.
+    pub(crate) fn tone(&self, name: &str) -> Style {
+        const NAMES: [&str; 16] = [
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "gray",
+            "dark_gray",
+            "light_red",
+            "light_green",
+            "light_yellow",
+            "light_blue",
+            "light_magenta",
+            "light_cyan",
+            "white",
+        ];
+        let name = name.to_ascii_lowercase().replace(['-', ' '], "_");
+        NAMES
+            .iter()
+            .position(|known| *known == name)
+            .map_or_else(Style::new, |index| {
+                Style::new().bg(Color::indexed(index as u8))
+            })
+    }
+
     /// The colour a thing that needs attention is marked with (the unread dot
     /// of a saved session): the oracle's fixed blue (`resume_picker.rs`
     /// `rgb_color((0x3b, 0x82, 0xf6))`), the same on every theme.
