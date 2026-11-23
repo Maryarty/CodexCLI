@@ -5,6 +5,7 @@
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
 mod app_link;
+mod apps;
 mod confirm;
 mod dialog;
 mod generic;
@@ -21,6 +22,7 @@ use rtwk::Cx;
 use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use codex_tui_core::screens::select::Opening;
+use codex_tui_core::screens::select::apps::Link;
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -56,6 +58,19 @@ macro_rules! list_entry {
     };
 }
 
+/// A debug entry of the link dialog of an app: the script seeds the session, the link is the
+/// sheet's own (read from `<file>.link.json`), so nothing of it is in the model.
+macro_rules! link_entry {
+    ($name:literal, $description:literal, $file:literal) => {
+        DebugEntry {
+            name: $name,
+            description: $description,
+            script: include_str!(concat!($file, ".jsonl")),
+            open: EntryOpen::Dialog(|_| fixture_link(include_str!(concat!($file, ".link.json")))),
+        }
+    };
+}
+
 /// The sheet of a fixture's list.
 fn fixture_sheet(json: &str) -> AnyWidget {
     // The fixtures are ours and read by a test that opens every entry.
@@ -65,6 +80,12 @@ fn fixture_sheet(json: &str) -> AnyWidget {
         purpose: Purpose::Fixture,
     }
     .into()
+}
+
+/// The link dialog of a fixture's app.
+fn fixture_link(json: &str) -> AnyWidget {
+    // The fixtures are ours and read by a test that opens every entry.
+    serde_json::from_str::<Link>(json).map_or_else(|_| AnyWidget::default(), apps::link_sheet)
 }
 
 /// What the debug menu lists for this directory: one entry per parameterisation, on the model a
@@ -306,12 +327,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "the apps list while it loads: one disabled row",
             "fixtures/apps_loading"
         ),
-        entry!(
+        link_entry!(
             "app_link_installed",
             "the link dialog of an installed app: its page, the switch and Back",
             "fixtures/app_link_installed"
         ),
-        entry!(
+        link_entry!(
             "app_link_install",
             "the link dialog of an app that is not installed: install, then the confirmation",
             "fixtures/app_link_install"
@@ -511,6 +532,7 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
         ),
         Opening::Review => (review_sheet::sheet(), review_sheet::options()),
         Opening::Worktree(menu) => (worktree::sheet(menu.clone()), worktree::options()),
+        Opening::Apps => (apps::sheet(), apps::options()),
     }
 }
 

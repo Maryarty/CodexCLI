@@ -40,8 +40,9 @@ pub struct App {
 }
 
 /// The page of an app the link dialog shows (`AppLinkViewParams`): copied when the app is picked,
-/// as the oracle's view keeps its own; the switch of the dialog changes this copy at once
-/// (`toggle_enabled`), the directory follows the saved write.
+/// as the oracle's view keeps its own; the dialog is the sheet's (`sheets/select/app_link.rs`), so
+/// the switch of the dialog changes the dialog's copy at once (`toggle_enabled`) and the directory
+/// follows the saved write.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct Link {
     pub id: String,
@@ -53,13 +54,6 @@ pub struct Link {
     pub installed: bool,
     pub enabled: bool,
 }
-
-/// The link dialog's action that opens the page of the app in the browser
-/// (`Manage on ChatGPT`, `Install on ChatGPT`): `Intent::Choose` of this id, done by the app.
-pub const LINK_OPEN: &str = "link.open";
-/// `I already Installed it`: `Intent::Choose` of this id reads the directory again and closes the
-/// dialog.
-pub const LINK_INSTALLED: &str = "link.installed";
 
 impl App {
     /// The link dialog of the app, when it has a page (`install_url`).
@@ -118,8 +112,6 @@ pub struct Apps {
     pub cache: Cache,
     /// The `app/list` request out; its answer must carry its number.
     pub pending: Option<Request>,
-    /// The link dialog shown over the directory: the page of the app picked from it.
-    pub link: Option<Link>,
     /// A forced refresh was asked while one ran: it follows.
     refetch_after: bool,
     /// A notification's directory that arrived while one ran: the final
@@ -128,6 +120,9 @@ pub struct Apps {
     /// The notification's recovery already failed once.
     retried: bool,
     issued: u64,
+    /// How many times the account or the scope changed: a sheet that shows the directory ends
+    /// when it differs from the one it opened under.
+    scope: u64,
 }
 
 impl Apps {
@@ -158,6 +153,11 @@ impl Apps {
             Cache::Ready(apps) => Some(apps),
             _ => None,
         }
+    }
+
+    /// The app `id` of the directory held, once it is ready.
+    pub fn app(&self, id: &str) -> Option<&App> {
+        self.ready()?.iter().find(|app| app.id == id)
     }
 
     /// `/apps` was asked for: the refresh it starts (forced unless one is
@@ -230,8 +230,14 @@ impl Apps {
     pub fn invalidate(&mut self) {
         *self = Self {
             issued: self.issued,
+            scope: self.scope + 1,
             ..Self::default()
         };
+    }
+
+    /// How many times the account or the scope changed (`invalidate`).
+    pub fn scope(&self) -> u64 {
+        self.scope
     }
 
     /// `update_connector_enabled`: the app with `id` was switched.

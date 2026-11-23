@@ -585,6 +585,16 @@ fn apps_cache(app: &CodexApp) -> Cache {
     app.screens().select.apps.cache.clone()
 }
 
+/// The sheets the screen asked for and nobody has shown, oldest first.
+fn shows(app: &CodexApp) -> Vec<select::Opening> {
+    app.screens()
+        .select
+        .shows
+        .pending()
+        .map(|show| show.opening.clone())
+        .collect()
+}
+
 fn apps_command(fx: &AppFx) -> (Ticket, u64, bool, Option<String>) {
     match asked(fx) {
         (
@@ -599,8 +609,8 @@ fn apps_command(fx: &AppFx) -> (Ticket, u64, bool, Option<String>) {
     }
 }
 
-/// `/apps` opens the loading menu and asks `app/list` forced for the
-/// displayed thread; the answer fills it in place.
+/// `/apps` asks for its sheet (which reads the directory as a fact: loading) and asks `app/list`
+/// forced for the displayed thread; the answer fills the directory in place.
 #[test]
 fn apps_open_loading_then_show_the_directory() {
     let mut app = threaded();
@@ -608,16 +618,20 @@ fn apps_open_loading_then_show_the_directory() {
     let (ticket, _, force, thread) = apps_command(&fx);
     assert!(force);
     assert_eq!(thread.as_deref(), Some("thread-1"));
-    assert_eq!(app.screens().select.menu(), Some(&Menu::Apps));
+    assert_eq!(shows(&app), vec![select::Opening::Apps]);
     assert_eq!(apps_cache(&app), Cache::Loading);
+    assert_eq!(
+        app.screens().select.apps.page(),
+        select::apps::Page::Loading
+    );
     answer(
         &mut app,
         ticket,
         select::Reply::Apps(vec![app_of("notion", true, true, true)]),
     );
-    let Some(select::Page::Apps(select::apps::Page::Apps {
+    let select::apps::Page::Apps {
         installed, total, ..
-    })) = app.screens().select.page()
+    } = app.screens().select.apps.page()
     else {
         panic!("expected the directory page");
     };
@@ -717,22 +731,21 @@ fn app_failed(app: &mut CodexApp, ticket: Ticket) {
 }
 
 /// Disabled apps say so; a ready empty directory, a failed one and the
-/// feature off are notes, and no menu opens.
+/// feature off are notes, and no sheet is asked for.
 #[test]
 fn apps_that_cannot_open_say_why() {
     let mut app = threaded();
-    open(&mut app, SelectIntent::Close);
     open(&mut app, SelectIntent::OpenApps { enabled: false });
     assert_eq!(said(&app), vec![select::Note::AppsDisabled]);
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(shows(&app), vec![]);
 
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
     let (ticket, ..) = apps_command(&fx);
     answer(&mut app, ticket, select::Reply::Apps(vec![]));
-    open(&mut app, SelectIntent::Close);
+    assert_eq!(shows(&app).len(), 1, "the first /apps asked for its sheet");
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
     assert_eq!(said(&app).last(), Some(&select::Note::NoApps));
-    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(shows(&app).len(), 1, "an empty directory asks for none");
     // Still asked for again, forced: the cache is ready.
     assert!(apps_command(&fx).2);
 }
@@ -753,14 +766,9 @@ fn a_failed_apps_read_offers_retry_and_a_ready_directory_survives_failure() {
         ),
     );
     assert!(matches!(apps_cache(&app), Cache::Failed(_)));
-    assert!(matches!(
-        app.screens().select.page(),
-        Some(select::Page::Apps(select::apps::Page::Failed))
-    ));
-    let fx = open(
-        &mut app,
-        SelectIntent::Choose(select::apps::RETRY.to_string()),
-    );
+    assert_eq!(app.screens().select.apps.page(), select::apps::Page::Failed);
+    // the Retry row of the sheet says the verb: the directory is read again
+    let fx = open(&mut app, SelectIntent::RefreshApps);
     let (ticket, _, force, _) = apps_command(&fx);
     assert!(force);
     assert_eq!(apps_cache(&app), Cache::Loading);
@@ -813,7 +821,7 @@ fn a_refresh_in_flight_queues_the_forced_one() {
     );
 }
 
-/// Picking an app without a link says so and opens nothing.
+/// An app without a page says so (the sheet decides from `App::link`, the model has the words).
 #[test]
 fn picking_an_app_with_no_page_says_so() {
     let mut app = threaded();
@@ -827,19 +835,23 @@ fn picking_an_app_with_no_page_says_so() {
             app_of("b", false, true, false),
         ]),
     );
-    open(&mut app, SelectIntent::Choose("b".into()));
+    let directory = &app.screens().select.apps;
+    assert!(directory.app("a").and_then(App::link).is_some());
+    assert!(directory.app("b").and_then(App::link).is_none());
+    open(&mut app, SelectIntent::AppUnlinked("b".into()));
     assert_eq!(
         said(&app),
         vec![select::Note::AppLinkUnavailable(Status::Installable)]
     );
 }
 
-/// Picking an app with a page opens its link dialog in place of the directory; the dialog's
-/// actions open the page in the browser, switch the app (shown at once, written to the config,
-/// said when refused), read the directory again after an install, and close with the menu.
+/// The link dialog is the sheet's (it copies the page of the app picked); what its actions ask of
+/// the app are verbs: open the page in the browser, switch the app (written to the config, said
+/// when refused, the directory only following a saved write), read the directory again after an
+/// install.
 #[test]
-fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
-    use codex_tui_core::screens::select::apps::{LINK_INSTALLED, LINK_OPEN, Link};
+fn an_app_link_dialog_asks_the_app_to_open_the_page_switch_and_read_again() {
+    use codex_tui_core::screens::select::apps::Link;
     let mut app = threaded();
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
     let (ticket, ..) = apps_command(&fx);
@@ -848,13 +860,11 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
         ticket,
         select::Reply::Apps(vec![
             app_of("a", true, true, true),
-            app_of("b", false, true, true),
+            app_of("b", false, true, false),
         ]),
     );
-    let link = |app: &CodexApp| app.screens().select.apps.link.clone();
-    open(&mut app, SelectIntent::Choose("a".into()));
     assert_eq!(
-        link(&app),
+        app.screens().select.apps.app("a").and_then(App::link),
         Some(Link {
             id: "a".into(),
             name: "A".into(),
@@ -864,26 +874,19 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
             enabled: true,
         })
     );
-    assert_eq!(
-        app.screens().select.menu(),
-        Some(&Menu::Apps),
-        "it is shown over the directory"
-    );
-    assert_eq!(
-        app.screens().select.picked.last(),
-        Some(&select::Picked::App("a".into()))
-    );
 
-    // the page opens in the browser; the dialog stays
-    let fx = open(&mut app, SelectIntent::Choose(LINK_OPEN.into()));
+    // the page opens in the browser; an app with no page opens nothing
+    let fx = open(&mut app, SelectIntent::OpenAppPage("a".into()));
     assert!(
         matches!(fx.commands(), [Command::OpenUrl { url, .. }] if url == "https://x/a"),
         "{:?}",
         fx.commands()
     );
-    assert!(link(&app).is_some());
+    let fx = open(&mut app, SelectIntent::OpenAppPage("b".into()));
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
 
-    // the switch shows at once and is written; a refused write is said, the dialog keeps it
+    // the switch is written; a refused write is said and leaves the directory as it was (the
+    // dialog keeps the switch it shows: it is the sheet's copy)
     let fx = open(
         &mut app,
         SelectIntent::SetApp {
@@ -891,10 +894,12 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
             enabled: false,
         },
     );
-    assert_eq!(link(&app).map(|link| link.enabled), Some(false));
     let (ticket, _) = asked(&fx);
     app_failed(&mut app, ticket);
-    assert_eq!(link(&app).map(|link| link.enabled), Some(false));
+    assert_eq!(
+        app.screens().select.apps.ready().expect("ready")[0].status(),
+        Status::Installed
+    );
     assert_eq!(
         said(&app),
         vec![select::Note::SaveFailed {
@@ -903,27 +908,8 @@ fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
         }]
     );
 
-    // Esc closes the dialog and the menu with it
-    open(&mut app, SelectIntent::Close);
-    assert_eq!(app.screens().select.menu(), None);
-    assert_eq!(link(&app), None);
-
-    // an install confirmed: the dialog closes and the directory is read again, forced
-    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
-    let (ticket, ..) = apps_command(&fx);
-    answer(
-        &mut app,
-        ticket,
-        select::Reply::Apps(vec![
-            app_of("a", true, true, true),
-            app_of("b", false, true, true),
-        ]),
-    );
-    let fx = open(&mut app, SelectIntent::Choose("b".into()));
-    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
-    assert_eq!(link(&app).map(|link| link.installed), Some(false));
-    let fx = open(&mut app, SelectIntent::Choose(LINK_INSTALLED.into()));
-    assert_eq!(app.screens().select.menu(), None);
+    // an install confirmed: the directory is read again, forced
+    let fx = open(&mut app, SelectIntent::RefreshApps);
     let (_, _, force, _) = apps_command(&fx);
     assert!(force);
 }
