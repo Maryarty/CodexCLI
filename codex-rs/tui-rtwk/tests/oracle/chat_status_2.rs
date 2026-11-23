@@ -760,6 +760,8 @@ fn chatwidget_tall() {
 fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth() {
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.feed(CHATGPT).feed(&limits(92));
+    // the read the app makes on its own once it knows the account is not `/status`'s
+    let startup = s.requests_of("account/rateLimits/read");
     s.type_text("/status");
     s.keys("enter");
     // the card is in the transcript at once, no dialog, and says nothing of a transient refresh
@@ -767,7 +769,7 @@ fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth
     s.assert_contains("Model:");
     s.assert_absent("refreshing limits");
     // the account's limits are asked once for it, and the card shows what came back
-    assert_eq!(s.requests_of("account/rateLimits/read"), 1);
+    assert_eq!(s.requests_of("account/rateLimits/read") - startup, 1);
     s.wait_for("8% left");
 }
 
@@ -850,13 +852,14 @@ fn status_command_renders_native_and_foreign_instruction_sources() {
 fn status_command_overlapping_refreshes_update_matching_cells_only() {
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.feed(CHATGPT).feed(&limits(92));
+    let startup = s.requests_of("account/rateLimits/read");
     s.type_text("/status");
     s.keys("enter");
     s.type_text("/status");
     s.keys("enter");
     // each card has its own refresh; no card is left waiting for a reply that went to the other
     s.assert_absent("refreshing limits");
-    assert_eq!(s.requests_of("account/rateLimits/read"), 2);
+    assert_eq!(s.requests_of("account/rateLimits/read") - startup, 2);
     s.wait_for("8% left");
     assert_eq!(rows_with(&s, "8% left"), 2);
 }
