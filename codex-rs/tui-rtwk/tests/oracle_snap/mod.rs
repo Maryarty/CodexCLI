@@ -310,9 +310,9 @@ pub fn frames(rel: &str) -> Vec<Frame> {
     for (i, line) in body.iter().enumerate() {
         // `---` alone between two frames is the test's `join("\n---\n")`.
         if line == "---"
-            && body.get(i + 1).is_some_and(|next| {
-                header(next, Some(line), body.get(i + 2)).is_some()
-            })
+            && body
+                .get(i + 1)
+                .is_some_and(|next| header(next, Some(line), body.get(i + 2)).is_some())
         {
             continue;
         }
