@@ -635,28 +635,21 @@ fn slash_popup_not_activated_for_slash_space_text_history_like_input() {
 // ORACLE bottom_pane/chat_composer.rs:12269 bare_slash_command_can_be_recalled_after_recording_pending_history kind=ui owner=chat-live
 #[test]
 fn bare_slash_command_can_be_recalled_after_recording_pending_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash-command history on the chat composer: '/diff' submitted, then Up recalls '/diff'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: '/diff' submitted as the Diff command, its history recorded
     s.type_text("/diff").keys("enter");
-    s.keys("up");
+    // the diff overlay (a popup until the pager is built) is closed first: Up is the composer's
+    s.keys("esc up");
     s.assert_row(prompt(&s), "› /diff");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:12294 popup_selected_slash_command_records_canonical_command_history kind=ui owner=chat-live
 #[test]
 fn popup_selected_slash_command_records_canonical_command_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash-command popup and no slash-command history on the chat composer: '/di' with Enter selects '/diff', and Up recalls '/diff'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: '/di' with the popup open: Enter selects the Diff command
     s.type_text("/di").keys("enter");
-    s.keys("up");
+    s.keys("esc up");
     s.assert_row(prompt(&s), "› /diff");
 }
 

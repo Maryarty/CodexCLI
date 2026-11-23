@@ -267,3 +267,55 @@ fn vim_normal_mode_walks_on_from_the_last_character() {
     entry(&mut h, 0, "older");
     assert_eq!(prompt(&h), "› older");
 }
+
+/// A resumed thread (`replay_backend_thread_turns`): the user messages of its turns seed the
+/// composer's history, so Up walks them newest first, stops at the oldest, and Down walks back
+/// to the empty draft; a submit of this session goes in front of them.
+mod resumed {
+    use crate::kit::{self, Owner, Screen};
+
+    fn turn(n: usize, text: &str) -> serde_json::Value {
+        kit::replay_turn(
+            &format!("turn-{n}"),
+            serde_json::json!([{
+                "type": "userMessage", "id": format!("user-{n}"),
+                "content": [{"type": "text", "text": text, "text_elements": []}]
+            }]),
+        )
+    }
+
+    /// The server lists a thread's turns newest first.
+    fn resumed() -> Screen {
+        Screen::build(Owner::ChatLive)
+            .size(100, 24)
+            .replay(vec![turn(2, "second prompt"), turn(1, "first prompt")])
+            .live()
+            .open()
+    }
+
+    #[test]
+    fn up_walks_the_replayed_prompts_newest_first_and_down_walks_back() {
+        let mut s = resumed();
+        s.keys("up");
+        s.assert_composer("second prompt");
+        s.keys("up");
+        s.assert_composer("first prompt");
+        // the oldest: another Up changes nothing
+        s.keys("up");
+        s.assert_composer("first prompt");
+        s.keys("down");
+        s.assert_composer("second prompt");
+        s.keys("down");
+        s.assert_composer("");
+    }
+
+    #[test]
+    fn a_prompt_sent_in_this_session_comes_before_the_replayed_ones() {
+        let mut s = resumed();
+        s.type_text("sent now").keys("enter");
+        s.keys("up");
+        s.assert_composer("sent now");
+        s.keys("up");
+        s.assert_composer("second prompt");
+    }
+}

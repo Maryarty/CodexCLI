@@ -13,15 +13,11 @@
 //!   restores from (`backtrack::Prompt`), oldest first; the composer derives its entries from it
 //!   (mention bindings, placeholders, attachments).
 
-use codex_app_server_protocol::ImageReference;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnStatus;
-use codex_app_server_protocol::UserInput;
 
-use crate::screens::backtrack::Element;
-use crate::screens::backtrack::Mention;
 use crate::screens::backtrack::Prompt;
 
 use super::Fault;
@@ -100,51 +96,6 @@ fn hidden_nested_review_turn(previous: &Turn, turn: &Turn) -> bool {
     )
 }
 
-/// The prompt of a stored user message (the same reading as `backtrack::Prompt`'s, which keeps
-/// its own copy private to the revert).
-fn prompt_of(content: &[UserInput]) -> Prompt {
-    let mut prompt = Prompt::default();
-    for input in content {
-        match input {
-            UserInput::Text {
-                text,
-                text_elements,
-                ..
-            } => {
-                let offset = prompt.text.len();
-                prompt.text.push_str(text);
-                prompt.elements.extend(text_elements.iter().map(|element| {
-                    let range = element.byte_range.start..element.byte_range.end;
-                    Element {
-                        placeholder: element
-                            .placeholder()
-                            .or_else(|| text.get(range.clone()))
-                            .map(str::to_string),
-                        range: range.start + offset..range.end + offset,
-                    }
-                }));
-            }
-            UserInput::Image {
-                image: ImageReference::Inline { url },
-                ..
-            } => prompt.remote_images.push(url.clone()),
-            UserInput::LocalImage { path, .. } => prompt.local_images.push(path.clone()),
-            UserInput::Skill { name, path } => prompt.mentions.push(Mention {
-                skill: true,
-                name: name.clone(),
-                path: path.to_string_lossy().into_owned(),
-            }),
-            UserInput::Mention { name, path } => prompt.mentions.push(Mention {
-                skill: false,
-                name: name.clone(),
-                path: path.clone(),
-            }),
-            _ => {}
-        }
-    }
-    prompt
-}
-
 /// The turns of a page, newest first as the server lists them, projected in transcript order,
 /// with the submissions they seed (also in transcript order).
 pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
@@ -171,7 +122,7 @@ pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
                             turn: turn_id.clone(),
                             item: ItemId::new(id),
                         },
-                        prompt: prompt_of(content),
+                        prompt: Prompt::from_inputs(content),
                     });
                 }
                 _ => {}
