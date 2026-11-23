@@ -51,3 +51,4 @@ mod submission;
 mod transcript_diff;
 mod usage;
 mod worked_for;
+mod worktree_popups;

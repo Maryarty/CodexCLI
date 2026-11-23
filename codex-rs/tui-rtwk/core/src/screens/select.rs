@@ -21,6 +21,7 @@ pub mod permissions;
 pub mod persist;
 pub mod reasoning;
 pub mod review;
+pub mod worktree;
 pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
 use models::{Effort, PlanSource, Step};
@@ -66,6 +67,9 @@ pub enum Menu {
     /// A menu of `/review` (`review.rs`): the presets, the base branches, the commits and the
     /// instructions prompt; the lists come from the host.
     Review(Box<review::Menu>),
+    /// A menu of the worktree pickers (`worktree.rs`): the checkout choice of `/new` and `/fork`,
+    /// `/worktree`, the browser, a worktree's actions and the delete confirmation.
+    Worktree(Box<worktree::Menu>),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -101,6 +105,8 @@ pub enum Picked {
     /// A review target the `/review` menus settled on (the instructions typed, a branch, a
     /// commit, or the uncommitted changes): the app starts the review on the active thread.
     Review(crate::threads::ReviewTarget),
+    /// What the worktree menus settled on; the app acts.
+    Worktree(worktree::Pick),
 }
 
 /// A typed menu as rows: what the view turns into its list.
@@ -163,6 +169,14 @@ pub enum Note {
     /// Restart the app server and TUI to refresh /model.` after a provider write, or `Saving the
     /// default provider. Try /model after the save finishes.` while it runs.
     ModelPickerUnavailable(Provider),
+    /// `Managed worktrees require a local Git repository.` (an error).
+    WorktreesUnavailable,
+    /// `Cannot list managed worktrees: {error}` (an error).
+    WorktreeListFailed(String),
+    /// `Removed worktree at {root}. Thread history was kept.`
+    WorktreeRemoved { root: String },
+    /// `Could not remove worktree at {root}: {error}` (an error).
+    WorktreeRemoveFailed { root: String, error: String },
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
@@ -173,7 +187,12 @@ impl Note {
     pub fn tone(&self) -> crate::threads::Tone {
         use crate::threads::Tone;
         match self {
-            Note::ModelsNotLoaded | Note::SaveFailed { .. } | Note::AppsFailed(_) => Tone::Error,
+            Note::ModelsNotLoaded
+            | Note::SaveFailed { .. }
+            | Note::AppsFailed(_)
+            | Note::WorktreesUnavailable
+            | Note::WorktreeListFailed(_)
+            | Note::WorktreeRemoveFailed { .. } => Tone::Error,
             _ => Tone::Info,
         }
     }
@@ -213,6 +232,8 @@ pub struct Model {
     pub apps: apps::Apps,
     /// The `/review` menus' working directory and the git list asked for.
     pub review: review::Review,
+    /// The scope and the requests of the worktree menus.
+    pub worktree: worktree::Worktree,
     /// Picks made; the effect that stores them is the settings slice's.
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
@@ -251,7 +272,7 @@ impl Model {
             }
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Confirm(_) | Menu::List(_) | Menu::Review(_) => None,
+            Menu::Confirm(_) | Menu::List(_) | Menu::Review(_) | Menu::Worktree(_) => None,
         }
     }
 
@@ -317,6 +338,9 @@ impl Model {
         self.kept.retain(|at, _| *at < depth);
         if !self.stack.iter().any(|menu| matches!(menu, Menu::Review(_))) {
             self.review.forget();
+        }
+        if !self.stack.iter().any(|menu| matches!(menu, Menu::Worktree(_))) {
+            self.worktree.forget();
         }
     }
 
@@ -488,6 +512,17 @@ pub enum Ev {
         request: u64,
         listing: review::Listing,
     },
+    /// The host's worktree list (`Worktree::pending` names the request): the browser replaces the
+    /// loading row, or the error is said; a stale answer is dropped.
+    Worktrees {
+        request: u64,
+        result: Result<Vec<worktree::Entry>, String>,
+    },
+    /// The host's answer to a removal asked for.
+    WorktreeRemoved {
+        request: u64,
+        result: Result<(), String>,
+    },
     /// The app server says the directory changed
     /// (`refresh_connector_directory_after_notification`).
     AppsNotified(Vec<apps::App>),
@@ -515,6 +550,22 @@ pub enum Intent {
     OpenApps { enabled: bool },
     /// `/review`: the presets menu; the git lists are asked in `cwd`.
     OpenReview { cwd: String },
+    /// `/new` or `/fork` (`mode`) in `cwd`: where it runs is asked when a local repository
+    /// (`available`) offers a new checkout, else it is the current one at once.
+    OpenCheckout {
+        mode: worktree::Conversation,
+        name: Option<String>,
+        available: bool,
+        cwd: String,
+        thread: Option<ThreadId>,
+    },
+    /// `/worktree`: continue, start or browse; an error line where no local repository
+    /// (`available`) is.
+    OpenWorktrees {
+        available: bool,
+        cwd: String,
+        thread: Option<ThreadId>,
+    },
     /// The text typed at `Custom review instructions`.
     Instructions(String),
     /// The link dialog of an app switched it on or off (`SetAppEnabled`): the app writes
@@ -552,6 +603,35 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Loaded(presets) => model.accept(presets),
+        Ev::Worktrees { request, result } => {
+            if !model.worktree.answered(request) {
+                return;
+            }
+            let loading = matches!(
+                model.stack.last(),
+                Some(Menu::Worktree(menu)) if **menu == worktree::Menu::Loading
+            );
+            if !loading {
+                return;
+            }
+            match result {
+                Ok(entries) => {
+                    model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Browser(entries)))];
+                }
+                Err(error) => {
+                    model.stack.clear();
+                    model.notes.push(Note::WorktreeListFailed(error));
+                }
+            }
+        }
+        Ev::WorktreeRemoved { request, result } => {
+            if let Some(root) = model.worktree.removed(request) {
+                model.notes.push(match result {
+                    Ok(()) => Note::WorktreeRemoved { root },
+                    Err(error) => Note::WorktreeRemoveFailed { root, error },
+                });
+            }
+        }
         Ev::Provider(provider) => {
             model.catalog.provider = provider;
             if provider != Provider::Settled {
@@ -580,8 +660,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             use permissions::PermissionsMenu as Perms;
             model.profiles.pending = None;
             model.apps.invalidate();
+            model.worktree.forget();
             model.stack.retain(|menu| match menu {
-                Menu::Apps => false,
+                Menu::Apps | Menu::Worktree(_) => false,
                 Menu::Permissions(menu) => !matches!(
                     **menu,
                     Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. }
@@ -679,6 +760,26 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             model.review.open(cwd);
             model.stack = vec![Menu::Review(Box::new(review::Menu::Presets))];
         }
+        // `/new` and `/fork` (`show_session_checkout_picker`): the choice of checkout, or none
+        // where there is no local repository to make one in.
+        Intent::OpenCheckout { mode, name, available, cwd, thread } => {
+            model.worktree.open(cwd, thread);
+            if available {
+                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Checkout { mode, name }))];
+            } else {
+                model.stack.clear();
+                model.picked.push(Picked::Worktree(worktree::Pick::Current { mode, name }));
+            }
+        }
+        // `/worktree` (`show_managed_worktree_picker`).
+        Intent::OpenWorktrees { available, cwd, thread } => {
+            if available {
+                model.worktree.open(cwd, thread);
+                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Worktrees))];
+            } else {
+                model.notes.push(Note::WorktreesUnavailable);
+            }
+        }
         // The text of `Custom review instructions` (an empty one is not an answer).
         Intent::Instructions(text) => {
             let text = text.trim();
@@ -730,6 +831,40 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                         model.stack.clear();
                         model.picked.push(Picked::Review(target));
                     }
+                    None => {}
+                }
+            }
+            Some(Menu::Worktree(menu)) => {
+                use worktree::Chosen;
+                match menu.choose(&id) {
+                    Some(Chosen::Pick(worktree::Pick::Remove { root })) => {
+                        model.stack.clear();
+                        if model.worktree.removable(&root) {
+                            model.worktree.want(worktree::Want::Remove { root });
+                        }
+                    }
+                    Some(Chosen::Pick(pick)) => {
+                        model.stack.clear();
+                        model.picked.push(Picked::Worktree(pick));
+                    }
+                    Some(Chosen::Browse) => {
+                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Loading))];
+                        model.worktree.want(worktree::Want::List);
+                    }
+                    Some(Chosen::Actions(entry)) => {
+                        let can_delete = model.worktree.can_delete(&entry);
+                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Actions {
+                            entry,
+                            can_delete,
+                        }))];
+                    }
+                    Some(Chosen::Confirm { root }) => {
+                        if model.worktree.removable(&root) {
+                            model.stack =
+                                vec![Menu::Worktree(Box::new(worktree::Menu::Confirm { root }))];
+                        }
+                    }
+                    Some(Chosen::Close) => model.stack.clear(),
                     None => {}
                 }
             }

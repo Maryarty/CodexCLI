@@ -60,6 +60,7 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         );
     }
     review_asked(app, fx);
+    worktree_asked(app, fx);
     picks(app, fx);
     drain(app, fx);
 }
@@ -81,6 +82,22 @@ fn review_asked(app: &mut CodexApp, fx: &mut AppFx) {
         .push(super::effects::command(wanted.request, ask));
 }
 
+/// The worktree list or removal the menus want, asked of the host.
+fn worktree_asked(app: &mut CodexApp, fx: &mut AppFx) {
+    use super::effects::Ask;
+    use select::worktree::Want;
+    let wanted = Rc::make_mut(&mut app.screens).select.worktree.take_wanted();
+    for wanted in wanted {
+        let cwd = wanted.cwd;
+        let ask = match wanted.want {
+            Want::List => Ask::Worktrees { cwd },
+            Want::Remove { root } => Ask::WorktreeRemove { cwd, root },
+        };
+        fx.commands
+            .push(super::effects::command(wanted.request, ask));
+    }
+}
+
 /// The host's list for a `/review` menu: the child menu opens over the presets. False when
 /// `request` is not the one the menus wait for (the answer is the UI's own).
 pub(super) fn reviewed(
@@ -90,6 +107,21 @@ pub(super) fn reviewed(
     fx: &mut AppFx,
 ) -> bool {
     use super::effects::Done;
+    if app.screens.select.worktree.waits_for(request) {
+        let ev = match done {
+            Done::Worktrees(result) => select::Ev::Worktrees {
+                request,
+                result: result.clone(),
+            },
+            Done::WorktreeRemoved(result) => select::Ev::WorktreeRemoved {
+                request,
+                result: result.clone(),
+            },
+            _ => return false,
+        };
+        event(app, ev, fx);
+        return true;
+    }
     if !app.screens.select.review.waits_for(request) {
         return false;
     }
@@ -129,7 +161,12 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
     let ours = |pick: &select::Picked| {
         matches!(
             pick,
-            Selection(_) | Permissions(_) | Tier(_) | Effort { .. } | select::Picked::Review(_)
+            Selection(_)
+                | Permissions(_)
+                | Tier(_)
+                | Effort { .. }
+                | select::Picked::Review(_)
+                | select::Picked::Worktree(_)
         ) || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
     };
     if !app.screens.select.picked.iter().any(ours) {
@@ -161,6 +198,7 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 let thread = app.session.active.clone();
                 super::session::start_review(app, thread, target, fx);
             }
+            select::Picked::Worktree(pick) => worktree_pick(app, pick, fx),
             select::Picked::Item(id) => {
                 if let Some(answer) = plan_mode::Answer::of_row(&id) {
                     super::session::plan_answer(app, answer, fx);
@@ -168,6 +206,48 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
             }
             _ => {}
         }
+    }
+}
+
+/// What the worktree menus settled on: `/new` and `/fork` in the current checkout, a new
+/// worktree for `/new`, the owner thread opened, the directory copied.
+fn worktree_pick(app: &mut CodexApp, pick: select::worktree::Pick, fx: &mut AppFx) {
+    use crate::commands::{SessionIntent, SlashCommand};
+    use select::worktree::{Conversation, Pick};
+    let source = app.session.active.clone();
+    match pick {
+        Pick::Current { mode, name } => {
+            let (command, intent) = match mode {
+                Conversation::New => (SlashCommand::New, SessionIntent::New { name }),
+                Conversation::Fork => (SlashCommand::Fork, SessionIntent::Fork { name }),
+            };
+            super::session::session_intent(app, source, command, intent, fx);
+        }
+        // The creation chain of the command center (`worktree.rs`: create, start, bind, show)
+        // serves `/new`; a fork into the new checkout is not wired yet.
+        Pick::Start {
+            mode: Conversation::New,
+            ..
+        } => {
+            let cwd = Some(app.screens.select.worktree.cwd().to_owned());
+            super::worktree::Step::create(app, cwd, fx);
+        }
+        Pick::Start {
+            mode: Conversation::Fork,
+            ..
+        } => {}
+        Pick::Resume(thread) => super::apply_intent(app, super::Intent::OpenThread(thread), fx),
+        Pick::Copy(text) => {
+            let request = select::worktree::REQUEST_BIT | (1 << 40);
+            fx.commands.push(super::effects::command(
+                request,
+                super::effects::Ask::Copy {
+                    text,
+                    format: super::effects::CopyFormat::PlainText,
+                },
+            ));
+        }
+        Pick::Remove { .. } => {}
     }
 }
 
