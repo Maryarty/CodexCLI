@@ -222,7 +222,11 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 // the draft's images go with its text; a line that is not
                 // the draft (a popup's pick) goes as text
                 let table = crate::pages::session::composer::strings::of(cx);
-                let draft = w.ui.draft.submission_with(&w.ui.composer, |n| table.image(n), states.popovers.sources().mentions);
+                let draft = w.ui.draft.submission_with(
+                    &w.ui.composer,
+                    |n| table.image(n),
+                    states.popovers.sources().mentions,
+                );
                 let message = if draft.text.trim() == line.trim() {
                     draft
                 } else {

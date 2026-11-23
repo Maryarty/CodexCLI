@@ -25,8 +25,8 @@ use codex_tui_core::screens::composer;
 use codex_tui_core::screens::composer::history::{
     History as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
 };
-use codex_tui_core::screens::composer::mentions::rebind::find_next_mention_token_range;
 use codex_tui_core::screens::composer::mentions::catalog::{Mention, tool_mentions};
+use codex_tui_core::screens::composer::mentions::rebind::find_next_mention_token_range;
 use codex_tui_core::screens::composer::mentions::session::Binding;
 use codex_tui_core::screens::composer::mentions::task::valid_thread_path;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;

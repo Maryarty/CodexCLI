@@ -27,7 +27,10 @@ fn row_starting(s: &Screen, text: &str) -> usize {
 /// presenter writes a blank cell without its bold or dim (invisible on a blank), so the
 /// screen emulation gives a blank the style of the cell before it.
 fn assert_rows_at(s: &Screen, name: &str, row: usize) {
-    assert!(row < s.rows().len(), "{name}: the popup is not on the screen");
+    assert!(
+        row < s.rows().len(),
+        "{name}: the popup is not on the screen"
+    );
     let ours = s.rows();
     for (at, want) in kit::snap_rows(name, "").iter().enumerate() {
         let got = ours.get(row + at).map_or("", |r| r.trim_end());
@@ -798,7 +801,9 @@ fn selection_covers_the_row_and_empty_filter_clears_previous_results() {
 fn filesystem_columns_use_terminal_cell_widths() {
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(60, 24)
-        .script(include_str!("fixtures/composer_popups/mentions_files.jsonl"))
+        .script(include_str!(
+            "fixtures/composer_popups/mentions_files.jsonl"
+        ))
         .open();
     s.type_text("@src/");
     s.assert_contains("src/");

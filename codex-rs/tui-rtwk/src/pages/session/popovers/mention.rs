@@ -70,17 +70,20 @@ const OPEN_FLEX: i32 = 1000;
 /// closes.
 pub fn slot(ui: Rc<ThreadUi>) -> AnyWidget {
     let mentions = ui.draft.mentions();
-    AnyWidget::from(ListenableBuilder::new(mentions.listenable(), move |_, _| {
-        if !ui.draft.mentions().is_open() {
-            return SizedBox::shrink().into();
-        }
-        Flexible {
-            flex: OPEN_FLEX,
-            fit: FlexFit::Loose,
-            child: MentionPopup::new(ui.clone()).into(),
-        }
-        .into()
-    }))
+    AnyWidget::from(ListenableBuilder::new(
+        mentions.listenable(),
+        move |_, _| {
+            if !ui.draft.mentions().is_open() {
+                return SizedBox::shrink().into();
+            }
+            Flexible {
+                flex: OPEN_FLEX,
+                fit: FlexFit::Loose,
+                child: MentionPopup::new(ui.clone()).into(),
+            }
+            .into()
+        },
+    ))
     .with_key(Key::value("mention-popup"))
 }
 
@@ -90,16 +93,19 @@ pub fn slot(ui: Rc<ThreadUi>) -> AnyWidget {
 /// then takes every row the popup leaves.
 pub fn capped(ui: Rc<ThreadUi>, room: i32) -> AnyWidget {
     let mentions = ui.draft.mentions();
-    AnyWidget::from(ListenableBuilder::new(mentions.listenable(), move |_, _| {
-        if !ui.draft.mentions().is_open() {
-            return SizedBox::shrink().into();
-        }
-        ConstrainedBox::new(
-            BoxConstraints::new(0, UNBOUNDED, 0, room.max(0)),
-            MentionPopup::new(ui.clone()),
-        )
-        .into()
-    }))
+    AnyWidget::from(ListenableBuilder::new(
+        mentions.listenable(),
+        move |_, _| {
+            if !ui.draft.mentions().is_open() {
+                return SizedBox::shrink().into();
+            }
+            ConstrainedBox::new(
+                BoxConstraints::new(0, UNBOUNDED, 0, room.max(0)),
+                MentionPopup::new(ui.clone()),
+            )
+            .into()
+        },
+    ))
     .with_key(Key::value("mention-popup"))
 }
 
