@@ -75,7 +75,11 @@ fn read(s: &mut Screen) {
     s.answer_request(
         page,
         serde_json::json!({
-            "data": [{ "id": ":read-only" }, { "id": ":workspace" }, { "id": ":danger-full-access" }],
+            "data": [
+                { "id": ":read-only", "allowed": true },
+                { "id": ":workspace", "allowed": true },
+                { "id": ":danger-full-access", "allowed": true },
+            ],
             "nextCursor": null,
         }),
     );
