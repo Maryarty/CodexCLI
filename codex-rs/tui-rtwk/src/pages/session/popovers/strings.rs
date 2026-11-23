@@ -8,7 +8,7 @@
 
 use rtwk::l10n::{Arg, DependCx, Fmt, Msg, NumSyms, msg};
 
-use codex_tui_core::screens::composer::mentions::candidate::Capability;
+use codex_tui_core::data::mention::Capability;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;

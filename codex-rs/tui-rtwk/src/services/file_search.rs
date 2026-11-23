@@ -20,9 +20,9 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 
 use codex_file_search as search;
-use codex_tui_core::screens::composer::mentions::files::FileMatch;
-use codex_tui_core::screens::composer::mentions::files::FileSearchAsk;
-use codex_tui_core::screens::composer::mentions::files::MatchType;
+use codex_tui_core::data::files::FileMatch;
+use codex_tui_core::data::files::FileSearchAsk;
+use codex_tui_core::data::files::MatchType;
 use codex_tui_core::screens::popovers::Ev;
 
 /// Where the answers go: the app's ingress, one event per snapshot.

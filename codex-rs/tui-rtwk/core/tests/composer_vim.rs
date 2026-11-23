@@ -6,9 +6,9 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use codex_tui_core::screens::composer::vim::{
-    Direction, EditorAction, Find, Input, Motion, Normal, Object, Operator, OperatorKey, Pending,
-    Register, RegisterKind, Scope, Vim, VimText,
+use codex_tui_core::kit::vim::{
+    EditorAction, Find, Input, Motion, Normal, Object, Operator, OperatorKey, Register,
+    RegisterKind, Vim, VimDirection, VimPending, VimScope, VimText,
 };
 
 /// A draft of plain text: a char is a grapheme, and `elements` are atomic.
@@ -214,7 +214,7 @@ impl Draft {
         let g = std::mem::take(&mut self.g);
         let pending = self.vim.pending();
         let input = match pending {
-            Pending::None => {
+            VimPending::None => {
                 if key == 'g' && !g {
                     self.g = true;
                     return;
@@ -225,7 +225,7 @@ impl Draft {
                     normal_key(key)
                 }
             }
-            Pending::Operator(op) => {
+            VimPending::Operator(op) => {
                 if key == 'g' && !g {
                     self.g = true;
                     return;
@@ -236,20 +236,20 @@ impl Draft {
                     operator_key(op, key)
                 }
             }
-            Pending::TextObject { .. } => object_key(key),
-            Pending::Replace | Pending::Find { .. } => Input::Char(Some(key)),
+            VimPending::TextObject { .. } => object_key(key),
+            VimPending::Replace | VimPending::Find { .. } => Input::Char(Some(key)),
         };
         match (pending, key) {
-            (Pending::None | Pending::Operator(_), '/') => {
-                self.vim.begin_search(Direction::Forward)
+            (VimPending::None | VimPending::Operator(_), '/') => {
+                self.vim.begin_search(VimDirection::Forward)
             }
-            (Pending::None | Pending::Operator(_), '?') => {
-                self.vim.begin_search(Direction::Backward)
+            (VimPending::None | VimPending::Operator(_), '?') => {
+                self.vim.begin_search(VimDirection::Backward)
             }
-            (Pending::None, 'n') => self.vim.repeat_search(&mut self.t, false),
-            (Pending::None, 'N') => self.vim.repeat_search(&mut self.t, true),
-            (Pending::Operator(_), 'n') => self.vim.repeat_search(&mut self.t, false),
-            (Pending::Operator(_), 'N') => self.vim.repeat_search(&mut self.t, true),
+            (VimPending::None, 'n') => self.vim.repeat_search(&mut self.t, false),
+            (VimPending::None, 'N') => self.vim.repeat_search(&mut self.t, true),
+            (VimPending::Operator(_), 'n') => self.vim.repeat_search(&mut self.t, false),
+            (VimPending::Operator(_), 'N') => self.vim.repeat_search(&mut self.t, true),
             _ => self.vim.input(&mut self.t, input),
         }
     }
@@ -308,8 +308,8 @@ fn operator_key(op: Operator, key: char) -> Input {
         (Operator::Delete, 'd') | (Operator::Yank, 'y') | (Operator::Change, 'c') => {
             OperatorKey::Line
         }
-        (_, 'i') => OperatorKey::Scope(Scope::Inner),
-        (_, 'a') => OperatorKey::Scope(Scope::Around),
+        (_, 'i') => OperatorKey::VimScope(VimScope::Inner),
+        (_, 'a') => OperatorKey::VimScope(VimScope::Around),
         (_, 'h') => OperatorKey::Motion(Motion::Left),
         (_, 'l') => OperatorKey::Motion(Motion::Right),
         (_, 'k') => OperatorKey::Motion(Motion::Up),
@@ -349,10 +349,10 @@ fn replace_character_keeps_normal_mode_and_a_pending_one_ends_on_escape() {
     d.keys("rZ");
     assert_eq!((d.text(), d.cursor(), d.mode()), ("aZc", 1, Some("Normal")));
     d.keys("r");
-    assert_eq!(d.vim.pending(), Pending::Replace);
+    assert_eq!(d.vim.pending(), VimPending::Replace);
     assert!(d.vim.owns_escape());
     d.escape();
-    assert_eq!((d.text(), d.vim.pending()), ("aZc", Pending::None));
+    assert_eq!((d.text(), d.vim.pending()), ("aZc", VimPending::None));
     assert!(!d.vim.owns_escape());
     d.keys("r\n");
     assert_eq!((d.text(), d.cursor()), ("a\nc", 2));
@@ -725,9 +725,9 @@ impl Draft {
 fn a_command_waiting_ends_with_an_unbound_key_and_the_buffer_swap_clears_it() {
     let mut d = vim_draft("one two", 0);
     d.keys("d");
-    assert_eq!(d.vim.pending(), Pending::Operator(Operator::Delete));
+    assert_eq!(d.vim.pending(), VimPending::Operator(Operator::Delete));
     d.keys("q");
-    assert_eq!((d.vim.pending(), d.text()), (Pending::None, "one two"));
+    assert_eq!((d.vim.pending(), d.text()), (VimPending::None, "one two"));
     d.keys("x");
     d.vim.text_replaced();
     d.keys(".");

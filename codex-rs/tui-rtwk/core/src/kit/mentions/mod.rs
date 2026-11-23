@@ -1,0 +1,18 @@
+//! Mentions in the composer (`@` files, tasks, plugins, skills; `$` skills and apps): the
+//! popup's session, filter and the codec of linked mentions, pure logic over the data the app
+//! holds (`core::data`: catalog, tasks, file matches, picks). Nothing here
+//! knows rtwk or the shell; the draft holds a [`session::Session`].
+
+pub mod catalog;
+pub mod codec;
+pub mod dollar;
+pub mod files;
+pub mod filter;
+pub mod popup;
+pub mod rebind;
+pub mod search_mode;
+pub mod session;
+pub mod target;
+pub mod tools;
+
+pub use tools::tool_mentions;

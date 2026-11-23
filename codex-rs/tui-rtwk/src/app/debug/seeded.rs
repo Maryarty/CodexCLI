@@ -44,12 +44,24 @@ pub struct SeededScopeState {
     thread_ui: ThreadUiMap,
 }
 
+/// An intent of the app carried as a message of the seeded page: `Intent` has no equality, so
+/// two are never equal (a message is compared only to tell a handler from another).
+#[derive(Clone, Debug)]
+pub struct Sent(pub Intent);
+
+impl PartialEq for Sent {
+    fn eq(&self, _: &Self) -> bool {
+        false
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SeededMsg {
     Submit(UserMessage),
     Dismiss(RequestKey),
     DismissBanner(BackendId, Ticket),
     PickBanner(BackendId, Ticket, usize),
+    Intent(Sent),
     Screen(ScreenIntent),
     ThreadScreen(ThreadId, ScreenThreadIntent),
     OpenThread(ThreadId),
@@ -100,6 +112,7 @@ impl State for SeededScopeState {
                 ticket,
                 row,
             },
+            SeededMsg::Intent(Sent(intent)) => intent,
             SeededMsg::Screen(intent) => Intent::Screen(intent),
             SeededMsg::ThreadScreen(thread, intent) => Intent::ThreadScreen { thread, intent },
             SeededMsg::OpenThread(id) => Intent::OpenThread(id),
@@ -133,6 +146,7 @@ impl State for SeededScopeState {
             dismiss_banner: cx.map(|(backend, ticket)| SeededMsg::DismissBanner(backend, ticket)),
             pick_banner: cx
                 .map(|(backend, ticket, row)| SeededMsg::PickBanner(backend, ticket, row)),
+            intent: cx.map(|intent| SeededMsg::Intent(Sent(intent))),
             screen: cx.map(SeededMsg::Screen),
             thread_screen: cx.map(|(thread, intent)| SeededMsg::ThreadScreen(thread, intent)),
             open_thread: cx.map(SeededMsg::OpenThread),

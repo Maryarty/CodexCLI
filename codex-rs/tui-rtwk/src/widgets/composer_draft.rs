@@ -21,15 +21,17 @@ use std::rc::Rc;
 
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
-use codex_tui_core::screens::composer;
-use codex_tui_core::screens::composer::history::{
-    History as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
+use codex_tui_core::data::history::{Lookup, Store};
+use codex_tui_core::data::mention::Mention;
+use codex_tui_core::data::task::valid_thread_path;
+use codex_tui_core::kit::history::{
+    HistoryEntry, MentionBinding, PromptWalk as Prompts, TextElement,
 };
-use codex_tui_core::screens::composer::mentions::catalog::{Mention, tool_mentions};
-use codex_tui_core::screens::composer::mentions::rebind::find_next_mention_token_range;
-use codex_tui_core::screens::composer::mentions::session::Binding;
-use codex_tui_core::screens::composer::mentions::task::valid_thread_path;
-use codex_tui_core::screens::composer::paste_burst::PasteBurst;
+use codex_tui_core::kit::mentions::rebind::find_next_mention_token_range;
+use codex_tui_core::kit::mentions::session::ComposerBinding;
+use codex_tui_core::kit::mentions::tool_mentions;
+use codex_tui_core::kit::paste as paste_rules;
+use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::threads::{LocalImage, UserMessage};
 
 use crate::services::images;
@@ -60,7 +62,7 @@ pub struct Element {
     pub seq: u64,
     /// What a picked `$skill`, `@plugin` or task mention stands for
     /// (`ComposerMentionBinding`), `None` for a paste or an image.
-    pub binding: Option<Binding>,
+    pub binding: Option<ComposerBinding>,
 }
 
 #[derive(Default)]
@@ -267,7 +269,7 @@ impl ComposerDraft {
         image: impl Fn(usize) -> String,
     ) -> bool {
         let original = pasted;
-        let sanitized = composer::sanitize_paste(pasted);
+        let sanitized = paste_rules::sanitize_paste(pasted);
         let pasted = sanitized.as_str();
         // a multiline paste after `> ` goes in quoted, and the caret leaves
         // the quote (`apply_paste`); shell input stays literal
@@ -276,14 +278,14 @@ impl ComposerDraft {
                 let at = c.selection().start();
                 let before = &c.text()[..at];
                 let line = before.rsplit('\n').next().unwrap_or_default();
-                composer::blockquote_paste(line, pasted)
+                paste_rules::blockquote_paste(line, pasted)
             })
             .flatten();
         let text = quoted.as_deref().unwrap_or(pasted);
         // a small paste that puts a `!` at the draft's start is shell mode
         // (`insert_str_at_target`: `ShellPrefixHandling::Interpret`)
         let at_start = c.selection().start() == 0;
-        if let Some(chars) = composer::large_paste(text) {
+        if let Some(chars) = paste_rules::large_paste(text) {
             let label = self.next_label(c, &label(chars));
             self.insert_element(c, &label, text);
         } else if text.chars().nth(1).is_some()
@@ -318,7 +320,12 @@ impl ComposerDraft {
     /// Puts the mention `text` (`$skill`, `@plugin`) in place of the
     /// selection as one atomic element, the caret after it; `binding` is
     /// what it stands for on submit (`insert_selected_mention`).
-    pub fn insert_mention(&self, c: &TextEditingController, text: &str, binding: Option<Binding>) {
+    pub fn insert_mention(
+        &self,
+        c: &TextEditingController,
+        text: &str,
+        binding: Option<ComposerBinding>,
+    ) {
         self.insert_with(c, text, text, None, binding);
     }
 
@@ -345,7 +352,7 @@ impl ComposerDraft {
         label: &str,
         payload: &str,
         image: Option<Rc<PathBuf>>,
-        binding: Option<Binding>,
+        binding: Option<ComposerBinding>,
     ) {
         self.sync(c);
         let selection = c.selection();
@@ -494,7 +501,7 @@ impl ComposerDraft {
     ) -> UserMessage {
         self.relabel_images(c, image);
         let (text, placed) = self.expand(c);
-        let bindings: Vec<Binding> = placed
+        let bindings: Vec<ComposerBinding> = placed
             .iter()
             .filter_map(|(_, e)| e.binding.clone())
             .collect();
@@ -737,7 +744,7 @@ impl ComposerDraft {
         store: &Store,
         fx: &mut Vec<Lookup>,
     ) -> bool {
-        use codex_tui_core::screens::composer::history::Response;
+        use codex_tui_core::kit::history::Response;
         let response = self.0.borrow_mut().prompts.poll(store, fx);
         match response {
             Some(Response::Found(entry)) => {
@@ -1006,7 +1013,7 @@ fn bind_mentions(text: &str, entry: &HistoryEntry, skip: usize, elements: &mut V
                 payload: Rc::from(token.as_str()),
                 image: None,
                 seq: 0,
-                binding: Some(Binding {
+                binding: Some(ComposerBinding {
                     sigil: binding.sigil,
                     mention: binding.mention.clone(),
                     path: binding.path.clone(),

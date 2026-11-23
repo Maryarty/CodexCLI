@@ -147,6 +147,8 @@ fn the_ratchet_file_is_well_formed() {
         "r2_thread_subtree_is_keyed",
         "adr002_screen_and_sheet_widgets_are_eq",
         "adr006_keycode_only_in_keymap",
+        "adr013_kit_names_no_screen",
+        "adr013_data_names_only_ids",
     ];
     let mut bad = Vec::new();
     for line in ratchet_file().lines() {
@@ -788,6 +790,81 @@ fn adr013_kit_is_not_app_state() {
     );
 }
 
+/// A kit file names no `screens::` or `features::` path, and re-exports none (`pub use crate::screens`
+/// is the same two tokens): the kit depends on `core::data` and `core::ids`, never on a screen
+/// that depends on it (full §2, layer table).
+fn kit_names_screens(files: &Files) -> Vec<String> {
+    hits_by_file(
+        files,
+        |name| name.starts_with("core/src/kit/"),
+        |tokens, i| {
+            matches!(at(tokens, i), "screens" | "features")
+                && starts(tokens, i + 1, &[":", ":"])
+                && at(tokens, i.wrapping_sub(1)) != "."
+        },
+    )
+}
+
+#[test]
+fn adr013_kit_names_no_screen() {
+    check(
+        "adr013_kit_names_no_screen",
+        "core::kit names no screen or feature: the values it reads are core::data, so the screens use the kit and not the other way round",
+        &kit_names_screens(&sources_of("core/src")),
+    );
+}
+
+/// `core::data` holds plain values: it names no module of core but itself and `ids`.
+fn data_names_others(files: &Files) -> Vec<String> {
+    hits_by_file(
+        files,
+        |name| name == "core/src/data.rs" || name.starts_with("core/src/data/"),
+        |tokens, i| {
+            starts(tokens, i, &["crate", ":", ":"]) && !matches!(at(tokens, i + 3), "data" | "ids")
+        },
+    )
+}
+
+#[test]
+fn adr013_data_names_only_ids() {
+    check(
+        "adr013_data_names_only_ids",
+        "core::data is plain domain values shared by kit, screens and widgets: it depends on std, protocol and ids only",
+        &data_names_others(&sources_of("core/src")),
+    );
+}
+
+#[test]
+fn the_kit_and_data_scans_bite() {
+    let file = |name: &str, text: &str| (name.to_owned(), text.to_owned());
+    let files = vec![
+        file(
+            "core/src/kit/mentions/popup.rs",
+            "use crate::screens::composer::Row;\npub use crate::features::x::Y;\n// screens::z\nlet n = a.screens::b;\n",
+        ),
+        file("core/src/kit/vim.rs", "use crate::data::mention::Row;\n"),
+        file(
+            "core/src/data/mention.rs",
+            "use crate::ids::ThreadId;\nuse crate::kit::codec::f;\nuse crate::data::task::T;\n",
+        ),
+        file(
+            "core/src/data.rs",
+            "pub mod files;\nuse crate::threads::X;\n",
+        ),
+    ];
+    assert_eq!(
+        kit_names_screens(&files),
+        [
+            "core/src/kit/mentions/popup.rs",
+            "core/src/kit/mentions/popup.rs"
+        ]
+    );
+    assert_eq!(
+        data_names_others(&files),
+        ["core/src/data/mention.rs", "core/src/data.rs"]
+    );
+}
+
 #[test]
 fn the_kit_scan_bites() {
     let file = |name: &str, text: &str| (name.to_owned(), text.to_owned());
@@ -1131,7 +1208,9 @@ fn interest_made_elsewhere(files: &Files) -> Vec<String> {
     hits_by_file(
         files,
         |name| in_ui_sources(name) && name != "src/widgets/interest.rs",
-        |tokens, i| starts(tokens, i, &["Intent", ":", ":", "Interest"]),
+        |tokens, i| {
+            starts(tokens, i, &["Intent", ":", ":", "Interest"]) || at(tokens, i) == "InterestStep"
+        },
     )
 }
 
@@ -1139,7 +1218,7 @@ fn interest_made_elsewhere(files: &Files) -> Vec<String> {
 fn adr013_interest_made_in_one_place() {
     check(
         "adr013_interest_made_in_one_place",
-        "Intent::Interest is made only by the Interest widget (src/widgets/interest.rs), so a counter is never left up",
+        "Intent::Interest and InterestStep are made only by the Interest widget (src/widgets/interest.rs), so a counter is never left up",
         &interest_made_elsewhere(&sources_of("src")),
     );
 }
@@ -1149,7 +1228,7 @@ fn the_interest_scan_bites() {
     let files = vec![
         (
             "src/sheets/plugins/mod.rs".to_owned(),
-            "cx.send(Intent::Interest(Interest::Open(k)));\n// Intent::Interest\n".to_owned(),
+            "cx.send(Intent::Interest(Interest::Open(k)));\n// Intent::Interest\nlet s = InterestStep::Open;\n".to_owned(),
         ),
         (
             "src/widgets/interest.rs".to_owned(),
@@ -1158,7 +1237,7 @@ fn the_interest_scan_bites() {
     ];
     assert_eq!(
         interest_made_elsewhere(&files),
-        ["src/sheets/plugins/mod.rs"]
+        ["src/sheets/plugins/mod.rs", "src/sheets/plugins/mod.rs"]
     );
 }
 
@@ -1467,7 +1546,13 @@ fn keycode_outside_keymap(files: &Files) -> Vec<String> {
                 && !name.starts_with("src/keymap/")
                 && !name.starts_with("src/widgets/")
         },
-        |tokens, i| starts(tokens, i, &["KeyCode", ":", ":"]),
+        |tokens, i| {
+            starts(tokens, i, &["KeyCode", ":", ":"])
+                // the copy of `KeyCode` the pages used to name keys by (`Fixed::Enter`,
+                // `key.fixed()`): a hardwired key is a named action of `core::keymap::fixed`
+                || starts(tokens, i, &["Fixed", ":", ":"])
+                || starts(tokens, i, &[".", "fixed", "(", ")"])
+        },
     )
 }
 
@@ -1485,7 +1570,7 @@ fn the_keycode_scan_bites() {
     let files = vec![
         (
             "src/pages/agents/dialogs.rs".to_owned(),
-            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\n"
+            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\n"
                 .to_owned(),
         ),
         (
@@ -1499,7 +1584,12 @@ fn the_keycode_scan_bites() {
     ];
     assert_eq!(
         keycode_outside_keymap(&files),
-        ["src/pages/agents/dialogs.rs", "src/pages/agents/dialogs.rs"]
+        [
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs"
+        ]
     );
 }
 

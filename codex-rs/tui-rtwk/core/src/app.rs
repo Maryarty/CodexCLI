@@ -16,6 +16,10 @@ mod select;
 mod session;
 mod transcript_text;
 pub use transcript_text::TranscriptText;
+
+/// What a surface says of its interest (`Intent::Interest`): the widgets of the UI name it here,
+/// not through `features::` (a shared widget is independent of the feature it serves).
+pub use crate::features::{FeatureInterest, InterestStep};
 pub mod worktree;
 
 use session::{
@@ -227,6 +231,11 @@ pub enum Intent {
     Screen(ScreenIntent),
     /// An intent of a feature slice (ADR-012).
     Feature(crate::features::FeatureIntent),
+    /// A surface wants, or lets go of, the data a feature shows (ADR-013 И): made only by the
+    /// `Interest` widget.
+    Interest(crate::features::InterestStep),
+    /// The surface presented the wish `seq` (ADR-013 Ж): made only by the presenter.
+    WishShown(u64),
 }
 
 /// What `/auto-review` does to a thread (oracle `open_auto_review_denials_popup`,
@@ -285,9 +294,6 @@ pub enum AppEv {
     /// The presets of the config (`tui.presets`) with the layer each comes from: sent with
     /// `Tui`, and never changed by anything but the saved write of a preset.
     Presets(Vec<crate::screens::select::quick_dials::Slot>),
-    /// What the config says of the plugins (the features, the home directory, the marketplaces
-    /// the user configured): sent with `Presets`.
-    PluginConfig(crate::screens::select::plugins::Config),
     /// A fact the host sends unasked to a feature slice (ADR-012: `Feature::on_fact`); the
     /// host builds it with the feature's own `Fact` type and `From`.
     Feature(crate::features::FeatureFact),
@@ -556,6 +562,11 @@ pub struct CodexApp {
     /// The app-scoped state of the feature slices (ADR-012), read through `features()`,
     /// changed only by the features' own steps (`app/features.rs`).
     features: Rc<crate::features::FeatureStates>,
+    /// What the surfaces want loaded, by feature (ADR-013 И): counted, so the first and the last
+    /// reach the feature, and asked again after a reconnect.
+    interests: Rc<crate::features::Interests>,
+    /// What the features want the surface to show, once (ADR-013 Ж).
+    wishes: Rc<crate::features::Wishes>,
     mint: TicketMint,
     outgoing: Pending<AppCtx>,
     /// What was asked before the first thread exists, in order: it goes out
@@ -638,6 +649,8 @@ impl CodexApp {
             request_epochs: BTreeMap::new(),
             screens: Rc::new(ScreenStates::default()),
             features: Rc::new(crate::features::FeatureStates::default()),
+            interests: Rc::new(crate::features::Interests::default()),
+            wishes: Rc::new(crate::features::Wishes::default()),
             mint: TicketMint::default(),
             outgoing: Pending::default(),
             queued_submits: Vec::new(),
@@ -858,6 +871,16 @@ impl CodexApp {
     /// feature reads its rows from its state), changed only by the features' own steps.
     pub fn features(&self) -> &Rc<crate::features::FeatureStates> {
         &self.features
+    }
+
+    /// The wishes of the features nobody has shown yet, provided to the surface's presenter.
+    pub fn wishes(&self) -> &Rc<crate::features::Wishes> {
+        &self.wishes
+    }
+
+    /// What the surfaces want loaded, with how many want each.
+    pub fn interests(&self) -> &crate::features::Interests {
+        &self.interests
     }
 
     /// The model of a thread this process holds.
@@ -1084,6 +1107,8 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     release_held_start(app, fx);
                 }
             }
+            // a reconnect: what the surfaces still want is asked again
+            features::reconnected(app, fx);
         }
         AppEv::StartFailed(message) => {
             fx.ends = true;
@@ -1412,10 +1437,6 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Daybreak(access) => app.daybreak = access,
         AppEv::Tui(settings) => app.tui = settings,
         AppEv::Presets(slots) => select::event(app, crate::screens::select::Ev::Dials(slots), fx),
-        AppEv::PluginConfig(config) => {
-            use crate::screens::select::{Ev, plugins};
-            select::event(app, Ev::Plugins(plugins::Ev::Config(config)), fx);
-        }
         AppEv::Feature(fact) => features::fact(app, fact, fx),
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } if effects::is_feature_request(request) => {
@@ -2156,6 +2177,8 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
         Intent::Feature(intent) => features::intent(app, intent, fx),
+        Intent::Interest(step) => features::interest(app, step, fx),
+        Intent::WishShown(seq) => features::wish_shown(app, seq),
     }
 }
 
@@ -2866,7 +2889,7 @@ fn attach_thread_with_metadata(
 /// The apps the mentions offer are the installed ones the directory lists
 /// (`connectors_for_mentions`): an app it does not list as accessible leaves them.
 fn drop_uncallable_apps(app: &mut CodexApp, listed: &[screens::select::apps::App]) {
-    use screens::composer::mentions::catalog::MentionKind;
+    use crate::data::mention::MentionKind;
     let callable = |path: &Option<String>| {
         path.as_deref()
             .and_then(|path| path.strip_prefix("app://"))

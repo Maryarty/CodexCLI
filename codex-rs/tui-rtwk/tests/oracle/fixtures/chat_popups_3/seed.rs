@@ -1,4 +1,4 @@
-//! The seeds of the `/plugins` tests: the plugin config the host reads (`AppEv::PluginConfig`) and the
+//! The seeds of the `/plugins` tests: the plugin config the host reads (the feature's `Fact::Config`) and the
 //! app server's plugin answers (`plugin/list`, `plugin/read`, the installs and the marketplace
 //! calls), built the way the oracle's `plugins_test_*` helpers build its responses, as the wire's
 //! JSON. A `Shelf` is what the server holds: a test changes it between two opens of the browser
@@ -10,10 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use codex_tui_core::app::{AppEv, Command};
+use codex_tui_core::features::plugins::{Config, Configured, Fact, Part, Want};
+use codex_tui_core::features::{FeatureCommand, FeatureFact};
 use codex_tui_core::rpc::ServerError;
-use codex_tui_core::screens::ScreenCommand;
-use codex_tui_core::screens::select::Command as Select;
-use codex_tui_core::screens::select::plugins::{Config, Configured, Part, Want};
 use serde_json::{Value, json};
 
 use crate::common::{Harness, start_driven_with};
@@ -97,7 +96,7 @@ pub fn start_with(
     h.fake
         .respond(move |request| answer(&held.lock().expect("the shelf"), request));
     h.connect();
-    h.inject([AppEv::PluginConfig(config)]);
+    h.inject([AppEv::Feature(FeatureFact::from(Fact::Config(config)))]);
     if !keymap.is_empty() {
         h.set_keymap(keymap);
     }
@@ -122,8 +121,8 @@ pub fn asked(s: &Screen) -> Vec<(Command, Want)> {
     s.commands()
         .into_iter()
         .filter_map(|command| match &command {
-            Command::Screen {
-                command: ScreenCommand::Select(Select::Plugins(wanted)),
+            Command::Feature {
+                command: FeatureCommand::Plugins(wanted),
                 ..
             } => {
                 let want = wanted.want.clone();

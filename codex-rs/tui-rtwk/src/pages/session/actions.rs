@@ -11,13 +11,16 @@ use codex_tui_core::commands::{
     DispatchCx, Notice, Open, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
     parent_owned_takes,
 };
+use codex_tui_core::features::Scope;
+use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
 use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, Toggle, UserMessage};
 
 use crate::app::view::Hs;
+use crate::features;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::open::{open, open_confirmation};
+use crate::pages::session::open::{note_opened, open, open_confirmation};
 
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
@@ -194,20 +197,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         return;
     }
-    let outcome = match dispatch_with_tiers(line, &facts, &tiers) {
-        // `/plugins` is the selection sheet's browser; the dispatch still gives it as a session
-        // command (core: `commands/dispatch.rs` `Plugins`, a Need), the sheet opens it as it does
-        // `/apps`.
-        Outcome::Session {
-            command: SlashCommand::Plugins,
-            ..
-        } => Outcome::Open(Open {
-            target: Target::Select,
-            command: SlashCommand::Plugins,
-            args: String::new(),
-        }),
-        outcome => outcome,
-    };
+    let outcome = dispatch_with_tiers(line, &facts, &tiers);
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -312,6 +302,18 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             } else {
                 open(cx, opened.target);
             }
+        }
+        // A feature's sheet (`/plugins`): the feature is told which directory, the sheet shows
+        // what it holds.
+        Outcome::Session { command, .. } if features::opens_sheet(command) => {
+            record(cx);
+            clear_sent(&w.ui);
+            features::open_sheet(
+                cx,
+                command,
+                &Scope::Cwd(Cwd::new(review_cwd(&states, &thread))),
+            );
+            note_opened(Target::Select);
         }
         // `/vim`: modal editing is the draft's own state, toggled here and said
         // (`toggle_vim_mode_and_notify`); the composer clears with the line.
@@ -448,7 +450,6 @@ fn select_intent(
         )),
         SlashCommand::Apps => Some(Intent::OpenApps { enabled: apps }),
         SlashCommand::Review => Some(Intent::OpenReview { cwd }),
-        SlashCommand::Plugins => Some(Intent::OpenPlugins { cwd }),
         _ => None,
     }
 }

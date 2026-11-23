@@ -1,5 +1,5 @@
 //! What the draft keeps for modal (Vim) editing: the engine's state
-//! (`core::screens::composer::vim`), the register next to the kill ring, the
+//! (`core::kit::vim`), the register next to the kill ring, the
 //! whole-draft undo history and the `/` query, and the `VimText` that lets
 //! the engine edit the controller's text with the draft's elements kept whole
 //! (`chat_composer/vim_history.rs`, `vim_register.rs`, `textarea.rs`).
@@ -10,8 +10,8 @@ use std::rc::Rc;
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use rtwk::focus::KeyPress;
 
-use codex_tui_core::screens::composer::vim::{
-    EditorAction, History, Persistent, Register, RegisterKind, Vim, VimText,
+use codex_tui_core::kit::vim::{
+    EditorAction, Persistent, Register, RegisterKind, UndoHistory, Vim, VimText,
 };
 
 use super::{ComposerDraft, Element};
@@ -49,7 +49,7 @@ impl Snapshot {
 #[derive(Default)]
 pub(super) struct Modal {
     pub(super) vim: Vim,
-    pub(super) history: History<Snapshot>,
+    pub(super) history: UndoHistory<Snapshot>,
     pub(super) register_kind: RegisterKind,
     /// The first key of a chord (`g` of `g g`) waiting for its second.
     pub(super) chord: Option<KeyPress>,
@@ -95,7 +95,7 @@ impl ComposerDraft {
     }
 
     /// Runs `f` on the undo history (same rule as `with_vim`).
-    pub fn with_vim_history<R>(&self, f: impl FnOnce(&mut History<Snapshot>) -> R) -> R {
+    pub fn with_vim_history<R>(&self, f: impl FnOnce(&mut UndoHistory<Snapshot>) -> R) -> R {
         let mut history = std::mem::take(&mut self.0.borrow_mut().vim.history);
         let out = f(&mut history);
         self.0.borrow_mut().vim.history = history;

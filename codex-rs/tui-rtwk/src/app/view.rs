@@ -34,6 +34,9 @@ pub struct Hs {
     pub dismiss_banner: Handler<(BackendId, Ticket)>,
     /// A row of a backend banner was chosen (a number key, a tap).
     pub pick_banner: Handler<(BackendId, Ticket, usize)>,
+    /// Any intent of the app: a verb of a feature (`features::verb`), an interest
+    /// (`widgets::interest`), a presented wish (`app::presenters`).
+    pub intent: Handler<Intent>,
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
     /// An intent of a screen slot of one thread (the queue, Esc with
@@ -75,6 +78,9 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
                 }));
             },
         ),
+        intent: cx.on_with(|app: &mut UiApp, intent: Intent, _cx| {
+            app.send(AppEv::Intent(intent));
+        }),
         screen: cx.on_with(|app: &mut UiApp, intent: ScreenIntent, _cx| {
             app.send(AppEv::Intent(Intent::Screen(intent)));
         }),

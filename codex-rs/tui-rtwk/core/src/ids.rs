@@ -38,6 +38,12 @@ impl std::borrow::Borrow<str> for ThreadId {
 }
 
 string_id!(
+    /// A working directory as the app-server and a feature's data name it (the key a feature's
+    /// per-directory answers are cached under, ADR-013 З).
+    Cwd
+);
+
+string_id!(
     /// A turn inside a thread.
     TurnId
 );

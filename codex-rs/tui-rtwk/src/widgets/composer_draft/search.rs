@@ -1,14 +1,15 @@
 //! Reverse history search (Ctrl+R) in the draft: the search's own state
-//! (`core::screens::popovers::HistorySearch`), the draft as it was when the
+//! (`core::kit::history::HistorySearch`), the draft as it was when the
 //! search opened, and the previews that stand in the draft's place while the
 //! query is typed (`chat_composer/history_search.rs`,
 //! `history_search_draft.rs`).
 
 use rtwk::editing::TextEditingController;
 
-use codex_tui_core::screens::composer::history::{Lookup, SearchResult, Store};
-use codex_tui_core::screens::composer::vim::History;
-use codex_tui_core::screens::popovers::{Direction, HistorySearch, Preview, SearchStatus};
+use codex_tui_core::data::history::{Lookup, Store};
+use codex_tui_core::kit::history::SearchResult;
+use codex_tui_core::kit::history::{HistorySearch, SearchPreview, SearchStatus, WalkDirection};
+use codex_tui_core::kit::vim::UndoHistory;
 
 use super::{ComposerDraft, Snapshot};
 
@@ -20,7 +21,7 @@ pub(super) struct Session {
     original: Snapshot,
     /// Vim's undo steps of that draft, kept aside while the previews come
     /// and go (`original_vim_history`).
-    vim_history: History<Snapshot>,
+    vim_history: UndoHistory<Snapshot>,
 }
 
 impl ComposerDraft {
@@ -91,7 +92,7 @@ impl ComposerDraft {
         &self,
         c: &TextEditingController,
         store: &Store,
-        dir: Direction,
+        dir: WalkDirection,
         fx: &mut Vec<Lookup>,
     ) {
         self.search_with(c, |search, prompts| search.step(dir, prompts, store, fx));
@@ -138,7 +139,7 @@ impl ComposerDraft {
     fn search_with(
         &self,
         c: &TextEditingController,
-        step: impl FnOnce(&mut HistorySearch, &mut super::Prompts) -> Preview,
+        step: impl FnOnce(&mut HistorySearch, &mut super::Prompts) -> SearchPreview,
     ) {
         let shown = {
             let mut guard = self.0.borrow_mut();
@@ -170,11 +171,11 @@ impl ComposerDraft {
         self.show(c, shown.0, &shown.1);
     }
 
-    fn show(&self, c: &TextEditingController, preview: Preview, original: &Snapshot) {
+    fn show(&self, c: &TextEditingController, preview: SearchPreview, original: &Snapshot) {
         match preview {
-            Preview::Show(entry) => self.recall(c, entry),
-            Preview::Original => self.restore(c, original),
-            Preview::Keep => {}
+            SearchPreview::Show(entry) => self.recall(c, entry),
+            SearchPreview::Original => self.restore(c, original),
+            SearchPreview::Keep => {}
         }
     }
 }

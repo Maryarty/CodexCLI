@@ -11,8 +11,9 @@ use std::rc::Rc;
 
 use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, editing_key};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 
+use codex_tui_core::data::history::Store;
 use codex_tui_core::keymap::actions::{
     COMPOSER_QUEUE, COMPOSER_SUBMIT, EDITOR_DELETE_BACKWARD, EDITOR_DELETE_BACKWARD_WORD,
     EDITOR_DELETE_FORWARD, EDITOR_DELETE_FORWARD_WORD, EDITOR_INSERT_NEWLINE, EDITOR_KILL_LINE_END,
@@ -20,11 +21,17 @@ use codex_tui_core::keymap::actions::{
     EDITOR_MOVE_LINE_END, EDITOR_MOVE_LINE_START, EDITOR_MOVE_RIGHT, EDITOR_MOVE_UP,
     EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_TOGGLE_VIM_MODE,
 };
+use codex_tui_core::keymap::fixed::{
+    CLEAR_FOR_CTRL_C, DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_BACKWARD_WORD,
+    FIELD_DELETE_FORWARD, FIELD_DELETE_FORWARD_WORD, FIELD_DOWN, FIELD_KILL_LINE_END,
+    FIELD_KILL_LINE_START, FIELD_LEFT, FIELD_LINE_END, FIELD_LINE_START, FIELD_RIGHT, FIELD_UP,
+    FIELD_WORD_LEFT, FIELD_WORD_RIGHT, FIELD_YANK, HISTORY_NEXT, HISTORY_PREVIOUS, PASTE_IMAGE,
+    TAB,
+};
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::screens::composer::history::Store;
+use codex_tui_core::kit::vim::{EditorAction, VimPending};
 use codex_tui_core::screens::composer::restricted::Restricted;
-use codex_tui_core::screens::composer::vim::{EditorAction, Pending};
-use codex_tui_core::screens::{ScreenStates, Shared};
+use codex_tui_core::screens::{Shared, popovers};
 
 use super::ComposerMsg;
 use super::burst::{self, BurstEnv};
@@ -32,7 +39,7 @@ use super::mentions;
 use super::search;
 use super::suggest::Suggest;
 use super::vim;
-use crate::keymap::pressed;
+use crate::keymap::{press_for, pressed};
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
 
@@ -52,8 +59,8 @@ pub struct KeyData {
     /// The user's bindings (`tui.keymap`): the Composer and Editor contexts
     /// say which key is which edit.
     pub keymap: Rc<Keymap>,
-    /// The app's data the mention popups read (their sources).
-    pub states: Rc<ScreenStates>,
+    /// What the app holds for the popups: their sources, the clipboard's answers.
+    pub popovers: Rc<popovers::Model>,
     /// Why the composer may only edit and run a few commands (`None`: it is
     /// whole).
     pub restricted: Option<Restricted>,
@@ -124,7 +131,7 @@ fn sparkle_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Spa
     let plain = !key.mods.contains(Mods::CTRL)
         && !key.mods.contains(Mods::ALT)
         && !key.mods.contains(Mods::SUPER);
-    let plain_char = if plain && key.code == KeyCode::Char {
+    let plain_char = if plain && key.ch.is_some() {
         key.text().and_then(|text| text.chars().next())
     } else {
         None
@@ -195,7 +202,7 @@ fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> 
     if free && mentions::take_key(data, c, key) {
         return true;
     }
-    if free && data.suggest.take_key(c, key, &*data.tell) {
+    if free && data.suggest.take_key(&data.keymap, c, key, &*data.tell) {
         return true;
     }
     // the rows of remote images above the draft take Up, Down and Delete
@@ -209,7 +216,7 @@ fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> 
         return true;
     }
     // a command waiting for its next key takes Enter too (it is no submit)
-    let waiting = mode.normal && mode.pending != Pending::None;
+    let waiting = mode.normal && mode.pending != VimPending::None;
     if free
         && !waiting
         && let Some(took) = composer_key(data, c, key)
@@ -248,7 +255,8 @@ fn restricted_key(
     data.suggest.hide(c.text());
     let submit = pressed(&data.keymap, COMPOSER_SUBMIT, key);
     let queue = pressed(&data.keymap, COMPOSER_QUEUE, key);
-    let plain = key.mods == Mods::NONE && matches!(key.code, KeyCode::Enter | KeyCode::Tab);
+    let plain = key.mods == Mods::NONE
+        && (pressed(&data.keymap, ENTER, key) || pressed(&data.keymap, TAB, key));
     if !(submit || queue || plain) {
         return None;
     }
@@ -263,14 +271,13 @@ fn restricted_key(
 /// (`image_paste_key_action`). A repeat within a quarter of a second is
 /// swallowed. Outside an app there is no clipboard to ask: the field's key.
 fn paste_image(data: &KeyData, key: &KeyPress) -> bool {
-    let is_v = key.code == KeyCode::Char && key.ch.is_some_and(|ch| ch.eq_ignore_ascii_case(&'v'));
-    if !is_v || !(key.mods.contains(Mods::CTRL) || key.mods.contains(Mods::ALT)) {
+    if !pressed(&data.keymap, PASTE_IMAGE, key) {
         return false;
     }
     let Some(env) = &data.burst else {
         return false;
     };
-    let answers = data.states.popovers.pasted.answers();
+    let answers = data.popovers.pasted.answers();
     if data.draft.ask_for_image((env.now)(), answers) {
         (data.tell)(ComposerMsg::PasteImage);
     }
@@ -288,16 +295,19 @@ fn remote_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool
         return false;
     };
     let took = key.mods == Mods::NONE
-        && match key.code {
-            KeyCode::Up => draft.remote_up(c),
-            KeyCode::Down => draft.remote_down(c),
-            KeyCode::Delete | KeyCode::Backspace => {
-                draft.remote_removable(c) && {
-                    draft.vim_direct(c, || draft.remote_remove(c, &*env.image));
-                    true
-                }
+        && if pressed(&data.keymap, HISTORY_PREVIOUS, key) {
+            draft.remote_up(c)
+        } else if pressed(&data.keymap, HISTORY_NEXT, key) {
+            draft.remote_down(c)
+        } else if pressed(&data.keymap, FIELD_DELETE_FORWARD, key)
+            || pressed(&data.keymap, FIELD_DELETE_BACKWARD, key)
+        {
+            draft.remote_removable(c) && {
+                draft.vim_direct(c, || draft.remote_remove(c, &*env.image));
+                true
             }
-            _ => false,
+        } else {
+            false
         };
     if took || draft.clear_remote_selection() {
         (data.tell)(ComposerMsg::Remote);
@@ -313,9 +323,9 @@ fn remote_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool
 /// them (the Editor context does not see it: Composer shadows it).
 fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Option<bool> {
     let keymap = &*data.keymap;
-    let plain = |code: KeyCode| key.code == code && key.mods == Mods::NONE;
+    let plain = |id: ActionId| pressed(keymap, id, key) && key.mods == Mods::NONE;
     if pressed(keymap, COMPOSER_SUBMIT, key) {
-        if plain(KeyCode::Enter) {
+        if plain(ENTER) {
             return Some(false);
         }
         (data.tell)(ComposerMsg::Submitted(c.text()));
@@ -328,13 +338,13 @@ fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Op
             (data.tell)(ComposerMsg::Submitted(c.text()));
             return Some(true);
         }
-        if plain(KeyCode::Tab) {
+        if plain(TAB) {
             return Some(false);
         }
         (data.tell)(ComposerMsg::Queue);
         return Some(true);
     }
-    plain(KeyCode::Tab).then_some(true)
+    plain(TAB).then_some(true)
 }
 
 /// The Editor-context actions the composer carries out itself, each with the
@@ -384,25 +394,23 @@ impl Edit {
     /// The key the field's own editing answers to for this action: a key
     /// the user bound to it is carried out as this one.
     fn canonical(self) -> Option<KeyPress> {
-        let ctrl = |ch: char| KeyPress::char(ch).with_mods(Mods::CTRL);
-        let alt = |code: KeyCode| KeyPress::code(code).with_mods(Mods::ALT);
-        Some(match self {
+        press_for(match self {
             Edit::Newline | Edit::KillWholeLine => return None,
-            Edit::Left => KeyPress::code(KeyCode::Left),
-            Edit::Right => KeyPress::code(KeyCode::Right),
-            Edit::Up => KeyPress::code(KeyCode::Up),
-            Edit::Down => KeyPress::code(KeyCode::Down),
-            Edit::WordLeft => alt(KeyCode::Left),
-            Edit::WordRight => alt(KeyCode::Right),
-            Edit::LineStart => KeyPress::code(KeyCode::Home),
-            Edit::LineEnd => KeyPress::code(KeyCode::End),
-            Edit::DeleteBackward => KeyPress::code(KeyCode::Backspace),
-            Edit::DeleteForward => KeyPress::code(KeyCode::Delete),
-            Edit::DeleteBackwardWord => ctrl('w'),
-            Edit::DeleteForwardWord => KeyPress::char('d').with_mods(Mods::ALT),
-            Edit::KillLineStart => ctrl('u'),
-            Edit::KillLineEnd => ctrl('k'),
-            Edit::Yank => ctrl('y'),
+            Edit::Left => FIELD_LEFT,
+            Edit::Right => FIELD_RIGHT,
+            Edit::Up => FIELD_UP,
+            Edit::Down => FIELD_DOWN,
+            Edit::WordLeft => FIELD_WORD_LEFT,
+            Edit::WordRight => FIELD_WORD_RIGHT,
+            Edit::LineStart => FIELD_LINE_START,
+            Edit::LineEnd => FIELD_LINE_END,
+            Edit::DeleteBackward => FIELD_DELETE_BACKWARD,
+            Edit::DeleteForward => FIELD_DELETE_FORWARD,
+            Edit::DeleteBackwardWord => FIELD_DELETE_BACKWARD_WORD,
+            Edit::DeleteForwardWord => FIELD_DELETE_FORWARD_WORD,
+            Edit::KillLineStart => FIELD_KILL_LINE_START,
+            Edit::KillLineEnd => FIELD_KILL_LINE_END,
+            Edit::Yank => FIELD_YANK,
         })
     }
 }
@@ -501,7 +509,7 @@ pub(super) fn carry_out(data: &KeyData, c: &TextEditingController, action: Edito
                 return false;
             };
             edit_arms(data, c, &key, None) || {
-                field_edit(c, &key);
+                field_edit(&data.keymap, c, &key);
                 true
             }
         }
@@ -535,21 +543,22 @@ fn move_line(c: &TextEditingController, down: bool) {
 
 /// Carries out `key` as the field's own editing would (the caret moves and
 /// the character deletions, as `rtwk` writes them).
-fn field_edit(c: &TextEditingController, key: &KeyPress) {
-    match key.code {
-        KeyCode::Up => move_line(c, false),
-        KeyCode::Down => move_line(c, true),
-        KeyCode::Backspace if c.selection().is_collapsed() => {
+fn field_edit(keymap: &Keymap, c: &TextEditingController, key: &KeyPress) {
+    let is = |id: ActionId| pressed(keymap, id, key);
+    match () {
+        () if is(FIELD_UP) => move_line(c, false),
+        () if is(FIELD_DOWN) => move_line(c, true),
+        () if is(FIELD_DELETE_BACKWARD) && c.selection().is_collapsed() => {
             let caret = c.selection().extent_offset;
             let from = c.buffer().character_start_before(caret);
             c.replace(from, caret, "");
         }
-        KeyCode::Delete if c.selection().is_collapsed() => {
+        () if is(FIELD_DELETE_FORWARD) && c.selection().is_collapsed() => {
             let caret = c.selection().extent_offset;
             let to = c.buffer().character_end_after(caret);
             c.replace(caret, to, "");
         }
-        KeyCode::Backspace | KeyCode::Delete => {
+        () if is(FIELD_DELETE_BACKWARD) || is(FIELD_DELETE_FORWARD) => {
             let s = c.selection();
             c.replace(s.start(), s.end(), "");
         }
@@ -578,7 +587,7 @@ fn edit_key(
             // Shift+Enter and Alt+Enter are the field's own line break;
             // any other key of the action (Enter, once submit is
             // elsewhere) breaks the line here
-            if key.code == KeyCode::Enter
+            if pressed(&data.keymap, ENTER, key)
                 && (key.mods.contains(Mods::SHIFT) || key.mods.contains(Mods::ALT))
             {
                 return false;
@@ -596,7 +605,7 @@ fn edit_key(
         Resolved::Edit { via: None, .. } => edit_arms(data, c, key, skill_space),
         Resolved::Edit { via: Some(via), .. } => {
             edit_arms(data, c, &via, skill_space) || {
-                field_edit(c, &via);
+                field_edit(&data.keymap, c, &via);
                 true
             }
         }
@@ -664,125 +673,114 @@ fn edit_arms(
     let caret = selection.extent_offset;
     let collapsed = selection.is_collapsed();
     let plain = only(key, Mods::NONE);
-    let ctrl = only(key, Mods::CTRL);
-    let alt = only(key, Mods::ALT);
-    match (key.code, key.ch) {
-        (KeyCode::Char, Some(ch))
-            if (plain || only(key, Mods::SHIFT))
-                && typed_char(draft, &*data.tell, c, ch, skill_space) =>
-        {
-            true
-        }
-        // Shell mode: Backspace at the start and Esc on an empty draft
-        // leave it.
-        (KeyCode::Backspace, _) if plain && collapsed && caret == 0 && draft.shell() => {
-            draft.set_shell(false);
-            (data.tell)(ComposerMsg::Shell);
-            true
-        }
-        (KeyCode::Escape, _) if draft.shell() && c.text().is_empty() => {
-            draft.set_shell(false);
-            (data.tell)(ComposerMsg::Shell);
-            true
-        }
-        (KeyCode::Backspace, _) if plain && collapsed => {
-            let Some(e) = draft.ending_at(c, caret) else {
-                return false;
-            };
-            c.replace(e.start, e.end, "");
-            true
-        }
-        (KeyCode::Delete, _) if plain && collapsed => {
-            let Some(e) = draft.starting_at(c, caret) else {
-                return false;
-            };
-            c.replace(e.start, e.end, "");
-            true
-        }
-        (KeyCode::Left, _) if plain || only(key, Mods::SHIFT) => {
-            if plain && !collapsed {
-                return false;
-            }
-            let Some(e) = draft.ending_at(c, caret) else {
-                return false;
-            };
-            c.move_caret(e.start, !plain);
-            true
-        }
-        (KeyCode::Right, _) if plain || only(key, Mods::SHIFT) => {
-            if plain && !collapsed {
-                return false;
-            }
-            let Some(e) = draft.starting_at(c, caret) else {
-                return false;
-            };
-            c.move_caret(e.end, !plain);
-            true
-        }
-        (KeyCode::Up | KeyCode::Down, _) if plain => walk_history(data, c, key.code == KeyCode::Up),
-        (KeyCode::Char, Some('k')) if ctrl && collapsed => {
-            let text = c.buffer();
-            let end = text.line_end(text.line_of(caret));
-            let to = if end == caret {
-                if end < text.len() {
-                    end + 1
-                } else {
-                    return true;
-                }
-            } else {
-                end
-            };
-            kill(draft, c, caret, to);
-            true
-        }
-        (KeyCode::Char, Some('u')) if ctrl && collapsed => {
-            let text = c.buffer();
-            let start = text.line_start(text.line_of(caret));
-            let from = if start == caret {
-                if start > 0 { start - 1 } else { return true }
-            } else {
-                start
-            };
-            kill(draft, c, from, caret);
-            true
-        }
-        (KeyCode::Char, Some('w')) if ctrl && collapsed => {
-            let from = c.buffer().word_start_before(caret, false);
-            kill(draft, c, from, caret);
-            true
-        }
-        (KeyCode::Backspace, _) if (alt || ctrl) && collapsed => {
-            let from = c.buffer().word_start_before(caret, false);
-            kill(draft, c, from, caret);
-            true
-        }
-        (KeyCode::Char, Some('d')) if alt && collapsed => {
-            let to = c.buffer().word_end_after(caret, false);
-            kill(draft, c, caret, to);
-            true
-        }
-        (KeyCode::Delete, _) if (alt || ctrl) && collapsed => {
-            let to = c.buffer().word_end_after(caret, false);
-            kill(draft, c, caret, to);
-            true
-        }
-        // `clear_for_ctrl_c`: a draft is cleared (and kept in history)
-        // before Ctrl+C interrupts or quits.
-        (KeyCode::Char, Some('c')) if ctrl && !c.text().is_empty() => {
-            (data.tell)(ComposerMsg::ClearForCtrlC);
-            true
-        }
-        (KeyCode::Char, Some('y')) if ctrl => {
-            draft.yank(c);
-            // a yank at the start is a prefix insertion: a leading `!`
-            // becomes shell mode (`sync_bash_mode_from_text`)
-            if caret == 0 && collapsed && draft.absorb_shell_prefix(c) {
-                (data.tell)(ComposerMsg::Shell);
-            }
-            true
-        }
-        _ => false,
+    let is = |id: ActionId| pressed(&data.keymap, id, key);
+    if let Some(ch) = key.ch
+        && (plain || only(key, Mods::SHIFT))
+        && typed_char(draft, &*data.tell, c, ch, skill_space)
+    {
+        return true;
     }
+    // Shell mode: Backspace at the start and Esc on an empty draft
+    // leave it.
+    if is(FIELD_DELETE_BACKWARD) && plain && collapsed && caret == 0 && draft.shell() {
+        draft.set_shell(false);
+        (data.tell)(ComposerMsg::Shell);
+        return true;
+    }
+    if is(DISMISS) && draft.shell() && c.text().is_empty() {
+        draft.set_shell(false);
+        (data.tell)(ComposerMsg::Shell);
+        return true;
+    }
+    if is(FIELD_DELETE_BACKWARD) && plain && collapsed {
+        let Some(e) = draft.ending_at(c, caret) else {
+            return false;
+        };
+        c.replace(e.start, e.end, "");
+        return true;
+    }
+    if is(FIELD_DELETE_FORWARD) && plain && collapsed {
+        let Some(e) = draft.starting_at(c, caret) else {
+            return false;
+        };
+        c.replace(e.start, e.end, "");
+        return true;
+    }
+    if is(FIELD_LEFT) && (plain || only(key, Mods::SHIFT)) {
+        if plain && !collapsed {
+            return false;
+        }
+        let Some(e) = draft.ending_at(c, caret) else {
+            return false;
+        };
+        c.move_caret(e.start, !plain);
+        return true;
+    }
+    if is(FIELD_RIGHT) && (plain || only(key, Mods::SHIFT)) {
+        if plain && !collapsed {
+            return false;
+        }
+        let Some(e) = draft.starting_at(c, caret) else {
+            return false;
+        };
+        c.move_caret(e.end, !plain);
+        return true;
+    }
+    if (is(HISTORY_PREVIOUS) || is(HISTORY_NEXT)) && plain {
+        return walk_history(data, c, is(HISTORY_PREVIOUS));
+    }
+    if is(FIELD_KILL_LINE_END) && collapsed {
+        let text = c.buffer();
+        let end = text.line_end(text.line_of(caret));
+        let to = if end == caret {
+            if end < text.len() {
+                end + 1
+            } else {
+                return true;
+            }
+        } else {
+            end
+        };
+        kill(draft, c, caret, to);
+        return true;
+    }
+    if is(FIELD_KILL_LINE_START) && collapsed {
+        let text = c.buffer();
+        let start = text.line_start(text.line_of(caret));
+        let from = if start == caret {
+            if start > 0 { start - 1 } else { return true }
+        } else {
+            start
+        };
+        kill(draft, c, from, caret);
+        return true;
+    }
+    if is(FIELD_DELETE_BACKWARD_WORD) && collapsed {
+        let from = c.buffer().word_start_before(caret, false);
+        kill(draft, c, from, caret);
+        return true;
+    }
+    if is(FIELD_DELETE_FORWARD_WORD) && collapsed {
+        let to = c.buffer().word_end_after(caret, false);
+        kill(draft, c, caret, to);
+        return true;
+    }
+    // `clear_for_ctrl_c`: a draft is cleared (and kept in history)
+    // before Ctrl+C interrupts or quits.
+    if is(CLEAR_FOR_CTRL_C) && !c.text().is_empty() {
+        (data.tell)(ComposerMsg::ClearForCtrlC);
+        return true;
+    }
+    if is(FIELD_YANK) {
+        draft.yank(c);
+        // a yank at the start is a prefix insertion: a leading `!`
+        // becomes shell mode (`sync_bash_mode_from_text`)
+        if caret == 0 && collapsed && draft.absorb_shell_prefix(c) {
+            (data.tell)(ComposerMsg::Shell);
+        }
+        return true;
+    }
+    false
 }
 
 /// Kills `from..to` (widened to whole elements), keeping it for `Ctrl+Y`
@@ -812,6 +810,8 @@ mod tests {
     //! `kill_buffer_persists_across_set_text`), through the composer's keys.
 
     use super::*;
+    use crate::keymap::press_of;
+    use codex_tui_core::keymap::Stroke;
 
     fn data() -> KeyData {
         KeyData {
@@ -821,7 +821,7 @@ mod tests {
             burst: None,
             suggest: Rc::default(),
             keymap: Rc::new(Keymap::defaults()),
-            states: Rc::default(),
+            popovers: Rc::default(),
             restricted: None,
             sparkle: SparkleController::default(),
         }
@@ -852,11 +852,7 @@ mod tests {
         press(&d, &c, ctrl('w'));
         assert_eq!(state(&c), ("hello   ".into(), 8));
         let c = at("foo bar", 6);
-        press(
-            &d,
-            &c,
-            KeyPress::code(KeyCode::Backspace).with_mods(Mods::ALT),
-        );
+        press(&d, &c, KeyPress::BACKSPACE.with_mods(Mods::ALT));
         assert_eq!(state(&c), ("foo r".into(), 4));
         let c = at("foo bar", 7);
         press(&d, &c, ctrl('w'));
@@ -918,11 +914,11 @@ mod tests {
         d.draft.insert_element(&c, "[P]", "payload");
         assert_eq!(state(&c), ("a[P]b".into(), 4));
         assert_eq!(d.draft.expanded(&c), "apayloadb");
-        press(&d, &c, KeyPress::code(KeyCode::Left));
+        press(&d, &c, KeyPress::LEFT);
         assert_eq!(c.selection().extent_offset, 1);
-        press(&d, &c, KeyPress::code(KeyCode::Right));
+        press(&d, &c, KeyPress::RIGHT);
         assert_eq!(c.selection().extent_offset, 4);
-        press(&d, &c, KeyPress::code(KeyCode::Backspace));
+        press(&d, &c, KeyPress::BACKSPACE);
         assert_eq!(state(&c), ("ab".into(), 1));
         assert_eq!(d.draft.expanded(&c), "ab");
     }
@@ -969,7 +965,7 @@ mod tests {
 
     #[test]
     fn tab_submits_a_plain_text_draft_and_is_the_pages_in_the_chat() {
-        let key = KeyPress::code(KeyCode::Tab);
+        let key = KeyPress::TAB;
         let (d, sent) = told(ComposerDraft::plain());
         let c = at("!keep this literal", 18);
         assert_eq!(composer_key(&d, &c, &key), Some(true));
@@ -1018,7 +1014,7 @@ mod tests {
         }
 
         fn enter() -> KeyPress {
-            KeyPress::code(KeyCode::Enter)
+            KeyPress::ENTER
         }
 
         #[test]
@@ -1029,7 +1025,7 @@ mod tests {
             assert_eq!(told.borrow().len(), 1);
             let c = at("/status", 7);
             assert!(key(&d, &c, enter()));
-            assert!(key(&d, &c, KeyPress::code(KeyCode::Tab)));
+            assert!(key(&d, &c, KeyPress::TAB));
             assert_eq!(told.borrow().len(), 1, "nothing else was told");
             assert_eq!(c.text().as_ref(), "/status");
             let c = at("hello", 5);
@@ -1101,15 +1097,9 @@ mod tests {
         let d = data();
         let c = at("abc", 3);
         // Enter is `editor.insert_newline` too, but Composer shadows it: it submits
-        assert_eq!(
-            composer_key(&d, &c, &KeyPress::code(KeyCode::Enter)),
-            Some(false)
-        );
+        assert_eq!(composer_key(&d, &c, &KeyPress::ENTER), Some(false));
         // the page's own binding queues
-        assert_eq!(
-            composer_key(&d, &c, &KeyPress::code(KeyCode::Tab)),
-            Some(false)
-        );
+        assert_eq!(composer_key(&d, &c, &KeyPress::TAB), Some(false));
         assert_eq!(composer_key(&d, &c, &KeyPress::char('a')), None);
     }
 
@@ -1117,24 +1107,21 @@ mod tests {
     fn a_remapped_submit_frees_enter_for_the_line_break_and_swallows_tab_when_unbound() {
         let d = keyed("composer", "submit", &["ctrl-s"]);
         let c = at("ab", 2);
-        assert_eq!(composer_key(&d, &c, &KeyPress::code(KeyCode::Enter)), None);
-        press(&d, &c, KeyPress::code(KeyCode::Enter));
+        assert_eq!(composer_key(&d, &c, &KeyPress::ENTER), None);
+        press(&d, &c, KeyPress::ENTER);
         assert_eq!(c.text().as_ref(), "ab\n");
         let d = keyed("composer", "queue", &["f5"]);
-        assert_eq!(
-            composer_key(&d, &c, &KeyPress::code(KeyCode::Tab)),
-            Some(true)
-        );
+        assert_eq!(composer_key(&d, &c, &KeyPress::TAB), Some(true));
     }
 
     #[test]
     fn a_key_rebound_to_an_editor_action_is_carried_out_as_it_and_the_old_key_does_nothing() {
         let d = keyed("editor", "move_left", &["f2"]);
         let c = at("abc", 2);
-        press(&d, &c, KeyPress::code(KeyCode::F2));
+        press(&d, &c, press_of(&Stroke::parse("f2").unwrap()).unwrap());
         assert_eq!(state(&c), ("abc".into(), 1));
         // `left` is no longer bound to anything: it does not fall back
-        press(&d, &c, KeyPress::code(KeyCode::Left));
+        press(&d, &c, KeyPress::LEFT);
         assert_eq!(state(&c), ("abc".into(), 1));
     }
 
@@ -1200,8 +1187,8 @@ mod tests {
                 .collect()
         }
 
-        fn key(code: KeyCode) -> KeyPress {
-            KeyPress::code(code)
+        fn key(code: KeyPress) -> KeyPress {
+            code
         }
 
         #[test]
@@ -1237,20 +1224,20 @@ mod tests {
             let r = rig();
             let c = at("hello", 0);
             r.data.draft.set_remote_images(&c, urls(3), image);
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
             assert_eq!(r.data.draft.remote_selected(), Some(2));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
             assert_eq!(
                 r.data.draft.remote_selected(),
                 Some(0),
                 "the first row stays"
             );
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::DOWN)));
             assert_eq!(r.data.draft.remote_selected(), Some(1));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::DOWN)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::DOWN)));
             assert_eq!(r.data.draft.remote_selected(), None, "past the last row");
             assert!(r.told.borrow().iter().all(|m| m == "Remote"));
         }
@@ -1260,17 +1247,17 @@ mod tests {
             let r = rig();
             let c = at("hello", 2);
             r.data.draft.set_remote_images(&c, urls(2), image);
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(!remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(!remote_key(&r.data, &c, &key(KeyPress::DOWN)));
             let c = at("hello", 0);
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(!remote_key(&r.data, &c, &key(KeyPress::DOWN)));
             assert_eq!(r.data.draft.remote_selected(), None);
             // a selected stretch of text keeps Up for the text
             c.set_selection(TextSelection {
                 base_offset: 0,
                 extent_offset: 3,
             });
-            assert!(!remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(!remote_key(&r.data, &c, &key(KeyPress::UP)));
             assert!(r.told.borrow().is_empty());
         }
 
@@ -1284,9 +1271,9 @@ mod tests {
                 .attach_image(&c, std::path::PathBuf::from("/tmp/a.png"), image);
             assert_eq!(&*c.text(), "[Image #3]");
             c.set_selection(TextSelection::collapsed(0));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Delete)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::DELETE)));
             assert_eq!(r.data.draft.remote_images(), urls(2)[1..].to_vec());
             assert_eq!(
                 &*c.text(),
@@ -1295,7 +1282,7 @@ mod tests {
             );
             assert_eq!(r.data.draft.remote_selected(), Some(0));
             // Backspace removes the last one; no row is left to select
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Backspace)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::BACKSPACE)));
             assert_eq!(r.data.draft.remote_count(), 0);
             assert_eq!(r.data.draft.remote_selected(), None);
             assert_eq!(&*c.text(), "[Image #1]");
@@ -1306,7 +1293,7 @@ mod tests {
             let r = rig();
             let c = at("", 0);
             r.data.draft.set_remote_images(&c, urls(1), image);
-            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(KeyPress::UP)));
             assert!(!remote_key(&r.data, &c, &KeyPress::char('a')));
             assert_eq!(r.data.draft.remote_selected(), None);
         }

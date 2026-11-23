@@ -7,23 +7,14 @@
 use std::ops::Range;
 use std::path::PathBuf;
 
+pub use crate::data::mention::ToolMention;
+
 /// An image file attached to a message, the placeholder it stands for in the
 /// text being `range`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocalImage {
     pub path: PathBuf,
     pub range: Range<usize>,
-}
-
-/// A skill, plugin or app the message names: what the turn carries beside the text so the
-/// model gets the tool itself (`UserInput::Skill` / `UserInput::Mention`). The composer
-/// resolves its bound mentions against its catalog (`mentions::tool_mentions`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ToolMention {
-    /// A skill: its name and the path of its file.
-    Skill { name: String, path: String },
-    /// A plugin or an app: its display name and its `plugin://` / `app://` path.
-    Mention { name: String, path: String },
 }
 
 /// A message of the user: text, the images its placeholders stand for and the tools it names.

@@ -11,7 +11,7 @@ use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::chat::plan_mode;
-use crate::screens::select::{self, apps, permissions, plugins, review};
+use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply};
 
 /// An intent of the select screen, and the asks it left open.
@@ -72,23 +72,8 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
     review_asked(app, fx);
     worktree_asked(app, fx);
     quick_asked(app, fx);
-    plugins_asked(app, fx);
     picks(app, fx);
     drain(app, fx);
-}
-
-/// The requests the plugin browser wants, asked of the backend (one ticket each).
-fn plugins_asked(app: &mut CodexApp, fx: &mut AppFx) {
-    let wanted = Rc::make_mut(&mut app.screens).select.plugins.take_wanted();
-    for wanted in wanted {
-        let request = wanted.request;
-        ask(
-            app,
-            select::Command::Plugins(wanted),
-            select::Ctx::Plugins { request },
-            fx,
-        );
-    }
 }
 
 /// The preset writes the menus settled on, asked of the config (one `config/batchWrite` each).
@@ -314,7 +299,6 @@ pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
     let before = app.screens.select.apps.pending;
     select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     asked_apps(app, before, fx);
-    plugins_asked(app, fx);
     picks(app, fx);
     drain(app, fx);
 }
@@ -521,7 +505,6 @@ fn text(error: RpcError) -> String {
 /// The answer of one of those RPCs.
 pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
     answered(app, ctx, answer, fx);
-    plugins_asked(app, fx);
     // The catalog an inline `/permissions <profile>` waited for may have made its pick.
     picks(app, fx);
     drain(app, fx);
@@ -592,15 +575,6 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
                 Err(error) => Err(text(error)),
             };
             event(app, select::Ev::PresetWritten { slot, dial, result }, fx);
-        }
-        (select::Ctx::Plugins { request }, result) => {
-            let result = match result {
-                Ok(select::Reply::Plugins(found)) => Ok(*found),
-                Ok(_) => Err(String::new()),
-                Err(error) => Err(text(error)),
-            };
-            let ev = select::Ev::Plugins(plugins::Ev::Answer { request, result });
-            event(app, ev, fx);
         }
         (select::Ctx::Apps { request }, result) => {
             let result = match result {

@@ -9,16 +9,21 @@
 use rtwk::Cx;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 use rtwk::provider::read;
 
-use codex_tui_core::screens::composer::mentions::session::{Active, Pick, PickAction};
+use codex_tui_core::kit::mentions::session::{Active, MentionPick, PickAction};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 
 use super::editing::KeyData;
 use super::vim;
 use super::{Composer, ComposerMsg, ComposerState};
 use crate::app::view::Hs;
+use crate::keymap::pressed;
+use codex_tui_core::keymap::fixed::{
+    DISMISS, POPUP_ACCEPT, POPUP_COMPLETE, POPUP_NEXT, POPUP_PREVIOUS, POPUP_TAB_NEXT,
+    POPUP_TAB_PREVIOUS,
+};
 
 /// Whether the popup takes `key`: Up and Down (Ctrl+P, Ctrl+N) move the
 /// highlight, Left and Right switch the `@` popup's tab while the caret is
@@ -31,34 +36,32 @@ pub(super) fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress
         return false;
     }
     let plain = key.mods == Mods::NONE;
-    let ctrl = key.mods == Mods::CTRL;
     let unified = mentions.read(|session| matches!(session.active(), Active::At(_)));
-    match (key.code, key.ch) {
-        (KeyCode::Up, _) => mentions.step(false),
-        (KeyCode::Char, Some('p')) if ctrl => mentions.step(false),
-        (KeyCode::Down, _) => mentions.step(true),
-        (KeyCode::Char, Some('n')) if ctrl => mentions.step(true),
-        (KeyCode::Left | KeyCode::Right, _) if plain => {
-            if !data.draft.can_switch_search_mode(c) {
-                return false;
-            }
-            mentions.switch_search_mode(key.code == KeyCode::Right);
+    let is = |id| pressed(&data.keymap, id, key);
+    if is(POPUP_PREVIOUS) {
+        mentions.step(false);
+    } else if is(POPUP_NEXT) {
+        mentions.step(true);
+    } else if (is(POPUP_TAB_PREVIOUS) || is(POPUP_TAB_NEXT)) && plain {
+        if !data.draft.can_switch_search_mode(c) {
+            return false;
         }
-        (KeyCode::Escape, _) => data
-            .draft
-            .dismiss_mentions(c, &data.states.popovers.sources()),
-        (KeyCode::Tab, _) => {
-            if let Some(at) = mentions.cursor() {
-                (data.tell)(ComposerMsg::MentionPick(at));
-            }
+        mentions.switch_search_mode(is(POPUP_TAB_NEXT));
+    } else if is(DISMISS) {
+        data.draft.dismiss_mentions(c, &data.popovers.sources());
+    } else if is(POPUP_COMPLETE) {
+        if let Some(at) = mentions.cursor() {
+            (data.tell)(ComposerMsg::MentionPick(at));
         }
-        (KeyCode::Enter, _) if plain => match mentions.cursor() {
+    } else if is(POPUP_ACCEPT) && plain {
+        match mentions.cursor() {
             Some(at) => (data.tell)(ComposerMsg::MentionPick(at)),
             // the unified popup closes and the Enter is a submit
             None if unified => return false,
             None => {}
-        },
-        _ => return false,
+        }
+    } else {
+        return false;
     }
     mentions.notify();
     true
@@ -121,7 +124,7 @@ pub(super) fn pick(
 }
 
 /// The path an element pick binds.
-fn element_path(pick: &Pick) -> Option<&str> {
+fn element_path(pick: &MentionPick) -> Option<&str> {
     match &pick.action {
         PickAction::Element {
             binding: Some(binding),

@@ -6,23 +6,27 @@
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
 use rtwk::layout::{Expanded, Row, SizedBox};
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
+use codex_tui_core::data::history::Lookup;
 use codex_tui_core::keymap::actions::{
     COMPOSER_HISTORY_SEARCH_NEXT, COMPOSER_HISTORY_SEARCH_PREVIOUS,
 };
-use codex_tui_core::screens::composer::history::Lookup;
+use codex_tui_core::kit::history::{SearchStatus, WalkDirection};
 use codex_tui_core::screens::composer::sanitize_paste;
-use codex_tui_core::screens::popovers::{Direction, SearchStatus};
 
 use super::ComposerMsg;
 use super::editing::KeyData;
 use super::strings;
 use crate::app::theme;
 use crate::keymap::pressed;
+use codex_tui_core::keymap::fixed::{
+    DEBUG_KEY, HISTORY_NEXT, HISTORY_PREVIOUS, SEARCH_ACCEPT, SEARCH_CANCEL, SEARCH_CLEAR,
+    SEARCH_ERASE,
+};
 
 /// Whether `key` opens the search (`is_history_search_key`): only the
 /// Composer context's `history_search_previous` does.
@@ -45,31 +49,29 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let store = &data.history;
     let mut asks = Vec::new();
     let plain = key.mods == Mods::NONE;
-    let ctrl = |ch: char| *key == KeyPress::char(ch).with_mods(Mods::CTRL);
     if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_PREVIOUS, key)
-        || (key.code == KeyCode::Up && plain)
+        || (pressed(&data.keymap, HISTORY_PREVIOUS, key) && plain)
     {
-        draft.search_step(c, store, Direction::Older, &mut asks);
+        draft.search_step(c, store, WalkDirection::Older, &mut asks);
     } else if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_NEXT, key)
-        || (key.code == KeyCode::Down && plain)
+        || (pressed(&data.keymap, HISTORY_NEXT, key) && plain)
     {
-        draft.search_step(c, store, Direction::Newer, &mut asks);
-    } else if key.code == KeyCode::Escape
-        || ctrl('c')
+        draft.search_step(c, store, WalkDirection::Newer, &mut asks);
+    } else if pressed(&data.keymap, SEARCH_CANCEL, key)
         || (key.mods.is_empty() && key.text() == Some("\u{3}"))
     {
         draft.search_cancel(c);
-    } else if key.code == KeyCode::Enter && plain {
+    } else if pressed(&data.keymap, SEARCH_ACCEPT, key) && plain {
         draft.search_accept(c);
-    } else if key.code == KeyCode::Backspace || ctrl('h') {
+    } else if pressed(&data.keymap, SEARCH_ERASE, key) {
         draft.search_edit(c, store, &mut asks, |query| {
             query.pop();
         });
-    } else if ctrl('u') {
+    } else if pressed(&data.keymap, SEARCH_CLEAR, key) {
         draft.search_edit(c, store, &mut asks, String::clear);
     } else if let Some(text) = key.as_text() {
         draft.search_edit(c, store, &mut asks, |query| query.push_str(text));
-    } else if key.code == KeyCode::F12 {
+    } else if pressed(&data.keymap, DEBUG_KEY, key) {
         // the port's own hidden debug key is not the oracle's to swallow
         return false;
     }

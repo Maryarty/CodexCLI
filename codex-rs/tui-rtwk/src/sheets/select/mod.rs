@@ -7,8 +7,7 @@
 mod app_link;
 mod dialog;
 mod lists;
-mod plugins;
-mod prompt;
+pub(crate) mod prompt;
 mod review;
 
 use rtwk::AnyWidget;

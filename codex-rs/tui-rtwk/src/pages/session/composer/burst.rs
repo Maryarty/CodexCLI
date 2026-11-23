@@ -15,14 +15,16 @@ use std::time::Duration;
 
 use rtwk::editing::{TextEditingController, TextSelection};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 
-use codex_tui_core::screens::composer::paste_burst::{CharDecision, FlushResult, PasteBurst};
+use codex_tui_core::kit::paste_burst::{CharDecision, FlushResult, PasteBurst};
 
 use super::ComposerMsg;
 use super::editing::{KeyData, typed_char};
 use super::vim;
+use crate::keymap::pressed;
 use crate::widgets::composer_draft::ComposerDraft;
+use codex_tui_core::keymap::fixed::{ENTER, TAB};
 
 /// What a held first char waits for before it goes in as typing: the burst
 /// interval plus a millisecond (`PasteBurst::recommended_flush_delay`).
@@ -56,10 +58,10 @@ pub fn take(
     // before this key is looked at
     flush_due(data, env, c, now, skill_space);
     let text_key = key.mods.0 & !Mods::SHIFT.0 == 0;
-    match (key.code, key.ch) {
-        (KeyCode::Char, Some(ch)) if text_key => char_key(data, env, c, ch, now, skill_space),
-        (KeyCode::Enter, _) => enter_key(data, env, c, key, now),
-        (KeyCode::Tab, _) if key.mods == Mods::NONE => tab_key(data, env, now),
+    match key.ch {
+        Some(ch) if text_key => char_key(data, env, c, ch, now, skill_space),
+        _ if pressed(&data.keymap, ENTER, key) => enter_key(data, env, c, key, now),
+        _ if pressed(&data.keymap, TAB, key) && key.mods == Mods::NONE => tab_key(data, env, now),
         _ => {
             // a shortcut or a navigation key: what is held goes in first
             // (`flush_before_modified_input`) and the next key starts a new

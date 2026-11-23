@@ -8,11 +8,13 @@
 
 pub mod app;
 pub mod commands;
+pub mod data;
 pub mod features;
 pub mod fixtures;
 pub mod format;
 pub mod ids;
 pub mod keymap;
+pub mod kit;
 pub mod protocol;
 pub mod rpc;
 pub mod screens;

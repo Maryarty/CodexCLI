@@ -10,7 +10,7 @@ use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread, session_note};
 use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeaturePick, FeaturePrompt,
-    FeatureThreadIntent,
+    FeatureThreadIntent, InterestStep,
 };
 use crate::features::{FeatureStates, Out};
 use crate::ids::ThreadId;
@@ -101,6 +101,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Thread { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
         }
+        Out::Wish { scope, wish } => Rc::make_mut(&mut app.wishes).push(scope, wish),
         Out::Settled { thread } => {
             let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
@@ -143,6 +144,42 @@ pub(super) fn effect_done(app: &mut CodexApp, request: u64, done: Done, fx: &mut
     run(app, fx, |states, cx| {
         features::effect_done(states, ctx, done, cx)
     });
+}
+
+/// A surface wants or lets go of what a feature shows (ADR-013 И): the first to want it and the
+/// last to let go reach the feature's `on_interest`.
+pub(super) fn interest(app: &mut CodexApp, step: InterestStep, fx: &mut AppFx) {
+    let (interest, open) = match step {
+        InterestStep::Open(interest) => {
+            if !Rc::make_mut(&mut app.interests).raise(&interest) {
+                return;
+            }
+            (interest, true)
+        }
+        InterestStep::Close(interest) => {
+            if !Rc::make_mut(&mut app.interests).lower(&interest) {
+                return;
+            }
+            (interest, false)
+        }
+    };
+    run(app, fx, |states, cx| {
+        features::on_interest(states, &interest, open, cx)
+    });
+}
+
+/// The connection is new: what the surfaces still want is asked again.
+pub(super) fn reconnected(app: &mut CodexApp, fx: &mut AppFx) {
+    for interest in app.interests.all() {
+        run(app, fx, |states, cx| {
+            features::on_interest(states, &interest, true, cx)
+        });
+    }
+}
+
+/// The surface showed the wish `seq`, or gives it up.
+pub(super) fn wish_shown(app: &mut CodexApp, seq: u64) {
+    Rc::make_mut(&mut app.wishes).shown(seq);
 }
 
 /// A fact the host sent unasked, for the feature it names.

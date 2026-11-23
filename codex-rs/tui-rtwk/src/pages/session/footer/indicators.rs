@@ -12,7 +12,7 @@
 use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
 
-use codex_tui_core::screens::composer::vim::VimMode;
+use codex_tui_core::kit::vim::VimMode;
 
 use super::{Form, Spec};
 

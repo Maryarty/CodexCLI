@@ -20,16 +20,17 @@ use rtwk::layout::{
     Shadow, SizedBox,
 };
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select, watch};
 use rtwk::style::{Attrs, Style, Theme};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
 use codex_tui_core::app::{ConnectionState, SessionSlice};
+use codex_tui_core::data::history::Lookup;
+use codex_tui_core::ids::BackendId;
+use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::screens::composer;
-use codex_tui_core::screens::composer::history::Lookup;
-use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
 use codex_tui_core::threads::{Note, NoteKey, ThreadModel, Toggle};
@@ -452,22 +453,30 @@ impl ComposerState {
     fn refresh(
         &self,
         w: &Composer,
-        states: &ScreenStates,
+        popovers: &popovers::Model,
+        slash: &popup::Slash,
         table: &chat_strings::Strings,
-        model: Option<&str>,
     ) -> bool {
         let (draft, c) = (&w.ui.draft, &w.ui.composer);
         if w.bare
             || w.plain.is_some()
             || draft.shell()
-            || draft.mentions_claim_caret(c, &states.popovers.sources())
+            || draft.mentions_claim_caret(c, &popovers.sources())
         {
             return self.suggest.refresh(c, |_| Vec::new());
         }
         self.suggest.refresh(&w.ui.composer, |before| {
-            popup::suggestions(states, table, model, before)
+            popup::suggestions(slash, table, before)
         })
     }
+}
+
+/// The slice of the app's states a composer draws (`select`ed: it wakes when this changes, not
+/// on every change of any screen).
+#[derive(Clone, PartialEq)]
+struct Drawn {
+    popovers: Rc<popovers::Model>,
+    slash: popup::Slash,
 }
 
 impl ComposerState {
@@ -482,9 +491,10 @@ impl ComposerState {
             return w.restricted;
         }
         let session = watch::<SessionSlice, _>(cx);
-        let states = watch::<ScreenStates, _>(cx);
         let thread = read::<ThreadModel, _>(cx);
-        let backend = states.agents.owner_of(thread.id().as_str());
+        let id = thread.id().as_str().to_owned();
+        let backend =
+            select::<ScreenStates, BackendId, _>(cx, move |states| states.agents.owner_of(&id));
         matches!(
             session.connections.get(&backend),
             Some(ConnectionState::Reconnecting | ConnectionState::Disconnected)
@@ -698,7 +708,8 @@ impl State for ComposerState {
                 // a click or a key of the field ended the row's selection
                 let deselected = w.ui.draft.remote_deselect_on_move(&w.ui.composer);
                 let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
-                return if self.refresh(w, &states, table, model.as_deref()) || deselected {
+                let slash = popup::slash(&states, model.as_deref());
+                return if self.refresh(w, &states.popovers, &slash, table) || deselected {
                     rtwk::Rebuild::Yes
                 } else {
                     rtwk::Rebuild::No
@@ -776,7 +787,11 @@ impl State for ComposerState {
                 let table = strings::of(cx);
                 let (draft, c) = (&w.ui.draft, &w.ui.composer);
                 let took = draft.vim_direct(c, || {
-                    draft.take_pasted_image(c, &states.popovers.pasted, |n| table.image(n))
+                    draft.take_pasted_image(
+                        c,
+                        |n| states.popovers.pasted.after(n).map(Into::into),
+                        |n| table.image(n),
+                    )
                 });
                 if !took {
                     return rtwk::Rebuild::No;
@@ -824,7 +839,13 @@ impl State for ComposerState {
         if let Some(node) = &w.node {
             area = area.focus_node(node.clone());
         }
-        let states = watch::<ScreenStates, _>(cx);
+        // the slice of the app's states the composer draws: what the popups list and the host
+        // answered (the file, the clipboard's image), the slash popup's commands
+        let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
+        let Drawn { popovers, slash } = select::<ScreenStates, Drawn, _>(cx, move |states| Drawn {
+            popovers: Rc::new(states.popovers.clone()),
+            slash: popup::slash(states, model.as_deref()),
+        });
         let table = strings::of(cx);
         if w.ui.draft.history_waiting() {
             // a read the history waits for may be in the store now
@@ -834,7 +855,10 @@ impl State for ComposerState {
             // the mentions or the file matches may have changed under it
             cx.local_sender()(ComposerMsg::SyncMentions);
         }
-        if w.ui.draft.image_arrived(&states.popovers.pasted) {
+        if w.ui
+            .draft
+            .image_arrived(|n| popovers.pasted.after(n).is_some())
+        {
             // the clipboard's image this draft asked for is in
             cx.local_sender()(ComposerMsg::ImageArrived);
         }
@@ -847,12 +871,12 @@ impl State for ComposerState {
         let data = KeyData {
             restricted,
             draft: w.ui.draft.clone(),
-            history: states.popovers.history.clone(),
+            history: popovers.history.clone(),
             tell: cx.local_sender(),
             burst: AppBinding::maybe_of(cx).map(|binding| burst_env(&binding, cx, table)),
             suggest: self.suggest.clone(),
             keymap: crate::keymap::keymap(cx),
-            states: states.clone(),
+            popovers: popovers.clone(),
             sparkle: w.ui.sparkle.clone(),
         };
         let env = data.burst.clone();
@@ -945,8 +969,7 @@ impl State for ComposerState {
         }
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
-        let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
-        self.refresh(w, &states, table, model.as_deref());
+        self.refresh(w, &popovers, &slash, table);
         let field = self.popup(keys(area.into()), cx);
         let mark = if w.ui.draft.shell() {
             prompt(

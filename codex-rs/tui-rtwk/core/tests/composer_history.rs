@@ -1,11 +1,12 @@
-//! The composer's history (`screens::composer::history`): the oracle's
+//! The composer's history (`kit::history`): the oracle's
 //! `chat_composer_history.rs` state tests and `search_batch_tests.rs`, carried
 //! with the split of the oracle's one machine into the shared `Store` and one
 //! composer's `History` (a reply goes to the store, then the composer polls).
 //! A read the oracle sent as an `AppEvent` is a `Lookup` in `fx`.
 
-use codex_tui_core::screens::composer::history::{
-    Direction, History, HistoryEntry, Lookup, MAX_BATCH_READ_RETRIES, Response, SearchResult, Store,
+use codex_tui_core::data::history::{Lookup, MAX_BATCH_READ_RETRIES, Store};
+use codex_tui_core::kit::history::{
+    HistoryEntry, PromptWalk, Response, SearchResult, WalkDirection,
 };
 use pretty_assertions::assert_eq;
 
@@ -20,7 +21,7 @@ fn found(text: &str) -> SearchResult {
 /// One composer over one store, as the page holds them.
 struct Rig {
     store: Store,
-    history: History,
+    history: PromptWalk,
     fx: Vec<Lookup>,
 }
 
@@ -30,7 +31,7 @@ impl Rig {
         store.set_metadata(log_id, entry_count);
         Rig {
             store,
-            history: History::new(),
+            history: PromptWalk::new(),
             fx: Vec::new(),
         }
     }
@@ -43,7 +44,7 @@ impl Rig {
         self.history.navigate_down(&self.store, &mut self.fx)
     }
 
-    fn search(&mut self, query: &str, direction: Direction, restart: bool) -> SearchResult {
+    fn search(&mut self, query: &str, direction: WalkDirection, restart: bool) -> SearchResult {
         self.history
             .search(&self.store, query, direction, restart, &mut self.fx)
     }
@@ -107,7 +108,7 @@ fn batch_lookup(log_id: u64, end_offset: usize) -> Lookup {
 
 #[test]
 fn duplicate_submissions_are_not_recorded() {
-    let mut history = History::new();
+    let mut history = PromptWalk::new();
 
     // Empty submissions are ignored.
     history.record_local_submission(entry(""));
@@ -196,7 +197,7 @@ fn search_matches_local_history_and_stops_at_boundaries() {
     for text in ["git status", "cargo test -p codex-tui", "git diff"] {
         rig.history.record_local_submission(entry(text));
     }
-    use Direction::{Newer, Older};
+    use WalkDirection::{Newer, Older};
 
     assert_eq!(found("git diff"), rig.search("git", Older, true));
     assert_eq!(found("git status"), rig.search("git", Older, false));
@@ -217,7 +218,7 @@ fn search_skips_duplicate_local_matches() {
     ] {
         rig.history.record_local_submission(entry(text));
     }
-    use Direction::{Newer, Older};
+    use WalkDirection::{Newer, Older};
 
     assert_eq!(found("git diff"), rig.search("git", Older, true));
     assert_eq!(found("git status"), rig.search("git", Older, false));
@@ -229,7 +230,7 @@ fn search_skips_duplicate_local_matches() {
 #[test]
 fn repeated_boundary_search_does_not_refetch_persistent_history() {
     let mut rig = Rig::new(1, 3);
-    use Direction::Older;
+    use WalkDirection::Older;
 
     assert_eq!(SearchResult::Pending, rig.search("needle", Older, true));
     assert_eq!(rig.asked(), Some(entry_lookup(1, 2)));
@@ -258,7 +259,7 @@ fn repeated_boundary_search_does_not_refetch_persistent_history() {
 #[test]
 fn search_fetches_persistent_history_until_match() {
     let mut rig = Rig::new(1, 3);
-    use Direction::Older;
+    use WalkDirection::Older;
 
     assert_eq!(SearchResult::Pending, rig.search("older", Older, true));
     assert_eq!(rig.asked(), Some(entry_lookup(1, 2)));
@@ -276,7 +277,7 @@ fn search_fetches_persistent_history_until_match() {
 #[test]
 fn search_skips_duplicate_persistent_matches() {
     let mut rig = Rig::new(1, 4);
-    use Direction::{Newer, Older};
+    use WalkDirection::{Newer, Older};
 
     assert_eq!(SearchResult::Pending, rig.search("needle", Older, true));
     assert_eq!(rig.asked(), Some(entry_lookup(1, 3)));
@@ -306,11 +307,11 @@ fn search_is_case_insensitive_and_empty_query_finds_latest() {
     rig.history.record_local_submission(entry("Build Release"));
     assert_eq!(
         found("Build Release"),
-        rig.search("release", Direction::Older, true)
+        rig.search("release", WalkDirection::Older, true)
     );
     assert_eq!(
         found("Build Release"),
-        rig.search("", Direction::Older, true)
+        rig.search("", WalkDirection::Older, true)
     );
 }
 
@@ -333,7 +334,7 @@ fn reset_navigation_resets_cursor() {
 #[test]
 fn should_handle_navigation_when_cursor_is_at_line_boundaries() {
     let store = Store::new();
-    let mut history = History::new();
+    let mut history = PromptWalk::new();
     history.record_local_submission(entry("hello"));
     history.record_recalled_text("hello".to_string());
 
@@ -362,7 +363,7 @@ fn a_replayed_prompt_stays_known_when_the_log_is_read_after_the_replay() {
     // The oracle configures the thread, then replays it; the file is read
     // by the host on its own time, so its metadata may come second.
     let mut store = Store::new();
-    let mut history = History::new();
+    let mut history = PromptWalk::new();
     let mut fx = Vec::new();
     history.record_replayed_submission(entry("replayed"));
     store.set_metadata(1, 2);
@@ -387,7 +388,7 @@ fn rig_of(entry_count: usize) -> Rig {
 /// below it is asked for. Returns where that batch ends.
 fn start_older_search(rig: &mut Rig, query: &str, newest: usize) -> usize {
     assert_eq!(
-        rig.search(query, Direction::Older, true),
+        rig.search(query, WalkDirection::Older, true),
         SearchResult::Pending
     );
     assert_eq!(rig.asked(), Some(entry_lookup(LOG, newest)));
@@ -409,7 +410,7 @@ fn search_batch_late_data_is_cache_only_after_cancel() {
         None
     );
     assert_eq!(
-        rig.search("cached", Direction::Older, true),
+        rig.search("cached", WalkDirection::Older, true),
         found("cached match")
     );
     assert_eq!(rig.asked(), None);
@@ -421,7 +422,7 @@ fn search_batch_late_data_after_a_query_edit_is_not_the_new_searchs_answer() {
     start_older_search(&mut rig, "old", 4);
     // the query changed: the new search waits for offset 3 by itself
     assert_eq!(
-        rig.search("new", Direction::Older, true),
+        rig.search("new", WalkDirection::Older, true),
         SearchResult::Pending
     );
     assert_eq!(rig.asked(), Some(entry_lookup(LOG, 3)));
@@ -451,7 +452,7 @@ fn search_batch_rejects_stale_log_metadata() {
     );
     // the store kept nothing of it: offset 3 is still to be read
     assert_eq!(
-        rig.search("stale", Direction::Older, true),
+        rig.search("stale", WalkDirection::Older, true),
         SearchResult::Pending
     );
     assert_eq!(rig.asked(), Some(entry_lookup(43, 4)));
@@ -469,7 +470,7 @@ fn search_batch_read_failure_stops_after_bounded_retries() {
     assert_eq!(rig.asked(), None);
     // the search is gone: the next step begins again, from the cache
     assert_eq!(
-        rig.search("retry", Direction::Older, false),
+        rig.search("retry", WalkDirection::Older, false),
         SearchResult::Pending
     );
     assert_eq!(rig.asked(), Some(entry_lookup(LOG, 3)));
@@ -484,7 +485,7 @@ fn a_failure_nobody_waits_for_is_not_the_next_searchs_answer() {
     // the next search is not failed by it: offset 4 is read, so the probe
     // is of offset 3, and the batch below that starts with a fresh count
     assert_eq!(
-        rig.search("again", Direction::Older, true),
+        rig.search("again", WalkDirection::Older, true),
         SearchResult::Pending
     );
     assert_eq!(rig.asked(), Some(entry_lookup(LOG, 3)));
@@ -518,7 +519,7 @@ fn search_batch_match_preserves_cursor_for_next_older_search() {
         Some(found("needle first"))
     );
     assert_eq!(
-        rig.search("needle", Direction::Older, false),
+        rig.search("needle", WalkDirection::Older, false),
         SearchResult::Pending
     );
     assert_eq!(rig.asked(), Some(batch_lookup(LOG, 2)));

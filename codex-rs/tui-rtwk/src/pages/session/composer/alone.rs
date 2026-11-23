@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use rtwk::focus::{FocusNode, KeyEventResult};
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize};
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -117,8 +117,8 @@ impl State for AloneState {
             {
                 return KeyEventResult::Ignored;
             }
-            match (key.code, key.text()) {
-                (KeyCode::Char, Some("?")) => send(Msg::Shortcuts),
+            match key.text() {
+                Some("?") => send(Msg::Shortcuts),
                 _ => return KeyEventResult::Ignored,
             }
             KeyEventResult::Handled

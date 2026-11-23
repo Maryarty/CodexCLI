@@ -177,7 +177,13 @@ impl Services {
             }
             Ask::OpenDesktop { thread } => {
                 let opened = open_url::open_desktop_thread(thread.to_string()).await;
-                (Done::Desktop(opened), None)
+                (Done::Opened(opened), None)
+            }
+            Ask::OpenUrl { url } => {
+                let opened = open_url::open_url(Arc::clone(&self.browser), url)
+                    .await
+                    .map_err(|failure| failure.error);
+                (Done::Opened(opened), None)
             }
             // A title needs an ephemeral thread and a structured turn on the app-server
             // (`generate_thread_title`); until that is built the answer is the oracle's for a
@@ -260,8 +266,8 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Instant;
 
+    use codex_tui_core::data::history::Lookup;
     use codex_tui_core::ids::ThreadId;
-    use codex_tui_core::screens::composer::history::Lookup;
     use codex_tui_core::screens::transcript::diff;
     use pretty_assertions::assert_eq;
 
