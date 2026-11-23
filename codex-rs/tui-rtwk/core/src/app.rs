@@ -1297,7 +1297,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } => {
-            if !select::reviewed(app, request, &done, fx) {
+            if !session::rename::suggested(app, request, &done)
+                && !select::reviewed(app, request, &done, fx)
+            {
                 app.effects.settle(request, done);
             }
         }
@@ -1988,6 +1990,14 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::Screen(ScreenIntent::Select(intent)) => {
             select::intent(app, intent, fx);
             confirmed(app, fx);
+        }
+        Intent::Screen(ScreenIntent::Dialogs(intent)) => {
+            screens::apply_intent(
+                Rc::make_mut(&mut app.screens),
+                ScreenIntent::Dialogs(intent),
+                fx,
+            );
+            session::rename::submitted(app, fx);
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
     }

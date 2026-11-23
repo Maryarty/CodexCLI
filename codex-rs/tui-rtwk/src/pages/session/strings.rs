@@ -44,6 +44,8 @@ pub struct Strings {
     pub unavailable_in_review: Msg<1>,
     pub session_starting: Msg<1>,
     pub model_startup: &'static str,
+    pub thread_name_empty: &'static str,
+    pub side_rename: &'static str,
     /// `USER_SHELL_COMMAND_HELP_TITLE` and `_HINT` (`chatwidget.rs`): a bare `!`.
     pub shell_help: &'static str,
     /// `user_input_too_large_message` (`chat_composer.rs`): the limit and the size.
@@ -213,6 +215,8 @@ pub const EN: Strings = Strings {
     unavailable_in_review: msg!("'/{0}' is unavailable while code review is running."),
     session_starting: msg!("Session is still starting; try /{0} again in a moment."),
     model_startup: "Model selection is disabled until startup completes.",
+    thread_name_empty: "Thread name cannot be empty.",
+    side_rename: "Side conversations cannot be renamed.",
     shell_help: "Prefix a command with ! to run it locally\nExample: !ls",
     input_too_large: msg!("Message exceeds the maximum length of {0} characters ({1} provided)."),
     usage_needs_login: "Sign in with ChatGPT to use /usage.",
@@ -695,6 +699,8 @@ impl Strings {
             Notice::NotAvailable(c) => text(self.not_available, c.command()),
             Notice::ModelStartup => self.model_startup.to_string(),
             Notice::ShellHelp => self.shell_help.to_string(),
+            Notice::ThreadNameEmpty => self.thread_name_empty.to_string(),
+            Notice::SideRename => self.side_rename.to_string(),
             Notice::InputTooLarge { provided } => Fmt::new(
                 self.input_too_large,
                 [

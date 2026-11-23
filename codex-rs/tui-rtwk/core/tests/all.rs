@@ -39,6 +39,7 @@ mod plugins;
 mod popovers;
 mod provider_error;
 mod quick_dials;
+mod rename_prompt;
 mod resume;
 mod review_popup;
 mod script;

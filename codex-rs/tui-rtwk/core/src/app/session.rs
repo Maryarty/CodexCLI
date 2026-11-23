@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+pub(super) mod rename;
+
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
@@ -167,6 +169,10 @@ pub(super) fn session_intent(
         S::StartReview { target } => start_review(app, source, target, fx),
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
         S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
+        S::Rename { name: None } => rename::open(app, source, fx),
+        S::Rename { name: Some(_) } if rename::blocked(app) => {
+            session_note(app, source, Note::from(crate::commands::Notice::SideRename), fx)
+        }
         S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {
@@ -266,7 +272,6 @@ pub(super) fn session_intent(
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
         | S::Worktree
-        | S::Rename { name: None }
         | S::Goal { .. }
         | S::Side { .. }
         | S::Copy
