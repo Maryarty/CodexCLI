@@ -76,10 +76,6 @@ fn file_completion_for_sigil_path_does_not_reopen_popup() {
 // ORACLE bottom_pane/chat_composer.rs:10599 dismissed_file_popup_tracks_token_across_leading_whitespace_edits kind=ui owner=chat-live
 #[test]
 fn dismissed_file_popup_tracks_token_across_leading_whitespace_edits() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file popup on the chat composer: '@ma' opens it, Esc Esc dismisses it, and the dismissal holds across leading-space edits",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.type_text("@ma");
     s.keys("esc esc");
@@ -95,10 +91,6 @@ fn dismissed_file_popup_tracks_token_across_leading_whitespace_edits() {
 // ORACLE bottom_pane/chat_composer.rs:10622 dismissed_file_popup_ignores_token_substrings_in_leading_paste kind=ui owner=chat-live
 #[test]
 fn dismissed_file_popup_ignores_token_substrings_in_leading_paste() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file popup on the chat composer: after Esc Esc on '@ma', a paste at the start does not reopen the popup for the '@ma' inside 'email@ma.com'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.type_text("@ma");
     s.keys("esc esc");
@@ -228,10 +220,6 @@ fn attach_image_and_submit_includes_local_image_paths() {
 // ORACLE bottom_pane/chat_composer.rs:11013 submit_captures_recent_mention_bindings_before_clearing_textarea kind=ui owner=chat-live
 #[test]
 fn submit_captures_recent_mention_bindings_before_clearing_textarea() {
-    kit::pending(
-        Owner::ChatLive,
-        "the submit carries no bindings: `ComposerDraft::submission` fills `mentions: Vec::new()`, where `catalog::tool_mentions(bindings, catalog)` of the thread's `Sources` is to give the `ToolMention::Skill`",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .script(include_str!("fixtures/composer_3/skill_figma.jsonl"))

@@ -25,6 +25,7 @@ use codex_tui_core::screens::composer;
 use codex_tui_core::screens::composer::history::{
     History as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
 };
+use codex_tui_core::screens::composer::mentions::catalog::{Mention, tool_mentions};
 use codex_tui_core::screens::composer::mentions::rebind::find_next_mention_token_range;
 use codex_tui_core::screens::composer::mentions::session::Binding;
 use codex_tui_core::screens::composer::mentions::task::valid_thread_path;
@@ -470,17 +471,33 @@ impl ComposerDraft {
         self.expand(c).0
     }
 
-    /// What a submit sends: the expanded text and the images its
-    /// placeholders stand for, in the order they were attached, each with
-    /// the placeholder's range in that text (`prepare_submission_text`,
-    /// `prune_local_images_for_submission`).
+    /// [`submission_with`](Self::submission_with) where no catalog lists a tool: the text and
+    /// the images.
     pub fn submission(
         &self,
         c: &TextEditingController,
         image: impl Fn(usize) -> String,
     ) -> UserMessage {
+        self.submission_with(c, image, &[])
+    }
+
+    /// What a submit sends: the expanded text, the images its placeholders
+    /// stand for, in the order they were attached, each with the placeholder's
+    /// range in that text, and the tools its bound mentions name that the
+    /// `catalog` lists (`prepare_submission_text`,
+    /// `prune_local_images_for_submission`, `input_submission.rs`).
+    pub fn submission_with(
+        &self,
+        c: &TextEditingController,
+        image: impl Fn(usize) -> String,
+        catalog: &[Mention],
+    ) -> UserMessage {
         self.relabel_images(c, image);
         let (text, placed) = self.expand(c);
+        let bindings: Vec<Binding> = placed
+            .iter()
+            .filter_map(|(_, e)| e.binding.clone())
+            .collect();
         let mut images: Vec<(u64, LocalImage)> = placed
             .into_iter()
             .filter_map(|(range, e)| {
@@ -498,8 +515,7 @@ impl ComposerDraft {
         UserMessage {
             text,
             images: images.into_iter().map(|(_, image)| image).collect(),
-            // resolved against the catalog by the composer (`mentions::tool_mentions`)
-            mentions: Vec::new(),
+            mentions: tool_mentions(&bindings, catalog),
         }
     }
 

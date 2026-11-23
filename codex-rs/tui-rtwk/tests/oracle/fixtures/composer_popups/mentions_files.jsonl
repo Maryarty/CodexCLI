@@ -1,0 +1,3 @@
+# The two files of mentions_v2/render_tests.rs filesystem_columns_use_terminal_cell_widths (query `src/`).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"file_matches":{"query":"src/","matches":[{"path":"src/界.rs","score":50},{"path":"src/plain.rs","score":50}]}}}
