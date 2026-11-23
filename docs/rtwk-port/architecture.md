@@ -769,9 +769,9 @@ subscriptions` with default no-ops.
 **Shape.**
 - `trait Feature` (marker type per feature): associated types `State`, `ThreadPart`, `Intent`,
   `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Menu`, `Pick`, `Prompt`, `Note`; steps `intent`,
-  `answered`, `choose`, `picked`, `prompt_submitted`, `note_tone`, `on_resumed`, `thread_intent`,
-  `thread_answered`, `on_turn_end`, `on_interrupted`, `on_settled`, `wire`, `decode`; every step has a
-  default that does nothing but `wire` / `decode`. A component a feature does not have is
+  `answered`, `effect_done`, `choose`, `picked`, `prompt_submitted`, `note_tone`, `on_resumed`,
+  `thread_intent`, `thread_answered`, `on_turn_end`, `on_interrupted`, `on_settled`, `wire`,
+  `decode`; every step has a default that does nothing but `wire` / `decode`. A component a feature does not have is
   `Never<Self>`; the feature's own types are its own (no two features share a type, so the
   root enums' `From` impls are unique).
 - The hub carries one generic variant per component: `Intent::Feature`,
@@ -788,6 +788,17 @@ subscriptions` with default no-ops.
   (`ThreadView::busy`), the ticket being the model's only after the whole `apply`.
   `core/src/features/framework.rs` tests it with two probe features registered in a list of
   their own.
+- **The host door** (early review R2). A feature asks the host for one of its capabilities
+  with `AppCx::effect(ask, ctx)`; `effects::Ask` / `Done` stay the hub's list of what the host
+  can do (copy, write a file, suggest a title, read the clipboard...), never a feature's: a new
+  capability is a variant there, counted in the budget. The app chooses the request number
+  (`FEATURE_REQUEST_BIT | n`, so it never meets a screen's stamp), keeps the feature's `ctx`
+  against it and sends the same `Command::Effect` a screen's `Intent::Effect` makes, so the
+  host does not know who asked; the answer goes to `Feature::effect_done` and is kept for no
+  screen; a copy answers twice (`Pending`, then how it ended: `Done::is_final`), the last
+  answer ends the ask. Only `AppCx` has it: a host effect is the app's, not a thread's. The
+  hook is an app lifecycle fact (the host answered), which is why it is a method of `Feature`
+  and not one producer's nudge; it raised `Out` and the trait by one each in the budget.
 - **A thread step has a context only where this process is the writer** (ADR-003):
   `ThreadCx::new` is none for a detached thread, one another process writes, or one the server
   refused for its provider, so no hook runs there and no effect can be said. `ThreadView`'s
@@ -803,8 +814,8 @@ that are no feature's: a ratchet raised only with a paragraph here),
 `features_are_named_only_through_the_list` (no `features::<f>` outside the feature's two
 folders, the two lists and the slash router that builds an intent), `features_hold_no_app`
 (no `CodexApp` or `ThreadModel` in `core/src/features`), `feature_slices_ask_only_through_the_outbox`
-(a slice names none of `AppFx`, `ThreadFx`, `ThreadAsk`, `ThreadSet`, `apply_app`; `ThreadCx`
-keeps its `fx` private), `thread_rpcs_only_in_threads` (the lifecycle list everywhere; the
+(a slice names none of `AppFx`, `ThreadFx`, `ThreadAsk`, `ThreadSet`, `apply_app`, `AppEv`,
+`Intent::Effect`, `Command::Effect`; `ThreadCx` keeps its `fx` private), `thread_rpcs_only_in_threads` (the lifecycle list everywhere; the
 feature RPCs `compact`, `rename`, `shell`, `revert` also inside a slice), and the existing
 layer rules, which cover `core/src/features` (core pure) and `src/features` (a view folder:
 no protocol, no model code, a known top-level folder).
@@ -821,8 +832,9 @@ thread must be listed with `Command::Screen` where the host routes by thread
 effect for it, in `cx.rs` (an outbox the thread carries out, one decision each; the queue does
 not need one: it is not a slice); the words of a note see the session strings only
 (`FeatureView::note_words`), a feature that needs another table adds its own; a host effect
-(`/export`'s file write is `effects::Ask::Export`, no `ClientRequest`) has no door yet, the
-framework task that adds `AppCx::effect` comes before the migration.
+(`/export`'s file write is `effects::Ask::Export`, no `ClientRequest`) has a door since the
+early review's R2: `AppCx::effect(ask, ctx)` and `Feature::effect_done(state, ctx, done, cx)`,
+below.
 
 ### Recipe: a feature as a slice
 
