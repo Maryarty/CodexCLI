@@ -4,7 +4,7 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, ColorDepth, Owner, Screen};
 
 /// The snapshot's rows equal ours, and the glyph cells carry the oracle's attributes
 /// (`text` dim, the key bold). The oracle's `Buffer` dump also keeps DIM and
@@ -31,18 +31,18 @@ fn assert_rows_of(s: &Screen, snap: &str) {
 // ORACLE bottom_pane/effort_ignition_tests.rs:165 max_and_ultra_prompts_render_their_accent_and_glyph kind=ui owner=ui-pane
 #[test]
 fn max_and_ultra_prompts_render_their_accent_and_glyph() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort prompt in the composer: no entries chat/effort_prompt_max (charge 1.0, the glyph in yellow bold) and chat/effort_prompt_ultra (the glyph in magenta bold), at the oracle's 1x1 cell",
-    );
     let max = Screen::build(Owner::UiPane)
         .size(1, 1)
+        .terminal_colors(0xe0_dc_d6, 0x12_16_1c)
+        .color_depth(ColorDepth::Ansi16)
         .entry("chat", "effort_prompt_max")
         .open();
     max.assert_text_at(0, 0, "›");
     max.assert_style(0, 0, "fg=Yellow bold");
     let ultra = Screen::build(Owner::UiPane)
         .size(1, 1)
+        .terminal_colors(0xe0_dc_d6, 0x12_16_1c)
+        .color_depth(ColorDepth::Ansi16)
         .entry("chat", "effort_prompt_ultra")
         .open();
     ultra.assert_text_at(0, 0, "»");
@@ -70,12 +70,9 @@ fn effort_ignition_finishes_when_palette_is_unavailable() {
 // ORACLE bottom_pane/effort_ignition_tests.rs:268 effort_ignition_styles_preserve_draft_and_paint_expected_content kind=ui owner=ui-pane
 #[test]
 fn effort_ignition_styles_preserve_draft_and_paint_expected_content() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort ignition over the composer: no entry chat/effort_ignition_ultra (44x3: the draft line `  > keep my draft exactly as typed` kept, the ignition painted over it)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(44, 3)
+        .dark()
         .entry("chat", "effort_ignition_ultra")
         .open();
     let idle = s.shot();
@@ -115,14 +112,10 @@ fn effort_ignition_animation_gallery_snapshot() {
 // ORACLE bottom_pane/effort_status_line_tests.rs:18 clock_waits_for_the_first_visible_frame kind=ui owner=ui-pane
 #[test]
 fn clock_waits_for_the_first_visible_frame() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort status-line transition: no entry chat/effort_transition_high_to_ultra (40x1: the outgoing `gpt-5.4 high · main` shows at the first frame)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(40, 1)
         .entry("chat", "effort_transition_high_to_ultra")
-        .early()
+        .first_frame()
         .open();
     s.assert_contains("gpt-5.4 high · main");
 }
@@ -130,14 +123,10 @@ fn clock_waits_for_the_first_visible_frame() {
 // ORACLE bottom_pane/effort_status_line_tests.rs:124 links_follow_the_visible_text_through_the_effort_transition kind=ui owner=ui-pane
 #[test]
 fn links_follow_the_visible_text_through_the_effort_transition() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort status-line transition with links: no entry chat/effort_transition_links (8x1: `a PR42界` linked to pr/42 becomes `b PR43` linked to pr/43)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(8, 1)
         .entry("chat", "effort_transition_links")
-        .early()
+        .first_frame()
         .open();
     // The oracle's elapsed times 310, 1500, 2200 ms, as steps from the first frame.
     s.wait(310);

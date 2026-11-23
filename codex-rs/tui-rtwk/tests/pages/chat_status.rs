@@ -341,3 +341,130 @@ fn escape_closes_the_help_before_it_dismisses_the_banner() {
         h.t.screen()
     );
 }
+
+// ---- the reasoning-effort animation (oracle `bottom_pane/effort_*`)
+
+/// The chat screen's status facts, as the host sends them.
+fn facts(json: &str) -> String {
+    format!(r#"{{"step":"screen","dir":"chat","ev":{{"status":{json}}}}}"#)
+}
+
+/// The facts of a status line that reads the model with its effort (the
+/// event replaces the facts whole).
+fn effort_facts(effort: &str, extra: &str) -> String {
+    facts(&format!(
+        r#"{{"model":"gpt-5.4","effort":"{effort}","items":["model-with-reasoning"]{extra}}}"#
+    ))
+}
+
+/// A live chat whose status line reads the model with its effort.
+fn effort_chat(effort: &str) -> Screen {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(40, 8)
+        .live()
+        .dark()
+        .open();
+    s.feed(&effort_facts(effort, ""));
+    s
+}
+
+/// A change to Ultra after the first baseline plays the status line's
+/// transition (the old label scrolls out, `U L T R A` assembles) and ends on
+/// the new label, the line wrapping again (`effort_status_line.rs`).
+#[test]
+fn a_change_to_ultra_plays_the_transition_and_ends_on_the_new_label() {
+    let mut s = effort_chat("high");
+    s.assert_contains("gpt-5.4 high");
+    s.feed(&effort_facts("ultra", ""));
+    s.assert_contains("gpt-5.4 high");
+    // 620 ms of scroll, then the letters assemble
+    s.wait(1_300);
+    s.assert_contains("U L T R A");
+    s.assert_absent("gpt-5.4");
+    s.wait(3_000);
+    s.assert_contains("gpt-5.4 ultra");
+    s.assert_absent("U L T R A");
+}
+
+/// The transition is for a genuine change to Max or Ultra: a thread that
+/// starts on Ultra (the baseline), a lowering and reduced motion play nothing.
+#[test]
+fn a_baseline_a_lowering_and_reduced_motion_play_nothing() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(40, 8)
+        .script(Box::leak(
+            format!("{}\n", effort_facts("ultra", "")).into_boxed_str(),
+        ))
+        .open();
+    s.assert_contains("gpt-5.4 ultra");
+    for _ in 0..30 {
+        s.wait(100);
+        s.assert_absent("U L T R A");
+        s.assert_contains("gpt-5.4 ultra");
+    }
+    // a lowering
+    s.feed(&effort_facts("medium", ""));
+    for _ in 0..30 {
+        s.wait(100);
+        s.assert_absent("U L T R A");
+    }
+    s.assert_contains("gpt-5.4 medium");
+    // reduced motion: the animation setting off
+    s.feed(&effort_facts("max", r#","animations":false"#));
+    for _ in 0..30 {
+        s.wait(100);
+        s.assert_absent("M A X");
+    }
+    s.assert_contains("gpt-5.4 max");
+}
+
+/// Each look of the ignition sweeps a band of colour under the draft, keeps
+/// the draft's rows as typed, and leaves the composer as it was when its run
+/// ends (`effort_ignition_styles.rs`).
+#[test]
+fn every_ignition_look_tints_under_the_draft_and_ends() {
+    for name in [
+        "effort_ignition_ultra",
+        "effort_ignition_ultra_aurora",
+        "effort_ignition_ultra_pulse",
+        "effort_ignition_max_wave",
+    ] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(44, 3)
+            .dark()
+            .entry("chat", name)
+            .first_frame()
+            .open();
+        let band =
+            |s: &Screen| -> Vec<String> { (0..44).map(|x| s.grid().style(x, 1).bg).collect() };
+        let resting = band(&s);
+        let mut tinted = false;
+        for _ in 0..40 {
+            s.wait(50);
+            s.assert_row_starts_with(1, "  > keep my draft exactly as typed");
+            tinted |= band(&s) != resting;
+        }
+        assert!(
+            tinted,
+            "{name}: no cell of the draft row changed its background\n{}",
+            s.text()
+        );
+        assert_eq!(band(&s), resting, "{name}: the band is gone after its run");
+    }
+}
+
+/// In the composer a change to Ultra takes the prompt glyph and its accent,
+/// and the draft is kept while the band sweeps and after.
+#[test]
+fn the_composer_keeps_its_draft_through_the_ignition() {
+    let mut s = effort_chat("high");
+    s.type_text("keep this draft");
+    s.assert_text_style("›", "bold");
+    s.feed(&effort_facts("ultra", ""));
+    for _ in 0..40 {
+        s.wait(50);
+        s.assert_contains("keep this draft");
+        s.assert_contains("» keep this draft");
+    }
+    s.assert_text_style("»", "bold");
+}

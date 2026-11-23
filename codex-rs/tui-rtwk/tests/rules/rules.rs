@@ -639,6 +639,10 @@ const R15_GAPS: &[(&str, &str)] = &[
         "measure, not a gap: whole-tab window by segmenter_of widths (oracle render_filled_tab_bar); a LayoutBuilder and a Row",
     ),
     (
+        "src/pages/session/footer/effort_frames.rs",
+        "ours: carried oracle pure fns (transition_line_at, tier_label_line, truncate_line_to_width): one status row at a time of the run",
+    ),
+    (
         "src/widgets/measure.rs",
         "measure, not a gap: break_lines is the TextPainter of the oracle's row count",
     ),
