@@ -407,11 +407,7 @@ impl State for ReserveSelectorState {
             }
         }
         list.items = items;
-        Picker {
-            list: Rc::new(list),
-            on_event: cx.map(ReserveMsg::Event),
-        }
-        .into()
+        Picker::new(Rc::new(list), cx.map(ReserveMsg::Event)).into()
     }
 }
 

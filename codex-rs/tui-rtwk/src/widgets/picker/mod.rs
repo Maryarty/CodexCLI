@@ -34,11 +34,13 @@ use codex_tui_core::keymap::actions::{
     LIST_ACCEPT, LIST_CANCEL, LIST_JUMP_BOTTOM, LIST_JUMP_TOP, LIST_MOVE_DOWN, LIST_MOVE_LEFT,
     LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
-use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::screens::select::list::{Browse, List, Role, Secondary, normalize_paste};
+use codex_tui_core::keymap::{ActionId, Keymap, Stroke};
+use codex_tui_core::screens::select::list::{
+    Browse, List, Role, Secondary, Span as Run, normalize_paste,
+};
 
 use crate::app::theme;
-use crate::keymap::{keymap, label, pressed};
+use crate::keymap::{combo_of, keymap, label, pressed};
 use crate::widgets::session_list::page_rows;
 use crate::widgets::tab_strip::Tabs;
 
@@ -47,7 +49,7 @@ mod rows;
 mod side;
 pub mod strings;
 
-use self::pane::Pane;
+use self::pane::{Pane, Reserved};
 use self::rows::{RowStyles, Rows, Words};
 
 /// What the user did in the picker: the opener turns each into its intent.
@@ -65,6 +67,45 @@ pub enum Event {
     Confirm,
     /// Esc, or Enter with nothing to pick.
     Cancel,
+    /// The tab with this id was moved to (a key, a tap): the opener may keep it for a refresh.
+    Tab(String),
+    /// A key of `Extras::hot` was pressed on its tab: its name.
+    Hot(&'static str),
+}
+
+/// A key the opener reads on one tab before the list sees it (the oracle's
+/// `handle_plugins_popup_key_event`: Ctrl-R and Ctrl-U on a marketplace tab).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hot {
+    /// The id of the tab the key works on.
+    pub tab: String,
+    pub stroke: Stroke,
+    pub name: &'static str,
+}
+
+/// What a tab brings of its own: the paragraphs under the title and the footer (the oracle's
+/// `SelectionTab::header` and `tab_footer_hints`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TabNote {
+    pub header: Vec<Vec<Run>>,
+    pub hint: Option<String>,
+}
+
+/// What a list asks of the picker beyond its rows (all of it optional).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Extras {
+    /// A key that flips the toggle of the row under the cursor, also while a query is typed
+    /// (`search_toggle_key`); unless the list keymap binds it.
+    pub toggle: Option<Stroke>,
+    pub hot: Vec<Hot>,
+    /// One per tab of the list, in its order; a tab without one keeps the list's own.
+    pub notes: Vec<TabNote>,
+    /// The result area keeps its row budget, the header and the footer the height of the
+    /// tallest tab (`reserve_result_rows`): nothing jumps when a search or a tab changes.
+    pub reserve: bool,
+    /// A refreshed list keeps the cursor at its place in the tab, not on the row it was on
+    /// (the oracle's `initial_selected_idx`).
+    pub keep_position: bool,
 }
 
 /// The picker: the list as props, one callback for what the user does.
@@ -72,6 +113,22 @@ pub enum Event {
 pub struct Picker {
     pub list: Rc<List>,
     pub on_event: Handler<Event>,
+    pub extras: Extras,
+}
+
+impl Picker {
+    pub fn new(list: Rc<List>, on_event: Handler<Event>) -> Picker {
+        Picker {
+            list,
+            on_event,
+            extras: Extras::default(),
+        }
+    }
+
+    pub fn extras(mut self, extras: Extras) -> Picker {
+        self.extras = extras;
+        self
+    }
 }
 
 /// What the key callback must know to tell a key for the list from one for the
@@ -82,12 +139,24 @@ struct Flags {
     tabs: bool,
     query_empty: bool,
     toggle: bool,
+    /// The row has a mark in front of its name but no toggle (a plugin that cannot be switched):
+    /// Space on it, before a query is typed, is not the start of one (`toggle_placeholder`).
+    marked: bool,
     ordering: bool,
     secondary: Option<char>,
 }
 
+/// The keys the opener reads before the list does, as of the last build (the key callback
+/// runs between builds): the toggle key, and the hot keys of the tab the picker is on.
+#[derive(Default)]
+struct Hots {
+    toggle: Option<Stroke>,
+    keys: Vec<(Stroke, &'static str)>,
+}
+
 pub struct PickerState {
     node: FocusNode,
+    hots: Rc<RefCell<Hots>>,
     /// The id of the row that keeps the cursor when the list is next
     /// replaced (a reordered row).
     follow: Option<String>,
@@ -100,6 +169,9 @@ pub struct PickerState {
     /// arrow keys both set it, and the dialog follows through its own
     /// message. The only holder of the tab.
     tabs: Option<TabController>,
+    /// The tab the rows and the query were last settled for: a move of the controller to
+    /// another one is the user's (a fresh query, the opener told), one to this is a refresh's.
+    shown_tab: usize,
     /// The highlighted item (an index into the tab's items).
     cursor: SelectionController<usize>,
     /// The scroll of the rows: asked to show the cursor row, read for the
@@ -125,6 +197,8 @@ pub enum Act {
     Toggle,
     Secondary,
     Shortcut(char),
+    /// A key the list takes and does nothing with (Space on a marked row).
+    Nothing,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -138,6 +212,8 @@ pub enum Msg {
     Row(usize),
     /// The list's position moved: its window may have shrunk.
     Viewport,
+    /// A hot key of the opener (`Extras::hot`).
+    Hot(&'static str),
 }
 
 impl StatefulWidget for Picker {
@@ -146,11 +222,13 @@ impl StatefulWidget for Picker {
     fn create_state(&self) -> PickerState {
         PickerState {
             node: FocusNode::new(),
+            hots: Rc::new(RefCell::new(Hots::default())),
             follow: None,
             query: TextEditingController::new(""),
             flags: Rc::new(Cell::new(Flags::default())),
             keys: Rc::new(RefCell::new(Rc::new(Keymap::defaults()))),
             tabs: None,
+            shown_tab: 0,
             cursor: SelectionController::new(),
             scroll: ListController::new(),
             viewport: 0,
@@ -185,17 +263,33 @@ const LIST_ACTIONS: [ActionId; 10] = [
     LIST_CANCEL,
 ];
 
+/// Whether the user's list keys leave `stroke` free for a row's toggle
+/// (`plugin_toggle_key_available`: no list action is bound to it).
+pub fn list_key_free(keys: &Keymap, stroke: &Stroke) -> bool {
+    !LIST_ACTIONS
+        .iter()
+        .any(|id| keys.singles(*id).contains(stroke))
+}
+
 /// The act a key means under the user's list keymap
 /// (`ListSelectionView::handle_key_event`); none: the key is not the list's.
 /// A search line keeps the printable keys for its query, except those the
 /// keymap binds to accept or cancel.
 /// The paragraphs under the title: the oracle's header `Paragraph` (runs in
 /// their roles) or else the subtitle, dim (cyan for a note that points).
-fn paragraphs(list: &List, tokens: &theme::Tokens) -> Vec<Vec<(String, Style)>> {
-    if !list.header.is_empty() {
+fn paragraphs(
+    list: &List,
+    tab: Option<&TabNote>,
+    tokens: &theme::Tokens,
+) -> Vec<Vec<(String, Style)>> {
+    // The tab's own header replaces the list's.
+    let header = tab
+        .map(|note| &note.header)
+        .filter(|header| !header.is_empty())
+        .unwrap_or(&list.header);
+    if !header.is_empty() {
         let styles = RowStyles::of_theme(tokens);
-        return list
-            .header
+        return header
             .iter()
             .map(|runs| {
                 runs.iter()
@@ -252,6 +346,17 @@ fn act_of(key: &KeyPress, flags: Flags, keys: &Keymap) -> Option<Act> {
     }
     if key.code == KeyCode::Backspace {
         return None;
+    }
+    if key.code == KeyCode::Char
+        && letter == Some(' ')
+        && key.mods.is_empty()
+        && flags.marked
+        && !flags.toggle
+        && flags.searchable
+        && flags.query_empty
+        && !LIST_ACTIONS.iter().any(|id| pressed(keys, *id, key))
+    {
+        return Some(Act::Nothing);
     }
     if key.code == KeyCode::Char
         && letter == Some(' ')
@@ -315,8 +420,29 @@ impl State for PickerState {
         let send = cx.local_sender();
         let flags = self.flags.clone();
         let keys = self.keys.clone();
+        let hots = self.hots.clone();
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
             let keys = keys.borrow().clone();
+            let matches = |stroke: &Stroke| combo_of(stroke).is_some_and(|c| c.accepts_press(&key));
+            // The opener's keys come first, ahead of the search line.
+            let hot = hots
+                .borrow()
+                .keys
+                .iter()
+                .find(|(stroke, _)| matches(stroke))
+                .map(|(_, name)| *name);
+            if let Some(name) = hot {
+                send(Msg::Hot(name));
+                return KeyEventResult::Handled;
+            }
+            let toggle = hots.borrow().toggle.as_ref().is_some_and(matches);
+            if toggle && !LIST_ACTIONS.iter().any(|id| pressed(&keys, *id, &key)) {
+                // The key is the toggle's: a row without one leaves it unanswered.
+                if flags.get().toggle {
+                    send(Msg::Act(Act::Toggle));
+                }
+                return KeyEventResult::Handled;
+            }
             match act_of(&key, flags.get(), &keys) {
                 Some(act) => {
                     send(Msg::Act(act));
@@ -331,6 +457,7 @@ impl State for PickerState {
             let seen = tabs.clone();
             tabs.add_listener(Rc::new(move || send(Msg::Tab(seen.index()))));
             self.tabs = Some(tabs);
+            self.shown_tab = first;
         }
         // A shorter window (a smaller terminal) keeps the cursor row in view:
         // Flutter's `Scrollable.ensureVisible` after a change of size.
@@ -348,6 +475,17 @@ impl State for PickerState {
 
     fn did_update_widget(&mut self, old: &Picker, w: &Picker, _: &mut Cx<'_, Self>) {
         if old.list == w.list {
+            return;
+        }
+        if self.follow_tabs(&old.list, &w.list) {
+            // Another tab of the new list is the one shown: its own rows, the query kept.
+            self.settle(&w.list, None);
+            return;
+        }
+        if w.extras.keep_position {
+            // `initial_selected_idx`: the refreshed rows keep the place the cursor was at.
+            let before = self.cursor.cursor();
+            self.settle(&w.list, before);
             return;
         }
         let query = self.query.text();
@@ -386,10 +524,22 @@ impl State for PickerState {
                 let before = self.cursor.cursor();
                 self.settle(list, before);
             }
-            Msg::Tab(_) => {
-                // Another tab has its own rows and an empty search.
-                self.query.set_text("");
-                self.settle(list, None);
+            // The controller's index as it is now: a message sent before the list changed again
+            // names a tab the list no longer has there.
+            Msg::Tab(sent) => {
+                let tab = self.tab().unwrap_or(sent);
+                if std::mem::replace(&mut self.shown_tab, tab) != tab {
+                    // Another tab has its own rows and an empty search.
+                    self.query.set_text("");
+                    self.settle(list, None);
+                    if let Some(tab) = list.tabs.get(tab) {
+                        Self::send(w, cx, Event::Tab(tab.id.clone()));
+                    }
+                }
+            }
+            Msg::Hot(name) => {
+                Self::send(w, cx, Event::Hot(name));
+                return Rebuild::No;
             }
             Msg::TapTab(tab) => {
                 if let Some(tabs) = &self.tabs {
@@ -418,6 +568,17 @@ impl State for PickerState {
         let s = strings::of(cx);
         let keys = keymap(cx);
         *self.keys.borrow_mut() = keys.clone();
+        let tab_id = self.tab().and_then(|tab| list.tabs.get(tab)).map(|tab| &tab.id);
+        *self.hots.borrow_mut() = Hots {
+            toggle: w.extras.toggle,
+            keys: w
+                .extras
+                .hot
+                .iter()
+                .filter(|hot| Some(&hot.tab) == tab_id)
+                .map(|hot| (hot.stroke, hot.name))
+                .collect(),
+        };
         let query = self.query.text();
         let browse = self.browse(&list, &query);
         let visible = browse.visible();
@@ -430,6 +591,8 @@ impl State for PickerState {
             tabs: !list.tabs.is_empty(),
             query_empty: query.is_empty(),
             toggle: selected.is_some_and(|item| item.toggle.is_some()),
+            marked: selected
+                .is_some_and(|item| item.toggle.is_none() && !item.prefix_spans.is_empty()),
             ordering: list.ordering && list.tabs.is_empty() && query.is_empty(),
             secondary: selected.and_then(|item| item.secondary.as_ref().map(|a| a.key)),
         });
@@ -476,18 +639,20 @@ impl State for PickerState {
                 },
             })
         });
+        let note = self.tab().and_then(|tab| w.extras.notes.get(tab));
         let hint = selected
             .and_then(|item| item.footer_hint.clone())
             .or_else(|| {
                 let action = selected?.secondary.as_ref()?;
                 Some(secondary_hint(&keys, action, s))
             })
+            .or_else(|| note.and_then(|note| note.hint.clone()))
             .or_else(|| list.footer_hint.clone())
             .or_else(|| list.standard_hint.then(|| standard_hint(&keys, s)));
         let pane = Pane {
             surface: list.surface(),
             title: list.title.clone().map(|title| (title, tokens.bold())),
-            paragraphs: paragraphs(&list, &tokens),
+            paragraphs: paragraphs(&list, note, &tokens),
             tabs,
             search,
             rows,
@@ -498,6 +663,27 @@ impl State for PickerState {
             preview: list.preview_names().map(|names| names.join(s.preview_join)),
             note: list.footer_note.clone(),
             hint: hint.map(|hint| (hint, tokens.dim())),
+            reserved: w.extras.reserve.then(|| Reserved {
+                rows: list.max_rows(),
+                headers: w
+                    .extras
+                    .notes
+                    .iter()
+                    .map(|note| {
+                        paragraphs(&list, Some(note), &tokens)
+                            .into_iter()
+                            .map(|runs| runs.into_iter().map(|(text, _)| text).collect())
+                            .collect()
+                    })
+                    .collect(),
+                hints: w
+                    .extras
+                    .notes
+                    .iter()
+                    .filter_map(|note| note.hint.clone())
+                    .chain(list.footer_hint.clone())
+                    .collect(),
+            }),
         };
         let dialog = Dialog::bare(BoxWidget::new().style(Style::new()).child(pane.view()));
         if list.searchable {
@@ -515,6 +701,36 @@ impl PickerState {
     /// The tab the controller is on (none: the list has no tabs).
     fn tab(&self) -> Option<usize> {
         self.tabs.as_ref().map(TabController::index)
+    }
+
+    /// The tab controller after the list was replaced with another set of tabs (a refresh found
+    /// the tab again under a new id, a marketplace was added): the length follows, and the tab
+    /// the opener names to open on is the one shown, else the one the user was on, else the
+    /// first. True when the shown tab is another one now.
+    fn follow_tabs(&mut self, old: &List, new: &List) -> bool {
+        let Some(tabs) = &self.tabs else { return false };
+        let ids = |list: &List| list.tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
+        // The same tabs: the user's own place is the truth, the opener may lag a move behind.
+        if new.tabs.is_empty() || ids(old) == ids(new) {
+            return false;
+        }
+        let before = tabs.index();
+        let find = |id: &str| new.tabs.iter().position(|tab| tab.id == id);
+        let index = new
+            .initial_tab
+            .as_deref()
+            .and_then(find)
+            .or_else(|| old.tabs.get(before).and_then(|tab| find(&tab.id)))
+            .unwrap_or(0);
+        // The controller's own notification finds the tab already shown.
+        self.shown_tab = index;
+        tabs.set_length(new.tabs.len());
+        tabs.set_index(index);
+        index != before
+            || old
+                .tabs
+                .get(before)
+                .is_none_or(|tab| new.tabs.get(index).is_none_or(|now| now.id != tab.id))
     }
 
     fn browse<'a>(&self, list: &'a List, query: &'a str) -> Browse<'a> {
@@ -614,6 +830,7 @@ impl PickerState {
             Act::Accept => return self.accept(list, w, cx),
             Act::Cancel => return Self::send(w, cx, Event::Cancel),
             Act::Toggle => return self.toggle(list, w, cx),
+            Act::Nothing => return,
             Act::Secondary => return self.secondary(list, w, cx),
             Act::Shortcut(key) => {
                 if let Some(item) = browse.shortcut(key) {
