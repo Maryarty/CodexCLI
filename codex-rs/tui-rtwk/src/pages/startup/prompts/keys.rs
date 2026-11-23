@@ -8,7 +8,7 @@
 //! answer (ADR-003: the view picks, core decides).
 
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::Mods;
 
 use codex_tui_core::screens::startup::{
     Answer, CwdSelection, HooksChoice, MigrationOutcome, Prompt, Reaction, UnarchiveChoice,
@@ -55,7 +55,7 @@ fn ch(c: char) -> KeyPress {
 
 /// Ctrl-H, which a terminal sends as Ctrl-Backspace.
 fn ctrl_h() -> KeyPress {
-    KeyPress::code(KeyCode::Backspace).with_mods(Mods::CTRL)
+    KeyPress::BACKSPACE.with_mods(Mods::CTRL)
 }
 
 fn digits(range: std::ops::RangeInclusive<usize>) -> Vec<(KeyPress, Cmd)> {

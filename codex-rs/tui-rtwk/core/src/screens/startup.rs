@@ -423,8 +423,8 @@ impl Prompt {
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// The prompt on screen.
-    pub open: Option<Prompt>,
+    /// The prompt the flow asked and awaits the answer of.
+    pub asked: Option<Prompt>,
     /// What the prompts returned, oldest first; the flow that asked reads its
     /// answer here and the host acts on it (a config write, a restart).
     pub answers: Vec<Answer>,
@@ -489,7 +489,7 @@ pub enum Intent {
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Asked(prompt) => model.open = Some(prompt),
+        Ev::Asked(prompt) => model.asked = Some(prompt),
         Ev::CwdSaved { request, failed } => {
             if model.saving_cwd != Some(request) {
                 return;
@@ -501,7 +501,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         }
         Ev::History(line) => model.history.push(line),
         Ev::HooksTrusted { request, failure } => {
-            let Some(Prompt::Hooks(hooks)) = &mut model.open else {
+            let Some(Prompt::Hooks(hooks)) = &mut model.asked else {
                 return;
             };
             if hooks.trust != Trust::Trusting(request) {
@@ -509,7 +509,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
             match failure {
                 None => {
-                    model.open = None;
+                    model.asked = None;
                     model.answers.push(Answer::Hooks(HooksChoice::TrustAll));
                 }
                 Some(detail) => hooks.trust = Trust::Failed(detail),
@@ -520,9 +520,9 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     match intent {
-        Intent::Ask(prompt) => model.open = Some(prompt),
+        Intent::Ask(prompt) => model.asked = Some(prompt),
         Intent::Answer(answer) => {
-            let Some(prompt) = &model.open else { return };
+            let Some(prompt) = &model.asked else { return };
             if !prompt.takes(answer) {
                 return;
             }
@@ -570,11 +570,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     },
                 });
             }
-            model.open = None;
+            model.asked = None;
             model.answers.push(answer);
         }
         Intent::TrustHooks => {
-            let Some(Prompt::Hooks(hooks)) = &mut model.open else {
+            let Some(Prompt::Hooks(hooks)) = &mut model.asked else {
                 return;
             };
             if matches!(hooks.trust, Trust::Trusting(_)) {
@@ -661,7 +661,7 @@ mod tests {
 
     fn hooks(trust: Trust) -> Model {
         Model {
-            open: Some(Prompt::Hooks(HooksPrompt {
+            asked: Some(Prompt::Hooks(HooksPrompt {
                 count: 2,
                 trust,
                 updates: vec![HookTrust {
@@ -695,7 +695,7 @@ mod tests {
                 failure: None,
             },
         );
-        assert!(model.open.is_some() && model.answers.is_empty());
+        assert!(model.asked.is_some() && model.answers.is_empty());
         fx_ev(
             &mut model,
             Ev::HooksTrusted {
@@ -704,7 +704,7 @@ mod tests {
             },
         );
         assert_eq!(
-            model.open,
+            model.asked,
             Some(Prompt::Hooks(HooksPrompt {
                 count: 2,
                 trust: Trust::Failed("boom".into()),
@@ -724,7 +724,7 @@ mod tests {
                 failure: None,
             },
         );
-        assert_eq!(model.open, None);
+        assert_eq!(model.asked, None);
         assert_eq!(model.answers, vec![Answer::Hooks(HooksChoice::TrustAll)]);
     }
 
@@ -735,7 +735,7 @@ mod tests {
         fx_apply(&mut model, Intent::TrustHooks);
         assert_eq!(model.next_request, 1);
         fx_apply(&mut model, Intent::Answer(Answer::Hooks(HooksChoice::Skip)));
-        assert!(model.open.is_some() && model.answers.is_empty());
+        assert!(model.asked.is_some() && model.answers.is_empty());
     }
 
     fn asks_of(model: &mut Model, intent: Intent) -> Vec<onboarding::Ask> {
@@ -769,7 +769,7 @@ mod tests {
 
     fn migration() -> Model {
         Model {
-            open: Some(Prompt::Migration(MigrationPrompt {
+            asked: Some(Prompt::Migration(MigrationPrompt {
                 current_model: "gpt-old".into(),
                 target_model: "gpt-new".into(),
                 target_display_name: "GPT New".into(),
@@ -815,7 +815,7 @@ mod tests {
     #[test]
     fn the_gov_cloud_acknowledgment_asks_for_its_write() {
         let mut model = Model {
-            open: Some(Prompt::GovCloud),
+            asked: Some(Prompt::GovCloud),
             ..Model::default()
         };
         assert_eq!(
@@ -826,7 +826,7 @@ mod tests {
             asks_of(&mut model, Intent::Answer(Answer::GovCloud)),
             [onboarding::Ask::AcknowledgeGovCloud]
         );
-        assert_eq!(model.open, None);
+        assert_eq!(model.asked, None);
         assert_eq!(model.answers, vec![Answer::GovCloud]);
     }
 
@@ -834,9 +834,9 @@ mod tests {
     fn an_answer_of_another_prompt_is_ignored() {
         let mut model = hooks(Trust::Idle);
         fx_apply(&mut model, Intent::Answer(Answer::Unarchive(UnarchiveChoice::Cancel)));
-        assert!(model.open.is_some() && model.answers.is_empty());
+        assert!(model.asked.is_some() && model.answers.is_empty());
         fx_apply(&mut model, Intent::Answer(Answer::Hooks(HooksChoice::Review)));
-        assert_eq!(model.open, None);
+        assert_eq!(model.asked, None);
         assert_eq!(model.answers, vec![Answer::Hooks(HooksChoice::Review)]);
     }
 
@@ -921,7 +921,7 @@ mod tests {
 
     #[test]
     fn a_number_takes_a_plain_row_and_only_moves_to_an_explicit_one() {
-        let hooks = hooks(Trust::Idle).open.unwrap();
+        let hooks = hooks(Trust::Idle).asked.unwrap();
         assert_eq!(
             hooks.number(1),
             Reaction::Answer(Answer::Hooks(HooksChoice::Review))

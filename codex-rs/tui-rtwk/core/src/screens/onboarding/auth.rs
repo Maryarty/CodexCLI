@@ -209,7 +209,7 @@ pub enum Outcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// A way to sign in, from the menu.
-    Choose(Method),
+    UseMethod(Method),
     /// The menu changed ("another way" opened or left): the error goes.
     Menu,
     /// Esc on an attempt: cancel it, back to the menu.
@@ -279,7 +279,7 @@ pub fn apply_intent(
 ) {
     match intent {
         Intent::Menu => sign_in.error = None,
-        Intent::Choose(method) => choose(sign_in, method, mint, asks),
+        Intent::UseMethod(method) => choose(sign_in, method, mint, asks),
         Intent::Cancel => cancel(sign_in, asks),
         // `handle_api_key_entry_key_event` and `save_api_key`.
         Intent::SaveApiKey(text) => {
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn api_key_flow_disabled_when_chatgpt_forced() {
         let mut sign_in = forced_chatgpt();
-        Run::new().intent(&mut sign_in, Intent::Choose(Method::ApiKey));
+        Run::new().intent(&mut sign_in, Intent::UseMethod(Method::ApiKey));
         assert_eq!(sign_in.error, Some(Error::ApiKeyDisabled));
         assert_eq!(sign_in.state, State::Pick);
     }
@@ -663,7 +663,7 @@ mod tests {
             let mut sign_in = forced_chatgpt();
             sign_in.chatgpt_account = true;
             let mut run = Run::new();
-            run.intent(&mut sign_in, Intent::Choose(method));
+            run.intent(&mut sign_in, Intent::UseMethod(method));
             assert_eq!(sign_in.state, State::Success);
             assert!(run.asks.is_empty());
         }
@@ -717,7 +717,7 @@ mod tests {
     fn login_can_complete_while_browser_is_opening() {
         let mut sign_in = forced_chatgpt();
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::ChatGpt));
         assert_eq!(
             run.asks,
             vec![Ask::Login {
@@ -778,7 +778,7 @@ mod tests {
     fn set_device_code_state_for_active_attempt_updates_only_when_active() {
         let mut sign_in = forced_chatgpt();
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::DeviceCode));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::DeviceCode));
         run.result(&mut sign_in, 1, Outcome::DeviceCode(device_code("login-1")));
         assert_eq!(
             sign_in.state,
@@ -844,7 +844,7 @@ mod tests {
         let mut sign_in = SignIn::new(offer());
         let mut run = Run::new();
         // A browser login started; an answer under another request is stale.
-        run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::ChatGpt));
         run.result(
             &mut sign_in,
             9,
@@ -869,8 +869,8 @@ mod tests {
     fn second_choose_while_a_login_is_awaited_is_ignored() {
         let mut sign_in = SignIn::new(offer());
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
-        run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::ChatGpt));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::ChatGpt));
         assert_eq!(
             run.asks,
             vec![Ask::Login {
@@ -945,7 +945,7 @@ mod tests {
             ..offer()
         });
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::ApiKey));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::ApiKey));
         assert_eq!(
             sign_in.state,
             State::ApiKey {
@@ -1014,11 +1014,11 @@ mod tests {
             ..offer()
         });
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gcp)));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::Provider(Provider::Gcp)));
         assert_eq!(sign_in.state, State::Pick);
         run.intent(
             &mut sign_in,
-            Intent::Choose(Method::Provider(Provider::Bedrock)),
+            Intent::UseMethod(Method::Provider(Provider::Bedrock)),
         );
         assert_eq!(sign_in.state, State::Provider(Provider::Bedrock));
         assert!(sign_in.done());
@@ -1054,7 +1054,7 @@ mod tests {
     fn the_gcp_wizard_runs_its_setup_through_an_ask() {
         let mut sign_in = gcp_sign_in();
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gcp)));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::Provider(Provider::Gcp)));
         assert_eq!(sign_in.state, State::Provider(Provider::Gcp));
         assert!(sign_in.is_text_entry());
         for _ in 0..3 {
@@ -1095,7 +1095,7 @@ mod tests {
     fn esc_on_the_first_gcp_stage_returns_to_the_menu() {
         let mut sign_in = gcp_sign_in();
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gcp)));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::Provider(Provider::Gcp)));
         run.intent(&mut sign_in, Intent::ProviderBack);
         assert_eq!(sign_in.state, State::Pick);
         assert_eq!(sign_in.wizard, None);
@@ -1161,14 +1161,14 @@ mod tests {
     fn the_gateway_wizard_reads_the_saved_ones_and_ends_with_the_one_picked() {
         let mut sign_in = gateway_sign_in();
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gateway)));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::Provider(Provider::Gateway)));
         assert_eq!(sign_in.state, State::Provider(Provider::Gateway));
         let (list, setup) = last_setup(&run);
         assert_eq!(setup, provider::Setup::GatewayList);
         run.result(&mut sign_in, list, Outcome::Provider(Ok(one_gateway())));
         run.intent(
             &mut sign_in,
-            Intent::Provider(provider::Intent::Gateway(provider::gateway::Intent::Activate(0))),
+            Intent::Provider(provider::Intent::Gateway(provider::gateway::Intent::Use(0))),
         );
         let (select, setup) = last_setup(&run);
         assert_eq!(setup, provider::Setup::GatewaySelect("office".into()));
@@ -1188,7 +1188,7 @@ mod tests {
     fn esc_while_the_gateways_load_leaves_and_drops_the_answer() {
         let mut sign_in = gateway_sign_in();
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gateway)));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::Provider(Provider::Gateway)));
         let (list, _) = last_setup(&run);
         run.intent(&mut sign_in, Intent::ProviderBack);
         assert_eq!(sign_in.state, State::Pick);
@@ -1204,7 +1204,7 @@ mod tests {
     fn esc_while_a_wizard_waits_keeps_its_answer() {
         let mut sign_in = gcp_sign_in();
         let mut run = Run::new();
-        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gcp)));
+        run.intent(&mut sign_in, Intent::UseMethod(Method::Provider(Provider::Gcp)));
         for _ in 0..3 {
             gcp_next(&mut sign_in, &mut run, "test-project");
         }

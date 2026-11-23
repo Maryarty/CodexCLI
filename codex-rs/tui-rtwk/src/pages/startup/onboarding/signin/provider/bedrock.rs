@@ -14,19 +14,19 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
+use super::super::keys::pressed;
 use rtwk::AnyWidget;
 use rtwk::binding::AppBinding;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Flexible, MainAxisSize, Row, SizedBox};
-use rtwk::prelude::{HitTestBehavior, Mods};
+use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::read;
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_core::input::KeyCode;
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
@@ -185,7 +185,7 @@ impl BedrockState {
 
     fn choose(cx: &mut Cx<'_, Self>, w: &BedrockWizard, index: usize) {
         if let Some(method) = w.bedrock.methods().get(index).copied() {
-            Self::emit(cx, provider::bedrock::Intent::Choose(method));
+            Self::emit(cx, provider::bedrock::Intent::Authenticate(method));
         }
     }
 
@@ -213,27 +213,26 @@ impl BedrockState {
                 if guarded(node, key.clone()) == KeyEventResult::Handled {
                     return KeyEventResult::Handled;
                 }
-                let plain = key.mods == Mods::NONE;
-                let shift = key.mods == Mods::SHIFT;
+                let is = |want: KeyPress| pressed(&key, &want);
                 let msg = if index == IDLE {
-                    match (key.code, key.ch) {
-                        (KeyCode::Up, _) if plain => Some(Msg::Up),
-                        (KeyCode::Down, _) if plain => Some(Msg::Down),
-                        (KeyCode::Char, Some('k')) if plain => Some(Msg::Up),
-                        (KeyCode::Char, Some('j')) if plain => Some(Msg::Down),
-                        (KeyCode::Enter, _) if plain => Some(Msg::Confirm),
-                        (KeyCode::Char, Some(digit @ '1'..='9')) if plain => {
-                            Some(Msg::Digit(digit as usize - '1' as usize))
-                        }
-                        _ => None,
+                    let digit = ('1'..='9').find(|digit| is(KeyPress::char(*digit)));
+                    if is(KeyPress::UP) || is(KeyPress::char('k')) {
+                        Some(Msg::Up)
+                    } else if is(KeyPress::DOWN) || is(KeyPress::char('j')) {
+                        Some(Msg::Down)
+                    } else if is(KeyPress::ENTER) {
+                        Some(Msg::Confirm)
+                    } else {
+                        digit.map(|digit| Msg::Digit(digit as usize - '1' as usize))
                     }
                 } else if index >= KEYS {
                     let field = index - KEYS;
-                    match key.code {
-                        KeyCode::Up if plain => Some(Msg::Field((field + 2) % 3)),
-                        KeyCode::Tab if shift => Some(Msg::Field((field + 2) % 3)),
-                        KeyCode::Down | KeyCode::Tab if plain => Some(Msg::Field((field + 1) % 3)),
-                        _ => None,
+                    if is(KeyPress::UP) || is(KeyPress::BACKTAB) {
+                        Some(Msg::Field((field + 2) % 3))
+                    } else if is(KeyPress::DOWN) || is(KeyPress::TAB) {
+                        Some(Msg::Field((field + 1) % 3))
+                    } else {
+                        None
                     }
                 } else {
                     None
