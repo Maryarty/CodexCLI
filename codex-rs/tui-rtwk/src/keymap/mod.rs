@@ -265,6 +265,35 @@ pub fn stroke_for(id: ActionId) -> Option<Stroke> {
     Some(Stroke::new(first.key, first.mods.pressed()))
 }
 
+/// The names `KeyBindings` reads for a hardwired action's keys (`ctrl+c`, `escape`): what `names`
+/// is for an action of the catalogue, for the pages that bind a key no setting names (the import's
+/// source prompt).
+pub fn fixed_names(id: ActionId) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for binding in fixed::bindings_of(id).unwrap_or_default() {
+        if let Some(name) = name_of(&Stroke::new(binding.key, binding.mods.pressed()))
+            && !names.contains(&name)
+        {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// The name of a hardwired action's first key (`shift+tab`), as the sets of taken keys name them.
+pub fn fixed_name(id: ActionId) -> Option<String> {
+    name_of(&stroke_for(id)?)
+}
+
+/// Whether a stroke types a character: a plain or shifted character key, no Ctrl, Alt or Super (an
+/// action on it is no shortcut while a text line is open).
+pub fn is_text(stroke: &Stroke) -> bool {
+    matches!(stroke.key, Key::Char(_))
+        && !stroke.mods.contains(Mods::CTRL)
+        && !stroke.mods.contains(Mods::ALT)
+        && !stroke.mods.contains(Mods::SUPER)
+}
+
 /// The name a hint shows for a stroke, as the oracle's `display_label` prints
 /// it on this platform (`key_hint.rs`: glyphs on macOS, `^` on Linux, words
 /// elsewhere; Backspace is `delete` on macOS, where crossterm names it so):

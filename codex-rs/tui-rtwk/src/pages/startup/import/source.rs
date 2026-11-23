@@ -19,11 +19,13 @@ use rtwk::style::{Span, Style};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed::{IMPORT_ACCEPT, IMPORT_CANCEL, IMPORT_NEXT, IMPORT_PREVIOUS};
 use codex_tui_core::screens::import::{Intent, Source};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::fixed_names;
 use crate::l10n::strings as shared;
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
 
@@ -36,7 +38,7 @@ pub struct SourcePrompt;
 
 /// A key of the prompt (the oracle's `handle_key`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Key {
+pub enum Pick {
     Up,
     Down,
     /// A digit: the source at that place is taken.
@@ -80,13 +82,13 @@ fn sources(cx: &mut Cx<'_, SourcePromptState>) -> Vec<Source> {
 
 impl State for SourcePromptState {
     type Widget = SourcePrompt;
-    type Msg = Key;
+    type Msg = Pick;
 
     fn dispose(&mut self) {
         self.options.dispose();
     }
 
-    fn update(&mut self, key: Key, _: &SourcePrompt, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, key: Pick, _: &SourcePrompt, cx: &mut Cx<'_, Self>) -> Rebuild {
         let sources = sources(cx);
         let take = |at: usize, cx: &mut Cx<'_, Self>| {
             if let Some(source) = sources.get(at) {
@@ -99,31 +101,31 @@ impl State for SourcePromptState {
         };
         match key {
             // The oracle's highlight stops at the ends.
-            Key::Up => {
+            Pick::Up => {
                 self.options.set(self.options.cursor().saturating_sub(1));
                 Rebuild::Yes
             }
-            Key::Down => {
+            Pick::Down => {
                 let last = sources.len().saturating_sub(1);
                 self.options.set((self.options.cursor() + 1).min(last));
                 Rebuild::Yes
             }
-            Key::Number(number) => {
+            Pick::Number(number) => {
                 if let Some(at) = usize::from(number).checked_sub(1) {
                     take(at, cx);
                 }
                 Rebuild::No
             }
-            Key::Enter => {
+            Pick::Enter => {
                 take(self.options.cursor(), cx);
                 Rebuild::No
             }
-            Key::Accept(row) => {
+            Pick::Accept(row) => {
                 self.options.set(row);
                 take(row, cx);
                 Rebuild::No
             }
-            Key::Cancel => {
+            Pick::Cancel => {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.screen, ScreenIntent::Import(Intent::Cancel));
                 Rebuild::No
@@ -165,7 +167,7 @@ impl State for SourcePromptState {
         let choices = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(self.options.on_accept(cx.map(Key::Accept)).view(
+            .child(self.options.on_accept(cx.map(Pick::Accept)).view(
                 Rc::new(rows),
                 OptionStyles {
                     cursor: tokens.selected(),
@@ -192,19 +194,21 @@ impl State for SourcePromptState {
         let panel = BoxWidget::new()
             .style(tokens.prompt_surface(cx, false))
             .child(column);
-        let key = |key: Key| cx.send(key);
-        let mut bindings = vec![
-            ("up", key(Key::Up)),
-            ("k", key(Key::Up)),
-            ("down", key(Key::Down)),
-            ("j", key(Key::Down)),
-            ("enter", key(Key::Enter)),
-            ("escape", key(Key::Cancel)),
-            ("ctrl+c", key(Key::Cancel)),
-            ("ctrl+d", key(Key::Cancel)),
-        ];
+        let key = |key: Pick| cx.send(key);
+        let mut bindings: Vec<(String, _)> = Vec::new();
+        for (id, pick) in [
+            (IMPORT_PREVIOUS, Pick::Up),
+            (IMPORT_NEXT, Pick::Down),
+            (IMPORT_ACCEPT, Pick::Enter),
+            (IMPORT_CANCEL, Pick::Cancel),
+        ] {
+            bindings.extend(fixed_names(id).into_iter().map(|name| (name, key(pick))));
+        }
         for digit in 1..=9u8 {
-            bindings.push((DIGITS[usize::from(digit) - 1], key(Key::Number(digit))));
+            bindings.push((
+                DIGITS[usize::from(digit) - 1].to_owned(),
+                key(Pick::Number(digit)),
+            ));
         }
         KeyBindings::new(
             bindings,

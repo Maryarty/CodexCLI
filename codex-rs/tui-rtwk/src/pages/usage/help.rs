@@ -8,11 +8,19 @@ use rtwk::layout::{Column, CrossAxisAlignment};
 use rtwk::style::Style;
 use rtwk::text::{Text, TextWrap};
 
-use codex_tui_core::keymap::{Key, Keymap, Mods, Stroke};
+use codex_tui_core::keymap::fixed::{QUIT_OR_INTERRUPT, USAGE_PREVIOUS_TAB};
+use codex_tui_core::keymap::{ActionId, Keymap};
 use codex_tui_core::screens::usage::{Control, Model};
 
 use super::keys;
 use super::strings::Strings;
+
+/// The label of a hardwired action's key.
+fn stroke_label_of(id: ActionId) -> String {
+    crate::keymap::stroke_for(id)
+        .map(|stroke| crate::keymap::stroke_label(&stroke))
+        .unwrap_or_default()
+}
 
 /// The help's lines before wrapping.
 pub(super) fn lines(
@@ -23,8 +31,8 @@ pub(super) fn lines(
     detail_open: bool,
 ) -> Vec<String> {
     let hint = |id| keys::hint(keymap, id);
-    let shift_tab = crate::keymap::stroke_label(&Stroke::new(Key::Tab, Mods::SHIFT));
-    let interrupt = crate::keymap::stroke_label(&Stroke::new(Key::Char('c'), Mods::CTRL));
+    let shift_tab = stroke_label_of(USAGE_PREVIOUS_TAB);
+    let interrupt = stroke_label_of(QUIT_OR_INTERRUPT);
     let count = model.visible_sections().len() as u64;
     let mut out = vec![
         strings.help_tabs(&shift_tab, num),

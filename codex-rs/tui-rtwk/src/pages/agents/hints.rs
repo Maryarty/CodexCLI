@@ -9,10 +9,11 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use codex_tui_core::keymap::actions::*;
-use codex_tui_core::keymap::{ActionId, Binding, Context, Key, Keymap, Mods, Stroke};
+use codex_tui_core::keymap::fixed::{AGENTS_FILTER_NEXT, AGENTS_FILTER_PREVIOUS};
+use codex_tui_core::keymap::{ActionId, Binding, Context, Keymap};
 
 use super::keys::taken;
-use crate::keymap::{binding_label, label, stroke_label};
+use crate::keymap::{binding_label, fixed_name, label, stroke_for, stroke_label};
 
 /// The labels one build of the page shows.
 #[derive(Clone)]
@@ -63,15 +64,13 @@ impl Hints {
     /// The Tab and Shift+Tab hint, each key while no center action took it
     /// (`center_filter_hint`); empty when both are taken.
     pub fn filter(&self) -> String {
-        [
-            ("tab", Stroke::new(Key::Tab, Mods::NONE)),
-            ("shift+tab", Stroke::new(Key::BackTab, Mods::NONE)),
-        ]
-        .into_iter()
-        .filter(|(name, _)| !self.taken.contains(*name))
-        .map(|(_, stroke)| stroke_label(&stroke))
-        .collect::<Vec<_>>()
-        .join("/")
+        [AGENTS_FILTER_NEXT, AGENTS_FILTER_PREVIOUS]
+            .into_iter()
+            .filter(|id| fixed_name(*id).is_some_and(|name| !self.taken.contains(&name)))
+            .filter_map(stroke_for)
+            .map(|stroke| stroke_label(&stroke))
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     /// The up and down keys, `up/down` (the move hint of the footer).
@@ -122,7 +121,9 @@ mod tests {
         assert!(!hints.help_is_offered());
         assert_eq!(
             hints.filter(),
-            stroke_label(&Stroke::new(Key::BackTab, Mods::NONE))
+            stroke_for(AGENTS_FILTER_PREVIOUS)
+                .map(|stroke| stroke_label(&stroke))
+                .unwrap_or_default()
         );
     }
 }

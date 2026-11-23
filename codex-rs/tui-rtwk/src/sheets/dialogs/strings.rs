@@ -13,13 +13,18 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::actions::{
     CHAT_DECREASE_REASONING_EFFORT, CHAT_INCREASE_REASONING_EFFORT,
     COMPOSER_HISTORY_SEARCH_PREVIOUS, COMPOSER_QUEUE, EDITOR_INSERT_NEWLINE,
     GLOBAL_FIND_TRANSCRIPT, GLOBAL_FOCUS_ACTIVITY, GLOBAL_OPEN_AGENTS, GLOBAL_OPEN_EXTERNAL_EDITOR,
     GLOBAL_OPEN_TRANSCRIPT,
 };
-use codex_tui_core::keymap::{ActionId, Key, Mods, Stroke};
+use codex_tui_core::keymap::fixed::{
+    PASTE_IMAGE, QUIT_OR_INTERRUPT, SELECTION_START, SUBAGENT_NEXT, SUBAGENT_PREVIOUS,
+    TRANSCRIPT_LATEST, TRANSCRIPT_LATEST_ALT, TRANSCRIPT_PAGE_DOWN, TRANSCRIPT_PAGE_UP,
+    TRANSCRIPT_TOP, TRANSCRIPT_TOP_ALT,
+};
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -37,10 +42,11 @@ pub struct Group {
 pub enum Keys {
     /// Text no platform spells differently (`/`, `esc esc`).
     Plain(&'static str),
-    /// A key the oracle fixes, spelt as the platform spells a hint (`\u{2303}v`).
-    Chord(Stroke),
+    /// A key the oracle fixes (a named action of `keymap::fixed`), spelt as the platform spells a
+    /// hint (`\u{2303}v`).
+    Fixed(ActionId),
     /// Two fixed keys, `a / b`.
-    Pair(Stroke, Stroke),
+    FixedPair(ActionId, ActionId),
     /// The first binding of the action in the user's keymap; the row is
     /// absent while the action is unbound (`Entry::hint`).
     Bound(ActionId),
@@ -185,7 +191,7 @@ pub const EN: Strings = Strings {
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Chord(Stroke::new(Key::Char('v'), Mods::CTRL)),
+                    keys: Keys::Fixed(PASTE_IMAGE),
                     label: "Paste image",
                     running: None,
                 },
@@ -230,10 +236,7 @@ pub const EN: Strings = Strings {
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Pair(
-                        Stroke::new(Key::Left, Mods::ALT),
-                        Stroke::new(Key::Right, Mods::ALT),
-                    ),
+                    keys: Keys::FixedPair(SUBAGENT_PREVIOUS, SUBAGENT_NEXT),
                     label: "Subagents (empty prompt)",
                     running: None,
                 },
@@ -243,7 +246,7 @@ pub const EN: Strings = Strings {
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Chord(Stroke::new(Key::Char('c'), Mods::CTRL)),
+                    keys: Keys::Fixed(QUIT_OR_INTERRUPT),
                     label: "Quit",
                     running: Some("Interrupt"),
                 },
@@ -263,31 +266,22 @@ pub const EN: Strings = Strings {
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Pair(
-                        Stroke::new(Key::PageUp, Mods::NONE),
-                        Stroke::new(Key::PageDown, Mods::NONE),
-                    ),
+                    keys: Keys::FixedPair(TRANSCRIPT_PAGE_UP, TRANSCRIPT_PAGE_DOWN),
                     label: "Scroll",
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Chord(Stroke::new(Key::Char(' '), Mods::CTRL)),
+                    keys: Keys::Fixed(SELECTION_START),
                     label: "Start selection",
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Pair(
-                        Stroke::new(Key::Home, Mods::CTRL),
-                        Stroke::new(Key::End, Mods::CTRL),
-                    ),
+                    keys: Keys::FixedPair(TRANSCRIPT_TOP, TRANSCRIPT_LATEST),
                     label: "Top / latest",
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Pair(
-                        Stroke::new(Key::Char(','), Mods::ALT.with(Mods::SHIFT)),
-                        Stroke::new(Key::Char('.'), Mods::ALT.with(Mods::SHIFT)),
-                    ),
+                    keys: Keys::FixedPair(TRANSCRIPT_TOP_ALT, TRANSCRIPT_LATEST_ALT),
                     label: "Top / latest",
                     running: None,
                 },

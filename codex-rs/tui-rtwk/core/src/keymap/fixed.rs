@@ -148,6 +148,33 @@ pub const OPEN_AGENTS_FROM_LEFT: ActionId = chat("open_agents_from_left");
 /// and the newer prompt.
 pub const BROWSE_OLDER: ActionId = chat("browse_older");
 pub const BROWSE_NEWER: ActionId = chat("browse_newer");
+/// The keys the shortcut overlay (`?`) lists that Codex hardwires and no handler of ours reads
+/// through the keymap yet (the terminal or the field's own editing answers): hint-only actions,
+/// named so the overlay asks for a stroke, never spells one.
+/// Alt+Left and Alt+Right: the previous and the next subagent thread (empty prompt).
+pub const SUBAGENT_PREVIOUS: ActionId = chat("subagent_previous");
+pub const SUBAGENT_NEXT: ActionId = chat("subagent_next");
+/// Ctrl+C: quits, or interrupts while a turn runs.
+pub const QUIT_OR_INTERRUPT: ActionId = ActionId::new(Context::Global, "quit_or_interrupt");
+/// The transcript's own selection and jumps: Ctrl+Space starts a selection, Ctrl+Home and Ctrl+End
+/// (or Alt+Shift+, and Alt+Shift+.) go to the top and the latest.
+pub const SELECTION_START: ActionId = ActionId::new(Context::Pager, "selection_start");
+pub const TRANSCRIPT_TOP: ActionId = ActionId::new(Context::Pager, "transcript_top");
+pub const TRANSCRIPT_LATEST: ActionId = ActionId::new(Context::Pager, "transcript_latest");
+pub const TRANSCRIPT_TOP_ALT: ActionId = ActionId::new(Context::Pager, "transcript_top_alt");
+pub const TRANSCRIPT_LATEST_ALT: ActionId = ActionId::new(Context::Pager, "transcript_latest_alt");
+/// The agents page's Tab and Shift+Tab step the filter (`center_filter_hint`).
+pub const AGENTS_FILTER_NEXT: ActionId = ActionId::new(Context::Agents, "filter_next");
+pub const AGENTS_FILTER_PREVIOUS: ActionId = ActionId::new(Context::Agents, "filter_previous");
+/// The usage page's Shift+Tab goes to the previous tab.
+pub const USAGE_PREVIOUS_TAB: ActionId = list("usage_previous_tab");
+/// The import's source prompt (`handle_key`): j/k and the arrows walk the sources, Enter takes
+/// one, Esc, Ctrl+C and Ctrl+D leave.
+pub const IMPORT_PREVIOUS: ActionId = list("import_previous");
+pub const IMPORT_NEXT: ActionId = list("import_next");
+pub const IMPORT_ACCEPT: ActionId = list("import_accept");
+pub const IMPORT_CANCEL: ActionId = list("import_cancel");
+
 /// The bytes a terminal without the kitty protocol sends for Ctrl+/ (`0x1f`, read as Ctrl+_, and
 /// Ctrl+7 shares it): the side conversation's key where `toggle_side_conversation` is Ctrl+/.
 pub const SIDE_CONVERSATION_BYTES: ActionId =
@@ -162,6 +189,7 @@ pub struct Fixed {
 
 const CTRL: Mods = Mods::CTRL;
 const ALT: Mods = Mods::ALT;
+const ALT_SHIFT: Mods = Mods::ALT.with(Mods::SHIFT);
 
 pub const TABLE: &[Fixed] = &[
     Fixed {
@@ -268,6 +296,70 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: SIDE_CONVERSATION_BYTES,
         bindings: &[exact(Key::Char('_'), CTRL), exact(Key::Char('7'), CTRL)],
+    },
+    Fixed {
+        id: SUBAGENT_PREVIOUS,
+        bindings: &[exact(Key::Left, ALT)],
+    },
+    Fixed {
+        id: SUBAGENT_NEXT,
+        bindings: &[exact(Key::Right, ALT)],
+    },
+    Fixed {
+        id: QUIT_OR_INTERRUPT,
+        bindings: &[exact(Key::Char('c'), CTRL)],
+    },
+    Fixed {
+        id: SELECTION_START,
+        bindings: &[exact(Key::Char(' '), CTRL)],
+    },
+    Fixed {
+        id: TRANSCRIPT_TOP,
+        bindings: &[exact(Key::Home, CTRL)],
+    },
+    Fixed {
+        id: TRANSCRIPT_LATEST,
+        bindings: &[exact(Key::End, CTRL)],
+    },
+    Fixed {
+        id: TRANSCRIPT_TOP_ALT,
+        bindings: &[exact(Key::Char(','), ALT_SHIFT)],
+    },
+    Fixed {
+        id: TRANSCRIPT_LATEST_ALT,
+        bindings: &[exact(Key::Char('.'), ALT_SHIFT)],
+    },
+    Fixed {
+        id: AGENTS_FILTER_NEXT,
+        bindings: &[exact(Key::Tab, Mods::NONE)],
+    },
+    Fixed {
+        id: AGENTS_FILTER_PREVIOUS,
+        bindings: &[exact(Key::BackTab, Mods::NONE)],
+    },
+    Fixed {
+        id: USAGE_PREVIOUS_TAB,
+        bindings: &[exact(Key::Tab, Mods::SHIFT)],
+    },
+    Fixed {
+        id: IMPORT_PREVIOUS,
+        bindings: &[any(Key::Up), exact(Key::Char('k'), Mods::NONE)],
+    },
+    Fixed {
+        id: IMPORT_NEXT,
+        bindings: &[any(Key::Down), exact(Key::Char('j'), Mods::NONE)],
+    },
+    Fixed {
+        id: IMPORT_ACCEPT,
+        bindings: &[any(Key::Enter)],
+    },
+    Fixed {
+        id: IMPORT_CANCEL,
+        bindings: &[
+            any(Key::Esc),
+            exact(Key::Char('c'), CTRL),
+            exact(Key::Char('d'), CTRL),
+        ],
     },
     Fixed {
         id: FIELD_LEFT,
