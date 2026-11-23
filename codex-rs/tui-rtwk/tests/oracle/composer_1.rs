@@ -11,7 +11,6 @@ const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed
 const NO_FLASH: &str = "no seed for a footer flash or footer hint override: nothing sets the composer footer hint (`K label`) or a timed flash (`FLASH`), and the footer row does not show them";
 const NO_VIM: &str = "vim mode is not built: no seed or key turns the composer's vim draft on, so the `Vim: Insert` / `Vim: Normal` / `Vim: Replace` footer label is not drawn";
 const NO_FILES: &str = "no seed for file search: the chat screen has no file index, so the `@` file popup has no rows; the skill catalog these tests set is not built either";
-const NO_LAYOUT: &str = "the composer footer collapse by width, the collaboration-mode indicator (Plan), the context-window percent and a running task with a queued draft are not built";
 
 /// The composer alone with its footer at `width` by `height`: the oracle's
 /// composer harness (`snapshot_composer_state_with_width`).
@@ -263,8 +262,7 @@ fn deleting_prefix_keeps_bang_literal_on_submission() {
 // ORACLE bottom_pane/chat_composer.rs:5708 deleting_prefix_keeps_bang_editable_snapshot kind=snap owner=chat-live snap=deleting_prefix_keeps_bang_literal
 #[test]
 fn deleting_prefix_keeps_bang_editable_snapshot() {
-    kit::pending(Owner::ChatLive, NO_LAYOUT);
-    let mut s = Screen::build(Owner::ChatLive).size(60, 9).live().open();
+    let mut s = alone(60, 9);
     s.paste("Yes! I agree.").keys("home delete delete delete");
     s.assert_snap("deleting_prefix_keeps_bang_literal");
 }
@@ -296,72 +294,39 @@ fn esc_keeps_shell_mode_when_paste_burst_flushes_pending_text() {
 // ORACLE bottom_pane/chat_composer.rs:5792 footer_collapse_snapshots kind=snap owner=chat-live snap=footer_collapse_empty_full snap=footer_collapse_empty_mode_cycle_with_context snap=footer_collapse_empty_mode_cycle_without_context snap=footer_collapse_empty_mode_only snap=footer_collapse_plan_empty_full snap=footer_collapse_plan_empty_mode_cycle_with_context snap=footer_collapse_plan_empty_mode_cycle_without_context snap=footer_collapse_plan_empty_mode_only snap=footer_collapse_plan_queue_full snap=footer_collapse_plan_queue_message_without_context snap=footer_collapse_plan_queue_mode_only snap=footer_collapse_plan_queue_short_with_context snap=footer_collapse_plan_queue_short_without_context snap=footer_collapse_queue_full snap=footer_collapse_queue_message_without_context snap=footer_collapse_queue_mode_only snap=footer_collapse_queue_short_with_context snap=footer_collapse_queue_short_without_context
 #[test]
 fn footer_collapse_snapshots() {
-    kit::pending(Owner::ChatLive, NO_LAYOUT);
     // Each oracle snapshot is the bare composer at its own width, 9 rows. The `queue` variants
-    // type `Test` while a turn runs; the `plan` variants set the Plan indicator.
-    let s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
-    s.assert_snap("footer_collapse_empty_full");
-
-    let s = Screen::build(Owner::ChatLive).size(60, 9).live().open();
-    s.assert_snap("footer_collapse_empty_mode_cycle_with_context");
-
-    let s = Screen::build(Owner::ChatLive).size(44, 9).live().open();
-    s.assert_snap("footer_collapse_empty_mode_cycle_without_context");
-
-    let s = Screen::build(Owner::ChatLive).size(26, 9).live().open();
-    s.assert_snap("footer_collapse_empty_mode_only");
-
-    let s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
-    s.assert_snap("footer_collapse_plan_empty_full");
-
-    let s = Screen::build(Owner::ChatLive).size(60, 9).live().open();
-    s.assert_snap("footer_collapse_plan_empty_mode_cycle_with_context");
-
-    let s = Screen::build(Owner::ChatLive).size(44, 9).live().open();
-    s.assert_snap("footer_collapse_plan_empty_mode_cycle_without_context");
-
-    let s = Screen::build(Owner::ChatLive).size(26, 9).live().open();
-    s.assert_snap("footer_collapse_plan_empty_mode_only");
-
-    let mut s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_queue_full");
-
-    let mut s = Screen::build(Owner::ChatLive).size(50, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_queue_short_with_context");
-
-    let mut s = Screen::build(Owner::ChatLive).size(40, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_queue_message_without_context");
-
-    let mut s = Screen::build(Owner::ChatLive).size(30, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_queue_short_without_context");
-
-    let mut s = Screen::build(Owner::ChatLive).size(20, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_queue_mode_only");
-
-    let mut s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_plan_queue_full");
-
-    let mut s = Screen::build(Owner::ChatLive).size(50, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_plan_queue_short_with_context");
-
-    let mut s = Screen::build(Owner::ChatLive).size(40, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_plan_queue_message_without_context");
-
-    let mut s = Screen::build(Owner::ChatLive).size(30, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_plan_queue_short_without_context");
-
-    let mut s = Screen::build(Owner::ChatLive).size(20, 9).live().open();
-    s.type_text("Test");
-    s.assert_snap("footer_collapse_plan_queue_mode_only");
+    // type `Test` while a turn runs (98% of the context left); the `plan` variants are in Plan
+    // mode.
+    let empty = [
+        (120, "full"),
+        (60, "mode_cycle_with_context"),
+        (44, "mode_cycle_without_context"),
+        (26, "mode_only"),
+    ];
+    let queue = [
+        (120, "full"),
+        (50, "short_with_context"),
+        (40, "message_without_context"),
+        (30, "short_without_context"),
+        (20, "mode_only"),
+    ];
+    for (entry, name, widths, typing) in [
+        ("alone", "empty", &empty[..], false),
+        ("alone_plan", "plan_empty", &empty[..], false),
+        ("alone_queue", "queue", &queue[..], true),
+        ("alone_plan_queue", "plan_queue", &queue[..], true),
+    ] {
+        for &(width, tail) in widths {
+            let mut s = Screen::build(Owner::ChatLive)
+                .size(width, 9)
+                .entry("composer", entry)
+                .open();
+            if typing {
+                s.type_text("Test");
+            }
+            s.assert_snap(&format!("footer_collapse_{name}_{tail}"));
+        }
+    }
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6031 esc_hint_stays_hidden_with_draft_content kind=ui owner=chat-live

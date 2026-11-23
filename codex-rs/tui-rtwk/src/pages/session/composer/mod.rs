@@ -107,6 +107,33 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }),
         },
         DebugEntry {
+            name: "alone_plan",
+            description: "the composer with its key footer in Plan mode",
+            script: include_str!("fixtures/alone_plan.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone { ui }.into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_queue",
+            description: "the composer with its key footer while a turn runs, 98% of the context left",
+            script: include_str!("fixtures/alone_queue.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone { ui }.into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_plan_queue",
+            description: "the composer with its key footer in Plan mode while a turn runs",
+            script: include_str!("fixtures/alone_plan_queue.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone { ui }.into()
+            }),
+        },
+        DebugEntry {
             name: "alone_running",
             description: "the composer with its key footer while a turn runs",
             script: include_str!("fixtures/alone_running.jsonl"),
