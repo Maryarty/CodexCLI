@@ -20,6 +20,7 @@ use crate::app::debug::EntryOpen;
 
 pub mod features;
 pub mod hooks;
+pub mod items;
 pub mod memories;
 pub mod setup;
 pub mod strings;

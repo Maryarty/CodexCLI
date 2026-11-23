@@ -191,7 +191,7 @@ impl_widget!(stateful eq SetupSheet);
 /// The setup the model holds open.
 fn open_setup(cx: &mut Cx<'_, SetupState>) -> Option<Setup> {
     select::<ScreenStates, Option<Setup>, _>(cx, |states| match &states.settings.open {
-        Some(Open::Setup(setup)) => Some(setup.clone()),
+        Some(Open::Setup(setup)) => Some(super::items::filled(setup.clone())),
         _ => None,
     })
 }

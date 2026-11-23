@@ -20,6 +20,8 @@ pub const KIND: Kind = Kind::Sheet;
 use std::collections::BTreeMap;
 
 pub mod hooks;
+pub mod items;
+pub mod persist;
 
 use hooks::{Hook, HookEvent, HookIssue, Hooks};
 
@@ -650,6 +652,10 @@ pub enum Dialog {
     Theme,
     /// `/memories`.
     Memories,
+    /// `/statusline`: the app builds it from the chat's status facts (`app/settings.rs`).
+    StatusLine,
+    /// `/title`: likewise.
+    Title,
 }
 
 impl Facts {
@@ -683,6 +689,18 @@ pub struct Model {
     /// the picker previews by changing it.
     pub syntax_theme: Option<String>,
     pub edits: Vec<Edit>,
+    /// How many of `edits` the app has taken (`take_edits`).
+    pub sent: usize,
+}
+
+impl Model {
+    /// The edits recorded since the last call, in order: the app writes them
+    /// (`persist::write_of`) and carries what else they change.
+    pub fn take_edits(&mut self) -> Vec<Edit> {
+        let fresh = self.edits.get(self.sent..).unwrap_or_default().to_vec();
+        self.sent = self.edits.len();
+        fresh
+    }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -700,6 +718,10 @@ pub enum Ev {
         generation: u64,
         features: Option<Vec<Feature>>,
     },
+    /// The config file has what a dialog saved: the session follows (`persist::Subject`).
+    Saved(persist::Subject),
+    /// The write of a dialog was refused: the session stays as it was.
+    SaveFailed(persist::Subject),
     /// The write of the experimental features was answered.
     FeaturesSaved {
         generation: u64,
@@ -766,6 +788,17 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
             model.facts = facts;
         }
+        Ev::Saved(subject) => match subject {
+            persist::Subject::Theme(name) => model.facts.syntax_theme = Some(name),
+            persist::Subject::Memories(memories) => model.facts.memories = Some(memories),
+            // The chat's status facts hold these (the app updates them).
+            persist::Subject::StatusLine { .. } | persist::Subject::Title(_) => {}
+        },
+        // `restore_runtime_theme_from_config`: the theme in force is the config's again.
+        Ev::SaveFailed(persist::Subject::Theme(_)) => {
+            model.syntax_theme = model.facts.syntax_theme.clone();
+        }
+        Ev::SaveFailed(_) => {}
         Ev::FeaturesDiscovered {
             generation,
             features,
@@ -843,6 +876,8 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     }));
                 }
             }
+            // Built by the app, which holds the status facts, and opened as `Ev::Opened`.
+            Dialog::StatusLine | Dialog::Title => {}
         }
         return;
     }
@@ -1033,15 +1068,27 @@ pub enum ThreadEv {}
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    /// `config/batchWrite`: what a dialog saved (`persist::write_of`).
+    Write {
+        edits: Vec<crate::app::effects::ConfigEdit>,
+    },
+}
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    /// The write is in the file; `overridden`: a layer above the user's config overrides it.
+    Written { overridden: bool },
+}
 
-/// What an outgoing RPC of this screen was for, kept with its ticket.
+/// What an outgoing RPC of this screen was for, kept with its ticket. The app owns the
+/// answers (`app/settings.rs`): no thread asks for them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
+pub enum Ctx {
+    /// A write of the config file, and the dialog it came from.
+    Write(persist::Write),
+}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = (part, fx);
@@ -1054,20 +1101,25 @@ pub fn apply_reply(
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    // The replies are the app's (`app/settings.rs`).
+    let _ = (part, result, fx, ctx);
 }
 
 /// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    let _ = thread;
+    match command {
+        Command::Write { edits } => persist::write_request(edits, id),
+    }
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    match command {
+        Command::Write { .. } => persist::written(result)
+            .map(|overridden| Reply::Written { overridden })
+            .map_err(RpcError::Malformed),
+    }
 }
 
 /// One item of a setup's catalogue (`StatusLineItem` / `TerminalTitleItem`

@@ -557,3 +557,273 @@ impl Strings {
         )
     }
 }
+
+/// `(id, description, preview)` of each item of the status line, in the oracle's order.
+pub(super) const STATUS_LINE_ITEMS: &[(&str, &str, &str)] = &[
+    ("model", "Current model name", "gpt-5.2-codex"),
+    (
+        "model-with-reasoning",
+        "Current model name with reasoning level",
+        "gpt-5.2-codex medium",
+    ),
+    ("reasoning", "Current reasoning level", "medium"),
+    (
+        "current-dir",
+        "Current working directory",
+        "~/my-project/subdir",
+    ),
+    (
+        "project-name",
+        "Project name (omitted when unavailable)",
+        "my-project",
+    ),
+    (
+        "hostname",
+        "Current machine hostname (omitted when unavailable)",
+        "my-host",
+    ),
+    (
+        "git-branch",
+        "Current Git branch (omitted when unavailable)",
+        "feat/awesome-feature",
+    ),
+    (
+        "pull-request-number",
+        "Open pull request number for the current branch (omitted when unavailable)",
+        "PR #123",
+    ),
+    (
+        "branch-changes",
+        "Committed branch changes against the default branch (omitted when unavailable)",
+        "+12 -3",
+    ),
+    (
+        "run-state",
+        "Compact session run-state text (Ready, Working, Thinking)",
+        "Working",
+    ),
+    (
+        "permissions",
+        "Active permission profile or sandbox mode",
+        "Workspace",
+    ),
+    (
+        "approval-mode",
+        "Active command approval mode",
+        "on-request",
+    ),
+    (
+        "context-remaining",
+        "Percentage of context window remaining (omitted when unknown)",
+        "Context 0% left",
+    ),
+    (
+        "context-used",
+        "Percentage of context window used (omitted when unknown)",
+        "Context 0% used",
+    ),
+    (
+        "five-hour-limit",
+        "Remaining usage on the primary usage limit (omitted when unavailable)",
+        "primary 0%",
+    ),
+    (
+        "weekly-limit",
+        "Remaining usage on the secondary usage limit (omitted when unavailable)",
+        "secondary 0%",
+    ),
+    ("codex-version", "Codex application version", "0.0.0"),
+    (
+        "context-window-size",
+        "Total context window size in tokens (omitted when unknown)",
+        "0 window",
+    ),
+    (
+        "used-tokens",
+        "Total tokens used in session (omitted when zero)",
+        "0 used",
+    ),
+    (
+        "total-input-tokens",
+        "Total input tokens used in session",
+        "0 in",
+    ),
+    (
+        "total-output-tokens",
+        "Total output tokens used in session",
+        "0 out",
+    ),
+    (
+        "thread-credits",
+        "Estimated current-thread credits (Enterprise workspaces only; omitted when unavailable)",
+        "5.2 credits",
+    ),
+    (
+        "estimated-thread-cost",
+        "Estimated current-thread cost in USD (Enterprise workspaces only; omitted when unavailable)",
+        "~$1.82",
+    ),
+    (
+        "thread-id",
+        "Current thread identifier (omitted until thread starts)",
+        "550e8400-e29b-41d4",
+    ),
+    (
+        "fast-mode",
+        "Effective processing tier for the current model",
+        "Fast",
+    ),
+    (
+        "daybreak",
+        "Whether Daybreak is enabled for this thread",
+        "Daybreak off",
+    ),
+    (
+        "raw-output",
+        "Whether raw scrollback mode is active",
+        "raw output",
+    ),
+    (
+        "thread-name",
+        "Current thread name (omitted when unnamed)",
+        "thread name",
+    ),
+    (
+        "thread-title",
+        "Current thread title, or thread identifier when unnamed",
+        "thread title",
+    ),
+    (
+        "workspace-headline",
+        "Workspace notification headline (Enterprise workspaces only; omitted when unavailable)",
+        "Workspace headline",
+    ),
+    (
+        "task-progress",
+        "Latest task progress from update_plan (omitted until available)",
+        "Tasks 0/0",
+    ),
+    (
+        "profile",
+        "Config profile selected with --profile (omitted when unset)",
+        "profile: <name>",
+    ),
+    (
+        "provider",
+        "Model provider for the active thread",
+        "provider: <id>",
+    ),
+];
+
+/// `(id, description, preview)` of each item of the terminal title, in the oracle's order.
+pub(super) const TERMINAL_TITLE_ITEMS: &[(&str, &str, &str)] = &[
+    ("app-name", "Codex app name", "codex"),
+    (
+        "project-name",
+        "Project name (falls back to current directory name)",
+        "my-project",
+    ),
+    (
+        "current-dir",
+        "Current working directory",
+        "~/my-project/subdir",
+    ),
+    (
+        "activity",
+        "Spinner while working, action-required message while blocked",
+        "",
+    ),
+    (
+        "run-state",
+        "Compact session run-state text (Ready, Working, Thinking)",
+        "Working",
+    ),
+    (
+        "thread-name",
+        "Current thread name (omitted when unnamed)",
+        "thread name",
+    ),
+    (
+        "thread-title",
+        "Current thread title, or thread identifier when unnamed",
+        "thread title",
+    ),
+    (
+        "git-branch",
+        "Current Git branch (omitted when unavailable)",
+        "feat/awesome-feature",
+    ),
+    (
+        "context-remaining",
+        "Percentage of context window remaining (omitted when unknown)",
+        "Context 0% left",
+    ),
+    (
+        "context-used",
+        "Percentage of context window used (omitted when unknown)",
+        "Context 0% used",
+    ),
+    (
+        "five-hour-limit",
+        "Remaining usage on the primary usage limit (omitted when unavailable)",
+        "primary 0%",
+    ),
+    (
+        "weekly-limit",
+        "Remaining usage on the secondary usage limit (omitted when unavailable)",
+        "secondary 0%",
+    ),
+    ("codex-version", "Codex application version", "0.0.0"),
+    (
+        "used-tokens",
+        "Total tokens used in session (omitted when zero)",
+        "0 used",
+    ),
+    (
+        "total-input-tokens",
+        "Total input tokens used in session",
+        "0 in",
+    ),
+    (
+        "total-output-tokens",
+        "Total output tokens used in session",
+        "0 out",
+    ),
+    (
+        "thread-credits",
+        "Estimated current-thread credits (Enterprise workspaces only; omitted when unavailable)",
+        "5.2 credits",
+    ),
+    (
+        "estimated-thread-cost",
+        "Estimated current-thread cost (Enterprise workspaces only; omitted when unavailable)",
+        "~$1.82",
+    ),
+    (
+        "thread-id",
+        "Current thread identifier (omitted until thread starts)",
+        "550e8400-e29b-41d4",
+    ),
+    (
+        "fast-mode",
+        "Effective processing tier for the current model",
+        "Fast",
+    ),
+    (
+        "daybreak",
+        "Whether Daybreak is enabled for this thread",
+        "Daybreak off",
+    ),
+    ("model", "Current model name", "gpt-5.2-codex"),
+    (
+        "model-with-reasoning",
+        "Current model name with reasoning level",
+        "gpt-5.2-codex medium",
+    ),
+    ("reasoning", "Current reasoning level", "medium"),
+    (
+        "task-progress",
+        "Latest task progress from update_plan (omitted until available)",
+        "Tasks 0/0",
+    ),
+];

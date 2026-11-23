@@ -1105,3 +1105,98 @@ fn hooks_trust_all_vouches_for_every_review_needed_hook_in_one_edit() {
     send(&mut sandbox, SettingsIntent::HookTrustAll);
     assert_eq!(sandbox.app().screens().settings.edits.len(), 1);
 }
+
+/// What the dialogs write (`config_update.rs`, `app/event_dispatch.rs`): the key paths and
+/// values of each edit that is a write of the config file.
+mod writes {
+    use codex_tui_core::screens::settings::persist::{Subject, write_of};
+    use codex_tui_core::screens::settings::{Edit, Model, SetupKind};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    fn keys(edit: &Edit) -> Vec<(String, serde_json::Value)> {
+        write_of(edit)
+            .expect("a write")
+            .edits
+            .into_iter()
+            .map(|edit| (edit.key_path, edit.value))
+            .collect()
+    }
+
+    #[test]
+    fn the_status_line_writes_its_items_and_the_colour_switch() {
+        let edit = Edit::SetupSaved {
+            kind: SetupKind::StatusLine,
+            items: vec!["model".into(), "git-branch".into()],
+            use_theme_colors: false,
+        };
+        assert_eq!(
+            keys(&edit),
+            vec![
+                ("tui.status_line".to_owned(), json!(["model", "git-branch"])),
+                ("tui.status_line_use_colors".to_owned(), json!(false)),
+            ]
+        );
+        assert_eq!(
+            write_of(&edit).map(|write| write.subject),
+            Some(Subject::StatusLine {
+                items: vec!["model".into(), "git-branch".into()],
+                use_theme_colors: false,
+            })
+        );
+    }
+
+    #[test]
+    fn an_empty_title_is_written_as_an_empty_list() {
+        let edit = Edit::SetupSaved {
+            kind: SetupKind::Title,
+            items: Vec::new(),
+            use_theme_colors: true,
+        };
+        assert_eq!(
+            keys(&edit),
+            vec![("tui.terminal_title".to_owned(), json!([]))]
+        );
+    }
+
+    #[test]
+    fn the_theme_and_the_memory_switches_write_their_keys() {
+        assert_eq!(
+            keys(&Edit::ThemeSelected("nord".into())),
+            vec![("tui.theme".to_owned(), json!("nord"))]
+        );
+        assert_eq!(
+            keys(&Edit::MemoriesSaved {
+                use_memories: true,
+                generate_memories: false,
+            }),
+            vec![
+                ("memories.use_memories".to_owned(), json!(true)),
+                ("memories.generate_memories".to_owned(), json!(false)),
+            ]
+        );
+    }
+
+    #[test]
+    fn edits_with_a_request_of_their_own_are_no_config_write() {
+        for edit in [
+            Edit::TestNotification,
+            Edit::MemoriesReset,
+            Edit::SetupCancelled(SetupKind::Title),
+            Edit::KeymapPicked("composer.submit".into()),
+        ] {
+            assert_eq!(write_of(&edit), None, "{edit:?}");
+        }
+    }
+
+    #[test]
+    fn the_app_takes_each_edit_once() {
+        let mut model = Model::default();
+        model.edits.push(Edit::TestNotification);
+        model.edits.push(Edit::ThemeSelected("nord".into()));
+        assert_eq!(model.take_edits().len(), 2);
+        assert_eq!(model.take_edits(), Vec::new());
+        model.edits.push(Edit::MemoriesReset);
+        assert_eq!(model.take_edits(), vec![Edit::MemoriesReset]);
+    }
+}
