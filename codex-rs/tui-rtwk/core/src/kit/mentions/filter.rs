@@ -3,9 +3,9 @@
 
 use super::row::candidate_row;
 use super::search_mode::SearchMode;
-use crate::kit::fuzzy::fuzzy_match;
 use crate::data::files::{FileMatch, MatchType};
 use crate::data::mention::{Candidate, MentionType, Row, Selection};
+use crate::kit::fuzzy::fuzzy_match;
 
 pub fn filtered_candidates(
     candidates: &[Candidate],

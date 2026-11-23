@@ -8,8 +8,8 @@
 pub mod args;
 mod dispatch;
 
-pub use dispatch::*;
 pub use crate::kit::fuzzy::fuzzy_match;
+pub use dispatch::*;
 
 impl Notice {
     /// The composer keeps the line that ended in this notice, as the oracle

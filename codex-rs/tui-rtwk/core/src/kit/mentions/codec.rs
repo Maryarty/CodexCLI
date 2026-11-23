@@ -137,9 +137,7 @@ pub fn decode_history_mentions_with_at_mentions(
     let mut index = 0usize;
 
     while index < bytes.len() {
-        if at_mentions_enabled
-            && let Some((name, path, end_index)) = parse_task_link(text, index)
-        {
+        if at_mentions_enabled && let Some((name, path, end_index)) = parse_task_link(text, index) {
             let start = out.len();
             out.push('@');
             out.push_str(&name);

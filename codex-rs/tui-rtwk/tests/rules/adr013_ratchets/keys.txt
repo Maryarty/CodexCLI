@@ -1,0 +1,9 @@
+# ADR-013 ratchets of the keymap debt (format and rules: tests/rules/adr013_ratchets.txt).
+# adr006_keycode_only_in_keymap, the keymap's `Key::` variants spelled in a page or a sheet (2026-11-23,
+# adr013-debt-b8; /plugins is done): hint labels and the import page's key guard, each to become a named
+# action of `core::keymap::fixed` or a row of the catalogue.
+ratchet adr006_keycode_only_in_keymap src/pages/agents/hints.rs 3
+ratchet adr006_keycode_only_in_keymap src/pages/agents/keys.rs 1
+ratchet adr006_keycode_only_in_keymap src/pages/startup/import/source.rs 8
+ratchet adr006_keycode_only_in_keymap src/pages/usage/help.rs 2
+ratchet adr006_keycode_only_in_keymap src/sheets/dialogs/strings.rs 11
