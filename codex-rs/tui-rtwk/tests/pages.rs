@@ -42,6 +42,8 @@ mod composer_vim;
 mod history_pages;
 #[path = "pages/onboarding_focus.rs"]
 mod onboarding_focus;
+#[path = "pages/plugins.rs"]
+mod plugins;
 #[path = "pages/resume_focus.rs"]
 mod resume_focus;
 #[path = "pages/review.rs"]
@@ -62,3 +64,4 @@ mod transcript_sheet;
 mod rtwk_g46;
 mod rtwk_g49_g51;
 mod rtwk_g9;
+mod rtwk_o1;

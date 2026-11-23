@@ -162,46 +162,6 @@ pub(crate) fn presets(config: &Config) -> Vec<Slot> {
         .collect()
 }
 
-/// What `/plugins` reads of the config: the features it depends on, the home directory the
-/// personal marketplace is under, and the marketplaces the user configured (the ones a tab can
-/// remove; the git ones it can upgrade).
-pub(crate) fn plugin_config(config: &Config) -> codex_tui_core::screens::select::plugins::Config {
-    use codex_features::Feature;
-    use codex_tui_core::screens::select::plugins::{Config as Plugins, Configured};
-    let stack = &config.config_layer_stack;
-    let user = stack.effective_user_config();
-    let git = |name: &str| {
-        stack
-            .get_active_user_layer()
-            .and_then(|layer| layer.config.get("marketplaces"))
-            .and_then(|marketplaces| marketplaces.get(name))
-            .and_then(|marketplace| marketplace.get("source_type"))
-            .and_then(|kind| kind.as_str())
-            .is_some_and(|kind| kind == "git")
-    };
-    let configured = user
-        .as_ref()
-        .and_then(|user| user.get("marketplaces"))
-        .and_then(|marketplaces| marketplaces.as_table())
-        .map(|table| {
-            table
-                .keys()
-                .map(|name| Configured {
-                    git: git(name),
-                    name: name.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Plugins {
-        enabled: config.features.enabled(Feature::Plugins),
-        remote: config.features.enabled(Feature::RemotePlugin),
-        sharing: config.features.enabled(Feature::PluginSharing),
-        home: std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned()),
-        configured,
-    }
-}
-
 impl Effects {
     /// The services of `config`: the system clipboard, the history file and mention usage of its
     /// Codex home, the system browser, and the in-process file search over its working root,

@@ -22,7 +22,6 @@ pub mod permission_args;
 pub mod permission_shortcuts;
 pub mod permissions;
 pub mod persist;
-pub mod plugins;
 pub mod quick_dials;
 pub mod reasoning;
 pub mod review;
@@ -78,8 +77,6 @@ pub enum Menu {
     /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
     /// settings, the editor and the confirmation of a change.
     Quick(Box<quick_dials::Menu>),
-    /// `/plugins` (`plugins.rs`): the browser, its page is `Model::plugins.menu()`.
-    Plugins,
     /// A menu of a feature slice (ADR-012); the feature turns it into rows and settles its
     /// picks (`Feature::choose`).
     Feature(crate::features::FeatureMenu),
@@ -123,8 +120,6 @@ pub enum Picked {
     /// A saved preset's input, to be submitted as the user typed it (`RecallQuickDial`): the
     /// session's composer takes it.
     Recall(String),
-    /// A page to open in the browser (a plugin's app).
-    Open(String),
     /// What a feature slice's menu settled on (`Feature::picked`).
     Feature(crate::features::FeaturePick),
 }
@@ -221,8 +216,6 @@ pub enum Note {
     PresetSaved(u8),
     /// `Deleted preset {slot}.`
     PresetDeleted(u8),
-    /// A line of the plugin browser.
-    Plugins(plugins::Say),
     /// The arguments of `/permissions <profile> ..` do not parse (an error).
     PermissionArgs(permission_args::Error),
     /// The profile `/permissions` named cannot be picked (an error).
@@ -253,7 +246,6 @@ impl Note {
             | Note::PermissionArgs(_)
             | Note::PermissionRefused(_)
             | Note::PermissionsFailed(_) => Tone::Error,
-            Note::Plugins(say) if say.error() => Tone::Error,
             _ => Tone::Info,
         }
     }
@@ -299,8 +291,6 @@ pub struct Model {
     pub worktree: worktree::Worktree,
     /// The presets saved in the config and the writes asked for them.
     pub quick: quick_dials::Quick,
-    /// The plugin browser.
-    pub plugins: plugins::Plugins,
     /// Picks made; the effect that stores them is the settings slice's.
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
@@ -356,8 +346,7 @@ impl Model {
             | Menu::Review(_)
             | Menu::Worktree(_)
             | Menu::Quick(_)
-            | Menu::Feature(_)
-            | Menu::Plugins => None,
+            | Menu::Feature(_) => None,
         }
     }
 
@@ -548,39 +537,14 @@ impl Model {
         if !self.stack.iter().any(|menu| matches!(menu, Menu::Worktree(_))) {
             self.worktree.forget();
         }
-        if self.plugins.take_shown() && !matches!(self.stack.last(), Some(Menu::Plugins)) {
-            self.stack = vec![Menu::Plugins];
-        }
-        if !self.stack.iter().any(|menu| matches!(menu, Menu::Plugins)) {
-            self.plugins.dismissed();
-        }
-        let said = self.plugins.take_said();
-        self.notes.extend(said.into_iter().map(Note::Plugins));
     }
 
-    /// Whether the browser is the menu on top.
-    fn plugins_shown(&self) -> bool {
-        matches!(self.stack.last(), Some(Menu::Plugins))
-    }
-
-    /// The step of the setup of a plugin's apps, as the directory knows them.
-    pub fn plugin_auth(&self) -> Option<plugins::AuthStep> {
-        self.plugins.auth(|id| {
-            self.apps
-                .ready()
-                .is_some_and(|apps| apps.iter().any(|app| app.id == id && app.installed))
-        })
-    }
-
-    /// A pick of a row of the browser.
-    fn choose_plugin(&mut self, id: &str) {
-        match self.plugins.choose(id) {
-            plugins::Chosen::Nothing => {}
-            plugins::Chosen::Open(url) => self.picked.push(Picked::Open(url)),
-            plugins::Chosen::RefreshApps => {
-                self.apps.refresh(true);
-            }
-        }
+    /// Whether the app directory knows the app `id` as installed (the setup of a plugin's apps
+    /// reads it).
+    pub fn app_installed(&self, id: &str) -> bool {
+        self.apps
+            .ready()
+            .is_some_and(|apps| apps.iter().any(|app| app.id == id && app.installed))
     }
 
     fn step(&mut self, step: Step) {
@@ -884,8 +848,6 @@ pub enum Ev {
         dial: Option<quick_dials::Dial>,
         result: Result<(), String>,
     },
-    /// The config of the plugins, or an answer of the browser's requests.
-    Plugins(plugins::Ev),
     /// The app server says the directory changed
     /// (`refresh_connector_directory_after_notification`).
     AppsNotified(Vec<apps::App>),
@@ -939,10 +901,9 @@ pub enum Intent {
     },
     /// The text typed at `Custom review instructions`.
     Instructions(String),
-    /// `/plugins` in `cwd`: the browser, over the list asked for again.
-    OpenPlugins { cwd: String },
-    /// An intent of the browser that is not a pick of a row.
-    Plugins(plugins::Intent),
+    /// The app directory is read again (`apps.refresh(true)`): a surface that waited for an app
+    /// to be installed asks for it.
+    RefreshApps,
     /// `/presets`: a menu of the presets, or a preset recalled; `gate` says whether presets can
     /// be used where the user is.
     Quick {
@@ -1062,9 +1023,8 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.abandon_inline();
             model.apps.invalidate();
             model.worktree.forget();
-            model.plugins.forget();
             model.stack.retain(|menu| match menu {
-                Menu::Apps | Menu::Worktree(_) | Menu::Plugins => false,
+                Menu::Apps | Menu::Worktree(_) => false,
                 Menu::Permissions(menu) => !matches!(
                     **menu,
                     Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. }
@@ -1074,11 +1034,6 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         }
         Ev::AppsLoaded { request, result } => {
             model.apps.loaded(request, result);
-        }
-        Ev::Plugins(plugins::Ev::Config(config)) => model.plugins.set_config(config),
-        Ev::Plugins(plugins::Ev::Answer { request, result }) => {
-            let shown = model.plugins_shown();
-            model.plugins.answered(request, result, shown);
         }
         Ev::AppsNotified(apps) => {
             model.apps.notified(apps);
@@ -1208,12 +1163,9 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 }));
             }
         }
-        Intent::OpenPlugins { cwd } => {
-            if model.plugins.open(cwd) == plugins::Opened::Shown {
-                model.stack = vec![Menu::Plugins];
-            }
+        Intent::RefreshApps => {
+            model.apps.refresh(true);
         }
-        Intent::Plugins(intent) => model.plugins.intent(intent),
         Intent::Quick { gate, open } => model.open_quick(gate, open),
         // The text submitted at the preset editor: the slot picker, or the confirmation.
         Intent::Draft(text) => {
@@ -1263,7 +1215,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.permissions_step(step);
             }
             Some(Menu::Apps) => model.choose_app(&id),
-            Some(Menu::Plugins) => model.choose_plugin(&id),
             Some(Menu::Review(menu)) => {
                 use review::Chosen;
                 match menu.choose(&id) {
@@ -1370,11 +1321,11 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             _ => {}
         },
-        Intent::Toggle(id) => match model.stack.last_mut() {
-            Some(Menu::List(list)) => list.flip(&id),
-            Some(Menu::Plugins) => model.plugins.toggle(&id),
-            _ => {}
-        },
+        Intent::Toggle(id) => {
+            if let Some(Menu::List(list)) = model.stack.last_mut() {
+                list.flip(&id);
+            }
+        }
         Intent::Reorder(id, down) => {
             if let Some(Menu::List(list)) = model.stack.last_mut() {
                 list.reorder(&id, down);
@@ -1389,9 +1340,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Close => {
-            if model.plugins_shown() && model.plugins.back() {
-                return;
-            }
             model.apps.link = None;
             model.stack.pop();
             model.inline_unattended();
@@ -1449,8 +1397,6 @@ pub enum Command {
         slot: u8,
         dial: Option<quick_dials::Dial>,
     },
-    /// A request of the plugin browser (`Plugins::take_wanted`).
-    Plugins(plugins::Wanted),
 }
 
 /// The replies of those RPCs, decoded by `decode`.
@@ -1471,8 +1417,6 @@ pub enum Reply {
     Written {
         overridden: bool,
     },
-    /// The answer of a request of the plugin browser.
-    Plugins(Box<plugins::Found>),
 }
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
@@ -1515,8 +1459,6 @@ pub enum Ctx {
         slot: u8,
         dial: Option<quick_dials::Dial>,
     },
-    /// An answer of the plugin browser: the request it belongs to.
-    Plugins { request: u64 },
     /// `model/list` for an automatic model switch of a usage banner that finds no catalog
     /// (`app/banners.rs`).
     Fallback { backend: crate::ids::BackendId },
@@ -1560,7 +1502,6 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         Command::Write { edits } => persist::write_request(edits, id),
         Command::SetApp { id: app, enabled } => persist::app_enabled_request(app, *enabled, id),
         Command::Preset { slot, dial } => persist::preset_request(*slot, dial.as_ref(), id),
-        Command::Plugins(wanted) => plugins::wire_request(wanted, id),
         Command::Models { .. } => models::list_request(id),
         Command::Collaboration => collaboration::list_request(id),
         Command::Apps { force, thread, .. } => apps::list_request(id, *force, thread.clone()),
@@ -1578,8 +1519,6 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
         Command::Write { .. } | Command::SetApp { .. } | Command::Preset { .. } => {
             persist::written(result).map(|overridden| Reply::Written { overridden })
         }
-        Command::Plugins(wanted) => plugins::decode(wanted, result)
-            .map(|found| Reply::Plugins(Box::new(found))),
         Command::Models { .. } => models::presets(result).map(Reply::Models),
         Command::Collaboration => collaboration::masks(result).map(Reply::Collaboration),
         Command::Apps { .. } => apps::apps(result).map(Reply::Apps),

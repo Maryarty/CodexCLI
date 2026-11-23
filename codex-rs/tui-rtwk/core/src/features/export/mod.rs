@@ -142,6 +142,8 @@ impl Feature for Export {
     type Prompt = Prompt;
     type Note = Note;
     type Fact = Never<Self>;
+    type Wish = Never<Self>;
+    type Interest = Never<Self>;
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
         match intent {

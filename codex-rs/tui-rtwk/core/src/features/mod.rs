@@ -33,8 +33,12 @@ use crate::rpc::RpcError;
 use crate::threads::{Tone, TurnEnd};
 
 mod cx;
+mod remote;
+mod surface;
 
 pub use cx::{AppCx, AppView, Out, ThreadCx, ThreadView};
+pub use remote::Remote;
+pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
 /// The type of a component feature `F` does not use (no RPCs, no menu, no prompt...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
@@ -153,6 +157,14 @@ pub trait Feature: 'static {
     /// What the host tells the feature unasked (`AppEv::Feature`): a config feed, the presets
     /// the config holds. The host builds it with the feature's own type and `From`.
     type Fact: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// A one-shot the feature asks the surface to show (`AppCx::wish`): the setup page of an
+    /// installed plugin. The surface's presenter shows it once and says so (`WishShown`); the
+    /// feature never knows how, or whether, it was drawn (ADR-013 Ж).
+    type Wish: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// What a surface can be interested in (ADR-013 И): a counter per value, raised by a widget
+    /// that shows the data and dropped when it goes. `on_interest` loads on the first, and a
+    /// reconnect asks again for every interest still held.
+    type Interest: Clone + std::fmt::Debug + PartialEq + Eq;
 
     /// An intent of the feature.
     fn intent(state: &mut Self::State, intent: Self::Intent, cx: &mut AppCx<'_>) {
@@ -253,6 +265,17 @@ pub trait Feature: 'static {
         let _ = (part, cx);
     }
 
+    /// The first surface became interested in `interest` (`open`), or the last one lost interest
+    /// (`!open`); also called with `open` for every interest still held after a reconnect.
+    fn on_interest(
+        state: &mut Self::State,
+        interest: &Self::Interest,
+        open: bool,
+        cx: &mut AppCx<'_>,
+    ) {
+        let _ = (state, interest, open, cx);
+    }
+
     /// The wire request of one of the feature's RPCs.
     fn wire(command: &Self::Command, thread: &ThreadId, id: RequestId) -> ClientRequest;
 
@@ -271,6 +294,7 @@ macro_rules! feature_list {
             goal => Goal;
             rename => Rename;
             export => Export;
+            plugins => Plugins;
         }
     };
 }
@@ -362,7 +386,26 @@ macro_rules! feature_dirs {
             $($variant(<$name::$variant as Feature>::Fact),)*
         }
 
+        /// The wishes of every feature: `SurfaceWish` (`AppCx::wish`).
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        #[allow(dead_code)]
+        pub enum FeatureWish {
+            $($variant(<$name::$variant as Feature>::Wish),)*
+        }
+
+        /// The interests of every feature: `Intent::Interest`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureInterest {
+            $($variant(<$name::$variant as Feature>::Interest),)*
+        }
+
         $(
+        impl From<<$name::$variant as Feature>::Wish> for FeatureWish {
+            fn from(wish: <$name::$variant as Feature>::Wish) -> Self { Self::$variant(wish) }
+        }
+        impl From<<$name::$variant as Feature>::Interest> for FeatureInterest {
+            fn from(interest: <$name::$variant as Feature>::Interest) -> Self { Self::$variant(interest) }
+        }
         impl From<<$name::$variant as Feature>::Intent> for FeatureIntent {
             fn from(intent: <$name::$variant as Feature>::Intent) -> Self { Self::$variant(intent) }
         }
@@ -496,6 +539,22 @@ macro_rules! feature_dirs {
             match fact {
                 $(FeatureFact::$variant(fact) => {
                     <$name::$variant as Feature>::on_fact(&mut states.$name, fact, cx)
+                })*
+            }
+        }
+
+        /// A surface became interested in (`open`) or lost interest in (`!open`) what a feature
+        /// shows.
+        #[allow(unused_variables)]
+        pub fn on_interest(
+            states: &mut FeatureStates,
+            interest: &FeatureInterest,
+            open: bool,
+            cx: &mut AppCx<'_>,
+        ) {
+            match *interest {
+                $(FeatureInterest::$variant(ref interest) => {
+                    <$name::$variant as Feature>::on_interest(&mut states.$name, interest, open, cx)
                 })*
             }
         }

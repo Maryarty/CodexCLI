@@ -4,8 +4,10 @@
 //! a change of a thread) and the app carries it out after the call, in the order it was said.
 //! It never holds `&mut` of the app or of a thread's model.
 
+use super::surface::Scope;
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
+    FeatureWish,
 };
 use crate::app::TranscriptText;
 use crate::app::effects::Ask;
@@ -189,6 +191,9 @@ pub enum Out {
     },
     /// What held `thread`'s input back is over: every feature's `on_settled`.
     Settled { thread: ThreadId },
+    /// A one-shot for the surface (ADR-013 Ж): it is queued under `scope` (the directory the
+    /// feature's data is for) and shown once by the surface's presenter.
+    Wish { scope: Scope, wish: FeatureWish },
 }
 
 /// The context of an app-scoped step of a feature: the app as a view, and the outbox.
@@ -294,6 +299,16 @@ impl<'a> AppCx<'a> {
     pub fn settled(&mut self, thread: &ThreadId) {
         self.out.push(Out::Settled {
             thread: thread.clone(),
+        });
+    }
+
+    /// Asks the surface to show `wish` once, for `scope`: the presenter of the surface opens
+    /// the page or routes to it where the feature is already shown, and says it did
+    /// (`Intent::WishShown`); nothing in the feature learns how.
+    pub fn wish(&mut self, scope: impl Into<Scope>, wish: impl Into<FeatureWish>) {
+        self.out.push(Out::Wish {
+            scope: scope.into(),
+            wish: wish.into(),
         });
     }
 

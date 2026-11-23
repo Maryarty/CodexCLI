@@ -177,7 +177,13 @@ impl Services {
             }
             Ask::OpenDesktop { thread } => {
                 let opened = open_url::open_desktop_thread(thread.to_string()).await;
-                (Done::Desktop(opened), None)
+                (Done::Opened(opened), None)
+            }
+            Ask::OpenUrl { url } => {
+                let opened = open_url::open_url(Arc::clone(&self.browser), url)
+                    .await
+                    .map_err(|failure| failure.error);
+                (Done::Opened(opened), None)
             }
             // A title needs an ephemeral thread and a structured turn on the app-server
             // (`generate_thread_title`); until that is built the answer is the oracle's for a

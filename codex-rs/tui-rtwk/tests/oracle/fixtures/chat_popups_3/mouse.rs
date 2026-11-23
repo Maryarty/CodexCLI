@@ -5,7 +5,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use codex_tui_core::screens::select::plugins::{Location, Target, Want};
+use codex_tui_core::features::plugins::{Location, Target, Want};
 
 use super::{plugin, row_of, seed, select_tab};
 use crate::kit::Screen;

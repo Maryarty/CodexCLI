@@ -5,6 +5,7 @@
 //! refresh finds again.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use codex_app_server_protocol as wire;
 
@@ -669,7 +670,7 @@ impl SectionError {
 /// How the remote sections stand (`plugin_remote_sections_loading`, `..._loaded`,
 /// `plugin_remote_section_errors`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Remote {
+pub struct Sections {
     pub loading: bool,
     pub loaded: bool,
     pub errors: Vec<SectionError>,
@@ -677,7 +678,7 @@ pub struct Remote {
     pub vertical: bool,
 }
 
-impl Remote {
+impl Sections {
     fn error(&self, part: Part) -> Option<&SectionError> {
         self.errors.iter().find(|error| error.part == part)
     }
@@ -714,9 +715,9 @@ impl Config {
 /// A row of a tab (`plugin_selection_items`): what the view needs to say it and to act on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
-    /// Unique among the rows of the catalog (`Intent::Choose`, `Intent::Toggle`).
-    pub id: String,
-    pub plugin: String,
+    /// Unique among the rows of the catalog: the marketplace tab the row is listed under and
+    /// the plugin (what a verb about the row names).
+    pub key: RowKey,
     pub name: String,
     pub plugin_name: String,
     /// The marketplace's name as the row says it: the product's label, else this.
@@ -934,8 +935,7 @@ fn rows(list: Vec<Entry<'_>>, copies: &HashMap<&str, LocalCopy<'_>>) -> Vec<Row>
     sort(&mut list);
     list.into_iter()
         .map(|(market, plugin)| Row {
-            id: row_id(&market.tab_id(), &plugin.id),
-            plugin: plugin.id.clone(),
+            key: RowKey::new(market.tab_id(), plugin.id.clone()),
             name: plugin.display_name.clone(),
             plugin_name: plugin.name.clone(),
             marketplace: market.display().to_string(),
@@ -954,27 +954,53 @@ pub fn tab_id_of_root(root: &str) -> String {
     [MARKET, root].concat()
 }
 
-/// The id of a row: the marketplace tab it is listed under and the plugin.
-pub fn row_id(tab: &str, plugin: &str) -> String {
-    ["plugin:", tab, "|", plugin].concat()
+/// A plugin's row in the list of a directory: the tab of the marketplace it is listed under and
+/// the plugin's id there. Typed, so a verb names a row and never a string that was parsed; the
+/// text form (`Display`, `parse`) is what the picker's rows carry as their id.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RowKey {
+    /// The tab id of the marketplace (`Marketplace::tab_id`).
+    pub market: String,
+    pub plugin: String,
+}
+
+impl RowKey {
+    pub fn new(market: impl Into<String>, plugin: impl Into<String>) -> Self {
+        Self {
+            market: market.into(),
+            plugin: plugin.into(),
+        }
+    }
+
+    /// The row a picker item id names (`Display` is its inverse); none for an id of another kind
+    /// of item (`Add marketplace`).
+    pub fn parse(id: &str) -> Option<Self> {
+        let (market, plugin) = id.strip_prefix("plugin:")?.rsplit_once('|')?;
+        Some(Self::new(market, plugin))
+    }
+}
+
+impl fmt::Display for RowKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "plugin:{}|{}", self.market, self.plugin)
+    }
 }
 
 impl Catalog {
-    /// The plugin a row id names: its marketplace, and the plugin.
-    pub fn row(&self, row: &str) -> Option<(&Marketplace, &Plugin)> {
-        let (tab, plugin) = row.strip_prefix("plugin:")?.rsplit_once('|')?;
-        self.find(tab, plugin)
+    /// The plugin a row names: its marketplace, and the plugin.
+    pub fn row(&self, row: &RowKey) -> Option<(&Marketplace, &Plugin)> {
+        self.find(&row.market, &row.plugin)
     }
 
     /// The detail request of a row.
-    pub fn detail_target(&self, row: &str) -> Option<Target> {
+    pub fn detail_target(&self, row: &RowKey) -> Option<Target> {
         let (market, plugin) = self.row(row)?;
         detail_of(market, plugin, &local_copies(&self.marketplaces))
     }
 
     /// `plugins_popup_params`: the tabs, in the oracle's order. `fresh` is the tab of a
     /// marketplace just added.
-    pub fn tabs(&self, config: &Config, remote: &Remote, fresh: Option<&str>) -> Vec<Tab> {
+    pub fn tabs(&self, config: &Config, remote: &Sections, fresh: Option<&str>) -> Vec<Tab> {
         let copies = local_copies(&self.marketplaces);
         let all = entries(&self.marketplaces);
         let counts = |list: &[Entry]| {
@@ -1108,7 +1134,7 @@ impl Catalog {
     }
 
     /// `RemoteMarketplaceSection::fallback_tab`.
-    fn placeholder(&self, section: Section, remote: &Remote) -> Option<(u8, Tab)> {
+    fn placeholder(&self, section: Section, remote: &Sections) -> Option<(u8, Tab)> {
         if self.marketplaces.iter().any(|m| section.holds(&m.name)) {
             return None;
         }
