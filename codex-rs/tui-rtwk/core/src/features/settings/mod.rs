@@ -168,9 +168,7 @@ impl State {
                 }),
                 None => return,
             },
-            Which::StatusLine => {
-                Offer::Setup(items::status_line(&cx.view().screens().chat.status))
-            }
+            Which::StatusLine => Offer::Setup(items::status_line(&cx.view().screens().chat.status)),
             Which::Title => Offer::Setup(items::title(&cx.view().screens().chat.status)),
             Which::Config | Which::Skills | Which::Keymap | Which::Experimental | Which::Hooks => {
                 return;

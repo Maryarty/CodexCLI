@@ -8,24 +8,25 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible, MainAxisSize, Padding,
     SizedBox,
 };
-use rtwk::prelude::Mods;
 use rtwk::provider::read;
 use rtwk::scroll::ScrollController;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::{Intent, UpdateChoice, UpdateOffer};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::{bind_fixed, fixed_presses};
 use crate::l10n::strings as shared;
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
 
@@ -199,25 +200,28 @@ impl State for UpdatePromptState {
         let panel = BoxWidget::new()
             .style(tokens.prompt_surface(cx, false))
             .child(column);
-        let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
         let mut focus = Focus::new(panel).autofocus();
-        for (key, msg) in [
-            (KeyPress::UP, Msg::Step(-1)),
-            (KeyPress::char('k'), Msg::Step(-1)),
-            (KeyPress::DOWN, Msg::Step(1)),
-            (KeyPress::char('j'), Msg::Step(1)),
-            (KeyPress::char('1'), Msg::Choose(UpdateChoice::UpdateNow)),
-            (KeyPress::char('2'), Msg::Choose(UpdateChoice::Skip)),
-            (
-                KeyPress::char('3'),
-                Msg::Choose(UpdateChoice::SkipUntilNextVersion),
-            ),
-            (KeyPress::ENTER, Msg::Confirm),
-            (KeyPress::ESC, Msg::Choose(UpdateChoice::Skip)),
-            (ctrl('c'), Msg::Choose(UpdateChoice::Skip)),
-            (ctrl('d'), Msg::Choose(UpdateChoice::Skip)),
+        for (id, msg) in [
+            (fixed::PICK_PREVIOUS, Msg::Step(-1)),
+            (fixed::PICK_NEXT, Msg::Step(1)),
+            (fixed::ENTER, Msg::Confirm),
+            (fixed::DISMISS, Msg::Choose(UpdateChoice::Skip)),
+            (fixed::PICK_QUIT, Msg::Choose(UpdateChoice::Skip)),
         ] {
-            focus = focus.bind(key, cx.send(msg));
+            focus = bind_fixed(focus, id, cx.send(msg));
+        }
+        // The first three number keys choose, in the order of the rows.
+        for (at, choice) in [
+            UpdateChoice::UpdateNow,
+            UpdateChoice::Skip,
+            UpdateChoice::SkipUntilNextVersion,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if let Some(key) = fixed_presses(fixed::PICK_NUMBERS).into_iter().nth(at) {
+                focus = focus.bind(key, cx.send(Msg::Choose(choice)));
+            }
         }
         focus.into()
     }

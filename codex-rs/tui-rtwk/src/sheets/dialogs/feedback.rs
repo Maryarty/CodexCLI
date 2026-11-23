@@ -5,17 +5,19 @@
 use std::rc::Rc;
 
 use rtwk::controls::SelectionList;
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::overlay::Dialog;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::dialogs::{Attachments, FeedbackCategory};
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;
 use crate::app::theme::Tokens;
+use crate::keymap::bind_fixed;
 
 /// A step of the feedback flow: drawn state of the dialog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,9 +107,11 @@ fn files(attachments: &Attachments, s: &Strings) -> Vec<String> {
 /// The dialog around a step: Esc closes, the digits pick a row.
 fn frame(dialog: Dialog, count: usize, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
     let consent = count == 2;
-    let mut focus = Focus::new(dialog)
-        .can_request_focus(false)
-        .bind(KeyPress::ESC, cx.send(Msg::Close));
+    let mut focus = bind_fixed(
+        Focus::new(dialog).can_request_focus(false),
+        fixed::DISMISS,
+        cx.send(Msg::Close),
+    );
     for index in 0..count.min(9) {
         if let Some(digit) = char::from_digit(u32::try_from(index + 1).unwrap_or(0), 10) {
             let msg = if consent {

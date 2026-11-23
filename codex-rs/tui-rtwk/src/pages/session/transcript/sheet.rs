@@ -12,7 +12,7 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
@@ -248,9 +248,9 @@ impl State for SheetState {
         for (key, msg) in [
             step(fixed::DISMISS, Msg::Esc),
             step(fixed::BROWSE_OLDER, Msg::Older),
-            vec![(KeyPress::char('h'), Msg::Older)],
+            step(fixed::BROWSE_OLDER_VIM, Msg::Older),
             step(fixed::BROWSE_NEWER, Msg::Newer),
-            vec![(KeyPress::char('l'), Msg::Newer)],
+            step(fixed::BROWSE_NEWER_VIM, Msg::Newer),
             step(fixed::ENTER, Msg::Confirm),
         ]
         .into_iter()

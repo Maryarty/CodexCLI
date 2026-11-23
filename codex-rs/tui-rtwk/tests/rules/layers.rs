@@ -768,6 +768,40 @@ fn features_are_named_only_through_the_list() {
     );
 }
 
+/// The plain `pub mod` lines of `core/src/features/mod.rs` (written out so that rustfmt follows
+/// them), sorted.
+fn declared_feature_mods(mod_rs: &str) -> Vec<String> {
+    let mut mods: Vec<String> = code_lines(mod_rs)
+        .filter_map(|(_, line)| {
+            let name = line.trim().strip_prefix("pub mod ")?.strip_suffix(';')?;
+            name.chars().all(is_ident).then(|| name.to_string())
+        })
+        .collect();
+    mods.sort();
+    mods
+}
+
+/// The two lists of a feature agree: a module line without a `feature_list!` entry compiles
+/// (the other way round it does not), so an extra plain `pub mod` is caught here.
+#[test]
+fn the_plain_feature_mods_are_the_feature_list() {
+    let mod_rs = read("core/src/features/mod.rs");
+    let mut listed = listed_features(&mod_rs);
+    listed.sort();
+    assert_eq!(
+        declared_feature_mods(&mod_rs),
+        listed,
+        "the `pub mod` lines of core/src/features/mod.rs and the entries of feature_list! differ"
+    );
+}
+
+#[test]
+fn the_feature_mod_scan_bites() {
+    let text =
+        "// pub mod commented;\nmod private;\npub mod goal;\npub mod queue;\npub use goal::Goal;\n";
+    assert_eq!(declared_feature_mods(text), ["goal", "queue"]);
+}
+
 #[test]
 fn the_feature_naming_scan_bites() {
     let list = "#[macro_export]\nmacro_rules! feature_list {\n    ($callback:ident) => {\n        $callback! {\n        goal => Goal;\n        queue => Queue;\n        }\n    };\n}\n";

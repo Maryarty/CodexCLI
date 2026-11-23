@@ -111,7 +111,10 @@ pub fn status_line(facts: &StatusFacts) -> Setup {
             .iter()
             .map(|item| canonical(item).to_owned())
             .collect(),
-        None => DEFAULT_STATUS_LINE_ITEMS.iter().map(ToString::to_string).collect(),
+        None => DEFAULT_STATUS_LINE_ITEMS
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
     };
     setup(
         SetupKind::StatusLine,
@@ -173,7 +176,15 @@ mod tests {
         };
         let setup = status_line(&facts);
         let ids: Vec<&str> = setup.items.iter().map(|item| item.id.as_str()).collect();
-        assert_eq!(&ids[..4], ["use_theme_colors", "git-branch", "model", "model-with-reasoning"]);
+        assert_eq!(
+            &ids[..4],
+            [
+                "use_theme_colors",
+                "git-branch",
+                "model",
+                "model-with-reasoning"
+            ]
+        );
         assert_eq!(ids.len(), 1 + STATUS_LINE.len());
         assert!(setup.items[1].enabled && setup.items[2].enabled && !setup.items[3].enabled);
     }

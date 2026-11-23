@@ -67,8 +67,14 @@ pub enum Discoverability {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
     Local,
-    Git { url: String, reference: Option<String> },
-    Npm { package: String, version: Option<String> },
+    Git {
+        url: String,
+        reference: Option<String>,
+    },
+    Npm {
+        package: String,
+        version: Option<String>,
+    },
     Remote,
 }
 
@@ -179,7 +185,9 @@ impl Plugin {
                 url,
                 reference: ref_name,
             },
-            wire::PluginSource::Npm { package, version, .. } => Source::Npm { package, version },
+            wire::PluginSource::Npm {
+                package, version, ..
+            } => Source::Npm { package, version },
             wire::PluginSource::Remote => Source::Remote,
         };
         Self {
@@ -487,7 +495,10 @@ impl Catalog {
 
     /// The plugin with this id in the marketplace whose tab id is `tab`.
     fn find(&self, tab: &str, id: &str) -> Option<(&Marketplace, &Plugin)> {
-        let market = self.marketplaces.iter().find(|entry| entry.tab_id() == tab)?;
+        let market = self
+            .marketplaces
+            .iter()
+            .find(|entry| entry.tab_id() == tab)?;
         market
             .plugins
             .iter()
@@ -764,7 +775,10 @@ pub enum Kind {
         twin: Option<(usize, usize)>,
     },
     /// A placeholder of a remote section.
-    Section { section: Section, state: Placeholder },
+    Section {
+        section: Section,
+        state: Placeholder,
+    },
     Add,
 }
 
@@ -985,7 +999,13 @@ impl RowKey {
 
 impl fmt::Display for RowKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "plugin:{}|{}{}", self.market.len(), self.market, self.plugin)
+        write!(
+            f,
+            "plugin:{}|{}{}",
+            self.market.len(),
+            self.market,
+            self.plugin
+        )
     }
 }
 
@@ -1215,7 +1235,9 @@ pub struct Detail {
 pub enum Action {
     /// Installed by the admin: nothing to do.
     InstalledByAdmin,
-    Uninstall { id: String },
+    Uninstall {
+        id: String,
+    },
     /// A remote plugin gave no identity to uninstall it by.
     UninstallUnavailable,
     DisabledByAdmin,

@@ -8,7 +8,7 @@ use rtwk::layout::{Column, CrossAxisAlignment};
 use rtwk::style::Style;
 use rtwk::text::{Text, TextWrap};
 
-use codex_tui_core::keymap::fixed::{QUIT_OR_INTERRUPT, USAGE_PREVIOUS_TAB};
+use codex_tui_core::keymap::fixed::{INTERRUPT_OR_QUIT, USAGE_PREVIOUS_TAB};
 use codex_tui_core::keymap::{ActionId, Keymap};
 use codex_tui_core::screens::usage::{Control, Model};
 
@@ -32,7 +32,7 @@ pub(super) fn lines(
 ) -> Vec<String> {
     let hint = |id| keys::hint(keymap, id);
     let shift_tab = stroke_label_of(USAGE_PREVIOUS_TAB);
-    let interrupt = stroke_label_of(QUIT_OR_INTERRUPT);
+    let interrupt = stroke_label_of(INTERRUPT_OR_QUIT);
     let count = model.visible_sections().len() as u64;
     let mut out = vec![
         strings.help_tabs(&shift_tab, num),

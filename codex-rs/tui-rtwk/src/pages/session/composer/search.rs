@@ -24,8 +24,8 @@ use super::strings;
 use crate::app::theme;
 use crate::keymap::pressed;
 use codex_tui_core::keymap::fixed::{
-    DEBUG_KEY, HISTORY_NEXT, HISTORY_PREVIOUS, SEARCH_ACCEPT, SEARCH_CANCEL, SEARCH_CLEAR,
-    SEARCH_ERASE,
+    DEBUG_KEY, HISTORY_NEXT, HISTORY_PREVIOUS, SEARCH_ACCEPT, SEARCH_CANCEL, SEARCH_CANCEL_BYTE,
+    SEARCH_CLEAR, SEARCH_ERASE,
 };
 
 /// Whether `key` opens the search (`is_history_search_key`): only the
@@ -58,7 +58,7 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     {
         draft.search_step(c, store, WalkDirection::Newer, &mut asks);
     } else if pressed(&data.keymap, SEARCH_CANCEL, key)
-        || (key.mods.is_empty() && key.text() == Some("\u{3}"))
+        || pressed(&data.keymap, SEARCH_CANCEL_BYTE, key)
     {
         draft.search_cancel(c);
     } else if pressed(&data.keymap, SEARCH_ACCEPT, key) && plain {

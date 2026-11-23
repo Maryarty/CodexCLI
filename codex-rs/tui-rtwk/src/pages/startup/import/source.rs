@@ -19,7 +19,7 @@ use rtwk::style::{Span, Style};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::fixed::{IMPORT_ACCEPT, IMPORT_CANCEL, IMPORT_NEXT, IMPORT_PREVIOUS};
+use codex_tui_core::keymap::fixed::{IMPORT_ACCEPT, IMPORT_CANCEL, PICK_NEXT, PICK_PREVIOUS};
 use codex_tui_core::screens::import::{Intent, Source};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
@@ -197,8 +197,8 @@ impl State for SourcePromptState {
         let key = |key: Pick| cx.send(key);
         let mut bindings: Vec<(String, _)> = Vec::new();
         for (id, pick) in [
-            (IMPORT_PREVIOUS, Pick::Up),
-            (IMPORT_NEXT, Pick::Down),
+            (PICK_PREVIOUS, Pick::Up),
+            (PICK_NEXT, Pick::Down),
             (IMPORT_ACCEPT, Pick::Enter),
             (IMPORT_CANCEL, Pick::Cancel),
         ] {

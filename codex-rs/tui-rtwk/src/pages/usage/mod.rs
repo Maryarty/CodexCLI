@@ -23,7 +23,7 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::Keymap;
+use codex_tui_core::keymap::{Keymap, fixed};
 use codex_tui_core::screens::usage::chats::Pos as ChatPos;
 use codex_tui_core::screens::usage::plan::{PlanStep, Pos as PlanPos};
 use codex_tui_core::screens::usage::{
@@ -37,6 +37,7 @@ use crate::app::debug::EntryOpen;
 use crate::app::debug::seeded::Seeded;
 use crate::app::theme;
 use crate::app::view::Hs;
+use crate::keymap::press_for;
 use crate::l10n::strings as shared;
 
 mod cards;
@@ -1036,9 +1037,14 @@ impl State for ScreenState {
         });
         // The page's own keys yield to a key a list action has taken.
         let mut focus = Focus::new(body).autofocus();
-        let mut own: Vec<(&str, KeyPress, Msg)> = vec![
-            ("tab", KeyPress::TAB, Msg::Step(1)),
-            ("shift+tab", KeyPress::BACKTAB, Msg::Step(-1)),
+        let mut own: Vec<(&str, KeyPress, Msg)> = [
+            ("tab", fixed::USAGE_NEXT_TAB, Msg::Step(1)),
+            ("shift+tab", fixed::USAGE_PREVIOUS_TAB, Msg::Step(-1)),
+        ]
+        .into_iter()
+        .filter_map(|(name, id, msg)| Some((name, press_for(id)?, msg)))
+        .collect();
+        own.extend([
             ("r", 'r'.into(), Msg::Range),
             ("g", 'g'.into(), Msg::Group),
             ("m", 'm'.into(), Msg::Model),
@@ -1047,7 +1053,7 @@ impl State for ScreenState {
             ("q", 'q'.into(), Msg::Close),
             ("a", 'a'.into(), Msg::ZeroGroups),
             ("s", 's'.into(), Msg::SortMetric),
-        ];
+        ]);
         for (index, name) in ["1", "2", "3", "4", "5", "6", "7"].into_iter().enumerate() {
             let digit = char::from_digit(index as u32 + 1, 10).unwrap_or('1');
             own.push((name, digit.into(), Msg::Pick(index)));

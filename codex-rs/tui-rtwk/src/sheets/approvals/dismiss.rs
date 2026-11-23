@@ -12,9 +12,11 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::keymap::fixed;
 
 use crate::app::theme;
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 use crate::l10n::strings as l10n;
 
 /// The skeleton's dialog for a request: dismiss it.
@@ -66,7 +68,7 @@ impl State for DismissDialogState {
     fn build(&self, w: &DismissDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
         let strings = l10n::of(cx);
-        Focus::new(
+        let focus = Focus::new(
             Dialog::new(
                 Column::new()
                     .main_axis_size(MainAxisSize::Min)
@@ -82,8 +84,7 @@ impl State for DismissDialogState {
             )
             .title(strings.presenter.title),
         )
-        .can_request_focus(false)
-        .bind(rtwk::focus::KeyPress::ESC, cx.send(DismissMsg::Dismiss))
-        .into()
+        .can_request_focus(false);
+        bind_fixed(focus, fixed::DISMISS, cx.send(DismissMsg::Dismiss)).into()
     }
 }
