@@ -19,17 +19,18 @@ use rtwk::layout::{
     Flexible, MainAxisAlignment, MainAxisSize, Padding, Row, UNBOUNDED,
 };
 use rtwk::overlay::{Dialog, close_dialog};
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::read;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::input::{self, AutoResolution, Draft};
 use codex_tui_core::screens::approvals::{Intent, Prompt, Question};
 
+use super::keys::{Press, is_backspace, press_of, types_text};
 use super::strings::{self, Strings};
 use super::tips;
 use crate::app::theme::Tokens;
@@ -175,61 +176,30 @@ impl_widget!(stateful eq UserInputView);
 
 /// The keys of the dialog, whatever the question: what the oracle's `handle_key_event` reads
 /// (a key a mode does not take is ignored by `update`).
-fn msg_of(key: &KeyPress) -> Option<Msg> {
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let letter = key.text().and_then(|text| {
-        let mut chars = text.chars();
-        let first = chars.next()?;
-        chars.next().is_none().then_some(first)
-    });
-    let plain = key.mods == Mods::NONE;
-    match (key.code, letter) {
-        (KeyCode::Escape, _) => Some(Msg::Cancel),
-        (KeyCode::Char, Some('c')) if ctrl => Some(Msg::CtrlC),
-        (KeyCode::Char, Some('p')) if ctrl => Some(Msg::Question(false)),
-        (KeyCode::Char, Some('n')) if ctrl => Some(Msg::Question(true)),
-        (KeyCode::PageUp, _) if plain => Some(Msg::Question(false)),
-        (KeyCode::PageDown, _) if plain => Some(Msg::Question(true)),
-        // the list keymap's defaults (`keymap.rs` `list`): the runtime keymap is the app's, and
-        // wires through when it reaches the port
-        (KeyCode::Left, _) if plain => Some(Msg::Side(false)),
-        (KeyCode::Char, Some('h')) if plain || ctrl => Some(Msg::Side(false)),
-        (KeyCode::Right, _) if plain => Some(Msg::Side(true)),
-        (KeyCode::Char, Some('l')) if plain || ctrl => Some(Msg::Side(true)),
-        (KeyCode::Up, _) if plain => Some(Msg::Cursor(-1)),
-        (KeyCode::Char, Some('k')) if plain || ctrl => Some(Msg::Cursor(-1)),
-        (KeyCode::Down, _) if plain => Some(Msg::Cursor(1)),
-        (KeyCode::Char, Some('j')) if plain || ctrl => Some(Msg::Cursor(1)),
-        // `^H` (0x08) is Backspace with Ctrl to rtwk's parser, ctrl+h to the oracle's crossterm:
-        // the list keymap's MoveLeft
-        (KeyCode::Backspace, _) if key.mods == Mods::CTRL => Some(Msg::Side(false)),
-        (KeyCode::Backspace | KeyCode::Delete, _) if plain => Some(Msg::Clear),
-        (KeyCode::Char, Some(' ')) if plain => Some(Msg::Pick),
-        (KeyCode::Tab, _) if plain => Some(Msg::Tab),
-        (KeyCode::Enter, _) if plain => Some(Msg::Accept),
-        (KeyCode::Char, Some(digit)) if plain => digit
-            .to_digit(10)
-            .filter(|digit| *digit > 0)
-            .and_then(|digit| usize::try_from(digit).ok())
-            .map(Msg::Digit),
-        _ => None,
-    }
+fn msg_of(keymap: &Keymap, key: &KeyPress) -> Option<Msg> {
+    Some(match press_of(keymap, key)? {
+        Press::Cancel => Msg::Cancel,
+        Press::Interrupt => Msg::CtrlC,
+        Press::Question(next) => Msg::Question(next),
+        Press::Side(next) => Msg::Side(next),
+        Press::Cursor(delta) => Msg::Cursor(delta),
+        Press::Clear => Msg::Clear,
+        Press::Pick => Msg::Pick,
+        Press::Tab => Msg::Tab,
+        Press::Accept => Msg::Accept,
+        Press::Digit(digit) => Msg::Digit(digit),
+    })
 }
 
 /// The keys the dialog reads on the notes before the text area does (the oracle reads them
 /// before the composer): cancel, the move between questions, and on an option question the
 /// tab, the arrows (they move the options) and Backspace on empty notes.
-fn notes_msg(key: &KeyPress, options: bool, empty: bool) -> Option<Msg> {
-    let msg = msg_of(key)?;
-    let ctrl_pn =
-        key.mods.contains(Mods::CTRL) && key.text().is_some_and(|text| text == "p" || text == "n");
+fn notes_msg(keymap: &Keymap, key: &KeyPress, options: bool, empty: bool) -> Option<Msg> {
+    let msg = msg_of(keymap, key)?;
     match msg {
-        Msg::Cancel | Msg::CtrlC => Some(msg),
-        Msg::Question(_) if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) || ctrl_pn => {
-            Some(msg)
-        }
-        Msg::Tab | Msg::Cursor(_) if options && !matches!(key.code, KeyCode::Char) => Some(msg),
-        Msg::Clear if options && empty && key.code == KeyCode::Backspace => Some(Msg::HideNotes),
+        Msg::Cancel | Msg::CtrlC | Msg::Question(_) => Some(msg),
+        Msg::Tab | Msg::Cursor(_) if options && !types_text(key) => Some(msg),
+        Msg::Clear if options && empty && is_backspace(key) => Some(Msg::HideNotes),
         _ => None,
     }
 }
@@ -239,7 +209,7 @@ impl UserInputViewState {
         self.questions
             .iter()
             .map(|state| Draft {
-                selected: state.selected.then(|| state.options.cursor()),
+                choice: state.selected.then(|| state.options.cursor()),
                 committed: state.committed,
                 notes: state.notes.text().to_string(),
             })
@@ -417,11 +387,12 @@ impl State for UserInputViewState {
 
     fn init_state(&mut self, w: &UserInputView, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
+        let keymap = read::<Keymap, _>(cx);
         self.node
             .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| {
                 // Any key of the dialog ends the countdown, whether the dialog takes it or not.
                 send(Msg::Snooze);
-                match msg_of(&key) {
+                match msg_of(&keymap, &key) {
                     Some(msg) => {
                         send(msg);
                         KeyEventResult::Handled
@@ -694,9 +665,10 @@ impl UserInputViewState {
             // The text area takes Backspace, the arrows and Ctrl+C for its own text; the dialog
             // reads them first (the oracle's `handle_key_event` reads them before the composer).
             let send = cx.local_sender();
+            let keymap = crate::keymap::keymap(cx);
             let take = move |notes: &TextEditingController, key: &KeyPress| {
                 let empty = notes.text().trim().is_empty();
-                match notes_msg(key, has_options, empty) {
+                match notes_msg(&keymap, key, has_options, empty) {
                     Some(msg) => {
                         send(msg);
                         true

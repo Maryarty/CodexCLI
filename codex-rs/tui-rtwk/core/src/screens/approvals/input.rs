@@ -73,11 +73,11 @@ pub const OTHER_ANSWER: &str = "None of the above";
 /// How a note follows the chosen option in the answer list (`user_note: ...`).
 const NOTE_PREFIX: &str = "user_note: ";
 
-/// What the user has done on one question: the option the selection is on, whether that
+/// What the user has done on one question: the option the answer takes, whether that
 /// answer was committed (Enter, Space, a digit), and the notes (or the freeform answer) typed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Draft {
-    pub selected: Option<usize>,
+    pub choice: Option<usize>,
     pub committed: bool,
     pub notes: String,
 }
@@ -109,7 +109,7 @@ pub fn label(question: &Question, index: usize) -> Option<String> {
 /// non-empty text.
 pub fn answered(question: &Question, draft: &Draft) -> bool {
     if has_options(question) {
-        draft.selected.is_some() && draft.committed
+        draft.choice.is_some() && draft.committed
     } else {
         draft.committed
     }
@@ -140,7 +140,7 @@ pub fn answer(questions: &[Question], drafts: &[Draft]) -> RequestAnswer {
         .zip(drafts)
         .map(|(question, draft)| {
             let selected = if has_options(question) && draft.committed {
-                draft.selected.and_then(|index| label(question, index))
+                draft.choice.and_then(|index| label(question, index))
             } else {
                 None
             };

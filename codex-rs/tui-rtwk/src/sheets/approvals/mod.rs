@@ -12,6 +12,7 @@ mod dialog;
 mod dismiss;
 mod form;
 mod guardian;
+mod keys;
 mod present;
 mod tips;
 mod user_input;

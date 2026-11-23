@@ -20,18 +20,19 @@ use rtwk::layout::{
     MainAxisAlignment, MainAxisSize, Padding, UNBOUNDED,
 };
 use rtwk::overlay::Dialog;
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::read;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::form::{Action, Field, FieldInput, Form};
 use codex_tui_core::screens::approvals::{ElicitationPrompt, Entered, Intent, Prompt};
 use codex_tui_core::screens::composer::{MAX_INPUT_CHARS, too_large};
 
+use super::keys::{Press, press_of};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
@@ -146,56 +147,27 @@ impl_widget!(stateful eq FormView);
 /// The form-level keys, whichever field is current: what the oracle's
 /// `handle_key_event` does before and in the select branch. A key a list
 /// does not take is ignored by `update` on a text field.
-fn msg_of(key: &KeyPress) -> Option<Msg> {
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    let letter = key.text().and_then(|text| {
-        let mut chars = text.chars();
-        let first = chars.next()?;
-        chars.next().is_none().then_some(first)
-    });
-    let plain = key.mods == Mods::NONE;
-    match (key.code, letter) {
-        (KeyCode::Escape, _) => Some(Msg::Cancel),
-        (KeyCode::Char, Some('c')) if ctrl => Some(Msg::CtrlC),
-        (KeyCode::Char, Some('p')) if ctrl => Some(Msg::Field(false)),
-        (KeyCode::Char, Some('n')) if ctrl => Some(Msg::Field(true)),
-        (KeyCode::PageUp, _) if plain => Some(Msg::Field(false)),
-        (KeyCode::PageDown, _) if plain => Some(Msg::Field(true)),
-        (KeyCode::Left, _) if plain => Some(Msg::Field(false)),
-        (KeyCode::Char, Some('h')) if plain || ctrl && !alt => Some(Msg::Field(false)),
-        (KeyCode::Right, _) if plain => Some(Msg::Field(true)),
-        (KeyCode::Char, Some('l')) if plain || ctrl && !alt => Some(Msg::Field(true)),
-        (KeyCode::Up, _) if plain => Some(Msg::Cursor(-1)),
-        (KeyCode::Char, Some('k')) if plain || ctrl && !alt => Some(Msg::Cursor(-1)),
-        (KeyCode::Down, _) if plain => Some(Msg::Cursor(1)),
-        (KeyCode::Char, Some('j')) if plain || ctrl && !alt => Some(Msg::Cursor(1)),
-        // `^H` (0x08) is Backspace with Ctrl to rtwk's parser, ctrl+h to the oracle's crossterm:
-        // the list keymap's MoveLeft
-        (KeyCode::Backspace, _) if key.mods == Mods::CTRL => Some(Msg::Field(false)),
-        (KeyCode::Backspace | KeyCode::Delete, _) if plain => Some(Msg::Uncommit),
-        (KeyCode::Char, Some(' ')) if plain => Some(Msg::Pick),
-        (KeyCode::Enter, _) if plain => Some(Msg::Accept),
-        (KeyCode::Char, Some(digit)) if plain => digit
-            .to_digit(10)
-            .filter(|digit| *digit > 0)
-            .and_then(|digit| usize::try_from(digit).ok())
-            .map(Msg::Digit),
-        _ => None,
+fn msg_of(keymap: &Keymap, key: &KeyPress) -> Option<Msg> {
+    match press_of(keymap, key)? {
+        Press::Cancel => Some(Msg::Cancel),
+        Press::Interrupt => Some(Msg::CtrlC),
+        Press::Question(next) | Press::Side(next) => Some(Msg::Field(next)),
+        Press::Cursor(delta) => Some(Msg::Cursor(delta)),
+        Press::Clear => Some(Msg::Uncommit),
+        Press::Pick => Some(Msg::Pick),
+        Press::Accept => Some(Msg::Accept),
+        Press::Digit(digit) => Some(Msg::Digit(digit)),
+        Press::Tab => None,
     }
 }
 
 /// The keys the form reads on a text field before the text area does: cancel, and the move
 /// between fields (the other keys of `msg_of` belong to the list fields).
-fn text_field_msg(key: &KeyPress) -> Option<Msg> {
-    let msg = msg_of(key)?;
-    let ctrl_pn =
-        key.mods.contains(Mods::CTRL) && key.text().is_some_and(|text| text == "p" || text == "n");
-    match msg {
-        Msg::Cancel | Msg::CtrlC => Some(msg),
-        Msg::Field(_) if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) || ctrl_pn => {
-            Some(msg)
-        }
+fn text_field_msg(keymap: &Keymap, key: &KeyPress) -> Option<Msg> {
+    match press_of(keymap, key)? {
+        Press::Cancel => Some(Msg::Cancel),
+        Press::Interrupt => Some(Msg::CtrlC),
+        Press::Question(next) => Some(Msg::Field(next)),
         _ => None,
     }
 }
@@ -275,15 +247,17 @@ impl State for FormViewState {
 
     fn init_state(&mut self, _: &FormView, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
+        let keymap = read::<Keymap, _>(cx);
         // The text area takes PageUp, PageDown, ctrl+p and ctrl+n for its rows;
         // the form changes field with them (the oracle's `handle_key_event`
         // reads them before the composer), so each field's node meets them first.
         for state in &self.fields {
             let send = send.clone();
+            let keymap = keymap.clone();
             state
                 .node
                 .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| {
-                    match text_field_msg(&key) {
+                    match text_field_msg(&keymap, &key) {
                         Some(msg) => send(msg),
                         None => return KeyEventResult::Ignored,
                     }
@@ -291,12 +265,14 @@ impl State for FormViewState {
                 })));
         }
         self.node
-            .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| match msg_of(&key) {
-                Some(msg) => {
-                    send(msg);
-                    KeyEventResult::Handled
+            .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| {
+                match msg_of(&keymap, &key) {
+                    Some(msg) => {
+                        send(msg);
+                        KeyEventResult::Handled
+                    }
+                    None => KeyEventResult::Ignored,
                 }
-                None => KeyEventResult::Ignored,
             })));
     }
 
