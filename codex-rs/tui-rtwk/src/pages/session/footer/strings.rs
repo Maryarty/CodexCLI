@@ -75,6 +75,8 @@ pub struct Strings {
     pub vim_normal: &'static str,
     pub vim_insert: &'static str,
     pub vim_replace: &'static str,
+    /// `footer_hint_items_line`: the cell between a hint override's key and its label.
+    pub key_gap: &'static str,
     /// `footer.rs` `side_conversation_context_line`: the word the label opens
     /// with (it is drawn bold) and the endings that mark a key hint, longest
     /// match first as the oracle tries them.
@@ -178,6 +180,7 @@ pub const EN: Strings = Strings {
     vim_normal: "Vim: Normal",
     vim_insert: "Vim: Insert",
     vim_replace: "Vim: Replace",
+    key_gap: " ",
     side_word: "Side",
     side_actions: [" to switch", " to close", " to archive", " for side"],
     side_join: " \u{b7} ",

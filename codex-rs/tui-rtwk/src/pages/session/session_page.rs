@@ -897,6 +897,8 @@ impl State for ChatState {
                     draft_empty: self.draft_empty,
                     shell: self.draft_shell,
                     vim: w.ui.draft.with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
+                    hint_override: None,
+                    flash: None,
                     on_queue: Some(cx.send(ChatMsg::QueueDraft)),
                     on_warnings: Some(cx.send(ChatMsg::Action(Action::OpenWarnings))),
                     on_close: Some(cx.send(ChatMsg::Shortcuts)),

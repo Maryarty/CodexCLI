@@ -66,17 +66,20 @@ fn status_row(h: &Harness) -> String {
         .unwrap_or_default()
 }
 
-// The person's screenshot, items that need the session left out: the row sits
-// two cells in, the items joined by ` · ` in the configured order.
+// The person's screenshot: the row sits two cells in, the items joined by ` · ` in the
+// configured order. A session that has counted no tokens still says `Context 100% left` and
+// `0% used` (`status_line_value_for_item`: no window and no count read as a full window);
+// the rate-limit items wait for rate-limit data and stay out.
 #[test]
 fn status_line_shows_the_configured_items() {
     let h = session(80, &status("GPT-6.2-Sol", SCREENSHOT_ITEMS, true));
-    assert_eq!(
-        status_row(&h),
-        "  GPT-6.2-Sol high · rtwk · main · Approve for me",
+    assert!(
+        status_row(&h)
+            .starts_with("  GPT-6.2-Sol high · rtwk · main · Approve for me · Context 100% left"),
         "{}",
         h.t.screen()
     );
+    assert!(h.t.screen().contains("0% used"), "{}", h.t.screen());
 }
 
 // Reordering the config's list reorders the line (`configured_status_line_items`).

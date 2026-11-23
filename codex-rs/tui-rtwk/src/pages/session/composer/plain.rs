@@ -271,6 +271,8 @@ impl State for EmbeddedState {
                 draft_empty: self.draft_empty,
                 shell: false,
                 vim: None,
+                hint_override: None,
+                flash: None,
                 on_queue: None,
                 on_warnings: None,
                 on_close: None,

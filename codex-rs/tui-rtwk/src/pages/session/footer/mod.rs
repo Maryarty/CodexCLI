@@ -16,8 +16,11 @@ mod effort;
 mod effort_frames;
 pub use effort::{Aura, Prompt};
 pub mod entries;
+mod flash;
+pub use flash::{Flash, Timed, Tone};
 pub mod hints;
 mod indicators;
+mod lead;
 mod sparkle;
 pub use sparkle::Sparkle;
 mod status_rows;
@@ -88,6 +91,11 @@ pub struct Footer {
     pub shell: bool,
     /// The draft's Vim mode, none with Vim off.
     pub vim: Option<VimMode>,
+    /// `set_footer_hint_override`: `(key, label)` items that take the left
+    /// side from the passive hints.
+    pub hint_override: Option<Vec<(String, String)>>,
+    /// `show_footer_flash`: a line over the hint override; `Timed` ends it.
+    pub flash: Option<Flash>,
     /// A tap on the queue hint.
     pub on_queue: Option<Handler<()>>,
     /// A tap on the warning notice.
@@ -103,6 +111,8 @@ impl PartialEq for Footer {
             && self.draft_empty == other.draft_empty
             && self.shell == other.shell
             && self.vim == other.vim
+            && self.hint_override == other.hint_override
+            && self.flash == other.flash
             && self.on_queue == other.on_queue
             && self.on_warnings == other.on_warnings
             && self.on_close == other.on_close
@@ -120,6 +130,26 @@ enum Meter {
 
 impl StatelessWidget for Footer {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        // the flash wins over the hint override, both over the line
+        let lead = match (&self.flash, &self.hint_override) {
+            (Some(flash), _) => Some(lead::Lead::Flash(flash.clone())),
+            (None, Some(items)) => Some(lead::Lead::Hints(items.clone())),
+            (None, None) => None,
+        };
+        if let Some(lead) = lead {
+            let spec = self.spec(cx);
+            let passive = self.line == Line::Passive;
+            return LayoutBuilder::new(move |cx, constraints| {
+                let seg = segmenter_of(cx);
+                spec.lead_row(
+                    &lead,
+                    passive,
+                    &|text: &str| seg.width(text),
+                    usize::try_from(constraints.max_width).unwrap_or(0),
+                )
+            })
+            .into();
+        }
         if self.line == Line::Close {
             return close_row(cx, self.on_close.clone());
         }

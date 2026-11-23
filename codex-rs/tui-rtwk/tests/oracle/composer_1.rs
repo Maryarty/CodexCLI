@@ -8,7 +8,6 @@ use crate::kit::{self, Owner, Screen};
 
 const NO_PARENT: &str = "no seed for a parent-owned thread: the chat screen has no sub-agent view, so the composer never draws its `Viewing sub-agent — direct input is disabled` placeholder";
 const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed sets the esc backtrack hint, the quit shortcut hint, queue submissions, the status line or the shortcut overlay, and the footer draws none of them";
-const NO_FLASH: &str = "no seed for a footer flash or footer hint override: nothing sets the composer footer hint (`K label`) or a timed flash (`FLASH`), and the footer row does not show them";
 const NO_VIM: &str = "vim mode is not built: no seed or key turns the composer's vim draft on, so the `Vim: Insert` / `Vim: Normal` / `Vim: Replace` footer label is not drawn";
 const NO_FILES: &str = "no seed for file search: the chat screen has no file index, so the `@` file popup has no rows; the skill catalog these tests set is not built either";
 
@@ -112,20 +111,27 @@ fn footer_hint_row_is_separated_from_composer() {
 // ORACLE bottom_pane/chat_composer.rs:5173 footer_flash_overrides_footer_hint_override kind=ui owner=chat-live
 #[test]
 fn footer_flash_overrides_footer_hint_override() {
-    kit::pending(Owner::ChatLive, NO_FLASH);
     // The oracle's bottom row shows `FLASH` and not the hint override `K label`.
-    let s = Screen::build(Owner::ChatLive).size(60, 6).live().open();
-    s.assert_contains("FLASH");
+    let s = Screen::build(Owner::ChatLive)
+        .size(60, 6)
+        .entry("composer", "alone_flash")
+        .open();
+    s.assert_row_starts_with(5, "  FLASH");
     s.assert_absent("K label");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5211 footer_flash_expires_and_falls_back_to_hint_override kind=ui owner=chat-live
 #[test]
 fn footer_flash_expires_and_falls_back_to_hint_override() {
-    kit::pending(Owner::ChatLive, NO_FLASH);
-    // The flash has expired: the bottom row shows the hint override `K label`, not `FLASH`.
-    let s = Screen::build(Owner::ChatLive).size(60, 6).live().open();
-    s.assert_contains("K label");
+    // The flash has run out (the oracle moves its expiry into the past; here ten seconds
+    // pass): the bottom row shows the hint override `K label`, not `FLASH`.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 6)
+        .entry("composer", "alone_flash")
+        .open();
+    s.assert_contains("FLASH");
+    s.wait(10_500);
+    s.assert_row_starts_with(5, "  K label");
     s.assert_absent("FLASH");
 }
 
