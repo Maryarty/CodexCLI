@@ -1,12 +1,12 @@
 # Карта функциональности экрана чата: oracle (codex-rs/tui) против порта (codex-rs/tui-rtwk)
 
-Дата: 2026-11-23. Факт-финдинг, код не менялся.
+Дата: 2026-11-23. Факт-финдинг, код не менялся. Строки обновлены после батчей 3 (0130f3747) и 4 (51abab645) по пакам parity, без нового прогона шардов.
 
-**Итог.** 289 строк-функций: ✅ 121, 🟡 62, ❌ 102 (на 87ad7733c), «?» 4 (статус не установлен). Тесты oracle (2607): 865 зелёные, 1432 pending, 12 красных, 297 n/a. Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
+**Итог.** 289 строк-функций: ✅ 123, 🟡 63, ❌ 99 (на 51abab645; на 87ad7733c было 121/62/102), «?» 4 (статус не установлен). Статус сменили четыре строки: история между сессиями ❌→✅, @-упоминания 🟡→✅, копирование выделения и «Shift-клик/правая кнопка» ❌→🟡 (двойной/тройной клик остался ❌: проверки нет); у остальных строк правки только в тексте. Тесты oracle (2607 на 87ad7733c, не пересчитаны): 865 зелёные, 1432 pending, 12 красных, 297 n/a; после 87ad7733c добавились зелёные из паков (chat_status_2 +5, composer +9, history pages +4, chat_commands_2 +5, chat_live_2 +2, markdown +5). Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
 **Пять самых больших дыр.**
-1. Транскрипт: нет поиска (F3/F4), клавиатурного выделения, copy mode, закреплённой шапки prompt, копирования выделения мышью (copy-on-select, двойной/тройной клик, правая кнопка), раскрытия деталей хода. transcript_view_4: 0 из 60 зелёные, transcript_view_5: 1 из 59.
+1. Транскрипт: нет поиска (F3/F4), клавиатурного выделения, copy mode, закреплённой шапки prompt, раскрытия деталей хода. Копирование выделения мышью есть (542959815: отпускание, правая кнопка, Ctrl+C, Enter); нет Shift-клика/расширения с клавиатуры (rtwk-gap: у SelectionAreaController нет чтения start/end), Markdown-копии, X11 primary; клавиши ctrl+home / alt+< для старых страниц истории. transcript_view_4: 0 из 60 зелёные, transcript_view_5: 1 из 59.
 2. Слэш-команды: ≈25 из ≈65 отвечают «NotAvailable» или открывают пустой слот: /side /btw /copy /worktree /mcp /ps /recap /vim /voice /tui /diff /hooks /keymap /config /experimental /skills /title /statusline /logout /ide /daybreak /debug-config /subagents.
-3. Composer: Vim есть, но включить нечем (/vim, toggle без бинда); нет истории между сессиями, вставки картинки Ctrl+V, внешнего редактора Ctrl+G, живого @-поиска файлов и $-упоминаний, состояний composer, очереди slash/shell-команд.
+3. Composer: Vim есть, но включить нечем (/vim, toggle без бинда; ветка fleet/block-composer fdadb68ff с /vim и картинками cc0bbabd5 в 51abab645 не влита); нет вставки картинки Ctrl+V, внешнего редактора Ctrl+G, состояний composer, очереди slash/shell-команд; $-приложения появляются только после /apps. История между сессиями и живой @-поиск файлов со skills/plugins готовы (батч 3).
 4. Безопасность и лимиты: safety buffering, guardian, misalignment, лимит-предупреждения, весь reset-flow /usage (chat_live_6: 0 из 25), карточка /status: usage треда и строка сервера.
 5. Ячейки инструментов: группы exploration, unified exec и /ps, инвентарь MCP, решение approval и результат вопроса в транскрипте, compaction, строка «Forked thread» (cells_3/4, chat_approvals_1/2: 3 из 76 зелёные).
 
@@ -14,7 +14,7 @@
 
 - Статус: ✅ работает; 🟡 частично (в «Чего нет» сказано чего); ❌ нет; «?» не удалось установить (причина в строке). «работает, тест не включён» — функция по коду есть, а её тесты в oracle-шардах pending по причине обвязки (probe-stale).
 - Колонка тестов: зелёные/всего (n/a не считаются) среди тестов oracle, чьё имя совпало с шаблоном строки; «не вкл. N» — сколько из них stale. Совпадение по имени приблизительное: для широких строк (markdown, /status, футер) это весь семейный счёт. Прочерк — подходящих тестов не нашлось (у клавиш счёта нет: их проверяют функции выше).
-- Задача — alias в tm (статусы на 2026-11-23: held — chunk-transcript-2, chunk-commands, chunk-composer-mention-seeds, chunk-status-card, settings; claimed — chunk-status-sparkle, chunk-popups-plugins; остальные created). «—» — задачи нет или функция готова.
+- Задача — alias в tm (статусы на 51abab645: feature-блоки ПРИОСТАНОВЛЕНЫ на миграцию ADR-013 — tm-контейнер adr013-migrate, решение 2026-11-23 «сначала архитектура»; новых задач из блоков не берут, пока он не закрыт. Сделаны в батчах 3 и 4: chunk-status-card, chunk-composer-live-mentions, chunk-composer-history, chunk-cells-rendering-prefs, chunk-live-banner-fallback, chunk-commands (/rename), chunk-transcript-2 (выделение и копирование) и chunk-transcript-2-history-pages; остальные задачи остались в состоянии до миграции — created, часть held/claimed раньше: chunk-popups-plugins, chunk-status-sparkle, settings). «—» — задачи нет или функция готова.
 - Источники: slash_command.rs, research/codex-tui-features.csv, `core/src/commands/dispatch.rs`, `core/src/app/session.rs`, `src/pages/session/{actions,open,keys,session_page}.rs`, verdicts oracle-шардов (summary.py + probe), tests/pages и core/tests как свидетельства работы.
 - Известные оговорки: 12 красных тестов — отдельные расхождения, не функции (cells_1: computer_activity, wrap_styled_spans; cells_4: 4 web search; chat_live_4: plan_slash_hidden_shell_paste; composer_1: deleting_prefix_keeps_bang_literal; markdown_streaming_4: recomputing_after_resize; resume_2: page_and_jump_navigation; small_dialogs_2: warning_pages_wrap; transcript_view_2: ordinary_click_opens_links).
 
@@ -23,7 +23,7 @@
 | Функция | Статус | Чего нет | Тесты зелёные/всего | Задача |
 |---|---|---|---|---|
 | Сообщение пользователя (блок с фоном, пути, картинки-плейсхолдеры) | ✅ | Фон блока prompt по теме (?) | 10/20 (не вкл. 2) | — |
-| Ответ агента: стриминг markdown, списки, таблицы, код, ссылки | 🟡 работает, тест не включён | mermaid/math-блоки, часть markdown-рендера (140 из 283 markdown-тестов ждут) | 126/268 (не вкл. 11) | chunk-cells-rendering-prefs |
+| Ответ агента: стриминг markdown, списки, таблицы, код, ссылки | 🟡 работает, тест не включён | landed c4c2af4e0: настройки `[tui.rendering]` (таблицы, mermaid, списки) читаются там, где строится сообщение; при выключении источник сохраняется (5 ключевых тестов markdown_streaming_2/5 зелёные). Нет: math off только флаг (G-math-off, G61), маркер списка `•` вместо `- ` (G-list-marker), `user.rs`/reasoning/resume рисуют markdown без настройки, lists_preserve_layout (G73) и MATH-тесты (G61/G62) — sweep; часть markdown-рендера ждёт (счёт не пересчитан) | 126/268 (не вкл. 11; +5 после c4c2af4e0) | chunk-cells-rendering-prefs (сделана) |
 | Подсветка кода и diff в ответах | ✅ | — | 14/55 (не вкл. 3) | — |
 | Гиперссылки в тексте (клик открывает) | 🟡 | обычный клик по ссылке красный (ordinary_click_opens_links), OSC-8 в активной ячейке ждёт | 3/17 (не вкл. 1) | chunk-transcript-2 |
 | Ячейка reasoning (сводка, сырой reasoning, заголовок) | ✅ | landed a15c35bf8: сводка live и в истории, raw reasoning по show_raw_agent_reasoning, пустые блоки (7 тестов зелёные) | 20/55 (не вкл. 3) | chunk-cells-reasoning |
@@ -55,7 +55,7 @@
 | Фокус на activity-группах (F4) и подсказка раскрытия | ❌ | focus_activity целиком | 0/1 | chunk-transcript-2-turn-details |
 | Автопрокрутка за хвостом, «вернуться вниз», строка новой активности | ✅ | — | 10/30 (не вкл. 5) | — |
 | PageUp/PageDown, колесо мыши, Home/End в транскрипте | 🟡 | Home/End в ленте; скорость колеса (mouse_scroll_speed) не применяется | 4/18 | chunk-transcript-2 |
-| Подгрузка старых страниц истории при прокрутке вверх | 🟡 | статус-строка загрузки, ждать Home, склейка групп при join | 2/27 (не вкл. 3) | chunk-transcript-2-history-pages |
+| Подгрузка старых страниц истории при прокрутке вверх | 🟡 | landed ee4c83bd9: статус-строка (loading / refused с retry / loadable, 4 ширины) из `transcript/history.rs`, join страницы не двигает читателя, 9 page-тестов, 4 oracle-теста зелёные; pty: тот же финальный экран. Нет: клавиши ctrl+home / alt+< (идти к началу, retry) и ctrl+end / alt+> (Need: session_page.rs); склейка групп oracle при join (page_join_* в transcript_view_3, sweep); join при читателе в 1-3 строках ниже первой сдвигает вид на строку; один тик колеса двигает много больше строк, чем у oracle | 6/27 (не вкл. 3; +4 после ee4c83bd9) | chunk-transcript-2-history-pages (сделана) |
 | Закреплённая шапка prompt над транскриптом (pinned header) | ❌ | нет модуля prompt_header | 0/3 | chunk-transcript-2 |
 | Replay истории при resume/fork: сообщения, tool, reasoning, review | ✅ | resumed_initial_messages_render_history, nested review prompts — ждут | 12/24 | — |
 | Ambient pet в транскрипте/футере | 🟡 работает, тест не включён | pets sheet есть; ambient-тесты chat_status_1 не включены | 2/13 (не вкл. 4) | pets |
@@ -77,8 +77,8 @@
 | Отправка во время review/plan stream (очередь вместо steer) | ✅ | — | 1/3 | — |
 | Блокировка отправки при недоступной модели | ❌ | submit_user_message_blocks_when_thread_model_is_unavailable | 0/1 | chunk-commands-submission |
 | Подтверждение Esc/Enter при диалогах поверх composer | ✅ | — | — | — |
-| Баннер бэкенда (нумерованные строки, CTA, отклонение по occurrence) | ✅ | fallback-кандидаты, восстановление, 'не подразумевает recovery' | 6/13 | chunk-live-banner-fallback |
-| Резерв Luna: селектор и статус | 🟡 | селектор работает; статус по активной модели, переживание закрытия баннера — ждут | 1/4 (не вкл. 1) | chunk-live-banner-fallback |
+| Баннер бэкенда (нумерованные строки, CTA, отклонение по occurrence) | ✅ | landed c4fff1a2b: авто-переключение fallback и `{time}`, F6 (обрыв соединения отменяет запросы в полёте), 2 ключевых теста chat_live_2 зелёные; в pty баннер не гонялся (в mock нет endpoint). Нет (sweep): три теста восстановления (нужен on_rate_limit_error из chunk-status) и снимок backend_banner_notification; has_pending_recovery не портирован, fallback только при чтении аккаунта, notice_model не сбрасывается при смене треда | 6/13 (+2 после c4fff1a2b) | chunk-live-banner-fallback (сделана) |
+| Резерв Luna: селектор и статус | 🟡 | селектор работает; модель возврата резерва живёт только в памяти (нужен Ask::ConfigWrite); backend_auth заменяет has_chatgpt_account; патч переключения = модель + effort; статус по активной модели, переживание закрытия баннера — ждут | 1/4 (не вкл. 1) | chunk-live-banner-fallback (сделана) |
 | Safety buffering: «повторить», подтверждение, короткое сообщение | ❌ | весь блок safety_buffering (9 тестов) | 0/7 | chunk-live-safety |
 | Экран ошибки провайдера (сохраняет черновик, выход в Resume) | ✅ | сохранение между потоками, provider_id sync — ждут | 5/10 | — |
 | Read-only внешний writer: заметка вместо composer, переход в Agents | ✅ | — | 4/6 | — |
@@ -107,12 +107,12 @@
 | Вставка пути к файлу превращается в элемент/картинку | 🟡 работает, тест не включён | путь→картинка есть, hidden shell paste очередь/восстановление не включены | 5/15 (не вкл. 5) | chunk-composer-images |
 | Скрытая shell-вставка с /plan (hidden shell paste) | 🟡 работает, тест не включён | работает, тест не включён (4 из 5 stale), 1 красный: submits_literal | 4/14 (не вкл. 5) | chunk-commands-submission |
 | История Up/Down в сессии | ✅ | — | 5/14 (не вкл. 1) | — |
-| История между сессиями (persistent history) | ❌ | нет чтения/записи файла истории; запросы по offset | 1/1 | chunk-composer-history |
+| История между сессиями (persistent history) | ✅ | landed 2054483f3: Up после перезапуска вспоминает последнее сообщение (pty: rtwk = oracle), slash-команды записываются как у oracle (`/di` из popup → `/diff`), история засевается из replay resume (3 oracle-теста зелёные, 2 page-теста). Нет (sweep, ждут картинок и Vim): восстановление картинок и vim-навигация по истории (4 теста composer_3); история текстовая; `/diff` до pager закрывается Esc | 1/1 (+3 после 2054483f3) | chunk-composer-history (сделана) |
 | Поиск по истории Ctrl+R / Ctrl+S | ✅ | — | 16/29 (не вкл. 3) | — |
 | Восстановление очищенного Ctrl+C prompt из истории | ✅ | — | 1/1 | — |
-| @-упоминания: popup, вставка, Tab, множественные | 🟡 | popup смонтирован над composer'ом в чате, строки как у oracle (mention-seeds, влит); нет живого file search и server skills в списке | 7/34 (не вкл. 5) | chunk-composer-live-mentions |
+| @-упоминания: popup, вставка, Tab, множественные | ✅ | landed 2054483f3: живой file search (через in-process поиск хоста, `Ev::FileMatches`; app-server fuzzyFileSearch не портирован, не нужен) и server skills/plugins в списке, строки как у oracle (pty: `@sr` совпадает построчно); n/a при MentionsV2 off (решение 2026-11-23): 4 теста composer_1. Нет (sweep): adjacent_image_completion_inserts_leading_separator (ждёт картинок и Vim) | 7/34 (не вкл. 5; +6 ключевых после 2054483f3) | chunk-composer-live-mentions (сделана) |
 | Семена mention (при Esc/восстановление steer возвращают биндинги) | ✅ | биндинги доходят до отправки и восстанавливаются (mention-seeds, влит) | 0/3 (не вкл. 1) | — |
-| $ skills / плагины / apps в упоминаниях | 🟡 | $-список рисуется как у oracle на фикстурах; хост не шлёт каталог skills/plugins/apps; legacy-режим MentionsV2-off — n/a (решение 2026-11-23) | 10/24 (не вкл. 1) | chunk-composer-live-mentions |
+| $ skills / плагины / apps в упоминаниях | 🟡 | landed 2054483f3: каталог skills (`skills/list`) и plugins (`plugin/installed`) грузится раз на тред, когда известен cwd; установленные apps берутся из кэша /apps (pty: `$sk` совпадает построчно). Нет: кэш apps загружается только при открытии /apps, поэтому `$`-приложения появляются после /apps, oracle грузит коннекторы при старте (Need владельцу select/apps); предупреждения о ошибках загрузки skill (invalid SKILL.md) не портированы; legacy MentionsV2-off — n/a (решение 2026-11-23) | 10/24 (не вкл. 1) | chunk-composer-live-mentions (сделана; Need select/apps) |
 | Картинки: локальные [Image #N], нумерация, удаление | ✅ | — | 7/9 (не вкл. 1) | — |
 | Картинки из буфера Ctrl+V / Alt+V | ❌ | composer просит у app, app не читает (services/clipboard/read есть) | 0/1 | chunk-composer-images |
 | Remote-картинки (URL): submit и нумерация | 🟡 работает, тест не включён | работает, тест не включён | 2/9 (не вкл. 3) | chunk-composer-images |
@@ -148,7 +148,7 @@
 | /import — перенос из других агентов | ✅ | route Import; shard import 16/16 | 16/16 | — |
 | /hooks | ❌ | NotAvailable; sheet settings/hooks.rs не подключён; hooks_popup_shows_list_diagnostics | 0/1 | settings |
 | /review — выбор ветки/коммита/custom | ✅ | branch/commit picker snapshots ждут (review_*_picker, 2 pending) | 32/74 (не вкл. 6) | — |
-| /rename — имя треда | ✅ | landed a15c35bf8 (95826e191): с аргументом и bare prompt с предложением имени (slice features/rename) | 1/7 | small-dialogs |
+| /rename — имя треда | ✅ | landed a15c35bf8 (95826e191): с аргументом и bare prompt (slice features/rename); 29abc1aa5: вид prompt `src/sheets/dialogs/prompt.rs`, чат показывает любой открытый моделью prompt (так же файловый prompt /export и edit /goal), 5 тестов chat_commands_2 зелёные, pty rename-prompt проходит в обоих бинарях. Нет: предложение имени — хост отвечает Done::Title(None), oracle генерирует через ephemeral thread (thread_title.rs); нужен backend SuggestTitle в services/rpc | 1/7 (+5 chat_commands_2 после 29abc1aa5) | small-dialogs |
 | /new | 🟡 | новый тред ✅; выбор checkout-директории (worktree choice) ❌ | 0/2 | chunk-popups-worktree |
 | /archive | ✅ | confirm sheet + RPC | 2/2 | — |
 | /delete | ✅ | confirm sheet + RPC | 1/1 | — |
@@ -171,7 +171,7 @@
 | /tui — быстрые настройки TUI | ❌ | NotAvailable | — | settings |
 | /diff | ❌ | Target::Pager показывает «not yet» | — | pager |
 | /mention | ✅ | вставляет «@» | 1/1 | — |
-| /status — карточка статуса | 🟡 работает, тест не включён | карточка ✅ — теперь ячейка транскрипта треда, без диалога, как у oracle (status-card-adr003, влит); в карточке нет: display name модели с reasoning, Thread name, Collaboration mode, версия; thread usage, server row, limit warnings ❌ | 37/168 (не вкл. 14) | chunk-status-card |
+| /status — карточка статуса | 🟡 работает, тест не включён | карточка ✅ — ячейка транскрипта треда, как у oracle (status-card-adr003); landed e1795b779 (батч 3): живая карточка из фактов треда, config, аккаунта, каталога моделей и удалённого подключения; лимиты с обновлением по `RateLimitOrigin::Status(request)`, строки Model (display name, reasoning, summaries), Collaboration mode, Agents.md; pty: строки равны oracle. Нет: Thread name (oracle делает title-запрос, порт нет), версия в заголовке `(v0.0.0)` вместо `(v0.170.0)` (версия сборки); thread usage, server row, limit warnings ❌ (дети); лента фактов статус-строки (Cwd/Clock/SideLabel/AgentLabel, git-пробы) не построена | 42/168 (не вкл. 14, не пересчитано; +5 chat_status_2 после e1795b779) | chunk-status-card (сделана; sweep 6 тестов chat_status_2) |
 | /daemon | ❌ | select::daemon есть в core, не открывается | 1/2 | chunk-popups-picker-rest |
 | /warnings (и F2) | ✅ | — | 2/8 | — |
 | /cd <путь> | ✅ | с отказами | 0/1 | — |
@@ -260,7 +260,7 @@
 | Счётчик предупреждений (F2) в футере | ✅ | — | 2/9 | — |
 | Flash в футере и временный override подсказки | 🟡 | таймер flash и override есть (ea69879b9); на странице нет источника вспышки | 1/4 | chunk-composer-states |
 | Строка follow («вернуться вниз») над composer | ✅ | — | 23/56 (не вкл. 5) | — |
-| Карточка /status: основное | ✅ | ячейка транскрипта (ADR-003); строки Model display name, Thread name, Collaboration mode — chunk-status-card | 24/27 | chunk-status-card |
+| Карточка /status: основное | ✅ | ячейка транскрипта (ADR-003), e1795b779: Model с reasoning и summaries, Collaboration mode, Permissions, Agents.md, Session, Token usage, Context window, Limits; нет Thread name (title не генерируется) | 24/27 | chunk-status-card (сделана) |
 | Карточка /status: usage треда | ❌ | — | 1/6 (не вкл. 1) | chunk-status-card-thread-usage |
 | Карточка /status: строка сервера | ❌ | — | — | chunk-status-card-server-row |
 | Предупреждения о лимитах в карточке и ленте | ❌ | — | — | chunk-status-card-limit-warnings |
@@ -278,16 +278,16 @@
 | Pager: поиск /, n/N | ❌ | — | 0/1 | pager |
 | Pager: live tail sync при росте транскрипта | ❌ | — | — | pager |
 | Мышью выделить текст в транскрипте (подсветка) | ✅ | SelectionArea рисует выделение | 4/64 (не вкл. 1) | chunk-transcript-2 |
-| Копирование выделения (Ctrl+C / по отпусканию) | ❌ | сервис копирования готов (clipboard-service, 5026ad24c: clipboard/PRIMARY/оба, native/WSL/tmux/OSC52); нет потребителя: copy_on_select, deselect_after_copy | 0/11 (не вкл. 1) | chunk-transcript-2 |
-| Двойной/тройной клик: слово/строка/абзац | ❌ | — | 0/1 | chunk-transcript-2 |
-| Shift-клик расширяет, правая кнопка копирует | ❌ | — | 1/5 (не вкл. 1) | chunk-transcript-2 |
-| Копия как Markdown/plain (payload) | ❌ | HTML-вариант Markdown-копии в сервисе готов (5026ad24c); выбора формата в UI нет; transcript_view_3 в основном n/a | 1/1 | chunk-transcript-2-copy-mode |
+| Копирование выделения (Ctrl+C / по отпусканию) | 🟡 | landed 542959815: копия по отпусканию, Ctrl+C / Cmd+C / Ctrl+Shift+C, Enter = копия и вниз, Esc снимает, подсказка в футере, строка «Copied N chars to host clipboard», выделение снимается после подтверждённой копии (pty text-100: рядом с oracle совпадает); сервис копирования clipboard-service (5026ad24c). Расхождения: конец диапазона у oracle до ячейки под курсором, у rtwk SelectionArea включает её («Copied 12 chars» вместо 11, rtwk gap); OSC 52 при копии по отпусканию пишется дважды (clipboard-provider в rtwk). Sweep: X11 primary, deselect сравнивает текст, не диапазон, oracle-снимки на 3-4 строках (kit::pending) | 0/11 (не вкл. 1; transcript_view_1 14/36/1 на 542959815) | chunk-transcript-2 |
+| Двойной/тройной клик: слово/строка/абзац | ❌ | по паку это жесты rtwk SelectionArea; тестов и проверки в бинаре у порта нет | 0/1 | chunk-transcript-2 |
+| Shift-клик расширяет, правая кнопка копирует | 🟡 | правая кнопка копирует (Listener в SelectionHost, 542959815, тест в selection_copy.rs); Shift-клик и расширение с клавиатуры не построить: у SelectionAreaController есть `select(target, item, start, end)`, но нет чтения start/end (rtwk gap) | 1/5 (не вкл. 1) | chunk-transcript-2 |
+| Копия как Markdown/plain (payload) | ❌ | HTML-вариант Markdown-копии в сервисе готов (5026ad24c); выбора формата в UI нет; копия выделения мышью только plain text (CopyFormat::MarkdownSelection ждёт тексты элементов); transcript_view_3 в основном n/a | 1/1 | chunk-transcript-2-copy-mode |
 | Режим выделения с клавиатуры (select mode) | ❌ | нет модуля | 0/6 | chunk-transcript-2-select-mode |
 | Режим копирования (copy mode, Ctrl+X-лидер) | ❌ | нет модуля | — | chunk-transcript-2-copy-mode |
 | Поиск по транскрипту F3/F4 (подсветка, счётчик, n/N) | ❌ | F3 только открывает sheet | 5/39 | chunk-transcript-2-find |
 | Подсказки поиска и футер поиска | ❌ | — | 1/1 | chunk-transcript-2-find |
 | Скорость колеса (mouse_scroll_speed) | ❌ | настройка есть, не применяется | 1/2 | chunk-transcript-2 |
-| Старые страницы в overlay (history pages) | 🟡 | — | — | chunk-transcript-2-history-pages |
+| Старые страницы в overlay (history pages) | 🟡 | ee4c83bd9: статус-строка sheet транскрипта берёт спеллинги из `transcript/history.rs` (`sheet::status`); нет ctrl+home/alt+< и склейки групп (см. строку выше) | — | chunk-transcript-2-history-pages (сделана) |
 | Сайдбар (панель агентов/тредов) | ❌ | ADR-закрытая задача sidebar | 0/1 | sidebar |
 | Inline-режим (без alt-screen) | ❌ | задача created | — | inline-mode |
 | Дерево UI (ui-tree) | ? | не относится к ленте; задача created | — | ui-tree |
@@ -299,7 +299,7 @@
 |---|---|---|---|---|
 | Предупреждения (/warnings, F2): страницы, wrap | 🟡 | warning_pages_wrap красный | 0/2 | small-dialogs |
 | Шорткаты: оверлей «?» со всеми действиями | ✅ | — | 2/4 | — |
-| Rename thread prompt (bare /rename) | ✅ | slice features/rename (a15c35bf8) | — | small-dialogs |
+| Rename thread prompt (bare /rename) | ✅ | slice features/rename (a15c35bf8), вид prompt 29abc1aa5; нет предложения имени (Done::Title(None), нужен SuggestTitle) | — | small-dialogs |
 | Confirm: archive/delete треда | ✅ | — | 12/19 | — |
 | Daemon (подключение к daemon) | ❌ | — | 1/2 | small-dialogs |
 | Ссылка на приложение (app link) диалог | ❌ | — | — | small-dialogs |

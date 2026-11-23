@@ -105,6 +105,8 @@ pub struct ChatState {
     search_rev: u64,
     /// The composer is in shell mode: the footer label, no submit by the queue key.
     draft_shell: bool,
+    /// The footer's modal-editing label this page drew (none with it off).
+    draft_vim: Option<&'static str>,
     /// The composer's focus node: the page sees `?` and `←` before the field
     /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
     node: FocusNode,
@@ -204,6 +206,7 @@ impl StatefulWidget for Chat {
             draft_empty: self.ui.composer.text().is_empty(),
             search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
+            draft_vim: self.ui.draft.vim_label(),
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
@@ -241,6 +244,7 @@ impl ChatState {
     fn sync_draft(&mut self, w: &Chat) {
         self.search_rev = w.ui.draft.search_rev();
         self.draft_shell = w.ui.draft.shell();
+        self.draft_vim = w.ui.draft.vim_label();
         self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
     }
 }
@@ -513,6 +517,7 @@ impl State for ChatState {
             modes.primed(),
             self.draft_empty,
             self.draft_shell,
+            self.draft_vim,
             self.search_rev,
             modes.detailed(),
         );
@@ -536,8 +541,12 @@ impl State for ChatState {
             ChatMsg::Submit(text) => {
                 // The same Enter may have run it through a popup's pick. A
                 // draft in shell mode has the `!` as its mode, not as text: a
-                // bare `!` is the help line (`submit_shell_command`).
-                if !w.ui.composer.text().is_empty() || w.ui.draft.shell() {
+                // bare `!` is the help line (`submit_shell_command`). Remote
+                // images alone are a message of their own.
+                if !w.ui.composer.text().is_empty()
+                    || w.ui.draft.shell()
+                    || w.ui.draft.remote_count() > 0
+                {
                     run_line(&text, w, cx, &hs, Delivery::Submit);
                     // a command that took the line cleared the composer
                     self.sync_draft(w);
@@ -583,7 +592,7 @@ impl State for ChatState {
             }
             ChatMsg::QueueDraft => {
                 let draft = submission(&w.ui);
-                if !draft.is_empty() {
+                if !draft.is_empty() || w.ui.draft.remote_count() > 0 {
                     // Tab queues behind a running turn and submits otherwise.
                     let running = read::<ThreadModel, _>(cx).is_running();
                     let send = if running {
@@ -833,6 +842,7 @@ impl State for ChatState {
                 modes.primed(),
                 self.draft_empty,
                 self.draft_shell,
+                self.draft_vim,
                 self.search_rev,
                 modes.detailed(),
             )

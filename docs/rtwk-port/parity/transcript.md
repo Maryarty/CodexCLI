@@ -443,3 +443,39 @@ sequence goes to the owner of the terminal (`Ran.terminal`). The words of the re
   PRIMARY reader (`primary::read`, arboard `GetExtLinux`) come with the right-click paste, which has no consumer yet.
 - No binary run: nothing in the app asks for a copy yet (`/copy` is `NotAvailable`,
   `core/src/app/session.rs:278`; the transcript has no selection copy). The first consumer is the next child.
+
+## chunk-transcript-2: selection and copy (2026-11-23, branch fleet/block-transcript, commit 542959815, landed in 51abab645)
+Shard counts at that commit: transcript_view_1 green 14 / pending 36 (chat-live) / n/a 1.
+Own tests: `tests/pages/selection_copy.rs` (drag, release copy, right click, Ctrl+C / Cmd+C / Ctrl+Shift+C, Enter = copy and follow, Esc, footer hint at 4 widths, reversed highlight, feedback line, clear after Confirmed), `core/tests/selection.rs` (the Effect route), unit tests of `CopyLog` and `TextSelection`.
+
+Decisions (ADR-013): the selection is drawn state in the session page (`SelectionHost` over rtwk `SelectionArea` and the `TextSelection` controller, Flutter's SelectableRegion); no `FeatureView` hook. Only the verb (`Intent::Effect` + `Ask::Copy`) and the host's `Done::Copy` cross into core (`CodexApp::latest_effect`); the UI's `CopyLog` follows it and draws the gap line.
+
+Binary: scenario `text-100` (100x30 pty): answer on screen, drag over two words, right click, drag + Ctrl+C (kitty CSI 99;5u), Esc; both binaries, driver `/tmp/selprobe/drive_sel.py` (check.py has no mouse step; the oracle needs `--no-daemon`).
+Equal: the highlight (SGR 7 in both after the fix), the footer hint during a selection, the line "Copied N chars to host clipboard" and its place, the selection gone after a confirmed copy, Esc clears.
+Differing rows:
+- Release cell: the oracle's range ends before the cell under the pointer (drag cols 26..37 copies "w0500 w0501", "Copied 11 chars"); rtwk `SelectionArea` includes it ("w0500 w0501 ", "Copied 12 chars"). rtwk gap; no workaround in our code.
+- OSC 52: rtwk `SelectionArea` always queues its own OSC 52 on a release copy, so a release copy writes it twice (area and host effect); the oracle once. Known (rtwk task clipboard-provider).
+- The status line "· Mock scenario" (oracle) is another page's row, not selection.
+Gap rows: (1) `SelectionArea` drag end includes the release cell, the oracle's is exclusive. (2) `SelectionAreaController` has `select(target, item, start, end)` but no read of start/end: Shift+click and keyboard extend cannot be built.
+Sweep: Markdown payload (`CopyFormat::MarkdownSelection` needs the item texts; plain text only), X11 primary selection, `mouse_scroll_speed`, link click, the oracle selection tests at 3-4 rows stay `kit::pending` (the bottom pane leaves the list 0 rows; chat-live), deselect compares text not range, the kit has no clipboard-answer step (`answer_effect` is used).
+Mouse: right click copies (a Listener in `SelectionHost`); drag, double and triple click are `SelectionArea`'s.
+
+## chunk-transcript-2-history-pages (2026-11-23, branch fleet/block-transcript, commit ee4c83bd9 merged with claude/tui-rtwk, landed in 51abab645)
+Built:
+- `transcript/history.rs` (new): the status row's spellings for the thread's history, widest first (oracle `footer.rs` `status_line_with_navigation` and the fallbacks of `footer`): `↑ Loading earlier messages… · esc latest`, short `↑ Loading… · esc latest` / `↑ … `, refused `Retry history: ⌥</⌃home.  esc latest` / `Retry: ⌥</⌃home` / `⌃home retry`, loadable `Earlier messages available.  `, selected and refused `… · Retry: ⌥</⌃home`. Read from `ThreadModel::history_state()` through `select`.
+- `follow::footer` (chat) and `sheet::status` (transcript sheet) take their row from it; `sheet.rs` lost its `partial: bool`.
+- `transcript_pane.rs`: a page joining above is no news (`tail` is the last row's key, not the row count); at the list's first line the row the reader was at is brought back to the top (`keep_first`, `jump_to_index_rows` skipping the separator the cell gains), and `find_index` lets the list keep a row elsewhere (Flutter's `findChildIndexCallback`).
+- kit (`tests/kit/replies.rs`, tests only): `page_requests`, `pages_waiting`, `history_page`, `history_failed`, `agent_turn`, `at_the_top_of_a_partial_history(turns, Page::{Loading, Failed, Complete})`.
+Tests: `tests/pages/history_pages.rs` 9 green (one request at open, named once away, loading at the top, once not per tick, shortened at 40, refused with its retry at 80 and 28, asked again at the top, a join keeps the rows and is no news). Oracle un-pended and green: cells_2 `wheel_at_hidden_session_header_keeps_the_loaded_message_anchor`, `session_information_waits_for_older_pages_and_reappears_after_completion`; transcript_view_1 `older_page_loading_uses_the_status_row_without_moving_content_or_cursor` (3 widths x Loading/Failed/Complete; LoadingBeginning reads as LoadingOlder in the snapshot); transcript_view_2 `loading_preserves_selected_content_and_copy_action`.
+Shards after: cells_2 22/4/7, transcript_view_1 15/1/35, transcript_view_2 5/7/39 (+1 red below), _3 1/34/15, _4 0/1/59, _5 5/9/45.
+Red not from this task: transcript_view_2 `ordinary_click_opens_bare_and_markdown_links_on_release` (no `docs` after the click) is red at the tip without this task's changes too.
+Binary beside the oracle (`/tmp/selprobe/drive_hist.py`: 24 turns, resume, wheel to the top): the same final screen: header, prompt 00..02, "Back to bottom", footer `enter/esc latest · ? shortcuts`; the older page joins and the view ends at the top in both. Differing rows:
+- rtwk shows a `Tip: Use the desktop app...` row above the composer at the tail (not this task).
+- One wheel notch moves rtwk far more rows than the oracle (60 notches reach the top in rtwk, prompt 13 in the oracle).
+- The Loading state lasts a frame on a local server: its text is the kit test's, not seen in the pty.
+Needs:
+- (seed.rs, claimed by another session) the kit does not consume the script's `reply` steps; the helper above answers pages from Rust instead. The oracle's find/select tests that join a page (transcript_view_3 `page_join_*`, _4 :188 ff, _5 :559 ff) want the same helper plus the features below.
+- (chat keys, `session_page.rs`) the jump keys the footer names: `ctrl+home` / `alt+<` (walk to the beginning: scroll to the top and page until complete; the retry of a refused page) and `ctrl+end` / `alt+>` (latest). The retry is today the wheel at the top.
+Sweep:
+- transcript_view_3 `page_join_*` (:278, :306, :330, :351, :394, :431) are the oracle's reading-revision and group replacement; the port keys rows, a join keeps the reader's row (tested), the oracle's group merge has no counterpart.
+- A join while the reader is 1-3 rows below the first line moves the view one row (the first row gains its separator); only the first-line case is tested.

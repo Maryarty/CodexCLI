@@ -77,12 +77,16 @@
    feature cannot be built without one: then hold and ask the orchestrator.
 
 ## Test commands (speed-order, 2026-11-23: cargo is 55 % of porter time, 90 % of it compile)
-- While writing code: ONLY `acargo check -q --tests` (3-7 s) — no test run after each edit
-  (the person, 2026-11-23: tests once per commit; the machine's CPU is the limit).
-- Before each commit: ONE nextest call that names all the roots you touched with a filter
+- WRITE THE WHOLE TASK FIRST, CHECK AT THE END (the person, 2026-11-23 ~18:20, trial): while
+  writing, no cargo at all; commit as you go (WIP commits without tests are fine, so a hand-off
+  loses nothing). When the task's code is written: `acargo check -q --tests` (3-7 s), fix, again
+  until clean. Stuck on a type or an API: one `check` is allowed any time.
+- Then ONE nextest call that names all the roots you touched with a filter
   (e.g. `-p codex-tui-core --test oracle --test pages -E 'test(/selection/)'`): one build, one
   run. A red: fix, `check`, then that same one call again. Never nextest without a root.
-- Before a commit: `--test rules`. Before hand-in: your KEY oracle tests by name through
+  Core tests: `-p codex-tui-core --test all` or `--lib`, never bare `-p codex-tui-core` (4-6 CPU s
+  more); a call with no root costs ~67 CPU s against 13-23 for one root (build-speed-3, 8.6).
+- With that call: `--test rules`. Before hand-in: your KEY oracle tests by name through
   `--test oracle -E 'test(=a)|test(=b)'` (not `summary.py --run`), the feature's pty run, fmt +
   clippy of what you touched. Never the whole workspace nextest, never land-check.
 - A checkpoint lists `read:` lines (`file:line-range — what is there`) so the next agent does

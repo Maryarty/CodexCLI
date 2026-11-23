@@ -193,3 +193,37 @@ fn a_placeholder_is_one_unit_to_normal_mode_commands() {
         "`x` took the whole placeholder"
     );
 }
+
+#[test]
+fn slash_vim_turns_modal_editing_on_and_off_and_says_so() {
+    let mut h = start();
+    h.wait_idle();
+    h.t.type_text("/vim");
+    h.advance(100);
+    h.press("enter");
+    h.advance(100);
+    let screen = h.t.screen();
+    assert!(screen.contains("Vim mode enabled."), "{screen}");
+    assert!(screen.contains("Vim: Normal"), "{screen}");
+    assert_eq!(prompt(&h), "› Ask Codex to do anything");
+    // the footer names the mode the keys change
+    keys(&mut h, "i");
+    assert!(h.t.screen().contains("Vim: Insert"), "{}", h.t.screen());
+    h.t.type_text("/vim");
+    h.advance(100);
+    h.press("enter");
+    h.advance(100);
+    let screen = h.t.screen();
+    assert!(screen.contains("Vim mode disabled."), "{screen}");
+    assert!(!screen.contains("Vim: "), "{screen}");
+}
+
+#[test]
+fn a_typed_character_is_what_dot_repeats_after_escape() {
+    let mut h = chat();
+    keys(&mut h, "f9 i");
+    h.t.type_text("x");
+    h.advance(100);
+    keys(&mut h, "esc .");
+    assert_eq!(prompt(&h), "› xx");
+}
