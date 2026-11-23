@@ -616,7 +616,8 @@ fn skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention_snapshot(
     let mut s = skills();
     s.type_text("$bound-skill").keys("tab");
     s.keys("backspace");
-    s.type_text("$unbound-skill").keys(&vec!["left"; 14].join(" "));
+    s.type_text("$unbound-skill")
+        .keys(&vec!["left"; 14].join(" "));
     s.assert_snap("skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention");
 }
 
@@ -684,7 +685,8 @@ fn unified_completion_replaces_only_middle_adjacent_target() {
     s.type_text("@bound1").keys("tab");
     s.type_text("@oth ");
     // (Left and Right are the popup's tabs while the caret is in a token: Ctrl+B and Ctrl+F move.)
-    s.type_text("@bound2").keys("tab backspace ctrl+b backspace");
+    s.type_text("@bound2")
+        .keys("tab backspace ctrl+b backspace");
     s.keys("ctrl+b ctrl+b ctrl+b ctrl+b backspace");
     s.keys("ctrl+f ctrl+f enter");
     s.assert_has_row("› @bound1 @other @bound2");
