@@ -14,6 +14,8 @@ use std::sync::Arc;
 use super::Command;
 use crate::ids::{RequestKey, ThreadId};
 use crate::screens::approvals::verify::{AttemptId, Cause, Verifications};
+use crate::screens::select::review::Commit;
+use crate::screens::select::worktree::Entry as WorktreeEntry;
 use crate::screens::transcript::diff;
 
 /// How many answers are kept: a screen reads the answer to its latest request.
@@ -76,6 +78,18 @@ pub enum Ask {
     ClipboardText,
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`).
     OpenDesktop { thread: ThreadId },
+    /// The local branches of the repository in `cwd` (the default branch first) and the one
+    /// checked out: the `/review` base-branch picker (oracle `local_git_branches`,
+    /// `current_branch_name`). Answered by `Done::GitBranches`; an empty list when it is no
+    /// repository.
+    GitBranches { cwd: Option<String> },
+    /// The last `limit` commits of `cwd`: the `/review` commit picker (oracle `recent_commits`).
+    GitLog { cwd: Option<String>, limit: usize },
+    /// The managed worktrees of the repository `cwd` is in, each with its owner thread
+    /// (oracle `worktree_browser::fetch`). Answered by `Done::Worktrees`.
+    Worktrees { cwd: String },
+    /// Removes the worktree at `root` (oracle `worktree_browser::remove`, `cwd` is the session's).
+    WorktreeRemove { cwd: String, root: String },
 }
 
 /// What the host answers, one variant per `Ask`.
@@ -94,6 +108,17 @@ pub enum Done {
     ClipboardText(Result<String, String>),
     /// Nothing, or the launch's own failure text.
     Desktop(Result<(), String>),
+    /// The branches, and the current one (none: detached HEAD, or no repository).
+    GitBranches {
+        current: Option<String>,
+        branches: Vec<String>,
+    },
+    /// The commits, newest first.
+    GitLog(Vec<Commit>),
+    /// The worktrees, or why they could not be listed.
+    Worktrees(Result<Vec<WorktreeEntry>, String>),
+    /// Nothing, or why the worktree could not be removed.
+    WorktreeRemoved(Result<(), String>),
 }
 
 /// The answers kept, and the user-verification controller (ADR-003: the app owns it).

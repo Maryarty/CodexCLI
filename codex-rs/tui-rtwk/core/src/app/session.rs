@@ -2,9 +2,14 @@
 
 use std::rc::Rc;
 
+pub(super) mod export;
+pub(super) mod goal;
+pub(super) mod rename;
+
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
+use crate::screens::select::export::Destination;
 use crate::screens::select::{Confirm, Menu, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
@@ -119,13 +124,61 @@ pub(super) fn session_intent(
                     backend,
                     name,
                     plan: None,
+                    draft: None,
                 },
             );
             fx.commands.push(request);
         }
+        // The provider-error notice's continue key: a fresh chat whose composer
+        // holds the text (the view's words); only a refused chat that was saved.
+        S::ContinueChat { message } => {
+            let Some(thread) = source else {
+                return;
+            };
+            let continues = app.threads.get(&thread).is_some_and(|model| {
+                model.provider_error().is_some() && model.screen_slots().chat.path.is_some()
+            });
+            if !continues
+                || app
+                    .outgoing
+                    .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+            {
+                return;
+            }
+            let ticket = app.mint.next();
+            let backend = app.screens.agents.owner_of(thread.as_str());
+            app.outgoing.insert(
+                ticket,
+                AppCtx::NewConversation {
+                    source: Some(thread),
+                    backend,
+                    name: None,
+                    plan: None,
+                    draft: Some(message),
+                },
+            );
+            fx.commands.push(super::start_thread(app, ticket, backend));
+        }
         S::Cd { path } => change_directory(app, source, &path, fx),
+        // `slash_dispatch.rs`: `/review <text>` reviews the text as instructions.
+        S::Review {
+            args: Some(instructions),
+        } => {
+            let target = crate::threads::ReviewTarget::Custom {
+                instructions: instructions.trim().to_owned(),
+            };
+            start_review(app, source, target, fx);
+        }
+        S::StartReview { target } => start_review(app, source, target, fx),
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
         S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
+        S::Rename { name: None } => rename::open(app, source, fx),
+        S::Rename { name: Some(_) } if rename::blocked(app) => session_note(
+            app,
+            source,
+            Note::from(crate::commands::Notice::SideRename),
+            fx,
+        ),
         S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {
@@ -202,34 +255,26 @@ pub(super) fn session_intent(
             );
             session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
         }
-        // `apply_plan_slash_command`: the thread goes on in Plan mode; with a prompt that
-        // prompt is the first message in it.
-        S::Plan { prompt } => {
-            let Some(thread) = source else {
-                return session_note(
-                    app,
-                    None,
-                    Note::from(crate::commands::Notice::SessionStarting(command)),
-                    fx,
-                );
-            };
-            let kind = codex_protocol::config_types::ModeKind::Plan;
-            let set =
-                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMode(kind)));
-            apply_thread(app, &thread, set, fx);
-            if let Some(prompt) = prompt {
-                super::submit(app, &thread, UserMessage::text(prompt), fx);
-            }
+        S::Plan { prompt } => plan(app, source, command, prompt, fx),
+        // `AppEvent::ExportTranscript` with a path: the conversation is written there. The bare
+        // command opens the destination picker, which is the view's list (`select::export`).
+        S::Export { path: Some(path) } => export::run(app, Destination::File(path), fx),
+        // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`session/goal.rs`).
+        S::Goal { args } => goal::command(app, source, args, fx),
+        // `/permissions <profile> ..`: the profile is picked without a menu (`select_permission_profile`);
+        // the select screen holds the arguments while the catalog is read.
+        S::Permissions { args: Some(args) } => {
+            use crate::screens::select::{Intent, permissions::Current};
+            let current = Current::from_facts(&app.screens.chat.status);
+            super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
         }
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
         | S::Worktree
-        | S::Rename { name: None }
-        | S::Goal { .. }
         | S::Side { .. }
         | S::Copy
-        | S::Export { .. }
+        | S::Export { path: None }
         | S::Tui
         | S::Mcp { .. }
         | S::Apps
@@ -242,9 +287,9 @@ pub(super) fn session_intent(
         | S::Hooks
         | S::DebugConfig
         | S::Ps
-        | S::Review { .. }
+        | S::Review { args: None }
         | S::Model { .. }
-        | S::Permissions { .. }
+        | S::Permissions { args: None }
         | S::Title { .. }
         | S::Statusline { .. }
         | S::VoiceControl(_)
@@ -254,6 +299,73 @@ pub(super) fn session_intent(
             Note::from(crate::commands::Notice::NotAvailable(command)),
             fx,
         ),
+    }
+}
+
+/// `/plan` (`apply_plan_slash_command`): the thread goes on in the Plan preset of the server's
+/// catalog. With modes off, or no Plan preset, the note says so; with a prompt, the prompt is
+/// the first message in Plan mode, or, when the switch could not be made, goes back to the
+/// composer as typed (`/plan <text>`).
+fn plan(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    command: crate::commands::SlashCommand,
+    prompt: Option<String>,
+    fx: &mut AppFx,
+) {
+    use crate::screens::select::collaboration::plan_mask;
+    use crate::threads::ModeNote;
+    let Some(thread) = source else {
+        return session_note(
+            app,
+            None,
+            Note::from(crate::commands::Notice::SessionStarting(command)),
+            fx,
+        );
+    };
+    let refusal = if !app.screens.chat.flags.collaboration_modes_enabled {
+        Some(ModeNote::Disabled)
+    } else if plan_mask(&app.modes).is_none() {
+        Some(ModeNote::PlanUnavailable)
+    } else {
+        None
+    };
+    if let Some(note) = refusal {
+        session_note(
+            app,
+            Some(thread.clone()),
+            Note::from(NoteKey::Mode(note)),
+            fx,
+        );
+        if let Some(prompt) = prompt {
+            let draft = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+                chat::ThreadIntent::Draft(format!("/{} {prompt}", command.command())),
+            ));
+            apply_thread(app, &thread, draft, fx);
+        }
+        return;
+    }
+    if let Some(mask) = plan_mask(&app.modes) {
+        let set =
+            ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(mask)));
+        apply_thread(app, &thread, set, fx);
+    }
+    if let Some(prompt) = prompt {
+        super::submit(app, &thread, UserMessage::text(prompt), fx);
+    }
+}
+
+/// `review/start` inline on the thread: the review runs as a turn of it.
+pub(super) fn start_review(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    target: crate::threads::ReviewTarget,
+    fx: &mut AppFx,
+) {
+    if let Some(thread) = source {
+        let ev =
+            ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::Review(target)));
+        apply_thread(app, &thread, ev, fx);
     }
 }
 
@@ -325,6 +437,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
             backend,
             name: None,
             plan: None,
+            draft: None,
         },
     );
     fx.commands.push(Command::Screen {
@@ -446,6 +559,31 @@ pub(super) fn removed(
     true
 }
 
+/// A prompt the user submitted: the app carries out what its kind asks for.
+pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
+    use crate::screens::dialogs::PromptKind;
+    if app.screens.dialogs.submitted.is_none() {
+        return;
+    }
+    let Some(submitted) = Rc::make_mut(&mut app.screens).dialogs.submitted.take() else {
+        return;
+    };
+    match submitted.kind {
+        PromptKind::Rename { thread } => rename::submitted(app, thread, &submitted.text, fx),
+        PromptKind::ExportFile => export::submitted(app, submitted.text, fx),
+        PromptKind::GoalEdit {
+            thread,
+            status,
+            token_budget,
+        } => {
+            let objective = submitted.text.trim().to_owned();
+            if !objective.is_empty() {
+                goal::edited(app, thread, status, token_budget, objective, fx);
+            }
+        }
+    }
+}
+
 /// `config.cwd`: the directory of the thread, else the one the host read for
 /// the status line.
 fn working_directory(app: &CodexApp, thread: Option<&ThreadId>) -> String {
@@ -524,6 +662,7 @@ pub(super) fn plan_answer(
                     backend,
                     name: None,
                     plan: Some(markdown),
+                    draft: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));

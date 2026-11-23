@@ -29,7 +29,7 @@ fn footer(line: Line, draft_empty: bool) -> Footer {
 
 /// The entries of this directory.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    vec![
+    let mut entries = vec![
         DebugEntry {
             name: "footer_shortcuts_default",
             description: "the idle footer: ? for shortcuts and the context left",
@@ -72,5 +72,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: IDLE,
             open: EntryOpen::Route(|_| footer(Line::EscPrimed, true).into()),
         },
-    ]
+    ];
+    entries.extend(super::effort::debug_entries());
+    entries
 }

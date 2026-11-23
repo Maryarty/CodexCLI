@@ -432,6 +432,7 @@ mod tests {
         assert_eq!(outcome(&Setup::GatewayList, Ok(list(false))), Err(POLICY.into()));
         let old = ServerError {
             code: Some(-32601),
+            data: None,
             message: "no such method".into(),
         };
         assert_eq!(
@@ -446,6 +447,7 @@ mod tests {
         // server message.
         let refused = ServerError {
             code: Some(-32602),
+            data: None,
             message: "modelProvider/list failed: Bad cursor (code -32602)".into(),
         };
         assert_eq!(
@@ -456,6 +458,7 @@ mod tests {
         // request, under the method's real name.
         let unknown = ServerError {
             code: Some(-32600),
+            data: None,
             message: "modelProvider/list failed: Invalid request: unknown variant `modelProvider/list`, expected one of `initialize` (code -32600)".into(),
         };
         assert_eq!(
@@ -479,6 +482,7 @@ mod tests {
         assert!(matches!(saved, Ok(Answer::GatewaySaved(s)) if s.id == "team"));
         let internal = ServerError {
             code: Some(-32603),
+            data: None,
             message: "read-back failed".into(),
         };
         assert_eq!(outcome(&setup, Err(internal)), Ok(Answer::GatewayUnconfirmed));
@@ -486,6 +490,7 @@ mod tests {
         assert_eq!(outcome(&setup, Ok(json!({"x": 1}))), Ok(Answer::GatewayUnconfirmed));
         let refused = ServerError {
             code: Some(-32602),
+            data: None,
             message: "Enter an HTTP(S) base URL.".into(),
         };
         assert_eq!(outcome(&setup, Err(refused)), Err("Enter an HTTP(S) base URL.".into()));

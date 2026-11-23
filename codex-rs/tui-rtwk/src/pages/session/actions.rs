@@ -218,7 +218,8 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 match send {
                     Delivery::Submit => cx.emit(&hs.submit, message),
                     Delivery::Queue => {
-                        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(message));
+                        let intent =
+                            ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(message.into()));
                         cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
                     }
                 }

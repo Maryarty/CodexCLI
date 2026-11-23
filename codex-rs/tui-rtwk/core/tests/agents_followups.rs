@@ -222,6 +222,7 @@ fn an_account_update_changes_the_plan_and_drops_the_usage() {
 fn a_server_error_has_its_code_and_prints_its_message() {
     let error = ServerError {
         code: Some(-32602),
+        data: None,
         message: "invalid params".to_owned(),
     };
     assert_eq!(error.to_string(), "invalid params");

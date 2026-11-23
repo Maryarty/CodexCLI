@@ -11,7 +11,7 @@ use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::chat::plan_mode;
-use crate::screens::select::{self, apps, permissions};
+use crate::screens::select::{self, apps, export, permissions, plugins, review};
 use crate::screens::{ScreenCommand, ScreenReply};
 
 /// An intent of the select screen, and the asks it left open.
@@ -59,14 +59,131 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
             fx,
         );
     }
+    review_asked(app, fx);
+    worktree_asked(app, fx);
+    quick_asked(app, fx);
+    plugins_asked(app, fx);
     picks(app, fx);
     drain(app, fx);
+}
+
+/// The requests the plugin browser wants, asked of the backend (one ticket each).
+fn plugins_asked(app: &mut CodexApp, fx: &mut AppFx) {
+    let wanted = Rc::make_mut(&mut app.screens).select.plugins.take_wanted();
+    for wanted in wanted {
+        let request = wanted.request;
+        ask(
+            app,
+            select::Command::Plugins(wanted),
+            select::Ctx::Plugins { request },
+            fx,
+        );
+    }
+}
+
+/// The preset writes the menus settled on, asked of the config (one `config/batchWrite` each).
+fn quick_asked(app: &mut CodexApp, fx: &mut AppFx) {
+    let wanted = Rc::make_mut(&mut app.screens).select.quick.take_wanted();
+    for write in wanted {
+        let select::quick_dials::Write { slot, dial } = write;
+        ask(
+            app,
+            select::Command::Preset {
+                slot,
+                dial: dial.clone(),
+            },
+            select::Ctx::Preset { slot, dial },
+            fx,
+        );
+    }
+}
+
+/// The git list a `/review` menu waits for, asked of the host (once per request).
+fn review_asked(app: &mut CodexApp, fx: &mut AppFx) {
+    use super::effects::Ask;
+    let Some(wanted) = Rc::make_mut(&mut app.screens).select.review.take_wanted() else {
+        return;
+    };
+    let ask = match wanted.git {
+        review::Git::Branches => Ask::GitBranches { cwd: wanted.cwd },
+        review::Git::Log => Ask::GitLog {
+            cwd: wanted.cwd,
+            limit: review::RECENT_COMMITS,
+        },
+    };
+    fx.commands
+        .push(super::effects::command(wanted.request, ask));
+}
+
+/// The worktree list or removal the menus want, asked of the host.
+fn worktree_asked(app: &mut CodexApp, fx: &mut AppFx) {
+    use super::effects::Ask;
+    use select::worktree::Want;
+    let wanted = Rc::make_mut(&mut app.screens).select.worktree.take_wanted();
+    for wanted in wanted {
+        let cwd = wanted.cwd;
+        let ask = match wanted.want {
+            Want::List => Ask::Worktrees { cwd },
+            Want::Remove { root } => Ask::WorktreeRemove { cwd, root },
+        };
+        fx.commands
+            .push(super::effects::command(wanted.request, ask));
+    }
+}
+
+/// The host's list for a `/review` menu: the child menu opens over the presets. False when
+/// `request` is not the one the menus wait for (the answer is the UI's own).
+pub(super) fn reviewed(
+    app: &mut CodexApp,
+    request: u64,
+    done: &super::effects::Done,
+    fx: &mut AppFx,
+) -> bool {
+    use super::effects::Done;
+    if app.screens.select.worktree.waits_for(request) {
+        let ev = match done {
+            Done::Worktrees(result) => select::Ev::Worktrees {
+                request,
+                result: result.clone(),
+            },
+            Done::WorktreeRemoved(result) => select::Ev::WorktreeRemoved {
+                request,
+                result: result.clone(),
+            },
+            _ => return false,
+        };
+        event(app, ev, fx);
+        return true;
+    }
+    if !app.screens.select.review.waits_for(request) {
+        return false;
+    }
+    let listing = match done {
+        Done::GitBranches { current, branches } => review::Listing::Branches {
+            current: current.clone(),
+            branches: branches.clone(),
+        },
+        Done::GitLog(commits) => review::Listing::Log(commits.clone()),
+        _ => return false,
+    };
+    event(app, select::Ev::Reviewed { request, listing }, fx);
+    true
 }
 
 /// What the screen said (`add_info_message` of the pickers) goes into the
 /// transcript of the thread in use, as typed notes: the screen keeps no
 /// history of its own.
 fn drain(app: &mut CodexApp, fx: &mut AppFx) {
+    if app.screens.select.hold_queue {
+        Rc::make_mut(&mut app.screens).select.hold_queue = false;
+        if let Some(thread) = app.session.active.clone() {
+            let intent = crate::screens::chat::ThreadIntent::HoldQueue;
+            let ev = crate::threads::ThreadEv::ScreenIntent(
+                crate::screens::ScreenThreadIntent::Chat(intent),
+            );
+            super::apply_thread(app, &thread, ev, fx);
+        }
+    }
     if app.screens.select.notes.is_empty() {
         return;
     }
@@ -87,8 +204,15 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
     let ours = |pick: &select::Picked| {
         matches!(
             pick,
-            Selection(_) | Permissions(_) | Tier(_) | Effort { .. }
-        ) || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
+            Selection(_)
+                | Permissions(_)
+                | Tier(_)
+                | Effort { .. }
+                | select::Picked::Review(_)
+                | select::Picked::Worktree(_)
+                | select::Picked::Goal(_)
+        ) || matches!(pick, select::Picked::Item(id)
+            if plan_mode::Answer::of_row(id).is_some() || export::Row::of_row(id).is_some())
     };
     if !app.screens.select.picked.iter().any(ours) {
         return;
@@ -114,13 +238,64 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 effort,
                 plan,
             } => effort_pick(app, &model, effort, plan, fx),
+            // `AppEvent::Review`: `review/start`, inline on the thread in use.
+            select::Picked::Review(target) => {
+                let thread = app.session.active.clone();
+                super::session::start_review(app, thread, target, fx);
+            }
+            select::Picked::Worktree(pick) => worktree_pick(app, pick, fx),
+            select::Picked::Goal(pick) => super::session::goal::picked(app, pick, fx),
             select::Picked::Item(id) => {
                 if let Some(answer) = plan_mode::Answer::of_row(&id) {
                     super::session::plan_answer(app, answer, fx);
+                } else if let Some(row) = export::Row::of_row(&id) {
+                    super::session::export::picked(app, row, fx);
                 }
             }
             _ => {}
         }
+    }
+}
+
+/// What the worktree menus settled on: `/new` and `/fork` in the current checkout, a new
+/// worktree for `/new`, the owner thread opened, the directory copied.
+fn worktree_pick(app: &mut CodexApp, pick: select::worktree::Pick, fx: &mut AppFx) {
+    use crate::commands::{SessionIntent, SlashCommand};
+    use select::worktree::{Conversation, Pick};
+    let source = app.session.active.clone();
+    match pick {
+        Pick::Current { mode, name } => {
+            let (command, intent) = match mode {
+                Conversation::New => (SlashCommand::New, SessionIntent::New { name }),
+                Conversation::Fork => (SlashCommand::Fork, SessionIntent::Fork { name }),
+            };
+            super::session::session_intent(app, source, command, intent, fx);
+        }
+        // The creation chain of the command center (`worktree.rs`: create, start, bind, show)
+        // serves `/new`; a fork into the new checkout is not wired yet.
+        Pick::Start {
+            mode: Conversation::New,
+            ..
+        } => {
+            let cwd = Some(app.screens.select.worktree.cwd().to_owned());
+            super::worktree::Step::create(app, cwd, fx);
+        }
+        Pick::Start {
+            mode: Conversation::Fork,
+            ..
+        } => {}
+        Pick::Resume(thread) => super::apply_intent(app, super::Intent::OpenThread(thread), fx),
+        Pick::Copy(text) => {
+            let request = select::worktree::REQUEST_BIT | (1 << 40);
+            fx.commands.push(super::effects::command(
+                request,
+                super::effects::Ask::Copy {
+                    text,
+                    format: super::effects::CopyFormat::PlainText,
+                },
+            ));
+        }
+        Pick::Remove { .. } => {}
     }
 }
 
@@ -131,6 +306,8 @@ pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
     let before = app.screens.select.apps.pending;
     select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     asked_apps(app, before, fx);
+    plugins_asked(app, fx);
+    picks(app, fx);
     drain(app, fx);
 }
 
@@ -285,10 +462,13 @@ fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &
         // (`apply_permission_profile_selection`, `already_selected`).
         permissions::Selection::Profile { id, unchanged, .. } => {
             if *unchanged && id.starts_with(':') {
+                Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
                 return;
             }
             let then = select::Note::PermissionSelectionRequested(label);
-            settings(app, patch, select::Setting::Permissions, Some(then), fx);
+            if !settings(app, patch, select::Setting::Permissions, Some(then), fx) {
+                Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
+            }
         }
         // Without a thread the legacy list has nothing to update: the
         // oracle's config is the host's, and its line is still said.
@@ -299,7 +479,12 @@ fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &
     }
 }
 
-fn ask(app: &mut CodexApp, command: select::Command, ctx: select::Ctx, fx: &mut AppFx) {
+pub(in crate::app) fn ask(
+    app: &mut CodexApp,
+    command: select::Command,
+    ctx: select::Ctx,
+    fx: &mut AppFx,
+) {
     let ticket = app.mint.next();
     app.outgoing.insert(ticket, AppCtx::Select(ctx));
     fx.commands.push(Command::Screen {
@@ -313,6 +498,8 @@ fn failure(error: RpcError) -> permissions::Failure {
     match error {
         RpcError::Remote(text) | RpcError::Malformed(text) => permissions::Failure::Other(text),
         RpcError::Mismatch => permissions::Failure::Other(String::new()),
+        RpcError::Prepare(text) => permissions::Failure::Other(text),
+        RpcError::Provider(error) => permissions::Failure::Other(error.to_string()),
     }
 }
 
@@ -326,6 +513,9 @@ fn text(error: RpcError) -> String {
 /// The answer of one of those RPCs.
 pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
     answered(app, ctx, answer, fx);
+    plugins_asked(app, fx);
+    // The catalog an inline `/permissions <profile>` waited for may have made its pick.
+    picks(app, fx);
     drain(app, fx);
 }
 
@@ -339,16 +529,22 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     };
     match (ctx, result) {
-        (select::Ctx::Settings { setting, then }, result) => match result {
-            Ok(_) => notes(app, then),
-            Err(error) => notes(
-                app,
-                [select::Note::SaveFailed {
-                    setting,
-                    error: text(error),
-                }],
-            ),
-        },
+        (select::Ctx::Settings { setting, then }, result) => {
+            // `complete_permission_shortcut`: the pick of a shortcut has its answer.
+            if setting == select::Setting::Permissions {
+                Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
+            }
+            match result {
+                Ok(_) => notes(app, then),
+                Err(error) => notes(
+                    app,
+                    [select::Note::SaveFailed {
+                        setting,
+                        error: text(error),
+                    }],
+                ),
+            }
+        }
         (select::Ctx::Write { setting, then }, result) => match result {
             Ok(select::Reply::Written { overridden }) => {
                 if overridden {
@@ -371,6 +567,27 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
             event(app, select::Ev::AppSwitched { id, enabled }, fx);
         }
         (select::Ctx::App { .. }, _) => {}
+        // `save_quick_dial`: the slot follows a saved write; a refused one is said, with the
+        // editor shown again.
+        (select::Ctx::Preset { slot, dial }, result) => {
+            let result = match result {
+                Ok(_) => Ok(()),
+                Err(error) => Err(text(error)),
+            };
+            event(app, select::Ev::PresetWritten { slot, dial, result }, fx);
+        }
+        (select::Ctx::Goal { thread, flow }, result) => {
+            super::session::goal::answered(app, thread, flow, result, fx);
+        }
+        (select::Ctx::Plugins { request }, result) => {
+            let result = match result {
+                Ok(select::Reply::Plugins(found)) => Ok(*found),
+                Ok(_) => Err(String::new()),
+                Err(error) => Err(text(error)),
+            };
+            let ev = select::Ev::Plugins(plugins::Ev::Answer { request, result });
+            event(app, ev, fx);
+        }
         (select::Ctx::Apps { request }, result) => {
             let result = match result {
                 Ok(select::Reply::Apps(apps)) => Ok(apps),
@@ -378,6 +595,13 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
                 Err(error) => Err(text(error)),
             };
             self::event(app, select::Ev::AppsLoaded { request, result }, fx);
+        }
+        // `collaboration_modes::list`: discovery is optional, a failed read leaves no presets
+        (select::Ctx::Collaboration, result) => {
+            app.modes = match result {
+                Ok(select::Reply::Collaboration(masks)) => masks,
+                _ => Vec::new(),
+            };
         }
         (select::Ctx::Models { request }, result) => {
             let result = match result {

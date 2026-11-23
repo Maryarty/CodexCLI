@@ -39,6 +39,7 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::actions::prompt;
+use crate::pages::session::footer::{Aura, Prompt};
 use crate::pages::session::popup;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::thread_ui::ThreadUi;
@@ -813,7 +814,11 @@ impl State for ComposerState {
                 tokens.shell().attrs(Attrs::BOLD),
             )
         } else {
-            prompt(table.prompt, tokens.bold())
+            Prompt {
+                label: table.prompt,
+                style: tokens.bold(),
+            }
+            .into()
         };
         let draft_row = Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
@@ -821,7 +826,10 @@ impl State for ComposerState {
             .child(Expanded::new(1, field));
         let remote = w.ui.draft.remote_count();
         if remote == 0 {
-            return draft_row.into();
+            return Aura {
+                child: draft_row.into(),
+            }
+            .into();
         }
         // the remote images stand above the draft, one blank row between
         let selected = w.ui.draft.remote_selected();
@@ -840,9 +848,13 @@ impl State for ComposerState {
                 Text::line(labels.image(at + 1)).style(style),
             ))
         });
-        rows.child(SizedBox::new(None, Some(1), None))
-            .child(draft_row)
-            .into()
+        Aura {
+            child: rows
+                .child(SizedBox::new(None, Some(1), None))
+                .child(draft_row)
+                .into(),
+        }
+        .into()
     }
 }
 

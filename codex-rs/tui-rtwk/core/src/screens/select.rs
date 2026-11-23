@@ -14,14 +14,23 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod apps;
+pub mod collaboration;
+pub mod export;
+pub mod goal;
 pub mod layout;
 pub mod list;
 pub mod models;
+pub mod permission_args;
+pub mod permission_shortcuts;
 pub mod permissions;
 pub mod persist;
+pub mod plugins;
+pub mod quick_dials;
 pub mod reasoning;
+pub mod review;
+pub mod worktree;
 pub use list::List;
-pub use models::{Catalog, Current, ModelMenu, Preset, Selection};
+pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
 use models::{Effort, PlanSource, Step};
 pub use permissions::{PermissionsMenu, Profiles};
 
@@ -62,6 +71,19 @@ pub enum Menu {
     Apps,
     /// A confirmation: No (row 0), then Yes (row 1).
     Confirm(Confirm),
+    /// A menu of `/review` (`review.rs`): the presets, the base branches, the commits and the
+    /// instructions prompt; the lists come from the host.
+    Review(Box<review::Menu>),
+    /// A menu of the worktree pickers (`worktree.rs`): the checkout choice of `/new` and `/fork`,
+    /// `/worktree`, the browser, a worktree's actions and the delete confirmation.
+    Worktree(Box<worktree::Menu>),
+    /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
+    /// settings, the editor and the confirmation of a change.
+    Quick(Box<quick_dials::Menu>),
+    /// `/plugins` (`plugins.rs`): the browser, its page is `Model::plugins.menu()`.
+    Plugins,
+    /// A confirmation of `/goal` (`goal.rs`): resume a stopped goal, replace a goal.
+    Goal(Box<goal::Menu>),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -94,6 +116,18 @@ pub enum Picked {
     /// An app of the directory (`Model::apps`), by id: its page opens in the
     /// browser (the app link dialog) or says it has no link.
     App(String),
+    /// A review target the `/review` menus settled on (the instructions typed, a branch, a
+    /// commit, or the uncommitted changes): the app starts the review on the active thread.
+    Review(crate::threads::ReviewTarget),
+    /// What the worktree menus settled on; the app acts.
+    Worktree(worktree::Pick),
+    /// A saved preset's input, to be submitted as the user typed it (`RecallQuickDial`): the
+    /// session's composer takes it.
+    Recall(String),
+    /// A page to open in the browser (a plugin's app).
+    Open(String),
+    /// What a confirmation of `/goal` settled on; the app acts.
+    Goal(goal::Pick),
 }
 
 /// A typed menu as rows: what the view turns into its list.
@@ -152,9 +186,53 @@ pub enum Note {
     NoApps,
     /// The directory failed before: the error as an error cell.
     AppsFailed(String),
+    /// `/model` is blocked (`model_picker_unavailable`): `The model list may be out of date.
+    /// Restart the app server and TUI to refresh /model.` after a provider write, or `Saving the
+    /// default provider. Try /model after the save finishes.` while it runs.
+    ModelPickerUnavailable(Provider),
+    /// `Managed worktrees require a local Git repository.` (an error).
+    WorktreesUnavailable,
+    /// `Cannot list managed worktrees: {error}` (an error).
+    WorktreeListFailed(String),
+    /// `Removed worktree at {root}. Thread history was kept.`
+    WorktreeRemoved { root: String },
+    /// `Could not remove worktree at {root}: {error}` (an error).
+    WorktreeRemoveFailed { root: String, error: String },
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
+    /// `Presets are unavailable in this conversation.` (an error).
+    PresetsUnavailable,
+    /// `Presets are available after startup completes.`
+    PresetsStarting,
+    /// `Images cannot be copied into a preset. Starting with empty text.`
+    PresetImages,
+    /// `Linked mentions cannot be copied into a preset. Starting with empty text.`
+    PresetMentions,
+    /// The input is not a preset: the reason as an error.
+    PresetInvalid(quick_dials::Invalid),
+    /// `Preset {slot}: {reason}`: a saved preset that does not validate (an error).
+    PresetBroken { slot: u8, reason: quick_dials::Invalid },
+    /// `Preset {slot} is defined outside your user config. Edit its source configuration
+    /// instead.` (an error).
+    PresetOutside(u8),
+    /// `Failed to update preset {slot}: {error}` (an error).
+    PresetFailed { slot: u8, error: String },
+    /// `Saved preset {slot}.`
+    PresetSaved(u8),
+    /// `Deleted preset {slot}.`
+    PresetDeleted(u8),
+    /// A line of the plugin browser.
+    Plugins(plugins::Say),
+    /// The arguments of `/permissions <profile> ..` do not parse (an error).
+    PermissionArgs(permission_args::Error),
+    /// The profile `/permissions` named cannot be picked (an error).
+    PermissionRefused(permission_args::Refusal),
+    /// The catalog an inline `/permissions <profile>` waited for could not be read (an error): the
+    /// failure's own words.
+    PermissionsFailed(permissions::Failure),
+    /// `No other permission modes are available.` (the shortcut found no other mode).
+    NoOtherPermissionModes,
 }
 
 impl Note {
@@ -162,7 +240,21 @@ impl Note {
     pub fn tone(&self) -> crate::threads::Tone {
         use crate::threads::Tone;
         match self {
-            Note::ModelsNotLoaded | Note::SaveFailed { .. } | Note::AppsFailed(_) => Tone::Error,
+            Note::ModelsNotLoaded
+            | Note::SaveFailed { .. }
+            | Note::AppsFailed(_)
+            | Note::WorktreesUnavailable
+            | Note::WorktreeListFailed(_)
+            | Note::WorktreeRemoveFailed { .. }
+            | Note::PresetsUnavailable
+            | Note::PresetInvalid(_)
+            | Note::PresetBroken { .. }
+            | Note::PresetOutside(_)
+            | Note::PresetFailed { .. }
+            | Note::PermissionArgs(_)
+            | Note::PermissionRefused(_)
+            | Note::PermissionsFailed(_) => Tone::Error,
+            Note::Plugins(say) if say.error() => Tone::Error,
             _ => Tone::Info,
         }
     }
@@ -200,10 +292,21 @@ pub struct Model {
     pub profiles: Profiles,
     /// The apps `/apps` lists.
     pub apps: apps::Apps,
+    /// The `/review` menus' working directory and the git list asked for.
+    pub review: review::Review,
+    /// The scope and the requests of the worktree menus.
+    pub worktree: worktree::Worktree,
+    /// The presets saved in the config and the writes asked for them.
+    pub quick: quick_dials::Quick,
+    /// The plugin browser.
+    pub plugins: plugins::Plugins,
     /// Picks made; the effect that stores them is the settings slice's.
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
     pub notes: Vec<Note>,
+    /// An inline `/permissions <profile>` pick failed or was given up: what waits in the thread's
+    /// queue stays unsent (`retain_input_after_failed_permission_selection`). The app takes it.
+    pub hold_queue: bool,
     /// The id of the row that opened the menu above the one at this depth of
     /// the stack: Esc shows that menu again with the cursor on it (the
     /// oracle's parent view keeps its highlight).
@@ -214,6 +317,14 @@ impl Model {
     /// The menu shown now.
     pub fn menu(&self) -> Option<&Menu> {
         self.stack.last()
+    }
+
+    /// The row the shown menu opens its cursor on: the one that opened the menu above it, shown
+    /// again by Esc (the oracle's parent view keeps its highlight).
+    pub fn cursor_row(&self) -> Option<&str> {
+        self.kept
+            .get(&self.stack.len().checked_sub(1)?)
+            .map(String::as_str)
     }
 
     /// The rows of the menu shown now, if it is one of the typed families.
@@ -230,7 +341,13 @@ impl Model {
             }
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Confirm(_) | Menu::List(_) => None,
+            Menu::Confirm(_)
+            | Menu::List(_)
+            | Menu::Review(_)
+            | Menu::Worktree(_)
+            | Menu::Quick(_)
+            | Menu::Goal(_)
+            | Menu::Plugins => None,
         }
     }
 
@@ -284,10 +401,159 @@ impl Model {
         self.step(step);
     }
 
+    /// `quick_dials_available`: whether presets can be used here; a note says why not.
+    fn quick_available(&mut self, gate: quick_dials::Gate) -> bool {
+        match gate {
+            quick_dials::Gate::Ready => true,
+            quick_dials::Gate::Blocked => {
+                self.notes.push(Note::PresetsUnavailable);
+                false
+            }
+            quick_dials::Gate::Starting => {
+                self.notes.push(Note::PresetsStarting);
+                false
+            }
+        }
+    }
+
+    /// `/presets`: a menu of the presets, or a preset recalled.
+    fn open_quick(&mut self, gate: quick_dials::Gate, open: quick_dials::Open) {
+        use quick_dials::{Menu as Quick, Open, PickerMode};
+        if !self.quick_available(gate) {
+            return;
+        }
+        match open {
+            Open::Picker(mode) => {
+                self.stack = vec![Menu::Quick(Box::new(Quick::Slots { mode, dial: None }))];
+            }
+            Open::Save(dial) => {
+                if let Err(reason) = dial.validate() {
+                    self.notes.push(Note::PresetInvalid(reason));
+                    return;
+                }
+                self.stack = vec![Menu::Quick(Box::new(Quick::Slots {
+                    mode: PickerMode::Save,
+                    dial: Some(dial),
+                }))];
+            }
+            Open::Editor { target, dial, composer } => {
+                let dial = dial.unwrap_or_else(|| {
+                    // `composer_quick_dial_text`: images and linked mentions cannot be saved.
+                    let input = if composer.images {
+                        self.notes.push(Note::PresetImages);
+                        String::new()
+                    } else if composer.mentions {
+                        self.notes.push(Note::PresetMentions);
+                        String::new()
+                    } else {
+                        composer.text
+                    };
+                    quick_dials::Dial::new(input)
+                });
+                self.stack = vec![Menu::Quick(Box::new(Quick::Editor { target, dial }))];
+            }
+            Open::Prefills(settings) => {
+                let rows = quick_dials::sources(&settings, &self.catalog);
+                self.stack = vec![Menu::Quick(Box::new(Quick::Sources(rows)))];
+            }
+            Open::Recall(slot) => {
+                let Some(saved) = self.quick.get(slot) else { return };
+                match saved.dial.validate() {
+                    Ok(()) => self.picked.push(Picked::Recall(saved.dial.input.clone())),
+                    Err(reason) => self.notes.push(Note::PresetBroken { slot, reason }),
+                }
+            }
+        }
+    }
+
+    /// `confirm_quick_dial`: the question of replacing, deleting or saving; nothing to ask when
+    /// there is nothing to delete.
+    fn quick_confirm(&mut self, slot: u8, new: Option<quick_dials::Dial>) {
+        if let Some(Err(reason)) = new.as_ref().map(quick_dials::Dial::validate) {
+            self.notes.push(Note::PresetInvalid(reason));
+            return;
+        }
+        let old = self.quick.get(slot).map(|saved| saved.dial.clone());
+        if old.is_none() && new.is_none() {
+            return;
+        }
+        self.stack.push(Menu::Quick(Box::new(quick_dials::Menu::Confirm { slot, old, new })));
+    }
+
+    /// `save_quick_dial`: a refused write says why and shows the editor again; an allowed one is
+    /// left for the app to ask of the config.
+    fn quick_write(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
+        match self.quick.check(slot, dial.as_ref()) {
+            Ok(()) => self.quick.want(quick_dials::Write { slot, dial }),
+            Err(refused) => {
+                self.notes.push(match refused {
+                    quick_dials::Refused::Outside(slot) => Note::PresetOutside(slot),
+                    quick_dials::Refused::Invalid(reason) => Note::PresetInvalid(reason),
+                });
+                self.restore_editor(slot, dial);
+            }
+        }
+    }
+
+    /// `restore_quick_dial_editor`: what was being saved is not lost.
+    fn restore_editor(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
+        if let Some(dial) = dial {
+            self.stack = vec![Menu::Quick(Box::new(quick_dials::Menu::Editor {
+                target: quick_dials::Target::Slot(slot),
+                dial,
+            }))];
+        }
+    }
+
+    /// `dismiss_stale_model_picker`: the model menus go, with the request they waited for.
+    fn dismiss_stale_models(&mut self) {
+        self.catalog.pending = None;
+        self.stack.retain(|menu| !matches!(menu, Menu::Model(_)));
+    }
+
     /// Forgets the rows kept for menus that are gone.
     fn tidy(&mut self) {
         let depth = self.stack.len();
         self.kept.retain(|at, _| *at < depth);
+        if !self.stack.iter().any(|menu| matches!(menu, Menu::Review(_))) {
+            self.review.forget();
+        }
+        if !self.stack.iter().any(|menu| matches!(menu, Menu::Worktree(_))) {
+            self.worktree.forget();
+        }
+        if self.plugins.take_shown() && !matches!(self.stack.last(), Some(Menu::Plugins)) {
+            self.stack = vec![Menu::Plugins];
+        }
+        if !self.stack.iter().any(|menu| matches!(menu, Menu::Plugins)) {
+            self.plugins.dismissed();
+        }
+        let said = self.plugins.take_said();
+        self.notes.extend(said.into_iter().map(Note::Plugins));
+    }
+
+    /// Whether the browser is the menu on top.
+    fn plugins_shown(&self) -> bool {
+        matches!(self.stack.last(), Some(Menu::Plugins))
+    }
+
+    /// The step of the setup of a plugin's apps, as the directory knows them.
+    pub fn plugin_auth(&self) -> Option<plugins::AuthStep> {
+        self.plugins.auth(|id| {
+            self.apps
+                .ready()
+                .is_some_and(|apps| apps.iter().any(|app| app.id == id && app.installed))
+        })
+    }
+
+    /// A pick of a row of the browser.
+    fn choose_plugin(&mut self, id: &str) {
+        match self.plugins.choose(id) {
+            plugins::Chosen::Nothing => {}
+            plugins::Chosen::Open(url) => self.picked.push(Picked::Open(url)),
+            plugins::Chosen::RefreshApps => {
+                self.apps.refresh(true);
+            }
+        }
     }
 
     fn step(&mut self, step: Step) {
@@ -328,9 +594,99 @@ impl Model {
             }
             Step::Done(selection) => {
                 self.stack.clear();
+                // `complete_inline_permission_profile_selection`: the pick is the settled one.
+                self.profiles.inline = None;
                 self.picked.push(Picked::Permissions(selection));
             }
             Step::Reopen(current) | Step::Retry(current) => self.open_permissions(current),
+        }
+    }
+
+    /// An inline pick is given up (`recover_inline_permission_profile_selection`): what waits in
+    /// the queue stays unsent. False when none was pending.
+    fn abandon_inline(&mut self) -> bool {
+        let pending = self.profiles.inline.take().is_some();
+        self.hold_queue |= pending;
+        pending
+    }
+
+    /// The menus were left (Esc) with an inline pick still waiting on them: it is given up
+    /// (`cancel_pending_permission_profile_selection`).
+    fn inline_unattended(&mut self) {
+        let shown = self
+            .stack
+            .iter()
+            .any(|menu| matches!(menu, Menu::Permissions(_)));
+        if !shown {
+            self.abandon_inline();
+        }
+    }
+
+    /// `/permissions <profile> ..` (`select_permission_profile`): the arguments are checked, and
+    /// the profile is picked at once when the catalog is held, else after it is read (the
+    /// `Loading` menu shows meanwhile).
+    fn permissions_args(&mut self, line: &str, mut current: permissions::Current) {
+        use permission_args::Inline;
+        let args = match permission_args::parse(line) {
+            Ok(args) => args,
+            Err(error) => {
+                self.notes.push(Note::PermissionArgs(error));
+                self.hold_queue = true;
+                return;
+            }
+        };
+        current.discover = true;
+        self.profiles.inline = Some(Inline::Discovering { args, current: current.clone() });
+        if !self.apply_inline() {
+            self.open_permissions(current);
+        }
+    }
+
+    /// The inline pick waiting for the catalog, applied now that it is held
+    /// (`apply_pending_permission_profile`): the profile becomes the pick of the menus, or is
+    /// refused with a note. False when nothing waits or the catalog is not held.
+    fn apply_inline(&mut self) -> bool {
+        use permission_args::Inline;
+        let Some(discovery) = self.profiles.found.clone() else {
+            return false;
+        };
+        if !matches!(self.profiles.inline, Some(Inline::Discovering { .. })) {
+            return false;
+        }
+        let Some(Inline::Discovering { args, current }) =
+            self.profiles.inline.replace(Inline::Applying)
+        else {
+            return false;
+        };
+        self.stack.clear();
+        match permission_args::resolve(&args, &discovery, current.guardian) {
+            Ok(selection) => self.permissions_step(permissions::settle(&current, selection)),
+            Err(refusal) => {
+                self.notes.push(Note::PermissionRefused(refusal));
+                self.abandon_inline();
+            }
+        }
+        true
+    }
+
+    /// The permission shortcut keys (`handle_permission_shortcut`): the pick of the next or
+    /// previous built-in mode over the catalog held, or the catalog asked for (and its menu shown)
+    /// when there is none. A pick still on its way ignores the key.
+    fn permission_shortcut(&mut self, forward: bool, mut current: permissions::Current) {
+        if self.profiles.shortcut {
+            return;
+        }
+        let Some(discovery) = &self.profiles.found else {
+            current.discover = true;
+            self.open_permissions(current);
+            return;
+        };
+        match permission_shortcuts::next(&current, discovery, forward) {
+            Some(selection) => {
+                self.profiles.shortcut = true;
+                self.picked.push(Picked::Permissions(selection));
+            }
+            None => self.notes.push(Note::NoOtherPermissionModes),
         }
     }
 
@@ -365,22 +721,46 @@ impl Model {
     /// (`on_permission_profiles_loaded`).
     fn discovered(&mut self, result: Result<permissions::Discovery, permissions::Failure>) {
         use permissions::PermissionsMenu as Perms;
+        let loading = |menu: &Menu| {
+            matches!(menu, Menu::Permissions(menu) if matches!(**menu, Perms::Loading(_)))
+        };
         if let Ok(discovery) = &result {
             self.profiles.found = Some(discovery.clone());
         }
-        let Some(Menu::Permissions(menu)) = self.stack.last() else {
+        if self.stack.last().is_some_and(loading) {
+            let Some(Menu::Permissions(menu)) = self.stack.pop() else {
+                return;
+            };
+            let current = menu.current().clone();
+            match result {
+                // An inline pick takes the catalog first; else the menu shows it.
+                Ok(_) => {
+                    if !self.apply_inline() {
+                        self.stack
+                            .push(Menu::Permissions(Box::new(Perms::Profiles(current))));
+                    }
+                }
+                Err(failure) => self
+                    .stack
+                    .push(Menu::Permissions(Box::new(Perms::Failed { current, failure }))),
+            }
             return;
-        };
-        let Perms::Loading(current) = &**menu else {
+        }
+        // The user left the menu, or another one covers it: the catalog is held, and a menu below
+        // another is not shown over it (`dismiss_view_by_id`).
+        let covered = self.stack.iter().any(loading);
+        self.stack.retain(|menu| !loading(menu));
+        if covered && result.is_ok() {
             return;
-        };
-        let current = current.clone();
-        let next = match result {
-            Ok(_) => Perms::Profiles(current),
-            Err(failure) => Perms::Failed { current, failure },
-        };
-        self.stack.pop();
-        self.stack.push(Menu::Permissions(Box::new(next)));
+        }
+        if let Err(failure) = result
+            && matches!(self.profiles.inline, Some(permission_args::Inline::Discovering { .. }))
+        {
+            self.notes.push(Note::PermissionsFailed(failure));
+        }
+        if matches!(self.profiles.inline, Some(permission_args::Inline::Discovering { .. })) {
+            self.abandon_inline();
+        }
     }
 
     /// `open_model_popup_with_presets`: the quick menu, or a note when the
@@ -424,6 +804,10 @@ pub enum Ev {
     Opened(Menu),
     /// The catalog the app started with.
     Loaded(Vec<Preset>),
+    /// The default provider's write state changed (`provider_write`): a write in flight or
+    /// committed dismisses the model menus and drops the answer in flight
+    /// (`dismiss_stale_model_picker`), and blocks `/model` until the restart.
+    Provider(Provider),
     /// The permission catalog the app holds; menus open on it show it in
     /// place.
     Listed(permissions::Discovery),
@@ -448,6 +832,33 @@ pub enum Ev {
         request: u64,
         result: Result<Vec<apps::App>, String>,
     },
+    /// The host's list for the `/review` menus (`Review::pending` names the request): the child
+    /// menu opens over the presets, unless they are gone.
+    Reviewed {
+        request: u64,
+        listing: review::Listing,
+    },
+    /// The host's worktree list (`Worktree::pending` names the request): the browser replaces the
+    /// loading row, or the error is said; a stale answer is dropped.
+    Worktrees {
+        request: u64,
+        result: Result<Vec<worktree::Entry>, String>,
+    },
+    /// The host's answer to a removal asked for.
+    WorktreeRemoved {
+        request: u64,
+        result: Result<(), String>,
+    },
+    /// The presets of the config, with the layers each comes from (told when the config is read).
+    Dials(Vec<quick_dials::Slot>),
+    /// The config took the write of a preset, or refused it.
+    PresetWritten {
+        slot: u8,
+        dial: Option<quick_dials::Dial>,
+        result: Result<(), String>,
+    },
+    /// The config of the plugins, or an answer of the browser's requests.
+    Plugins(plugins::Ev),
     /// The app server says the directory changed
     /// (`refresh_connector_directory_after_notification`).
     AppsNotified(Vec<apps::App>),
@@ -470,9 +881,47 @@ pub enum Intent {
     /// `/permissions`: the menu for what the thread has now; the catalog is
     /// asked for when it has none (`Profiles::pending` is the request).
     OpenPermissions(permissions::Current),
+    /// `/permissions <profile> ..`: the profile is picked without a menu once the catalog is
+    /// read (`select_permission_profile`); `current` is what the thread has now.
+    PermissionsArgs { args: String, current: permissions::Current },
+    /// The next or previous built-in mode (`handle_permission_shortcut`): the pick of the cycle,
+    /// or the catalog asked for when none is held.
+    PermissionShortcut { forward: bool, current: permissions::Current },
     /// `/apps` (`enabled`: the apps feature is on): the directory, asked for
     /// again (`Apps::pending` is the request).
     OpenApps { enabled: bool },
+    /// `/review`: the presets menu; the git lists are asked in `cwd`.
+    OpenReview { cwd: String },
+    /// `/new` or `/fork` (`mode`) in `cwd`: where it runs is asked when a local repository
+    /// (`available`) offers a new checkout, else it is the current one at once.
+    OpenCheckout {
+        mode: worktree::Conversation,
+        name: Option<String>,
+        available: bool,
+        cwd: String,
+        thread: Option<ThreadId>,
+    },
+    /// `/worktree`: continue, start or browse; an error line where no local repository
+    /// (`available`) is.
+    OpenWorktrees {
+        available: bool,
+        cwd: String,
+        thread: Option<ThreadId>,
+    },
+    /// The text typed at `Custom review instructions`.
+    Instructions(String),
+    /// `/plugins` in `cwd`: the browser, over the list asked for again.
+    OpenPlugins { cwd: String },
+    /// An intent of the browser that is not a pick of a row.
+    Plugins(plugins::Intent),
+    /// `/presets`: a menu of the presets, or a preset recalled; `gate` says whether presets can
+    /// be used where the user is.
+    Quick {
+        gate: quick_dials::Gate,
+        open: quick_dials::Open,
+    },
+    /// The text submitted at the preset editor.
+    Draft(String),
     /// The link dialog of an app switched it on or off (`SetAppEnabled`): the app writes
     /// the config and, once it is saved, tells the directory (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
@@ -508,6 +957,66 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Loaded(presets) => model.accept(presets),
+        Ev::Worktrees { request, result } => {
+            if !model.worktree.answered(request) {
+                return;
+            }
+            let loading = matches!(
+                model.stack.last(),
+                Some(Menu::Worktree(menu)) if **menu == worktree::Menu::Loading
+            );
+            if !loading {
+                return;
+            }
+            match result {
+                Ok(entries) => {
+                    model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Browser(entries)))];
+                }
+                Err(error) => {
+                    model.stack.clear();
+                    model.notes.push(Note::WorktreeListFailed(error));
+                }
+            }
+        }
+        Ev::WorktreeRemoved { request, result } => {
+            if let Some(root) = model.worktree.removed(request) {
+                model.notes.push(match result {
+                    Ok(()) => Note::WorktreeRemoved { root },
+                    Err(error) => Note::WorktreeRemoveFailed { root, error },
+                });
+            }
+        }
+        Ev::Dials(slots) => model.quick.set(slots),
+        Ev::PresetWritten { slot, dial, result } => match result {
+            Ok(()) => {
+                model.quick.written(quick_dials::Write { slot, dial: dial.clone() });
+                model.notes.push(if dial.is_some() {
+                    Note::PresetSaved(slot)
+                } else {
+                    Note::PresetDeleted(slot)
+                });
+            }
+            Err(error) => {
+                model.notes.push(Note::PresetFailed { slot, error });
+                model.restore_editor(slot, dial);
+            }
+        },
+        Ev::Provider(provider) => {
+            model.catalog.provider = provider;
+            if provider != Provider::Settled {
+                model.dismiss_stale_models();
+            }
+        }
+        Ev::Reviewed { request, listing } => {
+            let over_presets = matches!(
+                model.stack.last(),
+                Some(Menu::Review(menu)) if **menu == review::Menu::Presets
+            );
+            if model.review.answered(request) && over_presets {
+                model.kept.insert(model.stack.len() - 1, listing.kind().row().to_string());
+                model.stack.push(Menu::Review(Box::new(listing.menu())));
+            }
+        }
         Ev::Listed(discovery) => model.profiles.found = Some(discovery),
         Ev::Discovered { request, result } => {
             if model.profiles.pending != Some(request) {
@@ -519,9 +1028,13 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::ScopeChanged => {
             use permissions::PermissionsMenu as Perms;
             model.profiles.pending = None;
+            // `invalidate_permission_discovery`: an inline pick waiting on the old scope is given up.
+            model.abandon_inline();
             model.apps.invalidate();
+            model.worktree.forget();
+            model.plugins.forget();
             model.stack.retain(|menu| match menu {
-                Menu::Apps => false,
+                Menu::Apps | Menu::Worktree(_) | Menu::Plugins => false,
                 Menu::Permissions(menu) => !matches!(
                     **menu,
                     Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. }
@@ -531,6 +1044,11 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         }
         Ev::AppsLoaded { request, result } => {
             model.apps.loaded(request, result);
+        }
+        Ev::Plugins(plugins::Ev::Config(config)) => model.plugins.set_config(config),
+        Ev::Plugins(plugins::Ev::Answer { request, result }) => {
+            let shown = model.plugins_shown();
+            model.plugins.answered(request, result, shown);
         }
         Ev::AppsNotified(apps) => {
             model.apps.notified(apps);
@@ -577,6 +1095,10 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     match intent {
         Intent::Open(menu) => model.stack = vec![menu],
         Intent::OpenModels(current) => {
+            if let Some(why) = model.catalog.unavailable() {
+                model.notes.push(Note::ModelPickerUnavailable(why));
+                return;
+            }
             model.stack.clear();
             model.catalog.request();
             if model.catalog.presets.is_empty() {
@@ -588,9 +1110,15 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::LoadModels => {
-            model.catalog.request();
+            if model.catalog.unavailable().is_none() {
+                model.catalog.request();
+            }
         }
         Intent::OpenPermissions(current) => model.open_permissions(current),
+        Intent::PermissionsArgs { args, current } => model.permissions_args(&args, current),
+        Intent::PermissionShortcut { forward, current } => {
+            model.permission_shortcut(forward, current);
+        }
         Intent::ServiceTier { id, current } => {
             let next = if current.as_deref() == Some(id.as_str()) {
                 codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()
@@ -608,6 +1136,65 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::OpenApps { enabled } => model.open_apps(enabled),
+        // `/review`: the presets, over the session's working directory.
+        Intent::OpenReview { cwd } => {
+            model.review.open(cwd);
+            model.stack = vec![Menu::Review(Box::new(review::Menu::Presets))];
+        }
+        // `/new` and `/fork` (`show_session_checkout_picker`): the choice of checkout, or none
+        // where there is no local repository to make one in.
+        Intent::OpenCheckout { mode, name, available, cwd, thread } => {
+            model.worktree.open(cwd, thread);
+            if available {
+                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Checkout { mode, name }))];
+            } else {
+                model.stack.clear();
+                model.picked.push(Picked::Worktree(worktree::Pick::Current { mode, name }));
+            }
+        }
+        // `/worktree` (`show_managed_worktree_picker`).
+        Intent::OpenWorktrees { available, cwd, thread } => {
+            if available {
+                model.worktree.open(cwd, thread);
+                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Worktrees))];
+            } else {
+                model.notes.push(Note::WorktreesUnavailable);
+            }
+        }
+        // The text of `Custom review instructions` (an empty one is not an answer).
+        Intent::Instructions(text) => {
+            let text = text.trim();
+            if matches!(model.stack.last(), Some(Menu::Review(menu)) if **menu == review::Menu::Instructions)
+                && !text.is_empty()
+            {
+                model.stack.clear();
+                model.picked.push(Picked::Review(crate::threads::ReviewTarget::Custom {
+                    instructions: text.to_string(),
+                }));
+            }
+        }
+        Intent::OpenPlugins { cwd } => {
+            if model.plugins.open(cwd) == plugins::Opened::Shown {
+                model.stack = vec![Menu::Plugins];
+            }
+        }
+        Intent::Plugins(intent) => model.plugins.intent(intent),
+        Intent::Quick { gate, open } => model.open_quick(gate, open),
+        // The text submitted at the preset editor: the slot picker, or the confirmation.
+        Intent::Draft(text) => {
+            use quick_dials::{Dial, Menu as Quick, Target};
+            let Some(Menu::Quick(menu)) = model.stack.last() else { return };
+            let Quick::Editor { target, dial } = &**menu else { return };
+            let (target, dial) = (*target, Dial { input: text, label: dial.label.clone() });
+            model.stack.pop();
+            match target {
+                Target::PickSlot => model.open_quick(
+                    quick_dials::Gate::Ready,
+                    quick_dials::Open::Save(dial),
+                ),
+                Target::Slot(slot) => model.quick_confirm(slot, Some(dial)),
+            }
+        }
         // The app writes the config (`app/select.rs`); the directory follows the saved write.
         Intent::SetApp { .. } => {}
         Intent::Choose(id) => match model.stack.last_mut() {
@@ -635,6 +1222,81 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.permissions_step(step);
             }
             Some(Menu::Apps) => model.choose_app(&id),
+            Some(Menu::Plugins) => model.choose_plugin(&id),
+            Some(Menu::Review(menu)) => {
+                use review::Chosen;
+                match menu.choose(&id) {
+                    Some(Chosen::Ask(git)) => model.review.want(git),
+                    Some(Chosen::Prompt) => {
+                        model.kept.insert(model.stack.len() - 1, id);
+                        model.stack.push(Menu::Review(Box::new(review::Menu::Instructions)));
+                    }
+                    Some(Chosen::Target(target)) => {
+                        model.stack.clear();
+                        model.picked.push(Picked::Review(target));
+                    }
+                    None => {}
+                }
+            }
+            Some(Menu::Quick(menu)) => {
+                use quick_dials::Chosen;
+                match menu.choose(&id, &model.quick) {
+                    Some(Chosen::Push(next)) => {
+                        model.kept.insert(model.stack.len() - 1, id);
+                        model.stack.push(Menu::Quick(Box::new(next)));
+                    }
+                    Some(Chosen::Confirm { slot, new }) => {
+                        model.kept.insert(model.stack.len() - 1, id);
+                        model.quick_confirm(slot, new);
+                    }
+                    Some(Chosen::Write { slot, dial }) => {
+                        model.stack.clear();
+                        model.quick_write(slot, dial);
+                    }
+                    None => {}
+                }
+            }
+            Some(Menu::Worktree(menu)) => {
+                use worktree::Chosen;
+                match menu.choose(&id) {
+                    Some(Chosen::Pick(worktree::Pick::Remove { root })) => {
+                        model.stack.clear();
+                        if model.worktree.removable(&root) {
+                            model.worktree.want(worktree::Want::Remove { root });
+                        }
+                    }
+                    Some(Chosen::Pick(pick)) => {
+                        model.stack.clear();
+                        model.picked.push(Picked::Worktree(pick));
+                    }
+                    Some(Chosen::Browse) => {
+                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Loading))];
+                        model.worktree.want(worktree::Want::List);
+                    }
+                    Some(Chosen::Actions(entry)) => {
+                        let can_delete = model.worktree.can_delete(&entry);
+                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Actions {
+                            entry,
+                            can_delete,
+                        }))];
+                    }
+                    Some(Chosen::Confirm { root }) => {
+                        if model.worktree.removable(&root) {
+                            model.stack =
+                                vec![Menu::Worktree(Box::new(worktree::Menu::Confirm { root }))];
+                        }
+                    }
+                    Some(Chosen::Close) => model.stack.clear(),
+                    None => {}
+                }
+            }
+            Some(Menu::Goal(menu)) => {
+                // The row dismisses the menu; Leave paused and Cancel pick nothing.
+                if let Some(pick) = menu.choose(&id) {
+                    model.stack.pop();
+                    model.picked.extend(pick.map(Picked::Goal));
+                }
+            }
             Some(Menu::Confirm(confirm)) => {
                 let confirm = *confirm;
                 if id == Confirm::YES {
@@ -657,11 +1319,11 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             _ => {}
         },
-        Intent::Toggle(id) => {
-            if let Some(Menu::List(list)) = model.stack.last_mut() {
-                list.flip(&id);
-            }
-        }
+        Intent::Toggle(id) => match model.stack.last_mut() {
+            Some(Menu::List(list)) => list.flip(&id),
+            Some(Menu::Plugins) => model.plugins.toggle(&id),
+            _ => {}
+        },
         Intent::Reorder(id, down) => {
             if let Some(Menu::List(list)) = model.stack.last_mut() {
                 list.reorder(&id, down);
@@ -676,7 +1338,11 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Close => {
+            if model.plugins_shown() && model.plugins.back() {
+                return;
+            }
             model.stack.pop();
+            model.inline_unattended();
         }
     }
 }
@@ -698,6 +1364,9 @@ pub enum ThreadEv {}
 pub enum Command {
     /// `model/list` for the request `Catalog::pending` names.
     Models { request: u64 },
+    /// `collaborationMode/list`: the modes `/plan` and Shift+Tab switch between (asked at
+    /// connect; the app keeps the answer).
+    Collaboration,
     /// `configRequirements/read`, the first half of a permission read.
     Requirements { request: u64 },
     /// One page of `permissionProfile/list` (100 per page, at most 10).
@@ -723,12 +1392,23 @@ pub enum Command {
     Write { edits: Vec<persist::Edit> },
     /// `config/batchWrite` of the `apps.<id>` keys: the app switched on or off.
     SetApp { id: String, enabled: bool },
+    /// `config/batchWrite` of `tui.presets.<slot>`: the preset saved, or deleted (`None`).
+    Preset {
+        slot: u8,
+        dial: Option<quick_dials::Dial>,
+    },
+    /// A request of the plugin browser (`Plugins::take_wanted`).
+    Plugins(plugins::Wanted),
+    /// `thread/goal/get|set|clear` of `thread`.
+    Goal { thread: String, ask: goal::Ask },
 }
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     Models(Vec<Preset>),
+    /// The collaboration-mode presets of the server.
+    Collaboration(Vec<collaboration::Mask>),
     Apps(Vec<apps::App>),
     Requirements(Option<permissions::Requirements>),
     Profiles {
@@ -741,6 +1421,12 @@ pub enum Reply {
     Written {
         overridden: bool,
     },
+    /// The answer of a request of the plugin browser.
+    Plugins(Box<plugins::Found>),
+    /// The goal a `thread/goal/get` or `thread/goal/set` answered with (none: the thread has none).
+    Goal(Option<crate::threads::Goal>),
+    /// `thread/goal/clear`: whether a goal was there to clear.
+    GoalCleared(bool),
 }
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
@@ -749,6 +1435,8 @@ pub enum Ctx {
     Models {
         request: u64,
     },
+    /// The read of the collaboration-mode catalog.
+    Collaboration,
     Apps {
         request: u64,
     },
@@ -776,6 +1464,15 @@ pub enum Ctx {
     },
     /// The write of an app's switch: the directory takes it once it is saved.
     App { id: String, enabled: bool },
+    /// The write of a preset: the slot follows once it is saved.
+    Preset {
+        slot: u8,
+        dial: Option<quick_dials::Dial>,
+    },
+    /// An answer of the plugin browser: the request it belongs to.
+    Plugins { request: u64 },
+    /// A step of `/goal` on `thread`.
+    Goal { thread: ThreadId, flow: goal::Flow },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).
@@ -807,7 +1504,11 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         .wire(id),
         Command::Write { edits } => persist::write_request(edits, id),
         Command::SetApp { id: app, enabled } => persist::app_enabled_request(app, *enabled, id),
+        Command::Preset { slot, dial } => persist::preset_request(*slot, dial.as_ref(), id),
+        Command::Plugins(wanted) => plugins::wire_request(wanted, id),
+        Command::Goal { thread, ask } => ask.thread_ask(thread).wire(id),
         Command::Models { .. } => models::list_request(id),
+        Command::Collaboration => collaboration::list_request(id),
         Command::Apps { force, thread, .. } => apps::list_request(id, *force, thread.clone()),
         Command::Requirements { .. } => permissions::requirements_request(id),
         Command::Profiles { cursor, cwd, .. } => {
@@ -820,10 +1521,28 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     match command {
         Command::Settings { .. } => Ok(Reply::Updated),
-        Command::Write { .. } | Command::SetApp { .. } => {
+        Command::Write { .. } | Command::SetApp { .. } | Command::Preset { .. } => {
             persist::written(result).map(|overridden| Reply::Written { overridden })
         }
+        Command::Plugins(wanted) => plugins::decode(wanted, result)
+            .map(|found| Reply::Plugins(Box::new(found))),
+        Command::Goal {
+            ask: goal::Ask::Clear,
+            ..
+        } => {
+            #[derive(serde::Deserialize)]
+            struct Cleared {
+                cleared: bool,
+            }
+            return serde_json::from_value::<Cleared>(result)
+                .map(|answer| Reply::GoalCleared(answer.cleared))
+                .map_err(|error| RpcError::Malformed(error.to_string()));
+        }
+        Command::Goal { .. } => {
+            return crate::threads::goal_of_response(result).map(Reply::Goal);
+        }
         Command::Models { .. } => models::presets(result).map(Reply::Models),
+        Command::Collaboration => collaboration::masks(result).map(Reply::Collaboration),
         Command::Apps { .. } => apps::apps(result).map(Reply::Apps),
         Command::Requirements { .. } => permissions::requirements(result).map(|wire| {
             Reply::Requirements(wire.as_ref().map(permissions::Requirements::from_wire))

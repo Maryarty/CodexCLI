@@ -374,6 +374,16 @@ async fn run(
         epoch,
         AppEv::Tui(crate::effects::tui_settings(&config)),
     );
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Presets(crate::effects::presets(&config)),
+    );
+    emit(
+        &ingress,
+        epoch,
+        AppEv::PluginConfig(crate::effects::plugin_config(&config)),
+    );
     if !warnings.is_empty() {
         emit(
             &ingress,
@@ -708,6 +718,10 @@ pub(crate) fn sender(
                         _ => None,
                     },
                     message: error_text(own_message, &error),
+                    data: match &error {
+                        TypedRequestError::Server { source, .. } => source.data.clone(),
+                        _ => None,
+                    },
                 })
         })
     }

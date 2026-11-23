@@ -1463,6 +1463,7 @@ fn a_thread_with_another_writer_opens_read_only_with_its_history() {
             if replies.fetch_add(1, Ordering::SeqCst) == 0 {
                 Some(Err(ServerError {
                     code: Some(-32600),
+                    data: None,
                     message: format!("thread {thread} already has an active writer"),
                 }))
             } else {

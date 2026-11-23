@@ -15,12 +15,12 @@ use rtwk::editing::TextEditingController;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::style::Span;
-use rtwk::text::{TextOverflow, segmenter_of};
-use rtwk::widgets::Text;
+use rtwk::text::segmenter_of;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
 use crate::widgets::measure;
 
+use super::effort::StatusLine;
 use super::{Footer, Line};
 
 /// Cells the line starts in (`inset_footer_hint_area`).
@@ -93,9 +93,10 @@ impl StatelessWidget for StatusRows {
                     .child(SizedBox::new(Some(INDENT), None, None))
                     .child(Expanded::new(
                         1,
-                        Text::rich(spans.clone())
-                            .max_lines(Some(rows))
-                            .overflow(TextOverflow::Ellipsis),
+                        StatusLine {
+                            spans: spans.clone(),
+                            rows,
+                        },
                     ))
                     .into()
             })

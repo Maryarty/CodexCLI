@@ -14,10 +14,14 @@ use std::sync::Arc;
 use codex_core::config::Config;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::effects::Done;
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
+use codex_tui_core::screens::select::quick_dials::{Dial, Origin, SLOTS, Slot};
+use codex_tui_core::screens::select::review::Commit;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
 use codex_tui_rtwk::services::clipboard::Clipboard;
 use codex_tui_rtwk::services::clipboard::Machine;
@@ -51,6 +55,93 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
             tables: rendering.tables,
             lists: rendering.lists,
         },
+    }
+}
+
+/// `tui.presets` of the merged config, each with the layers that define it (`save_quick_dial`:
+/// the user config's own file decides what the user may replace or clear).
+pub(crate) fn presets(config: &Config) -> Vec<Slot> {
+    use codex_config::ConfigLayerSource;
+    let user_file = config
+        .config_layer_stack
+        .get_user_config_file()
+        .cloned()
+        .unwrap_or_else(|| config.codex_home.join("config.toml"));
+    config
+        .tui_quick_dials
+        .iter()
+        .filter_map(|(key, dial)| {
+            let slot: u8 = key.parse().ok().filter(|slot| SLOTS.contains(slot))?;
+            let layers: Vec<bool> = config
+                .config_layer_stack
+                .layers_high_to_low()
+                .filter(|layer| {
+                    layer
+                        .config
+                        .get("tui")
+                        .and_then(|tui| tui.get("presets"))
+                        .and_then(|dials| dials.get(key))
+                        .is_some()
+                })
+                .map(|layer| {
+                    matches!(&layer.name, ConfigLayerSource::User { file, .. } if *file == user_file)
+                })
+                .collect();
+            let origin = match layers.first() {
+                None => Origin::User,
+                Some(true) if layers.iter().all(|user| *user) => Origin::User,
+                Some(true) => Origin::Shadowing,
+                Some(false) => Origin::Outside,
+            };
+            Some(Slot {
+                slot,
+                dial: Dial {
+                    input: dial.input.clone(),
+                    label: dial.label.clone(),
+                },
+                origin,
+            })
+        })
+        .collect()
+}
+
+/// What `/plugins` reads of the config: the features it depends on, the home directory the
+/// personal marketplace is under, and the marketplaces the user configured (the ones a tab can
+/// remove; the git ones it can upgrade).
+pub(crate) fn plugin_config(config: &Config) -> codex_tui_core::screens::select::plugins::Config {
+    use codex_features::Feature;
+    use codex_tui_core::screens::select::plugins::{Config as Plugins, Configured};
+    let stack = &config.config_layer_stack;
+    let user = stack.effective_user_config();
+    let git = |name: &str| {
+        stack
+            .get_active_user_layer()
+            .and_then(|layer| layer.config.get("marketplaces"))
+            .and_then(|marketplaces| marketplaces.get(name))
+            .and_then(|marketplace| marketplace.get("source_type"))
+            .and_then(|kind| kind.as_str())
+            .is_some_and(|kind| kind == "git")
+    };
+    let configured = user
+        .as_ref()
+        .and_then(|user| user.get("marketplaces"))
+        .and_then(|marketplaces| marketplaces.as_table())
+        .map(|table| {
+            table
+                .keys()
+                .map(|name| Configured {
+                    git: git(name),
+                    name: name.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Plugins {
+        enabled: config.features.enabled(Feature::Plugins),
+        remote: config.features.enabled(Feature::RemotePlugin),
+        sharing: config.features.enabled(Feature::PluginSharing),
+        home: std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned()),
+        configured,
     }
 }
 
@@ -106,6 +197,20 @@ impl Effects {
         command: &Command,
         exec: impl WorkspaceExec + 'static,
     ) -> Option<Boxed<Option<AppEv>>> {
+        if let Command::Effect {
+            request,
+            ask: ask @ (Ask::GitBranches { .. } | Ask::GitLog { .. }),
+            ..
+        } = command
+        {
+            let (request, ask) = (*request, ask.clone());
+            return Some(Box::pin(async move {
+                Some(AppEv::Effect {
+                    request,
+                    done: git_list(ask).await?,
+                })
+            }));
+        }
         if !matches!(
             command,
             Command::Effect { .. } | Command::Popovers { .. } | Command::OpenUrl { .. }
@@ -121,6 +226,32 @@ impl Effects {
             }
             Some(ran.ev)
         }))
+    }
+}
+
+/// The branches or the log of the `/review` pickers (oracle `local_git_branches`,
+/// `current_branch_name`, `recent_commits`): an empty list where there is no repository.
+async fn git_list(ask: Ask) -> Option<Done> {
+    let at = |cwd: Option<String>| cwd.map_or_else(|| PathBuf::from("."), PathBuf::from);
+    match ask {
+        Ask::GitBranches { cwd } => {
+            let cwd = at(cwd);
+            Some(Done::GitBranches {
+                branches: codex_git_utils::local_git_branches(&cwd).await,
+                current: codex_git_utils::current_branch_name(&cwd).await,
+            })
+        }
+        Ask::GitLog { cwd, limit } => Some(Done::GitLog(
+            codex_git_utils::recent_commits(&at(cwd), limit)
+                .await
+                .into_iter()
+                .map(|entry| Commit {
+                    sha: entry.sha,
+                    subject: entry.subject,
+                })
+                .collect(),
+        )),
+        _ => None,
     }
 }
 

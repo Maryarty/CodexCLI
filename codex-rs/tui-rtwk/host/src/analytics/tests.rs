@@ -64,6 +64,7 @@ impl Server {
             std::future::ready(server.pages.lock().unwrap().pop_front().ok_or_else(|| {
                 ServerError {
                     code: None,
+                    data: None,
                     message: "no more pages".into(),
                 }
             }))

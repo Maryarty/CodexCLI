@@ -5,6 +5,7 @@
 //! typed or selected command leads to. Pure data and functions with no prose:
 //! the descriptions and messages are the UI's string tables'.
 
+pub mod args;
 mod dispatch;
 mod fuzzy;
 

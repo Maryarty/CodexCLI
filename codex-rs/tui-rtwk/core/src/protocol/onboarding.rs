@@ -512,6 +512,7 @@ mod tests {
     fn refusal(code: i64, message: &str) -> ServerError {
         ServerError {
             code: Some(code),
+            data: None,
             message: message.into(),
         }
     }

@@ -344,6 +344,12 @@ pub struct Profiles {
     /// dropped.
     pub pending: Option<u64>,
     issued: u64,
+    /// `/permissions <profile>`: the pick that waits for the catalog or for the full-access
+    /// confirmation (`inline_permission_profile_selection`).
+    pub inline: Option<super::permission_args::Inline>,
+    /// A shortcut's pick is on its way to the server: another key press is ignored until it
+    /// answers (`permission_shortcut_pending`).
+    pub shortcut: bool,
 }
 
 impl Profiles {
@@ -351,6 +357,11 @@ impl Profiles {
         self.issued += 1;
         self.pending = Some(self.issued);
         self.issued
+    }
+
+    /// An inline pick has not settled yet (`inline_permission_profile_selection_pending`).
+    pub fn inline_pending(&self) -> bool {
+        self.inline.is_some()
     }
 }
 
@@ -661,7 +672,7 @@ impl PermissionsMenu {
 
 /// A pick of the full-access preset asks first (`requires_confirmation`);
 /// the rest apply.
-fn settle(current: &Current, mut pick: Selection) -> Step {
+pub(super) fn settle(current: &Current, mut pick: Selection) -> Step {
     if let Selection::Profile { id, approval, reviewer, unchanged, .. } = &mut pick {
         *unchanged = current.profile.as_deref() == Some(id.as_str())
             && approval.is_none_or(|approval| current.approval == Some(approval))

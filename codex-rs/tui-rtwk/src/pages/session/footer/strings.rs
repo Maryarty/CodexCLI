@@ -42,6 +42,14 @@ pub struct Strings {
     pub warning_many: Msg<1>,
     pub warning_key: &'static str,
     pub warning_view: &'static str,
+    /// `effort_status_line.rs` `EffortTier::label`: the letters the status
+    /// line assembles into.
+    pub effort_max: &'static str,
+    pub effort_ultra: &'static str,
+    /// `effort_ignition.rs` `EffortTier::prompt_glyph`: the composer's prompt
+    /// while the tier is active.
+    pub prompt_max: &'static str,
+    pub prompt_ultra: &'static str,
     pub num: NumSyms,
 }
 
@@ -93,6 +101,10 @@ pub const EN: Strings = Strings {
     warning_many: msg!("{0} warnings"),
     warning_key: "f2",
     warning_view: " to view",
+    effort_max: "MAX",
+    effort_ultra: "ULTRA",
+    prompt_max: "\u{203a}",
+    prompt_ultra: "\u{00bb}",
     num: NumSyms::ENGLISH,
 };
 
@@ -101,4 +113,14 @@ static TABLES: Tables<Strings> = Tables::english(&EN);
 /// The table of the locale below `cx`.
 pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
+}
+
+/// The text of the debug entries and tests of the effort animations: the
+/// status line of the oracle's snapshots and a draft.
+pub(super) mod sample {
+    pub const MODEL: &str = "gpt-5.4";
+    pub const BRANCH: &str = " \u{b7} main";
+    pub const LINK_A: &str = "a ";
+    pub const LINK_B: &str = "b ";
+    pub const DRAFT: &str = "  > keep my draft exactly as typed";
 }

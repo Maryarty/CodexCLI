@@ -12,6 +12,9 @@
 //! the screen facts, the warnings kept); the page tells it only what lives in
 //! the UI (the line, the draft, a running turn).
 
+mod effort;
+mod effort_frames;
+pub use effort::{Aura, Prompt};
 pub mod entries;
 pub mod hints;
 mod status_rows;

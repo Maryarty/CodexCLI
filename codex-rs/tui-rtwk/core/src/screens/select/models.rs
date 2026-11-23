@@ -158,11 +158,27 @@ pub fn is_advanced(effort: &Effort) -> bool {
     matches!(effort, Effort::Max | Effort::Ultra)
 }
 
+/// Whether the default provider is being written or was (oracle `ProviderWrite`,
+/// `model_picker_unavailable`): the cached model list is then not trusted until the app
+/// server and the TUI restart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Provider {
+    /// No provider write is known: the list is current.
+    #[default]
+    Settled,
+    /// A write is in flight (`provider_write` is locked): try `/model` after it finishes.
+    Saving,
+    /// A write was committed, or its result is unknown: the list may be out of date.
+    Changed,
+}
+
 /// The models the account can pick from, as the last `model/list` (or the
 /// startup's) answered, and the request the next answer must belong to.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Catalog {
     pub presets: Vec<Preset>,
+    /// The provider write state; the pickers are blocked unless it is `Settled`.
+    pub provider: Provider,
     /// The `model/list` the open picker waits for
     /// (`model_popup_request_id`): an answer of another request is dropped.
     pub pending: Option<u64>,
@@ -172,6 +188,11 @@ pub struct Catalog {
 impl Catalog {
     fn visible(&self) -> impl Iterator<Item = &Preset> {
         self.presets.iter().filter(|preset| preset.show_in_picker)
+    }
+
+    /// Why the pickers are blocked (`model_picker_unavailable`), if they are.
+    pub fn unavailable(&self) -> Option<Provider> {
+        (self.provider != Provider::Settled).then_some(self.provider)
     }
 
     /// A new request: older answers are no longer wanted.
