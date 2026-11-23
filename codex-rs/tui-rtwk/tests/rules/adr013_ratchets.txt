@@ -1,7 +1,9 @@
 # ADR-013 ratchets (tests/rules/adr013.rs; docs/rtwk-port/architecture.md "ADR-013", full text
 # docs/rtwk-port/research/arch-boundary/full/architecture.md §13, §14 "Отступление").
 #
-# Today's violations of the boundary rules, by key and count. A rule fails when a count rises (a
+# Today's violations of the boundary rules, by key and count, one file per migration family in
+# tests/rules/adr013_ratchets/<family>.txt (so families migrating in parallel edit disjoint files);
+# the rules read this file and every .txt there as one. A rule fails when a count rises (a
 # new violation: new code cannot add to this list) and when it falls (the saving is written down
 # here, so it cannot come back); a line at 0 is deleted. The numbers only go down, as
 # hub_budget.txt's do. A family leaves its lines when its migration step lands (full §15):
@@ -17,135 +19,18 @@
 #   ratchet <rule> <key> <count>      today's count of the key (a file, or file:Type.field)
 #   exempt  <rule> <key> <why...>     a named exception, not counted
 
-
 # adr013_domain_types_hold_no_draw_state: a field of a type the domain reaches that is a view's (cursor, selected, scroll, tab, page, stack, kept, expanded, density, menu, shown, open). The `select/list.rs` ones are the picker's props (`keep_open`, `initial_tab`) that move out with the list vocabulary.
-exempt adr013_domain_types_hold_no_draw_state core/src/screens/backtrack.rs:Edit.shown the prompt a failed edit gives back to the composer: the payload of a restore directive (Ж), not drawn
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/approvals/input.rs:Draft.selected 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/composer/history.rs:History.history_cursor 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/composer/history.rs:SearchState.selected_match_index 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/composer/history.rs:SearchState.selected_offset 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/dialogs.rs:Decision.kept 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/dialogs.rs:Model.open 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/dialogs.rs:Warnings.kept 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/onboarding/provider/gateway.rs:Form.selected 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/onboarding/provider/gateway.rs:Picker.page 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/onboarding/provider/gateway.rs:Picker.selected 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/pets.rs:Model.open 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/resume.rs:Model.density 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/resume.rs:Model.expanded 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select.rs:Model.kept 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select.rs:Model.stack 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select/list.rs:Item.keep_open 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select/list.rs:List.initial_tab 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select/plugins.rs:Plugins.menu 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select/plugins.rs:Plugins.shown 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select/plugins.rs:Plugins.tab 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/settings.rs:Model.open 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/settings/hooks.rs:Hooks.page 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/startup.rs:Model.open 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:Model.open 1
 
 # adr013_core_intents_name_no_gesture: a variant of an `*Intent` enum named for a gesture, not a verb.
-ratchet adr013_core_intents_name_no_gesture core/src/screens/dialogs.rs:Intent::Close 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/import/mod.rs:Intent::Toggle 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/onboarding/auth.rs:Intent::Choose 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/onboarding/provider/bedrock.rs:Intent::Choose 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/onboarding/provider/gateway.rs:Intent::Activate 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/pets.rs:Intent::Close 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/pets.rs:Intent::Highlight 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::Cursor 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::End 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::Expand 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::Room 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::ToggleDensity 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Choose 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Close 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Reorder 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Secondary 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Toggle 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select/plugins.rs:Intent::Tab 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/settings.rs:Intent::Activate 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/settings.rs:Intent::Close 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/settings.rs:Intent::Move 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/settings.rs:Intent::Preview 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/settings.rs:Intent::Toggle 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/usage/mod.rs:Intent::Close 1
 
 # adr013_feature_trait_has_no_view_types: the view forms of ADR-012 in its first shape (full §2.2 "Уходят").
-ratchet adr013_feature_trait_has_no_view_types AppCx::open 1
-ratchet adr013_feature_trait_has_no_view_types AppCx::prompt 1
-ratchet adr013_feature_trait_has_no_view_types Feature::Menu 1
-ratchet adr013_feature_trait_has_no_view_types Feature::Pick 1
-ratchet adr013_feature_trait_has_no_view_types Feature::Prompt 1
-ratchet adr013_feature_trait_has_no_view_types Feature::choose 1
-ratchet adr013_feature_trait_has_no_view_types Feature::picked 1
-ratchet adr013_feature_trait_has_no_view_types Feature::prompt_submitted 1
-ratchet adr013_feature_trait_has_no_view_types FeatureView::menu_list 1
-ratchet adr013_feature_trait_has_no_view_types FeatureView::prompt_words 1
 
 # adr013_widgets_name_no_screen_half: a widget naming `screens::`/`features::` (counted per place). The picker's are `select::list`/`layout` (step 2); the composer draft's are logic that moves to core::kit (vim, history, paste burst, mention codec: O3); markdown's and thread_ui's name cell and backtrack types.
-ratchet adr013_widgets_name_no_screen_half src/widgets/composer_draft.rs 8
-ratchet adr013_widgets_name_no_screen_half src/widgets/composer_draft/clipboard.rs 1
-ratchet adr013_widgets_name_no_screen_half src/widgets/composer_draft/mentions.rs 4
-ratchet adr013_widgets_name_no_screen_half src/widgets/composer_draft/search.rs 3
-ratchet adr013_widgets_name_no_screen_half src/widgets/composer_draft/vim.rs 1
-ratchet adr013_widgets_name_no_screen_half src/widgets/markdown.rs 2
-ratchet adr013_widgets_name_no_screen_half src/widgets/markdown/inlines.rs 1
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/mod.rs 2
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/pane.rs 2
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/rows.rs 1
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/side.rs 1
-ratchet adr013_widgets_name_no_screen_half src/widgets/thread_ui.rs 1
 
 # adr013_no_ticket_in_ui: a `Ticket` in the UI. The banner's is the id of the banner entity and is exempt (full §13).
-exempt adr013_no_ticket_in_ui src/pages/session/banners.rs the banner is keyed by the request ticket: the ticket is the id of the entity (full §13)
-ratchet adr013_no_ticket_in_ui src/pages/session/backtrack/mod.rs 4
-ratchet adr013_no_ticket_in_ui src/pages/session/session_page.rs 5
 
 # adr013_directives_read_in_one_place: the thread's pending restore read by the session page (a `Directive<Restore>` listener later).
-ratchet adr013_directives_read_in_one_place src/pages/session/session_page.rs 2
 
 # adr013_no_whole_state_watch: `watch::<ScreenStates>` / `watch::<FeatureStates>`; each becomes a `select` of the slice drawn.
-ratchet adr013_no_whole_state_watch src/app/start_page.rs 1
-ratchet adr013_no_whole_state_watch src/pages/resume/list.rs 1
-ratchet adr013_no_whole_state_watch src/pages/resume/mod.rs 6
-ratchet adr013_no_whole_state_watch src/pages/session/activity.rs 1
-ratchet adr013_no_whole_state_watch src/pages/session/banners.rs 3
-ratchet adr013_no_whole_state_watch src/pages/session/composer/mod.rs 2
-ratchet adr013_no_whole_state_watch src/pages/session/footer/effort.rs 1
-ratchet adr013_no_whole_state_watch src/pages/session/footer/mod.rs 1
-ratchet adr013_no_whole_state_watch src/pages/session/session_page.rs 2
-ratchet adr013_no_whole_state_watch src/pages/startup/import/mod.rs 2
-ratchet adr013_no_whole_state_watch src/pages/startup/onboarding/mod.rs 3
-ratchet adr013_no_whole_state_watch src/pages/usage/mod.rs 2
-ratchet adr013_no_whole_state_watch src/sheets/select/dialog.rs 3
 
 # adr006_keycode_only_in_keymap: `KeyCode::` outside src/keymap/ and the primitives of src/widgets/ (counted per place).
-ratchet adr006_keycode_only_in_keymap src/pages/agents/dialogs.rs 2
-ratchet adr006_keycode_only_in_keymap src/pages/resume/keys.rs 16
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/alone.rs 1
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/burst.rs 3
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/editing.rs 76
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/mentions.rs 10
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/search.rs 6
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/suggest.rs 7
-ratchet adr006_keycode_only_in_keymap src/pages/session/composer/vim.rs 17
-ratchet adr006_keycode_only_in_keymap src/pages/session/keys.rs 4
-ratchet adr006_keycode_only_in_keymap src/pages/session/live/browse.rs 4
-ratchet adr006_keycode_only_in_keymap src/pages/session/session_page.rs 8
-ratchet adr006_keycode_only_in_keymap src/pages/session/transcript/follow.rs 2
-ratchet adr006_keycode_only_in_keymap src/pages/session/transcript/pager.rs 7
-ratchet adr006_keycode_only_in_keymap src/pages/session/transcript/sheet.rs 4
-ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/mod.rs 4
-ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/provider/bedrock.rs 10
-ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/provider/gateway.rs 20
-ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/provider/gov_cloud.rs 5
-ratchet adr006_keycode_only_in_keymap src/pages/startup/prompts/keys.rs 1
-ratchet adr006_keycode_only_in_keymap src/sheets/approvals/form.rs 22
-ratchet adr006_keycode_only_in_keymap src/sheets/approvals/user_input.rs 25
-ratchet adr006_keycode_only_in_keymap src/sheets/dialogs/dialog.rs 1
-ratchet adr006_keycode_only_in_keymap src/sheets/settings/features.rs 4
-ratchet adr006_keycode_only_in_keymap src/sheets/settings/hooks.rs 5
-ratchet adr006_keycode_only_in_keymap src/sheets/settings/memories.rs 4
-ratchet adr006_keycode_only_in_keymap src/sheets/settings/setup.rs 13
-ratchet adr006_keycode_only_in_keymap src/sheets/settings/theme.rs 10

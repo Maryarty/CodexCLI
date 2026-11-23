@@ -24,10 +24,27 @@ type Files = [(String, String)];
 
 // ---- The ratchet file ----
 
-const RATCHETS: &str = "tests/rules/adr013_ratchets.txt";
+const RATCHETS: &str =
+    "tests/rules/adr013_ratchets.txt and tests/rules/adr013_ratchets/<family>.txt";
 
+/// The ratchet lines: `adr013_ratchets.txt` (the format, the comments) and one file per
+/// migration family in `adr013_ratchets/`, read as one text (families migrating in parallel
+/// edit disjoint files).
 fn ratchet_file() -> String {
-    std::fs::read_to_string(crate_dir().join(RATCHETS)).expect("read the ratchet file")
+    let dir = crate_dir().join("tests/rules");
+    let mut text =
+        std::fs::read_to_string(dir.join("adr013_ratchets.txt")).expect("read the ratchet file");
+    let mut families: Vec<_> = std::fs::read_dir(dir.join("adr013_ratchets"))
+        .expect("read the ratchet directory")
+        .map(|entry| entry.expect("a ratchet file").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "txt"))
+        .collect();
+    families.sort();
+    for path in families {
+        text.push('\n');
+        text.push_str(&std::fs::read_to_string(&path).expect("read a family's ratchet file"));
+    }
+    text
 }
 
 /// What the violations `found` (one key each) say against the rule's lines of `file`:
