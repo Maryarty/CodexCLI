@@ -115,6 +115,8 @@ pub struct StatusFacts {
     pub notification_policy: NotificationPolicy,
     /// What the config says of `/permissions` (guardian, requirements, limits).
     pub permissions: super::select::permissions::Facts,
+    /// `multi_agent_v2.max_concurrent_threads_per_session`: an Ultra pick warns from 8 on.
+    pub agent_threads: Option<usize>,
 }
 
 impl Default for StatusFacts {
@@ -149,6 +151,7 @@ impl Default for StatusFacts {
             empty_state: false,
             notification_policy: NotificationPolicy::default(),
             permissions: Default::default(),
+            agent_threads: None,
         }
     }
 }

@@ -366,10 +366,13 @@ fn the_openers_read_the_status_facts() {
         approval_policy: Some("on-request".into()),
         profile: Sandbox::Workspace,
         auto_review: true,
+        agent_threads: Some(8),
         ..StatusFacts::default()
     };
     let current = ModelCurrent::from_facts(&facts);
     assert_eq!(current.model, "gpt-5.5");
+    // the config's thread limit rides along: an Ultra pick warns from 8 on
+    assert_eq!(current.threads, Some(8));
     assert_eq!(
         current.effort,
         Some(codex_protocol::openai_models::ReasoningEffort::High)
