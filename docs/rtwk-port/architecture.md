@@ -1000,7 +1000,16 @@ page (check the oracle snapshot first; until then the modal routes stay); O3 pur
 `core::kit`; O4 ops keyed by a domain key (+ `gen`), never a UI correlation id; O5 the rules
 first (`adr013-rules`), then the `/plugins` pilot; O6 the 9 doors of WIP `6cafa8de1` are not
 merged, its domain goes into the pilot; O7 `Rc`/`Arc` left to `session-core`.
-`95826e191` (/rename, /export) lands as is.
+`95826e191` (/rename, /export) lands as is. Transcript text selection is drawn state: it lives in the session page's
+UI (`SelectionArea` + its controller), no `FeatureView` hook; only the copy verb and its
+`Done::Copy` answer cross into core (the person, 2026-11-23). Until rtwk's `clipboard-provider`
+lands, `SelectionArea`'s own OSC 52 write is a known diff against the oracle.
+
+**Review coverage.** review.md F1-F4 (blockers) are resolved: F1 by O1 (nested `Navigator` in
+`IntrinsicHeight`), F2 `SurfaceWish` (full §4.4), F3 `OpKey` + `gen` (§4.5), F4 `Interest`
+(§4.7). F5-F12 are resolved in the full text (§6.3-6.4 thread switch and `alive`, §5.3
+reconnect + rule, §4.6 directives, §13 kit rule, §12 fixtures `ui` step, §11 + watch ratchet,
+O2 `SheetHost`, §7 + `KeyCode` rule); F13-F17 by §1.3 clarifications, §14 and §15.
 
 **What changes in earlier ADRs** (full §14): ADR-001 core holds the domain of screens and
 features, `kit` is a core module; ADR-002 amendment 2026-11-18 ("core view stack") is
