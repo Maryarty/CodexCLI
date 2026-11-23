@@ -30,11 +30,13 @@ fn copy(app: &mut CodexApp, request: u64, text: &str) {
         }),
         &mut fx,
     );
-    let [Command::Effect {
-        request: sent,
-        ask: asked,
-        ..
-    }] = fx.commands()
+    let [
+        Command::Effect {
+            request: sent,
+            ask: asked,
+            ..
+        },
+    ] = fx.commands()
     else {
         panic!("one ask of the host: {:?}", fx.commands());
     };
@@ -69,7 +71,11 @@ fn an_answer_is_kept_under_its_request() {
 fn a_pending_copy_that_ends_replaces_its_pending_answer() {
     let mut app = CodexApp::new();
     copy(&mut app, REQUEST | 1, "abc");
-    answer(&mut app, REQUEST | 1, Done::Copy(Ok(CopyStatus::Pending(1))));
+    answer(
+        &mut app,
+        REQUEST | 1,
+        Done::Copy(Ok(CopyStatus::Pending(1))),
+    );
     assert_eq!(
         app.latest_effect(),
         Some((REQUEST | 1, &Done::Copy(Ok(CopyStatus::Pending(1)))))
@@ -85,7 +91,11 @@ fn a_pending_copy_that_ends_replaces_its_pending_answer() {
 fn the_newest_answer_is_the_last_to_arrive_not_the_highest_request() {
     let mut app = CodexApp::new();
     copy(&mut app, REQUEST | 1, "abc");
-    answer(&mut app, REQUEST | 1, Done::Copy(Ok(CopyStatus::Pending(1))));
+    answer(
+        &mut app,
+        REQUEST | 1,
+        Done::Copy(Ok(CopyStatus::Pending(1))),
+    );
     copy(&mut app, REQUEST | 2, "def");
     answer(&mut app, REQUEST | 2, Done::Copy(Ok(CopyStatus::Busy)));
     assert_eq!(

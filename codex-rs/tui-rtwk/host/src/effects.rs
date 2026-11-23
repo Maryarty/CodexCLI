@@ -378,7 +378,11 @@ mod tests {
         // a direct terminal that forwards its own copy shortcut leaves the copy to it
         assert!(!auto(&info(TerminalName::WindowsTerminal, None, None)));
         assert!(!auto(&info(TerminalName::Ghostty, Some("1.2.0"), None)));
-        assert!(!auto(&info(TerminalName::Ghostty, Some("1.10.3-dev+abc"), None)));
+        assert!(!auto(&info(
+            TerminalName::Ghostty,
+            Some("1.10.3-dev+abc"),
+            None
+        )));
         assert!(auto(&info(TerminalName::Ghostty, Some("1.1.9"), None)));
         assert!(auto(&info(TerminalName::Ghostty, None, None)));
         assert!(auto(&info(TerminalName::Ghostty, Some("tip"), None)));
