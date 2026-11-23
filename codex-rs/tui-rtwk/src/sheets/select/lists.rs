@@ -21,12 +21,7 @@ const SESSION_KEY: char = 's';
 /// The list the menu on top of the stack is shown as; `page` is its rows when
 /// it is a menu of a typed family (`Model::page`), `features` the state a feature's menu
 /// reads its rows from.
-pub fn of(
-    menu: &Menu,
-    page: Option<&Page>,
-    features: &FeatureStates,
-    s: &Strings,
-) -> Option<List> {
+pub fn of(menu: &Menu, page: Option<&Page>, features: &FeatureStates, s: &Strings) -> Option<List> {
     Some(match (menu, page) {
         (Menu::List(list), _) => (**list).clone(),
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),

@@ -898,7 +898,10 @@ fn the_feature_naming_scan_bites() {
         1
     );
     assert_eq!(
-        found("core/src/app.rs", "FeatureFact::from(features::goal::Fact::Seen)"),
+        found(
+            "core/src/app.rs",
+            "FeatureFact::from(features::goal::Fact::Seen)"
+        ),
         1
     );
     assert_eq!(

@@ -11,9 +11,7 @@
 //! the prompt dialog words a `PromptKind::Feature` through `prompt_words`.
 
 use codex_tui_core::feature_list;
-use codex_tui_core::features::{
-    Feature, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates,
-};
+use codex_tui_core::features::{Feature, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates};
 use codex_tui_core::screens::select::list::List;
 
 use crate::pages::session::strings::Strings as SessionStrings;

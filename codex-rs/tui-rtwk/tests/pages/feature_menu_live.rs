@@ -51,7 +51,11 @@ fn a_feature_menu_keeps_its_cursor_when_a_feature_step_rebuilds_it() {
     );
     h.press("down");
     h.settle();
-    assert!(cursor_row(&h.t.screen()).contains("Cancel"), "{}", h.t.screen());
+    assert!(
+        cursor_row(&h.t.screen()).contains("Cancel"),
+        "{}",
+        h.t.screen()
+    );
     // a step of a feature changes the state the menu reads from (the shared value is a new one)
     h.inject([AppEv::Intent(Intent::Feature(FeatureIntent::from(
         goal::Intent::Command {
