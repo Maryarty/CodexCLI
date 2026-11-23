@@ -373,7 +373,7 @@ fn history_search_paste_appends_query_and_accepts_match() {
 fn history_search_large_paste_clamps_cursor() {
     kit::pending(
         Owner::ChatNavPane,
-        "pending(G-footer-caret): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
+        "pending(G78): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 5)
@@ -406,7 +406,7 @@ fn history_search_empty_paste_preserves_selected_match() {
 fn history_search_paste_shows_separators_and_matches_original_query() {
     kit::pending(
         Owner::ChatNavPane,
-        "pending(G-footer-caret): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
+        "pending(G78): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
