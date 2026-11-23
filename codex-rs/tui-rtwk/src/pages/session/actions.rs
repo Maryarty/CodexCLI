@@ -18,8 +18,8 @@ use codex_tui_core::screens::{
 use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
-use crate::pages::session::composer::clear_sent;
 use crate::features;
+use crate::pages::session::composer::clear_sent;
 use crate::pages::session::open::{note_opened, open, open_confirmation};
 
 /// The chat screen of one thread's controllers.

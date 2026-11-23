@@ -1321,10 +1321,11 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             _ => {}
         },
-        Intent::Toggle(id) => match model.stack.last_mut() {
-            Some(Menu::List(list)) => list.flip(&id),
-            _ => {}
-        },
+        Intent::Toggle(id) => {
+            if let Some(Menu::List(list)) = model.stack.last_mut() {
+                list.flip(&id);
+            }
+        }
         Intent::Reorder(id, down) => {
             if let Some(Menu::List(list)) = model.stack.last_mut() {
                 list.reorder(&id, down);

@@ -18,8 +18,8 @@ use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::Intent;
-use codex_tui_core::feature_list;
 use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::feature_list;
 use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates, FeatureWish,
 };

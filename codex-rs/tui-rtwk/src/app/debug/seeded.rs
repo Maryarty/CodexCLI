@@ -22,8 +22,8 @@ use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
 
 use crate::app::view::Hs;
-use crate::widgets::sheet::Door;
 use crate::pages::session::transcript::copy::{self, CopyJob, Shown};
+use crate::widgets::sheet::Door;
 use crate::widgets::thread_ui::ThreadUiMap;
 
 /// What a debug entry's builder sees of the seeded model.

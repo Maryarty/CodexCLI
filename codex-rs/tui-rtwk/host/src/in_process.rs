@@ -583,12 +583,7 @@ fn plugins_fact(config: &Config) -> codex_tui_core::features::plugins::Fact {
         .as_ref()
         .and_then(|user| user.get("marketplaces"))
         .and_then(|marketplaces| marketplaces.as_table())
-        .map(|table| {
-            table
-                .keys()
-                .map(|name| (name.clone(), git(name)))
-                .collect()
-        })
+        .map(|table| table.keys().map(|name| (name.clone(), git(name))).collect())
         .unwrap_or_default();
     codex_tui_core::features::plugins::Fact::config(
         config.features.enabled(Feature::Plugins),

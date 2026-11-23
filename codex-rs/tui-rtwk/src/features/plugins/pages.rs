@@ -72,7 +72,7 @@ fn pop<S: 'static>(cx: &mut Cx<'_, S>) {
 
 /// Back to the browser, whatever is over it.
 fn pop_home<S: 'static>(cx: &mut Cx<'_, S>) {
-    Navigator::of(cx).pop_until(cx, |route| route.is_first());
+    Navigator::of(cx).pop_until(cx, rtwk::navigation::Route::is_first);
 }
 
 /// Closes the whole sheet.

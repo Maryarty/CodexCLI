@@ -77,7 +77,9 @@ fn a_navigator_as_tall_as_the_cap_shows_a_page_aligned_at_the_bottom() {
     let lines = screen(Navigator::new().home(page));
     assert_eq!(shown(&lines), 3, "{lines:#?}");
     assert!(
-        lines[lines.len() - 3..].iter().all(|line| line.contains("row")),
+        lines[lines.len() - 3..]
+            .iter()
+            .all(|line| line.contains("row")),
         "{lines:#?}"
     );
 }

@@ -291,8 +291,18 @@ fn a_list_names_its_features_in_order_and_the_real_one_names_each_once() {
 fn an_interest_reaches_its_feature_opened_and_closed() {
     let mut states = FeatureStates::default();
     app_step(|cx| {
-        on_interest(&mut states, &FeatureInterest::from(alpha::Interest(2)), true, cx);
-        on_interest(&mut states, &FeatureInterest::from(alpha::Interest(1)), false, cx);
+        on_interest(
+            &mut states,
+            &FeatureInterest::from(alpha::Interest(2)),
+            true,
+            cx,
+        );
+        on_interest(
+            &mut states,
+            &FeatureInterest::from(alpha::Interest(1)),
+            false,
+            cx,
+        );
     });
     assert_eq!((*states.alpha, *states.beta), (2 + 100, 0));
 }

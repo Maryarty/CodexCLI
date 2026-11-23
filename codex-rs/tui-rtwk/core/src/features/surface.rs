@@ -99,6 +99,9 @@ impl Interests {
 
     /// Every interest held, for the asks a reconnect makes again.
     pub(crate) fn all(&self) -> Vec<FeatureInterest> {
-        self.held.iter().map(|(interest, _)| interest.clone()).collect()
+        self.held
+            .iter()
+            .map(|(interest, _)| interest.clone())
+            .collect()
     }
 }
