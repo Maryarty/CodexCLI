@@ -73,8 +73,6 @@ fn route(link: Link) -> PageRoute<()> {
 struct Directory;
 
 struct DirectoryState {
-    /// What the directory is now: read from the model between builds.
-    page: apps::Page,
     /// The scope the sheet opened under; another one ends it.
     scope: Option<u64>,
 }
@@ -88,10 +86,7 @@ impl StatefulWidget for Directory {
     type State = DirectoryState;
 
     fn create_state(&self) -> DirectoryState {
-        DirectoryState {
-            page: apps::Page::Loading,
-            scope: None,
-        }
+        DirectoryState { scope: None }
     }
 }
 
@@ -107,15 +102,11 @@ impl State for DirectoryState {
     type Widget = Directory;
     type Msg = Msg;
 
-    // The directory and the scope are facts of the model: the page follows the first, the sheet
-    // ends with a change of the second (the account or the scope of the directory changed:
-    // nothing held is trusted, `invalidate_connector_scope`).
+    // The directory is a fact of the model, read in `build`; so is the scope, and the sheet ends
+    // with a change of it (the account or the scope of the directory changed: nothing held is
+    // trusted, `invalidate_connector_scope`).
     fn did_change_dependencies(&mut self, _: &Directory, cx: &mut Cx<'_, Self>) {
-        let (page, scope) = select::<ScreenStates, (apps::Page, u64), _>(cx, |states| {
-            let apps = &states.select.apps;
-            (apps.page(), apps.scope())
-        });
-        self.page = page;
+        let scope = select::<ScreenStates, u64, _>(cx, |states| states.select.apps.scope());
         if scope != *self.scope.get_or_insert(scope) {
             close_dialog::<_, ()>(cx, None);
         }
@@ -127,12 +118,12 @@ impl State for DirectoryState {
                 say(cx, Intent::RefreshApps);
             }
             Msg::Picked(Event::Choose(id)) => {
-                let link = match &self.page {
-                    apps::Page::Apps { rows, .. } => {
-                        rows.iter().find(|app| app.id == id).map(apps::App::link)
-                    }
-                    _ => None,
-                };
+                // The app is looked up in the directory as it is now.
+                let link = read::<ScreenStates, _>(cx)
+                    .select
+                    .apps
+                    .app(&id)
+                    .map(apps::App::link);
                 match link {
                     Some(Some(link)) => drop(Navigator::of(cx).push::<()>(route(link))),
                     // An app with no page: the note says why, the list is gone.
@@ -151,7 +142,8 @@ impl State for DirectoryState {
     }
 
     fn build(&self, _: &Directory, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let list = list(&self.page, strings::of(cx));
+        let page = select::<ScreenStates, apps::Page, _>(cx, |states| states.select.apps.page());
+        let list = list(&page, strings::of(cx));
         Picker::new(Rc::new(list), cx.map(Msg::Picked)).into()
     }
 }
