@@ -529,7 +529,7 @@ fn a_thread_this_process_does_not_write_hears_the_news_and_has_no_effects() {
         (
             "the server refused it for its provider",
             Origin::Resumed,
-            Some(refused.clone()),
+            Some(refused),
             false,
         ),
     ] {
