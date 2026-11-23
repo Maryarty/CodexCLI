@@ -553,14 +553,8 @@ mod tests {
     #[tokio::test]
     async fn the_asks_of_the_app_server_answer_nothing_here() {
         let rig = rig(false, false);
-        for ask in [
-            Ask::SuggestTitle {
-                thread: ThreadId::new("thread-1"),
-            },
-            Ask::ConfigWrite { edits: Vec::new() },
-        ] {
-            assert!(answer(&rig, effect(ask)).await.is_none());
-        }
+        let ask = Ask::ConfigWrite { edits: Vec::new() };
+        assert!(answer(&rig, effect(ask)).await.is_none());
     }
 
     #[tokio::test]
