@@ -2198,6 +2198,7 @@ mod raw_mode {
         );
         let reasoning = Item::Reasoning {
             summary: "first thought\n\nsecond thought\n".into(),
+            with_raw: None,
         };
         assert_eq!(
             text(reasoning).unwrap(),
@@ -3346,7 +3347,10 @@ mod text_contract {
                 text: md.into(),
                 phase: None,
             },
-            Item::Reasoning { summary: md.into() },
+            Item::Reasoning {
+                summary: md.into(),
+                with_raw: None,
+            },
             Item::Plan { text: md.into() },
             Item::User(prompt(md)),
         ] {

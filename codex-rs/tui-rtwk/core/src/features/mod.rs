@@ -269,6 +269,8 @@ macro_rules! feature_list {
     ($callback:ident) => {
         $callback! {
             goal => Goal;
+            rename => Rename;
+            export => Export;
         }
     };
 }
