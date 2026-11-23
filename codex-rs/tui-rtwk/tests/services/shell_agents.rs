@@ -928,6 +928,11 @@ fn typing_a_word_asks_the_server_once() {
     h.t.press("x");
     h.wait_for("the typed text", |s| s.contains("Search \u{203a} ex"));
     assert_eq!(scans(), before, "nothing is asked before the pause");
+    // The fake's loop has taken every search the keys made, and each dropped
+    // the one before it, when the barrier passes: opening the gate earlier
+    // would let a search the loop has not yet dropped through.
+    let mut taken = h.fake.barrier();
+    h.wait_until("the fake's loop to take the searches", |_| taken.passed());
     // The pause ends: only the search that was left asks, once per source.
     // The earlier keystrokes' searches were dropped when the next one came
     // (they never reach the gate's far side), so the two requests of the

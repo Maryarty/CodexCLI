@@ -14,6 +14,7 @@
 //! - `color_depth(depth)`: the colours the terminal shows (`FORCE_COLOR=0`
 //!   is `ColorDepth::None`, `1` is `Ansi16`, `2` is `Ansi256`, `3` is
 //!   `TrueColor`); the app's colours come down to them as they are written.
+//! - `legacy_text()`: a terminal without grapheme clustering (`TextMode::Legacy`).
 //! - `syntax_theme(name)`: the config's `[tui] theme` (the highlight theme in
 //!   force), delivered as the host does, the settings screen's facts.
 //! - `env(name, value)`: a variable of the app's environment (empty by
@@ -32,6 +33,7 @@ use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev as AgentsEv, Page};
 use codex_tui_core::screens::settings::{Ev as SettingsEv, Facts};
 use rtwk_core::style::ColorMode;
+use rtwk_core::unicode::TextMode;
 use rtwk_test::Options;
 
 use super::seed::Open;
@@ -68,6 +70,7 @@ pub(super) struct Env {
     background: Option<u32>,
     palette: Vec<(u8, u32)>,
     depth: Option<ColorDepth>,
+    legacy_text: bool,
     vars: Vec<(&'static str, &'static str)>,
     syntax_theme: Option<&'static str>,
     foreign_writer: Option<&'static str>,
@@ -84,12 +87,20 @@ impl Env {
         for (name, value) in &self.vars {
             options = options.env(name, value);
         }
-        let (fg, palette, depth) = (self.foreground, self.palette.clone(), self.depth);
+        let (fg, palette, depth, legacy) = (
+            self.foreground,
+            self.palette.clone(),
+            self.depth,
+            self.legacy_text,
+        );
         options.terminal(move |terminal| {
             terminal.foreground_rgb = fg;
             terminal.palette = palette;
             if let Some(depth) = depth {
                 terminal.color_mode = depth.mode();
+            }
+            if legacy {
+                terminal.text_mode = TextMode::Legacy;
             }
         })
     }
@@ -194,6 +205,14 @@ impl Open {
     /// The colours the terminal shows (`FORCE_COLOR`).
     pub fn color_depth(mut self, depth: ColorDepth) -> Open {
         self.env.depth = Some(depth);
+        self
+    }
+
+    /// A terminal that does not cluster graphemes (`TextMode::Legacy`): a
+    /// halfwidth katakana and its sound mark take two cells, as the oracle's
+    /// `UnicodeWidthStr` counts them.
+    pub fn legacy_text(mut self) -> Open {
+        self.env.legacy_text = true;
         self
     }
 

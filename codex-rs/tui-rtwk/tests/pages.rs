@@ -34,6 +34,8 @@ mod composer_suggest;
 mod composer_vim;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
+#[path = "pages/text_mode.rs"]
+mod text_mode;
 #[path = "pages/transcript_follow.rs"]
 mod transcript_follow;
 #[path = "pages/transcript_pager.rs"]
