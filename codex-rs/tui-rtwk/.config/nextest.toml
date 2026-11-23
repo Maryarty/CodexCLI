@@ -13,7 +13,14 @@
 # green and tests/rules/rules.rs keeps this list and the markers equal:
 #
 #   acargo nextest run --profile pending --no-fail-fast     (every one must fail, with its owner)
+
+# A test that hangs (a wait on a thread that never answers, a PTY scenario whose
+# child never exits) must not eat a run: nextest prints SLOW for a test still
+# running after 30 s (the slowest passing test of the whole suite is under 20 s
+# even on a loaded machine) and kills it as TIMEOUT after four periods, 120 s.
+# The other profiles inherit it; land-check lists a TIMEOUT like a FAIL.
 [profile.default]
+slow-timeout = { period = "30s", terminate-after = 4 }
 default-filter = "not binary(oracle) and not (binary(screens) and (test(=agents::agents_overview_details_render_markdown) or test(=agents::agents_overview_preview_links_survive_wrapping_and_clipping) or test(=agents::live_center_fixed_shortcuts_yield_to_configured_actions)))"
 
 [profile.pending]

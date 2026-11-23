@@ -12,7 +12,8 @@ pub(crate) mod features;
 mod notices;
 mod select;
 mod session;
-pub use session::export::TranscriptText;
+mod transcript_text;
+pub use transcript_text::TranscriptText;
 pub mod worktree;
 
 use session::{active_backend, confirmed, refresh_rates, removed, session_intent, session_note};
@@ -495,7 +496,9 @@ enum AppCtx {
     NewConversation {
         source: Option<ThreadId>,
         backend: BackendId,
-        name: Option<String>,
+        /// What the new thread is asked once it has started (`/new <name>`: the rename); the
+        /// slash router builds it from a feature's thread intent.
+        then: Option<crate::features::FeatureThreadIntent>,
         /// The approved plan the new thread starts from (the plan prompt's "clear context" row).
         plan: Option<String>,
         /// A text for the new thread's composer (the provider-error notice's continue key).
@@ -1354,10 +1357,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             features::effect_done(app, request, done, fx);
         }
         AppEv::Effect { request, done } => {
-            session::export::settled(app, request, &done, fx);
-            if !session::rename::suggested(app, request, &done)
-                && !select::reviewed(app, request, &done, fx)
-            {
+            if !select::reviewed(app, request, &done, fx) {
                 app.effects.settle(request, done);
             }
         }
@@ -1729,7 +1729,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::NewConversation {
                 source,
                 backend,
-                name,
+                then,
                 plan,
                 draft,
             } => {
@@ -1751,15 +1751,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             details.as_deref(),
                             fx,
                         );
-                        if let Some(name) = name {
-                            apply_thread(
-                                app,
-                                &thread,
-                                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-                                    chat::ThreadIntent::Rename(name),
-                                )),
-                                fx,
-                            );
+                        if let Some(intent) = then {
+                            apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
                         }
                         if app.session.active == source {
                             show_held_thread(app, thread.clone(), fx);

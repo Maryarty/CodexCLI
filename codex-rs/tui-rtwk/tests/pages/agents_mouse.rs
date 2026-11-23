@@ -16,12 +16,14 @@ use codex_tui_core::screens::agents::{Command as AgentsCommand, Ev, Page, Reply 
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply};
 use codex_tui_core::threads::ThreadAsk;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
-use common::{Harness, start_sized};
+use common::{Harness, start_driven};
 use rtwk_core::input::{Mods, MouseKind};
 use serde_json::json;
 
+/// On a driven harness: these tests settle after every step, and a settle on
+/// the real clock sleeps 100 ms (the ten tests were 8.7 s; driven, 1.7 s).
 fn open(entry: &str, width: u16, height: u16) -> Harness {
-    let mut h = start_sized(true, width, height);
+    let mut h = start_driven(true, width, height);
     h.open_debug_row("agents", Some(entry));
     h
 }
