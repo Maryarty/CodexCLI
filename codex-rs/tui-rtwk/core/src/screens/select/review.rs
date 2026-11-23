@@ -104,7 +104,7 @@ impl Menu {
                 _ => None,
             },
             Menu::Branches { branches, .. } => {
-                let branch = id.strip_prefix("branch:")?;
+                let branch = id.strip_prefix(BRANCH)?;
                 branches
                     .iter()
                     .find(|name| name.as_str() == branch)
@@ -115,7 +115,7 @@ impl Menu {
                     })
             }
             Menu::Commits(commits) => {
-                let sha = id.strip_prefix("commit:")?;
+                let sha = id.strip_prefix(COMMIT_ROW)?;
                 commits.iter().find(|commit| commit.sha == sha).map(|commit| {
                     Chosen::Target(ReviewTarget::Commit {
                         sha: commit.sha.clone(),
@@ -128,12 +128,16 @@ impl Menu {
     }
 }
 
+/// The prefixes of the ids of a branch row and of a commit row.
+const BRANCH: &str = "branch:";
+const COMMIT_ROW: &str = "commit:";
+
 fn branch_id(branch: &str) -> String {
-    format!("branch:{branch}")
+    [BRANCH, branch].concat()
 }
 
 fn commit_id(sha: &str) -> String {
-    format!("commit:{sha}")
+    [COMMIT_ROW, sha].concat()
 }
 
 /// What a pick of a row does.
