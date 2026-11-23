@@ -157,6 +157,10 @@ fn the_advanced_page_is_one_esc_deeper_and_each_esc_shows_the_page_under_it_as_i
     let models = s.shot();
     s.keys("enter");
     s.assert_contains("Select Reasoning Level for GPT-6.2-Sol");
+    // the cursor rests on the row the tap opens, so the page under the advanced one is
+    // the page the tap left (the oracle keeps the cursor of the page it opened over)
+    s.keys("down down down down");
+    s.assert_contains("› 5. More reasoning");
     let reasoning = s.shot();
     // a tap on `More reasoning…` opens the advanced page over the reasoning menu
     s.click_text("More reasoning");

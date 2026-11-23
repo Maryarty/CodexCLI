@@ -108,11 +108,15 @@ fn worktree_lists_the_three_rows_in_the_oracles_order() {
     s.assert_in_order(&[
         "Worktrees",
         "1. Continue current conversation",
-        "Preserve this conversation in the new checkout",
+        // the descriptions wrap at 80 columns as in the oracle's snapshot
+        "Preserve this conversation in the new",
+        "checkout",
         "2. Start new conversation",
-        "Open a fresh conversation in the new checkout",
+        "Open a fresh conversation in the new",
+        "checkout",
         "3. Browse worktrees",
-        "Resume an owner thread or copy a working directory",
+        "Resume an owner thread or copy a working",
+        "directory",
         "enter select · esc back",
     ]);
 }
@@ -264,11 +268,16 @@ fn the_checkout_the_session_runs_in_cannot_be_deleted() {
         "/pool/a/repo",
         "Copy working directory",
         "Delete worktree",
-        "Switch to another checkout before deleting this one",
+        // the reason wraps at 80 columns
+        "Switch to another checkout before deleting this",
+        "one",
     ]);
-    // the disabled row does nothing: the actions stay and the host is not asked
-    s.keys("down enter");
-    s.assert_contains("Switch to another checkout before deleting this one");
+    // the disabled row cannot be reached: the cursor skips it (the oracle's `skip_disabled_down`)
+    // and its number does nothing: the actions stay and the host is not asked
+    s.keys("down");
+    s.assert_contains("› 1. Copy working directory");
+    s.keys("2");
+    s.assert_contains("Switch to another checkout before deleting this");
     s.assert_absent("Delete this worktree?");
     assert!(removals(&s).is_empty());
 }
