@@ -2170,14 +2170,6 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             select::intent(app, intent, fx);
             confirmed(app, fx);
         }
-        Intent::Screen(ScreenIntent::Dialogs(intent)) => {
-            screens::apply_intent(
-                Rc::make_mut(&mut app.screens),
-                ScreenIntent::Dialogs(intent),
-                fx,
-            );
-            session::prompt_submitted(app, fx);
-        }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
         Intent::Feature(intent) => features::intent(app, intent, fx),
         Intent::Interest(step) => features::interest(app, step, fx),

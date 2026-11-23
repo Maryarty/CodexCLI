@@ -10,6 +10,7 @@ use super::SlashCommand;
 use super::SlashCommandItem;
 use super::find_slash_command;
 use super::parse_slash_name;
+use crate::features::FeatureTarget;
 
 /// A screen directory a command opens. The UI opens it through that
 /// directory's own opener.
@@ -42,6 +43,9 @@ pub enum Target {
     /// `/subagents`: the picker of this session's subagent threads (oracle:
     /// `AppEvent::OpenAgentPicker`), a sheet over the chat.
     AgentPicker,
+    /// A feature's own sheet (`/plugins`, a bare `/export`): the feature's UI half opens it
+    /// (`src/features/<f>/`).
+    Feature(FeatureTarget),
 }
 
 /// How a target shows up in the app (architecture §1, Amendment 2026-11-19b):
@@ -69,7 +73,8 @@ impl Target {
             | Target::Approvals
             | Target::Pets
             | Target::Voice
-            | Target::AgentPicker => Opens::Sheet,
+            | Target::AgentPicker
+            | Target::Feature(_) => Opens::Sheet,
             Target::Dialogs => Opens::Dialog,
             Target::Pager | Target::Backtrack => Opens::Mode,
         }
@@ -92,6 +97,8 @@ impl Target {
             Target::Backtrack => "backtrack",
             // The agents directory owns the entry: the picker is its sheet.
             Target::AgentPicker => "agents",
+            Target::Feature(FeatureTarget::Plugins) => "plugins",
+            Target::Feature(FeatureTarget::Export) => "export",
         }
     }
 }
@@ -234,7 +241,6 @@ pub enum SessionIntent {
         args: Option<String>,
     },
     Apps,
-    Plugins,
     Logout,
     Vim,
     Ide {
@@ -445,12 +451,14 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
                 Outcome::Notice(Notice::ModelStartup)
             }
         }
-        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps | Export => {
+        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps => {
             open(Target::Select, command, "")
         }
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
             open(Target::Settings, command, "")
         }
+        Export => open(Target::Feature(FeatureTarget::Export), command, ""),
+        Plugins => open(Target::Feature(FeatureTarget::Plugins), command, ""),
         Agents => open(Target::Agents, command, ""),
         MultiAgents => open(Target::AgentPicker, command, ""),
         Resume => open(Target::Resume, command, ""),
@@ -493,7 +501,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         ),
         Pwd => session(command, SessionIntent::Pwd),
         Mcp => session(command, SessionIntent::Mcp { args: None }),
-        Plugins => session(command, SessionIntent::Plugins),
         Logout => session(command, SessionIntent::Logout),
         Vim => session(command, SessionIntent::Vim),
         Ide => session(command, SessionIntent::Ide { args: None }),

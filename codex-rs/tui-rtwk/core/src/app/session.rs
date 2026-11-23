@@ -324,10 +324,13 @@ pub(super) fn session_intent(
             );
         }
         S::Plan { prompt } => plan(app, source, command, prompt, fx),
-        // `/export` (the destination picker) and `/export <path>` (written there): `features/export`.
+        // `/export <path>` (written there): `features/export`. A bare `/export` is the
+        // feature's own sheet (`Target::Feature`), whose answer is the same verb.
         S::Export { path } => {
-            let intent = crate::features::export::Intent::Command { path };
-            super::features::intent(app, intent.into(), fx);
+            if let Some(path) = path {
+                let intent = crate::features::export::Intent::Command { path };
+                super::features::intent(app, intent.into(), fx);
+            }
         }
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).
         S::Goal { args } => {
@@ -352,7 +355,6 @@ pub(super) fn session_intent(
         | S::Tui
         | S::Mcp { .. }
         | S::Apps
-        | S::Plugins
         | S::Logout
         | S::Ide { .. }
         | S::Daybreak
@@ -630,22 +632,6 @@ pub(super) fn removed(
     }
     app.threads.forget(thread);
     true
-}
-
-/// A prompt the user submitted: the app carries out what its kind asks for.
-pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
-    use crate::screens::dialogs::PromptKind;
-    if app.screens.dialogs.submitted.is_none() {
-        return;
-    }
-    let Some(submitted) = Rc::make_mut(&mut app.screens).dialogs.submitted.take() else {
-        return;
-    };
-    match submitted.kind {
-        PromptKind::Feature(prompt) => {
-            super::features::prompt_submitted(app, prompt, submitted.text, fx);
-        }
-    }
 }
 
 /// `config.cwd`: the directory of the thread, else the one the host read for

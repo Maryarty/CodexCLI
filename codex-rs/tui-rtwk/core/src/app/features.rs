@@ -1,22 +1,18 @@
 //! The app's half of the feature slices (ADR-012): the app as a read-only view for a
 //! feature's step, and the outbox carried out after it. A feature never holds the app; it is
 //! handed `&mut` of its own state and an `AppCx`, says what it wants, and this file does it,
-//! in order, through the app's own doors (the select screen, the dialogs, `session_note`,
-//! `apply_thread`).
+//! in order, through the app's own doors (`session_note`, `apply_thread`, the wishes).
 
 use std::rc::Rc;
 
 use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread, session_note};
 use crate::features::{
-    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeaturePick, FeaturePrompt,
-    FeatureThreadIntent, InterestStep,
+    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
 use crate::features::{FeatureStates, Out};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
-use crate::screens::dialogs::Prompt;
-use crate::screens::select::{self, Menu};
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
 
@@ -75,24 +71,6 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Effect { ask, ctx } => {
             let request = app.effects.ask_for_feature(ctx);
             fx.commands.push(effects::command(request, ask));
-        }
-        Out::Menu(menu) => select::apply(
-            &mut Rc::make_mut(&mut app.screens).select,
-            select::Ev::Opened(Menu::Feature(menu)),
-            fx,
-        ),
-        Out::Prompt {
-            prompt,
-            initial,
-            suggesting,
-        } => {
-            Rc::make_mut(&mut app.screens).dialogs.prompt =
-                Some(Prompt::feature(prompt, initial, suggesting));
-        }
-        Out::Suggest { prompt, text } => {
-            if let Some(open) = &mut Rc::make_mut(&mut app.screens).dialogs.prompt {
-                open.suggested_for(&prompt, text);
-            }
         }
         Out::Note { thread, note } => {
             let thread = thread.or_else(|| app.session.active.clone());
@@ -185,23 +163,6 @@ pub(super) fn wish_shown(app: &mut CodexApp, seq: u64) {
 /// A fact the host sent unasked, for the feature it names.
 pub(super) fn fact(app: &mut CodexApp, fact: FeatureFact, fx: &mut AppFx) {
     run(app, fx, |states, cx| features::on_fact(states, fact, cx));
-}
-
-/// What a feature's menu settled on.
-pub(super) fn picked(app: &mut CodexApp, pick: FeaturePick, fx: &mut AppFx) {
-    run(app, fx, |states, cx| features::picked(states, pick, cx));
-}
-
-/// A feature's prompt, submitted with `text`.
-pub(super) fn prompt_submitted(
-    app: &mut CodexApp,
-    prompt: FeaturePrompt,
-    text: String,
-    fx: &mut AppFx,
-) {
-    run(app, fx, |states, cx| {
-        features::prompt_submitted(states, prompt, text, cx);
-    });
 }
 
 /// A resumed thread is in use: every feature's `on_resumed`, in list order.

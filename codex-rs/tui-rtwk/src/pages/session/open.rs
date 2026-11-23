@@ -71,6 +71,8 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
             }
             Target::Approvals => drop(approvals::open(cx)),
             Target::Pets => drop(pets::open(cx)),
+            // Opened by its own UI half with typed arguments (`features::open`).
+            Target::Feature(_) => {}
             _ => drop(voice::open(cx)),
         },
         Opens::Mode => match target {

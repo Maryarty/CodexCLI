@@ -205,7 +205,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 | Effort { .. }
                 | select::Picked::Review(_)
                 | select::Picked::Worktree(_)
-                | select::Picked::Feature(_)
         ) || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
     };
     if !app.screens.select.picked.iter().any(ours) {
@@ -238,7 +237,6 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 super::session::start_review(app, thread, target, fx);
             }
             select::Picked::Worktree(pick) => worktree_pick(app, pick, fx),
-            select::Picked::Feature(pick) => super::features::picked(app, pick, fx),
             select::Picked::Item(id) => {
                 if let Some(answer) = plan_mode::Answer::of_row(&id) {
                     super::session::plan_answer(app, answer, fx);

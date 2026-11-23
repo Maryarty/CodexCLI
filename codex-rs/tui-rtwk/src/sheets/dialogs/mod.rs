@@ -7,7 +7,6 @@
 
 mod dialog;
 mod feedback;
-mod prompt;
 mod shortcuts;
 mod warnings;
 
@@ -99,9 +98,9 @@ pub fn open_page<S>(cx: &mut Cx<'_, S>, page: Page) -> DialogResult<()> {
     )
 }
 
-/// The text prompt a feature asked for (the model holds the request).
+/// `/feedback`: how was this? (the `Target::Dialogs` sheet).
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    open_page(cx, Page::Prompt)
+    open_page(cx, Page::Feedback)
 }
 
 /// F2 and `/warnings`: the viewer over the warnings the session retains (with none it shows
