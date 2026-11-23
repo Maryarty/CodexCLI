@@ -1,24 +1,26 @@
 # Rules of the CodexCLI fleet ({FORK})
 
+Shared by every agent type. Your process (start, checks, handover) is in your
+agent file, not here.
+
 ## The port
 - `codex-rs/tui` is the oracle (commit in `docs/rtwk-port/ORACLE_REF`);
-  `codex-rs/tui-rtwk` matches its look and behaviour exactly.
+  `codex-rs/tui-rtwk` matches its look and behaviour exactly. Design:
+  `docs/rtwk-port/architecture.md`.
 - Build like a Flutter developer: pick the widget, controller,
   Focus/Shortcuts/Actions, LayoutBuilder or dialog you would use in Flutter,
-  then its rtwk counterpart. Pages, modes, sheets, widgets:
-  `docs/rtwk-port/architecture.md` §1.
+  then its rtwk counterpart. Pages, modes, sheets, widgets: architecture.md §1.
 - rtwk widgets and controllers own scroll, selection, paging, editing, tabs,
   focus, mouse, widths and ellipsis. The app picks which widget or spelling
   from a measured width (`LayoutBuilder` + `segmenter_of(cx)`).
 - Rows with a cursor: `widgets/session_list.rs`; numbered options:
   `widgets/options.rs`; cursor and scroll live in `ListController`,
   `SelectionController`, `ScrollController`.
-- rtwk API: `docs/rtwk-port/refs/` (grep it), the rtwk skill
+- rtwk API: `docs/rtwk-port/refs/` (`rtwk-in-one-screen.md`), the rtwk skill
   (`/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk`), the
   rtwk-gallery pages.
-- What rtwk cannot do after you ran the widget against the oracle's rows: one
-  line in `docs/rtwk-port/rtwk-gaps.md` (the Flutter way, the rtwk widget
-  tried, what differs) and the test `pending(Gxx)`.
+- What rtwk cannot do: one line in `docs/rtwk-port/rtwk-gaps.md` (the Flutter
+  way, the rtwk widget tried, what differs) and the test `pending(Gxx)`.
 - The oracle's files, snapshots and tests for a screen:
   `docs/rtwk-port/refs/codex-registry.csv`. Oracle binary:
   `~/.cache/codexcli/oracle-bin/`.
@@ -34,18 +36,14 @@
 - Protocol types: `sym --proto Name`. Oracle code: `sym --oracle Name`.
 - A core state test to copy: core/tests/status_facts.rs (JSONL script steps:
   the header of core/src/fixtures/script.rs; `Sandbox` in fixtures/sandbox.rs).
-- Oracle shard tests: tests/oracle/<shard>.rs, run by
-  `python3 -I tests/oracle/tools/summary.py --run <shard>`.
 
 ## Architecture
 - Core (`codex-tui-core`): models, `apply`, protocol mapping, command parsing.
-- UI: widgets, `strings.rs`, debug entries; UI-only state in `UiApp.ui`.
-- `shell`/host: effects and IO.
-- ADR-003: `CodexApp` owns one `ThreadModel` per thread, one writer, changed
-  only through `apply`; thread RPCs live in `ThreadFx`; a screen asks the app
-  (`OpenThread(id)`).
+  UI: widgets, `strings.rs`, debug entries. `shell`/host: effects and IO.
+- ADR-003: `CodexApp` owns one `ThreadModel` per thread, changed only through
+  `apply`; thread RPCs live in `ThreadFx`; a screen asks the app (`OpenThread(id)`).
 - Mock and fixture state: a JSONL event script applied through core `apply`.
-- ADR-013 (accepted 2026-11-23; architecture.md "ADR-013", full text
+- ADR-013 (architecture.md "ADR-013", full text
   docs/rtwk-port/research/arch-boundary/full/architecture.md §1.3, §2, §6):
   a value lives in core only if IO needs it — server/host facts, request
   records and op status by a DOMAIN key, lifecycle steps and one-shot domain
@@ -56,48 +54,20 @@
   `Choose`/`Toggle`/`Cursor`/`Expand`...). No new `Menu`/`Pick`/`Prompt`,
   `FeatureView` or `AppCx` hooks: a feature's visible half is
   `src/features/<f>/` with `open(cx, args)` and its own sheet; sheet pages are
-  routes of a nested `Navigator` in `IntrinsicHeight` (no own page stack). Code you touch in an old family keeps its shape
-  unless your task is its migration step.
+  routes of a nested `Navigator` in `IntrinsicHeight` (no own page stack).
+  Code you touch in an old family keeps its shape unless your task is its
+  migration step.
 - The rules tests (`--test rules`) check all of this.
 
-## Done (the person, 2026-11-23: function first, the full test sweep after)
-1. The feature works in the real binary beside the oracle — VERIFIED IN THE BATCH (rule 4),
-   not by you; name the pty scenario. No visual deltas accepted.
-2. Its KEY oracle tests green IN THE BATCH (you name them, rule 4): the ones that show the feature's main forms
-   (a handful, not the whole family). The rest of its oracle tests stay
-   `pending` with a reason and are named in the deliverable as
-   "sweep: <shard>::<test>..." — a filler batch un-pends them later. Do not
-   spend a round chasing a snapshot of a secondary form.
+## Done
+1. The feature works in the real binary beside the oracle (verified in the
+   batch; you name the pty scenario). No visual deltas accepted.
+2. Its key oracle tests (the feature's main forms, a handful) are green in the
+   batch. The rest stay `pending` with a reason and are named in the
+   deliverable as "sweep: <shard>::<test>..."; a filler batch un-pends them.
 3. Mouse on every selectable view (tap, double tap, wheel) with rtwk_test tests.
-4. Porter checks: `check` clean + `--test rules` green + fmt (below). The tests themselves
-   (your crate's, the KEY oracle tests, the pty run) run in the BATCH: the orchestrator merges the
-   handed-in branches and a Haiku waiter runs land-check + the key tests + scenarios on the merge
-   (the person, 2026-11-23 ~19:35). Name your key tests and pty scenario in the deliverable
-   ("key: <root>::<test>, ...; pty: <scenario>"). A red there comes back to you by message.
-5. No new framework doors (AppCx/Feature hooks, kit options) unless the
+4. No new framework doors (AppCx/Feature hooks, kit options) unless the
    feature cannot be built without one: then hold and ask the orchestrator.
-
-## Scripts first (the person, 2026-11-23 ~21:20)
-- A change that repeats a pattern across files (rename, move, import rewrite, KeyCode -> keymap
-  action table, watch -> select, ratchet lines, test un-pend by list) is done by a rerunnable
-  script in `tools/rtwk-port/<name>/` (python3 -I, stdlib), committed with its result and a
-  README line; the script checks (`acargo check`) and puts back what it cannot do; you hand-edit
-  only that rest. Example: `tools/rtwk-port/unit-tests/move.py`. Name the script in the deliverable.
-
-## Test commands (speed-order, 2026-11-23: cargo is 55 % of porter time, 90 % of it compile)
-- WRITE THE WHOLE TASK FIRST, CHECK AT THE END (the person, 2026-11-23 ~18:20, trial): while
-  writing, no cargo at all; commit as you go (WIP commits without tests are fine, so a hand-off
-  loses nothing). When the task's code is written: `acargo check -q --tests` (3-7 s), fix, again
-  until clean. Stuck on a type or an API: one `check` is allowed any time.
-- Then ONE call: `acargo nextest run -p codex-tui-rtwk --test rules --cargo-quiet --status-level fail
-  --final-status-level fail --hide-progress-bar` (the architecture rules: one small root), and
-  `acargo fmt`. That is all before hand-in: no other nextest, no clippy, no pty run, no land-check
-  (the batch runs them, rule 4). Stuck on behaviour you cannot judge without a run: one scoped
-  nextest is allowed — say so in the deliverable.
-- Which root holds a test file (for your "key:" line): `grep -l 'pages/<x>.rs' codex-rs/tui-rtwk/tests/*.rs`
-  — `tests/pages/*.rs` are split between `--test screens` and `--test pages`.
-- A checkpoint lists `read:` lines (`file:line-range — what is there`) so the next agent does
-  not re-read to orient.
 
 ## Files
 - Your task's area only; a Need for another file goes into your checkpoint.
@@ -107,7 +77,6 @@
   orchestrator.
 
 ## macOS
-- `timeout`: use `bgrun.sh run|wait` or the Bash tool's `timeout`.
+- No `timeout`: use `~/.cache/rtwk/bgrun.sh run|wait` or the Bash tool's timeout.
 - `sed -i ''` (BSD); prefer Edit or `python3 -I` with str.replace.
-- nextest: `--cargo-quiet`.
 - One cargo at a time per worktree.

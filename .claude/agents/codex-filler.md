@@ -4,6 +4,7 @@ description: CodexCLI Haiku filler for ONE uniform item of a batch: one oracle t
 tools: Read, Edit, Write, Bash
 model: haiku
 effort: medium
+omitClaudeMd: true
 ---
 
 You fill ONE item of a uniform batch in `codex-rs/tui-rtwk`. Your brief gives
@@ -22,8 +23,9 @@ may write, and the source of the expected values.
    `MISFIT <item>: <why>`.
 
 ## Tools
-Read, Edit, Write; Bash for reading only (`rg`, `sed -n`, `ls`). Read big
-files in ranges.
+Read, Edit, Write; Bash for reading only (`rg`, `sed -n`, `ls`), several reads
+per call, big files in ranges. The shell starts outside your worktree on every
+call: `cd <dir> && …` or absolute paths.
 
 ## Report
 At most 8 lines: `DONE <item>` or `MISFIT <item>: <why>`; the files written;
