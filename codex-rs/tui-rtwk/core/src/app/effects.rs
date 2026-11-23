@@ -31,6 +31,18 @@ pub enum CopyFormat {
     MarkdownSelection(Arc<str>),
 }
 
+/// Where a copy goes (oracle `clipboard_copy::worker::CopyDestination`): a mouse selection can
+/// publish X11 PRIMARY as well as, or instead of, the clipboard.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CopyDestination {
+    #[default]
+    Clipboard,
+    /// The X11 PRIMARY selection only, with the copied text.
+    Primary,
+    /// The clipboard, and PRIMARY with this plain text.
+    ClipboardAndPrimary(Arc<str>),
+}
+
 /// The delivery status a clipboard backend reports (oracle `clipboard_copy.rs` `CopyStatus`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CopyStatus {
@@ -55,8 +67,13 @@ pub struct ConfigEdit {
 /// What the host is asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
-    /// Put `text` on the clipboard (native first, then the terminal's forwarding).
-    Copy { text: String, format: CopyFormat },
+    /// Put `text` on the clipboard (native first, then the terminal's forwarding), or on
+    /// PRIMARY: `destination` says where.
+    Copy {
+        text: String,
+        format: CopyFormat,
+        destination: CopyDestination,
+    },
     /// The diff of the working directory `cwd` (`None`: the process's own): the host runs the
     /// `diff::Diff` machine through its workspace executor.
     GitDiff { cwd: Option<String> },
