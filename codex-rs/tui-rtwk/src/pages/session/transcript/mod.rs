@@ -12,8 +12,11 @@ use codex_tui_core::screens::transcript::{ID, NAME};
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
+pub mod copy;
+mod copy_feedback;
 pub mod follow;
 pub mod pager;
+pub mod selection;
 pub mod sheet;
 pub mod strings;
 pub mod turn_details;

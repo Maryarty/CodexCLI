@@ -20,13 +20,13 @@ use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 
 use crate::app::theme;
 use crate::app::view::Hs;
-use crate::features;
 use crate::l10n::strings as l10n;
-use crate::widgets::thread_ui::Follow;
+use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::cells::strings as cells_strings;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
+use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
     Anchor, FoldRow, Kind, Plan, PromptFold, Row, Unfolded, Words, arrow, prompt_label,
@@ -38,6 +38,8 @@ use super::transcript::turn_details::{
 #[derive(Clone, PartialEq)]
 pub(super) struct Pane {
     pub follow: Follow,
+    /// What the reader has selected in the list: the one controller of the thread's `ThreadUi`.
+    pub selection: TextSelection,
     pub detailed: bool,
     pub mark: Option<usize>,
 }
@@ -439,8 +441,12 @@ impl State for ViewportState {
                 false
             })
             .into();
-        // what the reader selects in it: the features that are about selecting wrap it
-        features::around_transcript(list)
+        SelectionHost {
+            child: list,
+            controller: widget.selection.controller(),
+            follow: widget.follow.clone(),
+        }
+        .into()
     }
 }
 

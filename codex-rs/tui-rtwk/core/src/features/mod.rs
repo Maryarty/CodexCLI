@@ -269,7 +269,6 @@ macro_rules! feature_list {
     ($callback:ident) => {
         $callback! {
             goal => Goal;
-            selection => Selection;
         }
     };
 }

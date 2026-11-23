@@ -192,3 +192,118 @@ fn a_busy_answer_does_not_replace_the_copy_under_way() {
     s.assert_contains("Copying 6 chars…");
     s.assert_absent("already in progress");
 }
+
+/// The text of the copies asked so far, oldest first.
+fn texts(s: &Screen) -> Vec<String> {
+    copies(s).into_iter().map(|copy| copy.1).collect()
+}
+
+#[test]
+fn a_right_click_copies_what_is_selected_and_lets_it_go_once_delivered() {
+    let mut s = chat();
+    select(&mut s, "row 03");
+    assert_eq!(texts(&s), ["row 03"]);
+    let (x, y) = at(&s, "row 01");
+    s.right_click(x, y);
+    assert_eq!(texts(&s), ["row 03", "row 03"], "{}", s.text());
+    let (command, ..) = copies(&s).remove(1);
+    s.answer_effect(&command, Done::Copy(Ok(CopyStatus::Confirmed)));
+    // the selection is gone: a second right click has nothing to copy
+    s.right_click(x, y);
+    assert_eq!(copies(&s).len(), 2, "{}", s.text());
+}
+
+#[test]
+fn a_right_click_with_nothing_selected_copies_nothing() {
+    let mut s = chat();
+    let (x, y) = at(&s, "row 01");
+    s.right_click(x, y);
+    assert_eq!(copies(&s).len(), 0);
+}
+
+#[test]
+fn a_copy_key_copies_the_selection_in_place_of_what_it_does_otherwise() {
+    for key in ["ctrl+c", "super+c", "ctrl+shift+c"] {
+        let mut s = chat();
+        select(&mut s, "row 03");
+        s.keys(key);
+        assert_eq!(texts(&s), ["row 03", "row 03"], "{key}: {}", s.text());
+        // asked as an explicit copy: delivered, the selection goes
+        let (command, ..) = copies(&s).remove(1);
+        s.answer_effect(&command, Done::Copy(Ok(CopyStatus::Confirmed)));
+        s.keys("super+c");
+        assert_eq!(copies(&s).len(), 2, "{key}: {}", s.text());
+    }
+}
+
+#[test]
+fn enter_on_a_selection_copies_it() {
+    let mut s = chat();
+    select(&mut s, "row 04");
+    s.keys("enter");
+    assert_eq!(texts(&s), ["row 04", "row 04"], "{}", s.text());
+}
+
+#[test]
+fn enter_with_nothing_selected_copies_nothing() {
+    let mut s = chat();
+    s.keys("enter");
+    assert_eq!(copies(&s).len(), 0);
+}
+
+#[test]
+fn escape_lets_the_selection_go_before_anything_else() {
+    let mut s = chat();
+    select(&mut s, "row 03");
+    s.keys("esc");
+    let (x, y) = at(&s, "row 01");
+    s.right_click(x, y);
+    assert_eq!(copies(&s).len(), 1, "{}", s.text());
+}
+
+#[test]
+fn the_footer_hints_at_the_keys_of_a_selection_while_there_is_one() {
+    let mut s = chat();
+    s.assert_absent("copy & follow");
+    select(&mut s, "row 03");
+    s.assert_contains("⌃c copy · enter copy & follow · esc clear");
+    s.keys("esc");
+    s.assert_absent("copy & follow");
+}
+
+#[test]
+fn a_narrow_footer_takes_the_shorter_hint() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(24, 16)
+        .script(script())
+        .open();
+    s.wait_for("row 05");
+    select(&mut s, "row 03");
+    s.assert_absent("copy & follow");
+    s.assert_contains("enter copy+↓ · esc");
+}
+
+/// A transcript longer than the window, so the reader can be away from its end.
+fn long_chat() -> Screen {
+    let long = rows(40);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 16)
+        .script(Box::leak(long.into_boxed_str()))
+        .open();
+    s.wait_for("row 39");
+    s
+}
+
+#[test]
+fn enter_copies_and_goes_back_to_the_end_once_it_is_delivered() {
+    let mut s = long_chat();
+    select(&mut s, "row 38");
+    s.keys("pageup");
+    s.assert_absent("row 39");
+    s.keys("enter");
+    let (command, ..) = copies(&s).remove(1);
+    // not before the host has delivered it
+    s.assert_absent("row 39");
+    s.answer_effect(&command, Done::Copy(Ok(CopyStatus::Confirmed)));
+    s.assert_contains("row 39");
+}

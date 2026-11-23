@@ -13,11 +13,10 @@ use rtwk::layout::{Align, Alignment, Column, EdgeInsets, MainAxisSize, Padding, 
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::app::effects::CopyStatus;
-use codex_tui_core::features::selection::Feedback;
-
+use super::copy::Feedback;
 use super::strings;
 use crate::app::theme;
+use codex_tui_core::app::effects::CopyStatus;
 
 /// How long the result of a copy stays in the gap (`composer_gap.rs`): a copy under way stays
 /// until it ends.
@@ -98,7 +97,7 @@ impl State for CopyFeedbackState {
         if self.hidden == Some(w.feedback.version) {
             return w.fallback.clone();
         }
-        let labels = strings::feedback(w.feedback.result, w.feedback.characters);
+        let labels = strings::copy_feedback(w.feedback.result, w.feedback.characters);
         let style = if w.feedback.result.is_err() {
             tokens.error()
         } else {

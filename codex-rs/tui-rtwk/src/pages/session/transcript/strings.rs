@@ -8,6 +8,8 @@
 
 use rtwk::l10n::DependCx;
 
+use codex_tui_core::app::effects::CopyStatus;
+
 use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
@@ -35,6 +37,9 @@ pub struct Strings {
     /// that opens the shortcuts and its action (`render_transcript_footer`).
     pub shortcuts_key: &'static str,
     pub shortcuts_action: &'static str,
+    /// The footer's hint while text is selected (`footer.rs` `selection_hint`): the widest
+    /// first, each as pairs of keys and what they do; the last that fits the row.
+    pub selection_hints: [&'static [(&'static str, &'static str)]; 4],
     /// The static pager's chrome (`pager_overlay.rs`): the header's slashes
     /// and the title's lead, the filler row, the rule and the percent.
     pub pager_slashes: &'static str,
@@ -154,6 +159,16 @@ pub const EN: Strings = Strings {
     footer_joiner: " · ",
     shortcuts_key: "?",
     shortcuts_action: " shortcuts",
+    selection_hints: [
+        &[
+            ("⌃c", " copy"),
+            ("enter", " copy & follow"),
+            ("esc", " clear"),
+        ],
+        &[("enter", " copy & follow"), ("esc", " clear")],
+        &[("enter", " copy+↓"), ("esc", "")],
+        &[("esc", " clear")],
+    ],
     // a run longer than any row, clipped by the row (`"/ ".repeat(width / 2)`)
     pager_slashes: "/ / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / ",
     pager_title_lead: "/ ",
@@ -243,4 +258,37 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
 /// menu's rows).
 pub fn title(lang: Lang) -> &'static str {
     TABLES.pick(lang).title
+}
+
+/// The three spellings of how the copy of `characters` characters went, longest first, the
+/// composer gap shows the longest that fits (oracle `composer_gap.rs` `CopyFeedback::line`; the
+/// oracle's English until the catalog has the entries: a typed const table, ADR-010).
+pub fn copy_feedback(result: Result<CopyStatus, ()>, characters: usize) -> [String; 3] {
+    match result {
+        Ok(CopyStatus::Confirmed) => [
+            format!("Copied {characters} chars to host clipboard"),
+            format!("Copied {characters} chars"),
+            "Copied".into(),
+        ],
+        Ok(CopyStatus::Pending(_)) => [
+            format!("Copying {characters} chars…"),
+            "Copying…".into(),
+            "Copying…".into(),
+        ],
+        Ok(CopyStatus::Busy) => [
+            "Copy already in progress".into(),
+            "Copy in progress".into(),
+            "Copy busy".into(),
+        ],
+        Ok(CopyStatus::Unconfirmed) => [
+            "Copy sent to terminal · paste to verify".into(),
+            "Copy sent · verify paste".into(),
+            "Copy unconfirmed".into(),
+        ],
+        Err(()) => [
+            "Copy failed · try again".into(),
+            "Copy failed".into(),
+            "Copy failed".into(),
+        ],
+    }
 }

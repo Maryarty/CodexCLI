@@ -8,12 +8,7 @@
 //! The generic places call in: `Strings::note` words a `NoteKey::Feature` through
 //! `note_words`, the select sheet turns a `Menu::Feature` into its list through `menu_list`
 //! (from the feature's state, which the app provides to the views like the screens'),
-//! the prompt dialog words a `PromptKind::Feature` through `prompt_words`, the transcript's
-//! pane wraps its list in `around_transcript` and the composer's gap asks `composer_gap`
-//! (the widgets a feature has among the page's: they name the feature's intents, a page
-//! cannot).
-
-use rtwk::AnyWidget;
+//! the prompt dialog words a `PromptKind::Feature` through `prompt_words`.
 
 use codex_tui_core::feature_list;
 use codex_tui_core::features::{Feature, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates};
@@ -45,20 +40,6 @@ pub trait FeatureView: Feature {
 
     /// The title and placeholder of one of the feature's text prompts.
     fn prompt_words(prompt: &Self::Prompt, words: &DialogStrings) -> PromptWords;
-
-    /// The list of the transcript the reader selects in, wrapped (Flutter's decorator over a
-    /// page's widget: a `SelectionArea` is one). A feature about selecting returns its own
-    /// wrapper, owning the intents the gestures lead to; the others leave `child` as it is.
-    fn around_transcript(child: AnyWidget) -> AnyWidget {
-        child
-    }
-
-    /// The row above the composer: what the feature has to say there (the result of a copy),
-    /// in place of `gap`, which is the control the page built or a blank. `lead` is whether a
-    /// blank row sets it apart from the status above.
-    fn composer_gap(_state: &Self::State, gap: AnyWidget, _lead: bool) -> AnyWidget {
-        gap
-    }
 }
 
 macro_rules! view_mods {
@@ -87,22 +68,6 @@ macro_rules! view_dispatch {
                     <codex_tui_core::features::$name::$variant as FeatureView>::prompt_words(prompt, words)
                 })*
             }
-        }
-
-        /// The transcript's list, wrapped by every feature that is about selecting in it (the
-        /// features in list order, the last outermost).
-        pub fn around_transcript(child: AnyWidget) -> AnyWidget {
-            $(let child = <codex_tui_core::features::$name::$variant as FeatureView>::around_transcript(child);)*
-            child
-        }
-
-        /// The row above the composer as the features leave it: each may replace it.
-        #[allow(unused_variables)]
-        pub fn composer_gap(states: &FeatureStates, gap: AnyWidget, lead: bool) -> AnyWidget {
-            $(let gap = <codex_tui_core::features::$name::$variant as FeatureView>::composer_gap(
-                &states.$name, gap, lead,
-            );)*
-            gap
         }
 
         /// The generic list a feature's menu is shown as, from the feature's state.

@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
-use rtwk::foundation::ListenableBuilder;
+use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
 use rtwk::layout::{Center, Column, Expanded, Flexible, MainAxisSize, Row, SizedBox};
 use rtwk::prelude::KeyCode;
@@ -23,22 +23,22 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::composer::trigger;
 
 use crate::app::theme;
-use crate::features;
-use crate::widgets::thread_ui::Follow;
+use crate::widgets::thread_ui::{Follow, TextSelection};
 
+use super::copy::Shown;
+use super::copy_feedback::CopyFeedback;
 use super::strings::{self, Strings};
 
 /// The row above the composer, there while the window has the room (the oracle
 /// reserves it, so the composer does not move when the control appears; it is
 /// a flexible child of the bottom pane, the first thing a short window clips):
-/// the control while the reader is away, or what a feature has to say there
-/// (the result of a copy, `composer_gap.rs`: it wins over the control). With
-/// `status_above` (the working line or the previews are above), a blank row
-/// precedes the control to set it apart.
+/// the control while the reader is away, or the result of the last copy (the oracle's
+/// `composer_gap.rs`: it wins over the control). With `status_above` (the working line
+/// or the previews are above), a blank row precedes the control to set it
+/// apart.
 pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
@@ -48,7 +48,7 @@ pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidg
         Some(fg) => surface.fg(fg),
         None => surface,
     };
-    let features = watch::<FeatureStates, _>(cx);
+    let copied = watch::<Shown, _>(cx);
     let listenable = Rc::new(follow.listenable());
     let builder = ListenableBuilder::new(listenable, move |_, _| {
         let blank: AnyWidget = SizedBox::new(None, Some(1), None).into();
@@ -73,7 +73,15 @@ pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidg
         } else {
             blank
         };
-        features::composer_gap(&features, plain, status_above)
+        match &copied.0 {
+            Some(feedback) => CopyFeedback {
+                feedback: feedback.clone(),
+                lead: status_above,
+                fallback: plain,
+            }
+            .into(),
+            None => plain,
+        }
     });
     Flexible::new(1, builder).into()
 }
@@ -176,17 +184,27 @@ impl State for FollowControlState {
     }
 }
 
-/// The footer while the reader is away: the keys that return, `keys` (the
-/// footer of the page) otherwise. `enter`: an Enter on the empty composer
-/// returns too. The news is named first, then in short, then dropped, as the
+/// The footer while something is selected (the keys of the selection), or the reader is away
+/// (the keys that return): `keys` (the footer of the page) otherwise. `enter`: an Enter on the
+/// empty composer returns too. The news is named first, then in short, then dropped, as the
 /// width allows (`footer.rs`).
-pub fn footer<S>(cx: &mut Cx<'_, S>, follow: Follow, enter: bool, keys: AnyWidget) -> AnyWidget {
+pub fn footer<S>(
+    cx: &mut Cx<'_, S>,
+    follow: Follow,
+    selection: TextSelection,
+    enter: bool,
+    keys: AnyWidget,
+) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
     let (key_style, dim) = (tokens.bold(), tokens.dim());
-    let listenable = Rc::new(follow.listenable());
+    let listenable = Rc::new(<dyn Listenable>::merge([
+        Some(follow.listenable()),
+        Some(selection.listenable()),
+    ]));
     ListenableBuilder::new(listenable, move |_, _| {
-        if !follow.away() {
+        let selected = selection.held();
+        if !follow.away() && !selected {
             return keys.clone();
         }
         let unseen = follow.unseen();
@@ -210,7 +228,35 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, follow: Follow, enter: bool, keys: AnyWidge
                 spans.push(Span::styled(table.latest_action, dim.clone()));
                 spans
             };
-            let candidates: Vec<Vec<Span>> = if unseen {
+            // what the keys of a selection do: pairs of keys and their action
+            let hint = |pairs: &[(&'static str, &'static str)]| -> Vec<Span> {
+                let mut spans = Vec::new();
+                for (index, (keys, action)) in pairs.iter().enumerate() {
+                    if index > 0 {
+                        spans.push(Span::styled(table.footer_joiner, dim.clone()));
+                    }
+                    spans.push(Span::styled(*keys, key_style.clone()));
+                    if !action.is_empty() {
+                        spans.push(Span::styled(*action, dim.clone()));
+                    }
+                }
+                spans
+            };
+            let candidates: Vec<Vec<Span>> = if selected {
+                // the widest hint, led by the news while the reader is away and has some
+                // (`status_line_with_navigation`), then the hints alone
+                let mut all = Vec::new();
+                if unseen {
+                    let mut news = vec![
+                        Span::styled(table.new_activity, dim.clone()),
+                        Span::styled(table.footer_joiner, dim.clone()),
+                    ];
+                    news.extend(hint(table.selection_hints[0]));
+                    all.push(news);
+                }
+                all.extend(table.selection_hints.iter().map(|pairs| hint(pairs)));
+                all
+            } else if unseen {
                 vec![
                     navigation(table.new_activity),
                     navigation(table.new_short),
@@ -231,7 +277,7 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, follow: Follow, enter: bool, keys: AnyWidge
                 .cloned()
                 .unwrap_or_default();
             // an empty composer adds the key of its shortcuts when it fits
-            if enter {
+            if enter && !selected {
                 let shortcuts = [
                     Span::styled(table.footer_joiner, dim.clone()),
                     Span::styled(table.shortcuts_key, key_style.clone()),

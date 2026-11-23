@@ -13,7 +13,6 @@ use rtwk::provider::{MultiProvider, Provider};
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Intent;
-use codex_tui_core::features::FeatureIntent;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
@@ -22,6 +21,7 @@ use crate::app::UiApp;
 use crate::app::debug::menu::DebugMenu;
 use crate::app::start_page::{Start, StartPage, StartupGate};
 use crate::pages;
+use crate::pages::session::transcript::copy::CopyJob;
 use crate::sheets::presenter::home_node;
 
 /// The app's handlers, provided to the tree.
@@ -45,8 +45,9 @@ pub struct Hs {
     pub quit: Handler<()>,
     /// Move the empty conversation to the next connected backend.
     pub cycle: Handler<()>,
-    /// What a view asks of a feature slice (ADR-012: the transcript's copy of a selection).
-    pub feature: Handler<FeatureIntent>,
+    /// The reader copies text out of the transcript: the app is asked to put it on the clipboard
+    /// (`Intent::Effect`), and the answer is the feedback line.
+    pub copy: Handler<CopyJob>,
 }
 
 /// The view of the app.
@@ -93,8 +94,9 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         }),
         quit: cx.on(|_, cx| cx.quit()),
         cycle: cx.on(|app: &mut UiApp, _cx| app.send(AppEv::Intent(Intent::CycleBackend))),
-        feature: cx.on_with(|app: &mut UiApp, intent: FeatureIntent, _cx| {
-            app.send(AppEv::Intent(Intent::Feature(intent)));
+        copy: cx.on_with(|app: &mut UiApp, job: CopyJob, _cx| {
+            let (request, ask) = app.ui.copies.ask(&job);
+            app.send(AppEv::Intent(Intent::Effect { request, ask }));
         }),
     };
     // The home is a memo node that leaves its handle for the request
@@ -141,6 +143,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
             Provider::value(app.core.agents_threads()).update_should_notify(|old, new| old != new),
         )
         .with(Provider::value(app.core.tui()).update_should_notify(|old, new| old != new))
+        .with(Provider::value(app.ui.copies.shown()).update_should_notify(|old, new| old != new))
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))
         .into();

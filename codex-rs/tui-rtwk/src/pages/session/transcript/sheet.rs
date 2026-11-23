@@ -32,7 +32,7 @@ use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
 use crate::pages::session::backtrack;
 use crate::pages::session::transcript_pane::Pane;
-use crate::widgets::thread_ui::{Follow, Modes};
+use crate::widgets::thread_ui::{Follow, Modes, TextSelection};
 
 /// What the sheet draws around the transcript (the person's decision on the
 /// pager chrome: as the oracle has it).
@@ -50,6 +50,7 @@ pub enum Chrome {
 #[derive(Clone, PartialEq)]
 pub struct TranscriptSheet {
     pub follow: Follow,
+    pub selection: TextSelection,
     pub modes: Modes,
     pub chrome: Chrome,
 }
@@ -69,6 +70,7 @@ fn seeded_with(seeded: &Seeded<'_>, chrome: Chrome) -> AnyWidget {
     let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
     TranscriptSheet {
         follow: ui.follow.clone(),
+        selection: ui.selection.clone(),
         modes: ui.modes.clone(),
         chrome,
     }
@@ -157,9 +159,11 @@ impl State for SheetState {
         let (follow, modes) = (w.follow.clone(), w.modes.clone());
         let marked = {
             let (follow, modes) = (w.follow.clone(), w.modes.clone());
+            let selection = w.selection.clone();
             ListenableBuilder::new(modes.listenable(), move |_, _| {
                 Pane {
                     follow: follow.clone(),
+                    selection: selection.clone(),
                     detailed: true,
                     mark: modes.selected(),
                 }
