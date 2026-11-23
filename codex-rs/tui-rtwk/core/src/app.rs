@@ -1347,6 +1347,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             select::event(app, Ev::Plugins(plugins::Ev::Config(config)), fx);
         }
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
+        AppEv::Effect { request, done } if effects::is_feature_request(request) => {
+            features::effect_done(app, request, done, fx);
+        }
         AppEv::Effect { request, done } => {
             session::export::settled(app, request, &done, fx);
             if !session::rename::suggested(app, request, &done)
