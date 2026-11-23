@@ -8,7 +8,7 @@
 #[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
-use crate::common::{Harness, start_clipping, start_driven, start_sized};
+use crate::common::{Harness, start_driven, start_driven_clipping, start_sized};
 use codex_app_server_protocol::Thread;
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::rpc::Reply as AppReply;
@@ -977,12 +977,12 @@ fn live_center_search_row_appears_only_while_editing() {
 
 /// vs1-review D4: the screen draws at any width, with the list, the search
 /// line, the help and the confirmation (the old view subtracted past zero
-/// below nine cells). One test per width: each settles the app on a real
-/// clock, so nextest runs them side by side (build-speed-2: one test for all
-/// ten widths was 27 s, the longest test of the whole run).
+/// below nine cells). One test per width, on a driven harness (no real
+/// pause: the debug menu's 450 keys and the settles cost their frames only,
+/// 0.2 s a test; on the real clock each was 20 s).
 fn the_center_draws_at(width: u16) {
     for height in [3u16, 6, 24] {
-        let mut h = start_clipping(true, width, height);
+        let mut h = start_driven_clipping(true, width, height);
         h.open_debug_row("agents", Some("overview"));
         h.settle();
         h.press("/");
@@ -993,7 +993,7 @@ fn the_center_draws_at(width: u16) {
         h.settle();
         h.press("escape");
         h.settle();
-        let mut h = start_clipping(true, width, height);
+        let mut h = start_driven_clipping(true, width, height);
         h.open_debug_row("agents", Some("confirm"));
         h.press("a");
         h.settle();
