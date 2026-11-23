@@ -568,7 +568,10 @@ impl State for PickerState {
         let s = strings::of(cx);
         let keys = keymap(cx);
         *self.keys.borrow_mut() = keys.clone();
-        let tab_id = self.tab().and_then(|tab| list.tabs.get(tab)).map(|tab| &tab.id);
+        let tab_id = self
+            .tab()
+            .and_then(|tab| list.tabs.get(tab))
+            .map(|tab| &tab.id);
         *self.hots.borrow_mut() = Hots {
             toggle: w.extras.toggle,
             keys: w
@@ -709,7 +712,12 @@ impl PickerState {
     /// first. True when the shown tab is another one now.
     fn follow_tabs(&mut self, old: &List, new: &List) -> bool {
         let Some(tabs) = &self.tabs else { return false };
-        let ids = |list: &List| list.tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
+        let ids = |list: &List| {
+            list.tabs
+                .iter()
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>()
+        };
         // The same tabs: the user's own place is the truth, the opener may lag a move behind.
         if new.tabs.is_empty() || ids(old) == ids(new) {
             return false;

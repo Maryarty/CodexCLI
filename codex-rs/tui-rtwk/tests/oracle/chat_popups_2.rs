@@ -608,24 +608,58 @@ fn windows_sandbox_unelevated_policy_hides_admin_setup() {
 // ORACLE chatwidget/tests/plugin_catalog_tests.rs:5 plugins_popup_uses_product_labels_for_remote_and_personal_tabs kind=snap owner=dialogs-pane
 #[test]
 fn plugins_popup_uses_product_labels_for_remote_and_personal_tabs() {
-    let remote = |name: &str, raw: &str, id: &str, plugin_name: &str, display: &str, description: &str| {
-        seed::remote_marketplace(
-            name,
-            raw,
-            vec![seed::remote_summary(id, plugin_name, Some(display), Some(description), false)],
-        )
-    };
+    let remote =
+        |name: &str, raw: &str, id: &str, plugin_name: &str, display: &str, description: &str| {
+            seed::remote_marketplace(
+                name,
+                raw,
+                vec![seed::remote_summary(
+                    id,
+                    plugin_name,
+                    Some(display),
+                    Some(description),
+                    false,
+                )],
+            )
+        };
     let shelf = seed::shelf(vec![seed::marketplace(
         "codex-curated",
         Some(seed::personal_path()),
         Some("Personal"),
-        vec![plugin("plugin-local-docs", "local-docs", "Local Docs", "Local editable docs.", false)],
+        vec![plugin(
+            "plugin-local-docs",
+            "local-docs",
+            "Local Docs",
+            "Local editable docs.",
+            false,
+        )],
     )]);
     seed::with(&shelf, |held| {
         held.remote = vec![
-            remote("workspace-directory", "Raw Workspace Directory", "plugins~Plugin_buildkite", "buildkite", "Buildkite", "Workspace CI."),
-            remote("workspace-shared-with-me-private", "Raw Shared Private", "plugins~Plugin_docs", "docs", "Docs", "Shared docs."),
-            remote("workspace-shared-with-me-unlisted", "Raw Shared Link", "plugins~Plugin_link", "link", "Link Share", "Shared by link."),
+            remote(
+                "workspace-directory",
+                "Raw Workspace Directory",
+                "plugins~Plugin_buildkite",
+                "buildkite",
+                "Buildkite",
+                "Workspace CI.",
+            ),
+            remote(
+                "workspace-shared-with-me-private",
+                "Raw Shared Private",
+                "plugins~Plugin_docs",
+                "docs",
+                "Docs",
+                "Shared docs.",
+            ),
+            remote(
+                "workspace-shared-with-me-unlisted",
+                "Raw Shared Link",
+                "plugins~Plugin_link",
+                "link",
+                "Link Share",
+                "Shared by link.",
+            ),
         ];
     });
     let mut s = seed::open(120, 24, seed::config(), &shelf);
@@ -682,7 +716,11 @@ fn plugins_popup_preserves_workspace_tab_across_load_and_detail_navigation() {
         )];
         held.details.insert(
             "*".to_string(),
-            seed::remote_detail("workspace-directory", buildkite, Some("Buildkite pipelines.")),
+            seed::remote_detail(
+                "workspace-directory",
+                buildkite,
+                Some("Buildkite pipelines."),
+            ),
         );
     });
     let mut s = seed::open(100, 24, seed::config(), &shelf);
@@ -705,7 +743,13 @@ fn plugins_popup_preserves_workspace_tab_across_load_and_detail_navigation() {
 fn plugins_popup_remote_local_dedupe_prefers_installed_remote_after_mapped_shares() {
     let remote_id = "plugins~Plugin_docs";
     let local = seed::set(
-        plugin("plugin-docs", "docs", "Docs", "Local curated docs plugin.", false),
+        plugin(
+            "plugin-docs",
+            "docs",
+            "Docs",
+            "Local curated docs plugin.",
+            false,
+        ),
         &[("remotePluginId", json!(remote_id))],
     );
     let shelf = seed::shelf(vec![seed::curated(vec![local])]);
@@ -713,7 +757,13 @@ fn plugins_popup_remote_local_dedupe_prefers_installed_remote_after_mapped_share
         held.remote = vec![seed::remote_marketplace(
             "workspace-shared-with-me-private",
             "Shared with me",
-            vec![seed::remote_summary(remote_id, "docs", Some("Docs"), Some("Remote installed docs plugin."), true)],
+            vec![seed::remote_summary(
+                remote_id,
+                "docs",
+                Some("Docs"),
+                Some("Remote installed docs plugin."),
+                true,
+            )],
         )];
     });
     let mut s = seed::open(100, 24, seed::config(), &shelf);

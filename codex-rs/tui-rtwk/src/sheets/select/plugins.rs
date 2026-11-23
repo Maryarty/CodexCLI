@@ -71,9 +71,20 @@ pub fn shape(menu: &Menu) -> u32 {
 }
 
 /// The page of the menu the model holds; none for the setup of apps when no step is on.
-pub fn page(plugins: &Plugins, auth: Option<&AuthStep>, keys: &Keymap, s: &Strings) -> Option<Page> {
+pub fn page(
+    plugins: &Plugins,
+    auth: Option<&AuthStep>,
+    keys: &Keymap,
+    s: &Strings,
+) -> Option<Page> {
     Some(match plugins.menu() {
-        Menu::Loading => Page::List(loading(s.loading_head.to_string(), Some(s.loading_note), s.loading_row, s.loading_row_description, s)),
+        Menu::Loading => Page::List(loading(
+            s.loading_head.to_string(),
+            Some(s.loading_note),
+            s.loading_row,
+            s.loading_row_description,
+            s,
+        )),
         Menu::Failed(error) => Page::List(plain(
             s.failed_subtitle,
             vec![disabled(s.failed_row, error)],
@@ -81,7 +92,13 @@ pub fn page(plugins: &Plugins, auth: Option<&AuthStep>, keys: &Keymap, s: &Strin
         )),
         Menu::List => match browser(plugins, keys, s) {
             Some((list, extras)) => Page::Browser(list, extras),
-            None => Page::List(loading(s.loading_head.to_string(), Some(s.loading_note), s.loading_row, s.loading_row_description, s)),
+            None => Page::List(loading(
+                s.loading_head.to_string(),
+                Some(s.loading_note),
+                s.loading_row,
+                s.loading_row_description,
+                s,
+            )),
         },
         Menu::AddPrompt => Page::Add,
         Menu::AddLoading => Page::List(loading(
@@ -143,7 +160,10 @@ pub fn page(plugins: &Plugins, auth: Option<&AuthStep>, keys: &Keymap, s: &Strin
         }
         Menu::InstallLoading { name } => Page::List(plain(
             &s.with(s.install_loading_subtitle, name),
-            vec![disabled(s.install_loading_row, s.install_loading_description)],
+            vec![disabled(
+                s.install_loading_row,
+                s.install_loading_description,
+            )],
             s,
         )),
         Menu::UninstallLoading { name } => Page::List(plain(
@@ -219,7 +239,13 @@ fn back(plugins: &Plugins, s: &Strings) -> Option<Item> {
 
 /// A page the loading of something stands in for (`DelayedLoadingHeader`): the words of the load
 /// under the title, one row that waits.
-fn loading(head: String, note: Option<&str>, row_name: &str, row_description: &str, s: &Strings) -> List {
+fn loading(
+    head: String,
+    note: Option<&str>,
+    row_name: &str,
+    row_description: &str,
+    s: &Strings,
+) -> List {
     let mut header = vec![dim(head)];
     header.extend(note.map(dim));
     List {
@@ -478,10 +504,9 @@ fn items_of(tab: &Tab, catalog: &Catalog, toggle_free: bool, s: &Strings) -> Vec
         Kind::Curated => {
             let label = s.product_curated;
             match &tab.note {
-                Note::Loading => items.push(disabled(
-                    &s.with(s.row_loading, label),
-                    s.loading_curated,
-                )),
+                Note::Loading => {
+                    items.push(disabled(&s.with(s.row_loading, label), s.loading_curated))
+                }
                 Note::Failed(error) => items.push(disabled(
                     &s.with(s.row_unavailable, s.part(error.part)),
                     &s.section_error(&error.cause),
@@ -567,10 +592,7 @@ fn plugin_item(
     };
     let selected = s.fmt(
         s.selected,
-        [
-            rtwk::l10n::Arg::Text(&status),
-            rtwk::l10n::Arg::Text(&tail),
-        ],
+        [rtwk::l10n::Arg::Text(&status), rtwk::l10n::Arg::Text(&tail)],
     );
     let search = format!(
         "{} {} {} {} {} {}",
@@ -645,9 +667,7 @@ fn detail_page(detail: &Detail, s: &Strings) -> List {
 
     let mut items = vec![row(plugins::BACK, s.back, s.back_description)];
     items.push(match detail.action() {
-        Action::InstalledByAdmin => {
-            disabled(s.admin_installed, s.admin_installed_description)
-        }
+        Action::InstalledByAdmin => disabled(s.admin_installed, s.admin_installed_description),
         Action::Uninstall { .. } => row(plugins::UNINSTALL, s.uninstall, s.uninstall_description),
         Action::UninstallUnavailable => disabled(s.uninstall, s.uninstall_missing),
         Action::DisabledByAdmin => disabled(s.install, s.install_disabled),
@@ -716,7 +736,10 @@ fn source_summary(detail: &Detail, s: &Strings) -> String {
             url,
             reference: Some(reference),
         } => s.fmt(s.source_git_ref, [Text(url), Text(reference)]),
-        Source::Git { url, reference: None } => s.with(s.source_git, url),
+        Source::Git {
+            url,
+            reference: None,
+        } => s.with(s.source_git, url),
         Source::Npm {
             package,
             version: Some(version),
@@ -760,7 +783,9 @@ fn share_summary(share: &plugins::catalog::Share, s: &Strings) -> String {
         parts.push(s.discoverability(kind).to_string());
     }
     match (share.creator_name.as_deref(), share.creator_id.as_deref()) {
-        (Some(name), Some(id)) => parts.push(s.fmt(s.share_creator_account, [Text(name), Text(id)])),
+        (Some(name), Some(id)) => {
+            parts.push(s.fmt(s.share_creator_account, [Text(name), Text(id)]))
+        }
         (Some(name), None) => parts.push(s.with(s.share_creator, name)),
         (None, Some(id)) => parts.push(s.with(s.share_account, id)),
         (None, None) => {}
@@ -822,11 +847,7 @@ fn auth_page(step: &AuthStep, s: &Strings) -> List {
         items.push(disabled(s.auth_no_link, s.auth_no_link_description));
     }
     let mut next = if step.installed {
-        row(
-            plugins::NEXT,
-            s.auth_continue,
-            s.auth_continue_description,
-        )
+        row(plugins::NEXT, s.auth_continue, s.auth_continue_description)
     } else {
         row(plugins::NEXT, s.auth_done, s.auth_done_description)
     };

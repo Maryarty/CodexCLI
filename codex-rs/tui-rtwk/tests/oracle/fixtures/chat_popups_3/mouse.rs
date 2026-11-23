@@ -11,7 +11,13 @@ use super::{plugin, row_of, seed, select_tab};
 use crate::kit::Screen;
 
 fn two_plugins() -> Screen {
-    let calendar = plugin("plugin-calendar", "calendar", "Calendar", "Schedule management.", false);
+    let calendar = plugin(
+        "plugin-calendar",
+        "calendar",
+        "Calendar",
+        "Schedule management.",
+        false,
+    );
     let drive = plugin("plugin-drive", "drive", "Drive", "Document access.", true);
     let shelf = seed::shelf(vec![seed::curated(vec![calendar.clone(), drive.clone()])]);
     seed::with(&shelf, |held| {
@@ -92,7 +98,14 @@ fn the_wheel_scrolls_a_long_plugin_list_and_a_tap_opens_a_row_it_brought_in() {
     seed::with(&shelf, |held| {
         held.details.insert(
             "*".to_string(),
-            seed::detail(plugins[35].clone(), Some("Does a thing."), &[], &[], &[], &[]),
+            seed::detail(
+                plugins[35].clone(),
+                Some("Does a thing."),
+                &[],
+                &[],
+                &[],
+                &[],
+            ),
         );
     });
     let mut s = seed::open(100, 24, seed::config(), &shelf);
@@ -111,7 +124,13 @@ fn the_wheel_scrolls_a_long_plugin_list_and_a_tap_opens_a_row_it_brought_in() {
 }
 
 fn calendar_detail() -> (Screen, seed::Shelf) {
-    let calendar = plugin("plugin-calendar", "calendar", "Calendar", "Schedule management.", false);
+    let calendar = plugin(
+        "plugin-calendar",
+        "calendar",
+        "Calendar",
+        "Schedule management.",
+        false,
+    );
     let shelf = seed::shelf(vec![seed::curated(vec![calendar.clone()])]);
     seed::with(&shelf, |held| {
         held.held.insert("plugin/install");
@@ -159,7 +178,13 @@ fn a_tap_on_back_to_plugins_returns_to_the_list() {
 fn confirmation() -> (Screen, seed::Shelf) {
     let shelf = seed::shelf(vec![
         seed::curated(Vec::new()),
-        seed::repo(vec![plugin("plugin-debug", "debug", "Debug Plugin", "Debug.", false)]),
+        seed::repo(vec![plugin(
+            "plugin-debug",
+            "debug",
+            "Debug Plugin",
+            "Debug.",
+            false,
+        )]),
     ]);
     seed::with(&shelf, |held| {
         held.held.insert("marketplace/remove");
@@ -206,14 +231,22 @@ fn a_tap_on_a_remote_row_asks_its_detail_from_the_remote_marketplace() {
             "workspace-directory",
             None,
             Some("Workspace"),
-            vec![seed::remote_summary("plugins~Plugin_calendar", "calendar", Some("Calendar"), Some("Schedules."), false)],
+            vec![seed::remote_summary(
+                "plugins~Plugin_calendar",
+                "calendar",
+                Some("Calendar"),
+                Some("Schedules."),
+                false,
+            )],
         )];
     });
     let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.wait_for("Calendar");
     s.click_text("Calendar");
     let target = Target {
-        location: Location::Remote { marketplace: "workspace-directory".to_string() },
+        location: Location::Remote {
+            marketplace: "workspace-directory".to_string(),
+        },
         plugin: "plugins~Plugin_calendar".to_string(),
     };
     assert!(seed::wants(&s).contains(&Want::Read(target)));

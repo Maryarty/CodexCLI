@@ -243,7 +243,9 @@ fn answer(held: &Held, request: &Value) -> Option<Result<Value, ServerError>> {
                     let mine: Vec<&Value> = held
                         .remote
                         .iter()
-                        .filter(|market| section_of(market["name"].as_str().unwrap_or_default()) == kind)
+                        .filter(|market| {
+                            section_of(market["name"].as_str().unwrap_or_default()) == kind
+                        })
                         .collect();
                     Some(Ok(json!({
                         "marketplaces": mine,
@@ -345,7 +347,15 @@ pub fn set(mut v: Value, fields: &[(&str, Value)]) -> Value {
 
 /// A plugin that can be installed and is on.
 pub fn available(id: &str, name: &str, display: &str, description: &str) -> Value {
-    summary(id, name, Some(display), Some(description), false, true, "AVAILABLE")
+    summary(
+        id,
+        name,
+        Some(display),
+        Some(description),
+        false,
+        true,
+        "AVAILABLE",
+    )
 }
 
 /// `plugins_test_remote_summary`.
@@ -368,7 +378,12 @@ pub fn remote_summary(
 }
 
 /// A marketplace entry of `plugin/list`.
-pub fn marketplace(name: &str, path: Option<String>, display: Option<&str>, plugins: Vec<Value>) -> Value {
+pub fn marketplace(
+    name: &str,
+    path: Option<String>,
+    display: Option<&str>,
+    plugins: Vec<Value>,
+) -> Value {
     json!({
         "name": name, "path": path,
         "interface": display.map(|display| json!({ "displayName": display })),
