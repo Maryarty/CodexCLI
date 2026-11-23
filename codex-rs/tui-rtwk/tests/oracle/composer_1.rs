@@ -10,8 +10,6 @@ const NO_PARENT: &str = "no seed for a parent-owned thread: the chat screen has 
 const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed sets the esc backtrack hint, the quit shortcut hint, queue submissions, the status line or the shortcut overlay, and the footer draws none of them";
 const NO_FLASH: &str = "no seed for a footer flash or footer hint override: nothing sets the composer footer hint (`K label`) or a timed flash (`FLASH`), and the footer row does not show them";
 const NO_VIM: &str = "vim mode is not built: no seed or key turns the composer's vim draft on, so the `Vim: Insert` / `Vim: Normal` / `Vim: Replace` footer label is not drawn";
-const NO_SKILLS: &str = "no seed for skill mentions: the chat screen has no skill catalog (set_skill_mentions), so no `$` skill popup, no bound skill mentions and no skill rows are drawn";
-const NO_PLUGINS: &str = "no seed for plugin mentions: the chat screen has no plugin catalog (set_plugin_mentions with mentions v2), so no `@` plugin popup and no plugin accent are drawn";
 const NO_FILES: &str = "no seed for file search: the chat screen has no file index, so the `@` file popup has no rows; the skill catalog these tests set is not built either";
 const NO_LAYOUT: &str = "the composer footer collapse by width, the collaboration-mode indicator (Plan), the context-window percent and a running task with a queued draft are not built";
 
@@ -39,6 +37,43 @@ fn type_then_back(s: &mut Screen, text: &str, back: usize) {
     if back > 0 {
         s.keys(&vec!["left"; back].join(" "));
     }
+}
+
+/// The composer alone over the skills of `set_skill_mentions` (`alone_skills`).
+fn skills() -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .entry("popovers", "alone_skills")
+        .open()
+}
+
+/// The composer alone over the plugins of `set_plugin_mentions` (`alone_plugins`).
+fn plugins() -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .entry("popovers", "alone_plugins")
+        .open()
+}
+
+/// `configure_partially_bound_skill_mentions`: `$unbound-skill  $bound-skill continue`, the
+/// bound mention put in by a pick, the cursor before it.
+fn unbound_left_of_bound() -> Screen {
+    let mut s = skills();
+    s.type_text("$bound-skill").keys("tab");
+    s.type_text("continue").keys("home");
+    s.type_text("$unbound-skill  ");
+    s
+}
+
+/// The popup rows of these snapshots are not on the screen: `MentionPopup` is placed by neither
+/// the chat page nor the composer-alone harness (the page's bottom pane and `Alone` hold the
+/// composer, the footer and the slash popup only), and its look is G68's (the oracle's aligned
+/// columns, `›` marker and hint line).
+fn pending_popup() {
+    kit::pending(
+        Owner::ChatLive,
+        "mount: no `MentionPopup` in the page's bottom pane or in the composer-alone harness, so `$` and `@` draw no rows (the pick, the keys and the draft are built); then G68: the rows float in a different layout from the oracle's (a `▎` bar and a right-aligned detail, not aligned name/description columns with a `›` marker, no `enter insert · esc close` line)",
+    );
 }
 
 // ---- oracle: bottom_pane/chat_composer.rs (50 screen-level tests here; 22 state tests left to chat-live)
@@ -169,23 +204,33 @@ fn shell_command_uses_shell_accent_style() {
 // ORACLE bottom_pane/chat_composer.rs:5544 plugin_at_mentions_render_with_plugin_accent_snapshot kind=snap owner=chat-live snap=plugin_at_mentions_render_with_plugin_accent
 #[test]
 fn plugin_at_mentions_render_with_plugin_accent_snapshot() {
-    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    kit::pending(
+        Owner::ChatLive,
+        "G-new-1: the composer's text area paints its text in one style and takes no per-range style, so a bound plugin `@` mention keeps no magenta (and an element no cyan); the bound mention itself is made",
+    );
     // The oracle's snapshot is two lines: `text:    › @sample plugin` and `magenta:   ^^^^^^^`
     // (the seven cells of `@sample` are magenta); the kit compares the row and the style.
-    let s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
-    s.assert_row(1, "› @sample plugin");
+    let mut s = plugins();
+    s.type_text("@sample").keys("tab");
+    s.type_text("plugin");
+    s.assert_has_row("› @sample plugin");
     s.assert_text_style("@sample", "fg=Magenta");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5595 recalled_plugin_at_mentions_keep_plugin_accent_style kind=ui owner=chat-live
 #[test]
 fn recalled_plugin_at_mentions_keep_plugin_accent_style() {
-    kit::pending(Owner::ChatLive, NO_PLUGINS);
-    // The oracle binds the `@sample` plugin mention (a picker's binding; typed text has none),
-    // submits it, clears the draft and recalls it with Up.
-    let mut s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
-    s.type_text("@sample plugin").keys("enter");
+    kit::pending(
+        Owner::ChatLive,
+        "G-new-1: the composer's text area paints its text in one style and takes no per-range style, so a bound plugin `@` mention keeps no magenta (and an element no cyan); the bound mention itself is made",
+    );
+    // The oracle binds the `@sample` plugin mention, submits it, clears the draft and recalls it
+    // with Up.
+    let mut s = plugins();
+    s.type_text("@sample").keys("tab");
+    s.type_text("plugin").keys("enter");
     s.keys("up");
+    s.assert_has_row("› @sample plugin");
     s.assert_text_style("@sample", "fg=Magenta");
 }
 
@@ -532,10 +577,9 @@ fn question_mark_does_not_toggle_during_paste_burst() {
 // ORACLE bottom_pane/chat_composer.rs:7128 skill_popup_targets_unbound_mention_left_of_bound_mention kind=snap owner=chat-live snap=skill_popup_targets_unbound_mention_left_of_bound_mention
 #[test]
 fn skill_popup_targets_unbound_mention_left_of_bound_mention() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    // The oracle's seed: `$unbound-skill  $bound-skill continue` with the cursor in the
-    // unbound mention; Enter completes it, then `foo` is typed at the cursor.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    // The oracle's seed: `$unbound-skill  $bound-skill continue`, `$bound-skill` bound, the cursor
+    // before it. Ours binds it by a pick and writes the rest around it.
+    let mut s = unbound_left_of_bound();
     s.keys("enter");
     s.assert_has_row("› $unbound-skill  $bound-skill continue");
     s.type_text("foo");
@@ -545,20 +589,21 @@ fn skill_popup_targets_unbound_mention_left_of_bound_mention() {
 // ORACLE bottom_pane/chat_composer.rs:7153 skill_popup_targets_unbound_mention_left_of_bound_mention_snapshot kind=snap owner=chat-live snap=skill_popup_targets_unbound_mention_left_of_bound_mention
 #[test]
 fn skill_popup_targets_unbound_mention_left_of_bound_mention_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    let s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    pending_popup();
+    let s = unbound_left_of_bound();
     s.assert_snap("skill_popup_targets_unbound_mention_left_of_bound_mention");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7162 skill_popup_prefers_confirmed_selections_within_match_tier kind=snap owner=chat-live snap=skill_popup_prefers_confirmed_selections_within_match_tier
 #[test]
 fn skill_popup_prefers_confirmed_selections_within_match_tier() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    // Confirming `$hello-statsig` twice and `$status` once, then typing `$stat`, selects `$status`.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    s.type_text("$hello-statsig").keys("enter");
-    s.type_text("$hello-statsig").keys("enter");
-    s.type_text("$status").keys("enter");
+    pending_popup();
+    // The oracle confirms `$hello-statsig` twice and `$status` once, then types `$stat`: the
+    // confirmed picks are the usage file the fixture holds.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .entry("popovers", "alone_skills_confirmed")
+        .open();
     s.type_text("$stat");
     s.assert_snap("skill_popup_prefers_confirmed_selections_within_match_tier");
 }
@@ -566,26 +611,31 @@ fn skill_popup_prefers_confirmed_selections_within_match_tier() {
 // ORACLE bottom_pane/chat_composer.rs:7197 skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention_snapshot kind=snap owner=chat-live snap=skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention
 #[test]
 fn skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    let s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    pending_popup();
+    // `$bound-skill$unbound-skill`: the bound mention first, the cursor after it.
+    let mut s = skills();
+    s.type_text("$bound-skill").keys("tab");
+    s.keys("backspace");
+    s.type_text("$unbound-skill").keys(&vec!["left"; 14].join(" "));
     s.assert_snap("skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7206 skill_popup_falls_back_from_bound_skill_with_path_suffix_snapshot kind=snap owner=chat-live snap=skill_popup_falls_back_from_bound_skill_with_path_suffix
 #[test]
 fn skill_popup_falls_back_from_bound_skill_with_path_suffix_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    // `$left  $bound/path` with the cursor after `$left  `.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    type_then_back(&mut s, "$left  $bound/path", 11);
+    pending_popup();
+    // `$left  $bound/path` with `$bound` bound and the cursor after `$left  `.
+    let mut s = skills();
+    s.type_text("$bound").keys("tab backspace");
+    s.type_text("/path").keys("home");
+    s.type_text("$left  ");
     s.assert_snap("skill_popup_falls_back_from_bound_skill_with_path_suffix");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7225 skill_popup_closes_after_trailing_space_snapshot kind=snap owner=chat-live snap=skill_popup_closes_after_trailing_space
 #[test]
 fn skill_popup_closes_after_trailing_space_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = skills();
     s.type_text("$figma ");
     s.assert_snap("skill_popup_closes_after_trailing_space");
 }
@@ -593,20 +643,21 @@ fn skill_popup_closes_after_trailing_space_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7234 unified_mention_popup_falls_back_from_bound_plugin_on_right_snapshot kind=snap owner=chat-live snap=unified_mention_popup_falls_back_from_bound_plugin_on_right
 #[test]
 fn unified_mention_popup_falls_back_from_bound_plugin_on_right_snapshot() {
-    kit::pending(Owner::ChatLive, NO_PLUGINS);
-    // `@left  @bound` with the cursor after `@left `.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    type_then_back(&mut s, "@left  @bound", 7);
+    pending_popup();
+    // `@left  @bound` with `@bound` bound and the cursor after `@left `.
+    let mut s = plugins();
+    s.type_text("@bound").keys("tab home");
+    s.type_text("@left  ").keys("left");
     s.assert_snap("unified_mention_popup_falls_back_from_bound_plugin_on_right");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7243 adjacent_plugin_completion_inserts_separator_snapshot kind=snap owner=chat-live snap=adjacent_plugin_completion_inserts_separator
 #[test]
 fn adjacent_plugin_completion_inserts_separator_snapshot() {
-    kit::pending(Owner::ChatLive, NO_PLUGINS);
-    // `@sample@other` with the cursor on the bound `@sample`; Enter completes the other plugin.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    type_then_back(&mut s, "@sample@other", 6);
+    // `@sample@other` with `@sample` bound and the cursor on it; Enter completes the other plugin.
+    let mut s = plugins();
+    s.type_text("@sample").keys("tab backspace");
+    s.type_text("@other").keys(&["left"; 6].join(" "));
     s.keys("enter");
     s.assert_snap("adjacent_plugin_completion_inserts_separator");
 }
@@ -614,20 +665,28 @@ fn adjacent_plugin_completion_inserts_separator_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7256 skill_completion_replaces_only_middle_adjacent_target kind=ui owner=chat-live
 #[test]
 fn skill_completion_replaces_only_middle_adjacent_target() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    // The oracle's seed: `$bound1 <middle> $bound2` with the cursor in the middle target.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    s.keys("enter");
+    // The oracle's seed: `$bound1 $oth $bound2` with the spaces cut out, the cursor in `$oth`.
+    let mut s = skills();
+    s.type_text("$bound2").keys("tab backspace home");
+    s.type_text("$oth").keys("home");
+    s.type_text("$bound1").keys("tab backspace");
+    s.keys("right right enter");
     s.assert_has_row("› $bound1 $other $bound2");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7274 unified_completion_replaces_only_middle_adjacent_target kind=ui owner=chat-live
 #[test]
 fn unified_completion_replaces_only_middle_adjacent_target() {
-    kit::pending(Owner::ChatLive, NO_PLUGINS);
-    // The oracle's seed: `@bound1 <middle> @bound2` with the cursor in the middle target.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    s.keys("enter");
+    // The oracle's seed: `@bound1 @oth @bound2` with the spaces cut out, the cursor in `@oth`.
+    let mut s = plugins();
+    // Written as the oracle writes it, `@bound1 @oth @bound2` with the two spaces cut out:
+    // typed next to each other the three would be one token.
+    s.type_text("@bound1").keys("tab");
+    s.type_text("@oth ");
+    // (Left and Right are the popup's tabs while the caret is in a token: Ctrl+B and Ctrl+F move.)
+    s.type_text("@bound2").keys("tab backspace ctrl+b backspace");
+    s.keys("ctrl+b ctrl+b ctrl+b ctrl+b backspace");
+    s.keys("ctrl+f ctrl+f enter");
     s.assert_has_row("› @bound1 @other @bound2");
 }
 
@@ -662,8 +721,8 @@ fn file_popup_ignores_unbindable_qualified_skill_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7393 skill_popup_preserves_normal_target_after_ambiguous_probe_snapshot kind=snap owner=chat-live snap=skill_popup_preserves_normal_target_after_ambiguous_probe
 #[test]
 fn skill_popup_preserves_normal_target_after_ambiguous_probe_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    pending_popup();
+    let mut s = skills();
     type_then_back(&mut s, "$1x  $plugin:d", 10);
     s.assert_snap("skill_popup_preserves_normal_target_after_ambiguous_probe");
 }
@@ -671,8 +730,8 @@ fn skill_popup_preserves_normal_target_after_ambiguous_probe_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7446 skill_popup_accepts_digit_leading_skill_snapshot kind=snap owner=chat-live snap=skill_popup_accepts_digit_leading_skill
 #[test]
 fn skill_popup_accepts_digit_leading_skill_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    pending_popup();
+    let mut s = skills();
     s.type_text("$1p");
     s.assert_snap("skill_popup_accepts_digit_leading_skill");
 }
@@ -680,8 +739,7 @@ fn skill_popup_accepts_digit_leading_skill_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7462 skill_popup_does_not_fuzzy_match_shell_variable_snapshot kind=snap owner=chat-live snap=skill_popup_does_not_fuzzy_match_shell_variable
 #[test]
 fn skill_popup_does_not_fuzzy_match_shell_variable_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = skills();
     s.type_text("$HOME");
     s.assert_snap("skill_popup_does_not_fuzzy_match_shell_variable");
 }
@@ -689,9 +747,8 @@ fn skill_popup_does_not_fuzzy_match_shell_variable_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7605 skill_popup_closes_between_spaces_before_plain_text_snapshot kind=snap owner=chat-live snap=skill_popup_closes_between_spaces_before_plain_text
 #[test]
 fn skill_popup_closes_between_spaces_before_plain_text_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SKILLS);
     // `$old  word` with the cursor after `$old `: the popup closes.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = skills();
     type_then_back(&mut s, "$old  word", 5);
     s.assert_snap("skill_popup_closes_between_spaces_before_plain_text");
 }
@@ -699,9 +756,12 @@ fn skill_popup_closes_between_spaces_before_plain_text_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:7783 plugin_mention_popup_snapshot kind=snap owner=chat-live snap=plugin_mention_popup
 #[test]
 fn plugin_mention_popup_snapshot() {
-    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    pending_popup();
     // The oracle types `$sa` with the `Sample Plugin` mention set (plugin skills and an MCP server).
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .entry("popovers", "alone_plugin_sample")
+        .open();
     s.type_text("$sa");
     s.assert_snap("plugin_mention_popup");
 }
