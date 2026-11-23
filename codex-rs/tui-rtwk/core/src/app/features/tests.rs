@@ -81,3 +81,69 @@ fn a_screens_host_ask_is_still_kept_for_the_screen() {
         Some(&Done::ClipboardText(Ok("text".to_owned())))
     );
 }
+
+fn open_prompt(app: &CodexApp) -> Prompt {
+    match &app.screens.dialogs.open {
+        Some(Open::Prompt(prompt)) => prompt.clone(),
+        other => panic!("not a prompt: {other:?}"),
+    }
+}
+
+fn goal_prompt(thread: &str) -> FeaturePrompt {
+    FeaturePrompt::Goal(goal::Prompt::Edit {
+        thread: ThreadId::new(thread),
+        status: crate::threads::GoalStatus::Active,
+        token_budget: None,
+    })
+}
+
+/// The door of a generated suggestion for an open prompt (`AppCx::prompt_suggesting`, `suggest`):
+/// the prompt says it waits; the suggestion fills the field once, and only the prompt it is for;
+/// what the user typed first wins; a prompt that was closed takes nothing.
+#[test]
+fn a_suggestion_fills_the_prompt_it_is_for_once_and_never_over_the_users_typing() {
+    use crate::screens::dialogs::Suggestion;
+    let prompt = |suggesting| Out::Prompt {
+        prompt: goal_prompt("t1"),
+        initial: "keep".to_owned(),
+        suggesting,
+    };
+    let suggest = |thread: &str, text: &str| Out::Suggest {
+        prompt: goal_prompt(thread),
+        text: Some(text.to_owned()),
+    };
+    let mut fx = AppFx::default();
+
+    let mut app = CodexApp::new();
+    carry(&mut app, prompt(false), &mut fx);
+    assert_eq!(open_prompt(&app).suggestion, Suggestion::Idle);
+    carry(&mut app, suggest("t1", "no one asked"), &mut fx);
+    assert_eq!(open_prompt(&app).suggestion, Suggestion::Idle);
+
+    carry(&mut app, prompt(true), &mut fx);
+    assert_eq!(open_prompt(&app).suggestion, Suggestion::Loading);
+    carry(&mut app, suggest("t2", "another prompt's"), &mut fx);
+    assert_eq!(open_prompt(&app).suggestion, Suggestion::Loading);
+    carry(&mut app, suggest("t1", "Fix the build"), &mut fx);
+    assert_eq!(
+        open_prompt(&app).suggestion,
+        Suggestion::Applied("Fix the build".to_owned())
+    );
+    carry(&mut app, suggest("t1", "a second answer"), &mut fx);
+    assert_eq!(
+        open_prompt(&app).suggestion,
+        Suggestion::Applied("Fix the build".to_owned())
+    );
+    assert_eq!(open_prompt(&app).initial, "keep");
+
+    carry(&mut app, prompt(true), &mut fx);
+    if let Some(Open::Prompt(open)) = &mut Rc::make_mut(&mut app.screens).dialogs.open {
+        open.typed();
+    }
+    carry(&mut app, suggest("t1", "too late"), &mut fx);
+    assert_eq!(open_prompt(&app).suggestion, Suggestion::Idle);
+
+    Rc::make_mut(&mut app.screens).dialogs.open = None;
+    carry(&mut app, suggest("t1", "to nobody"), &mut fx);
+    assert_eq!(app.screens.dialogs.open, None);
+}

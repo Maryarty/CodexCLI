@@ -293,7 +293,7 @@ pub struct Model {
 }
 
 impl Model {
-    /// The next number for the requests of this screen's asks (below `prompt::REQUEST_BIT`).
+    /// The next number for the requests of this screen's asks (below `select::export::REQUEST_BIT`).
     pub(crate) fn next_stamp(&mut self) -> u64 {
         self.stamp += 1;
         self.stamp

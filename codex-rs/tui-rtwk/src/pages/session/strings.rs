@@ -863,8 +863,6 @@ impl Strings {
             Notice::NotAvailable(c) => text(self.not_available, c.command()),
             Notice::ModelStartup => self.model_startup.to_string(),
             Notice::ShellHelp => self.shell_help.to_string(),
-            Notice::ThreadNameEmpty => self.thread_name_empty.to_string(),
-            Notice::SideRename => self.side_rename.to_string(),
             Notice::InputTooLarge { provided } => Fmt::new(
                 self.input_too_large,
                 [

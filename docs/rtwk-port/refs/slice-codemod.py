@@ -85,7 +85,7 @@ impl FeatureView for {marker} {{
         note.absurd()
     }}
 
-    fn menu_list(menu: &Never<Self>, _words: &SelectStrings) -> List {{
+    fn menu_list(menu: &Never<Self>, _state: &(), _words: &SelectStrings) -> List {{
         menu.absurd()
     }}
 

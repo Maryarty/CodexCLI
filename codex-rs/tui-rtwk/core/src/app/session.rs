@@ -3,7 +3,6 @@
 use std::rc::Rc;
 
 pub(super) mod export;
-pub(super) mod rename;
 
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
@@ -116,12 +115,14 @@ pub(super) fn session_intent(
             } else {
                 super::start_thread(app, ticket, backend)
             };
+            // `/new <name>`: the new thread is named once it has started (`features/rename`).
+            let then = name.map(|name| crate::features::rename::ThreadIntent::Set(name).into());
             app.outgoing.insert(
                 ticket,
                 AppCtx::NewConversation {
                     source,
                     backend,
-                    name,
+                    then,
                     plan: None,
                     draft: None,
                 },
@@ -151,7 +152,7 @@ pub(super) fn session_intent(
                 AppCtx::NewConversation {
                     source: Some(thread),
                     backend,
-                    name: None,
+                    then: None,
                     plan: None,
                     draft: Some(message),
                 },
@@ -171,23 +172,15 @@ pub(super) fn session_intent(
         S::StartReview { target } => start_review(app, source, target, fx),
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
         S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
-        S::Rename { name: None } => rename::open(app, source, fx),
-        S::Rename { name: Some(_) } if rename::blocked(app) => session_note(
-            app,
-            source,
-            Note::from(crate::commands::Notice::SideRename),
-            fx,
-        ),
-        S::Compact | S::Rename { name: Some(_) } => {
+        // `/rename`: the name prompt, or the rename itself (`features/rename`).
+        S::Rename { name } => {
+            let intent = crate::features::rename::Intent::Command { source, name };
+            super::features::intent(app, intent.into(), fx);
+        }
+        S::Compact => {
             if let Some(thread) = source {
-                let ev = match intent {
-                    S::Rename { name: Some(name) } => ThreadEv::ScreenIntent(
-                        ScreenThreadIntent::Chat(chat::ThreadIntent::Rename(name)),
-                    ),
-                    _ => ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-                        chat::ThreadIntent::Compact,
-                    )),
-                };
+                let ev =
+                    ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::Compact));
                 apply_thread(app, &thread, ev, fx);
             }
         }
@@ -437,7 +430,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         AppCtx::NewConversation {
             source,
             backend,
-            name: None,
+            then: None,
             plan: None,
             draft: None,
         },
@@ -571,7 +564,6 @@ pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
         return;
     };
     match submitted.kind {
-        PromptKind::Rename { thread } => rename::submitted(app, thread, &submitted.text, fx),
         PromptKind::ExportFile => export::submitted(app, submitted.text, fx),
         PromptKind::Feature(prompt) => {
             super::features::prompt_submitted(app, prompt, submitted.text, fx);
@@ -655,7 +647,7 @@ pub(super) fn plan_answer(
                 AppCtx::NewConversation {
                     source: Some(thread),
                     backend,
-                    name: None,
+                    then: None,
                     plan: Some(markdown),
                     draft: None,
                 },

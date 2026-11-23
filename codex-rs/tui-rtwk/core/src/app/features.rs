@@ -68,9 +68,18 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             select::Ev::Opened(Menu::Feature(menu)),
             fx,
         ),
-        Out::Prompt { prompt, initial } => {
+        Out::Prompt {
+            prompt,
+            initial,
+            suggesting,
+        } => {
             Rc::make_mut(&mut app.screens).dialogs.open =
-                Some(Open::Prompt(Prompt::feature(prompt, initial)));
+                Some(Open::Prompt(Prompt::feature(prompt, initial, suggesting)));
+        }
+        Out::Suggest { prompt, text } => {
+            if let Some(Open::Prompt(open)) = &mut Rc::make_mut(&mut app.screens).dialogs.open {
+                open.suggested_for(&prompt, text);
+            }
         }
         Out::Note { thread, note } => {
             let thread = thread.or_else(|| app.session.active.clone());

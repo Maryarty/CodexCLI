@@ -114,7 +114,6 @@ fn a_path_writes_the_conversation_there() {
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1);
     let (request, ask) = &asks[0];
-    assert!(request & dialogs::prompt::REQUEST_BIT == 0);
     assert!(*request & export::REQUEST_BIT != 0);
     let Ask::Export {
         thread,
