@@ -146,15 +146,6 @@ fn apply_retained(model: &mut Model, entries: Vec<Warning>) {
     }
 }
 
-/// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`:
-/// `ShortcutView`): the list of bindings and the keyboard diagram.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ShortcutView {
-    #[default]
-    List,
-    Keyboard,
-}
-
 /// One warning of the viewer (`history_cell::WarningEntry`): where it comes
 /// from and its full text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,45 +154,15 @@ pub struct Warning {
     pub details: String,
 }
 
-/// A frozen set of warnings shown one at a time (`warnings_view.rs`:
-/// `WarningsView`); the scroll offset inside a page is the view's.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Warnings {
-    pub entries: Vec<Warning>,
-    pub current: usize,
-    /// Pages that were shown (the oracle: drawn).
-    pub visited: BTreeSet<usize>,
-    /// Pages the user kept with `k`.
-    pub kept: BTreeSet<usize>,
-}
-
-impl Warnings {
-    pub fn new(entries: Vec<Warning>) -> Self {
-        let visited = if entries.is_empty() {
-            BTreeSet::new()
-        } else {
-            BTreeSet::from([0])
-        };
-        Self {
-            entries,
-            current: 0,
-            visited,
-            kept: BTreeSet::new(),
-        }
-    }
-
-    /// The warning on the page shown.
-    pub fn page(&self) -> Option<&Warning> {
-        self.entries.get(self.current)
-    }
-}
-
 /// What the user decided about the warnings when the viewer closed
-/// (`AppEvent::UpdateWarnings`): the effect on the transcript is the cells'.
+/// (`AppEvent::UpdateWarnings`): the pages it dismissed (they leave the retained list and stay
+/// hidden while unchanged) and the pages it saved for later. Which pages were shown, the page
+/// on screen and `k` are the viewer's own state (`src/sheets/dialogs/warnings.rs`); only the
+/// outcome reaches the domain, as the verb `Intent::Decide`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decision {
     pub dismissed: Vec<Warning>,
-    pub kept: Vec<Warning>,
+    pub saved: Vec<Warning>,
 }
 
 /// The feedback categories of `/feedback` (`FeedbackCategory`).
@@ -241,28 +202,6 @@ pub struct Attachments {
     pub auto_review: Option<String>,
 }
 
-/// A step of the feedback flow.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Feedback {
-    /// "How was this?"
-    Category,
-    /// "Include logs and session history?"
-    Consent {
-        category: FeedbackCategory,
-        attachments: Attachments,
-    },
-}
-
-/// The small dialog open now.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Open {
-    Shortcuts(ShortcutView),
-    Warnings(Warnings),
-    Feedback(Feedback),
-    /// A text prompt (`/rename`): the field is the view's.
-    Prompt(Prompt),
-}
-
 /// The note the flow ends in (`AppEvent::OpenFeedbackNote`): the note view
 /// itself is not carried yet (parity pack, Open).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -272,15 +211,24 @@ pub struct NoteRequest {
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
+///
+/// What is drawn (which dialog is up, the warnings viewer's page, the keyboard page of the
+/// shortcut overlay, the feedback step) is the sheet's own state, ADR-013; the model keeps what
+/// the app and the host read: the warnings the session retains, the host's list of attachments,
+/// what the user decided and the prompt a feature asked for.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    pub open: Option<Open>,
+    /// The text prompt a feature asked the user for (`/rename`): a request of the domain, left
+    /// by `Intent::Submit` or `Intent::CancelPrompt`. Its field is the sheet's.
+    pub prompt: Option<Prompt>,
     /// Decisions made when a warnings viewer closed.
     pub decided: Vec<Decision>,
     /// Warning texts copied (`AppEvent::CopyWarning`).
     pub copied: Vec<String>,
     /// The note the feedback flow asked for last.
     pub note: Option<NoteRequest>,
+    /// What the consent step lists: the host's fact of the files a report would attach.
+    pub attachments: Attachments,
     /// The warnings the session keeps (startup and config warnings): the
     /// footer counts them and F2 / `/warnings` shows them. A page seen and
     /// left is dismissed and leaves the list.
@@ -295,155 +243,72 @@ pub struct Model {
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    /// A small dialog was opened.
-    Opened(Open),
     /// Warnings the session retains (a startup warning of the config).
     Retained(Vec<Warning>),
-}
-
-/// The warnings viewer's actions (`WarningsView::handle_key`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PageIntent {
-    Previous,
-    Next,
-    /// `k`: keep this one and show the next; on the last page, close.
-    KeepAndNext,
-    Copy,
+    /// What a feedback report would attach (the host's files).
+    Attachments(Attachments),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// The dialog was closed (Esc, `?`, F2).
-    Close,
-    /// Tab in the shortcut overlay: list and keyboard swap.
-    ToggleKeyboard,
-    Page(PageIntent),
-    /// A row of the category picker was picked.
-    PickCategory(usize),
-    /// The consent step was answered: include logs or not.
-    Consent(bool),
-    /// F2 or `/warnings`: the viewer over the retained warnings (none: its
-    /// empty page).
-    OpenWarnings,
+    /// Ctrl+O in the warnings viewer: the text of the page shown goes to the clipboard.
+    CopyWarning(String),
+    /// The warnings viewer closed: what the user dismissed and saved.
+    Decide(Decision),
+    /// The consent step was answered: the note the feedback flow ends in.
+    RequestNote(NoteRequest),
     /// The prompt's field changed by the user (a key or a paste).
     Typed,
     /// Enter in the prompt: its text; the prompt closes and the app carries it out.
     Submit(String),
+    /// The prompt was given up: the feature's request is withdrawn.
+    CancelPrompt,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Opened(open) => model.open = Some(open),
         Ev::Retained(entries) => apply_retained(model, entries),
+        Ev::Attachments(attachments) => model.attachments = attachments,
     }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::Close => close(model),
-        Intent::OpenWarnings => {
-            model.open = Some(Open::Warnings(Warnings::new(model.retained.clone())));
-        }
-        Intent::ToggleKeyboard => {
-            if let Some(Open::Shortcuts(view)) = &mut model.open {
-                *view = match view {
-                    ShortcutView::List => ShortcutView::Keyboard,
-                    ShortcutView::Keyboard => ShortcutView::List,
-                };
-            }
-        }
-        Intent::Page(page) => apply_page(model, page),
-        Intent::PickCategory(index) => {
-            if let (Some(Open::Feedback(step @ Feedback::Category)), Some(category)) =
-                (&mut model.open, FeedbackCategory::ALL.get(index))
-            {
-                *step = Feedback::Consent {
-                    category: *category,
-                    attachments: Attachments::default(),
-                };
-            }
-        }
+        Intent::CopyWarning(text) => model.copied.push(text),
+        Intent::Decide(decision) => decide(model, decision),
+        Intent::RequestNote(note) => model.note = Some(note),
         Intent::Typed => {
-            if let Some(Open::Prompt(prompt)) = &mut model.open {
+            if let Some(prompt) = &mut model.prompt {
                 prompt.typed();
             }
         }
         Intent::Submit(text) => {
-            if let Some(Open::Prompt(prompt)) = model.open.take() {
+            if let Some(prompt) = model.prompt.take() {
                 model.submitted = Some(Submitted {
                     kind: prompt.kind,
                     text,
                 });
             }
         }
-        Intent::Consent(include_logs) => {
-            if let Some(Open::Feedback(Feedback::Consent { category, .. })) = &model.open {
-                model.note = Some(NoteRequest {
-                    category: *category,
-                    include_logs,
-                });
-                model.open = None;
-            }
-        }
+        Intent::CancelPrompt => model.prompt = None,
     }
 }
 
-/// Closes the dialog; a warnings viewer first records what the user decided
-/// (`WarningsView::close`): kept pages are kept, the other shown pages are
-/// dismissed, pages never shown are left alone.
-fn close(model: &mut Model) {
-    if let Some(Open::Warnings(warnings)) = model.open.take() {
-        let mut dismissed = Vec::new();
-        let mut kept = Vec::new();
-        for (index, entry) in warnings.entries.into_iter().enumerate() {
-            if warnings.kept.contains(&index) {
-                kept.push(entry);
-            } else if warnings.visited.contains(&index) {
-                dismissed.push(entry);
-            }
-        }
-        for gone in &dismissed {
-            model.intake.dismissed.insert(gone.details.clone());
-            if let Some(at) = model.retained.iter().position(|w| w == gone) {
-                model.retained.remove(at);
-            }
-        }
-        if !dismissed.is_empty() || !kept.is_empty() {
-            model.decided.push(Decision { dismissed, kept });
+/// A closed warnings viewer's outcome (`WarningsView::close`): the dismissed pages leave the
+/// retained list and stay hidden while unchanged; saved pages stay in it.
+fn decide(model: &mut Model, decision: Decision) {
+    for gone in &decision.dismissed {
+        model.intake.dismissed.insert(gone.details.clone());
+        if let Some(at) = model.retained.iter().position(|w| w == gone) {
+            model.retained.remove(at);
         }
     }
-    model.open = None;
-}
-
-/// `WarningsView::handle_key`: pages, keep and copy.
-fn apply_page(model: &mut Model, page: PageIntent) {
-    let Some(Open::Warnings(warnings)) = &mut model.open else {
-        return;
-    };
-    let last = warnings.entries.len().saturating_sub(1);
-    match page {
-        PageIntent::Previous => warnings.current = warnings.current.saturating_sub(1),
-        PageIntent::Next => warnings.current = (warnings.current + 1).min(last),
-        PageIntent::KeepAndNext => {
-            warnings.kept.insert(warnings.current);
-            if warnings.current >= last {
-                close(model);
-                return;
-            }
-            warnings.current += 1;
-        }
-        PageIntent::Copy => {
-            if let Some(entry) = warnings.page() {
-                let text = entry.details.clone();
-                model.copied.push(text);
-            }
-            return;
-        }
+    if !decision.dismissed.is_empty() || !decision.saved.is_empty() {
+        model.decided.push(decision);
     }
-    warnings.visited.insert(warnings.current);
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -495,20 +360,15 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// The seed forms of this screen's events: `{"kind":"shortcuts"}`,
-/// `{"kind":"warnings","entries":[{"source":..,"details":..}]}`,
-/// `{"kind":"retained","entries":[..]}` (the retained list, nothing opened),
-/// `{"kind":"feedback_categories"}` and
-/// `{"kind":"feedback_consent","category":"bug","can_save":true,..}`.
+/// The seed forms of this screen's events: `{"kind":"retained","entries":[{"source":..,
+/// "details":..}]}` (the retained list; `warnings` is the same, for the scripts of the oracle
+/// tests) and `{"kind":"attachments","can_save":true,..}` (what the consent step lists).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
-    Shortcuts,
-    Warnings { entries: Vec<SeedWarning> },
-    FeedbackCategories,
+    #[serde(alias = "warnings")]
     Retained { entries: Vec<SeedWarning> },
-    FeedbackConsent {
-        category: FeedbackCategory,
+    Attachments {
         #[serde(flatten)]
         attachments: Attachments,
     },
@@ -524,20 +384,8 @@ struct SeedWarning {
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
-    Ok(Ev::Opened(match seed {
-        SeedEv::Retained { entries } => {
-            return Ok(Ev::Retained(
-                entries
-                    .into_iter()
-                    .map(|entry| Warning {
-                        source: entry.source,
-                        details: entry.details,
-                    })
-                    .collect(),
-            ));
-        }
-        SeedEv::Shortcuts => Open::Shortcuts(ShortcutView::List),
-        SeedEv::Warnings { entries } => Open::Warnings(Warnings::new(
+    Ok(match seed {
+        SeedEv::Retained { entries } => Ev::Retained(
             entries
                 .into_iter()
                 .map(|entry| Warning {
@@ -545,14 +393,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                     details: entry.details,
                 })
                 .collect(),
-        )),
-        SeedEv::FeedbackCategories => Open::Feedback(Feedback::Category),
-        SeedEv::FeedbackConsent {
-            category,
-            attachments,
-        } => Open::Feedback(Feedback::Consent {
-            category,
-            attachments,
-        }),
-    }))
+        ),
+        SeedEv::Attachments { attachments } => Ev::Attachments(attachments),
+    })
 }

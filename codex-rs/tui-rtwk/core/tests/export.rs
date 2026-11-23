@@ -14,7 +14,7 @@ use codex_tui_core::features::export::{self, Note as ExportNote, Prompt as Expor
 use codex_tui_core::features::{FeatureMenu, FeatureNote, FeaturePrompt};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::dialogs::{self, Open, PromptKind};
+use codex_tui_core::screens::dialogs::{self, PromptKind};
 use codex_tui_core::screens::select::{Intent as SelectIntent, Menu};
 use codex_tui_core::screens::{ScreenIntent, chat};
 use codex_tui_core::threads::{Item as Entry, Note, NoteKey, Tone};
@@ -141,7 +141,7 @@ fn the_clipboard_row_copies_the_markdown_as_plain_text() {
             destination: CopyDestination::Clipboard,
         }
     );
-    assert!(app.screens().dialogs.open.is_none());
+    assert!(app.screens().dialogs.prompt.is_none());
 }
 
 #[test]
@@ -149,8 +149,8 @@ fn the_file_row_opens_the_filename_prompt_and_its_submit_writes() {
     let mut app = ready();
     let fx = pick(&mut app, export::FILE);
     assert!(asks(&fx).is_empty(), "nothing is asked before the filename");
-    let Some(Open::Prompt(prompt)) = &app.screens().dialogs.open else {
-        panic!("no prompt: {:?}", app.screens().dialogs.open);
+    let Some(prompt) = &app.screens().dialogs.prompt else {
+        panic!("no prompt: {:?}", app.screens().dialogs.prompt);
     };
     assert_eq!(
         prompt.kind,
@@ -164,7 +164,7 @@ fn the_file_row_opens_the_filename_prompt_and_its_submit_writes() {
             dialogs::Intent::Submit("mine.md".to_owned()),
         ))),
     );
-    assert!(app.screens().dialogs.open.is_none());
+    assert!(app.screens().dialogs.prompt.is_none());
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1, "{asks:?}");
     let Ask::Export { path, markdown, .. } = &asks[0].1 else {
@@ -178,7 +178,7 @@ fn the_file_row_opens_the_filename_prompt_and_its_submit_writes() {
 fn the_prompt_filename_has_no_thread_before_one_exists() {
     let mut app = CodexApp::new();
     pick(&mut app, export::FILE);
-    let Some(Open::Prompt(prompt)) = &app.screens().dialogs.open else {
+    let Some(prompt) = &app.screens().dialogs.prompt else {
         panic!("no prompt");
     };
     assert_eq!(prompt.initial, "codex-session.md");

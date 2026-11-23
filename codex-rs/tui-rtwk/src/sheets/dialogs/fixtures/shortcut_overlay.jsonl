@@ -1,4 +1,3 @@
 # The shortcut overlay, list page.
 # Oracle data: bottom_pane/chat_composer.rs footer_mode_shortcut_overlay
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"dialogs","ev":{"kind":"shortcuts"}}

@@ -2,6 +2,8 @@
 //! body, the viewer's own footer. Oracle: `bottom_pane/warnings_view.rs` (keys,
 //! decisions) and `warnings_view_render.rs` (layout, footer).
 
+use std::collections::BTreeSet;
+
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::layout::{
     BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Flexible,
@@ -14,16 +16,106 @@ use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
-use codex_tui_core::screens::dialogs::{PageIntent, Warnings};
+use codex_tui_core::screens::dialogs::{Decision, Warning};
 
-use super::dialog::{Msg, SmallDialogState, ctrl_o, f2};
+use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;
 use crate::app::theme::Tokens;
 
 /// `WARNING_PANEL_CONTENT_ROWS` less the header and its blank row.
 const BODY_ROWS: i32 = 8;
 
-pub(super) fn build(warnings: &Warnings, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
+/// The viewer's actions (`WarningsView::handle_key`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Turn {
+    Previous,
+    Next,
+    /// `k`: keep this one and show the next; on the last page, close.
+    KeepAndNext,
+    Copy,
+}
+
+/// What a `Turn` asks of the dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Stay,
+    /// The text of the page shown goes to the clipboard.
+    Copy(String),
+    /// The viewer closes.
+    Finish,
+}
+
+/// The warnings shown one at a time (`warnings_view.rs`: `WarningsView`): a frozen copy of the
+/// retained warnings, the page on screen, the pages that were shown (the oracle: drawn) and the
+/// ones the user saved with `k`. The viewer's own state; only its `decision` reaches the model.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Pages {
+    entries: Vec<Warning>,
+    current: usize,
+    visited: BTreeSet<usize>,
+    saved: BTreeSet<usize>,
+}
+
+impl Pages {
+    pub(super) fn new(entries: Vec<Warning>) -> Self {
+        let visited = if entries.is_empty() {
+            BTreeSet::new()
+        } else {
+            BTreeSet::from([0])
+        };
+        Self {
+            entries,
+            current: 0,
+            visited,
+            saved: BTreeSet::new(),
+        }
+    }
+
+    /// The warning on the page shown.
+    fn page(&self) -> Option<&Warning> {
+        self.entries.get(self.current)
+    }
+
+    pub(super) fn turn(&mut self, turn: Turn) -> Outcome {
+        let last = self.entries.len().saturating_sub(1);
+        match turn {
+            Turn::Previous => self.current = self.current.saturating_sub(1),
+            Turn::Next => self.current = (self.current + 1).min(last),
+            Turn::KeepAndNext => {
+                self.saved.insert(self.current);
+                if self.current >= last {
+                    return Outcome::Finish;
+                }
+                self.current += 1;
+            }
+            Turn::Copy => {
+                return self
+                    .page()
+                    .map_or(Outcome::Stay, |entry| Outcome::Copy(entry.details.clone()));
+            }
+        }
+        self.visited.insert(self.current);
+        Outcome::Stay
+    }
+
+    /// What the user decided when the viewer closed (`WarningsView::close`): saved pages are
+    /// saved, the other shown pages are dismissed, pages never shown are left alone. `None`
+    /// when no page was shown or saved.
+    pub(super) fn decision(&self) -> Option<Decision> {
+        let mut dismissed = Vec::new();
+        let mut saved = Vec::new();
+        for (index, entry) in self.entries.iter().enumerate() {
+            if self.saved.contains(&index) {
+                saved.push(entry.clone());
+            } else if self.visited.contains(&index) {
+                dismissed.push(entry.clone());
+            }
+        }
+        (!dismissed.is_empty() || !saved.is_empty()).then_some(Decision { dismissed, saved })
+    }
+}
+
+pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
     let tokens = Tokens::of(cx);
     let page = warnings.page();
     let title = match page {
@@ -88,9 +180,110 @@ pub(super) fn build(warnings: &Warnings, s: &Strings, cx: &mut Cx<'_, SmallDialo
     Focus::new(Dialog::bare(column))
         .can_request_focus(false)
         .bind(KeyPress::ESC, cx.send(Msg::Close))
-        .bind(f2(), cx.send(Msg::Close))
-        .bind('k', cx.send(Msg::Page(PageIntent::KeepAndNext)))
-        .bind(KeyPress::LEFT, cx.send(Msg::Page(PageIntent::Previous)))
-        .bind(KeyPress::RIGHT, cx.send(Msg::Page(PageIntent::Next)))
-        .bind(ctrl_o(), cx.send(Msg::Page(PageIntent::Copy)))
+        .bind('k', cx.send(Msg::Turn(Turn::KeepAndNext)))
+        .bind(KeyPress::LEFT, cx.send(Msg::Turn(Turn::Previous)))
+        .bind(KeyPress::RIGHT, cx.send(Msg::Turn(Turn::Next)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    fn warning(source: &str, details: &str) -> Warning {
+        Warning {
+            source: source.into(),
+            details: details.into(),
+        }
+    }
+
+    /// `warnings_view_tests.rs::entries()` plus the third page of
+    /// `warnings_dismiss_only_drawn_pages_after_navigation_skips_a_frame`.
+    fn entries() -> Vec<Warning> {
+        vec![
+            warning(
+                "MCP · example",
+                "MCP example could not connect\nSign in again using codex mcp login example",
+            ),
+            warning(
+                "Startup",
+                "Unknown setting `old_option`\nRemove it from config.toml",
+            ),
+            warning("Startup", "Not yet viewed"),
+        ]
+    }
+
+    #[test]
+    fn warning_pages_copy_only_the_current_diagnostic() {
+        let mut pages = Pages::new(entries());
+        let want = entries();
+        for (turn, index) in [(Turn::Next, 1), (Turn::Previous, 0)] {
+            assert_eq!(pages.turn(turn), Outcome::Stay);
+            assert_eq!(pages.current, index);
+            assert_eq!(
+                pages.turn(Turn::Copy),
+                Outcome::Copy(want[index].details.clone())
+            );
+        }
+    }
+
+    #[test]
+    fn navigation_stops_at_the_first_and_the_last_page() {
+        let mut pages = Pages::new(entries());
+        pages.turn(Turn::Previous);
+        assert_eq!(pages.current, 0);
+        for _ in 0..5 {
+            pages.turn(Turn::Next);
+        }
+        assert_eq!(pages.current, 2);
+    }
+
+    #[test]
+    fn the_pages_that_were_shown_are_dismissed_on_close() {
+        let mut pages = Pages::new(entries());
+        pages.turn(Turn::Next);
+        pages.turn(Turn::Next);
+        pages.turn(Turn::Previous);
+        let decision = pages.decision().expect("a decision");
+        assert_eq!(decision.dismissed, entries());
+        assert!(decision.saved.is_empty());
+    }
+
+    #[test]
+    fn a_page_never_shown_is_not_dismissed() {
+        let decision = Pages::new(entries()).decision().expect("a decision");
+        assert_eq!(decision.dismissed, vec![entries()[0].clone()]);
+    }
+
+    #[test]
+    fn keep_and_next_saves_the_page_without_dismissing_unvisited_ones() {
+        let mut pages = Pages::new(entries());
+        pages.turn(Turn::Next);
+        assert_eq!(pages.turn(Turn::KeepAndNext), Outcome::Stay);
+        assert_eq!(pages.current, 2);
+        pages.turn(Turn::Previous);
+        let want = entries();
+        let decision = pages.decision().expect("a decision");
+        // The oracle test keeps page 2 of 3 and dismisses page 1 only: here every page
+        // reached was shown, so page 3 is dismissed too (delta N03).
+        assert_eq!(decision.saved, vec![want[1].clone()]);
+        assert_eq!(decision.dismissed, vec![want[0].clone(), want[2].clone()]);
+    }
+
+    #[test]
+    fn keep_on_the_last_page_closes_the_viewer() {
+        let mut pages = Pages::new(entries());
+        pages.turn(Turn::Next);
+        pages.turn(Turn::Next);
+        assert_eq!(pages.turn(Turn::KeepAndNext), Outcome::Finish);
+        assert_eq!(
+            pages.decision().expect("a decision").saved,
+            vec![entries()[2].clone()]
+        );
+    }
+
+    #[test]
+    fn no_decision_when_nothing_was_shown_or_saved() {
+        assert_eq!(Pages::new(Vec::new()).decision(), None);
+    }
 }

@@ -16,8 +16,7 @@ use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
     Align, Alignment, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox,
 };
-use rtwk::navigation::Navigator;
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
+use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::widgets::Text;
@@ -103,7 +102,8 @@ pub struct Screen;
 /// Widget state: rtwk's controllers (R14): the cursor row (a key into the
 /// picker's pets), the search text, and whether rows lie below the window.
 pub struct ScreenState {
-    shown: bool,
+    /// The catalog was seen: the cursor started on its configured pet.
+    started: bool,
     cursor: SelectionController<usize>,
     list: ListController,
     query: TextEditingController,
@@ -126,7 +126,7 @@ impl StatefulWidget for Screen {
 
     fn create_state(&self) -> ScreenState {
         ScreenState {
-            shown: false,
+            started: false,
             cursor: SelectionController::new(),
             list: ListController::new(),
             query: TextEditingController::default(),
@@ -143,17 +143,28 @@ impl ScreenState {
         picker.visible(&self.query.text())
     }
 
-    /// Puts the cursor on `index` and tells the model which row that is.
+    /// Puts the cursor on `index` and asks the model for the preview of that row.
     fn put(&self, picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
         self.cursor.select(index);
         self.cursor.set_cursor(Some(index));
+        Self::preview_of(picker, index, cx);
+    }
+
+    fn preview_of(picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
         if let Some(pet) = picker.pets.get(index) {
             let hs = read::<Hs, _>(cx);
             cx.emit(
                 &hs.screen,
-                ScreenIntent::Pets(Intent::Highlight(pet.selector.clone())),
+                ScreenIntent::Pets(Intent::LoadPreview(pet.selector.clone())),
             );
         }
+    }
+
+    /// Leaves the picker: its preview is not wanted any more.
+    fn leave(cx: &mut Cx<'_, Self>) {
+        let hs = read::<Hs, _>(cx);
+        cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
+        close_dialog::<_, ()>(cx, None);
     }
 }
 
@@ -163,24 +174,26 @@ impl State for ScreenState {
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
         let picker =
-            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.open.clone());
-        if picker.is_none() && self.shown {
-            Navigator::maybe_pop(cx);
-        }
-        if let (Some(picker), false) = (&picker, self.shown) {
-            // Opened: the cursor starts on the configured pet.
+            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.catalog.clone());
+        if let (Some(picker), false) = (&picker, self.started) {
+            // Seen first: the cursor starts on the configured pet, whose preview is asked for.
             let initial = picker.initial();
             self.cursor.select(initial);
             self.cursor.set_cursor(Some(initial));
             self.below.set_value(picker.pets.len() > WINDOW);
+            Self::preview_of(picker, initial, cx);
+            self.started = true;
         }
-        self.shown = picker.is_some();
     }
 
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Some(picker) =
-            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.open.clone())
+            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.catalog.clone())
         else {
+            // No pets listed (the unseeded stub): Esc leaves it.
+            if matches!(msg, Msg::Close) {
+                close_dialog::<_, ()>(cx, None);
+            }
             return Rebuild::No;
         };
         let visible = self.visible(&picker);
@@ -207,6 +220,7 @@ impl State for ScreenState {
                             &hs.screen,
                             ScreenIntent::Pets(Intent::Pick(pet.selector.clone())),
                         );
+                        close_dialog::<_, ()>(cx, None);
                     }
                 } else if let Some(row) = visible.iter().position(|pet| *pet == index) {
                     self.put(&picker, index, cx);
@@ -226,12 +240,13 @@ impl State for ScreenState {
                         &hs.screen,
                         ScreenIntent::Pets(Intent::Pick(pet.selector.clone())),
                     );
+                    close_dialog::<_, ()>(cx, None);
                 }
             }
             // Esc clears a search typed, then closes.
             Msg::Close => {
                 if self.query.text().trim().is_empty() && self.query.text().is_empty() {
-                    cx.emit(&hs.screen, ScreenIntent::Pets(Intent::Close));
+                    Self::leave(cx);
                 } else {
                     self.query.clear();
                     if let Some(first) = picker.visible("").first() {
@@ -246,7 +261,7 @@ impl State for ScreenState {
 
     fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let picker =
-            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.open.clone());
+            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.catalog.clone());
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
         let Some(picker) = picker else {

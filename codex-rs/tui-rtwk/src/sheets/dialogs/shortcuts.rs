@@ -16,13 +16,29 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 use std::rc::Rc;
 
-use codex_tui_core::screens::dialogs::ShortcutView;
-
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::{Keys, Strings};
 use crate::app::theme::Tokens;
 use crate::keymap::{label, stroke_label};
 use codex_tui_core::keymap::{Keymap, Stroke};
+
+/// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`: `ShortcutView`):
+/// the list of bindings and the keyboard diagram. Drawn state: Tab swaps them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum ShortcutView {
+    #[default]
+    List,
+    Keyboard,
+}
+
+impl ShortcutView {
+    pub(super) fn other(self) -> Self {
+        match self {
+            ShortcutView::List => ShortcutView::Keyboard,
+            ShortcutView::Keyboard => ShortcutView::List,
+        }
+    }
+}
 
 /// The dialog of the page `view`: Tab swaps the pages, `?` and Esc close.
 pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {

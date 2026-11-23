@@ -1,4 +1,4 @@
 # /feedback: include logs?
 # Oracle data: bottom_pane/feedback_view.rs feedback_upload_consent_lists_doctor_report
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"dialogs","ev":{"kind":"feedback_consent","category":"bug","can_save":true,"rollout":"rollout.jsonl","auto_review":"auto-review-rollout.jsonl"}}
+{"step":"screen","dir":"dialogs","ev":{"kind":"attachments","can_save":true,"rollout":"rollout.jsonl","auto_review":"auto-review-rollout.jsonl"}}
