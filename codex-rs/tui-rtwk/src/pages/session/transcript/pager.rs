@@ -19,13 +19,17 @@ use rtwk::layout::{
     Row, SizedBox, Stack,
 };
 use rtwk::navigation::Navigator;
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::actions::{
+    PAGER_CLOSE, PAGER_HALF_PAGE_DOWN, PAGER_HALF_PAGE_UP, PAGER_JUMP_BOTTOM, PAGER_JUMP_TOP,
+    PAGER_PAGE_DOWN, PAGER_PAGE_UP, PAGER_SCROLL_DOWN, PAGER_SCROLL_UP,
+};
+use codex_tui_core::keymap::{Keymap, fixed};
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::transcript::{Intent, PagerAction, PagerDoc};
 
@@ -123,39 +127,39 @@ impl State for PagerState {
             .child(rule(self.scroll.clone(), table, dim.clone()))
             .child(hints(action, table, dim));
         let mut focus = Focus::new(column).autofocus();
-        for (key, msg) in bindings(action.is_some()) {
+        let keymap = crate::keymap::keymap(cx);
+        for (key, msg) in bindings(&keymap, action.is_some()) {
             focus = focus.bind(key, cx.send(msg));
         }
         focus.into()
     }
 }
 
-/// The pager's default keys (`keymap.rs` `PagerKeymap` defaults), then the
-/// action's.
-pub(in crate::pages::session) fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
-    let plain = KeyPress::code;
-    let ch = |c: char| KeyPress::char(c);
-    let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
-    let mut keys = vec![
-        (plain(KeyCode::Up), Msg::Rows(-1)),
-        (ch('k'), Msg::Rows(-1)),
-        (plain(KeyCode::Down), Msg::Rows(1)),
-        (ch('j'), Msg::Rows(1)),
-        (plain(KeyCode::PageUp), Msg::Pages(-1)),
-        (KeyPress::char(' ').with_mods(Mods::SHIFT), Msg::Pages(-1)),
-        (ctrl('b'), Msg::Pages(-1)),
-        (plain(KeyCode::PageDown), Msg::Pages(1)),
-        (ch(' '), Msg::Pages(1)),
-        (ctrl('f'), Msg::Pages(1)),
-        (ctrl('u'), Msg::HalfPages(-1)),
-        (ctrl('d'), Msg::HalfPages(1)),
-        (plain(KeyCode::Home), Msg::Top),
-        (plain(KeyCode::End), Msg::Bottom),
-        (ch('q'), Msg::Close),
-        (ctrl('c'), Msg::Close),
-    ];
+/// The pager's keys (`PagerKeymap`: the keymap's `pager` actions, the oracle's defaults unless
+/// rebound), then the action's Enter. A key two actions name is the first one's.
+pub(in crate::pages::session) fn bindings(
+    keymap: &Keymap,
+    has_action: bool,
+) -> Vec<(KeyPress, Msg)> {
+    let mut keys: Vec<(KeyPress, Msg)> = Vec::new();
+    let mut add = |id, msg: Msg| {
+        for key in crate::keymap::presses(keymap, id) {
+            if keys.iter().all(|(taken, _)| *taken != key) {
+                keys.push((key, msg.clone()));
+            }
+        }
+    };
+    add(PAGER_SCROLL_UP, Msg::Rows(-1));
+    add(PAGER_SCROLL_DOWN, Msg::Rows(1));
+    add(PAGER_PAGE_UP, Msg::Pages(-1));
+    add(PAGER_PAGE_DOWN, Msg::Pages(1));
+    add(PAGER_HALF_PAGE_UP, Msg::HalfPages(-1));
+    add(PAGER_HALF_PAGE_DOWN, Msg::HalfPages(1));
+    add(PAGER_JUMP_TOP, Msg::Top);
+    add(PAGER_JUMP_BOTTOM, Msg::Bottom);
+    add(PAGER_CLOSE, Msg::Close);
     if has_action {
-        keys.push((plain(KeyCode::Enter), Msg::Action));
+        add(fixed::ENTER, Msg::Action);
     }
     keys
 }

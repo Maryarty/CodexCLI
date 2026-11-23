@@ -5,6 +5,7 @@
 //! The data the app holds that a kit function reads (`Store`, `Mention`, `FileSearchAsk`) is
 //! `core::data`: the kit and the widgets name it there, and the kit names no screen or feature.
 
+pub mod backtrack;
 pub mod history;
 pub mod mentions;
 pub mod paste;

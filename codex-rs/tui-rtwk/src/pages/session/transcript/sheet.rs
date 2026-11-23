@@ -16,12 +16,12 @@ use rtwk::focus::{Focus, KeyPress};
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
-use rtwk::prelude::KeyCode;
 use rtwk::provider::{read, select};
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{HistoryState, ThreadModel};
@@ -235,18 +235,27 @@ impl State for SheetState {
             column = column.child(bottom);
         }
         let mut focus = Focus::new(column).autofocus();
-        for (key, msg) in pager::bindings(false) {
+        let keymap = crate::keymap::keymap(cx);
+        for (key, msg) in pager::bindings(&keymap, false) {
             focus = focus.bind(key, cx.send(Msg::Pager(msg)));
         }
-        let plain = KeyPress::code;
+        let step = |id, msg: Msg| {
+            crate::keymap::presses(&keymap, id)
+                .into_iter()
+                .map(|key| (key, msg.clone()))
+                .collect::<Vec<_>>()
+        };
         for (key, msg) in [
-            (plain(KeyCode::Escape), Msg::Esc),
-            (plain(KeyCode::Left), Msg::Older),
-            (KeyPress::char('h'), Msg::Older),
-            (plain(KeyCode::Right), Msg::Newer),
-            (KeyPress::char('l'), Msg::Newer),
-            (plain(KeyCode::Enter), Msg::Confirm),
-        ] {
+            step(fixed::DISMISS, Msg::Esc),
+            step(fixed::BROWSE_OLDER, Msg::Older),
+            vec![(KeyPress::char('h'), Msg::Older)],
+            step(fixed::BROWSE_NEWER, Msg::Newer),
+            vec![(KeyPress::char('l'), Msg::Newer)],
+            step(fixed::ENTER, Msg::Confirm),
+        ]
+        .into_iter()
+        .flatten()
+        {
             focus = focus.bind(key, cx.send(msg));
         }
         focus.into()

@@ -124,6 +124,26 @@ pub const FIELD_KILL_LINE_START: ActionId = editor("field_kill_line_start");
 pub const FIELD_KILL_LINE_END: ActionId = editor("field_kill_line_end");
 pub const FIELD_YANK: ActionId = editor("field_yank");
 
+const fn chat(name: &'static str) -> ActionId {
+    ActionId::new(Context::Chat, name)
+}
+
+/// PageUp and PageDown turn the chat's transcript a page wherever the caret is.
+pub const TRANSCRIPT_PAGE_UP: ActionId = chat("transcript_page_up");
+pub const TRANSCRIPT_PAGE_DOWN: ActionId = chat("transcript_page_down");
+/// Shift+Tab cycles the collaboration mode (the oracle's reserved `fixed.cycle_collaboration_mode`).
+pub const CYCLE_COLLABORATION_MODE: ActionId = chat("cycle_collaboration_mode");
+/// Left on an empty composer opens the agents page.
+pub const OPEN_AGENTS_FROM_LEFT: ActionId = chat("open_agents_from_left");
+/// Left and Right while the prompts are browsed (Esc Esc) or in the transcript sheet: the older
+/// and the newer prompt.
+pub const BROWSE_OLDER: ActionId = chat("browse_older");
+pub const BROWSE_NEWER: ActionId = chat("browse_newer");
+/// The bytes a terminal without the kitty protocol sends for Ctrl+/ (`0x1f`, read as Ctrl+_, and
+/// Ctrl+7 shares it): the side conversation's key where `toggle_side_conversation` is Ctrl+/.
+pub const SIDE_CONVERSATION_BYTES: ActionId =
+    ActionId::new(Context::Global, "side_conversation_bytes");
+
 /// A fixed action and its keys; the first is the one `press_of` builds.
 #[derive(Clone, Copy, Debug)]
 pub struct Fixed {
@@ -211,6 +231,34 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: DEBUG_KEY,
         bindings: &[any(Key::F(12))],
+    },
+    Fixed {
+        id: TRANSCRIPT_PAGE_UP,
+        bindings: &[exact(Key::PageUp, Mods::NONE)],
+    },
+    Fixed {
+        id: TRANSCRIPT_PAGE_DOWN,
+        bindings: &[exact(Key::PageDown, Mods::NONE)],
+    },
+    Fixed {
+        id: CYCLE_COLLABORATION_MODE,
+        bindings: &[exact(Key::Tab, Mods::SHIFT)],
+    },
+    Fixed {
+        id: OPEN_AGENTS_FROM_LEFT,
+        bindings: &[any(Key::Left)],
+    },
+    Fixed {
+        id: BROWSE_OLDER,
+        bindings: &[exact(Key::Left, Mods::NONE)],
+    },
+    Fixed {
+        id: BROWSE_NEWER,
+        bindings: &[exact(Key::Right, Mods::NONE)],
+    },
+    Fixed {
+        id: SIDE_CONVERSATION_BYTES,
+        bindings: &[exact(Key::Char('_'), CTRL), exact(Key::Char('7'), CTRL)],
     },
     Fixed {
         id: FIELD_LEFT,

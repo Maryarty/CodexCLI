@@ -12,12 +12,12 @@ use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::backtrack::{
     CONFIRM_SECS, EditError, ID, NAME, Selection, ThreadIntent,
 };
 use codex_tui_core::screens::{ScreenStates, ScreenThreadIntent};
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::{ItemKey, ThreadModel};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -97,15 +97,15 @@ pub fn edit_intent<S>(
 #[derive(Clone, Debug, PartialEq)]
 pub struct EditWatch;
 
-/// Widget state: the timer and the ticket it waits for (R14).
+/// Widget state: the timer and the prompt whose edit it waits for (R14).
 #[derive(Default)]
 pub struct EditWatchState {
-    waiting: Option<(ThreadId, Ticket, Timer)>,
+    waiting: Option<(ThreadId, ItemKey, Timer)>,
 }
 
-/// The thread and the ticket the edit waits on for the server's notice.
-fn waiting_for(cx: &mut Cx<'_, EditWatchState>) -> (ThreadId, Option<Ticket>) {
-    select::<ThreadModel, (ThreadId, Option<Ticket>), _>(cx, |thread| {
+/// The thread and the prompt whose edit waits on the server's notice.
+fn waiting_for(cx: &mut Cx<'_, EditWatchState>) -> (ThreadId, Option<ItemKey>) {
+    select::<ThreadModel, (ThreadId, Option<ItemKey>), _>(cx, |thread| {
         (
             thread.id().clone(),
             thread.screen_slots().backtrack.awaiting(),
@@ -116,25 +116,25 @@ fn waiting_for(cx: &mut Cx<'_, EditWatchState>) -> (ThreadId, Option<Ticket>) {
 impl EditWatchState {
     fn watch(&mut self, cx: &mut Cx<'_, Self>) {
         let now = waiting_for(cx);
-        let wanted = now.1.map(|ticket| (now.0, ticket));
+        let wanted = now.1.map(|key| (now.0, key));
         let armed = self
             .waiting
             .as_ref()
-            .map(|(thread, ticket, _)| (thread.clone(), *ticket));
+            .map(|(thread, key, _)| (thread.clone(), key.clone()));
         if armed == wanted {
             return;
         }
         if let Some((_, _, timer)) = self.waiting.take() {
             timer.cancel();
         }
-        if let Some((thread, ticket)) = wanted
+        if let Some((thread, key)) = wanted
             && let Some(binding) = AppBinding::maybe_of(cx)
         {
             let timer = binding.start_timer(
                 Duration::from_secs(CONFIRM_SECS),
                 cx.map(move |(): ()| Msg::Expired),
             );
-            self.waiting = Some((thread, ticket, timer));
+            self.waiting = Some((thread, key, timer));
         }
     }
 }
@@ -170,16 +170,16 @@ impl State for EditWatchState {
     }
 
     fn update(&mut self, Msg::Expired: Msg, _: &EditWatch, cx: &mut Cx<'_, Self>) -> Rebuild {
-        if let Some((thread, ticket, _)) = self.waiting.take() {
+        if let Some((thread, key, _)) = self.waiting.take() {
             let hs = read::<Hs, _>(cx);
-            let intent = ScreenThreadIntent::Backtrack(ThreadIntent::Expired(ticket));
+            let intent = ScreenThreadIntent::Backtrack(ThreadIntent::Expired(key));
             cx.emit(&hs.thread_screen, (thread, intent));
         }
         Rebuild::No
     }
 
     fn build(&self, _: &EditWatch, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        // each build selects anew: the ticket stays a dependency of `did_change_dependencies`
+        // each build selects anew: the prompt's key stays a dependency of `did_change_dependencies`
         waiting_for(cx);
         let error = select::<ThreadModel, Option<EditError>, _>(cx, |thread| {
             thread.screen_slots().backtrack.error.clone()

@@ -1,15 +1,19 @@
-//! The chat's key actions and their oracle default chords
-//! (`keymap.rs` `RuntimeKeymap::defaults`: `app`, `chat`, `composer`
-//! groups). Only the actions of the chat's hub role are here: those that
-//! open a screen or start history search. The rest (copy, clear terminal,
-//! external editor, interrupt of a running turn, ...) belong to the slices
-//! that own what they act on. The user's rebinding (`/keymap`) will replace
-//! `defaults` with the configured keymap; the actions stay.
+//! The chat's key actions: the catalogue's `open_transcript`, `find_transcript`, `open_warnings`,
+//! `toggle_voice`, `toggle_side_conversation` and `toggle_raw_output`, and the hardwired
+//! `cycle_collaboration_mode` (`keymap::fixed`), each with the keys of the keymap the user's
+//! `tui.keymap` resolved over the oracle's defaults (`RuntimeKeymap::defaults`: `app`, `chat`,
+//! `composer` groups). Only the actions of the chat's hub role are here: those that open a screen
+//! or start history search. The rest (copy, clear terminal, external editor, interrupt of a
+//! running turn, ...) belong to the slices that own what they act on.
 
 use rtwk::focus::KeyPress;
-use rtwk::prelude::{KeyCode, Mods};
 
 use codex_tui_core::commands::Target;
+use codex_tui_core::keymap::actions::{
+    CHAT_TOGGLE_VOICE, GLOBAL_FIND_TRANSCRIPT, GLOBAL_OPEN_TRANSCRIPT, GLOBAL_OPEN_WARNINGS,
+    GLOBAL_TOGGLE_RAW_OUTPUT, GLOBAL_TOGGLE_SIDE_CONVERSATION,
+};
+use codex_tui_core::keymap::{ActionId, Keymap, fixed};
 
 /// What a key of the chat does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,25 +46,53 @@ impl Action {
             }
         }
     }
+
+    /// The keymap action whose keys do it.
+    pub fn id(self) -> ActionId {
+        match self {
+            Action::OpenTranscript => GLOBAL_OPEN_TRANSCRIPT,
+            Action::FindTranscript => GLOBAL_FIND_TRANSCRIPT,
+            Action::OpenWarnings => GLOBAL_OPEN_WARNINGS,
+            Action::ToggleVoice => CHAT_TOGGLE_VOICE,
+            Action::ToggleSide => GLOBAL_TOGGLE_SIDE_CONVERSATION,
+            Action::ToggleRaw => GLOBAL_TOGGLE_RAW_OUTPUT,
+            Action::CycleMode => fixed::CYCLE_COLLABORATION_MODE,
+        }
+    }
 }
 
-/// The default chords, in the oracle's order (`ToggleSide` has its aliases).
-pub fn defaults() -> Vec<(Action, KeyPress)> {
-    let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
-    vec![
-        (Action::OpenTranscript, ctrl('t')),
-        (Action::FindTranscript, KeyPress::code(KeyCode::F3)),
-        (Action::OpenWarnings, KeyPress::code(KeyCode::F2)),
-        (Action::ToggleVoice, KeyPress::code(KeyCode::F8)),
-        (Action::ToggleSide, ctrl('/')),
-        // `keymap.rs:730-735`, `2317`: without the kitty protocol Ctrl+/ is
-        // sent as the C0 byte 0x1f (rtwk reads Ctrl+_), and Ctrl+7 shares it.
-        (Action::ToggleSide, ctrl('_')),
-        (Action::ToggleSide, ctrl('7')),
-        (Action::ToggleRaw, KeyPress::char('r').with_mods(Mods::ALT)),
-        (
-            Action::CycleMode,
-            KeyPress::code(KeyCode::Tab).with_mods(Mods::SHIFT),
-        ),
-    ]
+/// The keys of the actions, in the oracle's order. Without the kitty protocol Ctrl+/ is sent as
+/// the C0 byte 0x1f (rtwk reads Ctrl+_) and Ctrl+7 shares it (`keymap.rs:730-735`, `2317`): the
+/// side conversation has those two as well.
+pub fn presses(keymap: &Keymap) -> Vec<(Action, KeyPress)> {
+    use Action::{
+        CycleMode, FindTranscript, OpenTranscript, OpenWarnings, ToggleRaw, ToggleSide, ToggleVoice,
+    };
+    let mut keys = Vec::new();
+    for action in [
+        OpenTranscript,
+        FindTranscript,
+        OpenWarnings,
+        ToggleVoice,
+        ToggleSide,
+    ] {
+        keys.extend(
+            crate::keymap::presses(keymap, action.id())
+                .into_iter()
+                .map(|key| (action, key)),
+        );
+    }
+    keys.extend(
+        crate::keymap::presses(keymap, fixed::SIDE_CONVERSATION_BYTES)
+            .into_iter()
+            .map(|key| (ToggleSide, key)),
+    );
+    for action in [ToggleRaw, CycleMode] {
+        keys.extend(
+            crate::keymap::presses(keymap, action.id())
+                .into_iter()
+                .map(|key| (action, key)),
+        );
+    }
+    keys
 }

@@ -523,6 +523,12 @@ impl Model {
             .find(|backend| *backend != self.displayed)
     }
 
+    /// What the backend control offers (a second backend is connected): the displayed backend's
+    /// name; none otherwise.
+    pub fn cycle_offer(&self) -> Option<crate::app::BackendLabel> {
+        self.next_backend().map(|_| self.label())
+    }
+
     /// The displayed backend's name (oracle: `displayed_name`).
     pub fn label(&self) -> crate::app::BackendLabel {
         use crate::app::BackendLabel;

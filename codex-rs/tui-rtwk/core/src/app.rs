@@ -749,7 +749,10 @@ impl CodexApp {
             .active
             .as_ref()
             .and_then(|id| self.thread(id))
-            .and_then(|thread| self.session.cycle_label(thread, &self.screens.agents))
+            .and_then(|thread| {
+                self.session
+                    .cycle_label(thread, self.screens.agents.cycle_offer())
+            })
     }
 
     /// The invariants of the model (ADR-003 R7), checked by the tests after
@@ -2766,16 +2769,16 @@ impl SessionSlice {
     pub fn cycle_label(
         &self,
         thread: &ThreadModel,
-        agents: &agents::Model,
+        offer: Option<BackendLabel>,
     ) -> Option<BackendLabel> {
         (self.status == Session::Ready
             && self.active.as_ref() == Some(thread.id())
             && thread.transcript().is_empty()
             && !thread.is_running()
             && thread.queue().is_empty()
-            && thread.last_submit().is_none()
-            && agents.next_backend().is_some())
-        .then(|| agents.label())
+            && thread.last_submit().is_none())
+        .then_some(offer)
+        .flatten()
     }
 }
 
