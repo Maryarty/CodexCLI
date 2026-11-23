@@ -82,7 +82,8 @@ impl TimedState {
         }
         self.live = Some(epoch);
         if let Some(binding) = AppBinding::maybe_of(cx) {
-            self.timer = Some(binding.start_timer(flash.lasts, cx.map(move |()| Msg::Expired(epoch))));
+            self.timer =
+                Some(binding.start_timer(flash.lasts, cx.map(move |()| Msg::Expired(epoch))));
         }
     }
 }

@@ -38,9 +38,9 @@ use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::keymap::actions::COMPOSER_TOGGLE_SHORTCUTS;
+use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat::facts::{self as chat_facts, GoalIndicator};
 use codex_tui_core::screens::composer::vim::VimMode;
-use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme::Tokens;
@@ -242,9 +242,7 @@ impl Footer {
             // (`show_cycle = can_type && !is_task_running`)
             show_cycle: !running,
             goal,
-            side: facts
-                .side_label
-                .map(|label| (label, facts.side_active)),
+            side: facts.side_label.map(|label| (label, facts.side_active)),
             agent_label: facts.agent_label,
             context_pending: facts.usage_pending,
             status_line_enabled,
@@ -446,10 +444,7 @@ impl Spec {
             }
             out.push((Kind::Shortcuts, vec![bar(self.shortcuts)]));
         }
-        if !self.status_line_enabled
-            && !self.context_pending
-            && self.side.is_none()
-            && !self.shell
+        if !self.status_line_enabled && !self.context_pending && self.side.is_none() && !self.shell
         {
             let text = match self.meter {
                 Meter::Left(percent) => self.own.left(percent),

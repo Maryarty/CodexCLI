@@ -158,7 +158,10 @@ impl State for AloneState {
                     agents: false,
                     draft_empty: self.draft_empty,
                     shell: self.draft_shell,
-                    vim: w.ui.draft.with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
+                    vim: w
+                        .ui
+                        .draft
+                        .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
                     hint_override: w.hint_override.clone(),
                     flash: w.flash.clone(),
                     on_queue: None,

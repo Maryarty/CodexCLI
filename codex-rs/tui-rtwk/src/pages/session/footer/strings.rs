@@ -125,9 +125,7 @@ impl Strings {
             GoalIndicator::UsageLimited => self.goal_usage_limited.to_owned(),
             GoalIndicator::BudgetLimited { usage: Some(usage) } => with(self.goal_unmet, usage),
             GoalIndicator::BudgetLimited { usage: None } => self.goal_abandoned.to_owned(),
-            GoalIndicator::Complete { usage: Some(usage) } => {
-                with(self.goal_achieved_usage, usage)
-            }
+            GoalIndicator::Complete { usage: Some(usage) } => with(self.goal_achieved_usage, usage),
             GoalIndicator::Complete { usage: None } => self.goal_achieved.to_owned(),
         }
     }

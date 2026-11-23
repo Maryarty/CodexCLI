@@ -39,7 +39,11 @@ pub(super) fn plan(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Vec<Form> {
         ]);
         spans
     };
-    let first = if spec.show_cycle { with_cycle() } else { bare() };
+    let first = if spec.show_cycle {
+        with_cycle()
+    } else {
+        bare()
+    };
     vec![form(first, width), form(bare(), width)]
 }
 

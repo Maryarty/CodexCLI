@@ -4,14 +4,14 @@
 //! the indicators of the right side (the context meter, the modes) stay while
 //! both fit (`can_show_left_with_context`), and only on the passive line.
 
+use rtwk::AnyWidget;
 use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::style::Span;
 use rtwk::widgets::Text;
-use rtwk::AnyWidget;
 
 use super::flash::{Flash, Tone};
 use super::hints::Kind;
-use super::{room_of, Form, Spec, INDENT, RIGHT_CLEAR};
+use super::{Form, INDENT, RIGHT_CLEAR, Spec, room_of};
 use crate::widgets::status_line::SEPARATOR;
 
 /// The left side's replacement.
@@ -110,6 +110,7 @@ impl Spec {
                 Some(form.widget),
             ));
         }
-        line.child(SizedBox::new(Some(RIGHT_CLEAR), None, None)).into()
+        line.child(SizedBox::new(Some(RIGHT_CLEAR), None, None))
+            .into()
     }
 }

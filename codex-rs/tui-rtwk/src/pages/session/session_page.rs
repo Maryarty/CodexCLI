@@ -679,10 +679,7 @@ impl State for ChatState {
                 // `/raw` says which one it is now
                 Action::ToggleRaw => {
                     let on = !read::<ScreenStates, _>(cx).chat.raw_output;
-                    cx.emit(
-                        &hs.screen,
-                        ScreenIntent::from(chat::Intent::RawOutput(on)),
-                    );
+                    cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::RawOutput(on)));
                 }
                 Action::OpenWarnings => open_warnings(cx, &hs),
                 // `cycle_collaboration_mode`: the thread's own switch; the model refuses
@@ -902,7 +899,10 @@ impl State for ChatState {
                     agents: true,
                     draft_empty: self.draft_empty,
                     shell: self.draft_shell,
-                    vim: w.ui.draft.with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
+                    vim: w
+                        .ui
+                        .draft
+                        .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
                     hint_override: None,
                     flash: None,
                     on_queue: Some(cx.send(ChatMsg::QueueDraft)),
@@ -979,12 +979,9 @@ impl State for ChatState {
             raw_output: states.chat.raw_output,
             usage_pending: chat::facts::usage_pending(slots),
         };
-        let line = status_spans(
-            context.items_for(facts),
-            facts.colors,
-            &tokens,
-            |id| context.link_for(id),
-        );
+        let line = status_spans(context.items_for(facts), facts.colors, &tokens, |id| {
+            context.link_for(id)
+        });
         // The backend control above the composer (`rendering.rs`,
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session

@@ -84,7 +84,9 @@ fn status_line_context_used_renders_labeled_percent() {
 fn status_line_context_remaining_renders_labeled_percent() {
     let s = Screen::build(Owner::UiPane)
         .size(100, 24)
-        .script(include_str!("fixtures/chat_status_2/context_remaining.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_status_2/context_remaining.jsonl"
+        ))
         .open();
     assert!(
         s.rows().iter().any(|row| row.trim() == "Context 100% left"),
@@ -168,7 +170,9 @@ fn status_line_workspace_headline_renders_cached_value() {
         .script(include_str!("fixtures/chat_status_2/headline.jsonl"))
         .open();
     assert!(
-        s.rows().iter().any(|row| row.trim() == "Workspace maintenance starts at 5pm"),
+        s.rows()
+            .iter()
+            .any(|row| row.trim() == "Workspace maintenance starts at 5pm"),
         "the status line is `Workspace maintenance starts at 5pm`
 {}",
         s.text()
@@ -238,7 +242,12 @@ fn status_line_processing_tier_updates_with_selection() {
     s.feed(&status("gpt-5.2", Some("flex"), true, "amazon-bedrock"));
     line(&s, "Standard");
     // then the provider the oracle does not know: `Standard`
-    s.feed(&status("gpt-5.2", Some("flex"), true, "remote-only-provider"));
+    s.feed(&status(
+        "gpt-5.2",
+        Some("flex"),
+        true,
+        "remote-only-provider",
+    ));
     line(&s, "Standard");
 }
 
@@ -323,13 +332,17 @@ fn status_line_model_with_reasoning_speed_footer_snapshots() {
     s.assert_snap("status_line_model_with_reasoning_ultrafast_footer");
     s.feed(&status("flex", r#"["model-with-reasoning"]"#));
     assert!(
-        s.rows().iter().any(|row| row.trim() == "gpt-5.4 xhigh flex"),
+        s.rows()
+            .iter()
+            .any(|row| row.trim() == "gpt-5.4 xhigh flex"),
         "the flex tier\n{}",
         s.text()
     );
     s.feed(&status("low_latency", r#"["model-with-reasoning"]"#));
     assert!(
-        s.rows().iter().any(|row| row.trim() == "gpt-5.4 xhigh low latency"),
+        s.rows()
+            .iter()
+            .any(|row| row.trim() == "gpt-5.4 xhigh low latency"),
         "the low latency tier\n{}",
         s.text()
     );
@@ -340,7 +353,9 @@ fn status_line_model_with_reasoning_speed_footer_snapshots() {
 fn status_line_model_with_reasoning_context_remaining_footer_snapshot() {
     let s = Screen::build(Owner::UiPane)
         .size(80, 6)
-        .script(include_str!("fixtures/chat_status_2/model_context_remaining.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_status_2/model_context_remaining.jsonl"
+        ))
         .open();
     s.assert_snap("status_line_model_with_reasoning_context_remaining_footer");
 }
@@ -372,13 +387,49 @@ fn goal_status_indicator_line_formats_goal_text() {
     // the indicator by hand, here a goal of that status makes it. `Goal achieved` without a usage
     // has no goal behind it: a finished goal always has its time or tokens.
     let cases = [
-        ("active", Some(5_000), 4_000, 1_800, "Pursuing goal (4K / 5K)"),
-        ("budgetLimited", Some(5_000), 4_000, 1_800, "Goal unmet (4K / 5K tokens)"),
-        ("paused", Some(5_000), 4_000, 1_800, "Goal paused (/goal resume)"),
-        ("blocked", Some(5_000), 4_000, 1_800, "Goal stalled (/goal resume)"),
-        ("usageLimited", Some(5_000), 4_000, 1_800, "Goal hit usage limits (/goal resume)"),
+        (
+            "active",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Pursuing goal (4K / 5K)",
+        ),
+        (
+            "budgetLimited",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal unmet (4K / 5K tokens)",
+        ),
+        (
+            "paused",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal paused (/goal resume)",
+        ),
+        (
+            "blocked",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal stalled (/goal resume)",
+        ),
+        (
+            "usageLimited",
+            Some(5_000),
+            4_000,
+            1_800,
+            "Goal hit usage limits (/goal resume)",
+        ),
         ("budgetLimited", None, 4_000, 1_800, "Goal abandoned"),
-        ("complete", None, 4_000, 10 * 3600 + 12 * 60, "Goal achieved (10h 12m)"),
+        (
+            "complete",
+            None,
+            4_000,
+            10 * 3600 + 12 * 60,
+            "Goal achieved (10h 12m)",
+        ),
     ];
     for (status, budget, used, secs, expected) in cases {
         let budget = budget.map_or("null".to_string(), |b: i64| b.to_string());

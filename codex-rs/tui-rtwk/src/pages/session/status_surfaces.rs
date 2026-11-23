@@ -42,7 +42,13 @@ impl StatusContext<'_> {
     /// (`status_line_pull_request_url`).
     pub fn link_for(&self, id: &str) -> Option<String> {
         (id == "pull-request-number")
-            .then(|| self.chat.git_summary()?.pull_request.as_ref().map(|pr| pr.url.clone()))
+            .then(|| {
+                self.chat
+                    .git_summary()?
+                    .pull_request
+                    .as_ref()
+                    .map(|pr| pr.url.clone())
+            })
             .flatten()
     }
 
@@ -135,7 +141,11 @@ impl StatusContext<'_> {
         });
         // an empty model reads as the default display name (`model_display_name`)
         let model = model.map(|model| {
-            if model.is_empty() { chat::facts::LOADING_MODEL } else { model }
+            if model.is_empty() {
+                chat::facts::LOADING_MODEL
+            } else {
+                model
+            }
         });
         let effort = thread
             .and_then(|thread| thread.effort.as_deref())
@@ -163,7 +173,8 @@ impl StatusContext<'_> {
         let context_usage = usage.and_then(|usage| usage.context);
         // `status_line_context_remaining_percent`: a full window until a count and a window are
         // known; nothing while a resumed thread waits for its first count
-        let remaining = (!self.usage_pending).then(|| context_usage.map_or(100, |r| r.percent_left));
+        let remaining =
+            (!self.usage_pending).then(|| context_usage.map_or(100, |r| r.percent_left));
         let counted = |count: fn(&status::Tokens) -> i64| {
             (!self.usage_pending).then(|| tokens.map_or(0, |t| count(&t)))
         };

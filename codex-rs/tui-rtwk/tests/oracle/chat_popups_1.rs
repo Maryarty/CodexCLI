@@ -387,7 +387,9 @@ fn custom_model_display_name_in_pickers_preserves_selection_slug() {
 fn custom_model_display_name_in_status_line_and_fallback() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 6)
-        .script(include_str!("fixtures/chat_popups_1/custom_model_status_line.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_popups_1/custom_model_status_line.jsonl"
+        ))
         .open();
     s.assert_snap("custom_model_display_name_status_line");
     let line = |s: &Screen, text: &str| {
