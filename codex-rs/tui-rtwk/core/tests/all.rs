@@ -59,6 +59,7 @@ mod status_facts;
 mod submission;
 mod tips;
 mod transcript_diff;
+mod unit;
 mod usage;
 mod worked_for;
 mod worktree_popups;
