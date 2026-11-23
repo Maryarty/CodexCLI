@@ -4,6 +4,8 @@
 //! Snapshot heights are the oracle's popup heights (`desired_height`), taken from the
 //! snapshot rows; widths are the oracle test's `render_bottom_popup(.., width)` widths.
 
+#![allow(clippy::expect_used)]
+
 use crate::kit::{self, Owner, Screen};
 
 // ---- oracle: chatwidget/tests/popups_and_settings.rs (43 screen-level tests here; 4 state tests left to dialogs-pane)
@@ -222,14 +224,134 @@ fn memories_reset_confirmation_sends_event_on_confirm() {
     );
 }
 
+/// The server's `model/list` answer of the bundled catalog (what the oracle's
+/// `chat.model_catalog` holds in these tests).
+const BUNDLED: &str = include_str!("fixtures/chat_popups_4/bundled.json");
+
+/// A live chat on `model` whose server lists `catalog` (the oracle's
+/// `chat.model_catalog = ModelCatalog::new(presets)`).
+fn on_catalog(width: u16, height: u16, model: &str, catalog: &str) -> Screen {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(width, height)
+        .live()
+        .open();
+    let catalog = catalog.trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}"}}}}}}"#
+    ));
+    s
+}
+
+/// The `model/list` answer of `models` in the wire form of the app server.
+fn wire(models: &[serde_json::Value]) -> String {
+    serde_json::json!({"data": models, "nextCursor": null}).to_string()
+}
+
+/// The models of a catalog text.
+fn models_of(catalog: &str) -> Vec<serde_json::Value> {
+    let catalog: serde_json::Value = serde_json::from_str(catalog.trim()).expect("a catalog");
+    catalog["data"].as_array().expect("data").clone()
+}
+
+/// The oracle's `get_available_model(&chat, id)`: one model of the bundled catalog.
+fn bundled_model(id: &str) -> serde_json::Value {
+    models_of(BUNDLED)
+        .into_iter()
+        .find(|m| m["id"] == id)
+        .expect("a bundled model")
+}
+
+/// The wire model as the select screen's own `Preset` (what its `catalog` seed reads).
+fn preset_of(model: &serde_json::Value) -> serde_json::Value {
+    let efforts: Vec<_> = model["supportedReasoningEfforts"]
+        .as_array()
+        .expect("efforts")
+        .iter()
+        .map(|e| serde_json::json!({"effort": e["reasoningEffort"], "description": e["description"]}))
+        .collect();
+    serde_json::json!({
+        "model": model["model"],
+        "name": model["displayName"],
+        "description": model["description"],
+        "show_in_picker": !model["hidden"].as_bool().unwrap_or(false),
+        "default_effort": model["defaultReasoningEffort"],
+        "efforts": efforts,
+    })
+}
+
+/// A live chat on `model` that holds `startup` as its catalog (the oracle's
+/// `chat.model_catalog = ModelCatalog::new(presets)`); the server has not answered yet.
+fn on_startup_catalog(
+    width: u16,
+    height: u16,
+    model: &str,
+    startup: &[serde_json::Value],
+) -> Screen {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(width, height)
+        .live()
+        .open();
+    let presets: Vec<_> = startup.iter().map(preset_of).collect();
+    let seed = serde_json::json!({"step":"screen","dir":"select","ev":{"kind":"catalog","presets":presets}});
+    s.feed(&format!(
+        r#"{seed}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}"}}}}}}"#
+    ));
+    s
+}
+
+/// The `model/list` the app has asked last, still unanswered.
+fn last_model_list(s: &Screen) -> codex_tui_core::app::Command {
+    use codex_tui_core::app::Command;
+    use codex_tui_core::screens::ScreenCommand;
+    use codex_tui_core::screens::select;
+    s.commands()
+        .into_iter()
+        .rev()
+        .find(|c| {
+            matches!(
+                c,
+                Command::Screen {
+                    command: ScreenCommand::Select(select::Command::Models { .. }),
+                    ..
+                }
+            )
+        })
+        .expect("the app asked for the model list")
+}
+
+/// The server answers the `model/list` the popup waits for with `models` (the oracle's
+/// `apply_model_list_response`).
+fn refresh(s: &mut Screen, models: &[serde_json::Value]) {
+    let ask = last_model_list(s);
+    s.answer_request(&ask, serde_json::from_str(&wire(models)).expect("wire"));
+}
+
+/// The effort rows of the wire model: `(effort, description)` in the order they are listed.
+fn with_efforts(model: &str, efforts: &[(&str, &str)]) -> serde_json::Value {
+    let mut model = bundled_model(model);
+    model["supportedReasoningEfforts"] = efforts
+        .iter()
+        .map(|(effort, description)| {
+            serde_json::json!({"reasoningEffort": effort, "description": description})
+        })
+        .collect();
+    model
+}
+
+/// The thread runs on `model` with `effort` (the chat's status facts; the oracle's
+/// `chat.set_reasoning_effort`).
+fn on_effort(s: &mut Screen, model: &str, effort: &str) {
+    s.feed(&format!(
+        r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}","effort":"{effort}"}}}}}}"#
+    ));
+}
+
 // ORACLE chatwidget/tests/popups_and_settings.rs:3360 model_selection_popup_snapshot kind=snap owner=dialogs-pane snap=model_selection_popup
 #[test]
 fn model_selection_popup_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port (`/model`): the model list with its reasoning hints has no widget and no catalog seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 14).live().open();
+    let mut s = on_catalog(80, 14, "gpt-5.5", BUNDLED);
     s.type_text("/model");
     s.keys("enter");
     s.assert_snap("model_selection_popup");
@@ -251,43 +373,101 @@ fn model_picker_refresh_rejects_obsolete_and_unusable_replies() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3419 model_picker_refreshes_startup_catalog kind=snap owner=dialogs-pane snap=model_selection_popup snap=model_picker_refreshes_auto_models
 #[test]
 fn model_picker_refreshes_startup_catalog() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: the startup catalog refresh (auto models, hidden startup models) has no widget and no catalog seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 14).live().open();
-    s.type_text("/model");
-    s.keys("enter");
-    s.assert_snap("model_selection_popup");
-    s.resize(80, 9);
-    s.assert_snap("model_picker_refreshes_auto_models");
+    for (explicit_all_models, hidden_startup) in [(false, false), (true, false), (false, true)] {
+        // the startup catalog holds gpt-5.5 (hidden in the third case); the refresh brings the
+        // whole bundled catalog and an auto model
+        let mut startup = vec![bundled_model("gpt-5.5")];
+        startup[0]["hidden"] = hidden_startup.into();
+        let mut refreshed = models_of(BUNDLED);
+        let mut auto = bundled_model("gpt-5.5");
+        auto["id"] = "codex-auto-test".into();
+        auto["model"] = "codex-auto-test".into();
+        auto["description"] = "Auto model".into();
+        refreshed.push(auto.clone());
+        if explicit_all_models {
+            // the All models page needs an auto model to be a page of its own (the oracle opens
+            // it by `open_all_models_popup`)
+            startup.insert(0, auto);
+        }
+        let mut s = on_startup_catalog(80, 14, "gpt-5.5", &startup);
+        s.type_text("/model");
+        s.keys("enter");
+        if explicit_all_models {
+            // the quick menu's cursor is on `All models` (the current choice)
+            s.keys("enter");
+        }
+        refresh(&mut s, &refreshed);
+        if hidden_startup {
+            // the startup catalog offered nothing: no popup opened while the refresh arrived,
+            // `/model` opens the refreshed one
+            s.type_text("/model");
+            s.keys("enter");
+        }
+        if explicit_all_models {
+            s.assert_snap("model_selection_popup");
+        } else {
+            s.resize(80, 9);
+            s.assert_snap("model_picker_refreshes_auto_models");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3463 model_picker_queued_all_models_uses_refreshed_catalog kind=snap owner=dialogs-pane snap=model_selection_popup
 #[test]
 fn model_picker_queued_all_models_uses_refreshed_catalog() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: the all-models page opened after the refreshed catalog has no widget and no catalog seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 14).live().open();
+    // the startup catalog has an auto model and gpt-5.5; the refresh is the bundled catalog
+    let mut auto = bundled_model("gpt-5.5");
+    auto["id"] = "codex-auto-test".into();
+    auto["model"] = "codex-auto-test".into();
+    let mut s = on_startup_catalog(80, 14, "gpt-5.5", &[auto, bundled_model("gpt-5.5")]);
     s.type_text("/model");
     s.keys("enter");
+    // `All models` (the quick menu's current choice) is picked before the answer comes
     s.keys("enter");
+    refresh(&mut s, &models_of(BUNDLED));
     s.assert_snap("model_selection_popup");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3487 model_picker_refresh_preserves_highlight kind=snap owner=dialogs-pane snap=model_picker_refresh_preserves_highlight
 #[test]
 fn model_picker_refresh_preserves_highlight() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: the highlighted row survives a catalog refresh with renamed models; no catalog seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 7).live().open();
-    s.type_text("/model");
-    s.keys("enter down");
-    s.assert_snap("model_picker_refresh_preserves_highlight");
+    for (remove_selected, reasoning_submenu, expected) in [
+        (false, false, "Renamed model"),
+        (true, false, "Shared display name"),
+        (false, true, "Renamed model"),
+        (true, true, "Shared display name"),
+    ] {
+        let mut presets = vec![bundled_model("gpt-5.5"), bundled_model("gpt-5.6-terra")];
+        for preset in &mut presets {
+            preset["displayName"] = "Shared display name".into();
+        }
+        let mut s = on_startup_catalog(80, 14, "gpt-5.5", &presets);
+        s.type_text("/model");
+        s.keys("enter");
+        s.keys("down");
+        if reasoning_submenu {
+            s.keys("enter");
+        }
+        let before = s.shot();
+        presets.reverse();
+        presets[0]["displayName"] = "Renamed model".into();
+        if remove_selected {
+            presets.remove(0);
+        }
+        refresh(&mut s, &presets);
+        if reasoning_submenu {
+            s.assert_same_rows(&before);
+            s.keys("esc");
+        }
+        if !remove_selected {
+            s.resize(80, 7);
+            s.assert_snap("model_picker_refresh_preserves_highlight");
+            s.resize(80, 14);
+        }
+        // Enter opens the reasoning menu of the row the highlight stayed on
+        s.keys("enter");
+        s.assert_contains(&format!("Select Reasoning Level for {expected}"));
+    }
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3536 model_picker_refreshes_service_tier_controls kind=snap owner=dialogs-pane snap=model_picker_refreshes_service_tier_controls
@@ -326,27 +506,94 @@ fn model_picker_refreshes_service_tier_controls() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3561 model_picker_refresh_preserves_dismissal_and_reasoning_submenu kind=snap owner=dialogs-pane snap=model_selection_popup
 #[test]
 fn model_picker_refresh_preserves_dismissal_and_reasoning_submenu() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: a dismissed picker and its reasoning submenu survive a catalog refresh; no catalog seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 14).live().open();
-    s.type_text("/model");
-    s.keys("enter");
-    s.assert_snap("model_selection_popup");
+    for (dismiss, explicit_all_models, accept_reasoning) in [
+        (true, false, false),
+        (false, false, false),
+        (false, true, false),
+        (false, false, true),
+        (false, true, true),
+    ] {
+        let mut startup = vec![bundled_model("gpt-5.5")];
+        if explicit_all_models {
+            // an auto model makes the quick menu a page of its own: `All models` is picked from it
+            let mut auto = bundled_model("gpt-5.5");
+            auto["id"] = "codex-auto-test".into();
+            auto["model"] = "codex-auto-test".into();
+            startup.insert(0, auto);
+        }
+        let mut s = on_startup_catalog(80, 14, "gpt-5.5", &startup);
+        s.type_text("/model");
+        s.keys("enter");
+        if explicit_all_models {
+            s.keys("enter");
+        }
+        if dismiss {
+            s.keys("esc");
+        } else {
+            // the model row opens its reasoning menu
+            s.keys("enter");
+        }
+        let before = s.shot();
+        refresh(&mut s, &models_of(BUNDLED));
+        // the refresh changes nothing of what is open: a dismissed picker stays dismissed
+        s.assert_same_rows(&before);
+        if !dismiss {
+            if accept_reasoning {
+                s.keys("enter");
+            } else {
+                s.keys("esc");
+            }
+        }
+        if dismiss || accept_reasoning {
+            s.assert_absent("Select Model and Effort");
+            s.assert_absent("Select Reasoning Level");
+        } else {
+            s.assert_snap("model_selection_popup");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3615 model_picker_refresh_dismisses_empty_choices kind=snap owner=dialogs-pane
 #[test]
 fn model_picker_refresh_dismisses_empty_choices() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: a refresh that leaves no choice dismisses the reasoning picker and shows the empty notice; no catalog seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/model");
-    s.keys("enter");
-    s.assert_contains("• No additional models are available right now.");
+    for (explicit_all_models, reasoning_submenu) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
+        let mut preset = bundled_model("gpt-5.5");
+        let mut startup = vec![preset.clone()];
+        if explicit_all_models {
+            // an auto model makes the quick menu a page of its own: `All models` is picked from it
+            let mut auto = preset.clone();
+            auto["id"] = "codex-auto-test".into();
+            auto["model"] = "codex-auto-test".into();
+            startup.insert(0, auto);
+        }
+        let mut s = on_startup_catalog(80, 24, "gpt-5.5", &startup);
+        s.type_text("/model");
+        s.keys("enter");
+        if explicit_all_models {
+            s.keys("enter");
+        }
+        if reasoning_submenu {
+            s.keys("enter");
+        }
+        // the refresh leaves no model to pick: only an auto one, or one hidden from the picker
+        if explicit_all_models {
+            preset["id"] = "codex-auto-test".into();
+            preset["model"] = "codex-auto-test".into();
+        } else {
+            preset["hidden"] = true.into();
+        }
+        refresh(&mut s, &[preset]);
+        if reasoning_submenu {
+            // the reasoning menu stays; Esc leaves the picker that was under it
+            s.assert_contains("Select Reasoning Level");
+            s.keys("esc");
+        }
+        s.assert_absent("Select Model and Effort");
+        s.assert_absent("Select Reasoning Level");
+        s.assert_contains("• No additional models are available right now.");
+    }
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3654 skills_menu_default_mentions_shortcut_snapshot kind=snap owner=dialogs-pane snap=skills_menu_default_mentions_shortcut
@@ -365,11 +612,25 @@ fn skills_menu_default_mentions_shortcut_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3663 model_picker_hides_show_in_picker_false_models_from_cache kind=snap owner=dialogs-pane snap=model_picker_filters_hidden_models
 #[test]
 fn model_picker_hides_show_in_picker_false_models_from_cache() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: the picker filters models with show_in_picker false from the cache; no catalog seed",
+    // the oracle's `preset(slug, show_in_picker)`
+    let preset = |slug: &str, show_in_picker: bool| {
+        serde_json::json!({
+            "id": slug, "model": slug, "displayName": slug,
+            "description": format!("{slug} description"),
+            "hidden": !show_in_picker,
+            "defaultReasoningEffort": "medium",
+            "supportedReasoningEfforts": [{"description": "medium", "reasoningEffort": "medium"}],
+        })
+    };
+    let mut s = on_startup_catalog(
+        80,
+        6,
+        "test-visible-model",
+        &[
+            preset("test-visible-model", true),
+            preset("test-hidden-model", false),
+        ],
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 6).live().open();
     s.type_text("/model");
     s.keys("enter");
     s.assert_snap("model_picker_filters_hidden_models");
@@ -380,26 +641,40 @@ fn model_picker_hides_show_in_picker_false_models_from_cache() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3740 model_reasoning_selection_popup_snapshot kind=snap owner=dialogs-pane snap=model_reasoning_selection_popup
 #[test]
 fn model_reasoning_selection_popup_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning-effort popup in the port: the Select Reasoning Level list for a model has no widget and no seed",
+    let model = with_efforts(
+        "gpt-5.5",
+        &[
+            ("low", "Fast responses with lighter reasoning"),
+            ("medium", "Balances speed and reasoning depth for everyday tasks"),
+            ("max", "Maximum available reasoning"),
+            ("high", "Greater reasoning depth for complex problems"),
+            ("xhigh", "Extra high reasoning depth for complex problems"),
+            ("ultra", "Ultra reasoning"),
+            ("persistent", "Continue working until put to sleep"),
+        ],
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 11).live().open();
+    let mut s = on_startup_catalog(80, 11, "gpt-5.5", &[model]);
+    on_effort(&mut s, "gpt-5.5", "high");
     s.type_text("/model");
-    s.keys("enter enter");
+    s.keys("enter");
+    s.keys("enter");
     s.assert_snap("model_reasoning_selection_popup");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3773 model_advanced_reasoning_selection_popup_snapshot kind=snap owner=dialogs-pane snap=model_advanced_reasoning_selection_popup
 #[test]
 fn model_advanced_reasoning_selection_popup_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning-effort popup in the port: the advanced (Ultra and Max) reasoning list has no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 9).live().open();
+    let mut model = bundled_model("gpt-5.5");
+    let efforts = model["supportedReasoningEfforts"].as_array_mut().expect("efforts");
+    efforts.push(serde_json::json!({"reasoningEffort": "ultra", "description": "Ultra reasoning"}));
+    efforts.push(serde_json::json!({"reasoningEffort": "max", "description": "Maximum available reasoning"}));
+    let mut s = on_startup_catalog(80, 9, "gpt-5.5", &[model]);
+    on_effort(&mut s, "gpt-5.5", "ultra");
     s.type_text("/model");
-    s.keys("enter down enter");
+    s.keys("enter");
+    s.keys("enter");
+    // the current effort is Ultra: the reasoning menu stands on its More row
+    s.keys("enter");
     s.assert_snap("model_advanced_reasoning_selection_popup");
 }
 
@@ -417,12 +692,30 @@ fn model_reasoning_selection_popup_applies_custom_effort() {
 fn ultra_reasoning_selection_warns_for_high_multi_agent_concurrency() {
     kit::pending(
         Owner::DialogsPane,
-        "no reasoning-effort popup in the port: selecting Ultra with a high multi-agent thread limit shows the concurrency warning; no widget and no seed",
+        "the warning is a cell of the detailed transcript only (`add_warning_message`, visible_in_transcript: false): the transcript pager (S16) is not ported, and the select drain drops the note instead of recording it as a hidden warning of the thread",
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 4).live().open();
+    let model = with_efforts(
+        "gpt-5.5",
+        &[("high", "High reasoning"), ("ultra", "Ultra reasoning")],
+    );
+    let mut s = on_startup_catalog(80, 12, "gpt-5.5", &[model]);
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","effort":"high","agent_threads":8}}}"#,
+    );
     s.type_text("/model");
-    s.keys("enter down enter down enter");
-    s.assert_snap("ultra_reasoning_selection_high_multi_agent_concurrency_warning");
+    s.keys("enter");
+    s.keys("enter");
+    // `More reasoning…` is the row below High, Ultra its only row
+    s.keys("down");
+    s.keys("enter");
+    s.keys("enter");
+    // the transcript pager shows the cell
+    s.keys("ctrl+t");
+    s.assert_snap_region(
+        "ultra_reasoning_selection_high_multi_agent_concurrency_warning",
+        0,
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3898 max_reasoning_selection_persists_model_selection kind=ui owner=dialogs-pane
@@ -503,6 +796,9 @@ fn reasoning_up_shortcuts_reach_max_in_default_and_plan_modes() {
                 if plan_mode { "plan" } else { "default" },
             ));
             if key == "alt+." {
+                // the status line plays its transition to Max (the oracle's `M A X` frames,
+                // about two seconds) before it settles on the text the snapshot holds
+                s.wait(2600);
                 // The snapshot's rows; its hint row reads `? for shortcuts` where ours adds
                 // `← for agents` (the oracle's chat widget has agents navigation off: a gap
                 // of every footer snapshot, not of the shortcut).
@@ -566,16 +862,11 @@ fn reasoning_down_shortcut_can_leave_advanced_effort() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4196 reasoning_popup_shows_extra_high_with_space kind=ui owner=dialogs-pane
 #[test]
 fn reasoning_popup_shows_extra_high_with_space() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning-effort popup in the port: the label of the extra-high effort (with a space) has no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(120, 24)
-        .live()
-        .open();
+    let mut s = on_startup_catalog(120, 24, "gpt-5.5", &[bundled_model("gpt-5.5")]);
     s.type_text("/model");
-    s.keys("enter enter");
+    s.keys("enter");
+    s.keys("enter");
+    s.assert_contains("Select Reasoning Level");
     s.assert_contains("Extra high");
     s.assert_absent("Extrahigh");
 }
@@ -592,14 +883,18 @@ fn single_reasoning_option_skips_selection() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4266 advanced_only_reasoning_option_requires_explicit_selection kind=snap owner=dialogs-pane snap=advanced_only_reasoning_selection_popup
 #[test]
 fn advanced_only_reasoning_option_requires_explicit_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning-effort popup in the port: a model whose only option is advanced shows the list and waits for an explicit selection; no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 6).live().open();
+    let mut model = with_efforts("gpt-5.5", &[("ultra", "Ultra reasoning")]);
+    model["defaultReasoningEffort"] = "ultra".into();
+    let mut s = on_startup_catalog(80, 6, "gpt-5.5", &[model]);
     s.type_text("/model");
-    s.keys("enter enter");
+    s.keys("enter");
+    s.keys("enter");
+    // the only option is advanced: the list waits for an explicit selection
     s.assert_snap("advanced_only_reasoning_selection_popup");
+    assert!(
+        s.request_params("thread/settings/update").is_empty(),
+        "nothing is applied before the selection"
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4288 auto_model_advertising_advanced_effort_opens_reasoning_picker kind=ui owner=dialogs-pane
@@ -665,13 +960,10 @@ fn feedback_good_result_consent_popup_includes_connectivity_diagnostics_filename
 // ORACLE chatwidget/tests/popups_and_settings.rs:4403 reasoning_popup_escape_returns_to_model_popup kind=ui owner=dialogs-pane
 #[test]
 fn reasoning_popup_escape_returns_to_model_popup() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning-effort popup in the port: Esc from Select Reasoning Level returns to Select Model; no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = on_startup_catalog(80, 24, "gpt-5.5", &[bundled_model("gpt-5.5")]);
     s.type_text("/model");
-    s.keys("enter enter");
+    s.keys("enter");
+    s.keys("enter");
     s.assert_contains("Select Reasoning Level");
     s.keys("esc");
     s.assert_contains("Select Model");
@@ -940,13 +1232,39 @@ fn session_model_selection_hides_conflicting_shortcut() {
 // ORACLE chatwidget/tests/session_model_selection_tests.rs:164 provider_switch_blocks_cached_choices_in_old_and_new_chats kind=snap owner=dialogs-pane
 #[test]
 fn provider_switch_blocks_cached_choices_in_old_and_new_chats() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: after a provider switch the cached choices are blocked with the restart notice; no catalog seed and no provider switch step",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.assert_contains(
-        "The model list may be out of date. Restart the app server and TUI to refresh /model.",
+    let mut s = on_startup_catalog(80, 24, "gpt-5.5", &[bundled_model("gpt-5.5")]);
+    // the picker is open on a model's reasoning menu when the provider write lands
+    s.type_text("/model");
+    s.keys("enter");
+    s.keys("enter");
+    s.assert_contains("Select Reasoning Level");
+    s.feed(r#"{"step":"screen","dir":"select","ev":{"kind":"provider","state":"changed"}}"#);
+    // the stale picker is dismissed
+    s.assert_absent("Select Reasoning Level");
+    s.assert_absent("Select Model");
+    // `/model` is blocked with the restart notice and asks nothing of the server
+    let asked = s.commands().len();
+    s.type_text("/model");
+    s.keys("enter");
+    // (the notice wraps at 80 columns)
+    s.assert_has_row("• The model list may be out of date. Restart the app server and TUI to refresh");
+    s.assert_has_row("/model.");
+    s.assert_absent("Select Model");
+    // the composer is free again: no dialog stays over it
+    s.type_text("hello");
+    s.assert_contains("hello");
+    let new = s.commands().split_off(asked);
+    assert!(
+        new.iter().all(|c| !matches!(
+            c,
+            codex_tui_core::app::Command::Screen {
+                command: codex_tui_core::screens::ScreenCommand::Select(
+                    codex_tui_core::screens::select::Command::Models { .. }
+                ),
+                ..
+            }
+        )),
+        "no model list is asked while blocked: {new:?}"
     );
 }
 
