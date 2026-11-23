@@ -625,3 +625,68 @@ fn f3_shows_the_details() {
     h.t.type_text("abc");
     h.wait_for("the composer", |s| s.contains("abc"));
 }
+
+// ---- the plan question and other sheets (`no_modal_or_popup_active`) ----
+
+const PLAN_ITEM: &str = include_str!("../oracle/fixtures/chat_live_4/plan_item.jsonl");
+const PLAN_TITLE: &str = "Implement this plan?";
+
+/// The server notifications of the oracle's plan fixture (`chat_live_4/plan_item.jsonl`) that
+/// `wanted` takes: the settings that make the mode Plan, and the turn with its plan.
+fn plan_notes(h: &mut Harness, wanted: impl Fn(&str) -> bool) {
+    use codex_app_server_protocol::ServerNotification;
+    let events: Vec<AppEv> = PLAN_ITEM
+        .lines()
+        .filter(|line| line.starts_with('{') && wanted(line))
+        .filter_map(|line| {
+            let step: serde_json::Value = serde_json::from_str(line).expect("a json line");
+            let message = step.get("message")?.clone();
+            let note: ServerNotification = serde_json::from_value(message).expect("a notification");
+            Some(AppEv::Backend(
+                codex_tui_core::app::BackendEv::Notification(Box::new(note)),
+            ))
+        })
+        .collect();
+    h.inject(events);
+}
+
+fn plan_turn_ends(h: &mut Harness) {
+    plan_notes(h, |line| !line.contains("thread/settings/updated"));
+    h.inject([AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1"))]);
+    h.settle();
+}
+
+/// A Plan-mode turn that ends with a proposed plan while the sheet of `/permissions` is open does not
+/// open the question over it: the oracle skips it (`turn_runtime.rs`, `no_modal_or_popup_active`),
+/// and does not keep it waiting after the sheet closes.
+#[test]
+fn a_plan_that_ends_under_another_sheet_asks_nothing() {
+    let mut h = start();
+    h.wait_idle();
+    plan_notes(&mut h, |line| line.contains("thread/settings/updated"));
+    // `/permissions` is refused while a turn runs: the sheet opens first, the turn comes under it
+    h.t.type_text("/permissions");
+    h.press("enter");
+    h.wait_for("the permissions sheet", |s| {
+        s.contains("Update Model Permissions")
+    });
+    plan_turn_ends(&mut h);
+    let screen = h.t.screen();
+    assert!(!screen.contains(PLAN_TITLE), "{screen}");
+    assert!(screen.contains("Update Model Permissions"), "{screen}");
+    h.press("esc");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Update Model Permissions"), "{screen}");
+    assert!(!screen.contains(PLAN_TITLE), "{screen}");
+}
+
+/// The same turn with no sheet open asks.
+#[test]
+fn a_plan_that_ends_with_no_sheet_open_asks() {
+    let mut h = start();
+    h.wait_idle();
+    plan_notes(&mut h, |_| true);
+    h.inject([AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1"))]);
+    h.wait_for("the plan question", |s| s.contains(PLAN_TITLE));
+}
