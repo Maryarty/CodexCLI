@@ -76,6 +76,16 @@
 5. No new framework doors (AppCx/Feature hooks, kit options) unless the
    feature cannot be built without one: then hold and ask the orchestrator.
 
+## Test commands (speed-order, 2026-11-23: cargo is 55 % of porter time, 90 % of it compile)
+- After an edit: `acargo check -q --tests` (3-7 s). Edit loop: ONE named root with a filter
+  (`--test oracle -E 'test(=name)'`, `--test pages`, `--test screens`, `-p codex-tui-core`);
+  never nextest without a root (7 binaries).
+- Before a commit: `--test rules`. Before hand-in: your KEY oracle tests by name through
+  `--test oracle -E 'test(=a)|test(=b)'` (not `summary.py --run`), the feature's pty run, fmt +
+  clippy of what you touched. Never the whole workspace nextest, never land-check.
+- A checkpoint lists `read:` lines (`file:line-range — what is there`) so the next agent does
+  not re-read to orient.
+
 ## Files
 - Your task's area only; a Need for another file goes into your checkpoint.
 - A new dependency: its own commit with `Cargo.toml` + `Cargo.lock`.
