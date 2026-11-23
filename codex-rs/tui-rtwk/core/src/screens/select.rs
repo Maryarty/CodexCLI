@@ -1517,6 +1517,17 @@ pub enum Ctx {
     },
     /// An answer of the plugin browser: the request it belongs to.
     Plugins { request: u64 },
+    /// `model/list` for an automatic model switch of a usage banner that finds no catalog
+    /// (`app/banners.rs`).
+    Fallback { backend: crate::ids::BackendId },
+    /// The settings update of such a switch: the model and effort it asked for, and why.
+    Switch {
+        backend: crate::ids::BackendId,
+        thread: crate::ids::ThreadId,
+        model: String,
+        effort: Effort,
+        reason: super::chat::SwitchReason,
+    },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).

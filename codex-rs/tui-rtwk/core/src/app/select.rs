@@ -625,6 +625,19 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
             };
             event(app, select::Ev::Fetched { request, result }, fx);
         }
+        (select::Ctx::Fallback { backend }, result) => {
+            super::banners::catalog_answer(app, backend, result, fx);
+        }
+        (
+            select::Ctx::Switch {
+                backend,
+                thread,
+                model,
+                effort,
+                reason,
+            },
+            result,
+        ) => super::banners::switched(app, (backend, thread, model, effort, reason), result, fx),
         (select::Ctx::Requirements { request }, result) => match result {
             Ok(select::Reply::Requirements(requirements)) => {
                 let ctx = select::Ctx::Profiles {

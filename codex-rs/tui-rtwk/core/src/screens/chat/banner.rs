@@ -5,6 +5,7 @@ use codex_protocol::account::PlanType;
 use serde::Deserialize;
 
 use crate::ids::Ticket;
+use crate::screens::select::models::{Preset, RESERVE_MODEL};
 
 /// What the account read says of the Luna Reserve (`update_backend_banner`): whether ordinary
 /// usage is available again (the reserve-only `/model` ends) and the normal model the reserve
@@ -13,6 +14,9 @@ use crate::ids::Ticket;
 pub struct Reserve {
     pub recovered: bool,
     pub normal_model: Option<String>,
+    /// The account the read was for (`backend_banner_state.account_id`): a return target saved
+    /// for another account is not followed.
+    pub account_id: Option<String>,
 }
 
 impl Reserve {
@@ -34,10 +38,28 @@ impl Reserve {
             .iter()
             .flatten()
             .map(|(_, snapshot)| snapshot)
-            .find(|snapshot| snapshot.limit_name.as_deref() == Some(crate::screens::select::models::RESERVE_MODEL))
+            .find(|snapshot| snapshot.limit_name.as_deref() == Some(RESERVE_MODEL))
             .and_then(|snapshot| snapshot.normal_model_slug.clone());
-        Self { recovered, normal_model }
+        Self { recovered, normal_model, account_id: response.account_id.clone() }
     }
+}
+
+/// Why the app changed the model by itself (`AutomaticModelSwitchReason`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwitchReason {
+    /// The banner blocks the model in use.
+    UsageLimit,
+    /// Luna Reserve was in use and ordinary usage is available again.
+    UsageRecovered,
+}
+
+/// What the note of an automatic switch says: the model it landed on, the effort word after it
+/// (none for the `codex-auto-*` models) and why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutomaticSwitch {
+    pub model: String,
+    pub effort: Option<String>,
+    pub reason: SwitchReason,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -114,20 +136,63 @@ impl Banner {
             && self.fallback_model_slugs == next.fallback_model_slugs
     }
 
-    pub fn visible_for(&self, model: Option<&str>) -> bool {
+    /// Whether the banner applies to the model in use (`refresh_backend_banner_visibility`).
+    /// `notice` is the model an automatic switch just settled on: the copy describes that
+    /// replacement, so the banner stays for it.
+    pub fn visible_for(&self, model: Option<&str>, notice: Option<&str>) -> bool {
         if self.is_reserve() {
             return true;
         }
         match self.blocked_model_slug.as_deref() {
+            // Explicit fallback payloads describe the selected replacement, not a pending
+            // switch.
             Some(blocked) if !self.fallback_model_slugs.is_empty() => model.is_some_and(|model| {
                 model != blocked && self.fallback_model_slugs.iter().any(|slug| slug == model)
             }),
-            _ => self.model_slug.as_deref().is_none_or(|slug| Some(slug) == model),
+            _ => {
+                self.model_slug.as_deref().is_none_or(|slug| Some(slug) == model)
+                    || (notice.is_some() && notice == model)
+            }
         }
     }
 
+    /// Whether a switch away from `current` is wanted at all (the cheap half of
+    /// `backend_banner_fallback`, before the catalog is asked): the Reserve banner wants one off
+    /// an ordinary model, a blocked-model banner one off the blocked model.
+    pub fn wants_switch(&self, current: &str) -> bool {
+        if self.is_reserve() {
+            current != RESERVE_MODEL
+                && self.blocked_model_slug.as_deref().is_none_or(|blocked| blocked == current)
+        } else {
+            self.blocked_model_slug.as_deref() == Some(current)
+                && !self.fallback_model_slugs.is_empty()
+        }
+    }
+
+    /// The model an automatic switch lands on (`backend_banner_fallback`): the first fallback
+    /// the picker lists and the catalog has, or Luna Reserve for its banner (hidden from the
+    /// picker on purpose).
+    pub fn fallback_target<'a>(&self, current: &str, catalog: &'a [Preset]) -> Option<&'a Preset> {
+        if !self.wants_switch(current) {
+            return None;
+        }
+        if self.is_reserve() {
+            return catalog.iter().find(|preset| preset.model == RESERVE_MODEL);
+        }
+        self.fallback_model_slugs.iter().find_map(|candidate| {
+            catalog.iter().find(|preset| {
+                preset.show_in_picker && preset.model == *candidate && preset.model != current
+            })
+        })
+    }
+
     pub fn reserve_pending(&self, model: Option<&str>) -> bool {
-        self.is_reserve() && model != Some("gpt-reserve")
+        self.is_reserve() && model != Some(RESERVE_MODEL)
+    }
+
+    /// The account the banner was read for.
+    pub fn account_id(&self) -> Option<&str> {
+        self.account_id.as_deref()
     }
 
     /// The Luna Reserve banner: shown as a focused selector, not as the inline banner
@@ -267,15 +332,32 @@ pub struct BannerOccurrence {
     pub banner: Banner,
     pub ticket: Ticket,
     dismissed: bool,
+    /// The model an automatic switch settled on (`backend_banner_notice_model`): the banner
+    /// shows for it whatever its own model says, until the occurrence is replaced.
+    notice_model: Option<String>,
 }
 
 impl BannerOccurrence {
     pub(crate) fn new(banner: Banner, ticket: Ticket) -> Self {
-        Self { banner, ticket, dismissed: false }
+        Self { banner, ticket, dismissed: false, notice_model: None }
     }
 
     pub fn is_visible(&self, model: Option<&str>) -> bool {
-        !self.dismissed && self.banner.visible_for(model)
+        !self.dismissed && self.banner.visible_for(model, self.notice_model.as_deref())
+    }
+
+    /// A failed switch into Luna Reserve still needs the recovery actions
+    /// (`show_unavailable_reserve_recovery`): the banner is shown again.
+    pub(crate) fn reopen(&mut self) {
+        self.dismissed = false;
+    }
+
+    /// An automatic switch to `model` was accepted (`finish_backend_banner_fallback`): the
+    /// post-switch notice is distinct from having seen the blocked state, so the banner is
+    /// shown again for the new model.
+    pub(crate) fn after_switch(&mut self, model: &str) {
+        self.dismissed = false;
+        self.notice_model = Some(model.to_owned());
     }
 
     pub fn is_dismissible(&self) -> bool {
@@ -338,6 +420,81 @@ mod tests {
         occurrence.dismiss(mint.next());
         assert!(occurrence.is_visible(None));
         occurrence.dismiss(ticket);
+        assert!(!occurrence.is_visible(None));
+    }
+
+    fn banner(extra: serde_json::Value) -> Banner {
+        let mut payload = json!({
+            "banner_type": "selected_model_limit", "title": "Usage limit",
+            "description": "Switch.", "ctas": [], "model_slug": "test-model-a",
+        });
+        payload.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        Banner::parse(payload, Some("workspace-a".to_string()), None).expect("valid banner")
+    }
+
+    fn preset(model: &str, show_in_picker: bool) -> Preset {
+        serde_json::from_value(json!({
+            "model": model, "name": model, "show_in_picker": show_in_picker,
+        }))
+        .expect("preset")
+    }
+
+    /// Oracle `backend_banner_fallback_candidates_and_notice_follow_selected_model`: the
+    /// candidate list skips what the picker hides and what the catalog lacks, and only a banner
+    /// that blocks the model in use asks for a switch.
+    #[test]
+    fn the_fallback_is_the_first_listed_candidate_of_the_catalog() {
+        let blocked = banner(json!({
+            "blocked_model_slug": "test-model-a",
+            "fallback_model_slugs": ["hidden-model", "absent", "test-model-c", "test-model-b"],
+        }));
+        let catalog = [
+            preset("hidden-model", false),
+            preset("test-model-b", true),
+            preset("test-model-c", true),
+        ];
+        let target = blocked.fallback_target("test-model-a", &catalog);
+        assert_eq!(target.map(|preset| preset.model.as_str()), Some("test-model-c"));
+        assert!(blocked.wants_switch("test-model-a"));
+        // another model in use is not blocked; the current model is never its own fallback
+        assert!(blocked.fallback_target("test-model-b", &catalog).is_none());
+        assert!(!blocked.wants_switch("test-model-b"));
+        assert!(blocked.fallback_target("test-model-a", &catalog[..1]).is_none());
+        // a banner without fallbacks (or without a blocked model) has nowhere to go
+        assert!(!banner(json!({"blocked_model_slug": "test-model-a"})).wants_switch("test-model-a"));
+        assert!(!banner(json!({"fallback_model_slugs": ["test-model-c"]})).wants_switch("test-model-a"));
+    }
+
+    /// Luna Reserve is the target of its banner though the picker hides it, off any model the
+    /// banner does not exclude, and never from itself.
+    #[test]
+    fn the_reserve_banner_targets_the_reserve_model() {
+        let reserve = banner(json!({"banner_type": "luna_reserve", "model_slug": null}));
+        let catalog = [preset("test-model-a", true), preset(RESERVE_MODEL, false)];
+        assert_eq!(
+            reserve.fallback_target("test-model-a", &catalog).map(|preset| preset.model.as_str()),
+            Some(RESERVE_MODEL)
+        );
+        assert!(!reserve.wants_switch(RESERVE_MODEL));
+        let blocked = banner(json!({"banner_type": "luna_reserve", "blocked_model_slug": "test-model-b"}));
+        assert!(!blocked.wants_switch("test-model-a"));
+        assert!(blocked.wants_switch("test-model-b"));
+    }
+
+    /// After a switch the banner is shown again for the replacement the copy describes, unless
+    /// the occurrence was replaced; other models keep hiding it.
+    #[test]
+    fn a_switch_keeps_the_banner_for_the_model_it_settled_on() {
+        let mut mint = TicketMint::default();
+        let mut occurrence = BannerOccurrence::new(banner(json!({})), mint.next());
+        assert!(occurrence.is_visible(Some("test-model-a")));
+        assert!(!occurrence.is_visible(Some("test-model-b")));
+        occurrence.ticket = mint.next();
+        occurrence.dismiss(occurrence.ticket);
+        occurrence.after_switch("test-model-b");
+        assert!(occurrence.is_visible(Some("test-model-b")));
+        assert!(occurrence.is_visible(Some("test-model-a")));
+        assert!(!occurrence.is_visible(Some("unrelated-model")));
         assert!(!occurrence.is_visible(None));
     }
 }

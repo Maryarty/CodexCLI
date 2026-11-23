@@ -55,211 +55,51 @@ fn banner_chat(width: u16, model: &str, response: &serde_json::Value) -> Screen 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:29 backend_banner_presentation_and_cta_do_not_imply_recovery kind=snap owner=chat-live
 #[test]
 fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
-    kit::pending(
-        Owner::ChatLive,
-        "the inline case sets the banner copy `Your usage resets at {time}` (5:30 PM, the local zone and the clock-format setting): `{time}` is not formatted and there is no clock-format setting on the chat screen; the nudge itself (start, one in flight, the notice) is on in owner_notification_completion_cannot_cross_account_change and the core tests",
-    );
     // The oracle, per presentation: the banner shows its title; `esc to dismiss` only when
     // dismissible; key 1 queues the notify-owner email and the popup does not change.
-    for dismissible in [false, true] {
-        let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
-        s.assert_contains("Selected model usage exhausted");
-        if dismissible {
-            s.assert_contains("esc to dismiss");
-        } else {
-            s.assert_absent("esc to dismiss");
-        }
-        s.keys("1");
-        s.assert_contains("Selected model usage exhausted");
-    }
-}
-
-// ORACLE chatwidget/tests/backend_banners_tests.rs:105 backend_banner_zero_actions_preserve_guidance_and_composer_input kind=snap owner=chat-live
-#[test]
-fn backend_banner_zero_actions_preserve_guidance_and_composer_input() {
     for presentation in [None, Some("inline"), Some("dismissible")] {
-        for ctas in [
-            serde_json::json!([]),
-            serde_json::json!([{"action": "future_action", "label": "Unsupported"}]),
-        ] {
-            let dismissible = presentation == Some("dismissible");
-            let mut s = banner_chat(
-                70,
-                "test-model-a",
-                &banner_response(presentation, ctas, |_| {}),
-            );
-            s.assert_contains("switch to another model");
-            s.assert_absent("Press a number");
-            s.assert_absent("no matches");
-            if dismissible {
-                s.assert_contains("esc to dismiss");
-            } else {
-                s.assert_absent("esc to dismiss");
+        let ctas = serde_json::json!([{"action": "notify_owner", "label": "Notify owner"}]);
+        let response = banner_response(presentation, ctas, |banner| {
+            if presentation == Some("inline") {
+                // 17:30 (the clock below is UTC; the oracle takes today's date from the clock)
+                banner["description"] =
+                    serde_json::json!("Your usage resets at {time}. Ask your owner for credits.");
+                banner["reset_at"] = serde_json::json!(1_795_541_400_i64);
             }
-            // Key 1 has no action; the next navigation key leaves `1` in the composer.
-            s.keys("1 left");
-            s.assert_composer("1");
-        }
-    }
-}
-
-// ORACLE chatwidget/tests/backend_banners_tests.rs:142 backend_banner_dismissal_tracks_occurrence_not_copy_or_model kind=ui owner=chat-live
-#[test]
-fn backend_banner_dismissal_tracks_occurrence_not_copy_or_model() {
-    let mut response = banner_response(Some("dismissible"), serde_json::json!([]), |_| {});
-    let mut s = banner_chat(70, "test-model-a", &response);
-    s.keys("esc");
-    s.assert_absent("Selected model usage exhausted");
-    s.feed(&model_step("test-model-b", false));
-    response["rateLimitUpsell"]["description"] = serde_json::json!("Updated backend copy");
-    s.feed(&answer(&response));
-    s.feed(&model_step("test-model-a", true));
-    // the copy changed, the occurrence did not: still dismissed
-    s.assert_absent("Updated backend copy");
-    // a new reset time is a new occurrence
-    response["rateLimitUpsell"]["reset_at"] = serde_json::json!(2_000_000_000);
-    s.feed(&answer(&response));
-    s.feed(&model_step("test-model-a", true));
-    s.assert_contains("Updated backend copy");
-    s.keys("esc");
-    // an absent banner and the same one again: a new occurrence, shown again
-    let mut absent = response.clone();
-    absent["rateLimitUpsell"] = serde_json::Value::Null;
-    s.feed(&answer(&absent));
-    s.feed(&model_step("test-model-a", true));
-    s.feed(&answer(&response));
-    s.feed(&model_step("test-model-a", true));
-    s.assert_contains("Updated backend copy");
-}
-
-// ORACLE chatwidget/tests/backend_banners_tests.rs:165 backend_banner_occurrence_uses_explicit_or_legacy_source_model kind=ui owner=chat-live
-#[test]
-fn backend_banner_occurrence_uses_explicit_or_legacy_source_model() {
-    for explicit_source in [false, true] {
-        let edit = |banner: &mut serde_json::Value| {
-            if explicit_source {
-                banner["blocked_model_slug"] = serde_json::json!("test-model-a");
-            }
-        };
-        let mut s = banner_chat(
-            70,
-            "test-model-a",
-            &banner_response(Some("dismissible"), serde_json::json!([]), edit),
-        );
-        s.keys("esc");
-        // the banner moves to test-model-b and so does the model in use
-        let moved = banner_response(Some("dismissible"), serde_json::json!([]), |banner| {
-            edit(banner);
-            banner["model_slug"] = serde_json::json!("test-model-b");
         });
-        s.feed(&(answer(&moved) + &model_step("test-model-b", true)));
-        // without an explicit source model the banner is a new occurrence for the new model
-        if explicit_source {
-            s.assert_absent("Selected model usage exhausted");
-        } else {
-            s.assert_contains("Selected model usage exhausted");
+        let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
+        // the viewer's clock: 12-hour time in UTC, so `{time}` does not depend on the machine
+        s.feed(&format!(
+            "{}\n",
+            serde_json::json!({"step": "screen", "dir": "cells", "ev": {"kind": "clock", "format": "twelve_hour", "utc_offset": 0}})
+        ));
+        s.feed(&(answer(&response) + &model_step("test-model-a", true)));
+        s.wait_for("Selected model usage exhausted");
+        if presentation == Some("inline") {
+            // `{time}` is the reset time in the viewer's clock (12-hour by default)
+            s.assert_contains("Your usage resets at 5:30 PM");
+            s.assert_absent("{time}");
         }
-    }
-}
-
-// ORACLE chatwidget/tests/backend_banners_tests.rs:189 backend_banner_turn_on_another_model_preserves_hidden_occurrence kind=ui owner=chat-live
-#[test]
-fn backend_banner_turn_on_another_model_preserves_hidden_occurrence() {
-    let mut s = banner_chat(
-        70,
-        "test-model-a",
-        &banner_response(Some("dismissible"), serde_json::json!([]), |_| {}),
-    );
-    s.feed(&model_step("test-model-b", false));
-    s.assert_absent("Selected model usage exhausted");
-    s.type_text("hello").keys("enter");
-    s.feed(include_str!("fixtures/chat_live_2/turn_done.jsonl"));
-    // The oracle returns to test-model-a after the turn: the hidden occurrence shows again.
-    s.feed(&model_step("test-model-a", false));
-    s.assert_contains("Selected model usage exhausted");
-}
-
-// ORACLE chatwidget/tests/backend_banners_tests.rs:208 backend_banner_restores_only_programmatically_displaced_switch_prompt kind=ui owner=chat-live
-#[test]
-fn backend_banner_restores_only_programmatically_displaced_switch_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `Approaching rate limits` switch prompt in the chat: the 95% rate-limit snapshot's prompt (rate_limits.rs: a ChatGPT account, the switch to a cheaper model) is not built, so the banner has nothing to displace and restore",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
-    s.assert_contains("Approaching rate limits");
-    s.keys("esc");
-    // The oracle then shows the banner, removes it, and checks the prompt returns only when
-    // the user did not dismiss it (the Esc above).
-    s.assert_contains("Selected model usage exhausted");
-}
-
-// ORACLE chatwidget/tests/backend_banners_tests.rs:234 owner_notification_completion_cannot_cross_account_change kind=snap owner=chat-live snap=owner_notification_after_account_change
-#[test]
-fn owner_notification_completion_cannot_cross_account_change() {
-    // The oracle starts a request for the previous account directly; here the banner's action
-    // starts it, then `account/updated` is the identity boundary and the new account's read
-    // brings its banner back for the second request.
-    let credits = serde_json::json!([{"action": "notify_owner", "label": "Notify owner"}]);
-    let increase = serde_json::json!([{"action": "request_increase", "label": "Request increase"}]);
-    let mut s = banner_chat(
-        80,
-        "test-model-a",
-        &banner_response(Some("inline"), credits, |_| {}),
-    );
-    s.keys("1");
-    s.feed(&format!(
-        "{}\n",
-        serde_json::json!({"step": "notify", "message": {"method": "account/updated", "params": {"authMode": "chatgpt", "planType": null}}})
-    ));
-    s.assert_absent("Selected model usage exhausted");
-    s.feed(
-        &(answer(&banner_response(Some("inline"), increase, |_| {}))
-            + &model_step("test-model-a", true)),
-    );
-    s.wait_for("Request increase");
-    s.keys("1");
-    let nudges = s.nudges();
-    assert_eq!(nudges.len(), 2, "{nudges:?}");
-    s.answer_request(&nudges[0], serde_json::json!({"status": "sent"}));
-    s.assert_absent("Workspace owner notified.");
-    s.assert_absent("Limit increase requested.");
-    // the current request is still in flight: no third
-    s.keys("1");
-    assert_eq!(s.nudges().len(), 2);
-    s.answer_request(&nudges[1], serde_json::json!({"status": "sent"}));
-    s.wait_for("Limit increase requested.");
-    let row = s
-        .rows()
-        .iter()
-        .position(|row| row.contains("Limit increase requested."))
-        .expect("the notice");
-    s.assert_snap_region("owner_notification_after_account_change", row, 0);
-}
-
-// ORACLE chatwidget/tests/backend_banners_tests.rs:262 backend_banner_new_turn_dismisses_only_shown_dismissible_content kind=ui owner=chat-live
-#[test]
-fn backend_banner_new_turn_dismisses_only_shown_dismissible_content() {
-    // The oracle's fourth case (a dismissible banner no frame has drawn yet, which a submit
-    // leaves) has no counterpart in a retained UI: the banner is on screen as soon as it is in
-    // the model. The other three: a dismissible banner the user saw is gone after the turn.
-    for (presentation, gone) in [
-        (None, false),
-        (Some("inline"), false),
-        (Some("dismissible"), true),
-    ] {
-        let mut s = banner_chat(
-            70,
-            "test-model-a",
-            &banner_response(presentation, serde_json::json!([]), |_| {}),
-        );
-        s.type_text("hello").keys("enter");
-        s.feed(include_str!("fixtures/chat_live_2/turn_done.jsonl"));
-        if gone {
-            s.assert_absent("Selected model usage exhausted");
-        } else {
-            s.assert_contains("Selected model usage exhausted");
-        }
+        let dismissible = presentation == Some("dismissible");
+        let initial = s.shot();
+        assert_eq!(s.text().contains("esc to dismiss"), dismissible);
+        s.keys("1");
+        assert_eq!(s.nudges().len(), 1, "{:?}", s.nudges());
+        s.assert_contains("Selected model usage exhausted");
+        s.assert_same_rows(&initial);
+        // the request is in flight: a second key 1 starts no other
+        s.keys("1");
+        assert_eq!(s.nudges().len(), 1);
+        assert_eq!(s.composer_text(), "");
+        // the same banner again changes nothing
+        s.feed(&(answer(&response) + &model_step("test-model-a", true)));
+        s.assert_same_rows(&initial);
+        s.keys("esc");
+        assert_eq!(s.text().contains("Selected model usage exhausted"), !dismissible);
+        s.feed(&model_step("test-model-b", false));
+        s.assert_absent("Selected model usage exhausted");
+        s.feed(&model_step("test-model-a", false));
+        assert_eq!(s.text().contains("Selected model usage exhausted"), !dismissible);
     }
 }
 
@@ -279,16 +119,59 @@ fn backend_banner_invalid_content_and_absence_restore_fallback() {
 // ORACLE chatwidget/tests/backend_banners_tests.rs:322 backend_banner_fallback_candidates_and_notice_follow_selected_model kind=ui owner=chat-live
 #[test]
 fn backend_banner_fallback_candidates_and_notice_follow_selected_model() {
-    kit::pending(
-        Owner::ChatLive,
-        "no automatic model switch: the fallback model of a blocked-model banner (the catalog's visible candidates, a ChatGPT account, `finish_backend_banner_fallback`) needs the model catalog and a thread settings update in the chat",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
+    // the catalog the picker lists (a hidden model among them), a ChatGPT login, and the
+    // server accepting the settings update
+    let preset = |model: &str, visible: bool| {
+        serde_json::json!({"model": model, "name": model, "show_in_picker": visible})
+    };
+    s.feed(&format!(
+        "{}\n{}\n{}\n",
+        serde_json::json!({"step": "screen", "dir": "select", "ev": {"kind": "catalog", "presets": [
+            preset("hidden-model", false), preset("test-model-b", true), preset("test-model-c", true),
+        ]}}),
+        serde_json::json!({"step": "notify", "message": {"method": "account/updated", "params": {"authMode": "chatgpt", "planType": null}}}),
+        serde_json::json!({"step": "respond", "method": "thread/settings/update", "result": {}}),
+    ));
+    let response = banner_response(Some("inline"), serde_json::json!([]), |banner| {
+        banner["blocked_model_slug"] = serde_json::json!("test-model-a");
+        banner["fallback_model_slugs"] =
+            serde_json::json!(["hidden-model", "test-model-c", "test-model-b"]);
+    });
+    s.feed(&(answer(&response) + &model_step("test-model-a", true)));
+    // the first fallback the picker lists, test-model-c, is asked of the thread
+    let updates = |s: &Screen| {
+        s.commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                codex_tui_core::app::Command::Screen {
+                    command:
+                        codex_tui_core::screens::ScreenCommand::Select(
+                            codex_tui_core::screens::select::Command::Settings { patch, .. },
+                        ),
+                    ..
+                } => patch.model,
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    s.wait_for("Automatically switched to test-model-c");
+    s.assert_contains("due to usage limits.");
+    assert_eq!(updates(&s), ["test-model-c"]);
+    // the server's `thread/settings/updated` brings the model; the banner shows for it
+    s.feed(&model_step("test-model-c", false));
     s.assert_contains("Selected model usage exhausted");
     s.keys("esc");
+    s.assert_contains("Selected model usage exhausted");
+    // another task: the banner is inherited and follows the selected model (test-model-a hides
+    // it, test-model-c shows it)
+    s.feed(&model_step("test-model-a", false));
     s.assert_absent("Selected model usage exhausted");
-    // The oracle then opens another task on test-model-c: the banner is inherited and
-    // follows the selected model (test-model-a hides it, test-model-c shows it).
+    s.feed(&model_step("unrelated-model", false));
+    s.assert_absent("Selected model usage exhausted");
+    s.feed(&model_step("test-model-c", false));
+    s.assert_contains("Selected model usage exhausted");
+    assert_eq!(updates(&s), ["test-model-c"], "no second switch");
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:373 backend_banner_sparse_updates_preserve_visible_and_dismissed_occurrences kind=ui owner=chat-live

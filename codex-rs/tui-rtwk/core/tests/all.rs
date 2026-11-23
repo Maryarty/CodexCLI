@@ -19,6 +19,7 @@ mod approvals;
 mod apps_directory;
 mod backend_switch;
 mod backtrack;
+mod banners;
 mod cells;
 mod citations;
 mod commands;
