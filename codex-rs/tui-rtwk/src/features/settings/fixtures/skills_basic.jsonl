@@ -1,0 +1,4 @@
+# The skills toggle (Enable/Disable Skills): two skills, the first on
+# Oracle data: bottom_pane/skills_toggle_view.rs:422 renders_basic_popup
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"skills","items":[{"id":"repo_scout","name":"Repo Scout","description":"Summarize the repo layout","enabled":true},{"id":"changelog_writer","name":"Changelog Writer","description":"Draft release notes","enabled":false}]}}

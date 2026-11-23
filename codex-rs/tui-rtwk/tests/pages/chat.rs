@@ -4,12 +4,13 @@
 
 use codex_tui_core::commands::Target;
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
+use codex_tui_rtwk::features::settings;
 use codex_tui_rtwk::pages::session::backtrack;
 use codex_tui_rtwk::pages::session::open;
 use codex_tui_rtwk::pages::startup::import;
 use codex_tui_rtwk::pages::{agents, resume, usage};
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
-use codex_tui_rtwk::sheets::{approvals, pets, settings, voice};
+use codex_tui_rtwk::sheets::{approvals, pets, voice};
 use rtwk_test::{Finder, find};
 
 use crate::common::{Harness, slot};

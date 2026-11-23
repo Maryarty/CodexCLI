@@ -1,0 +1,4 @@
+# The hooks browser: one hook with an unlimited additional context
+# Oracle data: bottom_pane/hooks_browser_view.rs:1100
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind": "hooks", "hooks": [{"key": "path:context-limit", "event": "pre_tool_use", "handler": "command", "command": "/tmp/pre-tool-use.sh", "matcher": "Bash", "timeout_sec": 30, "source": "user", "source_path": "/tmp/hooks.json", "enabled": true, "is_managed": false, "trust": "trusted", "additional_context_limit": 0}]}}

@@ -1,0 +1,4 @@
+# The memories dialog: use on, generate off
+# Oracle data: chatwidget/tests/popups_and_settings.rs:3289
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"memories","use_memories":true,"generate_memories":false}}

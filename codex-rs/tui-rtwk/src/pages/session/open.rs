@@ -13,7 +13,7 @@ use codex_tui_core::commands::{Opens, Target};
 use crate::pages::session::backtrack;
 use crate::pages::startup::import;
 use crate::pages::{agents, resume, usage};
-use crate::sheets::{approvals, dialogs, pets, select, settings, voice};
+use crate::sheets::{approvals, dialogs, pets, select, voice};
 
 thread_local! {
     /// The target the chat opened last on this thread: the identity a test
@@ -61,7 +61,8 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
         },
         Opens::Sheet | Opens::Dialog => match target {
             Target::Select => drop(select::open(cx)),
-            Target::Settings => drop(settings::open(cx)),
+            // Opened by its own UI half with the dialog's kind (`features::open`).
+            Target::Settings => {}
             Target::Dialogs => drop(dialogs::open(cx)),
             // The picker of this session's subagents is not built: the sheet
             // says so (oracle: `AppEvent::OpenAgentPicker`).

@@ -6,7 +6,6 @@ pub mod dialogs;
 pub mod pets;
 pub mod presenter;
 pub mod select;
-pub mod settings;
 pub mod voice;
 
 use rtwk::layout::Alignment;

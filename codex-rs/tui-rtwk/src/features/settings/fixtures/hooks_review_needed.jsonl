@@ -1,0 +1,4 @@
+# The hooks browser: one untrusted, disabled hook
+# Oracle data: bottom_pane/hooks_browser_view.rs:1438
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind": "hooks", "hooks": [{"key": "path:untrusted", "event": "pre_tool_use", "handler": "command", "command": "/tmp/pre-tool-use-check.sh", "matcher": "Bash", "timeout_sec": 30, "source": "user", "source_path": "/tmp/hooks.json", "enabled": false, "is_managed": false, "trust": "untrusted"}]}}

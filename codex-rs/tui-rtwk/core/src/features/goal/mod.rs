@@ -196,6 +196,7 @@ impl Feature for Goal {
 
     type State = ();
     type ThreadPart = ();
+    type Target = Never<Self>;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
     type Command = Ask;

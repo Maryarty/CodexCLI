@@ -6,6 +6,7 @@
 //! events in `threads::project` and `app::pending_request`.
 
 pub(crate) mod agents;
+pub mod config;
 pub mod import;
 pub mod onboarding;
 pub(crate) mod requests;

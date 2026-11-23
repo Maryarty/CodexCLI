@@ -622,7 +622,7 @@ fn scan_words(
 
 /// The `name => Type;` entries of `feature_list!`, in list order, out of the text of
 /// `core/src/features/mod.rs`.
-fn listed_features(mod_rs: &str) -> Vec<String> {
+fn listed_entries(mod_rs: &str) -> Vec<(String, String)> {
     let (_, body) = mod_rs
         .split_once("macro_rules! feature_list {")
         .expect("macro_rules! feature_list");
@@ -631,8 +631,17 @@ fn listed_features(mod_rs: &str) -> Vec<String> {
         .filter_map(|(_, line)| {
             let (name, rest) = line.trim().split_once(" => ")?;
             let ty = rest.strip_suffix(';')?;
-            (name.chars().all(is_ident) && ty.chars().all(is_ident)).then(|| name.to_string())
+            (name.chars().all(is_ident) && ty.chars().all(is_ident))
+                .then(|| (name.to_string(), ty.to_string()))
         })
+        .collect()
+}
+
+/// The module names of `listed_entries`.
+fn listed_features(mod_rs: &str) -> Vec<String> {
+    listed_entries(mod_rs)
+        .into_iter()
+        .map(|(name, _)| name)
         .collect()
 }
 
@@ -1034,6 +1043,115 @@ fn the_layer_scans_cover_the_feature_dirs() {
         .len(),
         1
     );
+}
+
+// ---- No enum with a variant per feature is written by hand ----
+
+/// The enums of `text` that are declared in code, each with the names of its variants (the
+/// uppercase identifiers that start a line at the enum's own depth).
+fn enums_with_variants(text: &str) -> Vec<(String, Vec<String>)> {
+    let mut found = Vec::new();
+    let mut open: Option<(String, Vec<String>, i32)> = None;
+    for (_, line) in code_lines(text) {
+        let line = bare(line);
+        if let Some((name, names, depth)) = open.as_mut() {
+            if *depth == 1 && line.trim_start().starts_with(|c: char| c.is_uppercase()) {
+                let ident: String = line
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| is_ident(*c))
+                    .collect();
+                names.push(ident);
+            }
+            *depth += line
+                .chars()
+                .map(|c| match c {
+                    '(' | '[' | '{' => 1,
+                    ')' | ']' | '}' => -1,
+                    _ => 0,
+                })
+                .sum::<i32>();
+            if *depth <= 0 {
+                found.push((std::mem::take(name), std::mem::take(names)));
+                open = None;
+            }
+            continue;
+        }
+        let trimmed = line.trim_start();
+        let trimmed = trimmed
+            .strip_prefix("pub(crate) ")
+            .or_else(|| trimmed.strip_prefix("pub "))
+            .unwrap_or(trimmed);
+        if let Some(rest) = trimmed.strip_prefix("enum ") {
+            let name: String = rest.chars().take_while(|c| is_ident(*c)).collect();
+            if !name.is_empty() && rest.contains('{') {
+                let depth = line.matches('{').count() as i32 - line.matches('}').count() as i32;
+                open = Some((name, Vec::new(), depth));
+            }
+        }
+    }
+    found
+}
+
+/// The enums that name the listed features' marker types (`Goal`, `Rename`...) as variants,
+/// two or more at once: the per-feature enum that `feature_list!` generates (`FeatureIntent`,
+/// `FeatureTarget`, `OpenArgs`...) written by hand. The oracle's slash list is the one that
+/// names commands, not features.
+fn per_feature_enums(files: &[(String, String)], markers: &[String]) -> Vec<String> {
+    // the oracle's slash list (a case per command), and the import screen's kinds of item (its
+    // plugins and settings are things found in another tool's config, not these features)
+    const NAMES_THINGS: &[&str] = &[
+        "core/src/commands.rs:SlashCommand",
+        "core/src/commands/dispatch.rs:SessionIntent",
+        "core/src/screens/import/item.rs:Kind",
+    ];
+    let mut found = Vec::new();
+    for (file, text) in files {
+        for (name, variants) in enums_with_variants(text) {
+            let named = variants.iter().filter(|v| markers.contains(v)).count();
+            if named >= 2 && !NAMES_THINGS.contains(&format!("{file}:{name}").as_str()) {
+                found.push(format!(
+                    "{file}: enum {name} has {named} variants named like features"
+                ));
+            }
+        }
+    }
+    found
+}
+
+/// A new thing that is a case per feature (the target of a slash command, the arguments of a
+/// sheet, a menu...) is a type of the `Feature` trait that `feature_list!` collects into one
+/// generated enum, never an enum written by hand beside the list.
+#[test]
+fn no_enum_with_a_variant_per_feature_is_written_by_hand() {
+    let markers: Vec<String> = listed_entries(&read("core/src/features/mod.rs"))
+        .into_iter()
+        .map(|(_, ty)| ty)
+        .collect();
+    assert!(markers.len() >= 5, "the list has its features: {markers:?}");
+    let found = per_feature_enums(&all_sources(), &markers);
+    assert!(
+        found.is_empty(),
+        "a hand-written per-feature enum (make it an associated type of `Feature` / \
+         `FeatureView` that the list generates): {found:#?}"
+    );
+}
+
+#[test]
+fn the_per_feature_enum_scan_bites() {
+    let markers = ["Goal", "Rename", "Export"].map(str::to_owned).to_vec();
+    let file = |text: &str| vec![("x.rs".to_string(), text.to_string())];
+    let hand = "pub enum Target {\n    Goal(u8),\n    Export { a: u8 },\n    Other,\n}\n";
+    assert_eq!(per_feature_enums(&file(hand), &markers).len(), 1);
+    let one = "pub enum Target {\n    Goal(u8),\n    Other,\n}\n";
+    assert!(per_feature_enums(&file(one), &markers).is_empty());
+    let slash = vec![(
+        "core/src/commands/dispatch.rs".to_string(),
+        "pub enum SessionIntent {\n    Goal,\n    Rename,\n}\n".to_string(),
+    )];
+    assert!(per_feature_enums(&slash, &markers).is_empty());
+    let generated = "pub enum FeatureTarget {\n    $($variant(u8),)*\n}\n";
+    assert!(per_feature_enums(&file(generated), &markers).is_empty());
 }
 
 // ---- The hub budget: the hub enums only shrink ----

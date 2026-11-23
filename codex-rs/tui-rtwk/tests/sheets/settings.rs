@@ -4,13 +4,15 @@
 //! snapshots do not show (keys, the filter, the preview, the mouse).
 //! Oracle: `bottom_pane/{multi_select_picker,status_line_setup,title_setup}.rs`.
 //! The domain tests of the catalogues are in `core/tests/settings.rs`, those of the drafts
-//! (the checks, the order, the flips) in `src/sheets/settings/draft.rs`.
+//! (the checks, the order, the flips) in `src/features/settings/draft.rs`.
 
 use rtwk_core::input::{Mods, MouseKind};
 
 use codex_tui_core::app::AppEv;
-use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::settings::{Edit, Ev as SettingsEv, Facts, MemoryFacts, Offer, Which};
+use codex_tui_core::features::FeatureFact;
+use codex_tui_core::features::settings::{
+    Edit, Fact as SettingsFact, Facts, MemoryFacts, Offer, Which,
+};
 use codex_tui_rtwk::app::UiApp;
 
 use crate::common::{HEIGHT, Harness, WIDTH, ms, start_driven, start_sized};
@@ -210,10 +212,7 @@ fn the_theme_picker_in_a_narrow_terminal_stacks_the_preview_below_the_rows() {
         screen.contains("13 +    format!(\"Hello, {name}!\")"),
         "{screen}"
     );
-    assert!(
-        screen.contains("Press enter to confirm or esc to go back"),
-        "{screen}"
-    );
+    assert!(screen.contains("enter select \u{b7} esc back"), "{screen}");
 }
 
 #[test]
@@ -552,7 +551,7 @@ fn a_tap_moves_the_cursor_to_a_feature_and_a_second_tap_flips_it() {
 /// The edits the model recorded (what the dialog asked the app to do): the
 /// real model, so the dialogs under test are opened by `/memories`.
 fn edits(h: &Harness) -> Vec<Edit> {
-    h.t.read_app(|app: &UiApp| app.core.screens().settings.edits.clone())
+    h.t.read_app(|app: &UiApp| app.core.features().settings.edits.clone())
 }
 
 /// `/memories` with the memory tool on, use on and generate off
@@ -565,7 +564,7 @@ fn edits(h: &Harness) -> Vec<Edit> {
 fn memories_command() -> Harness {
     let mut h = start_driven(false, WIDTH, HEIGHT);
     h.wait_idle();
-    h.inject([AppEv::Screen(ScreenEv::Settings(SettingsEv::Facts(
+    h.inject([AppEv::Feature(FeatureFact::from(SettingsFact::Facts(
         Facts {
             memories: Some(MemoryFacts {
                 use_memories: true,
@@ -755,7 +754,7 @@ fn theme_command() -> Harness {
 }
 
 fn syntax_theme(h: &Harness) -> Option<String> {
-    h.t.read_app(|app: &UiApp| app.core.screens().settings.syntax_theme.clone())
+    h.t.read_app(|app: &UiApp| app.core.features().settings.syntax_theme.clone())
 }
 
 #[test]
@@ -768,7 +767,7 @@ fn slash_theme_opens_the_picker_over_the_bundled_themes() {
     assert!(screen.contains("base16-ocean-light"), "{screen}");
     let themes =
         h.t.read_app(
-            |app: &UiApp| match app.core.screens().settings.offers.get(&Which::Theme) {
+            |app: &UiApp| match app.core.features().settings.offers.get(&Which::Theme) {
                 Some(Offer::Theme(picker)) => picker.themes.len(),
                 _ => 0,
             },
@@ -804,10 +803,10 @@ fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
     h.wait_until("the picked theme is in force and recorded", |h| {
         syntax_theme(h).as_deref() == Some("coldark-dark")
             && h.t
-                .read_app(|app: &UiApp| !app.core.screens().settings.edits.is_empty())
+                .read_app(|app: &UiApp| !app.core.features().settings.edits.is_empty())
     });
     let edits =
-        h.t.read_app(|app: &UiApp| app.core.screens().settings.edits.clone());
+        h.t.read_app(|app: &UiApp| app.core.features().settings.edits.clone());
     assert_eq!(edits, vec![Edit::ThemeSelected("coldark-dark".to_string())]);
     assert!(!h.t.screen().contains("Select Syntax Theme"));
 }

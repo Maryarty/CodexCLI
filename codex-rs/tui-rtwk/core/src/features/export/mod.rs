@@ -2,7 +2,7 @@
 //! `show_transcript_export_popup`, `app/transcript_export.rs` `export_transcript`): the
 //! conversation in use as Markdown, copied to the clipboard or written to a file, and the line
 //! saying how it went. The destination picker of a bare `/export` and its filename prompt are the
-//! UI half's (`src/features/export/`, opened as `Target::Feature(FeatureTarget::Export)`); what
+//! UI half's (`src/features/export/`, opened as `Target::Feature(FeatureTarget::Export(Sheet))`); what
 //! they decide arrives as the verb `Intent::Export`, as `/export <path>` does. Words:
 //! `src/features/export/`.
 //!
@@ -15,6 +15,7 @@
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
+use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -22,6 +23,10 @@ use crate::threads::Tone;
 
 /// The marker type of the feature.
 pub struct Export;
+
+/// What `/export` names (`FeatureTarget`): the feature's own sheet, opened by its UI half.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sheet;
 
 /// Where an exported transcript goes (oracle `TranscriptExportDestination`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,9 +103,11 @@ fn run(cx: &mut AppCx<'_>, destination: Destination) {
 
 impl Feature for Export {
     const NAME: &'static str = "export";
+    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Export, Sheet));
 
     type State = ();
     type ThreadPart = ();
+    type Target = Sheet;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
     type Command = Never<Self>;

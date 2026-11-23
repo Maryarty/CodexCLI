@@ -1,0 +1,4 @@
+# The syntax theme picker; the cursor starts on the configured theme.
+# Oracle data: theme_picker_model_tests.rs (ada babbage curie cushman dali davinci)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"theme_picker","themes":["ada","babbage","curie","cushman","dali","davinci"],"current":"ada","themes_dir":"~/.codex/themes"}}

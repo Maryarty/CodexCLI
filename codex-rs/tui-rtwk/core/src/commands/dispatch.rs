@@ -10,7 +10,7 @@ use super::SlashCommand;
 use super::SlashCommandItem;
 use super::find_slash_command;
 use super::parse_slash_name;
-use crate::features::FeatureTarget;
+use crate::features::{FeatureTarget, target_of};
 
 /// A screen directory a command opens. The UI opens it through that
 /// directory's own opener.
@@ -97,8 +97,7 @@ impl Target {
             Target::Backtrack => "backtrack",
             // The agents directory owns the entry: the picker is its sheet.
             Target::AgentPicker => "agents",
-            Target::Feature(FeatureTarget::Plugins) => "plugins",
-            Target::Feature(FeatureTarget::Export) => "export",
+            Target::Feature(feature) => feature.dir(),
         }
     }
 }
@@ -226,8 +225,9 @@ pub enum SessionIntent {
         prompt: Option<String>,
     },
     Copy,
+    /// `/export <path>`: a bare `/export` is the feature's own sheet (`Target::Feature`).
     Export {
-        path: Option<String>,
+        path: String,
     },
     Raw {
         on: Option<bool>,
@@ -457,8 +457,11 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
             open(Target::Settings, command, "")
         }
-        Export => open(Target::Feature(FeatureTarget::Export), command, ""),
-        Plugins => open(Target::Feature(FeatureTarget::Plugins), command, ""),
+        // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
+        Export | Plugins => match target_of(command) {
+            Some(feature) => open(Target::Feature(feature), command, ""),
+            None => Outcome::Notice(Notice::NotAvailable(command)),
+        },
         Agents => open(Target::Agents, command, ""),
         MultiAgents => open(Target::AgentPicker, command, ""),
         Resume => open(Target::Resume, command, ""),
@@ -533,7 +536,13 @@ fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Out
         Goal => session(command, SessionIntent::Goal { args: some(args) }),
         Side | Btw => session(command, SessionIntent::Side { prompt: some(args) }),
         Ide => session(command, SessionIntent::Ide { args: some(args) }),
-        Export => session(command, SessionIntent::Export { path: some(args) }),
+        Export if args.is_empty() => dispatch_bare(command, cx),
+        Export => session(
+            command,
+            SessionIntent::Export {
+                path: args.to_string(),
+            },
+        ),
         Cd => session(
             command,
             SessionIntent::Cd {

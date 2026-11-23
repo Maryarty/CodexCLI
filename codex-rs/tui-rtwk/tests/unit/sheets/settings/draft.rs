@@ -1,36 +1,36 @@
+use codex_tui_core::features::settings::Edit;
+use codex_tui_core::features::settings::Experimental;
+use codex_tui_core::features::settings::Memories;
+use codex_tui_core::features::settings::Setup;
+use codex_tui_core::features::settings::SetupKind;
+use codex_tui_core::features::settings::USE_THEME_COLORS;
+use codex_tui_core::features::settings::hooks::HookEvent;
+use codex_tui_core::features::settings::hooks::HookTrust;
+use codex_tui_core::features::settings::hooks::Hooks;
+use codex_tui_core::features::settings::{Offer, Which};
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::screens::settings::Edit;
-use codex_tui_core::screens::settings::Experimental;
-use codex_tui_core::screens::settings::Memories;
-use codex_tui_core::screens::settings::Setup;
-use codex_tui_core::screens::settings::SetupKind;
-use codex_tui_core::screens::settings::USE_THEME_COLORS;
-use codex_tui_core::screens::settings::hooks::HookEvent;
-use codex_tui_core::screens::settings::hooks::HookTrust;
-use codex_tui_core::screens::settings::hooks::Hooks;
-use codex_tui_core::screens::settings::{Offer, Which};
-use codex_tui_rtwk::sheets::settings::draft::*;
+use codex_tui_rtwk::features::settings::draft::*;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 const STATUS_LINE: &str =
-    include_str!("../../../../src/sheets/settings/fixtures/status_line.jsonl");
-const TERMINAL_TITLE: &str = include_str!("../../../../src/sheets/settings/fixtures/title.jsonl");
+    include_str!("../../../../src/features/settings/fixtures/status_line.jsonl");
+const TERMINAL_TITLE: &str = include_str!("../../../../src/features/settings/fixtures/title.jsonl");
 const SKILLS: &str =
-    include_str!("../../../../src/sheets/settings/fixtures/skills_long_names.jsonl");
-const MEMORIES: &str = include_str!("../../../../src/sheets/settings/fixtures/memories.jsonl");
+    include_str!("../../../../src/features/settings/fixtures/skills_long_names.jsonl");
+const MEMORIES: &str = include_str!("../../../../src/features/settings/fixtures/memories.jsonl");
 const FEATURES: &str =
-    include_str!("../../../../src/sheets/settings/fixtures/experimental_discovery.jsonl");
+    include_str!("../../../../src/features/settings/fixtures/experimental_discovery.jsonl");
 const HOOKS_EVENTS: &str =
-    include_str!("../../../../src/sheets/settings/fixtures/hooks_events.jsonl");
+    include_str!("../../../../src/features/settings/fixtures/hooks_events.jsonl");
 const HOOKS_REVIEW: &str =
-    include_str!("../../../../src/sheets/settings/fixtures/hooks_events_review_mixed.jsonl");
+    include_str!("../../../../src/features/settings/fixtures/hooks_events_review_mixed.jsonl");
 
 fn offered(script: &str, which: Which) -> Offer {
     let sandbox = Sandbox::play(script).expect("plays");
     sandbox
         .app()
-        .screens()
+        .features()
         .settings
         .offers
         .get(&which)
