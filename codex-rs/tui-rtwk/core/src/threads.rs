@@ -255,6 +255,9 @@ pub struct Transcript {
     items: Rc<HashMap<ItemKey, Rc<Item>>>,
     layout_revision: u64,
     timings: Rc<HashMap<TurnId, TimedTurn>>,
+    /// The turns that ended as completed (oracle: a turn with its `FinalMessageSeparator`),
+    /// whatever time the server gave them.
+    completed: Rc<HashSet<TurnId>>,
     // Keep streaming rows separate so updating a preview never copies history
     // held by the provider. There is still one ordered index for the transcript.
     streaming: HashMap<ItemKey, StreamingItem>,
@@ -332,6 +335,20 @@ impl Transcript {
     pub fn get(&self, index: usize) -> Option<(&ItemKey, &Item)> {
         let key = self.order.get(index)?;
         self.item(key).map(|item| (key, item))
+    }
+
+    /// The turn ended as completed, not interrupted or failed: its tool calls and messages
+    /// before the final answer can fold behind its prompt (oracle `turn_details`).
+    pub fn is_completed(&self, turn: &TurnId) -> bool {
+        self.completed.contains(turn)
+    }
+
+    fn mark_completed(&mut self, turn: &TurnId) {
+        if !self.completed.contains(turn) {
+            Rc::make_mut(&mut self.completed).insert(turn.clone());
+            // the fold of its details changes what the rows are
+            self.layout_revision += 1;
+        }
     }
 
     /// A finished turn's timing belongs after its last retained item.
@@ -2285,6 +2302,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     } else {
                         Rc::make_mut(&mut model.finished_turns).insert(snapshot.turn.clone());
                     }
+                    if snapshot.end == Some(TurnEnd::Completed) {
+                        model.transcript.mark_completed(&snapshot.turn);
+                    }
                     if matches!(snapshot.items, TurnSnapshot::Full(_)) {
                         Rc::make_mut(&mut model.authoritative_turns).insert(snapshot.turn.clone());
                     }
@@ -2841,6 +2861,9 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
     let over = ScreenThreadEv::Approvals(screens::approvals::ThreadEv::TurnEnded);
     screens::apply_thread_ev(&mut model.slots, over, fx);
     Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
+    if end == TurnEnd::Completed {
+        model.transcript.mark_completed(&turn);
+    }
     model.transcript.finish_streams(&turn);
     model.completed_items.retain(|key| key.turn != turn);
     let ends_running = matches!(&model.turn, TurnState::Running(running) if running.turn == turn);

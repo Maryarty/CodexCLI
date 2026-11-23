@@ -850,89 +850,260 @@ fn spoken_prompt_selection_keeps_its_fallback_contrast() {
     }
 }
 
+// ---- the finished turn's disclosures: helpers
+
+/// A chat of a resumed thread of one turn without a start, end or duration (as the oracle's
+/// `app_server_turn` makes one: no `Worked for` separator, so the folded turn reads
+/// `N previous messages`), the turn details folded.
+fn folded_turn(items: serde_json::Value, width: u16, height: u16) -> Screen {
+    let mut turn = kit::replay_turn("turn-1", items);
+    turn["startedAt"] = serde_json::Value::Null;
+    turn["completedAt"] = serde_json::Value::Null;
+    turn["durationMs"] = serde_json::Value::Null;
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(width, height)
+        .replay(vec![turn])
+        .live()
+        .open();
+    s.collapse_turn_details();
+    s
+}
+
+fn user_item(text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "userMessage", "id": "user-1", "clientId": null,
+        "content": [{"type": "text", "text": text, "text_elements": []}],
+        "startedAtMs": null, "completedAtMs": null
+    })
+}
+
+fn message_item(id: &str, text: &str, phase: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "agentMessage", "moderation": null, "id": id, "text": text, "phase": phase,
+        "memoryCitation": null, "delivery": null, "questions": null,
+        "startedAtMs": null, "completedAtMs": null
+    })
+}
+
+/// A legacy message: the server named no phase.
+fn message_item_without_phase(id: &str, text: &str) -> serde_json::Value {
+    let mut item = message_item(id, text, "");
+    item["phase"] = serde_json::Value::Null;
+    item
+}
+
+fn command_item(id: &str, command: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "commandExecution", "id": id, "command": command, "cwd": "/workspace",
+        "processId": null, "source": "agent", "status": "completed", "commandActions": [],
+        "aggregatedOutput": "output sentinel", "exitCode": 0, "durationMs": 0
+    })
+}
+
+fn search_item(id: &str, query: &str) -> serde_json::Value {
+    serde_json::json!({"type": "webSearch", "id": id, "query": query, "action": {"type": "other"}})
+}
+
+/// The screen row of the first row that starts with `text` (leading spaces ignored).
+fn row_of(s: &Screen, text: &str) -> usize {
+    let Some(at) = s
+        .rows()
+        .iter()
+        .position(|row| row.trim_start().starts_with(text))
+    else {
+        panic!("no row starts with {text:?} on the screen:\n{}", s.text());
+    };
+    at
+}
+
+/// A `notify` line of the server: `method` with `params`.
+fn notify_line(method: &str, params: serde_json::Value) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": method, "params": params}})
+    )
+}
+
+/// `turn/started` of `turn-1` in `thread-1`.
+fn started_line() -> String {
+    notify_line(
+        "turn/started",
+        serde_json::json!({"threadId": "thread-1", "turn": {
+            "id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full",
+            "status": "inProgress", "error": null, "startedAt": null, "completedAt": null,
+            "durationMs": null
+        }}),
+    )
+}
+
+/// `turn/completed` of `turn-1`, which took `duration_ms`.
+fn completed_line(duration_ms: u64) -> String {
+    notify_line(
+        "turn/completed",
+        serde_json::json!({"threadId": "thread-1", "turn": {
+            "id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary",
+            "status": "completed", "error": null, "startedAt": null, "completedAt": null,
+            "durationMs": duration_ms
+        }}),
+    )
+}
+
+/// `item/started` or `item/completed` of `item` in `turn-1`.
+fn item_line(method: &str, item: serde_json::Value) -> String {
+    notify_line(
+        method,
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "item": item,
+            "startedAtMs": 0, "completedAtMs": 0}),
+    )
+}
+
+/// A live chat (thread `thread-1`) with the turn details folded, fed its turn's start and
+/// then `lines`.
+fn live_with(width: u16, height: u16, lines: &[String]) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(width, height)
+        .script("{\"step\": \"seed\", \"seed\": \"session\", \"thread\": \"thread-1\"}\n")
+        .open();
+    s.collapse_turn_details();
+    s.feed(&started_line());
+    for line in lines {
+        s.feed(line);
+    }
+    s
+}
+
 // ORACLE transcript_view_tests.rs:1391 tool_disclosure_hides_output kind=snap owner=chat-live
+// F4 + Enter is a click on the control (the activity focus is a session-page key).
 #[test]
 fn tool_disclosure_hides_output() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image-generation call entry and no F4 tool disclosure in the chat yet",
+    let mut s = live_with(
+        40,
+        14,
+        &[item_line(
+            "item/completed",
+            serde_json::json!({
+                "type": "imageGeneration", "id": "image", "status": "failed",
+                "revisedPrompt": "private prompt", "failure": null, "savedPath": null,
+                "generationId": null, "result": ""
+            }),
+        )],
     );
-    let mut s = Screen::build(Owner::ChatLive).size(40, 8).live().open();
-    s.assert_row(0, "▸ Image generation failed");
-    s.keys("f4 enter");
-    s.assert_row(0, "▾ Image generation failed");
-    s.assert_row(1, "  Image generation failed");
+    row_of(&s, "▸ Image generation failed");
+    s.assert_absent("private prompt");
+    s.click_text("▸ Image generation failed");
+    // The list keeps its end in view, so the opened rows grew upward.
+    let at = row_of(&s, "▾ Image generation failed");
+    s.assert_row(at + 1, "      Image generation failed");
 }
 
 // ORACLE transcript_view_tests.rs:1425 tool_groups_expand_independently_inside_a_completed_turn kind=snap owner=chat-live
+// The oracle's F4/Enter steps are clicks here (the pager's activity focus is a
+// session-page key), and its tail (find expands only the match, a selection
+// across the fold, the pager shows the output) is the find, selection and
+// pager chunks' (transcript-2-find, -select-mode, pager). The chat draws the
+// transcript above the composer, so the rows are the oracle's from the prompt's row on.
 #[test]
 fn tool_groups_expand_independently_inside_a_completed_turn() {
-    kit::pending(
-        Owner::ChatLive,
-        "no completed-turn entry (a prompt, a commentary message, two command groups, a web search and a final answer) and no per-group disclosure, search or selection in the chat yet",
+    let mut s = folded_turn(
+        serde_json::json!([
+            user_item("Check why the service writes a diagnostic to stderr each time it starts."),
+            message_item("msg-1", "Checking stderr.", "commentary"),
+            command_item("hello", "echo hello"),
+            command_item("world", "echo world"),
+            message_item("msg-2", "The path is valid.", "partial_answer"),
+            message_item("msg-3", "The fixture is missing.", "final_answer"),
+        ]),
+        52,
+        22,
     );
-    let mut s = Screen::build(Owner::ChatLive).size(52, 22).live().open();
-    s.assert_row(0, "› Check why the service writes a diagnostic to");
-    s.assert_row(1, "  stderr each time it starts.");
-    s.assert_row(4, "▸ 3 previous messages");
-    s.assert_row(6, "• The path is valid.");
-    s.assert_row(8, "• The fixture is missing.");
-    s.resize(25, 3);
-    s.keys("f4 enter");
+    let top = row_of(&s, "› Check why the service writes a diagnostic to");
+    s.assert_row(top + 1, "  stderr each time it starts.");
+    s.assert_row(top + 4, "▸ 3 previous messages");
+    s.assert_row(top + 6, "• The path is valid.");
+    s.assert_row(top + 8, "• The fixture is missing.");
+    s.assert_absent("Checking stderr.");
+    s.click_text("▸ 3 previous messages");
     s.assert_contains("▾ 3 previous messages");
-    s.resize(52, 22);
     s.assert_contains("Checking stderr.");
     s.assert_contains("▸ Ran 2 commands");
     s.assert_absent("Ran echo hello");
-    s.keys("down enter");
+    s.click_text("▸ Ran 2 commands");
     s.assert_contains("▾ Ran 2 commands");
     s.assert_contains("Ran echo hello");
     s.assert_contains("Ran echo world");
     s.assert_absent("output sentinel");
-    s.keys("ctrl+f");
-    s.type_text("fixture is missing");
-    s.keys("enter");
-    s.click(0, 4);
-    s.assert_absent("Checking stderr.");
-    s.assert_absent("Ran 2 commands");
-    s.assert_contains("The fixture is missing.");
-    s.keys("esc");
-    s.keys("ctrl+t");
-    s.assert_contains("output sentinel");
 }
 
 // ORACLE transcript_view_tests.rs:1533 legacy_progress_stays_visible_until_a_final_answer kind=snap owner=chat-live
+// F4 + Enter is a click on the control. Not here (the history page and selection chunks'): the
+// older image call prepended to the group while a double-click selection is held, and the
+// second turn after the review separator.
 #[test]
 fn legacy_progress_stays_visible_until_a_final_answer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no legacy progress entry (web search calls and an intermediate message) and no final-message separator or turn disclosure in the chat yet",
+    let mut s = live_with(
+        52,
+        22,
+        &[
+            item_line("item/started", user_item("Check the fixture")),
+            item_line(
+                "item/completed",
+                message_item_without_phase("msg-1", "Intermediate progress"),
+            ),
+            item_line("item/completed", search_item("search", "fixture")),
+        ],
     );
-    let mut s = Screen::build(Owner::ChatLive).size(52, 22).live().open();
-    s.assert_row(0, "› Check the fixture");
-    s.assert_row(3, "• Intermediate progress");
-    s.assert_row(5, "• Searched the web for fixture");
-    // A second search completes and the turn is grouped: no script shape yet.
+    let top = row_of(&s, "› Check the fixture");
+    s.assert_row(top + 3, "• Intermediate progress");
+    s.assert_row(top + 5, "• Searched the web for fixture");
+    s.feed(&item_line(
+        "item/completed",
+        search_item("search-2", "docs"),
+    ));
     s.assert_contains("⌕ 2 tool calls · Searched the web for docs");
-    s.keys("f4 enter");
-    s.assert_in_order(&["Searched the web for fixture", "Searched the web for docs"]);
+    s.click_text("⌕ 2 tool calls");
+    s.assert_in_order(&[
+        "      Searched the web for fixture",
+        "      Searched the web for docs",
+    ]);
+    s.feed(&item_line(
+        "item/completed",
+        message_item_without_phase("msg-2", "Fixture verified"),
+    ));
+    s.feed(&completed_line(2_000));
     s.assert_contains("▸ Worked for 2s");
+    s.assert_contains("Fixture verified");
     s.assert_absent("Intermediate progress");
 }
 
 // ORACLE transcript_view_tests.rs:1626 live_search_group_keeps_its_summary_in_the_parked_pane kind=snap owner=chat-live
+// The disclosure is clicked at its row (the oracle's column 4 of the parked pane's row 0);
+// the selection held across the completion is the select-mode chunk's.
 #[test]
 fn live_search_group_keeps_its_summary_in_the_parked_pane() {
-    kit::pending(
-        Owner::ChatLive,
-        "no live exec command with two searches (rg -l TODO, then FIXME, in src) and no disclosure of a live tool group in the parked pane yet",
+    let search = |id: &str, query: &str| {
+        serde_json::json!({
+            "type": "commandExecution", "id": id, "command": format!("rg -l {query} src"),
+            "cwd": "/workspace", "processId": null, "source": "agent", "status": "inProgress",
+            "commandActions": [{
+                "type": "search", "command": format!("rg -l {query} src"),
+                "query": query, "path": "src"
+            }],
+            "aggregatedOutput": null, "exitCode": null, "durationMs": null
+        })
+    };
+    let mut s = live_with(
+        40,
+        14,
+        &[item_line("item/started", search("first", "TODO"))],
     );
-    let mut s = Screen::build(Owner::ChatLive).size(40, 8).live().open();
-    s.assert_row(0, "⌕ Searching for TODO in src");
-    // The second search joins the group: no script shape yet.
-    s.assert_row(0, "⌕ 2 tool calls · Searching for FIXME");
-    s.click(4, 0);
-    s.assert_row(0, "▾ 2 tool calls · Searching for FIXME");
-    s.assert_row(1, "  Searching for TODO in src");
-    s.assert_row(2, "  Searching for FIXME in src");
+    s.assert_has_row("    ⌕ Searching for TODO in src");
+    s.feed(&item_line("item/started", search("second", "FIXME")));
+    // The control sits a quarter of the width in (four columns) and is cut at the edge.
+    let at = row_of(&s, "⌕ 2 tool calls");
+    s.assert_row(at, "    ⌕ 2 tool calls · Searching for FIXME");
+    s.click(4, u16::try_from(at).unwrap_or(0));
+    let at = row_of(&s, "▾ 2 tool calls");
+    s.assert_row(at, "    ▾ 2 tool calls · Searching for FIXME");
+    s.assert_row(at + 1, "      Searching for TODO in src");
+    s.assert_row(at + 2, "      Searching for FIXME in src");
 }

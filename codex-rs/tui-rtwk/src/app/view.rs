@@ -133,6 +133,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         .with(
             Provider::value(app.core.agents_threads()).update_should_notify(|old, new| old != new),
         )
+        .with(Provider::value(app.core.tui()).update_should_notify(|old, new| old != new))
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))
         .into();

@@ -146,6 +146,7 @@ impl State for SeededScopeState {
             .with(
                 Provider::value(core.agents_threads()).update_should_notify(|old, new| old != new),
             )
+            .with(Provider::value(core.tui()).update_should_notify(|old, new| old != new))
             .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
             .child(child)
             .into()
