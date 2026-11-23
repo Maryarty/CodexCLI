@@ -116,3 +116,9 @@ session.rs, a comment named a model type; fixed: the clearing is in app.rs, the 
 - src/sheets/select/{mod,dialog,lists,strings}.rs (chunk-popups), step 5: `open_centered`, the `Menu::Confirm` wrapper in `MenuDialog::build`, `confirmation()`, the
   confirmation words (additive).
 - src/pages/session/session_page.rs, open.rs (chunk-live), step 5: `ChatState.removed` and the trigger in `did_change_dependencies`; `open_confirmation`.
+
+## block-commands: chunk-commands, the /rename prompt view (2026-11-23, branch fleet/block-commands, tip 29abc1aa5, landed in 51abab645)
+Commits: be07548c2 (`/rename` prompt view in `src/sheets/dialogs/prompt.rs`, with dialog, strings, session_page and actions; the chat page shows any model-opened prompt, so the `/export` file prompt and the `/goal` edit prompt use the same view), 569ed23c8 (pty scenario `rename-prompt`), and the merge.
+Tests: five chat_commands_2 oracle tests un-pended and green. land-check on 29abc1aa5 green: 3093 tests, 5 of 5 scenarios. Binary: the `rename-prompt` scenario passes in both binaries.
+Gap row: title suggestion. The host answers `Done::Title(None)` (`src/services/effects.rs`); the oracle generates the suggestion in `app/thread_title.rs` `generate_thread_title` (an ephemeral thread and a structured turn `{title}`). Need: a backend `SuggestTitle` in `services/rpc`.
+Not started in this block: chunk-commands-submission, chunk-commands-export (the picker and prompt exist: verify and un-pend), chunk-commands-queue (Tab queues the raw line as `Queued::of`, drain by `dispatch_queued`, `QueueResume`), chunk-cells-mcp-inventory, chunk-cells-background-terminals, small-dialogs. Children still to create, one per NotAvailable command (`/side /btw /recap /title /statusline /logout /ide /daybreak /debug-config /subagents /tui`; the list is the NotAvailable arm of `core/src/app/session.rs`); the chunk's area widens when the next child is taken.

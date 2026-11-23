@@ -439,15 +439,19 @@ fn image_placeholder_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:9376 remote_image_rows_snapshots kind=snap owner=chat-live snap=remote_image_rows snap=remote_image_rows_after_delete_first
 #[test]
 fn remote_image_rows_snapshots() {
-    kit::pending(
-        Owner::ChatLive,
-        "the port draws the remote image rows and their keys (tests/pages/composer_images.rs holds the rows of both snapshots), but the kit has no seed for set_remote_image_urls, and the oracle's snapshot is the composer alone with its own `100% context left` footer (pane-footer)",
-    );
-    let mut s = ready(100, 9);
+    // the oracle's `set_remote_image_urls` of two URLs, then the text: the composer alone with
+    // the two remote rows over it (the entry seeds the draft's URLs)
+    let remote = || {
+        Screen::build(Owner::ChatLive)
+            .size(100, 9)
+            .entry("composer", "alone_remote")
+            .open()
+    };
+    let mut s = remote();
     s.type_text("describe these");
     s.assert_snap("remote_image_rows");
 
-    let mut s = ready(100, 9);
+    let mut s = remote();
     s.type_text("describe these");
     s.keys("home up up delete");
     s.assert_snap("remote_image_rows_after_delete_first");
@@ -716,12 +720,8 @@ fn slash_mention_dispatches_command_and_inserts_at() {
 // ORACLE bottom_pane/chat_composer.rs:10337 slash_plan_args_preserve_text_elements kind=ui owner=chat-live
 #[test]
 fn slash_plan_args_preserve_text_elements() {
-    kit::pending(
-        Owner::ChatLive,
-        "`/plan <args>` does not carry the draft's images: the `[Image #1]` placeholder in the args is sent as plain text",
-    );
     let mut s = ready(100, 24);
     s.type_text("/plan ");
-    // attach_image(/tmp/plan.png): no kit call yet
+    s.attach_image("plan.png");
     s.assert_row(prompt(&s), "› /plan [Image #1]");
 }

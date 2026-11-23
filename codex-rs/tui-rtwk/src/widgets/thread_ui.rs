@@ -453,8 +453,9 @@ impl ThreadUiMap {
     }
 
     /// Makes the controllers of `thread` if it has none. The draft typed
-    /// before the thread existed moves to the first one.
-    pub fn ensure(&mut self, thread: &ThreadId) {
+    /// before the thread existed moves to the first one. With `vim_default`
+    /// (`tui.vim_mode_default`) a new draft is edited modally, in Insert mode.
+    pub fn ensure(&mut self, thread: &ThreadId, vim_default: bool) {
         if self.threads.contains_key(thread) {
             return;
         }
@@ -463,6 +464,9 @@ impl ThreadUiMap {
         } else {
             Rc::new(ThreadUi::default())
         };
+        if vim_default && !ui.draft.vim_enabled() {
+            ui.draft.start_in_vim_insert(&ui.composer);
+        }
         self.threads.insert(thread.clone(), ui);
     }
 }

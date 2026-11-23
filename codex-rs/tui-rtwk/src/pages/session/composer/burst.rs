@@ -21,6 +21,7 @@ use codex_tui_core::screens::composer::paste_burst::{CharDecision, FlushResult, 
 
 use super::ComposerMsg;
 use super::editing::{KeyData, typed_char};
+use super::vim;
 use crate::widgets::composer_draft::ComposerDraft;
 
 /// What a held first char waits for before it goes in as typing: the burst
@@ -120,6 +121,8 @@ pub fn flush_due_with(
         FlushResult::Typed(ch) => {
             if !typed_char(draft, tell, c, ch, skill_space) {
                 c.insert(&ch.to_string());
+                // Insert mode records it for `.`
+                vim::pasted(draft, c, &ch.to_string());
             }
             tell(ComposerMsg::Pasted);
             true
@@ -157,6 +160,7 @@ pub fn apply_paste(
     if !draft.paste(c, text, |chars| (env.label)(chars), |n| (env.image)(n)) {
         c.insert(text);
     }
+    vim::pasted(draft, c, text);
     draft.burst(PasteBurst::clear_after_explicit_paste);
     tell(ComposerMsg::Pasted);
 }

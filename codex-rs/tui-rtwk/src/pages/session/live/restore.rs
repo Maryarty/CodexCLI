@@ -16,13 +16,16 @@ use codex_tui_core::threads::replay::Submissions;
 
 use crate::widgets::thread_ui::ThreadUi;
 
-/// Puts `message` in the composer of `ui`: its text, each local image's
-/// placeholder an attached element again, the caret at the end. `image` words
-/// a placeholder from its number.
+/// Puts `message` in the composer of `ui`: its remote images above the text, its text, each
+/// local image's placeholder an attached element again (numbered after the remote ones), the
+/// caret at the end. `image` words a placeholder from its number
+/// (`restore_user_message_to_composer`).
 pub(crate) fn put_back(ui: &ThreadUi, message: &UserMessage, image: impl Fn(usize) -> String) {
     ui.draft.clear();
     ui.draft.set_shell(false);
     ui.composer.reset("");
+    ui.draft
+        .set_remote_images(&ui.composer, message.remote_images.clone(), &image);
     let mut images: Vec<(&std::ops::Range<usize>, &PathBuf)> = message
         .images
         .iter()
