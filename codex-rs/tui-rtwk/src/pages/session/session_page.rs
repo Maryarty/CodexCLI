@@ -81,6 +81,10 @@ pub struct ChatState {
     /// How many removals (the app counts them) the chat has answered with
     /// the command center.
     removed: Option<u32>,
+    /// The read-only thread this page asked to fork and heard no answer of
+    /// (the oracle's `fork_in_progress`): its notice gives way to "Forking
+    /// conversation…" and the keys wait. A failed fork ends it.
+    forking: Option<Forking>,
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
@@ -173,6 +177,7 @@ impl StatefulWidget for Chat {
             edited: None,
             plan: PlanSeen::default(),
             removed: None,
+            forking: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
             search_rev: self.ui.draft.search_rev(),
@@ -191,7 +196,22 @@ impl StatefulWidget for Chat {
 
 impl_widget!(stateful eq Chat);
 
+/// A fork in flight: the thread it copies and the agents notice standing when
+/// it was asked (a new error notice is its failure).
+#[derive(Clone, Debug, PartialEq)]
+struct Forking {
+    thread: ThreadId,
+    notice: Option<codex_tui_core::screens::agents::Notice>,
+}
+
 impl ChatState {
+    /// The fork the page waits on in this thread.
+    fn forking_of(&self, thread: &ThreadModel) -> bool {
+        self.forking
+            .as_ref()
+            .is_some_and(|fork| fork.thread == *thread.id())
+    }
+
     /// What the page keeps of the draft (the footer and the Tab binding
     /// read it): empty (shell mode's `!` is content), in shell mode, in
     /// history search.
@@ -387,6 +407,18 @@ impl State for ChatState {
         let states = watch::<ScreenStates, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
         let thread = read::<ThreadModel, _>(cx);
+        // the fork ends with an error of the server (the copy opens in another
+        // thread, which the id check in `forking_of` takes as its end too)
+        if let Some(fork) = &self.forking
+            && (fork.thread != *thread.id()
+                || (states.agents.notice != fork.notice
+                    && matches!(
+                        states.agents.notice,
+                        Some(codex_tui_core::screens::agents::Notice::Error(_))
+                    )))
+        {
+            self.forking = None;
+        }
         select::<ThreadModel, _, _>(cx, |thread| {
             (
                 thread.id().clone(),
@@ -422,6 +454,10 @@ impl State for ChatState {
             self.search_rev,
             modes.detailed(),
         );
+        // a fork in flight takes no key (`handle_key_event`)
+        if self.forking_of(&read::<ThreadModel, _>(cx)) {
+            return Rebuild::No;
+        }
         // any other input between the two Escs ends the pair
         if !matches!(msg, ChatMsg::Escape) {
             modes.interrupt();
@@ -509,6 +545,11 @@ impl State for ChatState {
                     let intent =
                         codex_tui_core::screens::agents::Intent::Fork(thread.id().to_string());
                     cx.emit(&hs.screen, ScreenIntent::from(intent));
+                    self.forking = Some(Forking {
+                        thread: thread.id().clone(),
+                        notice: read::<ScreenStates, _>(cx).agents.notice.clone(),
+                    });
+                    return Rebuild::Yes;
                 }
             }
             ChatMsg::QuitReadOnly => cx.emit(&hs.quit, ()),
@@ -597,6 +638,14 @@ impl State for ChatState {
                     return Rebuild::Yes;
                 }
                 let thread = read::<ThreadModel, _>(cx);
+                // another process writes the thread: Esc leaves for the
+                // command center, whatever the reader shows
+                // (`ExternalWriter` arm of `handle_tui_event`)
+                if thread.read_only() {
+                    modes.close();
+                    open(cx, Target::Agents);
+                    return Rebuild::Yes;
+                }
                 // the detailed transcript with an empty composer: Esc begins
                 // browsing the prompts, and with none to browse the transcript
                 // closes and the chat says so (`begin_overlay_backtrack_preview`)
@@ -635,10 +684,6 @@ impl State for ChatState {
                             ScreenThreadIntent::Chat(chat::ThreadIntent::InterruptForSteers);
                         cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
                     }
-                    return Rebuild::No;
-                }
-                if thread.read_only() {
-                    open(cx, Target::Agents);
                     return Rebuild::No;
                 }
                 // The chat as a page over another (a debug entry) goes back.
@@ -720,10 +765,21 @@ impl State for ChatState {
         let (panel, _) = shortcut_panel(cx, running);
         let chat_strings = chat_strings::of(cx);
         let mut hints: Option<Footer> = None;
-        let (composer, footer): (AnyWidget, AnyWidget) = if thread.read_only() {
+        let forking = self.forking_of(&thread);
+        let (composer, footer): (AnyWidget, AnyWidget) = if forking {
+            // `bottom_pane_renderable` while `fork_in_progress`
+            (
+                rtwk::layout::Padding::new(
+                    EdgeInsets::only(2, 1, 2, 1),
+                    Text::new(chat_strings.forking).style(tokens.dim()),
+                )
+                .into(),
+                SizedBox::shrink().into(),
+            )
+        } else if thread.read_only() {
             (
                 super::external_writer::notice(cx, chat_strings, &tokens),
-                super::external_writer::footer(chat_strings, &tokens),
+                super::external_writer::footer(cx, chat_strings, &tokens),
             )
         } else {
             let composer = Composer::new(w.ui.clone(), self.node.clone())
@@ -771,7 +827,7 @@ impl State for ChatState {
         };
         // `⚠ N warnings · f2 to view` at the right of the read-only footer; the
         // composer's footer holds its own.
-        let footer = if searching.is_none() && thread.read_only() {
+        let footer = if searching.is_none() && thread.read_only() && !forking {
             let data = Theme::of(cx);
             with_warning_notice(
                 footer,

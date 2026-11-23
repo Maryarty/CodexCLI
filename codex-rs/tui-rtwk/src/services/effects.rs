@@ -176,7 +176,9 @@ impl Services {
             Ask::SuggestTitle { .. }
             | Ask::ConfigWrite { .. }
             | Ask::GitBranches { .. }
-            | Ask::GitLog { .. } => return None,
+            | Ask::GitLog { .. }
+            | Ask::Worktrees { .. }
+            | Ask::WorktreeRemove { .. } => return None,
         })
     }
 

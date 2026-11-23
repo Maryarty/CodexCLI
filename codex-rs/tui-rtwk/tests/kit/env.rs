@@ -21,7 +21,8 @@
 //!   default: what the shell exports changes nothing).
 //! - `foreign_writer(thread)`: the chat shows `thread`, which another process
 //!   writes (the server refuses the resume: "already has an active writer"),
-//!   so the view is read-only.
+//!   so the view is read-only; `fork_refused()` also has the server refuse the
+//!   fork (otherwise it stays in progress).
 //!
 //! Files of the session: `kit::image_file(name)` writes a tiny PNG, `Open::cwd`
 //! (markdown seeds) names the session's directory.
@@ -74,6 +75,9 @@ pub(super) struct Env {
     vars: Vec<(&'static str, &'static str)>,
     syntax_theme: Option<&'static str>,
     foreign_writer: Option<&'static str>,
+    /// The server refuses the fork of the foreign thread (left unanswered
+    /// otherwise: the fork stays in progress).
+    fork_refused: bool,
     replay: Option<Vec<serde_json::Value>>,
 }
 
@@ -123,14 +127,19 @@ impl Env {
         }
         if let Some(thread) = self.foreign_writer {
             // the server refuses to resume the thread: another process writes it
-            h.fake.respond(|request| {
-                (request["method"] == "thread/resume").then(|| {
-                    Err(ServerError {
-                        code: None,
-                        data: None,
-                        message: "thread already has an active writer".to_string(),
-                    })
-                })
+            let fork_refused = self.fork_refused;
+            h.fake.respond(move |request| {
+                let refused = match request["method"].as_str() {
+                    Some("thread/resume") => "thread already has an active writer",
+                    // the fork the notice's `f` asks for ends in an error too
+                    Some("thread/fork") if fork_refused => "fork refused",
+                    _ => return None,
+                };
+                Some(Err(ServerError {
+                    code: None,
+                    data: None,
+                    message: refused.to_string(),
+                }))
             });
             h.connect();
             h.quiesce();
@@ -228,6 +237,13 @@ impl Open {
     /// read-only.
     pub fn foreign_writer(mut self, thread: &'static str) -> Open {
         self.env.foreign_writer = Some(thread);
+        self
+    }
+
+    /// With `foreign_writer`: the server refuses the fork (`f` on the notice)
+    /// at once; without it the fork stays unanswered, in progress.
+    pub fn fork_refused(mut self) -> Open {
+        self.env.fork_refused = true;
         self
     }
 
