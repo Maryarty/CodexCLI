@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::binding::{AppBinding, Timer};
-use rtwk::editing::{EditingKeys, TextArea, TextEditingController, TextField};
+use rtwk::editing::{EditingKeys, TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::layout::{
     BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded,
@@ -34,7 +34,9 @@ use super::strings::{self, Strings};
 use super::tips;
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::pages::session::composer::{Composer, plain};
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::widgets::thread_ui::ThreadUi;
 
 /// The dialog of the `request_user_input` request `key` (`prompt` holds its questions).
 #[derive(Clone, Debug, PartialEq)]
@@ -65,6 +67,8 @@ struct QuestionState {
     selected: bool,
     committed: bool,
     notes_open: bool,
+    /// The notes' controllers: the plain-text composer's (`plain::ui`); `notes` is its text.
+    ui: Rc<ThreadUi>,
     notes: TextEditingController,
     node: FocusNode,
 }
@@ -73,12 +77,14 @@ impl QuestionState {
     /// A question's own state: its options' cursor, its notes and their focus node.
     fn new(question: &Question) -> QuestionState {
         let options = input::has_options(question);
+        let ui = plain::ui();
         QuestionState {
             options: Options::new(),
             selected: options,
             committed: false,
             notes_open: !options,
-            notes: TextEditingController::new(""),
+            notes: ui.composer.clone(),
+            ui,
             node: FocusNode::new(),
         }
     }
@@ -685,10 +691,24 @@ impl UserInputViewState {
             } else {
                 s.select_option_placeholder
             };
-            let area: AnyWidget = if question.is_secret {
+            // The text area takes Backspace, the arrows and Ctrl+C for its own text; the dialog
+            // reads them first (the oracle's `handle_key_event` reads them before the composer).
+            let send = cx.local_sender();
+            let take = move |notes: &TextEditingController, key: &KeyPress| {
+                let empty = notes.text().trim().is_empty();
+                match notes_msg(key, has_options, empty) {
+                    Some(msg) => {
+                        send(msg);
+                        true
+                    }
+                    None => false,
+                }
+            };
+            let input: AnyWidget = if question.is_secret {
                 // The oracle masks a secret answer with `*` (`render_with_mask`): Flutter's
-                // `TextField(obscureText: true)`, one line.
-                TextField::new()
+                // `TextField(obscureText: true)`, one line, behind the dialog's keys (the door
+                // rtwk gives an app for keys of the fields below it).
+                let field = TextField::new()
                     .controller(state.notes.clone())
                     .placeholder(placeholder)
                     .placeholder_style(tokens.dim())
@@ -697,51 +717,32 @@ impl UserInputViewState {
                     .focus_node(state.node.clone())
                     .autofocus(self.notes_focus)
                     .on_submitted(cx.map(Msg::Submitted))
-                    .on_changed(cx.map(|_: Rc<str>| Msg::Edited))
+                    .on_changed(cx.map(|_: Rc<str>| Msg::Edited));
+                let field = EditingKeys::new(move |notes, key, _| take(notes, key), field)
+                    .controller(state.notes.clone());
+                Row::new()
+                    .child(Padding::new(
+                        EdgeInsets::only(0, 0, 1, 0),
+                        Text::new(s.composer_prompt).style(tokens.dim().attrs(Attrs::BOLD)),
+                    ))
+                    .child(Expanded::new(1, field))
                     .into()
             } else {
-                TextArea::new()
-                    .controller(state.notes.clone())
+                // `ChatComposerConfig::plain_text`: `!`, `/` and `?` stay text, no popups.
+                Composer::plain(state.ui.clone(), state.node.clone())
                     .placeholder(placeholder)
-                    .placeholder_style(tokens.dim())
-                    .min_lines(1)
-                    .max_lines(6)
-                    .focus_node(state.node.clone())
+                    .prompt_style(tokens.dim().attrs(Attrs::BOLD))
                     .autofocus(self.notes_focus)
+                    .on_keys(move |notes, key, _| take(notes, key))
                     .on_submitted(cx.map(Msg::Submitted))
                     .on_changed(cx.map(|_: Rc<str>| Msg::Edited))
                     .into()
             };
-            // The text area takes Backspace, the arrows and Ctrl+C for its own text; the dialog
-            // reads them first (the oracle's `handle_key_event` reads them before the composer),
-            // as the door rtwk gives an app for keys of the fields below it.
-            let send = cx.local_sender();
-            let area = EditingKeys::new(
-                move |notes, key, _| {
-                    let empty = notes.text().trim().is_empty();
-                    match notes_msg(key, has_options, empty) {
-                        Some(msg) => {
-                            send(msg);
-                            true
-                        }
-                        None => false,
-                    }
-                },
-                area,
-            )
-            .controller(state.notes.clone());
             let composer: AnyWidget = Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(Text::new(String::new()))
-                .child(
-                    Row::new()
-                        .child(Padding::new(
-                            EdgeInsets::only(0, 0, 1, 0),
-                            Text::new(s.composer_prompt).style(tokens.dim().attrs(Attrs::BOLD)),
-                        ))
-                        .child(Expanded::new(1, area)),
-                )
+                .child(input)
                 .child(Text::new(String::new()))
                 .into();
             column = column.child(composer.with_key(u32::try_from(self.current).unwrap_or(0)));

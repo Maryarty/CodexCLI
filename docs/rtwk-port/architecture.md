@@ -57,6 +57,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | ADR-009 | migration | foundation → main chat screen → screen slices in parallel → inline mode and rtwk gaps |
 | ADR-010 | localization | the app's strings are typed `const` tables (rtwk-l10n's form), one `strings.rs` per screen directory plus `src/l10n/`; English is the oracle's text byte for byte; the locale is negotiated once and reaches the tree as rtwk's `TwkLocalizations`; a rules test bans user-visible literals in widget code |
 | ADR-011 | mouse | mouse support is added though codex-tui has none (the person, 2026-11-18): capture on, wheel scrolls, click selects, click on the selected row or double click accepts, tabs and buttons clickable; tested with rtwk_test mouse events |
+| ADR-012 | core feature slices | a feature of the core that is a flow, not a screen (`/goal`, `/export`, `/rename`, `/plugins`, the queue) is a slice: `core/src/features/<f>/` and `src/features/<f>/`, registered by one line in `feature_list!`, which generates the root enums and their dispatch as `screen_list!` does for screens; it reads the app through `AppView` / `ThreadView` and acts through an `AppCx` outbox, never names `CodexApp` or `ThreadModel`; hooks run in list order; the hub enums only shrink (ratchet) |
 
 ## 1. What we build (facts and the screen map)
 
@@ -717,6 +718,161 @@ working (rtwk-gaps G9, G11). Every view a slice builds wires the mouse and
 tests it with rtwk_test mouse events; the `mouse` slice of VS1 closes what is
 left across views and adds a pty scenario.
 
+## ADR-012 — Core feature slices
+
+Research: [research/core-slices/report.md](research/core-slices/report.md) (the core hub
+measured: 14 core-pass features changed a median of 7 shared files each, 49% of a week's core
+commits touched one of 8 hub files). The porter's recipe is the last part of this ADR
+("Recipe: a feature as a slice").
+
+**Decision.** A feature of the core is a slice: `core/src/features/<f>/` (its intents, thread
+intents, RPCs, notes, app state and per-thread part, and the hooks it needs) and
+`src/features/<f>/` (its words and views). It is registered once in `feature_list!`
+(`core/src/features/mod.rs`), which generates the root enums and their dispatch, as
+`screen_list!` does for screens. A slice reads the app through `AppView` / `ThreadView` and
+changes it only through the outbox of `AppCx` (and the effects of `ThreadCx`). A slice never
+names `CodexApp` or `ThreadModel`. Its per-thread part is a field of `ThreadModel`
+(`ThreadModel { core, slots, features }`), written only by `threads::apply` under the
+thread's writer (ADR-003 unchanged). Its RPCs go out through `AppCx::ask` and
+`ThreadCx::request` (the one door `ThreadFx::request_feature`). The thread lifecycle RPCs
+(resume, fork, start, read, turns, subscribe, the turn calls) stay in `ThreadAsk`, built in
+`threads.rs` and `protocol/mod.rs` only. The generic menu, prompt and notes carry
+`FeatureMenu` / `FeaturePrompt` / `FeatureNote`, never a per-feature variant of their own.
+
+**The counterpart.** In Flutter this is feature-first folders (`features/goal/` with its data,
+domain and presentation, not `models/`, `screens/`, `blocs/` across the app). The generated
+root is Redux's `combineReducers` and the elm-spa generated `Main` (one `Model`, one `Msg`,
+one `update` per module composed by a list), and `AppCx` is Elm's `Cmd` / `Effect`: a step
+says what it wants, the app does it after the call, in the order it was said, and the step
+holds neither the app nor a thread. `AppView` / `ThreadView` are what `BuildContext` and a
+selector are: read-only facts. A feature's `Feature` trait is the module's `init / update /
+subscriptions` with default no-ops.
+
+**Shape.**
+- `trait Feature` (marker type per feature): associated types `State`, `ThreadPart`, `Intent`,
+  `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Menu`, `Pick`, `Prompt`, `Note`; steps `intent`,
+  `answered`, `choose`, `picked`, `prompt_submitted`, `note_tone`, `on_resumed`, `thread_intent`,
+  `thread_answered`, `on_turn_end`, `on_interrupted`, `wire`, `decode`; every step has a
+  default that does nothing but `wire` / `decode`. A component a feature does not have is
+  `Never<Self>`; the feature's own types are its own (no two features share a type, so the
+  root enums' `From` impls are unique).
+- The hub carries one generic variant per component: `Intent::Feature`,
+  `ThreadEv::FeatureIntent`, `Command::Feature`, `AppCtx::Feature`, `ThreadCtx::Feature`,
+  `Answer::Feature`, `Menu::Feature`, `Picked::Feature`, `PromptKind::Feature`,
+  `NoteKey::Feature`. The UI routes `FeatureNote` to `src/features/<f>/strings.rs` and
+  `FeatureMenu` to the feature's `FeatureView::menu_list`: the opener owns the continuation,
+  as Flutter's `showDialog<T>` does.
+- **Hook order is the order of `feature_list!`.** Every hook that runs over all features
+  (`on_resumed`, `on_turn_end`, `on_interrupted`) runs them in list order, so a line's
+  position is a decision (the queue's `on_turn_end` sends the next message; a feature after
+  it sees the thread already busy). `core/src/features/framework.rs` tests it with two
+  probe features registered in a list of their own.
+
+**Enforced** (`tests/rules/layers.rs`, each with a test that bites on a synthetic source):
+`hub_enums_only_shrink` (ratchet of the hub enums' variants, `tests/rules/hub_budget.txt`),
+`threads_apply_matches_no_screen_or_feature_intent` (the arms of `threads::apply_ev` that name
+a screen's thread intent by name: 14 now, to 0 as features move; a feature's: always 0),
+`features_are_named_only_through_the_list` (no `features::<f>` outside the feature's two
+folders, the two lists and the slash router that builds an intent), `features_hold_no_app`
+(no `CodexApp` or `ThreadModel` in `core/src/features`), `feature_slices_ask_only_through_the_outbox`
+(a slice names none of `AppFx`, `ThreadFx`, `ThreadAsk`, `ThreadSet`, `apply_app`; `ThreadCx`
+keeps its `fx` private), `thread_rpcs_only_in_threads` (the lifecycle list everywhere; the
+feature RPCs `compact`, `rename`, `shell`, `revert` also inside a slice), and the existing
+layer rules, which cover `core/src/features` (core pure) and `src/features` (a view folder:
+no protocol, no model code, a known top-level folder).
+
+**Departures: none.** Step 0 adds the framework and no behaviour (core's 1509 tests, the
+rules and the oracle shards are unchanged; the real list is empty). The existing features
+(`/goal`, the queue, `/export`, ...) migrate when convenient, and the budget records how far
+that has gone; a feature that has not moved is still in the hub and counted there.
+
+**Edges known at step 0** (decide in the first slice that meets them): a feature RPC on a
+thread must be listed with `Command::Screen` where the host routes by thread
+(`host/src/in_process.rs` `asks_thread`, `host/src/cloud.rs`); a feature that changes a
+`ThreadCore` field it does not own (the queue gives a message back to the composer) gets a
+`ThreadCx` method for it, in `cx.rs`; the words of a note see the session strings only
+(`FeatureView::note_words`), a feature that needs another table adds its own.
+
+### Recipe: a feature as a slice
+
+For a flow that is not a screen: a slash command that opens a menu or a prompt, asks the
+server and says what happened in the transcript (`/goal`, `/export`, `/rename`), or thread
+state that reacts to the turn (the queue). A screen is still a `screen_list!` directory.
+
+**Files.** You edit only these, plus one line in `feature_list!`:
+
+```
+core/src/features/<f>/mod.rs     the marker type and `impl Feature for <F>`; model.rs, menu.rs, wire.rs, note.rs as it grows
+src/features/<f>/mod.rs          `impl FeatureView for <F>` (the same marker, from codex_tui_core)
+src/features/<f>/strings.rs      the words of its notes and menu rows (a typed const table, ADR-010)
+core/tests/<f>.rs                tests through `CodexApp`, as the oracle's tests are
+```
+
+**The one list line** (`core/src/features/mod.rs`, `macro_rules! feature_list`):
+`goal => Goal;` (the directory => the marker type in it). It generates `FeatureStates`,
+`FeatureThreadParts`, the root enums `FeatureIntent`, `FeatureThreadIntent`, `FeatureCommand`,
+`FeatureReply`, `FeatureCtx`, `FeatureMenu`, `FeaturePick`, `FeaturePrompt`, `FeatureNote`,
+their `From` impls and the dispatch, in core and in the UI. No other hub file changes for the
+feature. A variant added to `Menu`, `NoteKey`, `PromptKind`, `ThreadEv`, `Command`... fails
+`hub_enums_only_shrink`: the case is a variant of your own type.
+
+**The trait.** `impl Feature for Goal`: `const NAME`; types `State` (app-scoped, a field of
+`CodexApp`, yours alone), `ThreadPart` (per thread, a field of `ThreadModel`; `()` if none),
+`Intent` (from the slash router or a view), `ThreadIntent` (to this thread's part, applied by
+`threads::apply`), `Command` / `Reply` / `Ctx` (your RPCs as data, and what one was for),
+`Menu` / `Pick` (the generic select dialog and what it settled), `Prompt`, `Note` (a
+transcript line; its words are `src/features/<f>/strings.rs`).
+- Every component type is the feature's own, so the root enums' `From` impls do not overlap
+  (two features sharing `String` as a note would not compile). A component you do not have is
+  `Never<Self>`; the two states are `()`. Every step but `wire` / `decode` has a default that
+  does nothing; a feature without RPCs matches `match *command {}` in those two.
+- The outbox, `AppCx`: `ask(thread_or_none, command, ctx)`, `open(menu)`,
+  `prompt(prompt, initial)`, `note(thread_or_none, note)`, `thread(&id, thread_intent)`; the
+  app carries them out after your step, in the order you said them. `cx.view()` is the app
+  read-only: `active()`, `thread(id)`, `active_thread()`, `tui()`, `screens()`, `modes()`;
+  a `ThreadView` has `core` and `slots` (read-only), `id()`, `is_running()`, `busy()`,
+  `has_writer()`.
+- On a thread (`ThreadCx`, in `thread_intent`, `thread_answered`, `on_turn_end`,
+  `on_interrupted`): `cx.view` is the thread read-only, `&mut` is your `ThreadPart` only,
+  `cx.request(ctx, command)` is the RPC. More effects (start a turn, give a message back) are
+  methods you add to `ThreadCx` in `cx.rs`, each one a decision.
+- A menu: `choose(menu, row) -> Choice::{Stay, Dismiss, Pick(p), Replace(m)}` says what a row
+  did in your terms (`Pick` closes the menu and `picked(state, pick, cx)` acts); the rows are
+  the UI's (`FeatureView::menu_list`).
+- A slash command stays in the oracle's list (`SessionIntent`); the router
+  (`core/src/app/session.rs`, the one file besides your own that may name
+  `features::<f>::Intent`) turns it into `Intent::Feature(<f>::Intent::..)`.
+
+**Hooks.** `on_resumed(state, thread, cx)` (a resumed thread is applied and in use),
+`on_turn_end(part, end, cx)` (completed, failed or interrupted; `busy()` is as the hub left
+it), `on_interrupted(part, cx)` (right after the `on_turn_end` of an interrupt). They run over
+all features in the order of `feature_list!`: put the line where its hooks belong (a feature
+that sends the next message at the end of a turn goes before one that reads whether the
+thread is idle) and say so in a comment on the line when the order matters.
+
+**The view half.** `impl FeatureView for Goal { fn note_words(note, &SessionStrings) -> String;
+fn menu_list(menu, &SelectStrings) -> List; }` in `src/features/<f>/mod.rs`. Views only: no
+protocol, no model code, no `apply` (`views_never_name_protocol_shell_tokio_or_io`,
+`screen_dirs_hold_view_files_only` cover `src/features/`). A feature with a page, a sheet or a
+widget of its own builds it in `pages/`, `sheets/` or `widgets/` as any screen; a menu row or a
+note leads to it by an intent.
+
+**Moving an existing feature in.** The tests stay as they are. The model and steps go to
+`core/src/features/<f>/`; the variants it had in `Menu`, `Picked`, `PromptKind`, `NoteKey`,
+`Command` / `ThreadAsk`, `ThreadEv`, `chat::ThreadIntent` become your own types; its arms in
+`apply_choice`, `picks`, `answered`, `prompt_submitted`, `threads::apply_ev` go with it; the
+wording goes to `src/features/<f>/strings.rs`. Then lower the line in
+`tests/rules/hub_budget.txt`: the ratchet fails until the saving is written down. The
+feature RPCs `ThreadCompactStart`, `ThreadSetName`, `ThreadShellCommand`, `ThreadRevert` may be
+built in your `wire`; the lifecycle RPCs never (`thread_rpcs_only_in_threads`).
+
+**Tests.** `core/src/features/framework.rs` shows the pattern with two probes in a list of
+their own: dispatch to the feature's own state, an answer of another shape is
+`RpcError::Mismatch`, hooks in list order. For your feature, go through `CodexApp` as the
+oracle's tests do: apply the intent, read the `AppFx` commands and the outbox's result (a
+menu on the select screen, a prompt in the dialogs, a note in the thread), feed the reply,
+check the state. `acargo nextest run -p codex-tui-core`, the `rules` root, your oracle shard.
+
 ## Skeleton (tm `port-skeleton`, layered by `skeleton-layers`)
 
 ```
@@ -781,6 +937,11 @@ A screen directory is two halves of one name: `core/src/screens/<dir>.rs`
 (model, events, intents, RPCs, protocol wiring) and `src/screens/<dir>/`
 (view files only). One macro list (`screen_list!`) makes both, so a directory
 is registered once, and a slice edits only its own two halves.
+
+A core feature that is a flow, not a screen, is a slice of the same shape in `features/`
+(ADR-012): `core/src/features/<f>/` (model, steps, RPCs, notes, hooks) and
+`src/features/<f>/` (words and views), registered once in `feature_list!`. The layer rules
+cover both folders as they cover the screen directories.
 
 **Fixtures.** A screen's mock state is a JSONL event script in its view
 directory (`fixtures/*.jsonl`): `seed` (a ready session), `screen` (an

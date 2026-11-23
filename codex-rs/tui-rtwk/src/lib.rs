@@ -7,6 +7,7 @@
 //! `docs/rtwk-port/architecture.md`, "Layers".
 
 pub mod app;
+pub mod features;
 pub mod keymap;
 pub mod l10n;
 pub mod pages;

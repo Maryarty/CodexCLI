@@ -26,6 +26,7 @@ pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
         (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
         (Menu::Apps, Some(Page::Apps(page))) => apps(page, s),
         (Menu::Confirm(confirm), _) => confirmation(*confirm, s),
+        (Menu::Feature(menu), _) => crate::features::menu_list(menu, s),
         _ => return None,
     })
 }

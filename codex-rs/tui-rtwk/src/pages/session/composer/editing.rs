@@ -101,7 +101,8 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
         return true;
     }
     // the clipboard's image is the chat's key, before any of the composer's
-    if paste_image(data, key) {
+    // (a plain-text composer attaches no images: Ctrl+V is the field's)
+    if !data.draft.is_plain() && paste_image(data, key) {
         return true;
     }
     // reverse history search owns every key while it is open
@@ -266,6 +267,12 @@ fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Op
         return Some(true);
     }
     if pressed(keymap, COMPOSER_QUEUE, key) {
+        // a plain-text composer has no queue and no shell command: the queue
+        // key submits (`handle_submission(queue_submissions)`)
+        if data.draft.is_plain() {
+            (data.tell)(ComposerMsg::Submitted(c.text()));
+            return Some(true);
+        }
         if plain(KeyCode::Tab) {
             return Some(false);
         }
@@ -581,8 +588,8 @@ pub fn typed_char(
         c.replace(caret - 1, caret, &ch.to_string());
         return true;
     }
-    if ch == '!' && caret == 0 && !draft.shell() {
-        draft.set_shell(true);
+    // (a plain-text draft cannot enter shell mode: the `!` is text)
+    if ch == '!' && caret == 0 && draft.set_shell(true) {
         tell(ComposerMsg::Shell);
         return true;
     }
@@ -862,6 +869,63 @@ mod tests {
         press(&d, &c, KeyPress::code(KeyCode::Backspace));
         assert_eq!(state(&c), ("ab".into(), 1));
         assert_eq!(d.draft.expanded(&c), "ab");
+    }
+
+    /// The messages a composer's key hook is told, as `KeyData::tell` records them.
+    fn told(draft: ComposerDraft) -> (KeyData, Rc<std::cell::RefCell<Vec<ComposerMsg>>>) {
+        let sent = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let record = sent.clone();
+        let d = KeyData {
+            draft,
+            tell: Rc::new(move |msg| record.borrow_mut().push(msg)),
+            ..data()
+        };
+        (d, sent)
+    }
+
+    // ORACLE chat_composer/embedded_input_tests.rs plain_text_composer_keeps_command_prefixes_literal
+    #[test]
+    fn a_plain_text_draft_keeps_its_command_prefixes_literal() {
+        let (d, sent) = told(ComposerDraft::plain());
+        for ch in ['!', '/', '?'] {
+            let c = at("", 0);
+            assert!(
+                !typed_char(&d.draft, &*d.tell, &c, ch, None),
+                "`{ch}` is the field's text"
+            );
+        }
+        // a paste at the start that begins with `!` is text too, no shell mode
+        let c = at("", 0);
+        assert!(
+            !d.draft
+                .paste(&c, "!keep", |n| n.to_string(), |n| n.to_string())
+        );
+        c.insert("!keep");
+        assert!(!d.draft.absorb_shell_prefix(&c));
+        assert!(!d.draft.shell());
+        assert_eq!(state(&c).0, "!keep");
+        assert!(
+            sent.borrow().is_empty(),
+            "no Shell message: {:?}",
+            sent.borrow()
+        );
+    }
+
+    #[test]
+    fn tab_submits_a_plain_text_draft_and_is_the_pages_in_the_chat() {
+        let key = KeyPress::code(KeyCode::Tab);
+        let (d, sent) = told(ComposerDraft::plain());
+        let c = at("!keep this literal", 18);
+        assert_eq!(composer_key(&d, &c, &key), Some(true));
+        assert!(
+            matches!(&sent.borrow()[..], [ComposerMsg::Submitted(t)] if &**t == "!keep this literal"),
+            "{:?}",
+            sent.borrow()
+        );
+        // the chat's Tab is the page's queue key: the composer tells nothing
+        let (d, sent) = told(ComposerDraft::default());
+        assert_eq!(composer_key(&d, &c, &key), Some(false));
+        assert!(sent.borrow().is_empty());
     }
 
     fn keyed(table: &str, action: &str, keys: &[&str]) -> KeyData {

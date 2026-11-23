@@ -130,6 +130,31 @@ pub struct Strings {
     pub writer_exit: &'static str,
     pub writer_transcript: &'static str,
     pub forking: &'static str,
+    /// `chatwidget/provider_error.rs`: the notice that stands in place of the
+    /// composer when the server refused the chat for its model provider.
+    pub provider_lock: &'static str,
+    pub provider_title_continue: &'static str,
+    pub provider_title_mismatch: &'static str,
+    pub provider_title_unavailable: &'static str,
+    pub provider_title_policy: &'static str,
+    provider_mismatch: Msg<2>,
+    provider_not_configured: Msg<1>,
+    provider_policy_provider: Msg<2>,
+    pub provider_policy_settings: &'static str,
+    provider_location: Msg<1>,
+    pub provider_continue_key: &'static str,
+    pub provider_continue: &'static str,
+    pub provider_new_key: &'static str,
+    pub provider_new: &'static str,
+    pub provider_other_key: &'static str,
+    pub provider_other: &'static str,
+    pub provider_separator: &'static str,
+    provider_continue_message: Msg<2>,
+    provider_previous: &'static str,
+    provider_named: Msg<1>,
+    /// The display names of the providers the app ships with (`built_in_model_providers`);
+    /// any other id is shown as it is.
+    provider_names: &'static [(&'static str, &'static str)],
     /// The blank before a footer entry's label, and between two entries.
     pub writer_pad: &'static str,
     pub writer_gap: &'static str,
@@ -281,6 +306,42 @@ pub const EN: Strings = Strings {
     writer_exit: "exit",
     writer_transcript: "transcript",
     forking: "Forking conversation…",
+    provider_lock: "\u{1f512}",
+    provider_title_continue: "Continue in a new chat",
+    provider_title_mismatch: "Model provider mismatch",
+    provider_title_unavailable: "Model provider unavailable",
+    provider_title_policy: "Model provider blocked by policy",
+    provider_mismatch: msg!(
+        "This chat uses {0}, but Codex now uses {1}, so this chat is read-only."
+    ),
+    provider_not_configured: msg!(
+        "This chat uses model provider \u{201c}{0}\u{201d}, which is no longer configured. Restore this provider\u{2019}s configuration to continue."
+    ),
+    provider_policy_provider: msg!(
+        "This chat uses model provider \u{201c}{0}\u{201d}, but your organization requires \u{201c}{1}\u{201d}. Contact your administrator or start a new chat using the required provider."
+    ),
+    provider_policy_settings: "This chat\u{2019}s model provider settings no longer match your organization\u{2019}s requirements. Contact your administrator or start a new chat using the current provider settings.",
+    provider_location: msg!("Configuration on {0}"),
+    provider_continue_key: "c",
+    provider_continue: " continue in new chat",
+    provider_new_key: "n",
+    provider_new: " start fresh",
+    provider_other_key: "esc",
+    provider_other: " other chats",
+    provider_separator: "\u{b7} ",
+    provider_continue_message: msg!(
+        "Read {0} and let\u{2019}s continue where we left off.\n\nSaved conversation: {1}"
+    ),
+    provider_previous: "our previous conversation",
+    provider_named: msg!("\u{201c}{0}\u{201d}"),
+    provider_names: &[
+        ("openai", "OpenAI"),
+        ("amazon-bedrock", "Amazon Bedrock"),
+        ("amazon-bedrock-runtime", "Amazon Bedrock Runtime"),
+        ("gcp", "Google Cloud Vertex AI"),
+        ("ollama", "gpt-oss"),
+        ("lmstudio", "gpt-oss"),
+    ],
     writer_pad: " ",
     writer_gap: "   ",
     backend_cycle: " to cycle",
@@ -422,6 +483,71 @@ impl Strings {
         Fmt::new(message, [Arg::Text(arg)], &self.num).to_string()
     }
 
+    /// The words under the notice's title (`provider_error_message`); a provider the app does
+    /// not ship with is named by its id.
+    pub(super) fn provider_message(&self, lock: &super::live::provider_error::Lock) -> String {
+        use super::live::provider_error::Lock;
+        let two = |message: Msg<2>, a: &str, b: &str| {
+            Fmt::new(message, [Arg::Text(a), Arg::Text(b)], &self.num).to_string()
+        };
+        match lock {
+            Lock::Mismatch { provider, current } => two(
+                self.provider_mismatch,
+                &self.provider_name(provider),
+                &self.provider_name(current),
+            ),
+            Lock::NotConfigured { provider } => {
+                self.one(self.provider_not_configured, &self.provider_name(provider))
+            }
+            Lock::PolicyProvider { provider, required } => two(
+                self.provider_policy_provider,
+                &self.provider_name(provider),
+                &self.provider_name(required),
+            ),
+            Lock::PolicySettings => self.provider_policy_settings.to_owned(),
+        }
+    }
+
+    pub(super) fn provider_title(
+        &self,
+        lock: &super::live::provider_error::Lock,
+        can_continue: bool,
+    ) -> &'static str {
+        use super::live::provider_error::Lock;
+        match lock {
+            Lock::Mismatch { .. } if can_continue => self.provider_title_continue,
+            Lock::Mismatch { .. } => self.provider_title_mismatch,
+            Lock::NotConfigured { .. } => self.provider_title_unavailable,
+            Lock::PolicyProvider { .. } | Lock::PolicySettings => self.provider_title_policy,
+        }
+    }
+
+    fn provider_name(&self, id: &str) -> String {
+        self.provider_names
+            .iter()
+            .find(|(known, _)| *known == id)
+            .map_or_else(|| id.to_owned(), |(_, name)| (*name).to_owned())
+    }
+
+    /// Where the remote server's configuration is, under the message.
+    pub(super) fn provider_location(&self, address: &str) -> String {
+        self.one(self.provider_location, address)
+    }
+
+    /// What the continue key puts in the new chat's composer.
+    pub(super) fn provider_continue_message(&self, name: Option<&str>, path: &str) -> String {
+        let name = match name.filter(|name| !name.trim().is_empty()) {
+            Some(name) => self.one(self.provider_named, name),
+            None => self.provider_previous.to_owned(),
+        };
+        Fmt::new(
+            self.provider_continue_message,
+            [Arg::Text(&name), Arg::Text(path)],
+            &self.num,
+        )
+        .to_string()
+    }
+
     /// The status row's header when a retry or MCP startup owns it.
     pub fn status_header(&self, header: &StatusHeader) -> String {
         match header {
@@ -530,6 +656,7 @@ impl Strings {
             NoteKey::Remove(Action::Archive, RemoveNote::Failed) => self.archive_failed.to_string(),
             NoteKey::Remove(Action::Delete, RemoveNote::Failed) => self.delete_failed.to_string(),
             NoteKey::Select(note) => self.picker_note(note),
+            NoteKey::Feature(note) => crate::features::note_words(note, self),
             // The words of the export notes are the view task's (chunk-commands-export); the
             // oracle's English stands until its catalog entries exist.
             NoteKey::Export(ExportNote::Saved(path)) => format!("Saved conversation to {path}"),

@@ -8,6 +8,7 @@
 
 pub mod effects;
 pub mod facts;
+pub(crate) mod features;
 mod notices;
 mod select;
 mod session;
@@ -219,6 +220,8 @@ pub enum Intent {
         what: AutoReview,
     },
     Screen(ScreenIntent),
+    /// An intent of a feature slice (ADR-012).
+    Feature(crate::features::FeatureIntent),
 }
 
 /// What `/auto-review` does to a thread (oracle `open_auto_review_denials_popup`,
@@ -423,6 +426,14 @@ pub enum Command {
         thread: ThreadId,
         command: ScreenCommand,
     },
+    /// An RPC of a feature slice (`AppCx::ask`, `ThreadCx::request`): `thread` is empty for
+    /// an ask about the app.
+    #[non_exhaustive]
+    Feature {
+        ticket: Ticket,
+        thread: ThreadId,
+        command: crate::features::FeatureCommand,
+    },
 }
 
 /// Effects of one `apply_app` call, as values.
@@ -513,6 +524,8 @@ enum AppCtx {
         action: crate::screens::startup::Action,
         thread: ThreadId,
     },
+    /// An RPC of a feature slice about the app.
+    Feature(crate::features::FeatureCtx),
 }
 
 /// An ask made before the first thread exists.
@@ -530,6 +543,9 @@ pub struct CodexApp {
     requests: Rc<RequestQueue>,
     request_epochs: BTreeMap<BackendId, ConnEpoch>,
     screens: Rc<ScreenStates>,
+    /// The app-scoped state of the feature slices (ADR-012), read through `features()`,
+    /// changed only by the features' own steps (`app/features.rs`).
+    features: Rc<crate::features::FeatureStates>,
     mint: TicketMint,
     outgoing: Pending<AppCtx>,
     /// What was asked before the first thread exists, in order: it goes out
@@ -608,6 +624,7 @@ impl CodexApp {
             requests: Rc::new(RequestQueue::default()),
             request_epochs: BTreeMap::new(),
             screens: Rc::new(ScreenStates::default()),
+            features: Rc::new(crate::features::FeatureStates::default()),
             mint: TicketMint::default(),
             outgoing: Pending::default(),
             queued_submits: Vec::new(),
@@ -818,6 +835,11 @@ impl CodexApp {
             }
             _ => agents.displayed,
         }
+    }
+
+    /// The app-scoped state of the feature slices.
+    pub fn features(&self) -> &crate::features::FeatureStates {
+        &self.features
     }
 
     /// The model of a thread this process holds.
@@ -1803,6 +1825,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::OpenSession { action, thread } => {
                 session_opened(app, action, thread, answer, fx);
             }
+            AppCtx::Feature(ctx) => features::answer(app, ctx, answer, fx),
         }
         return;
     }
@@ -2027,6 +2050,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             session::prompt_submitted(app, fx);
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
+        Intent::Feature(intent) => features::intent(app, intent, fx),
     }
 }
 
@@ -2428,6 +2452,7 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         // `maybe_prompt_resume_paused_goal_after_resume`: a resumed thread's stopped goal asks.
         if matches!(ctx, agents::Ctx::Resume { .. }) {
             session::goal::after_resume(app, &id, fx);
+            features::resumed(app, &id, fx);
         }
     }
     if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
@@ -2519,6 +2544,7 @@ fn session_opened(
             send_queued(app, &id, fx);
             if action == Action::Resume {
                 session::goal::after_resume(app, &id, fx);
+                features::resumed(app, &id, fx);
             }
         }
         Answer::Failed(error) if action == Action::Resume && agents::is_active_writer(&error) => {

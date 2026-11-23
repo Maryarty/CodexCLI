@@ -12,6 +12,8 @@ mod kit;
 
 #[path = "pages/agents_mouse.rs"]
 mod agents_mouse;
+#[path = "pages/chat_provider_error.rs"]
+mod chat_provider_error;
 #[path = "pages/chat_status.rs"]
 mod chat_status;
 #[path = "pages/composer_burst.rs"]
@@ -26,6 +28,8 @@ mod composer_images;
 mod composer_mentions;
 #[path = "pages/composer_mouse.rs"]
 mod composer_mouse;
+#[path = "pages/composer_plain.rs"]
+mod composer_plain;
 #[path = "pages/composer_startup.rs"]
 mod composer_startup;
 #[path = "pages/composer_suggest.rs"]
