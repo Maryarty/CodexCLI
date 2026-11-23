@@ -172,7 +172,11 @@ impl Services {
                 let opened = open_url::open_desktop_thread(thread.to_string()).await;
                 (Done::Desktop(opened), None)
             }
-            Ask::SuggestTitle { .. } | Ask::ConfigWrite { .. } => return None,
+            // The git lists of `/review` are the host's (it carries `codex-git-utils`).
+            Ask::SuggestTitle { .. }
+            | Ask::ConfigWrite { .. }
+            | Ask::GitBranches { .. }
+            | Ask::GitLog { .. } => return None,
         })
     }
 

@@ -20,6 +20,7 @@ pub mod models;
 pub mod permissions;
 pub mod persist;
 pub mod reasoning;
+pub mod review;
 pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Selection};
 use models::{Effort, PlanSource, Step};
@@ -62,6 +63,9 @@ pub enum Menu {
     Apps,
     /// A confirmation: No (row 0), then Yes (row 1).
     Confirm(Confirm),
+    /// A menu of `/review` (`review.rs`): the presets, the base branches, the commits and the
+    /// instructions prompt; the lists come from the host.
+    Review(Box<review::Menu>),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -94,6 +98,9 @@ pub enum Picked {
     /// An app of the directory (`Model::apps`), by id: its page opens in the
     /// browser (the app link dialog) or says it has no link.
     App(String),
+    /// A review target the `/review` menus settled on (the instructions typed, a branch, a
+    /// commit, or the uncommitted changes): the app starts the review on the active thread.
+    Review(crate::threads::ReviewTarget),
 }
 
 /// A typed menu as rows: what the view turns into its list.
@@ -200,6 +207,8 @@ pub struct Model {
     pub profiles: Profiles,
     /// The apps `/apps` lists.
     pub apps: apps::Apps,
+    /// The `/review` menus' working directory and the git list asked for.
+    pub review: review::Review,
     /// Picks made; the effect that stores them is the settings slice's.
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
@@ -216,6 +225,14 @@ impl Model {
         self.stack.last()
     }
 
+    /// The row the shown menu opens its cursor on: the one that opened the menu above it, shown
+    /// again by Esc (the oracle's parent view keeps its highlight).
+    pub fn cursor_row(&self) -> Option<&str> {
+        self.kept
+            .get(&self.stack.len().checked_sub(1)?)
+            .map(String::as_str)
+    }
+
     /// The rows of the menu shown now, if it is one of the typed families.
     pub fn page(&self) -> Option<Page> {
         match self.menu()? {
@@ -230,7 +247,7 @@ impl Model {
             }
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Confirm(_) | Menu::List(_) => None,
+            Menu::Confirm(_) | Menu::List(_) | Menu::Review(_) => None,
         }
     }
 
@@ -288,6 +305,9 @@ impl Model {
     fn tidy(&mut self) {
         let depth = self.stack.len();
         self.kept.retain(|at, _| *at < depth);
+        if !self.stack.iter().any(|menu| matches!(menu, Menu::Review(_))) {
+            self.review.forget();
+        }
     }
 
     fn step(&mut self, step: Step) {
@@ -448,6 +468,12 @@ pub enum Ev {
         request: u64,
         result: Result<Vec<apps::App>, String>,
     },
+    /// The host's list for the `/review` menus (`Review::pending` names the request): the child
+    /// menu opens over the presets, unless they are gone.
+    Reviewed {
+        request: u64,
+        listing: review::Listing,
+    },
     /// The app server says the directory changed
     /// (`refresh_connector_directory_after_notification`).
     AppsNotified(Vec<apps::App>),
@@ -473,6 +499,10 @@ pub enum Intent {
     /// `/apps` (`enabled`: the apps feature is on): the directory, asked for
     /// again (`Apps::pending` is the request).
     OpenApps { enabled: bool },
+    /// `/review`: the presets menu; the git lists are asked in `cwd`.
+    OpenReview { cwd: String },
+    /// The text typed at `Custom review instructions`.
+    Instructions(String),
     /// The link dialog of an app switched it on or off (`SetAppEnabled`): the app writes
     /// the config and, once it is saved, tells the directory (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
@@ -508,6 +538,16 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Loaded(presets) => model.accept(presets),
+        Ev::Reviewed { request, listing } => {
+            let over_presets = matches!(
+                model.stack.last(),
+                Some(Menu::Review(menu)) if **menu == review::Menu::Presets
+            );
+            if model.review.answered(request) && over_presets {
+                model.kept.insert(model.stack.len() - 1, listing.kind().row().to_string());
+                model.stack.push(Menu::Review(Box::new(listing.menu())));
+            }
+        }
         Ev::Listed(discovery) => model.profiles.found = Some(discovery),
         Ev::Discovered { request, result } => {
             if model.profiles.pending != Some(request) {
@@ -608,6 +648,23 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::OpenApps { enabled } => model.open_apps(enabled),
+        // `/review`: the presets, over the session's working directory.
+        Intent::OpenReview { cwd } => {
+            model.review.open(cwd);
+            model.stack = vec![Menu::Review(Box::new(review::Menu::Presets))];
+        }
+        // The text of `Custom review instructions` (an empty one is not an answer).
+        Intent::Instructions(text) => {
+            let text = text.trim();
+            if matches!(model.stack.last(), Some(Menu::Review(menu)) if **menu == review::Menu::Instructions)
+                && !text.is_empty()
+            {
+                model.stack.clear();
+                model.picked.push(Picked::Review(crate::threads::ReviewTarget::Custom {
+                    instructions: text.to_string(),
+                }));
+            }
+        }
         // The app writes the config (`app/select.rs`); the directory follows the saved write.
         Intent::SetApp { .. } => {}
         Intent::Choose(id) => match model.stack.last_mut() {
@@ -635,6 +692,21 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.permissions_step(step);
             }
             Some(Menu::Apps) => model.choose_app(&id),
+            Some(Menu::Review(menu)) => {
+                use review::Chosen;
+                match menu.choose(&id) {
+                    Some(Chosen::Ask(git)) => model.review.want(git),
+                    Some(Chosen::Prompt) => {
+                        model.kept.insert(model.stack.len() - 1, id);
+                        model.stack.push(Menu::Review(Box::new(review::Menu::Instructions)));
+                    }
+                    Some(Chosen::Target(target)) => {
+                        model.stack.clear();
+                        model.picked.push(Picked::Review(target));
+                    }
+                    None => {}
+                }
+            }
             Some(Menu::Confirm(confirm)) => {
                 let confirm = *confirm;
                 if id == Confirm::YES {

@@ -85,7 +85,10 @@ fn a_turn_whose_images_failed_comes_back_whole_and_sends_nothing() {
     let (ticket, _) = start_turn(&submit(&mut app, message.clone())).expect("a turn");
     let fx = run(
         &mut app,
-        AppEv::Reply(ticket, Reply::prepare_failed("Failed to prepare image: gone")),
+        AppEv::Reply(
+            ticket,
+            Reply::prepare_failed("Failed to prepare image: gone"),
+        ),
     );
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
     let thread = app.active_thread();
@@ -116,7 +119,10 @@ fn a_follow_up_waits_after_a_failed_preparation_and_the_next_submit_goes_first()
     let ticket = steer(&fx).expect("a steer");
     run(
         &mut app,
-        AppEv::Reply(ticket, Reply::prepare_failed("Failed to prepare image: gone")),
+        AppEv::Reply(
+            ticket,
+            Reply::prepare_failed("Failed to prepare image: gone"),
+        ),
     );
     let thread = app.active_thread();
     assert!(thread.pending_steers().is_empty());

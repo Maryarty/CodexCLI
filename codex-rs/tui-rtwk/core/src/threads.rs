@@ -774,8 +774,14 @@ impl Restore {
 pub enum ThreadCtx {
     /// A turn start in flight with the message it carries (a provider refusal
     /// gives it back to the front of the queue).
-    StartTurn { interrupt: bool, message: UserMessage },
-    Interrupt { turn: TurnId, retried: bool },
+    StartTurn {
+        interrupt: bool,
+        message: UserMessage,
+    },
+    Interrupt {
+        turn: TurnId,
+        retried: bool,
+    },
     Screen(ScreenCtx),
 }
 
@@ -968,9 +974,9 @@ pub enum Failure {
 impl From<RpcError> for Failure {
     fn from(error: RpcError) -> Self {
         match error {
-            RpcError::Remote(message) | RpcError::Malformed(message) | RpcError::Prepare(message) => {
-                Failure::Message(message)
-            }
+            RpcError::Remote(message)
+            | RpcError::Malformed(message)
+            | RpcError::Prepare(message) => Failure::Message(message),
             RpcError::Mismatch => Failure::ReplyMismatch,
             RpcError::Provider(error) => Failure::Message(error.to_string()),
         }
@@ -1736,14 +1742,13 @@ impl<'a> ThreadFx<'a> {
     /// Asks the backend to start a turn with `message`.
     pub fn start_turn(&mut self, message: UserMessage) -> Ticket {
         let ticket = self.mint.next();
-        self.registered
-            .push((
-                ticket,
-                ThreadCtx::StartTurn {
-                    interrupt: false,
-                    message: message.clone(),
-                },
-            ));
+        self.registered.push((
+            ticket,
+            ThreadCtx::StartTurn {
+                interrupt: false,
+                message: message.clone(),
+            },
+        ));
         self.out.commands.push(Command::StartTurn {
             ticket,
             thread: self.thread.clone(),
@@ -2510,10 +2515,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             {
                 running.started_at = started_at;
             }
-            if model
-                .outgoing
-                .any(|ctx| matches!(ctx, ThreadCtx::StartTurn { interrupt: true, .. }))
-            {
+            if model.outgoing.any(|ctx| {
+                matches!(
+                    ctx,
+                    ThreadCtx::StartTurn {
+                        interrupt: true,
+                        ..
+                    }
+                )
+            }) {
                 apply_ev(model, ThreadEv::Interrupt, fx);
             }
         }
@@ -2677,7 +2687,10 @@ fn live_timing(
     // with no clock yet (the host has not said) no time is invented either.
     let elapsed = match &model.turn {
         TurnState::Running(running) if running.turn == *turn && now > 0 => {
-            let since = running.started_at.filter(|at| *at > 0).unwrap_or(running.began);
+            let since = running
+                .started_at
+                .filter(|at| *at > 0)
+                .unwrap_or(running.began);
             Some(now.saturating_sub(since).max(0) * 1_000)
         }
         _ => return timing,

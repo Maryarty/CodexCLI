@@ -11,7 +11,7 @@ use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::chat::plan_mode;
-use crate::screens::select::{self, apps, permissions};
+use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply};
 
 /// An intent of the select screen, and the asks it left open.
@@ -59,8 +59,50 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
             fx,
         );
     }
+    review_asked(app, fx);
     picks(app, fx);
     drain(app, fx);
+}
+
+/// The git list a `/review` menu waits for, asked of the host (once per request).
+fn review_asked(app: &mut CodexApp, fx: &mut AppFx) {
+    use super::effects::Ask;
+    let Some(wanted) = Rc::make_mut(&mut app.screens).select.review.take_wanted() else {
+        return;
+    };
+    let ask = match wanted.git {
+        review::Git::Branches => Ask::GitBranches { cwd: wanted.cwd },
+        review::Git::Log => Ask::GitLog {
+            cwd: wanted.cwd,
+            limit: review::RECENT_COMMITS,
+        },
+    };
+    fx.commands
+        .push(super::effects::command(wanted.request, ask));
+}
+
+/// The host's list for a `/review` menu: the child menu opens over the presets. False when
+/// `request` is not the one the menus wait for (the answer is the UI's own).
+pub(super) fn reviewed(
+    app: &mut CodexApp,
+    request: u64,
+    done: &super::effects::Done,
+    fx: &mut AppFx,
+) -> bool {
+    use super::effects::Done;
+    if !app.screens.select.review.waits_for(request) {
+        return false;
+    }
+    let listing = match done {
+        Done::GitBranches { current, branches } => review::Listing::Branches {
+            current: current.clone(),
+            branches: branches.clone(),
+        },
+        Done::GitLog(commits) => review::Listing::Log(commits.clone()),
+        _ => return false,
+    };
+    event(app, select::Ev::Reviewed { request, listing }, fx);
+    true
 }
 
 /// What the screen said (`add_info_message` of the pickers) goes into the
@@ -87,7 +129,7 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
     let ours = |pick: &select::Picked| {
         matches!(
             pick,
-            Selection(_) | Permissions(_) | Tier(_) | Effort { .. }
+            Selection(_) | Permissions(_) | Tier(_) | Effort { .. } | select::Picked::Review(_)
         ) || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
     };
     if !app.screens.select.picked.iter().any(ours) {
@@ -114,6 +156,11 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 effort,
                 plan,
             } => effort_pick(app, &model, effort, plan, fx),
+            // `AppEvent::Review`: `review/start`, inline on the thread in use.
+            select::Picked::Review(target) => {
+                let thread = app.session.active.clone();
+                super::session::start_review(app, thread, target, fx);
+            }
             select::Picked::Item(id) => {
                 if let Some(answer) = plan_mode::Answer::of_row(&id) {
                     super::session::plan_answer(app, answer, fx);

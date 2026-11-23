@@ -156,7 +156,9 @@ pub(super) fn session_intent(
         }
         S::Cd { path } => change_directory(app, source, &path, fx),
         // `slash_dispatch.rs`: `/review <text>` reviews the text as instructions.
-        S::Review { args: Some(instructions) } => {
+        S::Review {
+            args: Some(instructions),
+        } => {
             let target = crate::threads::ReviewTarget::Custom {
                 instructions: instructions.trim().to_owned(),
             };
@@ -297,14 +299,15 @@ pub(super) fn session_intent(
 }
 
 /// `review/start` inline on the thread: the review runs as a turn of it.
-fn start_review(
+pub(super) fn start_review(
     app: &mut CodexApp,
     source: Option<ThreadId>,
     target: crate::threads::ReviewTarget,
     fx: &mut AppFx,
 ) {
     if let Some(thread) = source {
-        let ev = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::Review(target)));
+        let ev =
+            ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::Review(target)));
         apply_thread(app, &thread, ev, fx);
     }
 }

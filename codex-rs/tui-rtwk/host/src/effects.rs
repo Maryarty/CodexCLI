@@ -14,10 +14,13 @@ use std::sync::Arc;
 use codex_core::config::Config;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::effects::Done;
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
+use codex_tui_core::screens::select::review::Commit;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
 use codex_tui_rtwk::services::clipboard::Clipboard;
 use codex_tui_rtwk::services::clipboard::Machine;
@@ -106,6 +109,20 @@ impl Effects {
         command: &Command,
         exec: impl WorkspaceExec + 'static,
     ) -> Option<Boxed<Option<AppEv>>> {
+        if let Command::Effect {
+            request,
+            ask: ask @ (Ask::GitBranches { .. } | Ask::GitLog { .. }),
+            ..
+        } = command
+        {
+            let (request, ask) = (*request, ask.clone());
+            return Some(Box::pin(async move {
+                Some(AppEv::Effect {
+                    request,
+                    done: git_list(ask).await?,
+                })
+            }));
+        }
         if !matches!(
             command,
             Command::Effect { .. } | Command::Popovers { .. } | Command::OpenUrl { .. }
@@ -121,6 +138,32 @@ impl Effects {
             }
             Some(ran.ev)
         }))
+    }
+}
+
+/// The branches or the log of the `/review` pickers (oracle `local_git_branches`,
+/// `current_branch_name`, `recent_commits`): an empty list where there is no repository.
+async fn git_list(ask: Ask) -> Option<Done> {
+    let at = |cwd: Option<String>| cwd.map_or_else(|| PathBuf::from("."), PathBuf::from);
+    match ask {
+        Ask::GitBranches { cwd } => {
+            let cwd = at(cwd);
+            Some(Done::GitBranches {
+                branches: codex_git_utils::local_git_branches(&cwd).await,
+                current: codex_git_utils::current_branch_name(&cwd).await,
+            })
+        }
+        Ask::GitLog { cwd, limit } => Some(Done::GitLog(
+            codex_git_utils::recent_commits(&at(cwd), limit)
+                .await
+                .into_iter()
+                .map(|entry| Commit {
+                    sha: entry.sha,
+                    subject: entry.subject,
+                })
+                .collect(),
+        )),
+        _ => None,
     }
 }
 

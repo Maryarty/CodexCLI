@@ -7,13 +7,13 @@
 use codex_app_server_protocol::ModelProviderError;
 use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
-use codex_tui_core::screens::seed_ev;
-use codex_tui_core::ids::TurnId;
 use codex_tui_core::fixtures::builders::turn_started;
+use codex_tui_core::ids::TurnId;
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::protocol::reply_from_server;
 use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::chat;
+use codex_tui_core::screens::seed_ev;
 use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply};
 use codex_tui_core::threads::UserMessage;
 use serde_json::json;
@@ -114,10 +114,7 @@ fn another_failure_is_not_a_provider_error() {
 #[test]
 fn a_refused_steer_goes_back_alone() {
     let mut app = ready();
-    run(
-        &mut app,
-        AppEv::Backend(turn_started(T, "turn-1")),
-    );
+    run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
     let first = submit(&mut app, "Focus on the backend");
     let second = submit(&mut app, "Also add tests");
     let steer = |fx: &AppFx| {
@@ -139,7 +136,9 @@ fn a_refused_steer_goes_back_alone() {
         &mut app,
         AppEv::Reply(
             accepted,
-            Reply::screen(ScreenReply::Chat(chat::Reply::Steered(TurnId::new("turn-1")))),
+            Reply::screen(ScreenReply::Chat(chat::Reply::Steered(TurnId::new(
+                "turn-1",
+            )))),
         ),
     );
     let (_, reply) = reply_from_server(&command, Err(not_configured())).expect("a reply");

@@ -188,34 +188,60 @@ pub enum UsageKey {
 /// answers `Notice::NotAvailable`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionIntent {
-    New { name: Option<String> },
+    New {
+        name: Option<String>,
+    },
     /// The provider-error notice's continue key: a new chat whose composer
     /// holds `message` (the view words it from the saved chat's name and path).
-    ContinueChat { message: String },
-    Clear { name: Option<String> },
-    Fork { name: Option<String> },
+    ContinueChat {
+        message: String,
+    },
+    Clear {
+        name: Option<String>,
+    },
+    Fork {
+        name: Option<String>,
+    },
     Compact,
     Init,
     Recap,
     Archive,
     Delete,
     Worktree,
-    Rename { name: Option<String> },
-    Plan { prompt: Option<String> },
-    Goal { args: Option<String> },
-    Side { prompt: Option<String> },
+    Rename {
+        name: Option<String>,
+    },
+    Plan {
+        prompt: Option<String>,
+    },
+    Goal {
+        args: Option<String>,
+    },
+    Side {
+        prompt: Option<String>,
+    },
     Copy,
-    Export { path: Option<String> },
-    Raw { on: Option<bool> },
+    Export {
+        path: Option<String>,
+    },
+    Raw {
+        on: Option<bool>,
+    },
     Tui,
-    Cd { path: String },
+    Cd {
+        path: String,
+    },
     Pwd,
-    Mcp { args: Option<String> },
+    Mcp {
+        args: Option<String>,
+    },
     Apps,
     Plugins,
     Logout,
     Vim,
-    Ide { args: Option<String> },
+    Ide {
+        args: Option<String>,
+    },
     Daybreak,
     ElevateSandbox,
     Hooks,
@@ -224,16 +250,30 @@ pub enum SessionIntent {
     Stop,
     Rollout,
     App,
-    Review { args: Option<String> },
+    Review {
+        args: Option<String>,
+    },
     /// The review popup's pick (or `/review <text>` once typed): `review/start`
     /// inline on this thread, with the target chosen.
-    StartReview { target: crate::threads::ReviewTarget },
-    Model { args: Option<String> },
-    Permissions { args: Option<String> },
-    Title { args: Option<String> },
-    Statusline { args: Option<String> },
+    StartReview {
+        target: crate::threads::ReviewTarget,
+    },
+    Model {
+        args: Option<String>,
+    },
+    Permissions {
+        args: Option<String>,
+    },
+    Title {
+        args: Option<String>,
+    },
+    Statusline {
+        args: Option<String>,
+    },
     VoiceControl(VoiceControl),
-    ResumeNamed { name: String },
+    ResumeNamed {
+        name: String,
+    },
     MemoryMaintenance,
 }
 
