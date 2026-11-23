@@ -352,3 +352,103 @@ makes cargo rebuild everything: a checkout marked kache (`acargo-kache` in its g
 kache; one that already has a target stays on sccache until that target is gone; `ACARGO_KACHE=1/0` forces one.
 kache config `~/.config/kache/config.toml`: store `~/.cache/rtwk/kache-store`, `local_max_size` 30GiB, `local_only`
 (no remote, no Kunobi planner). The remap RUSTC is off under kache (kache normalizes paths itself).
+
+## 8. build-speed-3 (2026-11-23, the edit-to-test loop)
+
+Task: shorten what a porter waits for after one edit, split into recompile, link and codegen. Result: the loop is
+at its floor; **nothing was applied**, because every candidate that survived measurement is a layout, toolchain or
+shared-script change (proposals below) or a wording change in the fleet brief (a Need for the orchestrator). One
+candidate measured as a win turned out to be a measurement confound and was dropped (see 8.4).
+
+### 8.1 Method
+
+Tip `b177925bb`, own worktree, kache, `ACARGO_SLOTS=0` (no slot waits in the numbers), incremental state warm.
+Each case edits one file by replacing a private probe `fn __bs3_probe_<n>() -> u64 { <n> }` in place (a body-level
+change, no revert between cases), then runs the porter's call: `acargo check --tests -q`, or `acargo nextest run
+--test <root> -E 'test(=<one test>)'`, or `-p codex-tui-core -E ...`. Measured with `/usr/bin/time -p` (wall; user+sys =
+CPU), per-unit time from `acargo ... --timings` (`UNIT_DATA` of the html), link time from a `cc` shim on PATH that
+timed every linker call. The machine ran at load 15 to 157 on 10 cores while the other porters worked, so wall time
+swings 2 to 4x between repeats; CPU seconds are the figure to compare. Cases: **A** an edit in `core/src`
+(`screens/pets.rs`), **B** an edit in the lib (`src/widgets/age.rs`, the lib is one crate with `src/pages`), **C** an
+edit in a test file.
+
+### 8.2 The edit loop now (wall s / CPU s; ranges are the repeats)
+
+| call after the edit | A: core/src | B: lib (src) | C: test file |
+|---|---|---|---|
+| `check --tests` | 10 to 20 / 12 to 14 | 13 to 14 / 13 | 8 to 12 / 8 to 9 |
+| `--test pages` | 14 / 17 | 10 to 14 / 12 to 14 | 8 to 12 / 9 |
+| `--test screens` | 19 / 21 | 12 to 20 / 14 to 16 | 9 to 12 / 9 |
+| `--test oracle` | 25 / 24 | 15 to 18 / 15 to 19 | 10 to 23 / 10 to 20 |
+| `--test rules` (whole root, 80 tests) | 16 / 23 | 15 to 24 / 13 to 22 | 8 to 10 / 8 |
+| `-p codex-tui-core` (lib(test) + `all`) | 20 to 27 / 20 to 24 | - | - |
+| `-p codex-tui-core --test all` | 20 / 14 | - | - |
+| `-p codex-tui-core --lib` | 7 to 10 / 8 to 13 | - | - |
+| `--lib` of tui-rtwk (its 236 unit tests) | - | 17 / 18 | - |
+| **no root named** (7 test binaries) | - | 47 / 67 | - |
+
+Where a call's time goes (`--timings`, link from the shim). A `--test pages` call after a core edit is
+core 4 to 14 s + lib 4 to 11 s + the test root 12 to 16 s, the root's own time including its link; after a lib edit
+lib 4 s + root 5 s (link 1.7 s of it); after a test-file edit only the root, 5 to 8 s. **Link** is 1.3 to 3.6 s per
+test binary (140 to 160 MB each; 12.9 s once at load 140), i.e. 10 to 30% of a call. The rest is rustc's frontend and
+codegen of the three crates in the chain; cargo has no early cutoff, so a core edit recompiles the lib and the root even
+when no signature changed (incremental then re-uses most of the codegen). Splitting frontend from codegen further
+needs `-Ztime-passes`, which needs `RUSTC_BOOTSTRAP=1`; that changes every unit's fingerprint (a full rebuild and a
+polluted target: tried once, dropped), so the split stays "unit time minus link".
+
+Floor: 8 to 12 CPU s for a test-file edit, 12 to 17 for a lib edit, 17 to 24 for a core edit.
+
+### 8.3 Measured and left alone (no win, or not without weakening a test)
+
+- **Link variants** (ld64 flags: no dedup, no dead-strip, `-S`/`-x` stripping, tried singly and together): link time stayed in the same 1.3 to 3.6 s band, no variant was a win. `rust-lld` does not link here
+  (`could not load TAPI file ... CoreFoundation.tbd: unknown target`: it cannot read the MacOSX27.2 SDK's `.tbd` files);
+  `cranelift` is not installed. `debug = false`, `strip = "none"` and `incremental` for the own crates (build-speed-2)
+  already did what the profile can do.
+- **Dropping `lib(test)` units** (`[lib] test = false`) would stop the 282 + 236 in-src tests from running; not done.
+  Proposal 3 is the way that keeps them.
+
+### 8.4 One measured "win" that was a confound: feature unification
+
+`-p codex-tui-core` resolves features differently from the root package: 9 units (`futures-util` 13 features,
+`image`, `similar`, `tokio-util`, `objc2`, `objc2-core-foundation`, `zerocopy` and the core test unit) are a second copy
+that the root graph does not contain (`cargo --unit-graph`, compared mode-insensitive). The first `-p codex-tui-core` call in
+a fresh worktree took 106 s / 85 CPU with `resolver.feature-unification` unset and 22 to 37 s / 26 to 28 CPU with it
+set to `workspace`. That comparison was wrong: the "set" runs came after the "unset" run and restored the second
+graph from the kache store the first run had filled. And the setting does nothing in this toolchain: cargo 1.99.1
+prints `ignoring resolver.feature-unification without -Zfeature-unification`, the unit graphs with the key in
+`.cargo/config.toml`, in the env, and without it are identical. So no config was added. The real cost of the second
+graph is a kache restore of about 10 CPU s once per fresh worktree (warm core call 14 to 20 CPU, first call 26 to 28),
+and one compile of 80 CPU s per store when a repin changes those crates. Pinning the features in `core/Cargo.toml` (the way `similar`
+is pinned in `tui-rtwk/Cargo.toml`) would remove it; not worth a pin for 10 CPU s per worktree.
+
+### 8.5 The pool question: first build at a new tip, fresh against reused
+
+The same two calls a porter makes first at a new tip: `check --tests`, then one test of the `pages` root
+(`nextest run --test pages -E 'test(=agents_focus::...)'`), in two worktrees, twice (load 14 to 41):
+
+- **(a) fresh worktree on kache**: check 28.5 to 34.6 s (20.6 to 31.8 CPU) + pages 25.0 to 28.8 s (17.1 to 27.0 CPU) =
+  54 to 63 s; disk added 2.6 to 3.2 GiB by `df` (target 3.5 GiB by `du`, which counts the clones in full).
+- **(b) reused worktree with a warm target, one landing behind (merge the tip, then build)**: check 18.6 to 31.3 s
+  (26.3 to 29.2 CPU) + pages 33.4 to 34.9 s (46.8 to 47.1 CPU) = 52 to 66 s; the target grows by 0.01 GiB, but the
+  slot stands on a 15.3 GiB target (3.8 GiB of it incremental state).
+
+Reuse buys no time (CPU is higher: the new tip's crates recompile in the warm target too, cargo has no early cutoff,
+while the fresh tree restores from kache) and holds 5x the disk. Against that, a pool saves the 3 GiB of clones at
+the start of each task and one `git worktree add`; that is the only argument for it.
+
+### 8.6 Proposals (they need the person's or the orchestrator's yes)
+
+1. **Fleet brief: name the root, and for core `--test all` or `--lib`.** The largest bucket of the porters' test calls is
+   the call with no root (speed-order: 499 calls, median 23 s, 5.8 h): 47 s / 67 CPU for 7 binaries against 14 to 25 s /
+   13 to 23 CPU for one. `-p codex-tui-core -E ...` builds `lib(test)` and `all`: 18 to 20 CPU after a core edit, `--test all`
+   14, `--lib` 8 to 9, so about 4 to 6 CPU s per core call. Need: `.tm/fleet-brief.md` (the orchestrator's).
+2. **memcap poll 0.2 s -> 1.0 s** (`~/.cache/rtwk/memcap.py`, the last `time.sleep(0.2)`; the `ps -axo` of every
+   poll costs): 2.0 CPU s per 10 s of a running memcap at 0.2 s, 0.63 at 1.0 s, i.e. 0.14 core saved per running
+   memcap, about one core of the ten while the fleet builds. The runaway kill reacts in 1 s instead of 0.2 s (8 GB per
+   process takes longer than that to reach). Not applied: shared script.
+3. **Unit tests out of `src` into the roots** (removes the two `lib(test)` units: tui-rtwk's costs 18 CPU per call that does
+   not name a root, core's 8 to 13). It is a layout change that also takes the privacy of in-src tests away
+   (they see private items), so it needs the person's yes; with proposal 1 the gain is only in the no-root calls.
+4. **Slot held only while compiling** (`memcap --slots`): the slot is kept through the run phase and through
+   `wait` calls; speed-order counts >=238 cargo calls that waited for a slot (median 40 s against 16 s). Not measured
+   beyond one 200 s wait sample, so no number to put against it; a measurement needs a per-call log of slot hold time.
