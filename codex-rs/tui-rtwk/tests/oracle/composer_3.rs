@@ -23,11 +23,10 @@ fn times(key: &str, n: usize) -> String {
 // ORACLE bottom_pane/chat_composer.rs:10375 file_completion_preserves_large_paste_placeholder_elements kind=ui owner=chat-live
 #[test]
 fn file_completion_preserves_large_paste_placeholder_elements() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file-search result on the chat composer (Tab completes '@ma' to 'src/main.rs'), so the completion that keeps the placeholder is not drawn",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_3/file_ma_main.jsonl"))
+        .open();
     // oracle: a paste over the 1000-char threshold, ' @ma', then the file result 'src/main.rs' for 'ma' and Tab
     s.paste(&"x".repeat(1005));
     s.type_text(" @ma");
@@ -58,11 +57,10 @@ fn adjacent_image_completion_inserts_leading_separator() {
 // ORACLE bottom_pane/chat_composer.rs:10560 file_completion_for_sigil_path_does_not_reopen_popup kind=ui owner=chat-live
 #[test]
 fn file_completion_for_sigil_path_does_not_reopen_popup() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file-search result on the chat composer: Tab completes '@ma' to '@scope/main.rs' in a two-line draft, the popup does not reopen, and Enter submits both lines",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_3/file_ma_sigil.jsonl"))
+        .open();
     // oracle: draft '@ma' + newline + 'next', cursor after '@ma', file result '@scope/main.rs' for 'ma', Tab
     s.paste("@ma\nnext");
     s.keys(&times("left", 5));

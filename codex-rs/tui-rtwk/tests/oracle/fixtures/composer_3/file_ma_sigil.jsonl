@@ -1,0 +1,4 @@
+# The file result of `file_completion_for_sigil_path_does_not_reopen_popup`
+# (chat_composer.rs:10560): `@scope/main.rs` for the query `ma`.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"file_matches":{"query":"ma","matches":[{"path":"@scope/main.rs","score":100}]}}}

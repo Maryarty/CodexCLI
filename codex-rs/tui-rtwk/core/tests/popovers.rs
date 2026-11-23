@@ -223,3 +223,251 @@ fn the_image_pasted_seed_is_an_event() {
     let ev = seed(serde_json::json!({"image_pasted": "/tmp/a.png"})).expect("seed");
     assert_eq!(ev, Ev::ImagePasted("/tmp/a.png".into()));
 }
+
+/// What the `@` and `$` popups list from the server (oracle `refresh_startup_skills`,
+/// `fetch_plugin_mentions`, `on_connectors_loaded`, `mention_items`): the skills and installed
+/// plugins of the thread in use, asked once when its directory is known, and the installed apps
+/// of the `/apps` directory, as one catalog the popovers model holds.
+mod live {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::app::{
+        AppEv, AppFx, BackendEv, CodexApp, Command, apply_app, apply_thread,
+    };
+    use codex_tui_core::ids::{ThreadId, Ticket};
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::popovers::{self, MentionKind};
+    use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenThreadEv, chat};
+    use codex_tui_core::threads::ThreadEv;
+    use pretty_assertions::assert_eq;
+    use serde_json::{Value, json};
+
+    const T: &str = "thread-1";
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        app.assert_consistent();
+        fx
+    }
+
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket: Ticket = fx
+            .commands()
+            .iter()
+            .find_map(|c| match c {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+        app
+    }
+
+    /// The server says where the thread works; the next event of the app asks for the lists.
+    fn in_dir(app: &mut CodexApp, cwd: &str) -> AppFx {
+        apply_thread(
+            app,
+            &ThreadId::new(T),
+            ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Metadata {
+                name: None,
+                cwd: cwd.to_owned(),
+                path: None,
+                parent_owned: false,
+                ephemeral: false,
+                model: None,
+                effort: None,
+                provider: "openai".to_owned(),
+                daybreak: None,
+                resumed: false,
+                fresh: false,
+            })),
+            &mut AppFx::default(),
+        );
+        poke(app)
+    }
+
+    /// An event that changes nothing the popups hold.
+    fn poke(app: &mut CodexApp) -> AppFx {
+        run(
+            app,
+            AppEv::Screen(ScreenEv::Popovers(popovers::Ev::Tasks(Vec::new()))),
+        )
+    }
+
+    /// The popovers' RPCs in `fx`, with the commands that carry them.
+    fn asked(fx: &AppFx) -> Vec<(&Command, popovers::Command)> {
+        fx.commands()
+            .iter()
+            .filter_map(|command| match command {
+                Command::Screen {
+                    command: ScreenCommand::Popovers(asked),
+                    ..
+                } => Some((command, asked.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn answer(app: &mut CodexApp, command: &Command, result: Value) -> AppFx {
+        let (ticket, reply) =
+            codex_tui_core::protocol::reply(command, Ok(result)).expect("a command with a reply");
+        run(app, AppEv::Reply(ticket, reply))
+    }
+
+    fn skills(names: &[&str]) -> Value {
+        let skills: Vec<_> = names
+            .iter()
+            .map(|name| {
+                json!({
+                    "name": name,
+                    "description": format!("{name} skill"),
+                    "path": format!("/skills/{name}/SKILL.md"),
+                    "scope": "user",
+                    "enabled": true,
+                })
+            })
+            .collect();
+        json!({"data": [{"cwd": "/work", "skills": skills, "errors": []}]})
+    }
+
+    fn plugins() -> Value {
+        json!({"marketplaces": [{
+            "name": "debug", "path": null, "interface": null,
+            "plugins": [{
+                "id": "calendar@debug", "name": "calendar",
+                "source": {"type": "local", "path": "/plugins/calendar"},
+                "installed": true, "enabled": true,
+                "installPolicy": "AVAILABLE", "authPolicy": "ON_USE",
+                "interface": {"displayName": "Calendar", "capabilities": [], "screenshots": [], "screenshotUrls": []},
+            }],
+        }]})
+    }
+
+    fn names(app: &CodexApp) -> Vec<(MentionKind, String)> {
+        app.screens()
+            .popovers
+            .mentions
+            .iter()
+            .map(|mention| (mention.kind, mention.name.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn the_skills_and_plugins_are_asked_for_once_the_thread_has_its_directory() {
+        let mut app = ready();
+        assert_eq!(asked(&poke(&mut app)).len(), 0, "no directory yet");
+        let fx = in_dir(&mut app, "/work");
+        let asks: Vec<_> = asked(&fx).into_iter().map(|(_, ask)| ask).collect();
+        assert_eq!(
+            asks,
+            vec![
+                popovers::Command::Skills { cwd: "/work".into() },
+                popovers::Command::Plugins { cwd: "/work".into() },
+            ]
+        );
+        assert_eq!(asked(&poke(&mut app)).len(), 0, "once per thread");
+    }
+
+    #[test]
+    fn the_answers_make_the_catalog_skills_then_plugins() {
+        let mut app = ready();
+        let fx = in_dir(&mut app, "/work");
+        let asks = asked(&fx);
+        assert_eq!(names(&app), vec![], "nothing listed before the answers");
+        answer(&mut app, asks[1].0, plugins());
+        assert_eq!(names(&app), vec![(MentionKind::Plugin, "Calendar".into())]);
+        answer(&mut app, asks[0].0, skills(&["figma", "docs"]));
+        assert_eq!(
+            names(&app),
+            vec![
+                (MentionKind::Skill, "figma".into()),
+                (MentionKind::Skill, "docs".into()),
+                (MentionKind::Plugin, "Calendar".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_failed_list_leaves_the_popups_as_they_were() {
+        let mut app = ready();
+        let fx = in_dir(&mut app, "/work");
+        let asks = asked(&fx);
+        answer(&mut app, asks[0].0, skills(&["figma"]));
+        let (ticket, reply) = codex_tui_core::protocol::reply(asks[1].0, Err("403".to_string()))
+            .expect("a command with a reply");
+        run(&mut app, AppEv::Reply(ticket, reply));
+        assert_eq!(names(&app), vec![(MentionKind::Skill, "figma".into())]);
+    }
+
+    fn apps_changed() -> AppEv {
+        let note: ServerNotification = serde_json::from_value(json!({
+            "method": "app/list/updated",
+            "params": {"data": [{"id": "notion", "name": "Notion", "isAccessible": true,
+                                 "isEnabled": true, "pluginDisplayNames": []}]},
+        }))
+        .expect("the directory notification");
+        AppEv::Backend(BackendEv::Notification(Box::new(note)))
+    }
+
+    #[test]
+    fn the_installed_apps_of_the_directory_join_the_catalog_and_leave_with_it() {
+        let mut app = ready();
+        let fx = in_dir(&mut app, "/work");
+        answer(&mut app, asked(&fx)[0].0, skills(&["figma"]));
+        // the notification makes the app read the directory again
+        let fx = run(&mut app, apps_changed());
+        let read = fx
+            .commands()
+            .iter()
+            .find(|command| matches!(command, Command::Screen { command: ScreenCommand::Select(_), .. }))
+            .expect("app/list");
+        answer(
+            &mut app,
+            read,
+            json!({"data": [
+                {"id": "notion", "name": "Notion", "isAccessible": true, "isEnabled": true,
+                 "pluginDisplayNames": []},
+                {"id": "linear", "name": "Linear", "isAccessible": false, "isEnabled": true,
+                 "pluginDisplayNames": []},
+            ]}),
+        );
+        assert_eq!(
+            names(&app),
+            vec![
+                (MentionKind::Skill, "figma".into()),
+                (MentionKind::App, "Notion".into()),
+            ]
+        );
+        // an account change forgets the directory, and the apps with it
+        run(
+            &mut app,
+            AppEv::Backend(BackendEv::Notification(Box::new(
+                serde_json::from_value(json!({
+                    "method": "account/updated",
+                    "params": {"authMode": null, "planType": null},
+                }))
+                .expect("the account notification"),
+            ))),
+        );
+        assert_eq!(names(&app), vec![(MentionKind::Skill, "figma".into())]);
+    }
+
+    #[test]
+    fn what_a_script_seeded_stays_until_the_server_lists_something() {
+        let mut app = ready();
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Popovers(popovers::Ev::Mentions(vec![
+                popovers::Mention::new(MentionKind::Skill, "Seeded", "", "seeded"),
+            ]))),
+        );
+        in_dir(&mut app, "/work");
+        poke(&mut app);
+        assert_eq!(names(&app), vec![(MentionKind::Skill, "Seeded".into())]);
+    }
+}
