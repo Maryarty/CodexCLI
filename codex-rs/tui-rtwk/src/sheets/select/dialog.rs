@@ -20,6 +20,7 @@ use codex_tui_core::screens::select::plugins as plugin_model;
 use codex_tui_core::screens::select::review::Menu as ReviewMenu;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
 
+use super::app_link::AppLinkView;
 use super::lists;
 use super::plugins;
 use super::prompt;
@@ -66,6 +67,8 @@ pub enum Msg {
     Typed(prompt::Answer),
     /// What the marketplace source prompt of `/plugins` answered.
     Source(prompt::Answer),
+    /// What the app link dialog asks of the app it shows.
+    Link(Intent),
 }
 
 impl StatefulWidget for MenuDialog {
@@ -100,6 +103,10 @@ impl State for MenuDialogState {
         let hs = read::<Hs, _>(cx);
         let event = match msg {
             Msg::Picked(event) => event,
+            Msg::Link(intent) => {
+                cx.emit(&hs.screen, ScreenIntent::Select(intent));
+                return Rebuild::Yes;
+            }
             Msg::Typed(prompt::Answer::Submit(text)) => {
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::Instructions(text)));
                 return Rebuild::Yes;
@@ -154,6 +161,17 @@ impl State for MenuDialogState {
             let prompt: AnyWidget =
                 review::instructions(cx.map(Msg::Typed), review::strings::of(cx)).into();
             return prompt.with_key(u32::try_from(head.depth).unwrap_or(0));
+        }
+        // The page of an app picked from `/apps`: a dialog of its own, not a list.
+        if matches!(head.menu, Menu::Apps)
+            && let Some(link) = &states.select.apps.link
+        {
+            let dialog: AnyWidget = AppLinkView {
+                link: link.clone(),
+                on_intent: cx.map(Msg::Link),
+            }
+            .into();
+            return dialog.with_key(u32::try_from(head.depth).unwrap_or(0));
         }
         let list = match &head.menu {
             Menu::Review(menu) => {

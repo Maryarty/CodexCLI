@@ -18,7 +18,8 @@ pub(crate) mod seed;
 // bodies are the oracle's steps and visible assertions, written in full.
 // assert_snap compares the whole screen; the oracle's popup snapshots hold the
 // bottom popup only, so the popup slice sets the region (assert_snap_region).
-const APPS: &str = "/apps is live (core `select::apps`, the loading, failure and list pages, Retry); this test needs a step the kit and the protocol do not give yet: a partial directory snapshot (the oracle injects `on_connectors_loaded(.., is_final: false)`, no protocol message carries it), an RPC failure as the backend's answer (`respond` has only `result`), the `app/list/updated` notification routed to `select::Ev::AppsNotified` (core-wiring), the `$` mention popup and the plugin authentication popup (other owners)";
+const APPS: &str = "/apps is live and the kit answers a request with an error (`Screen::answer_error`, a `respond` step with `error`); this test needs a partial directory snapshot: the oracle injects `on_connectors_loaded(.., is_final: false)` and no protocol message carries `is_final: false`";
+const MENTIONS: &str = "/apps is live and `app/list/updated` drops the uncallable apps from the mentions (core/tests/apps_directory.rs); this test also needs the oracle's separate installed-mentions fetch (`FetchInstalledConnectorMentions`, `connectors_for_mentions` keeps only enabled installed apps), a directory partial snapshot (`is_final: false`, no protocol message carries it), the submitted `app://` mention of `$` and the plugin authentication step's `Already installed in this session` (the install flow of /plugins reading the installed ids): the mention source and the plugin flow are other owners'";
 const HOOKS: &str = "no /hooks popup in the port: no hooks list view with its warnings and errors, and no seed for the hooks list result";
 
 /// The first row that contains `text`; past the screen when none does (the kit then names the row it looked for).
@@ -101,7 +102,7 @@ fn figma_detail(summary: serde_json::Value) -> serde_json::Value {
 }
 
 /// The `app/list` requests the app has made, oldest first.
-fn apps_asked(s: &Screen) -> Vec<codex_tui_core::app::Command> {
+pub(crate) fn apps_asked(s: &Screen) -> Vec<codex_tui_core::app::Command> {
     use codex_tui_core::app::Command;
     use codex_tui_core::screens::ScreenCommand;
     use codex_tui_core::screens::select::Command as Select;
@@ -120,7 +121,7 @@ fn apps_asked(s: &Screen) -> Vec<codex_tui_core::app::Command> {
 }
 
 /// An `app/list` answer: `(id, name, description)` of apps installed and on.
-fn apps_answer(apps: &[(&str, &str, &str)]) -> serde_json::Value {
+pub(crate) fn apps_answer(apps: &[(&str, &str, &str)]) -> serde_json::Value {
     let data: Vec<_> = apps
         .iter()
         .map(|(id, name, about)| {
@@ -1380,7 +1381,7 @@ fn apps_popup_stays_loading_until_final_snapshot_updates() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2251 apps_notification_update_excludes_inaccessible_apps_from_mentions kind=snap owner=dialogs-pane snap=apps_mentions_only_callable_installed
 #[test]
 fn apps_notification_update_excludes_inaccessible_apps_from_mentions() {
-    kit::pending(Owner::DialogsPane, APPS);
+    kit::pending(Owner::DialogsPane, MENTIONS);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("$");
     // the directory notification (Google Drive, % Arabica UAE) arrives from the app server: a script line
@@ -1402,22 +1403,65 @@ fn apps_notification_update_excludes_inaccessible_apps_from_mentions() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2440 apps_refresh_failure_keeps_existing_full_snapshot kind=ui owner=dialogs-pane
 #[test]
 fn apps_refresh_failure_keeps_existing_full_snapshot() {
-    kit::pending(Owner::DialogsPane, APPS);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps").keys("enter");
-    // the full list, then the partial and failed refreshes arrive from the app server: script lines
+    let asked = apps_asked(&s);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    s.answer_request(
+        &asked[0],
+        serde_json::json!({"data": [
+            {"id": "connector_1", "name": "Notion", "description": "Workspace docs",
+             "installUrl": "https://example.test/notion", "isAccessible": true,
+             "isEnabled": true, "pluginDisplayNames": []},
+            {"id": "connector_2", "name": "Linear", "description": "Project tracking",
+             "installUrl": "https://example.test/linear", "isAccessible": false,
+             "isEnabled": true, "pluginDisplayNames": []},
+        ], "nextCursor": null}),
+    );
     s.assert_contains("Installed 1 of 2 available apps.");
+    // the oracle's partial refresh (`is_final: false`, Notion alone) has no protocol message; the
+    // refresh that fails follows the full list
+    s.keys("esc");
+    s.type_text("/apps").keys("enter");
+    let asked = apps_asked(&s);
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    s.answer_error(&asked[1], "failed to load apps");
+    // the previous full snapshot is kept
+    s.assert_contains("Installed 1 of 2 available apps.");
+    s.assert_absent("Failed to load apps.");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:2535 apps_popup_preserves_selected_app_across_refresh kind=ui owner=dialogs-pane
 #[test]
 fn apps_popup_preserves_selected_app_across_refresh() {
-    kit::pending(Owner::DialogsPane, APPS);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps").keys("enter");
+    let asked = apps_asked(&s);
+    s.answer_request(
+        &asked[0],
+        apps_answer(&[
+            ("notion", "Notion", "Workspace docs"),
+            ("slack", "Slack", "Team chat"),
+        ]),
+    );
     s.keys("down");
     s.assert_contains("› Slack");
-    // the refreshed list (Airtable, Notion, Slack) arrives from the app server: a script line
+    // the refreshed list (Airtable, Notion, Slack) arrives: the app server says the directory
+    // changed, the app reads it again and the popup shows the new list
+    let refreshed = apps_answer(&[
+        ("airtable", "Airtable", "Spreadsheets"),
+        ("notion", "Notion", "Workspace docs"),
+        ("slack", "Slack", "Team chat"),
+    ]);
+    s.feed(&format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": "app/list/updated",
+            "params": {"data": refreshed["data"]}}})
+    ));
+    let asked = apps_asked(&s);
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    s.answer_request(&asked[1], refreshed);
+    s.assert_contains("Airtable");
     s.assert_contains("› Slack");
     s.assert_absent("› Notion");
 }
@@ -1436,15 +1480,18 @@ fn apps_popup_keeps_existing_full_snapshot_while_partial_refresh_loads() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2823 apps_popup_replaces_loading_state_after_initial_refresh_failure kind=snap owner=dialogs-pane snap=apps_popup_error_state
 #[test]
 fn apps_popup_replaces_loading_state_after_initial_refresh_failure() {
-    kit::pending(Owner::DialogsPane, APPS);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps").keys("enter");
     s.assert_contains("Loading apps...");
-    // the failure (app/list failed: 403 Forbidden) arrives from the app server: a script line
+    // the failure (app/list failed: 403 Forbidden) arrives from the app server
+    let asked = apps_asked(&s);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    s.answer_error(&asked[0], "app/list failed: 403 Forbidden");
     s.assert_absent("Loading apps...");
     s.assert_absent("403 Forbidden");
     s.assert_contains("Failed to load apps.");
-    s.assert_snap("apps_popup_error_state");
+    s.assert_snap_region("apps_popup_error_state", 15, 0);
+    // Enter on Retry reads the directory again
     s.keys("enter");
     s.assert_contains("Loading apps...");
 }

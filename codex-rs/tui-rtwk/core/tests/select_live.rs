@@ -810,10 +810,9 @@ fn a_refresh_in_flight_queues_the_forced_one() {
     );
 }
 
-/// Picking an app hands it to whoever shows the app page; one without a link
-/// says so.
+/// Picking an app without a link says so and opens nothing.
 #[test]
-fn picking_an_app_opens_its_page_or_says_it_has_none() {
+fn picking_an_app_with_no_page_says_so() {
     let mut app = threaded();
     let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
     let (ticket, ..) = apps_command(&fx);
@@ -830,6 +829,100 @@ fn picking_an_app_opens_its_page_or_says_it_has_none() {
         said(&app),
         vec![select::Note::AppLinkUnavailable(Status::Installable)]
     );
+}
+
+/// Picking an app with a page opens its link dialog in place of the directory; the dialog's
+/// actions open the page in the browser, switch the app (shown at once, written to the config,
+/// said when refused), read the directory again after an install, and close with the menu.
+#[test]
+fn an_app_link_dialog_opens_the_page_switches_the_app_and_closes() {
+    use codex_tui_core::screens::select::apps::{LINK_INSTALLED, LINK_OPEN, Link};
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, ..) = apps_command(&fx);
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Apps(vec![
+            app_of("a", true, true, true),
+            app_of("b", false, true, true),
+        ]),
+    );
+    let link = |app: &CodexApp| app.screens().select.apps.link.clone();
+    open(&mut app, SelectIntent::Choose("a".into()));
+    assert_eq!(
+        link(&app),
+        Some(Link {
+            id: "a".into(),
+            name: "A".into(),
+            description: None,
+            url: "https://x/a".into(),
+            installed: true,
+            enabled: true,
+        })
+    );
+    assert_eq!(
+        app.screens().select.menu(),
+        Some(&Menu::Apps),
+        "it is shown over the directory"
+    );
+    assert_eq!(
+        app.screens().select.picked.last(),
+        Some(&select::Picked::App("a".into()))
+    );
+
+    // the page opens in the browser; the dialog stays
+    let fx = open(&mut app, SelectIntent::Choose(LINK_OPEN.into()));
+    assert!(
+        matches!(fx.commands(), [Command::OpenUrl { url, .. }] if url == "https://x/a"),
+        "{:?}",
+        fx.commands()
+    );
+    assert!(link(&app).is_some());
+
+    // the switch shows at once and is written; a refused write is said, the dialog keeps it
+    let fx = open(
+        &mut app,
+        SelectIntent::SetApp {
+            id: "a".into(),
+            enabled: false,
+        },
+    );
+    assert_eq!(link(&app).map(|link| link.enabled), Some(false));
+    let (ticket, _) = asked(&fx);
+    app_failed(&mut app, ticket);
+    assert_eq!(link(&app).map(|link| link.enabled), Some(false));
+    assert_eq!(
+        said(&app),
+        vec![select::Note::SaveFailed {
+            setting: select::Setting::App("a".into()),
+            error: "refused".into(),
+        }]
+    );
+
+    // Esc closes the dialog and the menu with it
+    open(&mut app, SelectIntent::Close);
+    assert_eq!(app.screens().select.menu(), None);
+    assert_eq!(link(&app), None);
+
+    // an install confirmed: the dialog closes and the directory is read again, forced
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, ..) = apps_command(&fx);
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Apps(vec![
+            app_of("a", true, true, true),
+            app_of("b", false, true, true),
+        ]),
+    );
+    let fx = open(&mut app, SelectIntent::Choose("b".into()));
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+    assert_eq!(link(&app).map(|link| link.installed), Some(false));
+    let fx = open(&mut app, SelectIntent::Choose(LINK_INSTALLED.into()));
+    assert_eq!(app.screens().select.menu(), None);
+    let (_, _, force, _) = apps_command(&fx);
+    assert!(force);
 }
 
 /// A switched app keeps its switch over a refreshed answer; a notified

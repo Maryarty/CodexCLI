@@ -219,6 +219,23 @@ impl Screen {
         feed(&mut self.h, jsonl);
         self
     }
+
+    /// The server refuses the request `command` made, with `message` (the oracle's
+    /// `Err("app/list failed: 403 Forbidden")` of a load): the app's answer of a refusal, for a
+    /// request that was left unanswered (a `respond` step with an `error` answers each one the
+    /// moment it is made).
+    pub fn answer_error(
+        &mut self,
+        command: &codex_tui_core::app::Command,
+        message: &str,
+    ) -> &mut Screen {
+        let (ticket, reply) = codex_tui_core::protocol::reply(command, Err(message.to_string()))
+            .expect("a command with a reply");
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h.fake.inject(epoch, AppEv::Reply(ticket, reply));
+        self.h.advance(100);
+        self
+    }
 }
 
 fn feed(h: &mut Harness, text: &str) {
@@ -253,7 +270,10 @@ fn feed(h: &mut Harness, text: &str) {
                 h.fake
                     .inject(epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
             }
-            Step::Respond { method, result } => answer(h, method, result),
+            step @ Step::Respond { .. } => {
+                let (method, result) = step.respond().expect("`parse` checked the answer");
+                answer(h, method.to_string(), result);
+            }
             Step::Key { keys } => inputs.push(script::Input::Key(keys)),
             Step::Resize { width, height } => {
                 inputs.push(script::Input::Resize { width, height });
@@ -267,17 +287,30 @@ fn feed(h: &mut Harness, text: &str) {
 thread_local! {
     /// What the fake backend answers a client request with, by method (the
     /// `respond` steps of this test's scripts).
-    static ANSWERS: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>>> =
+    static ANSWERS: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, script::Answer>>> =
         std::sync::Arc::default();
 }
 
-/// `{"step":"respond"}`: the backend answers requests of `method` with `result`
-/// from now on (the responder reads this test's table, later steps replace an entry).
-fn answer(h: &mut Harness, method: String, result: serde_json::Value) {
+/// `{"step":"respond"}`: the backend answers requests of `method` with the step's `result` (or
+/// refuses them with its `error`) from now on (the responder reads this test's table, later
+/// steps replace an entry).
+fn answer(h: &mut Harness, method: String, result: script::Answer) {
     let answers = ANSWERS.with(std::sync::Arc::clone);
     answers.lock().expect("answers").insert(method, result);
     h.fake.respond(move |request| {
         let method = request["method"].as_str()?;
-        answers.lock().ok()?.get(method).cloned().map(Ok)
+        let answer = answers.lock().ok()?.get(method).cloned()?;
+        Some(match answer {
+            script::Answer::Result(result) => Ok(result),
+            script::Answer::Error {
+                code,
+                message,
+                data,
+            } => Err(codex_tui_core::rpc::ServerError {
+                code,
+                message,
+                data,
+            }),
+        })
     });
 }

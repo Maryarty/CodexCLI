@@ -113,8 +113,8 @@ pub enum Picked {
     /// A multi-select list (`List::multi`) was confirmed: the ids of the
     /// items whose toggle is on, in the order of the list.
     Items(Vec<String>),
-    /// An app of the directory (`Model::apps`), by id: its page opens in the
-    /// browser (the app link dialog) or says it has no link.
+    /// An app of the directory (`Model::apps`), by id: its link dialog opens (`Apps::link`) or
+    /// it says it has no link.
     App(String),
     /// A review target the `/review` menus settled on (the instructions typed, a branch, a
     /// commit, or the uncommitted changes): the app starts the review on the active thread.
@@ -268,7 +268,7 @@ impl Note {
 }
 
 /// What a failed or overridden write was for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Setting {
     /// The default model and reasoning effort.
     Model,
@@ -278,6 +278,8 @@ pub enum Setting {
     Permissions,
     /// The default service tier.
     ServiceTier,
+    /// The switch of an app (the link dialog), by id.
+    App(String),
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
@@ -363,13 +365,27 @@ impl Model {
         match held {
             apps::Cache::Ready(apps) if apps.is_empty() => self.notes.push(Note::NoApps),
             apps::Cache::Failed(error) => self.notes.push(Note::AppsFailed(error)),
-            _ => self.stack = vec![Menu::Apps],
+            _ => {
+                self.apps.link = None;
+                self.stack = vec![Menu::Apps];
+            }
         }
     }
 
-    /// A row of the apps menu: `Retry` reloads, an app opens its page (or
-    /// says it has no link).
+    /// A row of the apps menu: `Retry` reloads, an app opens its link dialog (or says it has
+    /// no link); with the dialog open, its actions (`apps::LINK_OPEN`, `apps::LINK_INSTALLED`).
     fn choose_app(&mut self, id: &str) {
+        if self.apps.link.is_some() {
+            // `complete_external_flow_and_close`: the page was visited, the directory is read
+            // again and the dialog closes. Opening the page is the app's
+            // (`AppEvent::OpenUrlInBrowser`): the dialog stays.
+            if id == apps::LINK_INSTALLED {
+                self.apps.link = None;
+                self.stack.pop();
+                self.apps.refresh(true);
+            }
+            return;
+        }
         if id == apps::RETRY {
             if matches!(self.apps.cache, apps::Cache::Failed(_)) {
                 self.apps.refresh(true);
@@ -383,13 +399,16 @@ impl Model {
         else {
             return;
         };
-        let note = app
-            .install_url
-            .is_none()
-            .then(|| Note::AppLinkUnavailable(app.status()));
-        self.notes.extend(note);
+        let status = app.status();
+        let link = app.link();
         self.picked.push(Picked::App(id.to_string()));
-        self.stack.pop();
+        match link {
+            Some(link) => self.apps.link = Some(link),
+            None => {
+                self.notes.push(Note::AppLinkUnavailable(status));
+                self.stack.pop();
+            }
+        }
     }
 
     /// What a pick of the row `id` did to the stack; a menu pushed over this
@@ -864,6 +883,8 @@ pub enum Ev {
     AppsNotified(Vec<apps::App>),
     /// An app was switched on or off (`update_connector_enabled`).
     AppSwitched { id: String, enabled: bool },
+    /// The link dialog of an app is shown over the directory (a seed of the debug entries).
+    AppLinkOpened(apps::Link),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -922,8 +943,9 @@ pub enum Intent {
     },
     /// The text submitted at the preset editor.
     Draft(String),
-    /// The link dialog of an app switched it on or off (`SetAppEnabled`): the app writes
-    /// the config and, once it is saved, tells the directory (`Ev::AppSwitched`).
+    /// The link dialog of an app switched it on or off (`SetAppEnabled`): the dialog shows the
+    /// switch at once, the app writes the config and, once it is saved, tells the directory
+    /// (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
     /// The item with this id (`List::id_of`, or a row of `Page`) was
     /// accepted.
@@ -1054,6 +1076,10 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.apps.notified(apps);
         }
         Ev::AppSwitched { id, enabled } => model.apps.switched(&id, enabled),
+        Ev::AppLinkOpened(link) => {
+            model.apps.link = Some(link);
+            model.stack = vec![Menu::Apps];
+        }
         Ev::Fetched { request, result } => {
             // Another request, or none: the answer is not for the pickers.
             if model.catalog.pending != Some(request) {
@@ -1196,7 +1222,13 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         // The app writes the config (`app/select.rs`); the directory follows the saved write.
-        Intent::SetApp { .. } => {}
+        Intent::SetApp { id, enabled } => {
+            if let Some(link) = &mut model.apps.link
+                && link.id == id
+            {
+                link.enabled = enabled;
+            }
+        }
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
@@ -1351,6 +1383,7 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             if model.plugins_shown() && model.plugins.back() {
                 return;
             }
+            model.apps.link = None;
             model.stack.pop();
             model.inline_unattended();
         }
@@ -1548,8 +1581,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// (`{"kind":"models","current":{"model":..}}`, `all_models`, `loading`,
 /// `reasoning` and `advanced` with a `preset`), `{"kind":"profiles",
 /// "discovery":{..}}` (the permission catalog), `{"kind":"permissions",
-/// "menu":"profiles","current":{..}}` and `{"kind":"list", ..}` (the fields
-/// of `List`).
+/// "menu":"profiles","current":{..}}`, `{"kind":"list", ..}` (the fields
+/// of `List`) and `{"kind":"app_link","link":{..}}` (the link dialog of an app).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -1581,6 +1614,10 @@ enum SeedEv {
         warning: Option<usize>,
     },
     List(Box<List>),
+    /// The link dialog of an app (`/apps`, an app picked).
+    AppLink {
+        link: apps::Link,
+    },
     /// The profiles the app holds (a startup read of the catalog).
     Profiles {
         discovery: permissions::Discovery,
@@ -1633,6 +1670,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             warning,
         }),
         SeedEv::List(list) => Ev::Opened(Menu::List(list)),
+        SeedEv::AppLink { link } => Ev::AppLinkOpened(link),
         SeedEv::Profiles { discovery } => Ev::Listed(discovery),
         SeedEv::Permissions {
             menu,

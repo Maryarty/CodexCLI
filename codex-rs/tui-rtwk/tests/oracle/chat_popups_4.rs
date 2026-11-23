@@ -12,7 +12,7 @@ use crate::kit::{self, Owner, Screen};
 fn apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps() {
     kit::pending(
         Owner::DialogsPane,
-        "/apps is live; the oracle injects a partial snapshot (`is_final: false`) and then a failed refresh: no protocol message carries a partial snapshot and the kit's `respond` step has no error answer",
+        "/apps is live; the oracle injects a partial snapshot (`is_final: false`) and then a failed refresh: no protocol message carries a partial snapshot (the kit answers a request with an error, `Screen::answer_error`)",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps");
@@ -41,14 +41,40 @@ fn apps_popup_shows_disabled_status_for_installed_but_disabled_apps() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2970 apps_refresh_preserves_toggled_enabled_state kind=ui owner=dialogs-pane
 #[test]
 fn apps_refresh_preserves_toggled_enabled_state() {
-    kit::pending(
-        Owner::DialogsPane,
-        "/apps is live (core `select::Ev::AppSwitched` keeps a switch over a refreshed list, core/tests/select_live.rs); the oracle calls `update_connector_enabled` directly: the port has no key or message that switches an app (the app link dialog does, a core Need)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    use crate::chat_popups_3::{apps_answer, apps_asked};
+    // the config takes the write of the switch
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(
+            r#"{"step":"respond","method":"config/batchWrite","result":{"status":"ok","version":"v","filePath":"/c","overriddenMetadata":null}}"#,
+        )
+        .open();
     s.type_text("/apps");
     s.keys("enter");
-    s.keys("space");
+    let asked = apps_asked(&s);
+    s.answer_request(
+        &asked[0],
+        apps_answer(&[("connector_1", "Notion", "Workspace docs")]),
+    );
+    // the oracle calls `update_connector_enabled`; the port's way to switch an app is the link
+    // dialog: Enter on the app, then `Disable app`
+    s.keys("enter");
+    s.assert_contains("2. Disable app");
+    s.keys("down");
+    s.assert_contains("› 2. Disable app");
+    s.keys("enter");
+    s.assert_contains("2. Enable app");
+    s.keys("esc");
+    // the directory is read again and still says the app is on: the switch stays
+    s.type_text("/apps");
+    s.keys("enter");
+    let asked = apps_asked(&s);
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    s.answer_request(
+        &asked[1],
+        apps_answer(&[("connector_1", "Notion", "Workspace docs")]),
+    );
     s.assert_contains("Installed · Disabled · Press Enter to open the app page");
 }
 
@@ -655,12 +681,38 @@ fn reasoning_popup_escape_returns_to_model_popup() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4422 account_change_dismisses_the_previous_app_directory_snapshot kind=snap owner=dialogs-pane snap=connector_scope_invalidation
 #[test]
 fn account_change_dismisses_the_previous_app_directory_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no /apps directory popup in the port: an account change dismisses the previous app directory; no connector script step and no account seed",
+    use crate::chat_popups_3::apps_asked;
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 16).live().open();
+    s.type_text("/apps").keys("enter");
+    let asked = apps_asked(&s);
+    s.answer_request(
+        &asked[0],
+        serde_json::json!({"data": [
+            {"id": "previous-account", "name": "Previous Account App", "isAccessible": true},
+        ], "nextCursor": null}),
     );
-    let s = Screen::build(Owner::DialogsPane).size(80, 16).live().open();
-    s.assert_snap("connector_scope_invalidation");
+    // "Before account change:" (the snapshot joins the two renders under labels the kit does not
+    // read as frames: the popup's rows are checked one by one)
+    s.assert_in_order(&[
+        "Apps",
+        "Use $ to insert an installed app into your prompt.",
+        "Installed 1 of 1 available apps.",
+        "Type to search apps",
+        "› Previous Account App  Installed · App link unavailable",
+        "enter select · esc back",
+    ]);
+    s.assert_has_row("› Previous Account App  Installed · App link unavailable");
+    // the account changes: the previous account's directory is forgotten and its popup dismissed
+    s.feed(&format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": "account/updated",
+            "params": {"authMode": "chatgpt", "planType": null}}})
+    ));
+    // "After account change:" the bare composer
+    s.assert_absent("Previous Account App");
+    s.assert_absent("Installed 1 of 1 available apps.");
+    s.assert_absent("enter select · esc back");
+    s.assert_contains("Ask Codex to do anything");
 }
 
 // ---- oracle: chatwidget/tests/quick_dials_tests.rs (2 screen-level tests here; 0 state tests left to dialogs-pane)

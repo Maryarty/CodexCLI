@@ -12,7 +12,8 @@
 //! - `lagged`: the app server's event stream dropped `skipped` events
 //!   (`{"step":"lagged","skipped":3}`; oracle: the `Lagged` event).
 //! - `respond`: what the backend answers a client request of that method
-//!   with (`{"step":"respond","method":"account/rateLimits/read","result":{..}}`);
+//!   with (`{"step":"respond","method":"account/rateLimits/read","result":{..}}`,
+//!   or `"error":{"message":..}` for a refusal, as `reply` has it);
 //!   the model has no backend, so `play` skips it and a tester's fake backend
 //!   answers with it.
 //! - `reply`: what the backend answers the NEXT request of a method with, one
@@ -63,9 +64,14 @@ pub enum Step {
     Lagged {
         skipped: usize,
     },
+    /// What the backend answers requests of `method` with: exactly one of `result` and `error`
+    /// (checked by `parse`; `answer` reads it).
     Respond {
         method: String,
-        result: serde_json::Value,
+        #[serde(default)]
+        result: Option<serde_json::Value>,
+        #[serde(default)]
+        error: Option<ErrorBody>,
     },
     Key {
         keys: String,
@@ -146,25 +152,53 @@ struct ReplyLine {
     error: Option<ErrorBody>,
 }
 
-#[derive(Deserialize)]
+/// The JSON-RPC error of a `reply` or `respond` line.
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ErrorBody {
-    code: Option<i64>,
-    message: String,
-    data: Option<serde_json::Value>,
+pub struct ErrorBody {
+    pub code: Option<i64>,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
 }
 
-fn reply_of(line: ReplyLine) -> Result<(String, Answer), String> {
-    let answer = match (line.result, line.error) {
-        (Some(result), None) => Answer::Result(result),
-        (None, Some(error)) => Answer::Error {
+/// The answer of a line that has exactly one of `result` and `error` (`step`: its name).
+fn answer_of(
+    step: &str,
+    result: Option<serde_json::Value>,
+    error: Option<ErrorBody>,
+) -> Result<Answer, String> {
+    match (result, error) {
+        (Some(result), None) => Ok(Answer::Result(result)),
+        (None, Some(error)) => Ok(Answer::Error {
             code: error.code,
             message: error.message,
             data: error.data,
-        },
-        _ => return Err("a `reply` step has exactly one of `result` and `error`".to_string()),
-    };
+        }),
+        _ => Err(format!(
+            "a `{step}` step has exactly one of `result` and `error`"
+        )),
+    }
+}
+
+fn reply_of(line: ReplyLine) -> Result<(String, Answer), String> {
+    let answer = answer_of("reply", line.result, line.error)?;
     Ok((line.method, answer))
+}
+
+impl Step {
+    /// The method and the answer of a `respond` step; none for another step.
+    pub fn respond(&self) -> Option<(&str, Answer)> {
+        let Step::Respond {
+            method,
+            result,
+            error,
+        } = self
+        else {
+            return None;
+        };
+        let answer = answer_of("respond", result.clone(), error.clone()).ok()?;
+        Some((method, answer))
+    }
 }
 
 /// An input for a tester, in the order the script gave it.
@@ -211,6 +245,9 @@ pub fn parse(text: &str) -> Result<Script, ScriptError> {
             continue;
         }
         let step = serde_json::from_value::<Step>(value).map_err(|e| bad(e.to_string()))?;
+        if let Step::Respond { result, error, .. } = &step {
+            answer_of("respond", result.clone(), error.clone()).map_err(bad)?;
+        }
         steps.push((line_no, step));
     }
     Ok(Script { steps, replies })
