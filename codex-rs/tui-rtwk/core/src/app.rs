@@ -2109,26 +2109,19 @@ fn resolve_request(
     let Some(entry) = app.requests.get(&key) else {
         return false;
     };
-    let decision = match &answer {
-        approvals::RequestAnswer::Choice(decision)
-        | approvals::RequestAnswer::Elicitation { decision, .. } => Some(decision),
-        approvals::RequestAnswer::UserInput(_) => None,
-    };
-    // What the answer leaves in the thread's history (the oracle's decision cell): only for
-    // the requests it records, none for a thread that is not the one shown.
-    let decided = entry
+    // What the answer leaves in the thread's history (the oracle's decision cell, the result
+    // cell of a question): only for the requests it records, none for a thread that is not the
+    // one shown.
+    let recorded = entry
         .prompt
         .as_deref()
-        .zip(decision)
-        .and_then(|(prompt, decision)| approvals::decided::Decided::of(prompt, decision));
+        .and_then(|prompt| approvals::recorded(prompt, &answer));
     let Some(result) = requests::answer(&entry.request, entry.prompt.as_deref(), answer) else {
         return false;
     };
     remove_request(app, &key);
-    if let Some(decided) = decided {
-        let ev = ThreadEv::Screen(ScreenThreadEv::Approvals(approvals::ThreadEv::Decided(
-            decided,
-        )));
+    if let Some(recorded) = recorded {
+        let ev = ThreadEv::Screen(ScreenThreadEv::Approvals(recorded));
         apply_thread(app, &key.thread, ev, fx);
     }
     fx.commands.push(Command::ResolveRequest { key, result });
