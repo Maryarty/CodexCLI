@@ -81,7 +81,7 @@ fn target_of(dir: &str) -> Target {
 
 /// The widget the screen of directory `dir` puts up: its own type, so a
 /// stub or the real screen is found by what it is, never by what it prints.
-/// (`select` and `dialogs` keep their dialogs private: found by type name.)
+/// (`select` and `dialogs` keep their sheets private: found by type name.)
 fn widget_of(dir: &str) -> Finder {
     match dir {
         "resume" => find::by_type::<resume::Screen>(),
@@ -94,7 +94,11 @@ fn widget_of(dir: &str) -> Finder {
         "voice" => find::by_type::<voice::Screen>(),
         "approvals" => find::by_type::<approvals::Screen>(),
         "backtrack" => find::by_type::<backtrack::Screen>(),
-        "select" => find::widget_where("MenuDialog", |w| w.type_name() == "MenuDialog"),
+        // Every family is a sheet of its own (`sheets/select`): the page /model opens on, the
+        // /permissions step, the /review page, the confirmation of /archive and /delete.
+        "select" => find::widget_where("a select sheet", |w| {
+            matches!(w.type_name(), "ConfirmSheet" | "Step" | "Page")
+        }),
         _ => panic!("`{dir}` is not a screen the chat opens"),
     }
 }
