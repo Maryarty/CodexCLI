@@ -25,8 +25,6 @@ pub enum Target {
     Usage,
     /// The static pager (`/diff`) and the transcript pager (S16).
     Pager,
-    /// The status card (S19).
-    Status,
     /// The generic selection dialog (S14).
     Select,
     /// The settings dialogs (S15).
@@ -66,8 +64,7 @@ impl Target {
     pub fn opens(self) -> Opens {
         match self {
             Target::Resume | Target::Agents | Target::Import | Target::Usage => Opens::Page,
-            Target::Status
-            | Target::Select
+            Target::Select
             | Target::Settings
             | Target::Approvals
             | Target::Pets
@@ -86,7 +83,6 @@ impl Target {
             Target::Import => "import",
             Target::Usage => "usage",
             Target::Pager => "pager",
-            Target::Status => "status",
             Target::Select => "select",
             Target::Settings => "settings",
             Target::Dialogs => "dialogs",
@@ -207,6 +203,8 @@ pub enum SessionIntent {
         name: Option<String>,
     },
     Compact,
+    /// `/status`: a card in the thread's transcript.
+    Status,
     Init,
     Recap,
     Archive,
@@ -462,7 +460,7 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Resume => open(Target::Resume, command, ""),
         Import => open(Target::Import, command, ""),
         Diff => open(Target::Pager, command, ""),
-        Status => open(Target::Status, command, ""),
+        Status => session(command, SessionIntent::Status),
         Warnings | Feedback | Rename => open(Target::Dialogs, command, ""),
         Pets => open(Target::Pets, command, ""),
         TestApproval => open(Target::Approvals, command, ""),

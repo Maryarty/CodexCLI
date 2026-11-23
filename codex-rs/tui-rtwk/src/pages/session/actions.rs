@@ -245,12 +245,9 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::Open(opened) => {
             record(cx);
             clear_sent(&w.ui);
-            if matches!(opened.target, Target::Status | Target::Usage) {
-                let intent = if opened.target == Target::Status {
-                    ScreenIntent::Status(codex_tui_core::screens::status::Intent::Open)
-                } else {
-                    ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits)
-                };
+            if opened.target == Target::Usage {
+                let intent =
+                    ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits);
                 cx.emit(&hs.screen, intent);
             }
             // The settings dialogs are built by the model from its facts

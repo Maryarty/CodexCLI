@@ -4,30 +4,40 @@
 //! values; the blended total is the oracle's (`TokenUsage::blended_total`).
 
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::screens::status::{Approval, Profile};
+use codex_tui_core::screens::status::Approval;
 use pretty_assertions::assert_eq;
 
-const CARD: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning_effort":"high","reasoning_summary":"detailed","directory":"/w","profile":"workspace","approval":"on_request","tokens":{"input":1200,"cached_input":200,"output":900,"total":2250},"context":null,"limits":[]}}"#;
+const CARD: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.1-codex-max","directory":"/w","permissions":{"sandbox":"workspace","approval":"on_request"},"tokens":{"input":1200,"cached_input":200,"output":900,"total":2250}}}"#;
+
+/// The card a script seeds is a cell of the shown thread's transcript.
+fn card(sandbox: &Sandbox) -> std::sync::Arc<codex_tui_core::screens::status::StatusCard> {
+    sandbox
+        .app()
+        .active_thread()
+        .transcript()
+        .last_status()
+        .expect("a status card in the transcript")
+        .clone()
+}
 
 #[test]
 fn the_card_keeps_the_values_it_was_shown_with() {
     let sandbox = Sandbox::play(CARD).expect("plays");
-    let card = sandbox.app().screens().status.card.clone().expect("a card");
+    let card = card(&sandbox);
     assert_eq!(card.model, "gpt-5.1-codex-max");
-    assert_eq!(card.profile, Profile::Workspace);
-    assert_eq!(card.approval, Approval::OnRequest);
+    assert_eq!(card.permissions.approval, Approval::OnRequest);
 }
 
 #[test]
 fn the_blended_total_leaves_out_cached_input() {
     let sandbox = Sandbox::play(CARD).expect("plays");
-    let card = sandbox.app().screens().status.card.clone().expect("a card");
-    assert_eq!(card.tokens.blended_total(), 1_900);
+    assert_eq!(card(&sandbox).tokens.blended_total(), 1_900);
 }
 
 #[test]
 fn a_card_missing_a_field_is_a_bad_seed() {
-    let err = Sandbox::play(r#"{"step":"screen","dir":"status","ev":{"kind":"card"}}"#)
+    let err = Sandbox::play(r#"{"step":"screen","dir":"status","ev":{"kind":"status_card"}}"#)
         .err()
         .expect("fails");
     assert_eq!(err.line, 1);
@@ -634,15 +644,20 @@ mod cell {
     }
 
     #[test]
-    fn a_status_card_script_step_seeds_the_cell_and_not_the_dialog_card() {
-        let script = r#"{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"m","directory":"/w","permissions":{"sandbox":"read_only","approval":"never"},"tokens":{"input":1,"cached_input":0,"output":2,"total":3}}}"#;
+    fn a_status_card_script_step_puts_the_cell_into_the_transcript() {
+        let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"m","directory":"/w","permissions":{"sandbox":"read_only","approval":"never"},"tokens":{"input":1,"cached_input":0,"output":2,"total":3}}}"#;
         let sandbox = Play::play(script).expect("plays");
-        let status = &sandbox.app().screens().status;
-        let cell = status.cell.clone().expect("a cell");
+        let cell = sandbox
+            .app()
+            .active_thread()
+            .transcript()
+            .last_status()
+            .expect("a cell")
+            .clone();
         assert_eq!(cell.model, "m");
         assert_eq!(cell.permissions.approval, Approval::Never);
         assert_eq!(cell.tokens.blended_total(), 3);
-        assert!(status.card.is_none());
     }
 
     /// The built-in read-only label with the usual approval.
