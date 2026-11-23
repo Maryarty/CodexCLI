@@ -11,7 +11,7 @@
 
 use std::rc::Rc;
 
-use rtwk::layout::{EdgeInsets, Padding};
+use rtwk::layout::{Align, Alignment, EdgeInsets, Padding};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
@@ -56,6 +56,11 @@ fn newer<'a>(state: &'a Domain, awaiting: &Option<(OpKey, Gen)>) -> Option<&'a S
         .op(key)
         .filter(|op| op.at > *before)
         .map(|op| &op.status)
+}
+
+/// The tab of the catalog a tab id (a marketplace's root) names now.
+fn resolved(state: &Domain, cwd: &str, saved: String) -> String {
+    state.tab_now(cwd, &saved).unwrap_or(saved)
 }
 
 // ---------------------------------------------------------------------------------- moving
@@ -107,39 +112,47 @@ fn floating(picker: Picker, page: u32) -> AnyWidget {
 
 // ------------------------------------------------------------------------------- the routes
 
+/// A page at the bottom of the sheet. The navigator is as tall as the sheet's cap (a `Navigator`
+/// under bounded constraints fills them) and gives each route that size tight; the page is as
+/// tall as what it shows, so it sits at the bottom edge where the oracle's pane is, under the
+/// transparent rest of the cap. (`IntrinsicHeight` over the navigator cannot size it: a page of
+/// the picker is built by a `LayoutBuilder` from the height it is given, which has no intrinsic
+/// height before it is built; `tests/rtwk_o1.rs`.)
+pub fn bottom(page: impl Into<AnyWidget>) -> AnyWidget {
+    Align::new(Alignment::BOTTOM_CENTER, page).into()
+}
+
 pub fn detail_route(key: PluginKey) -> PageRoute<()> {
-    PageRoute::new(move |_| Detail { key: key.clone() }.into())
+    PageRoute::new(move |_| bottom(Detail { key: key.clone() }))
 }
 
 pub fn add_route(cwd: String) -> PageRoute<()> {
-    PageRoute::new(move |_| Add { cwd: cwd.clone() }.into())
+    PageRoute::new(move |_| bottom(Add { cwd: cwd.clone() }))
 }
 
 pub fn remove_route(cwd: String, name: String, label: String) -> PageRoute<()> {
     PageRoute::new(move |_| {
-        Remove {
+        bottom(Remove {
             cwd: cwd.clone(),
             name: name.clone(),
             label: label.clone(),
-        }
-        .into()
+        })
     })
 }
 
 pub fn upgrade_route(cwd: String, name: Option<String>, before: Gen) -> PageRoute<()> {
     PageRoute::new(move |_| {
-        Upgrade {
+        bottom(Upgrade {
             cwd: cwd.clone(),
             name: name.clone(),
             before,
-        }
-        .into()
+        })
     })
 }
 
 /// The setup of the apps an installed plugin needs signed in.
 pub fn auth_route(key: PluginKey) -> PageRoute<()> {
-    PageRoute::new(move |_| Auth { key: key.clone() }.into())
+    PageRoute::new(move |_| bottom(Auth { key: key.clone() }))
 }
 
 // ------------------------------------------------------------------------------- the browser
@@ -185,7 +198,7 @@ impl_widget!(stateful eq Home);
 
 impl HomeState {
     /// What the op a page over the browser did to the list is the tab the browser shows.
-    fn waited(&mut self, state: &Domain) {
+    fn waited(&mut self, state: &Domain, cwd: &str) {
         let Some((key, before)) = self.awaiting.clone() else {
             return;
         };
@@ -197,7 +210,7 @@ impl HomeState {
         };
         match outcome {
             Outcome::Added { root, already } => {
-                let tab = tab_id_of_root(root);
+                let tab = resolved(state, cwd, tab_id_of_root(root));
                 self.fresh = (!already).then(|| tab.clone());
                 self.tab = tab;
             }
@@ -205,7 +218,9 @@ impl HomeState {
                 self.tab = ALL.to_owned();
                 self.fresh = None;
             }
-            Outcome::Upgraded { root: Some(root) } => self.tab = tab_id_of_root(root),
+            Outcome::Upgraded { root: Some(root) } => {
+                self.tab = resolved(state, cwd, tab_id_of_root(root));
+            }
             Outcome::Upgraded { root: None } | Outcome::Nothing => {}
         }
         self.awaiting = None;
@@ -310,7 +325,7 @@ impl State for HomeState {
                 soon(cx, HomeMsg::Setup(key.clone()));
             }
         }
-        self.waited(&state);
+        self.waited(&state, &w.cwd);
     }
 
     fn update(&mut self, msg: HomeMsg, w: &Home, cx: &mut Cx<'_, Self>) -> Rebuild {

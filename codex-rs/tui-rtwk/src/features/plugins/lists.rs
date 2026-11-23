@@ -11,7 +11,7 @@
 use rtwk::Handler;
 
 use codex_tui_core::features::plugins::catalog::{
-    Auth as AuthPolicy, Catalog, Note, Placeholder, Source,
+    Auth as AuthPolicy, Catalog, Note, Placeholder, Source, tab_matching,
 };
 use codex_tui_core::features::plugins::{
     self, Action, AuthApp, Detail, Kind, Product, Row, State, Tab, Toggle,
@@ -447,7 +447,7 @@ pub fn browser(
         tabs: shown,
         // The tab the user is at, or the one that took its place (a loading section that has
         // loaded: `plugin_tab_id_matching_saved_id`).
-        initial_tab: Some(state.tab_now(cwd, tab).unwrap_or_else(|| tab.to_string())),
+        initial_tab: Some(tab_matching(tab, &tabs).unwrap_or_else(|| tab.to_string())),
         searchable: true,
         search_placeholder: Some(s.search.to_string()),
         single_line: true,

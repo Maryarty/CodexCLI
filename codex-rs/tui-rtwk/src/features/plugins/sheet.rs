@@ -1,6 +1,7 @@
 //! The sheet of `/plugins` (ADR-013 O1): a modal bottom sheet whose body is a nested `Navigator`
-//! in an `IntrinsicHeight`, so the sheet is as tall as the page on top and the sheet's own cap
-//! (the options' max height) bounds it. The routes of the navigator are the pages (`pages.rs`);
+//! as tall as the sheet's cap, its pages at the bottom of it (`pages::bottom`: `IntrinsicHeight`
+//! cannot size a navigator whose page is built by a `LayoutBuilder`, `tests/rtwk_o1.rs`). The
+//! routes of the navigator are the pages (`pages.rs`);
 //! Esc pops one, and the browser under them keeps its picker (cursor, query, tab) because it is the
 //! first route and is never rebuilt from scratch. The sheet says it wants the plugins of its
 //! directory (`Interest`), so the feature loads them for as long as the sheet is open, and closes
@@ -9,7 +10,6 @@
 //! In Flutter this is `showModalBottomSheet` with a `Navigator` as the body (the nested-navigator
 //! recipe for a flow inside a sheet), `PopScope` per page, and a provider the pages select from.
 
-use rtwk::layout::IntrinsicHeight;
 use rtwk::navigation::Navigator;
 use rtwk::overlay::close_dialog;
 use rtwk::provider::select;
@@ -18,7 +18,7 @@ use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::plugins::{Interest as Wanted, PluginKey};
 
-use super::pages::Home;
+use super::pages::{Home, bottom};
 use crate::widgets::interest::Interest;
 use crate::widgets::sheet::Sheet;
 
@@ -75,11 +75,7 @@ impl State for PluginsSheetState {
             cwd: w.cwd.clone(),
             start: w.start.clone(),
         };
-        let pages = Navigator::new().home(browser).back_key(None);
-        Interest::new(
-            Wanted::Listing { cwd: w.cwd.clone() },
-            IntrinsicHeight::new(pages),
-        )
-        .into()
+        let pages = Navigator::new().home(bottom(browser)).back_key(None);
+        Interest::new(Wanted::Listing { cwd: w.cwd.clone() }, pages).into()
     }
 }
