@@ -15,7 +15,7 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_wi
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
-use crate::pages::session::footer::{Footer, Line};
+use crate::pages::session::footer::{Flash, Footer, Line, Timed};
 use crate::pages::session::popovers::mention;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::thread_ui::ThreadUi;
@@ -31,11 +31,39 @@ const DRAFT_ROWS: i32 = 3;
 #[derive(Clone)]
 pub struct Alone {
     pub ui: Rc<ThreadUi>,
+    /// `set_footer_hint_override`: `(key, label)` items in place of the hints.
+    hint_override: Option<Vec<(String, String)>>,
+    /// `show_footer_flash`: a line over the hints for a while.
+    flash: Option<Flash>,
 }
 
 impl PartialEq for Alone {
     fn eq(&self, other: &Alone) -> bool {
         Rc::ptr_eq(&self.ui, &other.ui)
+            && self.hint_override == other.hint_override
+            && self.flash == other.flash
+    }
+}
+
+impl Alone {
+    pub fn new(ui: Rc<ThreadUi>) -> Alone {
+        Alone {
+            ui,
+            hint_override: None,
+            flash: None,
+        }
+    }
+
+    /// The footer shows `items` instead of its hints.
+    pub fn hint_override(mut self, items: Vec<(String, String)>) -> Alone {
+        self.hint_override = Some(items);
+        self
+    }
+
+    /// The footer flashes `flash` over everything else until it runs out.
+    pub fn flash(mut self, flash: Flash) -> Alone {
+        self.flash = Some(flash);
+        self
     }
 }
 
@@ -120,18 +148,26 @@ impl State for AloneState {
         let footer: AnyWidget = if let Some((query, status)) = w.ui.draft.search_state() {
             search::footer(cx, query, status)
         } else {
-            Footer {
-                line: if self.shortcuts {
-                    Line::Close
-                } else {
-                    Line::Passive
+            Timed {
+                footer: Footer {
+                    line: if self.shortcuts {
+                        Line::Close
+                    } else {
+                        Line::Passive
+                    },
+                    agents: false,
+                    draft_empty: self.draft_empty,
+                    shell: self.draft_shell,
+                    vim: w
+                        .ui
+                        .draft
+                        .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
+                    hint_override: w.hint_override.clone(),
+                    flash: w.flash.clone(),
+                    on_queue: None,
+                    on_warnings: None,
+                    on_close: Some(cx.send(Msg::Shortcuts)),
                 },
-                agents: false,
-                draft_empty: self.draft_empty,
-                shell: self.draft_shell,
-                on_queue: None,
-                on_warnings: None,
-                on_close: Some(cx.send(Msg::Shortcuts)),
             }
             .into()
         };
