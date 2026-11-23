@@ -161,7 +161,8 @@ pub fn is_advanced(effort: &Effort) -> bool {
 /// Whether the default provider is being written or was (oracle `ProviderWrite`,
 /// `model_picker_unavailable`): the cached model list is then not trusted until the app
 /// server and the TUI restart.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Provider {
     /// No provider write is known: the list is current.
     #[default]
@@ -290,15 +291,16 @@ impl Current {
         Current { model: model.into(), effort: None, plan: None, threads: None, reserve: None }
     }
 
-    /// What the chat's status facts know of the thread: its model and
-    /// effective effort. The plan mode and the thread limit are not among
-    /// them (the opener adds them when the thread model carries them).
+    /// What the chat's status facts know of the thread: its model, effective
+    /// effort and the configured thread limit. The plan mode is not among
+    /// them (the opener adds it when the thread model carries it).
     pub fn from_facts(facts: &crate::screens::chat::StatusFacts) -> Self {
         let effort = facts.effort.as_deref().and_then(|name| {
             serde_json::from_value(serde_json::Value::String(name.to_owned())).ok()
         });
         Current {
             effort,
+            threads: facts.agent_threads,
             ..Current::new(facts.model.clone().unwrap_or_default())
         }
     }
