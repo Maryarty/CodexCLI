@@ -20,6 +20,7 @@ use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
+use codex_tui_core::screens::select::quick_dials::{Dial, Origin, SLOTS, Slot};
 use codex_tui_core::screens::select::review::Commit;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
 use codex_tui_rtwk::services::clipboard::Clipboard;
@@ -55,6 +56,53 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
             lists: rendering.lists,
         },
     }
+}
+
+/// `tui.presets` of the merged config, each with the layers that define it (`save_quick_dial`:
+/// the user config's own file decides what the user may replace or clear).
+pub(crate) fn presets(config: &Config) -> Vec<Slot> {
+    use codex_config::ConfigLayerSource;
+    let user_file = config
+        .config_layer_stack
+        .get_user_config_file()
+        .cloned()
+        .unwrap_or_else(|| config.codex_home.join("config.toml"));
+    config
+        .tui_quick_dials
+        .iter()
+        .filter_map(|(key, dial)| {
+            let slot: u8 = key.parse().ok().filter(|slot| SLOTS.contains(slot))?;
+            let layers: Vec<bool> = config
+                .config_layer_stack
+                .layers_high_to_low()
+                .filter(|layer| {
+                    layer
+                        .config
+                        .get("tui")
+                        .and_then(|tui| tui.get("presets"))
+                        .and_then(|dials| dials.get(key))
+                        .is_some()
+                })
+                .map(|layer| {
+                    matches!(&layer.name, ConfigLayerSource::User { file, .. } if *file == user_file)
+                })
+                .collect();
+            let origin = match layers.first() {
+                None => Origin::User,
+                Some(true) if layers.iter().all(|user| *user) => Origin::User,
+                Some(true) => Origin::Shadowing,
+                Some(false) => Origin::Outside,
+            };
+            Some(Slot {
+                slot,
+                dial: Dial {
+                    input: dial.input.clone(),
+                    label: dial.label.clone(),
+                },
+                origin,
+            })
+        })
+        .collect()
 }
 
 impl Effects {

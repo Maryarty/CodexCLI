@@ -374,6 +374,11 @@ async fn run(
         epoch,
         AppEv::Tui(crate::effects::tui_settings(&config)),
     );
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Presets(crate::effects::presets(&config)),
+    );
     if !warnings.is_empty() {
         emit(
             &ingress,

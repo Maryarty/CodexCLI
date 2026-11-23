@@ -37,6 +37,7 @@ mod pets;
 mod plan_mode;
 mod popovers;
 mod provider_error;
+mod quick_dials;
 mod resume;
 mod review_popup;
 mod script;

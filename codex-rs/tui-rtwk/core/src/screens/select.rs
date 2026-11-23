@@ -19,6 +19,7 @@ pub mod list;
 pub mod models;
 pub mod permissions;
 pub mod persist;
+pub mod quick_dials;
 pub mod reasoning;
 pub mod review;
 pub mod worktree;
@@ -70,6 +71,9 @@ pub enum Menu {
     /// A menu of the worktree pickers (`worktree.rs`): the checkout choice of `/new` and `/fork`,
     /// `/worktree`, the browser, a worktree's actions and the delete confirmation.
     Worktree(Box<worktree::Menu>),
+    /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
+    /// settings, the editor and the confirmation of a change.
+    Quick(Box<quick_dials::Menu>),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -107,6 +111,9 @@ pub enum Picked {
     Review(crate::threads::ReviewTarget),
     /// What the worktree menus settled on; the app acts.
     Worktree(worktree::Pick),
+    /// A saved preset's input, to be submitted as the user typed it (`RecallQuickDial`): the
+    /// session's composer takes it.
+    Recall(String),
 }
 
 /// A typed menu as rows: what the view turns into its list.
@@ -180,6 +187,27 @@ pub enum Note {
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
+    /// `Presets are unavailable in this conversation.` (an error).
+    PresetsUnavailable,
+    /// `Presets are available after startup completes.`
+    PresetsStarting,
+    /// `Images cannot be copied into a preset. Starting with empty text.`
+    PresetImages,
+    /// `Linked mentions cannot be copied into a preset. Starting with empty text.`
+    PresetMentions,
+    /// The input is not a preset: the reason as an error.
+    PresetInvalid(quick_dials::Invalid),
+    /// `Preset {slot}: {reason}`: a saved preset that does not validate (an error).
+    PresetBroken { slot: u8, reason: quick_dials::Invalid },
+    /// `Preset {slot} is defined outside your user config. Edit its source configuration
+    /// instead.` (an error).
+    PresetOutside(u8),
+    /// `Failed to update preset {slot}: {error}` (an error).
+    PresetFailed { slot: u8, error: String },
+    /// `Saved preset {slot}.`
+    PresetSaved(u8),
+    /// `Deleted preset {slot}.`
+    PresetDeleted(u8),
 }
 
 impl Note {
@@ -192,7 +220,12 @@ impl Note {
             | Note::AppsFailed(_)
             | Note::WorktreesUnavailable
             | Note::WorktreeListFailed(_)
-            | Note::WorktreeRemoveFailed { .. } => Tone::Error,
+            | Note::WorktreeRemoveFailed { .. }
+            | Note::PresetsUnavailable
+            | Note::PresetInvalid(_)
+            | Note::PresetBroken { .. }
+            | Note::PresetOutside(_)
+            | Note::PresetFailed { .. } => Tone::Error,
             _ => Tone::Info,
         }
     }
@@ -234,6 +267,8 @@ pub struct Model {
     pub review: review::Review,
     /// The scope and the requests of the worktree menus.
     pub worktree: worktree::Worktree,
+    /// The presets saved in the config and the writes asked for them.
+    pub quick: quick_dials::Quick,
     /// Picks made; the effect that stores them is the settings slice's.
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
@@ -272,7 +307,11 @@ impl Model {
             }
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Confirm(_) | Menu::List(_) | Menu::Review(_) | Menu::Worktree(_) => None,
+            Menu::Confirm(_)
+            | Menu::List(_)
+            | Menu::Review(_)
+            | Menu::Worktree(_)
+            | Menu::Quick(_) => None,
         }
     }
 
@@ -324,6 +363,110 @@ impl Model {
             self.kept.insert(self.stack.len() - 1, id);
         }
         self.step(step);
+    }
+
+    /// `quick_dials_available`: whether presets can be used here; a note says why not.
+    fn quick_available(&mut self, gate: quick_dials::Gate) -> bool {
+        match gate {
+            quick_dials::Gate::Ready => true,
+            quick_dials::Gate::Blocked => {
+                self.notes.push(Note::PresetsUnavailable);
+                false
+            }
+            quick_dials::Gate::Starting => {
+                self.notes.push(Note::PresetsStarting);
+                false
+            }
+        }
+    }
+
+    /// `/presets`: a menu of the presets, or a preset recalled.
+    fn open_quick(&mut self, gate: quick_dials::Gate, open: quick_dials::Open) {
+        use quick_dials::{Menu as Quick, Open, PickerMode};
+        if !self.quick_available(gate) {
+            return;
+        }
+        match open {
+            Open::Picker(mode) => {
+                self.stack = vec![Menu::Quick(Box::new(Quick::Slots { mode, dial: None }))];
+            }
+            Open::Save(dial) => {
+                if let Err(reason) = dial.validate() {
+                    self.notes.push(Note::PresetInvalid(reason));
+                    return;
+                }
+                self.stack = vec![Menu::Quick(Box::new(Quick::Slots {
+                    mode: PickerMode::Save,
+                    dial: Some(dial),
+                }))];
+            }
+            Open::Editor { target, dial, composer } => {
+                let dial = dial.unwrap_or_else(|| {
+                    // `composer_quick_dial_text`: images and linked mentions cannot be saved.
+                    let input = if composer.images {
+                        self.notes.push(Note::PresetImages);
+                        String::new()
+                    } else if composer.mentions {
+                        self.notes.push(Note::PresetMentions);
+                        String::new()
+                    } else {
+                        composer.text
+                    };
+                    quick_dials::Dial::new(input)
+                });
+                self.stack = vec![Menu::Quick(Box::new(Quick::Editor { target, dial }))];
+            }
+            Open::Prefills(settings) => {
+                let rows = quick_dials::sources(&settings, &self.catalog);
+                self.stack = vec![Menu::Quick(Box::new(Quick::Sources(rows)))];
+            }
+            Open::Recall(slot) => {
+                let Some(saved) = self.quick.get(slot) else { return };
+                match saved.dial.validate() {
+                    Ok(()) => self.picked.push(Picked::Recall(saved.dial.input.clone())),
+                    Err(reason) => self.notes.push(Note::PresetBroken { slot, reason }),
+                }
+            }
+        }
+    }
+
+    /// `confirm_quick_dial`: the question of replacing, deleting or saving; nothing to ask when
+    /// there is nothing to delete.
+    fn quick_confirm(&mut self, slot: u8, new: Option<quick_dials::Dial>) {
+        if let Some(Err(reason)) = new.as_ref().map(quick_dials::Dial::validate) {
+            self.notes.push(Note::PresetInvalid(reason));
+            return;
+        }
+        let old = self.quick.get(slot).map(|saved| saved.dial.clone());
+        if old.is_none() && new.is_none() {
+            return;
+        }
+        self.stack.push(Menu::Quick(Box::new(quick_dials::Menu::Confirm { slot, old, new })));
+    }
+
+    /// `save_quick_dial`: a refused write says why and shows the editor again; an allowed one is
+    /// left for the app to ask of the config.
+    fn quick_write(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
+        match self.quick.check(slot, dial.as_ref()) {
+            Ok(()) => self.quick.want(quick_dials::Write { slot, dial }),
+            Err(refused) => {
+                self.notes.push(match refused {
+                    quick_dials::Refused::Outside(slot) => Note::PresetOutside(slot),
+                    quick_dials::Refused::Invalid(reason) => Note::PresetInvalid(reason),
+                });
+                self.restore_editor(slot, dial);
+            }
+        }
+    }
+
+    /// `restore_quick_dial_editor`: what was being saved is not lost.
+    fn restore_editor(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
+        if let Some(dial) = dial {
+            self.stack = vec![Menu::Quick(Box::new(quick_dials::Menu::Editor {
+                target: quick_dials::Target::Slot(slot),
+                dial,
+            }))];
+        }
     }
 
     /// `dismiss_stale_model_picker`: the model menus go, with the request they waited for.
@@ -523,6 +666,14 @@ pub enum Ev {
         request: u64,
         result: Result<(), String>,
     },
+    /// The presets of the config, with the layers each comes from (told when the config is read).
+    Dials(Vec<quick_dials::Slot>),
+    /// The config took the write of a preset, or refused it.
+    PresetWritten {
+        slot: u8,
+        dial: Option<quick_dials::Dial>,
+        result: Result<(), String>,
+    },
     /// The app server says the directory changed
     /// (`refresh_connector_directory_after_notification`).
     AppsNotified(Vec<apps::App>),
@@ -568,6 +719,14 @@ pub enum Intent {
     },
     /// The text typed at `Custom review instructions`.
     Instructions(String),
+    /// `/presets`: a menu of the presets, or a preset recalled; `gate` says whether presets can
+    /// be used where the user is.
+    Quick {
+        gate: quick_dials::Gate,
+        open: quick_dials::Open,
+    },
+    /// The text submitted at the preset editor.
+    Draft(String),
     /// The link dialog of an app switched it on or off (`SetAppEnabled`): the app writes
     /// the config and, once it is saved, tells the directory (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
@@ -632,6 +791,21 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 });
             }
         }
+        Ev::Dials(slots) => model.quick.set(slots),
+        Ev::PresetWritten { slot, dial, result } => match result {
+            Ok(()) => {
+                model.quick.written(quick_dials::Write { slot, dial: dial.clone() });
+                model.notes.push(if dial.is_some() {
+                    Note::PresetSaved(slot)
+                } else {
+                    Note::PresetDeleted(slot)
+                });
+            }
+            Err(error) => {
+                model.notes.push(Note::PresetFailed { slot, error });
+                model.restore_editor(slot, dial);
+            }
+        },
         Ev::Provider(provider) => {
             model.catalog.provider = provider;
             if provider != Provider::Settled {
@@ -792,6 +966,22 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 }));
             }
         }
+        Intent::Quick { gate, open } => model.open_quick(gate, open),
+        // The text submitted at the preset editor: the slot picker, or the confirmation.
+        Intent::Draft(text) => {
+            use quick_dials::{Dial, Menu as Quick, Target};
+            let Some(Menu::Quick(menu)) = model.stack.last() else { return };
+            let Quick::Editor { target, dial } = &**menu else { return };
+            let (target, dial) = (*target, Dial { input: text, label: dial.label.clone() });
+            model.stack.pop();
+            match target {
+                Target::PickSlot => model.open_quick(
+                    quick_dials::Gate::Ready,
+                    quick_dials::Open::Save(dial),
+                ),
+                Target::Slot(slot) => model.quick_confirm(slot, Some(dial)),
+            }
+        }
         // The app writes the config (`app/select.rs`); the directory follows the saved write.
         Intent::SetApp { .. } => {}
         Intent::Choose(id) => match model.stack.last_mut() {
@@ -830,6 +1020,24 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     Some(Chosen::Target(target)) => {
                         model.stack.clear();
                         model.picked.push(Picked::Review(target));
+                    }
+                    None => {}
+                }
+            }
+            Some(Menu::Quick(menu)) => {
+                use quick_dials::Chosen;
+                match menu.choose(&id, &model.quick) {
+                    Some(Chosen::Push(next)) => {
+                        model.kept.insert(model.stack.len() - 1, id);
+                        model.stack.push(Menu::Quick(Box::new(next)));
+                    }
+                    Some(Chosen::Confirm { slot, new }) => {
+                        model.kept.insert(model.stack.len() - 1, id);
+                        model.quick_confirm(slot, new);
+                    }
+                    Some(Chosen::Write { slot, dial }) => {
+                        model.stack.clear();
+                        model.quick_write(slot, dial);
                     }
                     None => {}
                 }
@@ -956,6 +1164,11 @@ pub enum Command {
     Write { edits: Vec<persist::Edit> },
     /// `config/batchWrite` of the `apps.<id>` keys: the app switched on or off.
     SetApp { id: String, enabled: bool },
+    /// `config/batchWrite` of `tui.presets.<slot>`: the preset saved, or deleted (`None`).
+    Preset {
+        slot: u8,
+        dial: Option<quick_dials::Dial>,
+    },
 }
 
 /// The replies of those RPCs, decoded by `decode`.
@@ -1009,6 +1222,11 @@ pub enum Ctx {
     },
     /// The write of an app's switch: the directory takes it once it is saved.
     App { id: String, enabled: bool },
+    /// The write of a preset: the slot follows once it is saved.
+    Preset {
+        slot: u8,
+        dial: Option<quick_dials::Dial>,
+    },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).
@@ -1040,6 +1258,7 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         .wire(id),
         Command::Write { edits } => persist::write_request(edits, id),
         Command::SetApp { id: app, enabled } => persist::app_enabled_request(app, *enabled, id),
+        Command::Preset { slot, dial } => persist::preset_request(*slot, dial.as_ref(), id),
         Command::Models { .. } => models::list_request(id),
         Command::Apps { force, thread, .. } => apps::list_request(id, *force, thread.clone()),
         Command::Requirements { .. } => permissions::requirements_request(id),
@@ -1053,7 +1272,7 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     match command {
         Command::Settings { .. } => Ok(Reply::Updated),
-        Command::Write { .. } | Command::SetApp { .. } => {
+        Command::Write { .. } | Command::SetApp { .. } | Command::Preset { .. } => {
             persist::written(result).map(|overridden| Reply::Written { overridden })
         }
         Command::Models { .. } => models::presets(result).map(Reply::Models),

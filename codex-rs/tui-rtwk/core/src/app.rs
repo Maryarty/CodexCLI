@@ -273,6 +273,9 @@ pub enum AppEv {
     /// The `[tui]` settings the config holds (the host sends them once the config is read, and
     /// again after a setting changed).
     Tui(facts::TuiSettings),
+    /// The presets of the config (`tui.presets`) with the layer each comes from: sent with
+    /// `Tui`, and never changed by anything but the saved write of a preset.
+    Presets(Vec<crate::screens::select::quick_dials::Slot>),
     /// An error the host words for the shown conversation: the browser did not open a page
     /// (`Command::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
     /// no image to paste (`Failed to paste image: {err}`). The conversation keeps it as an error
@@ -1284,6 +1287,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Announce(notice) => notices::announce(app, notice, fx),
         AppEv::Daybreak(access) => app.daybreak = access,
         AppEv::Tui(settings) => app.tui = settings,
+        AppEv::Presets(slots) => select::event(app, crate::screens::select::Ev::Dials(slots), fx),
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } => {
             if !select::reviewed(app, request, &done, fx) {

@@ -61,8 +61,26 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
     }
     review_asked(app, fx);
     worktree_asked(app, fx);
+    quick_asked(app, fx);
     picks(app, fx);
     drain(app, fx);
+}
+
+/// The preset writes the menus settled on, asked of the config (one `config/batchWrite` each).
+fn quick_asked(app: &mut CodexApp, fx: &mut AppFx) {
+    let wanted = Rc::make_mut(&mut app.screens).select.quick.take_wanted();
+    for write in wanted {
+        let select::quick_dials::Write { slot, dial } = write;
+        ask(
+            app,
+            select::Command::Preset {
+                slot,
+                dial: dial.clone(),
+            },
+            select::Ctx::Preset { slot, dial },
+            fx,
+        );
+    }
 }
 
 /// The git list a `/review` menu waits for, asked of the host (once per request).
@@ -500,6 +518,15 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
             event(app, select::Ev::AppSwitched { id, enabled }, fx);
         }
         (select::Ctx::App { .. }, _) => {}
+        // `save_quick_dial`: the slot follows a saved write; a refused one is said, with the
+        // editor shown again.
+        (select::Ctx::Preset { slot, dial }, result) => {
+            let result = match result {
+                Ok(_) => Ok(()),
+                Err(error) => Err(text(error)),
+            };
+            event(app, select::Ev::PresetWritten { slot, dial, result }, fx);
+        }
         (select::Ctx::Apps { request }, result) => {
             let result = match result {
                 Ok(select::Reply::Apps(apps)) => Ok(apps),

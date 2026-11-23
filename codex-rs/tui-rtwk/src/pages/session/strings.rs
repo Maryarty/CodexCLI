@@ -535,6 +535,29 @@ impl Strings {
         let picker = self.picker;
         match note {
             Note::NoAdditionalModels => self.note_no_models.to_string(),
+            // The words of the preset notes are the view task's (chunk-popups-quick-dials); the
+            // oracle's English stands until its catalog entries exist.
+            Note::PresetsUnavailable => "Presets are unavailable in this conversation.".to_string(),
+            Note::PresetsStarting => "Presets are available after startup completes.".to_string(),
+            Note::PresetImages => {
+                "Images cannot be copied into a preset. Starting with empty text.".to_string()
+            }
+            Note::PresetMentions => {
+                "Linked mentions cannot be copied into a preset. Starting with empty text."
+                    .to_string()
+            }
+            Note::PresetInvalid(reason) => preset_reason(*reason).to_string(),
+            Note::PresetBroken { slot, reason } => {
+                format!("Preset {slot}: {}", preset_reason(*reason))
+            }
+            Note::PresetOutside(slot) => format!(
+                "Preset {slot} is defined outside your user config. Edit its source configuration instead."
+            ),
+            Note::PresetFailed { slot, error } => {
+                format!("Failed to update preset {slot}: {error}")
+            }
+            Note::PresetSaved(slot) => format!("Saved preset {slot}."),
+            Note::PresetDeleted(slot) => format!("Deleted preset {slot}."),
             Note::ModelsNotLoaded => self.note_models_not_loaded.to_string(),
             Note::WorktreesUnavailable => self.note_worktrees_unavailable.to_string(),
             Note::WorktreeListFailed(error) => text(self.note_worktree_list_failed, error),
@@ -764,5 +787,15 @@ fn description_en(command: SlashCommand) -> &'static str {
         SlashCommand::Logout => "log out of Codex",
         SlashCommand::Rollout => "print the rollout file path",
         SlashCommand::TestApproval => "test approval request",
+    }
+}
+
+/// `QuickDial::validate`'s reasons.
+fn preset_reason(reason: codex_tui_core::screens::select::quick_dials::Invalid) -> &'static str {
+    use codex_tui_core::screens::select::quick_dials::Invalid;
+    match reason {
+        Invalid::Empty => "Preset input cannot be empty.",
+        Invalid::Shell => "Presets support prompts and slash commands, not shell commands.",
+        Invalid::TooLong => "Preset input cannot exceed 8,000 UTF-8 bytes.",
     }
 }

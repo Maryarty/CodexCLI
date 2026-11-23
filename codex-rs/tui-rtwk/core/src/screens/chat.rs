@@ -77,6 +77,10 @@ pub struct StatusFacts {
     pub effort: Option<String>,
     /// The approval policy as the config writes it (`on-request`).
     pub approval_policy: Option<String>,
+    /// A granular approval policy as the config's JSON (`/presets` recalls it).
+    pub approval_granular: Option<String>,
+    /// The active permission profile's id (`:workspace`, a named profile's name).
+    pub permission_profile: Option<String>,
     /// The approvals reviewer is the auto reviewer.
     pub auto_review: bool,
     pub profile: super::status::Profile,
@@ -118,6 +122,8 @@ impl Default for StatusFacts {
             model: None,
             effort: None,
             approval_policy: None,
+            approval_granular: None,
+            permission_profile: None,
             auto_review: false,
             profile: super::status::Profile::Workspace,
             cwd: None,
