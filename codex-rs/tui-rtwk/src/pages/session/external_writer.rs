@@ -1,5 +1,6 @@
 //! The read-only notice in place of the editor when another process holds the writer.
 
+use codex_tui_core::keymap::actions::GLOBAL_OPEN_TRANSCRIPT;
 use rtwk::gestures::GestureDetector;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Row,
@@ -9,7 +10,6 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
 use crate::app::theme::Tokens;
-use crate::widgets::page_keys;
 
 use super::session_page::{ChatMsg, ChatState};
 use super::strings::Strings;
@@ -53,7 +53,7 @@ pub(super) fn notice(
             .child(Text::new(strings.read_only_hint).style(dim.clone()));
         BoxWidget::new()
             .style(panel_style.clone())
-            .padding(EdgeInsets::all(1))
+            .padding(EdgeInsets::only(2, 1, 2, 1))
             .child(
                 Row::new()
                     .spacing(2)
@@ -66,21 +66,31 @@ pub(super) fn notice(
     .into()
 }
 
-pub(super) fn footer(strings: &Strings, tokens: &Tokens) -> AnyWidget {
-    rtwk::layout::Padding::new(
-        EdgeInsets::only(2, 0, 0, 0),
-        page_keys::footer_with(
-            [
-                (strings.writer_retry_key, strings.writer_retry),
-                ("f", strings.writer_fork),
-                ("←/esc", strings.writer_center),
-                ("⌃c/q", strings.writer_exit),
-                ("⌃t", strings.writer_transcript),
-            ],
-            tokens.bold(),
-            tokens.dim(),
-            "   ",
-        ),
-    )
-    .into()
+/// The hints under the card, wrapped at the word like the oracle's
+/// `footer_lines`; the transcript entry names the key the keymap binds and is
+/// left out while none is.
+pub(super) fn footer(cx: &mut Cx<'_, ChatState>, strings: &Strings, tokens: &Tokens) -> AnyWidget {
+    let keymap = crate::keymap::keymap(cx);
+    let transcript = crate::keymap::label(&keymap, GLOBAL_OPEN_TRANSCRIPT);
+    let mut entries = vec![
+        (strings.writer_retry_key.to_owned(), strings.writer_retry),
+        ("f".to_owned(), strings.writer_fork),
+        ("←/esc".to_owned(), strings.writer_center),
+        ("⌃c/q".to_owned(), strings.writer_exit),
+    ];
+    if let Some(key) = transcript {
+        entries.push((key, strings.writer_transcript));
+    }
+    let key_style = tokens.bold();
+    let dim = tokens.dim();
+    let mut spans = vec![Span::styled(strings.writer_pad, dim.clone())];
+    for (index, (key, label)) in entries.into_iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(strings.writer_gap, dim.clone()));
+        }
+        spans.push(Span::styled(key, key_style.clone()));
+        spans.push(Span::styled(strings.writer_pad, dim.clone()));
+        spans.push(Span::styled(label, dim.clone()));
+    }
+    rtwk::layout::Padding::new(EdgeInsets::only(2, 0, 0, 0), Text::rich(spans)).into()
 }
