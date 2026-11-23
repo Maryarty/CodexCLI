@@ -52,6 +52,9 @@ pub struct Harness {
     /// The runtime of a driven harness (`start_driven`): the test thread runs
     /// its tasks, so nothing happens behind the test's back.
     driver: Option<&'static tokio::runtime::Runtime>,
+    /// On `pump_app` (`start_quittable`): the app can end (`AppCx::quit`),
+    /// and then nothing is mounted to wait on.
+    quittable: bool,
     /// Dropped last: the runtime stays entered while the app lives.
     _runtime: tokio::runtime::EnterGuard<'static>,
 }
@@ -77,6 +80,7 @@ pub fn start_app(make: impl FnOnce(UiApp) -> UiApp) -> Harness {
         t,
         fake,
         driver: None,
+        quittable: false,
         _runtime: guard,
     }
 }
@@ -95,6 +99,7 @@ pub fn start_quittable(debug: bool) -> Harness {
         t,
         fake,
         driver: None,
+        quittable: true,
         _runtime: guard,
     }
 }
@@ -111,6 +116,7 @@ pub fn start_lang(lang: Lang) -> Harness {
         t,
         fake,
         driver: None,
+        quittable: false,
         _runtime: guard,
     }
 }
@@ -149,6 +155,7 @@ fn start_with_options(debug: bool, options: Options) -> Harness {
         t,
         fake,
         driver: None,
+        quittable: false,
         _runtime: guard,
     }
 }
@@ -195,6 +202,7 @@ pub fn start_driven_with(debug: bool, options: Options) -> Harness {
         t,
         fake,
         driver: Some(runtime),
+        quittable: false,
         _runtime: guard,
     };
     h.t.pump_for(ms(200));
@@ -327,6 +335,11 @@ impl Harness {
     /// in the model. Nothing else is promised about the screen (a dialog
     /// that fades in still needs frames).
     pub fn inject(&mut self, events: impl IntoIterator<Item = AppEv>) {
+        // The shell attaches its connection on its own thread: a test that
+        // injects at once after the start has to wait for it, not assume it.
+        wait::wait_until(self, "the backend's connection", |h| {
+            h.fake.epoch().is_some()
+        });
         let epoch = self.fake.epoch().expect("connected");
         for ev in events {
             self.fake.inject(epoch, ev);
@@ -362,6 +375,41 @@ impl Harness {
         self.t.pump_for(ms(KEY_PACE_MS));
         self.t.press(keys);
         self.advance_driven(100);
+        self.applied();
+    }
+
+    /// Waits until the app has applied what its own handlers sent to the
+    /// shell. A key's handler sends an intent into the ingress, and the model
+    /// has it at the app's next flush after the shell thread passed it on:
+    /// how many frames that takes depends on the machine, and a sheet that a
+    /// handler shows at once (a dialog route) is on the screen, empty, before
+    /// the model it reads has the menu. The ingress is one queue: a clock
+    /// event that the fake sends after the handler's items and the app has
+    /// seen means they were all applied. A driven harness has no other thread
+    /// (`quiesce` ran them), and a harness not yet connected has sent nothing.
+    pub fn applied(&mut self) {
+        let ended = |h: &Harness| h.quittable && !h.t.is_running();
+        if self.driver.is_some() || ended(self) {
+            return;
+        }
+        let Some(epoch) = self.fake.epoch() else {
+            return;
+        };
+        let clock = |h: &Harness| h.t.read_app(|app: &UiApp| app.core.screens().agents.now);
+        // the shell's own first clock event comes from its thread too
+        wait::wait_until(self, "the shell's clock", |h| ended(h) || clock(h) != 0);
+        if ended(self) {
+            return;
+        }
+        let mark = clock(self) + 1;
+        self.fake.inject(
+            epoch,
+            AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(mark))),
+        );
+        // a quit the handler asked for ends the app before the mark lands
+        wait::wait_until(self, "the handler's items applied", |h| {
+            ended(h) || clock(h) == mark
+        });
     }
 }
 
