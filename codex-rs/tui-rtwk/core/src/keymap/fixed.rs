@@ -139,6 +139,25 @@ pub const OPEN_AGENTS_FROM_LEFT: ActionId = chat("open_agents_from_left");
 /// and the newer prompt.
 pub const BROWSE_OLDER: ActionId = chat("browse_older");
 pub const BROWSE_NEWER: ActionId = chat("browse_newer");
+/// `h` and `l` while the prompts are browsed: the same two steps, vim's way.
+pub const BROWSE_OLDER_VIM: ActionId = chat("browse_older_vim");
+pub const BROWSE_NEWER_VIM: ActionId = chat("browse_newer_vim");
+/// Esc on the chat: the page's own ladder (close the overlay, leave for another page, scroll back,
+/// interrupt, prime the backtrack); the catalogue's `interrupt_turn` is only one rung of it.
+pub const ESCAPE: ActionId = chat("escape");
+/// Ctrl+C on the chat: interrupts a running turn, else quits.
+pub const INTERRUPT_OR_QUIT: ActionId = chat("interrupt_or_quit");
+/// Ctrl+D on the chat: quits when the composer is empty and no turn runs.
+pub const QUIT_ON_EMPTY: ActionId = chat("quit_on_empty");
+/// `?` on an empty composer: the shortcut overlay.
+pub const OPEN_SHORTCUTS: ActionId = chat("open_shortcuts");
+/// The keys of a thread another process writes: retry the writer, fork a copy, quit.
+pub const RETRY_WRITER: ActionId = chat("retry_writer");
+pub const FORK_WRITER: ActionId = chat("fork_writer");
+pub const QUIT_READ_ONLY: ActionId = chat("quit_read_only");
+/// The keys of the notice a model provider's refusal leaves: a fresh chat, or this one continued.
+pub const PROVIDER_NEW: ActionId = chat("provider_new");
+pub const PROVIDER_CONTINUE: ActionId = chat("provider_continue");
 /// The bytes a terminal without the kitty protocol sends for Ctrl+/ (`0x1f`, read as Ctrl+_, and
 /// Ctrl+7 shares it): the side conversation's key where `toggle_side_conversation` is Ctrl+/.
 pub const SIDE_CONVERSATION_BYTES: ActionId =
@@ -255,6 +274,50 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: BROWSE_NEWER,
         bindings: &[exact(Key::Right, Mods::NONE)],
+    },
+    Fixed {
+        id: BROWSE_OLDER_VIM,
+        bindings: &[exact(Key::Char('h'), Mods::NONE)],
+    },
+    Fixed {
+        id: BROWSE_NEWER_VIM,
+        bindings: &[exact(Key::Char('l'), Mods::NONE)],
+    },
+    Fixed {
+        id: ESCAPE,
+        bindings: &[exact(Key::Esc, Mods::NONE)],
+    },
+    Fixed {
+        id: INTERRUPT_OR_QUIT,
+        bindings: &[exact(Key::Char('c'), CTRL)],
+    },
+    Fixed {
+        id: QUIT_ON_EMPTY,
+        bindings: &[exact(Key::Char('d'), CTRL)],
+    },
+    Fixed {
+        id: OPEN_SHORTCUTS,
+        bindings: &[any(Key::Char('?'))],
+    },
+    Fixed {
+        id: RETRY_WRITER,
+        bindings: &[exact(Key::Char('r'), Mods::NONE)],
+    },
+    Fixed {
+        id: FORK_WRITER,
+        bindings: &[exact(Key::Char('f'), Mods::NONE)],
+    },
+    Fixed {
+        id: QUIT_READ_ONLY,
+        bindings: &[exact(Key::Char('q'), Mods::NONE)],
+    },
+    Fixed {
+        id: PROVIDER_NEW,
+        bindings: &[exact(Key::Char('n'), Mods::NONE)],
+    },
+    Fixed {
+        id: PROVIDER_CONTINUE,
+        bindings: &[exact(Key::Char('c'), Mods::NONE)],
     },
     Fixed {
         id: SIDE_CONVERSATION_BYTES,

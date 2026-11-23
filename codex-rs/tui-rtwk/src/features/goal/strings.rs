@@ -138,14 +138,8 @@ pub fn menu(question: Question, objective: &str) -> List {
             "Resume paused goal?",
             format!("Goal: {objective}"),
             [
-                (
-                    "Resume goal",
-                    "Mark it active and continue when idle",
-                ),
-                (
-                    "Leave paused",
-                    "Keep it paused; use /goal resume later",
-                ),
+                ("Resume goal", "Mark it active and continue when idle"),
+                ("Leave paused", "Keep it paused; use /goal resume later"),
             ],
             [RESUME, LEAVE],
         ),

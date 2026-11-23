@@ -744,8 +744,10 @@ fn shift_click_extends_a_double_clicked_word_in_both_directions() {
 // ORACLE transcript_view/input_tests.rs:270 ordinary_click_opens_bare_and_markdown_links_on_release kind=ui owner=chat-live
 #[test]
 fn ordinary_click_opens_bare_and_markdown_links_on_release() {
+    // 12 rows: a live completion ends with the "Worked for" separator (the oracle's status-timer
+    // fallback, `FinalMessageSeparator::from_turn_once`), four more rows under the message.
     let mut s = Screen::build(Owner::ChatLive)
-        .size(12, 8)
+        .size(12, 12)
         .script(include_str!("fixtures/transcript_view_2/docs.jsonl"))
         .open();
     s.assert_link("docs", "https://example.com/docs");

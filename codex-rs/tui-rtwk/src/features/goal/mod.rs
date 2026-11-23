@@ -10,10 +10,10 @@ use std::rc::Rc;
 
 use rtwk::AnyWidget;
 
-use codex_tui_core::features::goal::{Goal, Note, Wish};
 use codex_tui_core::features::Scope;
+use codex_tui_core::features::goal::{Goal, Note, Wish};
 
-use self::sheet::{EditPrompt, Ask};
+use self::sheet::{Ask, EditPrompt};
 use super::{FeatureView, Shown};
 use crate::pages::session::strings::Strings as SessionStrings;
 

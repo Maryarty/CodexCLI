@@ -733,7 +733,8 @@ fn plugins_popup_preserves_workspace_tab_across_load_and_detail_navigation() {
     s.assert_absent("Loading Workspace plugins.");
     // Detail, then Back to plugins: the Workspace tab is still the active one.
     s.keys("enter");
-    s.keys("esc");
+    s.wait_for("Back to plugins");
+    s.keys("enter");
     s.assert_contains("Workspace.");
     s.assert_contains("Buildkite");
 }

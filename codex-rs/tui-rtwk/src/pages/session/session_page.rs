@@ -7,16 +7,18 @@ use std::rc::Rc;
 
 use rtwk::binding::TerminalTitle;
 use rtwk::editing::TextEditingController;
-use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyCombo, KeyEventResult};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack, StackFit};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
-use rtwk::navigation::{Navigator, PageRoute, Route};
+use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::Mods;
 use rtwk::provider::{read, select, watch};
 use rtwk::style::{Style, Theme};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{
+    AnyWidget, Cx, Handler, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
+};
 
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
@@ -32,16 +34,17 @@ use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::composer::{Composer, clear_sent, submission};
 use crate::pages::session::footer::{Footer, Line, Sparkle, StatusRows};
-use codex_tui_core::keymap::{Keymap, fixed};
+use codex_tui_core::keymap::actions::GLOBAL_CHANGE_HOST;
+use codex_tui_core::keymap::{Binding, Keymap, fixed};
 
-use crate::keymap::pressed_fixed;
+use crate::keymap::{combo_of, pressed_fixed};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::popovers::mention;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::directives::Listener;
+use crate::widgets::directives::{Edge, Listener, error_of};
 use crate::widgets::status_line::{Notice, status_spans, with_warning_notice};
 use crate::widgets::thread_ui::{Modes, TextSelection, ThreadUi};
 
@@ -52,7 +55,7 @@ use super::banners::{
     BackendBanners, BannerGate, BannerId, NoticeLine, ReserveSelector, reserve_of,
 };
 use super::live::browse::{self, Browse};
-use super::live::plan_mode::Seen as PlanSeen;
+use super::live::plan_mode;
 use super::live::provider_error;
 use super::live::{put_back, seed_history};
 
@@ -78,23 +81,12 @@ impl PartialEq for Chat {
     }
 }
 
-/// What the composer last saw of its thread: the thread and the ticket of the
-/// last submit the model accepted (ids only, R14).
+/// What the page keeps beside its widgets (ids and flags only, R14): the model's one-shots reach it
+/// as [`Edge`]s from the listener in its tree (`widgets/directives.rs`).
 pub struct ChatState {
-    seen: Option<(ThreadId, Option<u64>)>,
-    /// The last restore (`Restore::seq`) the composer took from the model: a
-    /// number is applied once, in the thread that made it.
-    restored: Listener,
-    /// The thread and generation of the replayed submissions the composer's history was seeded from.
-    replayed: Option<(ThreadId, u64)>,
-    /// The same for the prompt an edit of the transcript's backtrack put back
-    /// (the edit of a past prompt).
-    edited: Listener,
-    /// The "Implement this plan?" questions the page has opened.
-    plan: PlanSeen,
-    /// How many removals (the app counts them) the chat has answered with
-    /// the command center.
-    removed: Option<u32>,
+    /// The handler the listener tells the page's edges on, made once so the listener's widget
+    /// stays equal across the page's rebuilds.
+    edges: Option<Handler<Edge>>,
     /// The read-only thread this page asked to fork and heard no answer of
     /// (the oracle's `fork_in_progress`): its notice gives way to "Forking
     /// conversation…" and the keys wait. A failed fork ends it.
@@ -194,29 +186,8 @@ pub enum ChatMsg {
     Agents,
     /// The composer's text changed (the field's own notification).
     Changed(Rc<str>),
-}
-
-/// The thread and the number of the last submit the model accepted (the composer clears when it
-/// changes).
-fn submitted(cx: &mut Cx<'_, ChatState>) -> (ThreadId, Option<u64>) {
-    select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
-        (thread.id().clone(), thread.submit_seq())
-    })
-}
-
-/// The thread and the generation of its replayed submissions.
-fn replayed_of(cx: &mut Cx<'_, ChatState>) -> (ThreadId, u64) {
-    select::<ThreadModel, (ThreadId, u64), _>(cx, |thread| {
-        (
-            thread.id().clone(),
-            thread.replayed_submissions().generation(),
-        )
-    })
-}
-
-/// The command center's notice (the fork ends with an error of it).
-fn notice_of(cx: &mut Cx<'_, ChatState>) -> Option<codex_tui_core::screens::agents::Notice> {
-    select::<ScreenStates, _, _>(cx, |states| states.agents.notice.clone())
+    /// One of the model's one-shots the listener told (`widgets/directives.rs`).
+    Edge(Edge),
 }
 
 /// The parts of the thread the page's shape follows: a change of one rebuilds it.
@@ -243,12 +214,7 @@ impl StatefulWidget for Chat {
 
     fn create_state(&self) -> ChatState {
         ChatState {
-            seen: None,
-            restored: Listener::default(),
-            replayed: None,
-            edited: Listener::default(),
-            plan: PlanSeen::default(),
-            removed: None,
+            edges: None,
             forking: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
@@ -271,12 +237,27 @@ impl StatefulWidget for Chat {
 
 impl_widget!(stateful eq Chat);
 
-/// A fork in flight: the thread it copies and the agents notice standing when
-/// it was asked (a new error notice is its failure).
+/// A fork in flight: the thread it copies and the error the agents notice showed when it was
+/// asked (another error is its failure).
 #[derive(Clone, Debug, PartialEq)]
 struct Forking {
     thread: ThreadId,
-    notice: Option<codex_tui_core::screens::agents::Notice>,
+    error: Option<String>,
+}
+
+/// The chords of `change_host` (the leader's prefix and its completion, `Ctrl+X b` by default),
+/// as the keymap resolved them.
+fn host_chords(keymap: &Keymap) -> Vec<(KeyCombo, KeyCombo)> {
+    keymap
+        .bindings(GLOBAL_CHANGE_HOST)
+        .into_iter()
+        .filter_map(|binding| match binding {
+            Binding::Chord { prefix, completion } => {
+                Some((combo_of(&prefix)?, combo_of(&completion)?))
+            }
+            Binding::Single(_) => None,
+        })
+        .collect()
 }
 
 impl ChatState {
@@ -296,6 +277,72 @@ impl ChatState {
         self.draft_vim = w.ui.draft.vim_label();
         self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
     }
+
+    /// One of the model's one-shots, told by the listener (`widgets/directives.rs`): each is
+    /// carried out here, once, whatever else the page is doing in the same flush.
+    fn edge(&mut self, edge: Edge, w: &Chat, cx: &mut Cx<'_, ChatState>) -> Rebuild {
+        match edge {
+            // The composer clears when the model accepted (or queued) the message, not when it
+            // was sent.
+            Edge::Submitted => {
+                clear_sent(&w.ui);
+                self.sync_draft(w);
+                Rebuild::Yes
+            }
+            // Messages the model gave back (an interrupt, a failed steer, the edit-queued key)
+            // go into the composer.
+            Edge::Restore(restore) => {
+                let table = crate::pages::session::composer::strings::of(cx);
+                let states = read::<ScreenStates, _>(cx);
+                let draft = w.ui.draft.submission_with(
+                    &w.ui.composer,
+                    |n| table.image(n),
+                    states.popovers.sources().mentions,
+                );
+                put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
+                self.sync_draft(w);
+                Rebuild::Yes
+            }
+            // The user messages of a resumed thread's turns seed the composer's history
+            // (`replay_backend_thread_turns`).
+            Edge::Replayed => {
+                let model = read::<ThreadModel, _>(cx);
+                seed_history(&w.ui, model.replayed_submissions());
+                Rebuild::No
+            }
+            // The prompt an edit of the backtrack put back (`restore_user_message_to_composer`).
+            Edge::Draft(message) => {
+                let table = crate::pages::session::composer::strings::of(cx);
+                put_back(&w.ui, &message, |n| table.image(n));
+                self.sync_draft(w);
+                Rebuild::Yes
+            }
+            Edge::Plan => {
+                plan_mode::ask(cx);
+                Rebuild::No
+            }
+            // The thread was archived or deleted (`/archive`, `/delete`): the chat is empty again
+            // and the command center opens over it (`return_to_agents_after_removal`).
+            Edge::Removed => {
+                open(cx, Target::Agents);
+                Rebuild::No
+            }
+            // The fork ends with an error of the server (the copy opens in another thread, which
+            // `did_update_widget` takes as its end too).
+            Edge::Error(error) => {
+                if error.is_some()
+                    && self
+                        .forking
+                        .as_ref()
+                        .is_some_and(|fork| fork.error != error)
+                {
+                    self.forking = None;
+                    return Rebuild::Yes;
+                }
+                Rebuild::No
+            }
+        }
+    }
 }
 
 impl State for ChatState {
@@ -306,6 +353,7 @@ impl State for ChatState {
         // `?` (the shortcut overlay, `footer_shortcuts_default`) and `←`
         // (the agents page, `handle_agents_navigation`) on an EMPTY composer
         // belong to the page; with text they go to the field.
+        self.edges = Some(cx.map(ChatMsg::Edge));
         let send = cx.local_sender();
         let composer = self.composer.clone();
         let draft = self.draft.clone();
@@ -338,12 +386,13 @@ impl State for ChatState {
             // backend control shows (`visible_new_backend_control`), and it
             // works with a draft in the composer.
             if control.get() {
+                let chords = host_chords(&keymap.borrow());
                 if leader.replace(false) {
-                    if key.mods.is_empty() && key.text() == Some("b") {
+                    if chords.iter().any(|(_, done)| done.accepts_press(&key)) {
                         send(ChatMsg::Cycle);
                         return KeyEventResult::Handled;
                     }
-                } else if key == KeyPress::char('x').with_mods(Mods::CTRL) {
+                } else if chords.iter().any(|(leader, _)| leader.accepts_press(&key)) {
                     leader.set(true);
                     return KeyEventResult::Handled;
                 }
@@ -388,7 +437,7 @@ impl State for ChatState {
             {
                 return KeyEventResult::Ignored;
             }
-            if key.text() == Some("?") {
+            if pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
                 send(ChatMsg::Shortcuts);
             } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key) {
                 send(ChatMsg::Agents);
@@ -406,87 +455,12 @@ impl State for ChatState {
             *self.modes.borrow_mut() = w.ui.modes.clone();
             *self.selection.borrow_mut() = w.ui.selection.clone();
             self.sync_draft(w);
-            // the thread under the page changed: what it had open closes
+            // the thread under the page changed: what it had open closes, and the fork it waited
+            // on is another thread's
             old.ui.modes.close();
             self.leader.set(false);
-        }
-    }
-
-    fn did_change_dependencies(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
-        // The composer clears when the model accepted (or queued) the
-        // message, not when it was sent: a change of the last accepted
-        // ticket in the same thread.
-        let now = submitted(cx);
-        if let Some((thread, before)) = &self.seen
-            && *thread == now.0
-            && *before != now.1
-            && now.1.is_some()
-        {
-            clear_sent(&w.ui);
-            self.sync_draft(w);
-        }
-        self.seen = Some(now);
-        // Messages the model gave back (an interrupt, a failed steer, the
-        // edit-queued key) go into the composer, once each.
-        if let Some(restore) = self.restored.restore(cx) {
-            let table = crate::pages::session::composer::strings::of(cx);
-            let states = read::<ScreenStates, _>(cx);
-            let draft = w.ui.draft.submission_with(
-                &w.ui.composer,
-                |n| table.image(n),
-                states.popovers.sources().mentions,
-            );
-            put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
-            self.sync_draft(w);
-        }
-        // The user messages of a resumed thread's turns seed the composer's
-        // history (`replay_backend_thread_turns`): once per resume, and again
-        // from the whole list when older turns came in front.
-        let replayed = replayed_of(cx);
-        if self.replayed.as_ref() != Some(&replayed) && replayed.1 > 0 {
-            let model = read::<ThreadModel, _>(cx);
-            seed_history(&w.ui, model.replayed_submissions());
-        }
-        self.replayed = Some(replayed);
-        // The prompt an edit of the backtrack put back, once (`restore_user_message_to_composer`).
-        if let Some(restore) = self.edited.backtrack_draft(cx) {
-            let table = crate::pages::session::composer::strings::of(cx);
-            put_back(&w.ui, &restore, |n| table.image(n));
-            self.sync_draft(w);
-        }
-        self.plan.poll(cx);
-        // The thread was archived or deleted (`/archive`, `/delete`): the chat
-        // is empty again and the command center opens over it
-        // (`return_to_agents_after_removal`); under a sheet it waits until the
-        // chat is in front.
-        let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
-        match self.removed {
-            None => self.removed = Some(removed),
-            Some(before) if removed > before && Route::is_current_of(cx) => {
-                self.removed = Some(removed);
-                open(cx, Target::Agents);
-            }
-            Some(_) => {}
-        }
-        let notice = notice_of(cx);
-        let offer = select::<ScreenStates, _, _>(cx, |states| states.agents.cycle_offer());
-        let session = watch::<SessionSlice, _>(cx);
-        let thread = read::<ThreadModel, _>(cx);
-        // the fork ends with an error of the server (the copy opens in another
-        // thread, which the id check in `forking_of` takes as its end too)
-        if let Some(fork) = &self.forking
-            && (fork.thread != *thread.id()
-                || (notice != fork.notice
-                    && matches!(
-                        notice,
-                        Some(codex_tui_core::screens::agents::Notice::Error(_))
-                    )))
-        {
             self.forking = None;
         }
-        thread_shape(cx);
-        self.control
-            .set(session.cycle_label(&thread, offer).is_some() && !w.ui.draft.searching());
     }
 
     fn dispose(&mut self) {
@@ -495,6 +469,10 @@ impl State for ChatState {
     }
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
+        // the model's one-shots are no input: no gate of the keys applies to them
+        if let ChatMsg::Edge(edge) = msg {
+            return self.edge(edge, w, cx);
+        }
         let hs = read::<Hs, _>(cx);
         let modes = &w.ui.modes;
         let previous = (
@@ -663,7 +641,7 @@ impl State for ChatState {
                     cx.emit(&hs.screen, ScreenIntent::from(intent));
                     self.forking = Some(Forking {
                         thread: thread.id().clone(),
-                        notice: read::<ScreenStates, _>(cx).agents.notice.clone(),
+                        error: error_of(&read::<ScreenStates, _>(cx).agents.notice),
                     });
                     return Rebuild::Yes;
                 }
@@ -685,6 +663,7 @@ impl State for ChatState {
                     }
                 }
             }
+            ChatMsg::Edge(_) => {}
             ChatMsg::Changed(text) => {
                 self.sync_draft(w);
                 // a paste or an edit while prompts are browsed ends browsing
@@ -845,15 +824,13 @@ impl State for ChatState {
         let strings = l10n::of(cx);
         let keymap = crate::keymap::keymap(cx);
         *self.keymap.borrow_mut() = keymap.clone();
-        // what `did_change_dependencies` asks of the models stays a dependency of the page only
-        // when the build asks it too (each build selects anew)
-        submitted(cx);
-        replayed_of(cx);
-        notice_of(cx);
+        // what the page's shape follows (each build selects anew)
         thread_shape(cx);
-        Listener::keep_restore(cx);
-        Listener::keep_backtrack_draft(cx);
         let drawn = slice::drawn(cx, thread.id());
+        // the backend control's chord is live while the control shows
+        self.control.set(
+            session.cycle_label(&thread, drawn.offer.clone()).is_some() && !w.ui.draft.searching(),
+        );
         let backend = drawn.owner;
         let connection = session.connections.get(&backend);
         let slots = thread.screen_slots();
@@ -1165,18 +1142,17 @@ impl State for ChatState {
                 SizedBox::shrink().into()
             }
         });
-        let body = Stack::new().fit(StackFit::Expand).child(page).child(blank);
-        let mut focus = Focus::new(body)
-            .bind(
-                KeyPress::char('c').with_mods(Mods::CTRL),
-                cx.send(ChatMsg::CtrlC),
-            )
-            .bind(
-                KeyPress::char('d').with_mods(Mods::CTRL),
-                cx.send(ChatMsg::CtrlD),
-            )
-            .bind(KeyPress::ESC, cx.send(ChatMsg::Escape));
+        let mut body = Stack::new().fit(StackFit::Expand).child(page).child(blank);
+        if let Some(on_edge) = &self.edges {
+            body = body.child(Listener {
+                on_edge: on_edge.clone(),
+            });
+        }
+        let mut focus = Focus::new(body);
         for (id, msg) in [
+            (fixed::INTERRUPT_OR_QUIT, ChatMsg::CtrlC),
+            (fixed::QUIT_ON_EMPTY, ChatMsg::CtrlD),
+            (fixed::ESCAPE, ChatMsg::Escape),
             (fixed::DEBUG_KEY, ChatMsg::DebugMenu),
             (fixed::TRANSCRIPT_PAGE_UP, ChatMsg::Page(-1)),
             (fixed::TRANSCRIPT_PAGE_DOWN, ChatMsg::Page(1)),
@@ -1193,16 +1169,20 @@ impl State for ChatState {
             }
         }
         if thread.read_only() {
-            focus = focus
-                .can_request_focus(true)
-                .autofocus()
-                .bind(KeyPress::char('r'), cx.send(ChatMsg::RetryWriter))
-                .bind(KeyPress::char('f'), cx.send(ChatMsg::ForkWriter))
-                .bind(KeyPress::char('q'), cx.send(ChatMsg::QuitReadOnly));
+            focus = focus.can_request_focus(true).autofocus();
+            for (id, msg) in [
+                (fixed::RETRY_WRITER, ChatMsg::RetryWriter),
+                (fixed::FORK_WRITER, ChatMsg::ForkWriter),
+                (fixed::QUIT_READ_ONLY, ChatMsg::QuitReadOnly),
+            ] {
+                for key in crate::keymap::presses(&keymap, id) {
+                    focus = focus.bind(key, cx.send(msg.clone()));
+                }
+            }
         }
         if provider.is_some() {
             focus = focus.can_request_focus(true).autofocus();
-            for (key, msg) in provider_error::keys(can_continue) {
+            for (key, msg) in provider_error::keys(&keymap, can_continue) {
                 focus = focus.bind(key, cx.send(msg));
             }
         }

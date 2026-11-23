@@ -18,7 +18,10 @@ use rtwk::style::Span;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
+use codex_tui_core::keymap::{Keymap, fixed};
+
 use crate::app::theme::Tokens;
+use crate::keymap::presses;
 use crate::pages::session::session_page::{ChatMsg, ChatState};
 use crate::pages::session::strings::Strings;
 
@@ -141,10 +144,20 @@ pub(in crate::pages::session) fn footer(
 
 /// The keys of the notice (`handle_key_event`'s `has_provider_error` arm):
 /// plain presses only; Esc is the page's own.
-pub(in crate::pages::session) fn keys(can_continue: bool) -> Vec<(KeyPress, ChatMsg)> {
-    let mut keys = vec![(KeyPress::char('n'), ChatMsg::ProviderNew)];
+pub(in crate::pages::session) fn keys(
+    keymap: &Keymap,
+    can_continue: bool,
+) -> Vec<(KeyPress, ChatMsg)> {
+    let mut actions = vec![(fixed::PROVIDER_NEW, ChatMsg::ProviderNew)];
     if can_continue {
-        keys.push((KeyPress::char('c'), ChatMsg::ProviderContinue));
+        actions.push((fixed::PROVIDER_CONTINUE, ChatMsg::ProviderContinue));
     }
-    keys
+    actions
+        .into_iter()
+        .flat_map(|(id, msg)| {
+            presses(keymap, id)
+                .into_iter()
+                .map(move |key| (key, msg.clone()))
+        })
+        .collect()
 }

@@ -23,8 +23,8 @@ use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Span, Tab
 
 use super::strings::{self, Strings};
 use crate::keymap::stroke_label;
-use crate::sheets::select::prompt::Prompt;
 use crate::sheets::select::prompt::Answer;
+use crate::sheets::select::prompt::Prompt;
 use crate::widgets::picker::{Extras, Hot, TabNote, list_key_free};
 
 /// The name of the hot key that removes the marketplace of the tab (Ctrl-R).
@@ -267,10 +267,7 @@ pub fn confirmation(label: &str, s: &Strings) -> List {
             dim(s.remove_confirm_note),
         ],
         footer_hint: Some(s.hint_select_close.to_string()),
-        items: vec![
-            remove,
-            row(BACK, s.back, s.remove_keep_description),
-        ],
+        items: vec![remove, row(BACK, s.back, s.remove_keep_description)],
         ..base(s)
     }
 }
