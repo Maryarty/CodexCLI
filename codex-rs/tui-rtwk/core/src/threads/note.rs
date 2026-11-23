@@ -95,6 +95,8 @@ pub enum NoteKey {
     Goal(GoalNote),
     /// What a switch of the collaboration mode said.
     Mode(ModeNote),
+    /// A line of a feature slice (ADR-012); its words are `src/features/<f>/strings.rs`.
+    Feature(crate::features::FeatureNote),
 }
 
 /// What `/plan` and the mode switches said (`apply_plan_slash_command`,
@@ -213,6 +215,7 @@ impl NoteKey {
         match self {
             NoteKey::Command(notice) if !notice.is_info() => Tone::Error,
             NoteKey::Select(note) => note.tone(),
+            NoteKey::Feature(note) => crate::features::note_tone(note),
             NoteKey::ServerDone(_) => Tone::Done,
             NoteKey::Copy { result: Err(_), .. }
             | NoteKey::Export(

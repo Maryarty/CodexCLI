@@ -126,6 +126,11 @@ impl Reply {
         Self(Answer::Screen(reply))
     }
 
+    /// The reply of a feature slice's RPC.
+    pub fn feature(reply: crate::features::FeatureReply) -> Self {
+        Self(Answer::Feature(reply))
+    }
+
     pub fn worktree_created(result: Result<Checkout, String>) -> Self {
         Self(Answer::WorktreeCreated(result))
     }
@@ -167,6 +172,7 @@ pub enum Answer {
     },
     AddCreditsNudge(crate::screens::chat::NudgeOutcome),
     Screen(ScreenReply),
+    Feature(crate::features::FeatureReply),
     WorktreeCreated(Result<Checkout, String>),
     WorktreeBound(Result<(), BindFailure>),
     Failed(RpcError),

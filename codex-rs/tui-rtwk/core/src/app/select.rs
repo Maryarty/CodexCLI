@@ -211,6 +211,7 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
                 | select::Picked::Review(_)
                 | select::Picked::Worktree(_)
                 | select::Picked::Goal(_)
+                | select::Picked::Feature(_)
         ) || matches!(pick, select::Picked::Item(id)
             if plan_mode::Answer::of_row(id).is_some() || export::Row::of_row(id).is_some())
     };
@@ -245,6 +246,7 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
             }
             select::Picked::Worktree(pick) => worktree_pick(app, pick, fx),
             select::Picked::Goal(pick) => super::session::goal::picked(app, pick, fx),
+            select::Picked::Feature(pick) => super::features::picked(app, pick, fx),
             select::Picked::Item(id) => {
                 if let Some(answer) = plan_mode::Answer::of_row(&id) {
                     super::session::plan_answer(app, answer, fx);
