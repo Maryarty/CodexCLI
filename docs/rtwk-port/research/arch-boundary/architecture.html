@@ -1,0 +1,264 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>tui-rtwk: архитектура</title>
+<style>body{font:15px/1.5 -apple-system,sans-serif;max-width:1100px;margin:24px auto;padding:0 16px;color:#222}
+h1{font-size:24px}.meta{color:#777}.box{border:1px solid #ddd;border-radius:8px;padding:8px 16px;margin:14px 0;background:#fafafa}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ddd;padding:5px 8px;text-align:left;vertical-align:top}th{background:#eee}
+section{border-top:1px solid #eee;margin-top:20px}.cap{color:#555}.g{background:#dfd;padding:0 4px}.r{background:#fdd;padding:0 4px}
+pre.mermaid{background:#fff;text-align:center}code{background:#eee;padding:0 3px;border-radius:3px}</style>
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";mermaid.initialize({startOnLoad:true,theme:"default",securityLevel:"loose"});</script>
+</head><body>
+<h1>Архитектура tui-rtwk: сейчас и цель (проект ADR-013)</h1>
+<p class="meta">Замер на <code>b2eeacb7c</code>, 2026-11-23. Исследование tm <code>arch-boundary</code> (Opus).</p>
+<div class="box"><h2>Коротко</h2>
+<ul>
+<li><b>Диагноз подтверждён.</b> <code>core/src/screens</code> = 42,2k из 63,5k прод-строк core (66%). Граница core/UI проведена между «моделью экрана» и «отрисовкой» (MVU), а не между «доменом» и «UI», как во Flutter. Поэтому каждая новая форма UI становится протоколом core↔view («дверью»).</li>
+<li><b>Поправка:</b> большая часть screens — честный домен. В UI должно уйти лишь <b>15–18%</b> (≈6,5–7,5k строк).</li>
+<li><b>Три рода состояния:</b> <span class="g">домен</span> (ответы сервера/host) · <span class="g">«что спросили»</span> (параметры запроса как ключ ответа) · <span class="r">«что нарисовано»</span> (курсор, вкладка, страница шторки, стек меню, свёрнутость). Первые два — core, третий — State виджета и контроллеры rtwk.</li>
+<li><b>Цена связности сейчас:</b> 48% UI-коммитов правили и core, 26% — хаб-файл core. WIP /plugins добавил 9 дверей; из них домену нужны 2.</li>
+</ul></div>
+<div class="box"><h2>Варианты</h2>
+<table><tr><th></th><th>A: как есть + двери</th><th>B: core только домен, всё в UI</th><th>C: граница по IO (рекомендуется)</th></tr>
+<tr><td>двери на новую форму UI</td><td>растут</td><td>0</td><td>0</td></tr>
+<tr><td>ADR-003: один писатель</td><td>да</td><td><b>нет</b> — второй владелец в UI</td><td>да</td></tr>
+<tr><td>headless-тесты домена</td><td>да</td><td>в UI-крейте</td><td>да</td></tr>
+<tr><td>перенос</td><td>0</td><td>≈25–30k строк, фичи встают</td><td>≈6,5–7,5k строк, фичи идут</td></tr>
+<tr><td>UI-коммиты, трогающие core</td><td>48%</td><td>≈0</td><td>только глаголы (≤20%, оценка)</td></tr>
+<tr><td>как во Flutter</td><td>нет (MVU)</td><td>да</td><td>да: State + bloc</td></tr></table>
+<p><b>IO-тест (правило границы):</b> значение живёт в core, если это (1) ответ/факт сервера или host, (2) запись о запросе — тикет и параметры как ключ ответа, (3) его читает другой экран, поток или шаг жизненного цикла, (4) оно пишется наружу. Всё остальное — в виджете.</p></div>
+<div class="box"><h2>Кто за что отвечает (цель C)</h2>
+<table><tr><th>часть</th><th>отвечает за</th><th>говорит с</th></tr>
+<tr><td>host</td><td>app-server in-process, конфиг, IO</td><td>shell: Ingress ↑, RPC ↓</td></tr>
+<tr><td>UI · services/shell</td><td>единственный исполнитель эффектов</td><td>core: ingest ↑, AppFx ↓</td></tr>
+<tr><td>core · app, threads</td><td>CodexApp, ThreadModel — один писатель, apply</td><td>проекции → UI (select/watch)</td></tr>
+<tr><td>core · features/&lt;f&gt;</td><td>доменные глаголы, каталоги, операции (Op, Remote), заметки, факты</td><td>UI шлёт <code>Intent::Feature</code>; читает <code>FeatureStates</code></td></tr>
+<tr><td>core · screens</td><td>только домен экранов (query, range, listing)</td><td>ScreenStates → pages</td></tr>
+<tr><td>core · kit</td><td>чистая логика без состояния: vim, paste_burst, история, упоминания</td><td>вызывается из UI как функции</td></tr>
+<tr><td>UI · pages, sheets</td><td>экраны; своё состояние отрисовки в State</td><td>глаголы → core</td></tr>
+<tr><td>UI · features/&lt;f&gt;</td><td>шторка фичи: вложенный Navigator, TabController, слова</td><td>глаголы → core.features/&lt;f&gt;</td></tr>
+<tr><td>UI · widgets</td><td>общие кирпичи; picker со своими list/layout</td><td>не знает core-экранов</td></tr></table>
+<p><b>Feature теряет</b> <code>Menu, Pick, Prompt, choose, picked, prompt_submitted</code>. Закрепляется правилами-тестами (ratchet до 0): нет полей отрисовки в core, нет UI-типов в Feature, нет интентов-жестов в core, widgets не видят core::screens.</p></div>
+<div class="box"><h2>Переход (фичи не встают)</h2><ol>
+<li>ADR-013 + правила в режиме ratchet — ½ смены. С этого дня новый код без Menu/Pick/Prompt.</li>
+<li>Пилот /plugins: ядро из WIP, без дверей; шторка заново на Navigator + TabController — 1 смена.</li>
+<li>Общий select (stack, kept → шторка; Picked → глаголы) — 1 смена.</li>
+<li>Остальное по касанию: settings, dialogs, resume, pets, agents.</li></ol>
+<p>Тесты: ≈140 тестов core переписать, ≈143 шага фикстур; 2622 oracle-теста не меняются. /rename + /export (95826e191) можно сажать как есть.</p></div>
+<h2>Схемы</h2>
+<section><h3>d1. Текущая карта слоёв и крейтов</h3><pre class="mermaid">flowchart TB
+  subgraph HOST[&quot;host 6,2k&quot;]
+    H1[&quot;in_process: app-server&quot;]
+    H2[&quot;effects, facts: конфиг&quot;]
+  end
+  subgraph UI[&quot;UI-крейт 77,6k&quot;]
+    U0[&quot;app 2,7k: UiApp, view, presenter&quot;]
+    U1[&quot;pages 45,2k: 5 страниц&quot;]
+    U2[&quot;sheets 13,6k: шторки&quot;]
+    U3[&quot;widgets 7,3k: picker&quot;]
+    U4[&quot;features 0,3k: FeatureView&quot;]
+    U5[&quot;services 7,6k: shell&quot;]
+  end
+  subgraph CORE[&quot;core 69,2k без rtwk&quot;]
+    C1[&quot;app 5,2k: CodexApp&quot;]
+    C2[&quot;threads 7,3k: ThreadModel&quot;]
+    C3[&quot;screens 47,1k: модели 19 экранов&quot;]
+    C4[&quot;features 2,3k: Feature&quot;]
+    C5[&quot;commands, keymap, protocol 6,4k&quot;]
+  end
+  H1 --&gt;|&quot;Ingress&quot;| U5
+  U5 --&gt;|&quot;ingest&quot;| C1
+  C1 --&gt; C2
+  C1 --&gt; C3
+  C1 --&gt; C4
+  U1 --&gt;|&quot;ScreenIntent&quot;| C3
+  U2 --&gt;|&quot;Choose id строки&quot;| C3
+  U3 --&gt;|&quot;list, layout&quot;| C3
+  U4 --&gt;|&quot;menu_list&quot;| C4
+  C1 --&gt;|&quot;AppFx&quot;| U5
+  U5 --&gt;|&quot;RPC&quot;| H1
+</pre></section><section><h3>d2. Текущие владельцы состояния</h3><p class="cap">Красное — отрисовка в core, жёлтое — смесь домена и отрисовки.</p><pre class="mermaid">flowchart LR
+  subgraph UIAPP[&quot;UiApp&quot;]
+    CA[&quot;CodexApp&quot;]
+    US[&quot;UiState: nav_key, presenter&quot;]
+    TU[&quot;ThreadUi: композер, follow&quot;]
+  end
+  CA --&gt; SES[&quot;session&quot;]
+  CA --&gt; TS[&quot;ThreadSet&quot;]
+  TS --&gt; TM[&quot;ThreadModel: core, slots, features&quot;]
+  CA --&gt; RQ[&quot;requests&quot;]
+  CA --&gt; FS[&quot;FeatureStates&quot;]
+  CA --&gt; SS[&quot;ScreenStates&quot;]
+  SS --&gt; SEL[&quot;select: stack, kept&quot;]:::draw
+  SS --&gt; PLG[&quot;plugins: cache, waiting и menu, tab&quot;]:::mixed
+  SS --&gt; RES[&quot;resume: listing, query и density, expanded&quot;]:::mixed
+  SS --&gt; SET[&quot;settings: facts и open, edits&quot;]:::mixed
+  SS --&gt; DLG[&quot;dialogs: open, page&quot;]:::draw
+  W[&quot;State виджетов: курсор, прокрутка&quot;]
+  classDef draw fill:#fdd,stroke:#a33
+  classDef mixed fill:#ffd,stroke:#aa3
+</pre></section><section><h3>d3. Целевая карта слоёв</h3><pre class="mermaid">flowchart TB
+  subgraph HOST[&quot;host&quot;]
+    H[&quot;app-server, конфиг, IO&quot;]
+  end
+  subgraph UI[&quot;UI-крейт&quot;]
+    P[&quot;pages: 5 страниц&quot;]
+    S[&quot;sheets: approvals, dialogs&quot;]
+    F[&quot;features/f: шторка, страницы, слова&quot;]
+    W[&quot;widgets: picker со своими list, layout&quot;]
+    SH[&quot;services: shell&quot;]
+  end
+  subgraph CORE[&quot;core без rtwk&quot;]
+    D[&quot;домен: app, threads&quot;]
+    DF[&quot;features/f: глаголы, каталог, операции&quot;]
+    DS[&quot;screens: только домен&quot;]
+    K[&quot;kit: vim, paste_burst, история&quot;]
+  end
+  P --&gt;|&quot;глагол&quot;| D
+  S --&gt;|&quot;ответ на запрос&quot;| D
+  F --&gt;|&quot;Intent::Feature&quot;| DF
+  F --&gt; W
+  P --&gt; W
+  P -.-&gt;|&quot;чистые функции&quot;| K
+  D --&gt;|&quot;проекции&quot;| P
+  DS --&gt;|&quot;ScreenStates&quot;| P
+  DF --&gt;|&quot;FeatureStates&quot;| F
+  D --&gt;|&quot;AppFx&quot;| SH
+  SH --&gt;|&quot;RPC&quot;| H
+  H --&gt;|&quot;Ingress&quot;| SH
+  SH --&gt;|&quot;ingest&quot;| D
+</pre></section><section><h3>d4. Целевые владельцы состояния</h3><pre class="mermaid">flowchart LR
+  subgraph CORE[&quot;core: что спросили и что ответили&quot;]
+    CA[&quot;CodexApp&quot;]
+    TM[&quot;ThreadModel&quot;]
+    FS[&quot;FeatureStates: каталоги, Op, Remote&quot;]
+    SS[&quot;ScreenStates: query, range, listing&quot;]
+  end
+  subgraph UI[&quot;UI: что нарисовано&quot;]
+    UA[&quot;UiState: nav_key, presenter&quot;]
+    TU[&quot;ThreadUi: композер, прокрутка&quot;]
+    WS[&quot;State шторки: страница, вкладка&quot;]
+    CT[&quot;контроллеры rtwk: курсор, табы&quot;]
+    NV[&quot;Navigator: стек страниц&quot;]
+  end
+  CA --&gt; TM
+  CA --&gt; FS
+  CA --&gt; SS
+  FS --&gt;|&quot;select&quot;| WS
+  SS --&gt;|&quot;select&quot;| WS
+  WS --&gt; CT
+  WS --&gt; NV
+  WS --&gt;|&quot;глагол через ingress&quot;| CA
+  TM --&gt;|&quot;select&quot;| TU
+</pre></section><section><h3>d5. Уведомление стрима хода: сейчас и в цели</h3><p class="cap">Сейчас:</p><pre class="mermaid">sequenceDiagram
+  participant AS as app-server
+  participant H as host
+  participant SH as shell
+  participant UA as UiApp
+  participant CA as CodexApp
+  participant TM as ThreadModel
+  participant V as view
+  AS-&gt;&gt;H: item/agentMessage/delta
+  H-&gt;&gt;SH: Ingress с эпохой
+  SH-&gt;&gt;UA: ingest
+  UA-&gt;&gt;CA: ingest, проверка эпохи R1
+  CA-&gt;&gt;CA: project и project_thread
+  CA-&gt;&gt;TM: threads::apply ThreadEv
+  CA-&gt;&gt;CA: ScreenThreadEv в slots экранов
+  CA--&gt;&gt;UA: AppFx
+  UA-&gt;&gt;SH: run_effects
+  UA-&gt;&gt;V: view заново
+  V-&gt;&gt;V: watch ThreadModel, ListView
+</pre><p class="cap">Цель (поток — домен, путь почти не меняется):</p><pre class="mermaid">sequenceDiagram
+  participant AS as app-server
+  participant H as host
+  participant SH as shell
+  participant UA as UiApp
+  participant CA as CodexApp
+  participant TM as ThreadModel
+  participant V as view
+  AS-&gt;&gt;H: item/agentMessage/delta
+  H-&gt;&gt;SH: Ingress с эпохой
+  SH-&gt;&gt;UA: ingest
+  UA-&gt;&gt;CA: ingest, проверка эпохи R1
+  CA-&gt;&gt;TM: threads::apply ThreadEv
+  Note over CA,TM: доменные части chat и status в ThreadModel, без slots экранов
+  CA--&gt;&gt;UA: AppFx
+  UA-&gt;&gt;SH: run_effects
+  UA-&gt;&gt;V: view заново
+  V-&gt;&gt;V: select ThreadModel, ListView
+</pre></section><section><h3>d6. /plugins install: от клавиши до записи конфига и обновления</h3><p class="cap">Сейчас:</p><pre class="mermaid">sequenceDiagram
+  actor U as Пользователь
+  participant PK as Picker
+  participant MD as MenuDialog
+  participant CA as CodexApp
+  participant PL as plugins в core
+  participant SH as shell
+  participant AS as app-server
+  participant H as host
+  U-&gt;&gt;PK: Enter на строке
+  PK-&gt;&gt;MD: Event::Choose id
+  MD-&gt;&gt;CA: Intent::Choose через ingress
+  CA-&gt;&gt;PL: apply_choice, choose id
+  PL-&gt;&gt;PL: menu = InstallLoading, ask Install
+  CA-&gt;&gt;SH: Command::Plugins
+  SH-&gt;&gt;AS: plugin/install
+  AS--&gt;&gt;SH: ответ, конфиг записан
+  SH-&gt;&gt;CA: Reply с тикетом
+  CA-&gt;&gt;PL: Ev::Plugins Answer
+  PL-&gt;&gt;PL: menu = шаг авторизации, заметка
+  H-&gt;&gt;CA: AppEv::PluginConfig
+  CA--&gt;&gt;MD: watch ScreenStates
+  MD-&gt;&gt;PK: новая страница из core
+</pre><p class="cap">Цель:</p><pre class="mermaid">sequenceDiagram
+  actor U as Пользователь
+  participant PS as PluginsSheet
+  participant CA as CodexApp
+  participant PF as plugins домен
+  participant SH as shell
+  participant AS as app-server
+  participant H as host
+  U-&gt;&gt;PS: Enter на Install
+  PS-&gt;&gt;PS: своя страница Detail
+  PS-&gt;&gt;CA: Intent::Feature Install через ingress
+  CA-&gt;&gt;PF: intent
+  PF-&gt;&gt;PF: ops id = Installing
+  CA-&gt;&gt;SH: Command::Feature
+  SH-&gt;&gt;AS: plugin/install
+  AS--&gt;&gt;SH: ответ, конфиг записан
+  SH-&gt;&gt;CA: Reply с тикетом
+  CA-&gt;&gt;PF: answered
+  PF-&gt;&gt;PF: ops id = Installed с apps, заметка
+  H-&gt;&gt;CA: AppEv::Feature Fact конфиг
+  CA--&gt;&gt;PS: select FeatureStates
+  PS-&gt;&gt;PS: страница = f от Detail и ops id
+</pre></section><section><h3>d7. Фича в цели: обе половины</h3><pre class="mermaid">flowchart LR
+  subgraph CORE[&quot;core/src/features/plugins&quot;]
+    I[&quot;Intent: Load, Install, Uninstall, SetEnabled&quot;]
+    ST[&quot;State: каталог, ops, Remote&quot;]
+    W[&quot;wire, decode: RPC&quot;]
+    N[&quot;Note, Fact&quot;]
+    HK[&quot;хуки: on_fact, on_scope_changed&quot;]
+  end
+  subgraph UIH[&quot;src/features/plugins&quot;]
+    O[&quot;open cx, cwd&quot;]
+    SH[&quot;PluginsSheet: State&quot;]
+    NV[&quot;вложенный Navigator: List, Detail, Auth&quot;]
+    TC[&quot;TabController, ListController&quot;]
+    STR[&quot;strings.rs: слова&quot;]
+  end
+  subgraph T[&quot;тесты&quot;]
+    T1[&quot;core/tests/plugins.rs&quot;]
+    T2[&quot;tests/sheets/plugins.rs&quot;]
+    T3[&quot;tests/oracle: без изменений&quot;]
+  end
+  O --&gt; SH
+  SH --&gt; NV
+  SH --&gt; TC
+  SH --&gt;|&quot;глагол&quot;| I
+  ST --&gt;|&quot;select&quot;| SH
+  I --&gt; ST
+  ST --&gt; W
+  HK --&gt; ST
+  N --&gt; STR
+  T1 --&gt; CORE
+  T2 --&gt; UIH
+  T3 --&gt; UIH
+</pre></section></body></html>
