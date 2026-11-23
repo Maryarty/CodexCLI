@@ -12,6 +12,7 @@
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::gestures::{Listener, PointerEvent, SelectionArea};
 use rtwk::provider::{read, watch};
+use rtwk::style::{Attrs, Style};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::effects::CopyStatus;
@@ -139,6 +140,9 @@ impl State for HostState {
     fn build(&self, w: &SelectionHost, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let settings = watch::<TuiSettings, _>(cx);
         let area = SelectionArea::new(w.child.clone())
+            // the oracle draws the selection REVERSED on top of the cell's own style
+            // (`transcript_view/selection.rs`; `rendered_selection`)
+            .style(Style::new().attrs(Attrs::REVERSE).pen())
             .controller(w.selection.controller())
             .copy_on_release(settings.copy_on_select)
             .on_copy(cx.map(Msg::Copied));
