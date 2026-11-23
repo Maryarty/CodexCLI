@@ -1,0 +1,6 @@
+# The composer with its footer, alone, while a turn runs (the oracle's
+# `set_task_running(true)`): the footer offers `tab to queue message` for a draft.
+# Oracle data: bottom_pane/chat_composer/paste_tests.rs `paste_burst_tabs_preserve_multiline_draft`
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}

@@ -25,6 +25,15 @@ fn offline(w: u16, h: u16) -> Screen {
         .open()
 }
 
+/// The composer alone with its footer, `running` or not (the oracle's composer
+/// harness, `set_task_running`).
+fn alone(w: u16, h: u16, running: bool) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(w, h)
+        .entry("composer", if running { "alone_running" } else { "alone" })
+        .open()
+}
+
 /// A chat screen with a turn running (Tab queues the draft), the composer live.
 fn chat_running(w: u16, h: u16) -> Screen {
     Screen::build(Owner::ChatLive)
@@ -165,11 +174,7 @@ fn blockquote_paste_large_expands_quoted_text_on_submit() {
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:80 blockquote_paste_rendered kind=snap owner=chat-live snap=blockquote_paste
 #[test]
 fn blockquote_paste_rendered() {
-    kit::pending(
-        Owner::ChatLive,
-        "the footer of a non-empty draft is `100% context left` at the right (footer modes), not built; the oracle snapshot is the composer alone at 60 columns",
-    );
-    let mut s = chat(60, 9);
+    let mut s = alone(60, 9, false);
     type_lines(&mut s, "Please explain:\n> ");
     s.paste("first line\n\nlast line\n");
     s.type_text("Next block");
@@ -408,19 +413,11 @@ fn pasting_fifo_path_keeps_it_editable() {
 // ORACLE bottom_pane/chat_composer/paste_tests.rs:31 paste_burst_tabs_preserve_multiline_draft kind=snap owner=chat-live snap=codex_tui__bottom_pane__chat_composer__paste_tests__paste_burst_tab_indentation
 #[test]
 fn paste_burst_tabs_preserve_multiline_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "footer modes (pane-footer): the oracle snapshot is the composer widget alone at 60 columns, with `tab to queue message` and `100% context left` in its footer; ours is the chat screen with the Working row and no context line",
-    );
     for running in [false, true] {
         for first_line in ["x", "界", "first line\n"] {
             let snapshot_case = running && first_line == "first line\n";
             let (w, h) = if snapshot_case { (60, 8) } else { (100, 24) };
-            let mut s = if running {
-                chat_running(w, h)
-            } else {
-                chat(w, h)
-            };
+            let mut s = alone(w, h, running);
             let payload = format!("{first_line}\t\tsecond line\n\tthird line\n");
             s.paste(&payload);
             if snapshot_case {
