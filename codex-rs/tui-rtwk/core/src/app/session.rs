@@ -134,12 +134,24 @@ fn status_card(
             name: chat.name.as_deref(),
             cwd: chat.cwd.as_deref(),
             forked_from: chat.forked_from.as_deref(),
+            collaboration_mode: collaboration_mode_label(app, chat),
             agents: &own.agents,
             tokens: own.tokens,
             context: own.context,
         },
         limits: card_limits(app, backend, refreshing),
     })
+}
+
+/// `collaboration_mode_label`: the mode's name, when the modes are on and the mode is one the
+/// terminal shows.
+fn collaboration_mode_label(
+    app: &CodexApp,
+    chat: &crate::screens::chat::ThreadPart,
+) -> Option<&'static str> {
+    let mode = chat.mode();
+    (app.screens.chat.flags.collaboration_modes_enabled && mode.is_tui_visible())
+        .then(|| mode.display_name())
 }
 
 pub(super) fn session_intent(

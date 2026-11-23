@@ -1146,6 +1146,15 @@ mod live {
     }
 
     #[test]
+    fn the_card_names_the_collaboration_mode_of_the_thread() {
+        let mut app = signed_in();
+        status(&mut app);
+
+        let (_, card) = cells(&app).remove(0);
+        assert_eq!(card.collaboration_mode.as_deref(), Some("Default"));
+    }
+
+    #[test]
     fn a_session_without_a_chatgpt_account_reads_nothing() {
         let mut app = ready();
         facts(&mut app);

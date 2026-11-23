@@ -91,6 +91,9 @@ pub struct ThreadFacts<'a> {
     pub name: Option<&'a str>,
     pub cwd: Option<&'a str>,
     pub forked_from: Option<&'a str>,
+    /// The collaboration mode the thread runs in, when the card names it
+    /// (oracle `collaboration_mode_label`).
+    pub collaboration_mode: Option<&'a str>,
     pub agents: &'a [AgentsSource],
     pub tokens: Tokens,
     pub context: Option<Context>,
@@ -202,7 +205,7 @@ impl StatusCard {
             thread_name: thread.name.map(str::to_string),
             session_id: thread.id.map(str::to_string),
             forked_from: thread.forked_from.map(str::to_string),
-            collaboration_mode: None,
+            collaboration_mode: thread.collaboration_mode.map(str::to_string),
             usage_link: requires_openai_auth,
             tokens: thread.tokens,
             context,
