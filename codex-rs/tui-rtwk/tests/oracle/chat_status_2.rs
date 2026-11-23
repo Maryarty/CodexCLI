@@ -774,7 +774,11 @@ fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth
 // ORACLE chatwidget/tests/status_command_tests.rs:35 status_command_refresh_updates_cached_limits_for_future_status_outputs kind=ui owner=ui-pane
 #[test]
 fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
-    let mut s = Screen::build(Owner::UiPane).live().open();
+    // tall enough for both cards: the first card's `8% left` stays on the screen
+    let mut s = Screen::build(Owner::UiPane)
+        .size(crate::common::WIDTH, 60)
+        .live()
+        .open();
     s.feed(CHATGPT).feed(&limits(92));
     s.type_text("/status");
     s.keys("enter");
