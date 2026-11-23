@@ -1,11 +1,11 @@
 //! The page the command line starts on (`codex-rtwk agents`, `codex-rtwk
 //! resume`): the session is the navigator's home as ever, and the page is
 //! pushed over it at once with nowhere to go back to but the session it
-//! reveals when it ends. The resume picker stands in for the first thread,
-//! so the chat is not built under it: it mounts once the picker has popped
-//! (Flutter: `await Navigator.push(picker)`, then `setState`), and its
-//! composer takes the focus at mount (`autofocus`), with whatever thread the
-//! pick opened.
+//! reveals when it ends. The page stands in for the first thread (the resume
+//! picker, the command center), so the chat is not built under it: it mounts
+//! once the page has popped (Flutter: `await Navigator.push(page)`, then
+//! `setState`), and its composer takes the focus at mount (`autofocus`), with
+//! whatever thread the page opened.
 
 use rtwk::Handler;
 use rtwk::layout::SizedBox;
@@ -27,13 +27,13 @@ pub enum Start {
 }
 
 impl Start {
-    /// The route of the page. The resume picker stands in for the first
-    /// thread: its `PopScope` (Flutter: `onPopInvokedWithResult`) tells
-    /// `left` that it is gone, and the app starts a fresh thread unless the
-    /// picker opened one (oracle: `SessionSelection::StartFresh`).
+    /// The route of the page. The page stands in for the first thread: its
+    /// `PopScope` (Flutter: `onPopInvokedWithResult`) tells `left` that it is
+    /// gone, and the app starts a fresh thread unless the page opened one
+    /// (oracle: `SessionSelection::StartFresh`).
     fn route(self, left: Handler<PopInvoked>) -> PageRoute<()> {
         match self {
-            Start::Agents => crate::pages::agents::start_route(),
+            Start::Agents => crate::pages::agents::start_route_then(left),
             Start::Resume => PageRoute::new(move |_| {
                 PopScope::new(crate::pages::resume::Screen { live: true })
                     .on_pop_invoked_with_result(left.clone())
@@ -50,7 +50,7 @@ pub struct StartPage {
     pub start: Start,
 }
 
-/// Whether the chat is built: the resume picker is the page until it pops.
+/// Whether the chat is built: the start page is the page until it pops.
 pub struct StartPageState {
     shown: bool,
 }
@@ -68,9 +68,7 @@ impl StatefulWidget for StartPage {
     type State = StartPageState;
 
     fn create_state(&self) -> StartPageState {
-        StartPageState {
-            shown: self.start != Start::Resume,
-        }
+        StartPageState { shown: false }
     }
 }
 
