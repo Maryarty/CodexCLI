@@ -1,0 +1,5 @@
+# The plugins of `bound_at_mentions_do_not_block_arrow_navigation` (figma, `plugin://figma@debug`)
+# and `restored_bound_at_mentions_do_not_open_mention_popup` (sample, `plugin://sample@test`),
+# chat_composer.rs:8516 and :8561.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"plugin","name":"figma","description":"","insert":"figma","path":"plugin://figma@debug","capabilities":["skills"]},{"kind":"plugin","name":"sample","description":"","insert":"sample","path":"plugin://sample@test","capabilities":["skills",{"mcp_servers":1}]}]}}

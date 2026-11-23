@@ -18,7 +18,7 @@ use rtwk::focus::{ExcludeFocus, Focus, FocusNode, FocusScope, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
 use rtwk::layout::{Alignment, Column, CrossAxisAlignment, Expanded, Offstage, Stack, StackFit};
-use rtwk::navigation::{Navigator, PageRoute, PopInvoked, Route};
+use rtwk::navigation::{Navigator, PageRoute, PopInvoked, PopScope, Route};
 use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::{read, select, watch};
 use rtwk::style::Theme;
@@ -72,15 +72,29 @@ pub fn open_empty() -> DebugOpen {
     })
 }
 
-/// `codex-rtwk agents`: the route of the command center with nowhere to go
-/// back to (`ui::start_page::StartPage` pushes it over the session); a
-/// session opened from it pops the center and shows the chat.
+/// The route of the command center with nowhere to go back to (the trust
+/// prompt cancelled at launch opens it in place of the folder): a session
+/// opened from it pops the center and shows the chat.
 pub fn start_route() -> PageRoute<()> {
     PageRoute::new(|_| {
         Screen {
             can_return: false,
             open: true,
         }
+        .into()
+    })
+}
+
+/// `codex-rtwk agents`: as `start_route`, and the center tells `left` when it
+/// is gone (Flutter: `PopScope.onPopInvokedWithResult`): `app::start_page::
+/// StartPage` mounts the chat then, so its composer takes the focus.
+pub fn start_route_then(left: Handler<PopInvoked>) -> PageRoute<()> {
+    PageRoute::new(move |_| {
+        PopScope::new(Screen {
+            can_return: false,
+            open: true,
+        })
+        .on_pop_invoked_with_result(left.clone())
         .into()
     })
 }

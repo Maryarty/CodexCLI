@@ -1,7 +1,11 @@
 //! The page the command line starts on (`codex-rtwk agents`, `codex-rtwk
 //! resume`): the session is the navigator's home as ever, and the page is
 //! pushed over it at once with nowhere to go back to but the session it
-//! reveals when it ends.
+//! reveals when it ends. The page stands in for the first thread (the resume
+//! picker, the command center), so the chat is not built under it: it mounts
+//! once the page has popped (Flutter: `await Navigator.push(page)`, then
+//! `setState`), and its composer takes the focus at mount (`autofocus`), with
+//! whatever thread the page opened.
 
 use rtwk::Handler;
 use rtwk::layout::SizedBox;
@@ -23,13 +27,13 @@ pub enum Start {
 }
 
 impl Start {
-    /// The route of the page. The resume picker stands in for the first
-    /// thread: its `PopScope` (Flutter: `onPopInvokedWithResult`) tells
-    /// `left` that it is gone, and the app starts a fresh thread unless the
-    /// picker opened one (oracle: `SessionSelection::StartFresh`).
+    /// The route of the page. The page stands in for the first thread: its
+    /// `PopScope` (Flutter: `onPopInvokedWithResult`) tells `left` that it is
+    /// gone, and the app starts a fresh thread unless the page opened one
+    /// (oracle: `SessionSelection::StartFresh`).
     fn route(self, left: Handler<PopInvoked>) -> PageRoute<()> {
         match self {
-            Start::Agents => crate::pages::agents::start_route(),
+            Start::Agents => crate::pages::agents::start_route_then(left),
             Start::Resume => PageRoute::new(move |_| {
                 PopScope::new(crate::pages::resume::Screen { live: true })
                     .on_pop_invoked_with_result(left.clone())
@@ -46,7 +50,10 @@ pub struct StartPage {
     pub start: Start,
 }
 
-pub struct StartPageState;
+/// Whether the chat is built: the start page is the page until it pops.
+pub struct StartPageState {
+    shown: bool,
+}
 
 /// What the start page does next.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,7 +68,7 @@ impl StatefulWidget for StartPage {
     type State = StartPageState;
 
     fn create_state(&self) -> StartPageState {
-        StartPageState
+        StartPageState { shown: false }
     }
 }
 
@@ -88,13 +95,21 @@ impl State for StartPageState {
                     &hs.screen,
                     ScreenIntent::Onboarding(StartupIntent::StartPageLeft),
                 );
+                if !self.shown {
+                    self.shown = true;
+                    return Rebuild::Yes;
+                }
             }
         }
         Rebuild::No
     }
 
     fn build(&self, w: &StartPage, _: &mut Cx<'_, Self>) -> AnyWidget {
-        w.chat.clone()
+        if self.shown {
+            w.chat.clone()
+        } else {
+            SizedBox::shrink().into()
+        }
     }
 }
 
