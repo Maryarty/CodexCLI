@@ -8,10 +8,18 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::commands::fuzzy_match;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
+use crate::screens::Shared;
+use crate::screens::composer::clipboard::Pasted;
+use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
+use crate::screens::composer::mentions::candidate::Capability;
+use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
+use crate::screens::composer::mentions::session::Sources;
+use crate::screens::composer::mentions::task::TaskMention;
+use crate::screens::composer::mentions::usage::MentionUsage;
+pub use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
 use crate::threads::ThreadFx;
 
 pub const NAME: &str = "popovers";
@@ -19,142 +27,105 @@ pub const ID: &str = "S12";
 pub const KIND: Kind = Kind::Part;
 
 /// The app-scoped model state of this screen, changed only by `apply`: the
-/// data the `@` and `$` popups list, the prompts history search walks, and
-/// the search in progress. The backend would supply the data; scripts seed it.
+/// data the `@` and `$` popups list and what the message history file said
+/// (Ctrl+R, Up and Down read it). The backend supplies the data; scripts
+/// seed it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// Paths relative to the working directory (`@` file search).
-    pub files: Vec<String>,
     /// Skills, apps and plugins (`$`, `@`).
     pub mentions: Vec<Mention>,
-    /// Submitted prompts, oldest first (Ctrl+R).
-    pub history: Vec<String>,
-    /// Reverse history search, while it is open.
-    pub search: Option<HistorySearch>,
+    /// The tasks the last task search found (`@`).
+    pub tasks: Vec<TaskMention>,
+    /// What the file search last answered: the query and its matches.
+    pub file_matches: FileMatches,
+    /// The window of recent `$` picks.
+    pub usage: MentionUsage,
+    /// The images the host took from the clipboard (Ctrl+V).
+    pub pasted: Pasted,
+    /// The message history file as far as it was read. Shared: `ScreenStates`
+    /// is cloned on every change of any screen, a long history is not.
+    pub history: Shared<Store>,
+    /// What the host is asked to do with the history file, drained by
+    /// [`Model::take_asks`] after each `apply`.
+    asks: Vec<Ask>,
 }
 
-/// What a mention is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MentionKind {
-    Skill,
-    App,
-    Plugin,
-}
-
-/// A skill, app or plugin that can be mentioned (`mentions_v2/candidate.rs`).
+/// What the composer needs of the host: the history file (`codex-message-history`),
+/// the file search and the mention usage file (IO). The answers are the
+/// `Ev::History*`, `Ev::FileMatches` and `Ev::MentionUsage` events.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Mention {
-    pub kind: MentionKind,
-    pub name: String,
-    pub description: String,
-    /// What follows the sigil when it is picked (`$` + `insert`).
-    pub insert: String,
-}
-
-/// What a popup row stands for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CandidateKind {
-    File,
-    Skill,
-    App,
-    Plugin,
-}
-
-/// One row of the `$` or `@` popup.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Candidate {
-    pub kind: CandidateKind,
-    /// The name, or the path of a file.
-    pub label: String,
-    pub description: String,
-    /// What follows the sigil when it is picked.
-    pub insert: String,
+pub enum Ask {
+    /// Run or end a file search (`mentions::files::FileSearchBackend`);
+    /// answered with `Ev::FileMatches`.
+    FileSearch(FileSearchAsk),
+    /// A `$` pick was made: the usage file keeps its identity.
+    RecordMention(String),
+    /// Ctrl+V: write the clipboard's image to a file; answered with
+    /// `Ev::ImagePasted`. A clipboard with no image, or none at all, is the
+    /// host's to tell the user (`Failed to paste image: ...`), no answer.
+    ClipboardImage,
+    /// Append a submitted prompt to the file (`AppendMessageHistoryEntry`);
+    /// no answer.
+    Append(String),
+    /// Read an entry or a batch; answered with `Ev::HistoryEntry`,
+    /// `Ev::HistoryBatch` or `Ev::HistoryBatchFailed`.
+    Lookup(Lookup),
 }
 
 impl Model {
-    /// The rows of a popup for `query`: best match first, ties in the data's
-    /// order. `$` lists skills and apps; `@` files, skills, plugins and apps
-    /// (a skill picked from `@` is inserted as `$name`).
-    pub fn candidates(&self, sigil: Sigil, query: &str) -> Vec<Candidate> {
-        let mut scored: Vec<(i32, Candidate)> = Vec::new();
-        let mut push = |name: &str, candidate: Candidate| {
-            if let Some((_, score)) = fuzzy_match(name, query) {
-                scored.push((score, candidate));
-            }
-        };
-        if sigil == Sigil::At {
-            for path in &self.files {
-                // The file name decides the match, the path is what is shown.
-                let file_name = path.rsplit('/').next().unwrap_or(path);
-                push(
-                    file_name,
-                    Candidate {
-                        kind: CandidateKind::File,
-                        label: path.clone(),
-                        description: String::new(),
-                        insert: path.clone(),
-                    },
-                );
-            }
+    /// The asks since the last call, oldest first: what the host runs.
+    pub fn take_asks(&mut self) -> Vec<Ask> {
+        std::mem::take(&mut self.asks)
+    }
+
+    /// What the mention popups are fed from.
+    pub fn sources(&self) -> Sources<'_> {
+        Sources {
+            mentions: &self.mentions,
+            tasks: &self.tasks,
+            usage: &self.usage,
+            file_matches: &self.file_matches,
         }
-        for mention in &self.mentions {
-            let wanted = matches!(
-                (sigil, mention.kind),
-                (Sigil::Dollar, MentionKind::Skill | MentionKind::App)
-                    | (Sigil::At, MentionKind::Skill | MentionKind::Plugin | MentionKind::App)
-            );
-            if !wanted {
-                continue;
-            }
-            push(
-                &mention.name,
-                Candidate {
-                    kind: match mention.kind {
-                        MentionKind::Skill => CandidateKind::Skill,
-                        MentionKind::App => CandidateKind::App,
-                        MentionKind::Plugin => CandidateKind::Plugin,
-                    },
-                    label: mention.name.clone(),
-                    description: mention.description.clone(),
-                    insert: mention.insert.clone(),
-                },
-            );
-        }
-        scored.sort_by_key(|(score, _)| *score);
-        scored.into_iter().map(|(_, c)| c).collect()
+    }
+
+    /// The asks not taken yet, oldest first.
+    pub fn pending_asks(&self) -> &[Ask] {
+        &self.asks
     }
 }
 
-/// The sigil of a mention popup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sigil {
-    /// `$`: skills.
-    Dollar,
-    /// `@`: files, skills, plugins and apps.
-    At,
-}
-
-/// Where reverse history search stands (`history_search.rs`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Where reverse history search stands (`HistorySearchStatus`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchStatus {
-    /// The query is empty: nothing is previewed.
+    /// The query is empty (or a read failed): the draft shows as it was.
+    #[default]
     Idle,
+    /// A persistent read is outstanding.
+    Searching,
     /// A match is previewed.
     Match,
     NoMatch,
 }
 
-/// Reverse history search: the query, the draft it will restore and the
-/// history entry the preview shows (`chat_composer/history_search.rs`, with
-/// the history of `chat_composer_history.rs`: a case-insensitive substring,
-/// newest first).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What the draft shows after a search step.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Preview {
+    /// The entry that was found.
+    Show(HistoryEntry),
+    /// The draft as it was when the search opened.
+    Original,
+    /// What is shown stays.
+    Keep,
+}
+
+/// Reverse history search: the query and where it stands
+/// (`chat_composer/history_search.rs`); the walk over the entries is the
+/// composer's [`History`]. The composer owns it with the draft it will
+/// restore (UI state, one per thread's draft).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HistorySearch {
     pub query: String,
-    /// The composer's text when the search opened.
-    pub draft: String,
     pub status: SearchStatus,
-    cursor: Option<usize>,
 }
 
 /// Which way the search walks.
@@ -167,96 +138,174 @@ pub enum Direction {
 impl HistorySearch {
     /// Opens without previewing anything: Ctrl+R on an empty composer must not
     /// replace it with the latest prompt.
-    pub fn new(draft: String) -> Self {
-        Self {
-            query: String::new(),
-            draft,
-            status: SearchStatus::Idle,
-            cursor: None,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// The entry the preview shows; none while idle or without a match, and
-    /// the composer then shows `draft`.
-    pub fn preview<'a>(&self, history: &'a [String]) -> Option<&'a str> {
-        match self.status {
-            SearchStatus::Match => self.cursor.and_then(|i| history.get(i)).map(String::as_str),
-            SearchStatus::Idle | SearchStatus::NoMatch => None,
-        }
+    /// The query as the footer shows it: a newline and a tab as marks
+    /// (`display_query`); matching keeps the query as it is.
+    pub fn display_query(&self) -> String {
+        self.query.replace('\n', "\u{21b5}").replace('\t', "\u{21e5}")
     }
 
-    /// The query changed: the search restarts from the newest entry.
-    pub fn set_query(&mut self, query: String, history: &[String]) {
+    /// The query changed (`update_history_search_query`): the draft goes
+    /// back to its original first, the search restarts from the newest
+    /// entry, and an empty query ends the walk and stays open.
+    pub fn set_query(
+        &mut self,
+        query: String,
+        history: &mut History,
+        store: &Store,
+        fx: &mut Vec<Lookup>,
+    ) -> Preview {
         self.query = query;
-        self.cursor = None;
+        self.status = SearchStatus::Searching;
         if self.query.is_empty() {
+            history.reset_search();
             self.status = SearchStatus::Idle;
-        } else {
-            self.step(Direction::Older, history);
+            return Preview::Original;
+        }
+        let result = history.search(store, &self.query, Direction::Older, true, fx);
+        match self.apply(result) {
+            Preview::Show(entry) => Preview::Show(entry),
+            _ => Preview::Original,
         }
     }
 
-    /// Walks to the next older or newer match; at the end of the matches the
-    /// current one stays (no "no match" flicker).
-    pub fn step(&mut self, direction: Direction, history: &[String]) {
+    /// The next older or newer match (`history_search_in_direction`); at the
+    /// end of the matches the current one stays (no "no match" flicker).
+    pub fn step(
+        &mut self,
+        direction: Direction,
+        history: &mut History,
+        store: &Store,
+        fx: &mut Vec<Lookup>,
+    ) -> Preview {
         if self.query.is_empty() {
+            history.reset_search();
             self.status = SearchStatus::Idle;
-            return;
+            return Preview::Original;
         }
-        let needle = self.query.to_lowercase();
-        let hit = |i: &usize| history[*i].to_lowercase().contains(&needle);
-        let found = match (direction, self.cursor) {
-            (Direction::Older, None) => (0..history.len()).rev().find(hit),
-            (Direction::Older, Some(at)) => (0..at.min(history.len())).rev().find(hit),
-            (Direction::Newer, None) => None,
-            (Direction::Newer, Some(at)) => (at + 1..history.len()).find(hit),
-        };
-        match (found, self.cursor) {
-            (Some(i), _) => {
-                self.cursor = Some(i);
+        let result = history.search(store, &self.query, direction, false, fx);
+        self.apply(result)
+    }
+
+    /// What a step or a read that came in says (`apply_history_search_result`):
+    /// `Found` previews, `Pending` waits, `AtBoundary` keeps the match,
+    /// `NotFound` puts the original back with "no match" and `Unavailable`
+    /// with nothing said.
+    pub fn apply(&mut self, result: SearchResult) -> Preview {
+        match result {
+            SearchResult::Found(entry) => {
                 self.status = SearchStatus::Match;
+                Preview::Show(entry)
             }
-            (None, Some(_)) => self.status = SearchStatus::Match,
-            (None, None) => self.status = SearchStatus::NoMatch,
+            SearchResult::Pending => {
+                self.status = SearchStatus::Searching;
+                Preview::Keep
+            }
+            SearchResult::AtBoundary => {
+                self.status = SearchStatus::Match;
+                Preview::Keep
+            }
+            SearchResult::NotFound => {
+                self.status = SearchStatus::NoMatch;
+                Preview::Original
+            }
+            SearchResult::Unavailable => {
+                self.status = SearchStatus::Idle;
+                Preview::Original
+            }
         }
     }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
-/// root `ScreenEv`. Only scripts make them yet.
+/// root `ScreenEv`. The history ones are the host's answers to [`Ask`]s
+/// (and the metadata read when a thread opens).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    Files(Vec<String>),
     Mentions(Vec<Mention>),
+    /// The tasks a task search found.
+    Tasks(Vec<TaskMention>),
+    /// The file search answered `query`.
+    FileMatches { query: String, matches: Vec<FileMatch> },
+    /// The recent `$` picks the usage file held, oldest first.
+    MentionUsage(Vec<String>),
+    /// The clipboard's image was written to this file (`Ask::ClipboardImage`).
+    ImagePasted(std::path::PathBuf),
+    /// A history file of these prompts, oldest first, all read (a script's
+    /// seed).
     History(Vec<String>),
+    /// The file was opened: its log id and entry count
+    /// (`history_metadata`).
+    HistoryMetadata { log_id: u64, entry_count: usize },
+    /// One entry read, `None` when the row could not be read.
+    HistoryEntry {
+        log_id: u64,
+        offset: usize,
+        text: Option<String>,
+    },
+    /// A batch read: the rows (offset, text) and where the next older batch
+    /// ends.
+    HistoryBatch {
+        log_id: u64,
+        end_offset: usize,
+        rows: Vec<(usize, Option<String>)>,
+        next_older: Option<usize>,
+    },
+    /// A batch read failed.
+    HistoryBatchFailed { log_id: u64, end_offset: usize },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// A prompt was submitted: history search finds it later.
+    /// A prompt was submitted: the file keeps it for the next sessions.
     Record(String),
-    SearchStart { draft: String },
-    /// Typed or pasted text after the query.
-    SearchAppend(String),
-    /// Backspace (and Ctrl+H): the query loses its last character.
-    SearchBackspace,
-    /// Ctrl+U: the query is emptied.
-    SearchClear,
-    SearchStep(Direction),
-    /// Enter: ends the search only when a match is previewed
-    /// (`history_search.rs:213-230`); otherwise the search stays open.
-    SearchAccept,
-    /// The search was cancelled (Esc, Ctrl+C): the composer keeps its draft.
-    SearchEnd,
+    /// A composer's history needs a read it did not find in the store.
+    Lookup(Lookup),
+    /// The mention popup wants a file search run or ended.
+    SearchFiles(FileSearchAsk),
+    /// A `$` mention was picked (by the skill's path).
+    RecordMention(String),
+    /// A task was picked: the list of tasks the search found is spent.
+    SpendTasks,
+    /// Ctrl+V: the clipboard's image is wanted (`Ask::ClipboardImage`).
+    PasteImage,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Files(files) => model.files = files,
         Ev::Mentions(mentions) => model.mentions = mentions,
-        Ev::History(history) => model.history = history,
+        Ev::Tasks(tasks) => model.tasks = tasks,
+        Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
+        Ev::MentionUsage(recent) => model.usage = MentionUsage::from_recent(recent),
+        Ev::ImagePasted(path) => model.pasted.on_image(path),
+        Ev::History(history) => *model.history = Store::seeded(history),
+        Ev::HistoryMetadata {
+            log_id,
+            entry_count,
+        } => model.history.set_metadata(log_id, entry_count),
+        Ev::HistoryEntry {
+            log_id,
+            offset,
+            text,
+        } => {
+            model.history.on_entry(log_id, offset, text);
+        }
+        Ev::HistoryBatch {
+            log_id,
+            end_offset,
+            rows,
+            next_older,
+        } => {
+            model.history.on_batch(log_id, end_offset, rows, next_older);
+        }
+        Ev::HistoryBatchFailed { log_id, end_offset } => {
+            model.history.on_batch_error(log_id, end_offset);
+        }
     }
 }
 
@@ -264,59 +313,18 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         Intent::Record(text) => {
-            if !text.trim().is_empty() && model.history.last() != Some(&text) {
-                model.history.push(text);
+            if !text.trim().is_empty() {
+                model.asks.push(Ask::Append(text));
             }
         }
-        Intent::SearchStart { draft } => model.search = Some(HistorySearch::new(draft)),
-        Intent::SearchAppend(text) => {
-            // The borrow is split: the search edits itself against the
-            // history without a copy of it per key.
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                let query = format!("{}{text}", search.query);
-                search.set_query(query, history);
-            }
+        Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
+        Intent::SearchFiles(ask) => model.asks.push(Ask::FileSearch(ask)),
+        Intent::SpendTasks => model.tasks.clear(),
+        Intent::PasteImage => model.asks.push(Ask::ClipboardImage),
+        Intent::RecordMention(identity) => {
+            model.usage.record(&identity);
+            model.asks.push(Ask::RecordMention(identity));
         }
-        Intent::SearchBackspace => {
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                let mut query = search.query.clone();
-                query.pop();
-                search.set_query(query, history);
-            }
-        }
-        Intent::SearchClear => {
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                search.set_query(String::new(), history);
-            }
-        }
-        Intent::SearchStep(direction) => {
-            let Model {
-                history, search, ..
-            } = model;
-            if let Some(search) = search.as_mut() {
-                search.step(direction, history);
-            }
-        }
-        // `history_search.rs:213-230`: only a match is accepted.
-        Intent::SearchAccept => {
-            if model
-                .search
-                .as_ref()
-                .is_some_and(|search| search.status == SearchStatus::Match)
-            {
-                model.search = None;
-            }
-        }
-        Intent::SearchEnd => model.search = None,
     }
 }
 
@@ -369,14 +377,20 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// The seed form of this screen's events: `{"files":["src/a.rs"]}`,
-/// `{"mentions":[{kind,name,description,insert}]}`, `{"history":["..."]}`
-/// (history oldest first).
+/// The seed form of this screen's events:
+/// `{"mentions":[{kind,name,description,insert,path?,plugin_id?,capabilities?}]}` (capabilities: `"skills"`, `{"mcp_servers":2}`, `{"apps":1}`),
+/// `{"tasks":[{thread,title,cwd?,snippet?}]}`,
+/// `{"file_matches":{"query":"q","matches":[{path,dir?,score?,indices?}]}}`,
+/// `{"mention_usage":["path"]}`, `{"image_pasted":"/path/to.png"}` and
+/// `{"history":["..."]}` (oldest first).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
-    Files(Vec<String>),
     Mentions(Vec<SeedMention>),
+    Tasks(Vec<SeedTask>),
+    FileMatches(SeedFileMatches),
+    MentionUsage(Vec<String>),
+    ImagePasted(std::path::PathBuf),
     History(Vec<String>),
 }
 
@@ -386,6 +400,47 @@ struct SeedMention {
     name: String,
     description: String,
     insert: String,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    plugin_id: Option<String>,
+    #[serde(default)]
+    capabilities: Vec<SeedCapability>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SeedCapability {
+    Skills,
+    McpServers(usize),
+    Apps(usize),
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedTask {
+    thread: String,
+    title: String,
+    #[serde(default)]
+    cwd: String,
+    #[serde(default)]
+    snippet: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedMatch {
+    path: String,
+    #[serde(default)]
+    dir: bool,
+    #[serde(default)]
+    score: u32,
+    #[serde(default)]
+    indices: Option<Vec<u32>>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedFileMatches {
+    query: String,
+    matches: Vec<SeedMatch>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
@@ -400,7 +455,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
-        SeedEv::Files(files) => Ev::Files(files),
         SeedEv::History(history) => Ev::History(history),
         SeedEv::Mentions(mentions) => Ev::Mentions(
             mentions
@@ -414,8 +468,49 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                     name: m.name,
                     description: m.description,
                     insert: m.insert,
+                    path: m.path,
+                    plugin_id: m.plugin_id,
+                    capabilities: m
+                        .capabilities
+                        .into_iter()
+                        .map(|c| match c {
+                            SeedCapability::Skills => Capability::Skills,
+                            SeedCapability::McpServers(n) => Capability::McpServers(n),
+                            SeedCapability::Apps(n) => Capability::Apps(n),
+                        })
+                        .collect(),
                 })
                 .collect(),
         ),
+        SeedEv::Tasks(tasks) => Ev::Tasks(
+            tasks
+                .into_iter()
+                .map(|t| TaskMention {
+                    thread_id: ThreadId::new(t.thread),
+                    title: t.title,
+                    cwd: t.cwd,
+                    snippet: t.snippet,
+                })
+                .collect(),
+        ),
+        SeedEv::FileMatches(found) => Ev::FileMatches {
+            query: found.query,
+            matches: found
+                .matches
+                .into_iter()
+                .map(|m| FileMatch {
+                    path: m.path,
+                    match_type: if m.dir {
+                        MatchType::Directory
+                    } else {
+                        MatchType::File
+                    },
+                    score: m.score,
+                    indices: m.indices,
+                })
+                .collect(),
+        },
+        SeedEv::MentionUsage(recent) => Ev::MentionUsage(recent),
+        SeedEv::ImagePasted(path) => Ev::ImagePasted(path),
     })
 }

@@ -1,0 +1,4 @@
+# The preset menu with Full Access forbidden by the config.
+# Oracle data: chatwidget/tests/permissions.rs:1280 approvals_popup_shows_disabled_presets
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"presets","current":{"limits":{"approvals":[{"approval":"never","reason":"this message should be printed in the description"}]}}}}

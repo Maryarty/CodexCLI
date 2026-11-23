@@ -7,12 +7,57 @@
 use crate::kit::{self, Owner, Screen};
 
 // ---- oracle: chatwidget/tests/backend_banners_tests.rs (12 screen-level tests here; 0 state tests left to chat-live)
+
+/// The account read's answer (`banner_response`): a `selected_model_limit` banner on `test-model-a`
+/// for the account `workspace-a`; `edit` changes the banner's fields.
+fn banner_response(
+    presentation: Option<&str>,
+    ctas: serde_json::Value,
+    edit: impl Fn(&mut serde_json::Value),
+) -> serde_json::Value {
+    let mut banner = serde_json::json!({
+        "banner_type": "selected_model_limit", "model_slug": "test-model-a",
+        "title": "Selected model usage exhausted",
+        "description": "Ask your owner for credits or switch to another model.", "ctas": ctas,
+    });
+    if let Some(presentation) = presentation {
+        banner["presentation"] = serde_json::json!(presentation);
+    }
+    edit(&mut banner);
+    serde_json::json!({"accountId": "workspace-a", "rateLimits": {}, "rateLimitUpsell": banner})
+}
+
+/// The kit step that makes the fake backend answer the next account read with `response`.
+fn answer(response: &serde_json::Value) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "respond", "method": "account/rateLimits/read", "result": response})
+    )
+}
+
+/// `set_model` (the config's model in use) and, with `read`, the account read that follows
+/// the status facts' `account_usage`.
+fn model_step(model: &str, read: bool) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "screen", "dir": "chat", "ev": {"status": {"model": model, "account_usage": read}}})
+    )
+}
+
+/// A live chat on `model` whose account read carried `response`: the banner is on screen.
+fn banner_chat(width: u16, model: &str, response: &serde_json::Value) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive).size(width, 24).live().open();
+    s.feed(&(answer(response) + &model_step(model, true)));
+    s.wait_for("Selected model usage exhausted");
+    s
+}
+
 // ORACLE chatwidget/tests/backend_banners_tests.rs:29 backend_banner_presentation_and_cta_do_not_imply_recovery kind=snap owner=chat-live
 #[test]
 fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
     kit::pending(
         Owner::ChatLive,
-        "no seed for an account rate-limit response that carries a backend banner (rate_limit_upsell: title, presentation none/inline/dismissible, a notify_owner cta); the chat screen has no backend banner view",
+        "the inline case sets the banner copy `Your usage resets at {time}` (5:30 PM, the local zone and the clock-format setting): `{time}` is not formatted and there is no clock-format setting on the chat screen; the nudge itself (start, one in flight, the notice) is on in owner_notification_completion_cannot_cross_account_change and the core tests",
     );
     // The oracle, per presentation: the banner shows its title; `esc to dismiss` only when
     // dismissible; key 1 queues the notify-owner email and the popup does not change.
@@ -32,68 +77,105 @@ fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
 // ORACLE chatwidget/tests/backend_banners_tests.rs:105 backend_banner_zero_actions_preserve_guidance_and_composer_input kind=snap owner=chat-live
 #[test]
 fn backend_banner_zero_actions_preserve_guidance_and_composer_input() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a backend banner with zero or an unsupported cta (information only, dismissible); the banner view and its snapshots are not built",
-    );
-    for dismissible in [false, true] {
-        let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
-        s.assert_contains("Selected model usage exhausted");
-        s.assert_contains("switch to another model");
-        s.assert_absent("Press a number");
-        if dismissible {
-            s.assert_contains("esc to dismiss");
-            s.assert_snap("backend_banner_information_dismissible");
-        } else {
-            s.assert_absent("esc to dismiss");
-            s.assert_snap("backend_banner_information_only");
+    for presentation in [None, Some("inline"), Some("dismissible")] {
+        for ctas in [
+            serde_json::json!([]),
+            serde_json::json!([{"action": "future_action", "label": "Unsupported"}]),
+        ] {
+            let dismissible = presentation == Some("dismissible");
+            let mut s = banner_chat(
+                70,
+                "test-model-a",
+                &banner_response(presentation, ctas, |_| {}),
+            );
+            s.assert_contains("switch to another model");
+            s.assert_absent("Press a number");
+            s.assert_absent("no matches");
+            if dismissible {
+                s.assert_contains("esc to dismiss");
+            } else {
+                s.assert_absent("esc to dismiss");
+            }
+            // Key 1 has no action; the next navigation key leaves `1` in the composer.
+            s.keys("1 left");
+            s.assert_composer("1");
         }
-        // Key 1 has no action; the next navigation key leaves `1` in the composer.
-        s.keys("1 left");
     }
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:142 backend_banner_dismissal_tracks_occurrence_not_copy_or_model kind=ui owner=chat-live
 #[test]
 fn backend_banner_dismissal_tracks_occurrence_not_copy_or_model() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a dismissible backend banner, nor a model switch (set_model) from the screen; the dismissed occurrence is not kept across the update",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
-    s.assert_contains("Selected model usage exhausted");
+    let mut response = banner_response(Some("dismissible"), serde_json::json!([]), |_| {});
+    let mut s = banner_chat(70, "test-model-a", &response);
     s.keys("esc");
-    // The oracle then changes the model and the description and checks that the new copy
-    // stays hidden until the reset time changes; the seed steps are not expressible yet.
+    s.assert_absent("Selected model usage exhausted");
+    s.feed(&model_step("test-model-b", false));
+    response["rateLimitUpsell"]["description"] = serde_json::json!("Updated backend copy");
+    s.feed(&answer(&response));
+    s.feed(&model_step("test-model-a", true));
+    // the copy changed, the occurrence did not: still dismissed
     s.assert_absent("Updated backend copy");
+    // a new reset time is a new occurrence
+    response["rateLimitUpsell"]["reset_at"] = serde_json::json!(2_000_000_000);
+    s.feed(&answer(&response));
+    s.feed(&model_step("test-model-a", true));
+    s.assert_contains("Updated backend copy");
+    s.keys("esc");
+    // an absent banner and the same one again: a new occurrence, shown again
+    let mut absent = response.clone();
+    absent["rateLimitUpsell"] = serde_json::Value::Null;
+    s.feed(&answer(&absent));
+    s.feed(&model_step("test-model-a", true));
+    s.feed(&answer(&response));
+    s.feed(&model_step("test-model-a", true));
+    s.assert_contains("Updated backend copy");
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:165 backend_banner_occurrence_uses_explicit_or_legacy_source_model kind=ui owner=chat-live
 #[test]
 fn backend_banner_occurrence_uses_explicit_or_legacy_source_model() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a dismissible backend banner with or without blocked_model_slug, nor a model switch from the screen",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
-    s.assert_contains("Selected model usage exhausted");
-    s.keys("esc");
-    // The oracle then moves the banner to test-model-b and sets the model to test-model-b:
-    // the banner is shown again only when the explicit source model was not given.
+    for explicit_source in [false, true] {
+        let edit = |banner: &mut serde_json::Value| {
+            if explicit_source {
+                banner["blocked_model_slug"] = serde_json::json!("test-model-a");
+            }
+        };
+        let mut s = banner_chat(
+            70,
+            "test-model-a",
+            &banner_response(Some("dismissible"), serde_json::json!([]), edit),
+        );
+        s.keys("esc");
+        // the banner moves to test-model-b and so does the model in use
+        let moved = banner_response(Some("dismissible"), serde_json::json!([]), |banner| {
+            edit(banner);
+            banner["model_slug"] = serde_json::json!("test-model-b");
+        });
+        s.feed(&(answer(&moved) + &model_step("test-model-b", true)));
+        // without an explicit source model the banner is a new occurrence for the new model
+        if explicit_source {
+            s.assert_absent("Selected model usage exhausted");
+        } else {
+            s.assert_contains("Selected model usage exhausted");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:189 backend_banner_turn_on_another_model_preserves_hidden_occurrence kind=ui owner=chat-live
 #[test]
 fn backend_banner_turn_on_another_model_preserves_hidden_occurrence() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a dismissible backend banner, nor a model switch (set_model) from the screen; the turn's start and completion are expressible",
+    let mut s = banner_chat(
+        70,
+        "test-model-a",
+        &banner_response(Some("dismissible"), serde_json::json!([]), |_| {}),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
-    s.assert_contains("Selected model usage exhausted");
+    s.feed(&model_step("test-model-b", false));
+    s.assert_absent("Selected model usage exhausted");
     s.type_text("hello").keys("enter");
     s.feed(include_str!("fixtures/chat_live_2/turn_done.jsonl"));
     // The oracle returns to test-model-a after the turn: the hidden occurrence shows again.
+    s.feed(&model_step("test-model-a", false));
     s.assert_contains("Selected model usage exhausted");
 }
 
@@ -102,7 +184,7 @@ fn backend_banner_turn_on_another_model_preserves_hidden_occurrence() {
 fn backend_banner_restores_only_programmatically_displaced_switch_prompt() {
     kit::pending(
         Owner::ChatLive,
-        "no seed for a 95% rate-limit snapshot that shows the `Approaching rate limits` switch prompt, nor the banner that displaces it",
+        "no `Approaching rate limits` switch prompt in the chat: the 95% rate-limit snapshot's prompt (rate_limits.rs: a ChatGPT account, the switch to a cheaper model) is not built, so the banner has nothing to displace and restore",
     );
     let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
     s.assert_contains("Approaching rate limits");
@@ -112,31 +194,73 @@ fn backend_banner_restores_only_programmatically_displaced_switch_prompt() {
     s.assert_contains("Selected model usage exhausted");
 }
 
-// ORACLE chatwidget/tests/backend_banners_tests.rs:234 owner_notification_completion_cannot_cross_account_change kind=snap owner=chat-live
+// ORACLE chatwidget/tests/backend_banners_tests.rs:234 owner_notification_completion_cannot_cross_account_change kind=snap owner=chat-live snap=owner_notification_after_account_change
 #[test]
 fn owner_notification_completion_cannot_cross_account_change() {
-    kit::pending(
-        Owner::ChatLive,
-        "no add-credits nudge email request on the chat screen (start, account change, finish with Sent): the notification history cell is not built",
+    // The oracle starts a request for the previous account directly; here the banner's action
+    // starts it, then `account/updated` is the identity boundary and the new account's read
+    // brings its banner back for the second request.
+    let credits = serde_json::json!([{"action": "notify_owner", "label": "Notify owner"}]);
+    let increase = serde_json::json!([{"action": "request_increase", "label": "Request increase"}]);
+    let mut s = banner_chat(
+        80,
+        "test-model-a",
+        &banner_response(Some("inline"), credits, |_| {}),
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // The oracle's history after the current request finishes: one notification, none from the previous account.
-    s.assert_snap("owner_notification_after_account_change");
+    s.keys("1");
+    s.feed(&format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": "account/updated", "params": {"authMode": "chatgpt", "planType": null}}})
+    ));
+    s.assert_absent("Selected model usage exhausted");
+    s.feed(
+        &(answer(&banner_response(Some("inline"), increase, |_| {}))
+            + &model_step("test-model-a", true)),
+    );
+    s.wait_for("Request increase");
+    s.keys("1");
+    let nudges = s.nudges();
+    assert_eq!(nudges.len(), 2, "{nudges:?}");
+    s.answer_request(&nudges[0], serde_json::json!({"status": "sent"}));
+    s.assert_absent("Workspace owner notified.");
+    s.assert_absent("Limit increase requested.");
+    // the current request is still in flight: no third
+    s.keys("1");
+    assert_eq!(s.nudges().len(), 2);
+    s.answer_request(&nudges[1], serde_json::json!({"status": "sent"}));
+    s.wait_for("Limit increase requested.");
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("Limit increase requested."))
+        .expect("the notice");
+    s.assert_snap_region("owner_notification_after_account_change", row, 0);
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:262 backend_banner_new_turn_dismisses_only_shown_dismissible_content kind=ui owner=chat-live
 #[test]
 fn backend_banner_new_turn_dismisses_only_shown_dismissible_content() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a dismissible backend banner (shown before the submit or not); the turn started and completed are expressible",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
-    s.assert_contains("Selected model usage exhausted");
-    s.type_text("hello").keys("enter");
-    s.feed(include_str!("fixtures/chat_live_2/turn_done.jsonl"));
-    // The oracle: a dismissible banner shown before the submit is gone after the turn; the others stay.
-    s.assert_absent("Selected model usage exhausted");
+    // The oracle's fourth case (a dismissible banner no frame has drawn yet, which a submit
+    // leaves) has no counterpart in a retained UI: the banner is on screen as soon as it is in
+    // the model. The other three: a dismissible banner the user saw is gone after the turn.
+    for (presentation, gone) in [
+        (None, false),
+        (Some("inline"), false),
+        (Some("dismissible"), true),
+    ] {
+        let mut s = banner_chat(
+            70,
+            "test-model-a",
+            &banner_response(presentation, serde_json::json!([]), |_| {}),
+        );
+        s.type_text("hello").keys("enter");
+        s.feed(include_str!("fixtures/chat_live_2/turn_done.jsonl"));
+        if gone {
+            s.assert_absent("Selected model usage exhausted");
+        } else {
+            s.assert_contains("Selected model usage exhausted");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:292 backend_banner_invalid_content_and_absence_restore_fallback kind=ui owner=chat-live
@@ -144,7 +268,7 @@ fn backend_banner_new_turn_dismisses_only_shown_dismissible_content() {
 fn backend_banner_invalid_content_and_absence_restore_fallback() {
     kit::pending(
         Owner::ChatLive,
-        "no seed for a backend banner with invalid content or its absence, nor the usage-limit error that shows the workspace owner fallback",
+        "the usage-limit error that shows the workspace-owner fallback (`on_rate_limit_error`, rate_limits.rs) is not built; the banner side (invalid content or absence drops it) is a core test",
     );
     let s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
     s.assert_contains("Selected model usage exhausted");
@@ -157,7 +281,7 @@ fn backend_banner_invalid_content_and_absence_restore_fallback() {
 fn backend_banner_fallback_candidates_and_notice_follow_selected_model() {
     kit::pending(
         Owner::ChatLive,
-        "no seed for a model catalog with a hidden model and fallback slugs, a ChatGPT account, nor the fallback switch that the banner offers; the banner is not built",
+        "no automatic model switch: the fallback model of a blocked-model banner (the catalog's visible candidates, a ChatGPT account, `finish_backend_banner_fallback`) needs the model catalog and a thread settings update in the chat",
     );
     let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
     s.assert_contains("Selected model usage exhausted");
@@ -170,18 +294,27 @@ fn backend_banner_fallback_candidates_and_notice_follow_selected_model() {
 // ORACLE chatwidget/tests/backend_banners_tests.rs:373 backend_banner_sparse_updates_preserve_visible_and_dismissed_occurrences kind=ui owner=chat-live
 #[test]
 fn backend_banner_sparse_updates_preserve_visible_and_dismissed_occurrences() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a dismissible backend banner nor the rolling rate-limit snapshots (60% and an exhausted credits snapshot) that must not change the popup",
-    );
     for dismiss in [false, true] {
-        let mut s = Screen::build(Owner::ChatLive).size(70, 24).live().open();
-        s.assert_contains("Selected model usage exhausted");
+        let mut s = banner_chat(
+            70,
+            "test-model-a",
+            &banner_response(Some("dismissible"), serde_json::json!([]), |_| {}),
+        );
         if dismiss {
             s.keys("esc");
         }
         let before = s.shot();
-        // The oracle feeds two rolling snapshots: the popup stays the same.
+        // two rolling snapshots (60%, then an exhausted credits snapshot) must not change the popup
+        for (used, reached) in [(60, None), (100, Some("workspace_member_credits_depleted"))] {
+            let mut snapshot = serde_json::json!({"primary": {"usedPercent": used, "windowDurationMins": 300, "resetsAt": null}});
+            if let Some(reached) = reached {
+                snapshot["rateLimitReachedType"] = serde_json::json!(reached);
+            }
+            s.feed(&format!(
+                "{}\n",
+                serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": snapshot}}})
+            ));
+        }
         s.assert_same_rows(&before);
     }
 }
@@ -191,7 +324,7 @@ fn backend_banner_sparse_updates_preserve_visible_and_dismissed_occurrences() {
 fn backend_banner_changed_remedy_keeps_fallback_until_applicable_replacement() {
     kit::pending(
         Owner::ChatLive,
-        "no seed for a credits-depleted rate-limit snapshot, a usage-cap error, nor a banner whose remedy changes (notify owner, then request more usage); the banner is not built",
+        "the usage-cap error rows (`on_rate_limit_error`: `Request a limit increase from your owner`, the workspace nudge popup) are not built: only the replacement banner half (title, cta) is on screen",
     );
     for rolling_update in [false, true] {
         let s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
@@ -369,182 +502,272 @@ fn goal_slash_command_emits_only_inserted_paste_text_element() {
 // ORACLE chatwidget/tests/history_projection.rs:12 older_tool_projection_matches_initial_replay kind=snap owner=chat-live
 #[test]
 fn older_tool_projection_matches_initial_replay() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:180 snapshot_formatter_reasoning_matches_compact_and_detailed_replay kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_reasoning_matches_compact_and_detailed_replay() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:250 raw_reasoning_keeps_its_own_heading kind=snap owner=chat-live
 #[test]
 fn raw_reasoning_keeps_its_own_heading() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:269 snapshot_formatter_completed_patch_needs_no_started_notification kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_completed_patch_needs_no_started_notification() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:307 snapshot_formatter_live_and_buffered_patch_notifications_render_once kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_live_and_buffered_patch_notifications_render_once() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:344 snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes kind=snap owner=chat-live snap=empty
 #[test]
 fn snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ---- oracle: chatwidget/tests/history_replay.rs (24 screen-level tests here; 11 state tests left to chat-live)
 // ORACLE chatwidget/tests/history_replay.rs:18 resumed_initial_messages_render_history kind=snap owner=chat-live
 #[test]
 fn resumed_initial_messages_render_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:130 replayed_failed_turns_preserve_overload_warnings_between_retries kind=snap owner=chat-live
 #[test]
 fn replayed_failed_turns_preserve_overload_warnings_between_retries() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:181 restored_conversation_ultra_remains_selected_after_switching_to_plan kind=ui owner=chat-live
 #[test]
 fn restored_conversation_ultra_remains_selected_after_switching_to_plan() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:219 replayed_user_messages_seed_composer_history kind=ui owner=chat-live
 #[test]
 fn replayed_user_messages_seed_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:309 replayed_review_prompt_does_not_seed_composer_history kind=ui owner=chat-live
 #[test]
 fn replayed_review_prompt_does_not_seed_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:333 replayed_delegated_tool_output_is_attributed_without_seeding_composer_history kind=snap owner=chat-live snap=replayed_delegated_tool_output
 #[test]
 fn replayed_delegated_tool_output_is_attributed_without_seeding_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:410 replayed_nested_review_prompts_do_not_render_or_seed_composer_history kind=snap owner=chat-live
 #[test]
 fn replayed_nested_review_prompts_do_not_render_or_seed_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:853 replayed_user_message_with_only_remote_images_renders_history_cell kind=ui owner=chat-live
 #[test]
 fn replayed_user_message_with_only_remote_images_renders_history_cell() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:914 replayed_user_message_with_only_local_images_renders_history_cell kind=ui owner=chat-live
 #[test]
 fn replayed_user_message_with_only_local_images_renders_history_cell() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:973 forked_thread_history_line_includes_name_and_id_snapshot kind=snap owner=chat-live snap=forked_thread_history_line
 #[test]
 fn forked_thread_history_line_includes_name_and_id_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1003 forked_thread_history_line_without_name_shows_id_once_snapshot kind=snap owner=chat-live snap=forked_thread_history_line_without_name
 #[test]
 fn forked_thread_history_line_without_name_shows_id_once_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1091 prompt_edit_thread_history_line_snapshot kind=snap owner=chat-live snap=prompt_edit_thread_history_line
 #[test]
 fn prompt_edit_thread_history_line_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1113 app_server_forked_thread_history_line_uses_app_server_title_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line
 #[test]
 fn app_server_forked_thread_history_line_uses_app_server_title_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1153 app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line_without_app_server_name
 #[test]
 fn app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1195 thread_snapshot_replay_preserves_agent_message_during_review_mode kind=ui owner=chat-live
 #[test]
 fn thread_snapshot_replay_preserves_agent_message_during_review_mode() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1276 replayed_reasoning_item_preserves_summary_parts_and_hides_raw_reasoning_when_disabled kind=ui owner=chat-live
 #[test]
 fn replayed_reasoning_item_preserves_summary_parts_and_hides_raw_reasoning_when_disabled() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1328 replayed_reasoning_item_shows_raw_reasoning_when_enabled kind=ui owner=chat-live
 #[test]
 fn replayed_reasoning_item_shows_raw_reasoning_when_enabled() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1376 replayed_mcp_tool_call_stays_active_until_completion kind=ui owner=chat-live
 #[test]
 fn replayed_mcp_tool_call_stays_active_until_completion() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1419 failed_repl_mcp_tool_call_preserves_status_and_result kind=snap owner=chat-live
 #[test]
 fn failed_repl_mcp_tool_call_preserves_status_and_result() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1482 deferred_mcp_lifecycle_events_keep_fifo_after_stream_finishes kind=ui owner=chat-live
 #[test]
 fn deferred_mcp_lifecycle_events_keep_fifo_after_stream_finishes() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1544 live_reasoning_summary_is_not_rendered_twice_when_item_completes kind=ui owner=chat-live
 #[test]
 fn live_reasoning_summary_is_not_rendered_twice_when_item_completes() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1605 live_reasoning_summary_drops_empty_parts_without_losing_content kind=ui owner=chat-live
 #[test]
 fn live_reasoning_summary_drops_empty_parts_without_losing_content() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1685 thread_snapshot_replayed_turn_started_marks_task_running kind=snap owner=chat-live
 #[test]
 fn thread_snapshot_replayed_turn_started_marks_task_running() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1723 replayed_in_progress_turn_marks_task_running kind=snap owner=chat-live snap=replayed_in_progress_turn
 #[test]
 fn replayed_in_progress_turn_marks_task_running() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ---- oracle: chatwidget/tests/list_spacing_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
@@ -565,18 +788,55 @@ fn list_spacing_streams_compact_then_reflows_on_completion_or_interruption() {
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:30 luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft kind=snap owner=chat-live snap=luna_reserve_selector_second_choice
 #[test]
 fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Luna Reserve banner (dismissible, two ctas, `esc to continue working`) with its selector and key routing; the selector owns focus over the composer draft",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
-    s.type_text("saved draft");
-    s.assert_contains("esc to continue working");
-    s.assert_absent("saved draft");
-    s.keys("down");
-    s.assert_snap("luna_reserve_selector_second_choice");
-    // The oracle repeats this for the other key paths (down enter, down up enter, 1, 2, down esc),
-    // each opening one URL (or none on esc), and then keeps the draft `saved draft`.
+    let credits = "https://chatgpt.com/settings/usage?credits_modal=true";
+    let pricing = "https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing";
+    for (keys, destination) in [
+        (vec!["down", "enter"], Some(pricing)),
+        (vec!["down", "up", "enter"], Some(credits)),
+        (vec!["1"], Some(credits)),
+        (vec!["2"], Some(pricing)),
+        (vec!["down", "esc"], None),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+        s.type_text("saved draft");
+        let response = serde_json::json!({
+            "accountId": "account-preview", "rateLimits": {},
+            "rateLimitUpsell": {
+                "banner_type": "luna_reserve", "presentation": "dismissible",
+                "title": "You\u{2019}re now using Luna, a faster model for simpler tasks.",
+                "description": "Add credits or upgrade to continue using the most advanced models.",
+                "ctas": [{"action": "add_credits", "label": "Add credits"},
+                    {"action": "open_pricing_dialog", "label": "Upgrade"}]
+            }
+        });
+        s.feed(&(answer(&response) + &model_step("gpt-reserve", true)));
+        s.wait_for("esc to continue working");
+        s.assert_absent("saved draft");
+        let title = s
+            .rows()
+            .iter()
+            .position(|row| row.contains("You\u{2019}re now using Luna"))
+            .expect("the selector's title");
+        for key in &keys {
+            s.keys(key);
+            if *key == "down" {
+                s.assert_snap_region("luna_reserve_selector_second_choice", title, 0);
+            }
+        }
+        assert_eq!(
+            s.opened_urls(),
+            destination
+                .map(str::to_owned)
+                .into_iter()
+                .collect::<Vec<_>>()
+        );
+        assert!(s.turns().is_empty());
+        s.assert_composer("saved draft");
+        // A periodic usage reply must not reopen a selector the user just closed.
+        s.feed(&(answer(&response) + &model_step("gpt-reserve", true)));
+        s.assert_absent("You\u{2019}re now using Luna");
+        s.assert_contains("saved draft");
+    }
 }
 
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:109 luna_reserve_status_tracks_the_active_model kind=snap owner=chat-live snap=luna_reserve_usage_wide snap=luna_reserve_usage_narrow
@@ -584,7 +844,7 @@ fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losi
 fn luna_reserve_status_tracks_the_active_model() {
     kit::pending(
         Owner::ChatLive,
-        "no Luna Reserve status on the chat screen: `Luna Reserve default` shows only while the active model is gpt-reserve, and set_model is not a kit step",
+        "`Luna Reserve default` is the status line the footer shows while the active model is gpt-reserve (chat-status's footer); the selector half is on in luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_absent("Luna Reserve");
@@ -598,7 +858,7 @@ fn luna_reserve_status_tracks_the_active_model() {
 fn luna_reserve_usage_survives_banner_dismissal_and_typing_during_a_turn() {
     kit::pending(
         Owner::ChatLive,
-        "no Luna Reserve upsell (ordinary usage not allowed, `You’re now using Luna`) on the chat screen, nor a running task seed; the status rows of the reserve are not built",
+        "the snapshot holds the selector over the status rows (`Luna Reserve default`, chat-status's footer) and a typed `x` under a running task; the selector rows are the page tests' and the selector oracle test's",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_snap("luna_reserve_usage_with_upsell");

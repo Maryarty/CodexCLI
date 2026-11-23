@@ -32,7 +32,6 @@ pub struct Strings {
     pub grouping_key: &'static str,
     pub filters: [&'static str; 5],
     filter_count: Msg<2>,
-    pub filter_keys: &'static str,
     pub filter_label: &'static str,
     /// Oracle: `agent_center/rows.rs`.
     pub tasks: &'static str,
@@ -62,13 +61,9 @@ pub struct Strings {
     /// Oracle: `agent_center/hints.rs` `center_footer_hints`.
     pub key_help: &'static str,
     pub help: &'static str,
-    pub key_back: &'static str,
     pub back: &'static str,
-    pub key_move: &'static str,
     pub move_: &'static str,
-    pub key_open: &'static str,
     pub open: &'static str,
-    pub key_new: &'static str,
     pub new: &'static str,
     /// Oracle: `agent_center/render.rs`, `rows.rs`.
     pub grouping: [&'static str; 4],
@@ -124,9 +119,14 @@ pub struct Strings {
     pub help_navigate: &'static str,
     pub help_tasks: &'static str,
     pub help_view: &'static str,
-    pub help_entries_navigate: [(&'static str, &'static str); 6],
-    pub help_entries_tasks: [(&'static str, &'static str); 10],
-    pub help_entries_view: [(&'static str, &'static str); 2],
+    /// What the navigation keys do, in the order the help lists them (the
+    /// keys are the keymap's).
+    pub help_navigate_actions: [&'static str; 5],
+    /// The key the help names for quitting (a key of the app, not the
+    /// center's) and what it does.
+    pub help_quit: (&'static str, &'static str),
+    pub help_task_actions: [&'static str; 10],
+    pub help_view_actions: [&'static str; 2],
     pub help_filter: &'static str,
     /// Oracle: `agents_overview_actions.rs` `confirm_agents_overview_action`.
     archive_title: Msg<1>,
@@ -157,13 +157,6 @@ pub const EN: Strings = Strings {
     grouping_key: "g",
     filters: ["All", "Needs you", "Working", "Ready", "Inactive"],
     filter_count: msg!("{0} {1}"),
-    // The oracle's `key_hint` labels Shift with a glyph on macOS and with
-    // the word elsewhere (`MODIFIER_LABELS`).
-    filter_keys: if cfg!(target_os = "macos") {
-        "tab/\u{21e7}tab"
-    } else {
-        "tab/shift+tab"
-    },
     filter_label: "filter",
     tasks: "Tasks",
     group_heading: msg!("{0}  {1}"),
@@ -188,13 +181,9 @@ pub const EN: Strings = Strings {
     no_prompt: "No prompt available.",
     key_help: "?",
     help: "help",
-    key_back: "esc",
     back: "back",
-    key_move: "\u{2191}/\u{2193}",
     move_: "move",
-    key_open: "enter",
     open: "open",
-    key_new: "n",
     new: "new",
     grouping: ["Project", "Directory", "Status", "Model"],
     rename: "rename",
@@ -249,36 +238,30 @@ pub const EN: Strings = Strings {
     help_navigate: "Navigate",
     help_tasks: "Tasks",
     help_view: "View",
-    help_entries_navigate: [
-        ("\u{2191}", "Up"),
-        ("\u{2193}", "Down"),
-        ("enter", "Open"),
-        ("pgup", "Page up"),
-        ("pgdn", "Page down"),
-        (
-            if cfg!(target_os = "macos") {
-                "\u{2303}c"
-            } else if cfg!(target_os = "linux") {
-                "^c"
-            } else {
-                "ctrl+c"
-            },
-            "Quit",
-        ),
+    help_navigate_actions: ["Up", "Down", "Open", "Page up", "Page down"],
+    help_quit: (
+        if cfg!(target_os = "macos") {
+            "\u{2303}c"
+        } else if cfg!(target_os = "linux") {
+            "^c"
+        } else {
+            "ctrl+c"
+        },
+        "Quit",
+    ),
+    help_task_actions: [
+        "New",
+        "New worktree",
+        "Resume",
+        "Fork",
+        "Rename",
+        "Stop",
+        "Archive",
+        "Hide",
+        "Delete",
+        "Pin/unpin",
     ],
-    help_entries_tasks: [
-        ("n", "New"),
-        ("w", "New worktree"),
-        ("o", "Resume"),
-        ("f", "Fork"),
-        ("r", "Rename"),
-        ("x", "Stop"),
-        ("a", "Archive"),
-        ("h", "Hide"),
-        ("delete", "Delete"),
-        ("p", "Pin/unpin"),
-    ],
-    help_entries_view: [("f3", "Search"), ("g", "Group")],
+    help_view_actions: ["Search", "Group"],
     help_filter: "Filter",
     archive_title: msg!("Archive \u{201c}{0}\u{201d}?"),
     delete_title: msg!("Permanently delete \u{201c}{0}\u{201d}?"),

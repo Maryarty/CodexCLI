@@ -45,6 +45,22 @@ impl StatelessWidget for HookCell {
     }
 }
 
+/// The texts of the cell: one per row, the gap for a blank one. The text does
+/// not depend on the theme: any tokens give the rows.
+pub fn texts(run: &HookRun, strings: &Strings) -> Vec<String> {
+    let tokens = Tokens::new(std::rc::Rc::new(rtwk::prelude::ThemeData::DARK));
+    rows(run, &tokens, strings)
+        .into_iter()
+        .map(|row| {
+            if row.is_empty() {
+                strings.gap.to_owned()
+            } else {
+                row.iter().map(|span| span.text.as_str()).collect()
+            }
+        })
+        .collect()
+}
+
 /// The rows, each its spans; a blank row has none.
 fn rows(run: &HookRun, tokens: &Tokens, strings: &Strings) -> Vec<Vec<Span>> {
     let mut rows: Vec<Vec<Span>> = Vec::new();

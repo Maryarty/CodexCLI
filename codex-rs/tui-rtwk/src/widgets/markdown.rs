@@ -1,33 +1,98 @@
-//! The oracle's Markdown headings keep their source markers: `## Title` is
-//! drawn with its two hashes in the heading's own style (markdown_render.rs
-//! `start_heading`). rtwk's `MarkdownView` draws a heading as its styled text
-//! only (G73 in rtwk-gaps.md).
+//! The Markdown of the transcript as the oracle draws it. rtwk's `MarkdownView` differs from
+//! the oracle's renderer in a few places the oracle's tests pin; the parsed tree is rewritten
+//! before the view shows it (rtwk-rich takes no element builders):
 //!
-//! Flutter: `MarkdownBody(builders: {'h1': HeadingWithMarker(), ..})`. rtwk-rich
-//! takes no element builders, so the parsed blocks are handed over with each
-//! heading's marker as the first text of its content (`MarkdownView::blocks`):
-//! the view lays out, wraps and styles it as it does any heading text.
+//! - headings keep their source markers: `## Title` is drawn with its two hashes in the
+//!   heading's own style (markdown_render.rs `start_heading`; G73 in rtwk-gaps.md);
+//! - line breaks, local file links and references to them: `inlines.rs`;
+//! - a web link's destination follows the host's terminal fact (`Markdown`).
+//!
+//! Flutter: `MarkdownBody(builders: {'h1': HeadingWithMarker(), 'a': LocalFileLink(cwd)})` under
+//! a `Theme` that knows how links show. The view lays out, wraps and styles each rewritten
+//! node as it does any text.
+
+mod inlines;
 
 use std::sync::Arc;
 
+use rtwk::provider::Provider;
+use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
-    Block, ConfiguredMarkdownView, LinkDestinations, MarkdownStream, MarkdownTheme, MarkdownView,
-    MdBlock, MdInline, MdList, MdListItem,
+    Block, Definitions, LinkDestinations, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock,
+    MdInline, MdList, MdListItem,
 };
 
-/// A `MarkdownView` of `source` whose headings carry their source markers.
+use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::cells::LinkDisplay;
+
+/// A `MarkdownView` of `source` as the oracle draws it, local file links shown as written.
 pub fn view(source: &str) -> MarkdownView {
-    let mut stream = MarkdownStream::new(source);
-    let blocks = with_heading_markers(stream.blocks());
-    MarkdownView::blocks(blocks, stream.definitions().clone())
+    view_in(source, None)
 }
 
-/// `view` in `theme`, a link's destination written after its label as the
-/// oracle writes it: `label (https://example.com)`. Flutter: the
-/// `MarkdownBody`'s `styleSheet` and an `onTapLink` that shows the target; rtwk
-/// writes the destination itself (`LinkDestinations::Auto`).
-pub fn themed(view: MarkdownView, theme: MarkdownTheme) -> ConfiguredMarkdownView {
-    view.theme(theme).link_destinations(LinkDestinations::Auto)
+/// `view` with local file links shown relative to the session directory `cwd`.
+pub fn view_in(source: &str, cwd: Option<&str>) -> MarkdownView {
+    let mut stream = MarkdownStream::new(source);
+    let blocks = stream.blocks().to_vec();
+    let definitions = stream.definitions().clone();
+    MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions)
+}
+
+/// `blocks` as the view takes them: rewritten as the oracle reads them (`inlines.rs`), each
+/// heading with its marker.
+pub fn prepared(blocks: &[Block], definitions: &Definitions, cwd: Option<&str>) -> Vec<Block> {
+    with_heading_markers(&inlines::rewritten(blocks, definitions, cwd))
+}
+
+/// `view` in `theme`. A web link's destination is written after its label as the oracle
+/// writes it for a terminal not known to show hyperlinks (`label (https://example.com)`),
+/// and not at all for one that does: the label alone is then the hyperlink
+/// (`LinkDestinations::Auto`). The host says which (`cells::Model::link_display`).
+pub fn themed(view: MarkdownView, theme: MarkdownTheme) -> Markdown {
+    Markdown { view, theme }
+}
+
+/// A [`MarkdownView`] in a theme, its link display from the app's terminal fact.
+#[derive(Clone)]
+pub struct Markdown {
+    view: MarkdownView,
+    theme: MarkdownTheme,
+}
+
+#[doc(hidden)]
+pub struct MarkdownState;
+
+impl StatefulWidget for Markdown {
+    type State = MarkdownState;
+
+    fn create_state(&self) -> MarkdownState {
+        MarkdownState
+    }
+}
+
+impl_widget!(stateful Markdown);
+
+impl State for MarkdownState {
+    type Widget = Markdown;
+    type Msg = ();
+
+    fn build(&self, widget: &Markdown, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        // Read as the oracle reads it, once for the run (a `LazyLock`): the host's fact comes at
+        // startup, and a message drawn before it is drawn again as its parent rebuilds. A tree
+        // with no app above it (a widget on its own) has the oracle's default.
+        let display = Provider::<ScreenStates>::maybe_of(cx, false)
+            .map_or(LinkDisplay::default(), |states| states.cells.link_display);
+        let destinations = match display {
+            LinkDisplay::WithDestination => LinkDestinations::Suffix,
+            LinkDisplay::LabelOnly => LinkDestinations::Auto,
+        };
+        widget
+            .view
+            .clone()
+            .theme(widget.theme.clone())
+            .link_destinations(destinations)
+            .into()
+    }
 }
 
 /// The source marker of a heading of level 1 to 6 (markdown_render.rs
@@ -36,7 +101,7 @@ const MARKERS: [&str; 6] = ["# ", "## ", "### ", "#### ", "##### ", "###### "];
 
 /// `blocks` with the marker (`#` to `######`, and a space) at the start of
 /// every heading, in lists and quotes too.
-pub fn with_heading_markers(blocks: &[Block]) -> Vec<Block> {
+fn with_heading_markers(blocks: &[Block]) -> Vec<Block> {
     blocks.iter().map(marked).collect()
 }
 

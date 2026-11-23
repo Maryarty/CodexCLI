@@ -1,0 +1,3 @@
+# Ported from codex-tui bottom_pane/pending_input_preview.rs render_one_message.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"pending":{"thread":"thread-1","queued":["Hello, world!"]}}}

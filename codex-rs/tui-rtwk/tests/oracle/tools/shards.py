@@ -61,6 +61,7 @@ RULES = [
     (r'^history_cell/|^exec_cell/|^diff_render\.rs$', 'S11', 'chat-live', 'cells'),
     (r'^markdown|^streaming/', 'S11', 'chat-live', 'markdown-streaming'),
     # overlays, routes, cards
+    (r'^analytics(/|\.rs$|_tests\.rs$)', 'S20', 'routes-lists', 'usage'),
     (r'^pager_overlay', 'S16', 'routes-lists', 'pager'),
     (r'^transcript_view|^app/owned_transcript', 'S10', 'chat-live', 'transcript-view'),
     (r'^resume_picker', 'S18', 'routes-lists', 'resume'),
@@ -82,7 +83,6 @@ OUT = [
     (r'^(app_server_session|lib_tests|app_backtrack)\.rs$', 'App/backend session (session-core); backtrack S17 is logic only'),
     (r'^(keymap|key_hint)', 'Keymap runtime (ADR-006, reuse-carry)'),
     (r'^onboarding/|^update_|^cwd_prompt|^model_migration|^oss_selection|^daemon_|^startup_', 'S01-S05 startup screens (landed)'),
-    (r'^analytics', 'S20 usage dashboard (landed)'),
     (r'^pets/', 'S24 pets (landed)'),
     (r'^ui_tree|^inline_visualization', 'S26 ui_tree (landed)'),
     (r'^(tui|custom_terminal|insert_history|terminal_|transcript_reflow)', 'Terminal and inline mode (rtwk owns it, S27)'),

@@ -23,6 +23,8 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ThreadDeleted(n) => &n.thread_id,
         N::ThreadUnarchived(n) => &n.thread_id,
         N::ThreadSettingsUpdated(n) => &n.thread_id,
+        N::ThreadGoalUpdated(n) => &n.thread_id,
+        N::ThreadGoalCleared(n) => &n.thread_id,
         N::ThreadClosed(n) => &n.thread_id,
         N::ThreadReverted(n) => &n.thread_id,
         N::ThreadReadStateChanged(n) => &n.thread_id,
@@ -33,10 +35,14 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ItemStarted(n) => &n.thread_id,
         N::ItemCompleted(n) => &n.thread_id,
         N::AgentMessageDelta(n) => &n.thread_id,
+        N::PlanDelta(n) => &n.thread_id,
         N::ReasoningSummaryTextDelta(n) => &n.thread_id,
         N::ReasoningSummaryPartAdded(n) => &n.thread_id,
         N::ServerRequestResolved(n) => &n.thread_id,
         N::Error(n) => &n.thread_id,
+        N::ItemGuardianApprovalReviewStarted(n) => &n.thread_id,
+        N::ItemGuardianApprovalReviewCompleted(n) => &n.thread_id,
+        N::GuardianWarning(n) => &n.thread_id,
         _ => return None,
     })
 }

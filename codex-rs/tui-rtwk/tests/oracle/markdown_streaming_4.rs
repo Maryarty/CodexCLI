@@ -144,7 +144,7 @@ fn code_block_multiple_lines_root() {
 fn code_block_indented() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` function greet() {`:",
+        "G73: item 1, the oracle draws an indented code block with its four columns of indent and no padding (`    function greet() {`); rtwk's MarkdownView code block pads one cell and drops the indent, so the rows read ` function greet() {`",
     );
     let s = chat(
         80,
@@ -166,7 +166,7 @@ fn code_block_indented() {
 fn horizontal_rule_renders_em_dashes() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `———`:",
+        "G73: item 5, the oracle draws a thematic break as `———` (three em dashes); rtwk's MarkdownView draws `─` across the width (`lines.rs` `ThematicBreak`); the blank rows around it match",
     );
     let s = chat(80, 24, "Before\n\n---\n\nAfter\n");
     rows_in_order(&s, &["Before", "", "———", "", "After"]);
@@ -233,7 +233,7 @@ fn code_block_multiple_lines_inside_unordered_list() {
 fn list_item_after_code_block_keeps_blank_separator() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: list_item_after_code_block_keeps_blank_separator: ours (right) differs from the oracle (left)",
+        "G73: item 1 and item 2, the oracle's code row is `   fn first() {}` (the item's indent, no padding) with a blank row before the next item; rtwk pads the code one cell (`    fn first() {}`) and keeps the tight list without that blank row",
     );
     let s = chat(
         80,
@@ -241,7 +241,7 @@ fn list_item_after_code_block_keeps_blank_separator() {
         "1. First:\n\n   ```rust\n   fn first() {}\n   ```\n\n2. Second:\n",
     );
     rows_in_order(&s, &["1. First:", "", "   fn first() {}", "", "2. Second:"]);
-    s.assert_snap_region("list_item_after_code_block_keeps_blank_separator", 0, 0);
+    s.assert_markdown_snap("list_item_after_code_block_keeps_blank_separator");
 }
 
 // ORACLE markdown_render_tests.rs:1627 outer_list_item_after_nested_code_block_keeps_blank_separator kind=ui owner=chat-live
@@ -249,7 +249,7 @@ fn list_item_after_code_block_keeps_blank_separator() {
 fn outer_list_item_after_nested_code_block_keeps_blank_separator() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • Nested:`:",
+        "G73: item 1, item 2 and item 4, the oracle indents the nested bullet by four cells and draws `•` (`    • Nested:`), the code with no padding, and a blank row before the next item; rtwk draws `   ◦ Nested:` (three cells, `◦` at depth 2), pads the code one cell and keeps the list tight",
     );
     let s = chat(
         80,
@@ -280,10 +280,6 @@ fn list_item_after_simple_item_stays_compact() {
 // ORACLE markdown_render_tests.rs:1653 multiline_finding_items_are_separated_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__multiline_finding_items_are_separated_snapshot
 #[test]
 fn multiline_finding_items_are_separated_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: multiline_finding_items_are_separated_snapshot: ours (right) differs from the oracle (left)",
-    );
     let md = r#"**Findings**
 
 1. **Correctness issue: server tool-search completions are always rejected.**
@@ -299,7 +295,7 @@ fn multiline_finding_items_are_separated_snapshot() {
 3. **High-confidence churn reduction: consolidate table-driven filter tests.**
 "#;
     let s = chat(120, 24, md);
-    s.assert_snap_region("multiline_finding_items_are_separated_snapshot", 0, 0);
+    s.assert_markdown_snap("multiline_finding_items_are_separated_snapshot");
 }
 
 // ORACLE markdown_render_tests.rs:1673 wrapped_list_item_is_separated_from_next_sibling kind=ui owner=chat-live
@@ -325,17 +321,9 @@ fn wrapped_list_item_is_separated_from_next_sibling() {
 // ORACLE markdown_render_tests.rs:1689 mixed_url_markdown_wraps_prose_without_splitting_words_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__mixed_url_markdown_wraps_prose_without_splitting_words_snapshot
 #[test]
 fn mixed_url_markdown_wraps_prose_without_splitting_words_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: mixed_url_markdown_wraps_prose_without_splitting_words_snapshot: ours (right) differs from the oracle (left)",
-    );
     let md = "This paragraph keeps **strikethrough** intact near a [link](https://example.com/path) while enough surrounding prose forces wrapping.";
     let s = chat(48, 24, md);
-    s.assert_snap_region(
-        "mixed_url_markdown_wraps_prose_without_splitting_words_snapshot",
-        0,
-        0,
-    );
+    s.assert_markdown_snap("mixed_url_markdown_wraps_prose_without_splitting_words_snapshot");
 }
 
 // ORACLE markdown_render_tests.rs:1696 markdown_render_complex_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__markdown_render_complex_snapshot
@@ -343,7 +331,7 @@ fn mixed_url_markdown_wraps_prose_without_splitting_words_snapshot() {
 fn markdown_render_complex_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: markdown_render_complex_snapshot: ours (right) differs from the oracle (left)",
+        "G73: item 1 (quote marker `>` and fence markers drawn as source; rtwk `│`, no fence rows, padded code), item 3 (table), item 4 (nested bullet `    •`; task markers `☐` / `☑` in place of the bullet; rtwk `◦` and `[ ]` / `[x]`) and item 5 (rule `———`); G-new (table end): the oracle ends a GFM table at a line with no pipe and draws it as a paragraph (`Inline HTML: ...` below the table), rtwk's block parser keeps it as a row of the table; G-new (autolink): the oracle writes the destination after an autolink even when it is the label (`https://example.com (https://example.com)`), `LinkDestinations::Suffix` skips an identical one. The ordered `1)` marker already reads `1.`",
     );
     let md = r#"# H1: Markdown Streaming Test
 Intro paragraph with bold **text**, italic *text*, and inline code `x=1`.
@@ -397,7 +385,7 @@ URL with parentheses: [link](https://example.com/path_(with)_parens).
 [r1]: https://example.com/ref "Reference link title"
 "#;
     let s = chat(120, 70, md);
-    s.assert_snap_region("markdown_render_complex_snapshot", 0, 0);
+    s.assert_markdown_snap("markdown_render_complex_snapshot");
 }
 
 // ORACLE markdown_render_tests.rs:1767 ordered_item_with_code_block_and_nested_bullet kind=ui owner=chat-live
@@ -405,7 +393,7 @@ URL with parentheses: [link](https://example.com/path_(with)_parens).
 fn ordered_item_with_code_block_and_nested_bullet() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • PROCESS_START (a OnceLock<Instant>) keeps the start time for the entire process.`:",
+        "G73: item 1 and item 4, the oracle's code row is `   code` (no padding) and its nested bullet is `•` four cells in; rtwk pads the code one cell (`    code`) and draws `   ◦` three cells in",
     );
     let md = "1. **item 1**\n\n2. **item 2**\n   ```\n   code\n   ```\n   - `PROCESS_START` (a `OnceLock<Instant>`) keeps the start time for the entire process.\n";
     let s = chat(120, 24, md);
@@ -426,7 +414,7 @@ fn ordered_item_with_code_block_and_nested_bullet() {
 fn nested_five_levels_mixed_lists() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • Second level`:",
+        "G73: item 4, the oracle indents each nested list level by four cells and draws `•` at every unordered depth (`    • Second level`); rtwk indents by the marker width (three cells under `1. `) and draws `◦` at depth 2",
     );
     let md = "1. First\n   - Second level\n     1. Third level (ordered)\n        - Fourth level (bullet)\n          - Fifth level to test indent consistency\n";
     let s = chat(80, 24, md);
@@ -456,7 +444,7 @@ fn html_inline_is_verbatim() {
 fn html_block_is_verbatim_multiline() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `<div>`:",
+        "G-new (HTML block): the oracle keeps an HTML block verbatim (`<div>`, `  <span>hi</span>`, `</div>`, the indent of each line kept); rtwk-rich parses an HTML block as a paragraph (`blocks.rs` `BlockParser` doc: \"HTML blocks are paragraphs\"), so the second row loses its two leading blanks (`<span>hi</span>`); the source is not in the parsed tree to restore it from",
     );
     let s = chat(80, 24, "<div>\n  <span>hi</span>\n</div>\n");
     rows_in_order(&s, &["<div>", "  <span>hi</span>", "</div>"]);
@@ -465,10 +453,6 @@ fn html_block_is_verbatim_multiline() {
 // ORACLE markdown_render_tests.rs:1831 html_in_tight_ordered_item_soft_breaks_with_space kind=ui owner=chat-live
 #[test]
 fn html_in_tight_ordered_item_soft_breaks_with_space() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `1. Foo`:",
-    );
     let s = chat(80, 24, "1. Foo\n   <i>Bar</i>\n");
     rows_in_order(&s, &["1. Foo", "   <i>Bar</i>"]);
     s.assert_text_style("1.", "fg=LightBlue");
@@ -484,10 +468,6 @@ fn html_continuation_paragraph_in_unordered_item_indented() {
 // ORACLE markdown_render_tests.rs:1855 unordered_item_continuation_paragraph_is_indented kind=ui owner=chat-live
 #[test]
 fn unordered_item_continuation_paragraph_is_indented() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` Continuation paragraph line 1`:",
-    );
     let s = chat(
         80,
         24,
@@ -517,7 +497,7 @@ fn ordered_item_continuation_paragraph_is_indented() {
 fn nested_item_continuation_paragraph_is_indented() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • B`:",
+        "G73: item 4, the oracle's nested bullet is `    • B` (four cells in, `•`); rtwk draws `   ◦ B` (three cells in, `◦`); the continuation paragraph is indented under it in both",
     );
     let s = chat(80, 24, "1. A\n    - B\n\n      Continuation for B\n2. C\n");
     rows_in_order(
@@ -553,7 +533,7 @@ fn code_block_preserves_trailing_blank_lines() {
 fn table_renders_app_style_rows_with_themed_bold_header() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): ` A B` at (0, 17) ` ` against `bold`: modifier is DIM, the oracle says BOLD",
+        "G73: item 3, the oracle draws the table as columns two spaces apart (` A      B`) under a bold header; rtwk draws `A │ B` over a `──┼──` rule with the header dim",
     );
     let s = chat(80, 24, "| A | B |\n|---|---|\n| 1 | 2 |\n");
     rows_in_order(&s, &[" A      B", "━━━━━  ━━━━━", " 1      2"]);
@@ -605,7 +585,7 @@ fn table_separates_logical_rows_after_wrapped_content() {
 fn table_wraps_file_paths_before_collapsing_narrative_columns_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "the kit cannot set the session cwd that the oracle shows local file links relative to (no cwd seed); first difference at the chat-cells-2 probe: assertion failed: `(left == right)`: table_wraps_file_paths_before_collapsing_narrative_columns_snapshot: ours (right) differs from the oracle (left)",
+        "G73: item 3, the snapshot is the oracle's table (columns two spaces apart, `━` and `─` rules, a cell wrapped inside its column) with its local file links shown relative to the session cwd; rtwk's MarkdownView draws the `│` grid with one line per row, so the rows differ whatever the cwd",
     );
     let md = r#"| Unit | Files | Adds | Removes | What It Adds |
 |---|---:|---:|---:|---|
@@ -613,11 +593,7 @@ fn table_wraps_file_paths_before_collapsing_narrative_columns_snapshot() {
 | Model instruction fragment and contextual isolation | [next_prompt_suggestion.rs](/Users/example/code/codex/codex-rs/core/src/context/next_prompt_suggestion.rs:1), [contextual_user_message_tests.rs](/Users/example/code/codex/codex-rs/core/src/context/contextual_user_message_tests.rs:1) | 54 | 0 | Synthetic suggestion prompt and an isolation test for ordinary user text. |
 "#;
     let s = chat(120, 40, md);
-    s.assert_snap_region(
-        "table_wraps_file_paths_before_collapsing_narrative_columns_snapshot",
-        0,
-        0,
-    );
+    s.assert_markdown_snap("table_wraps_file_paths_before_collapsing_narrative_columns_snapshot");
 }
 
 // ORACLE markdown_render_tests.rs:2043 table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot
@@ -625,7 +601,7 @@ fn table_wraps_file_paths_before_collapsing_narrative_columns_snapshot() {
 fn table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot: ours (right) differs fro...",
+        "G73: item 3, key/value fallback (`markdown_render/table_key_value.rs`): when a column is too narrow the oracle stacks each row as `Session` / ` value` / `Why useful` / ` value` records between `─` rules; rtwk's table cuts the cells with `…`",
     );
     let md = r#"| Session | Why useful | Detected table blocks |
 | --- | --- | --- |
@@ -634,10 +610,8 @@ fn table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_s
 | [2026-05-14 five-table test](/Users/felipe.coury/.codex/sessions/2026/05/14/rollout-2026-05-14T12-27-57-019e271a-064c-78c3-a5cd-a6f20a0c1ad5.jsonl) | Explicit request for five tables containing emojis, code, italics, and varied cell content | 10 |
 "#;
     let s = chat(42, 40, md);
-    s.assert_snap_region(
+    s.assert_markdown_snap(
         "table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot",
-        0,
-        0,
     );
 }
 
@@ -646,7 +620,7 @@ fn table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_s
 fn table_renders_records_when_multiple_prose_columns_are_starved_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_renders_records_when_multiple_prose_columns_are_starved_snapshot: ours (right) differs from the oracle (...",
+        "G73: item 3, key/value fallback: the oracle stacks the rows as records (` Issue       #24485: ...` lines under their keys) when several prose columns are starved; rtwk keeps the grid and cuts the cells with `…`",
     );
     let md = r#"| Issue | Activity | Complexity | Why start |
 | --- | ---: | ---: | --- |
@@ -657,10 +631,8 @@ fn table_renders_records_when_multiple_prose_columns_are_starved_snapshot() {
 | [#24527: typing lag increases with session length](https://github.com/openai/codex/issues/24527) | `+1` 0, substantive comments 0 | Medium | New TUI-visible performance report; needs profiling before implementation. |
 "#;
     let s = chat(76, 40, md);
-    s.assert_snap_region(
+    s.assert_markdown_snap(
         "table_renders_records_when_multiple_prose_columns_are_starved_snapshot",
-        0,
-        0,
     );
 }
 
@@ -669,7 +641,7 @@ fn table_renders_records_when_multiple_prose_columns_are_starved_snapshot() {
 fn table_keeps_grid_when_only_one_compact_record_fragments_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_keeps_grid_when_only_one_compact_record_fragments_snapshot: ours (right) differs from the oracle (left)",
+        "G73: item 3, the oracle keeps the grid with two-space columns (` Key                Date          State`) and a `━` header rule; rtwk draws `Key │ Date │ State` over `──┼──` rules",
     );
     let md = r#"| Key | Date | State |
 | --- | --- | --- |
@@ -678,11 +650,7 @@ fn table_keeps_grid_when_only_one_compact_record_fragments_snapshot() {
 | final | 2025-03-03 | Done |
 "#;
     let s = chat(40, 24, md);
-    s.assert_snap_region(
-        "table_keeps_grid_when_only_one_compact_record_fragments_snapshot",
-        0,
-        0,
-    );
+    s.assert_markdown_snap("table_keeps_grid_when_only_one_compact_record_fragments_snapshot");
 }
 
 // ORACLE markdown_render_tests.rs:2084 table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot
@@ -690,7 +658,7 @@ fn table_keeps_grid_when_only_one_compact_record_fragments_snapshot() {
 fn table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot: ours (right) differs from the...",
+        "G73: item 3, key/value fallback: the oracle stacks every row as `Key` / ` value` / `Notes` / ` wrapped value` records between `─` rules; rtwk's table cuts the cells with `…`",
     );
     let md = r#"| Key | Notes |
 | --- | --- |
@@ -699,10 +667,8 @@ fn table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapsh
 | short | A final readable explanatory sentence for this row. |
 "#;
     let s = chat(17, 30, md);
-    s.assert_snap_region(
+    s.assert_markdown_snap(
         "table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot",
-        0,
-        0,
     );
 }
 
@@ -711,7 +677,7 @@ fn table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapsh
 fn table_renders_halfwidth_sound_marks_at_constrained_width_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` Key Notes`:",
+        "G73: item 3, the oracle wraps a cell inside its column at the constrained width (` Key         Notes` over wrapped notes); rtwk cuts it with `…` (`First ｶﾞ row w…`) in a `Key │ Notes` grid",
     );
     let md = r#"| Key | Notes |
 | --- | --- |
@@ -833,7 +799,7 @@ fn table_key_value_fallback_preserves_rich_values_and_themed_labels() {
 fn growing_code_fences_preserve_styles_unicode_links_and_blank_lines() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `Before link`:",
+        "D5 class (n/a candidate for the person): the oracle's rows at width 18 hold tokens wider than the width (`(https://example.com).` 22 cells, the fence line `    println!(\"界 é https://example.com\");`), the oracle keeps them as one logical line; a grid row of 18 cells cannot, so rtwk wraps them (`(https://example.c` / `om).`); the code is also padded one cell (G73 item 1)",
     );
     let chunks = [
         "Before [link](https://example.com).\n\n```rust,no_run\n",
@@ -874,10 +840,6 @@ fn growing_code_fences_preserve_styles_unicode_links_and_blank_lines() {
 // ORACLE streaming/code_fence_render_tests.rs:49 long_open_fence_retains_its_rendered_prefix kind=ui owner=chat-live
 #[test]
 fn long_open_fence_retains_its_rendered_prefix() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `let value_511 = 511;`:",
-    );
     let lines: Vec<String> = (0..512)
         .map(|index| format!("    let value_{index} = {index};\n"))
         .collect();
@@ -890,8 +852,10 @@ fn long_open_fence_retains_its_rendered_prefix() {
     // The oracle's pointer-identity check on the first span is not visible: not ported.
     let mut closed = chunks.clone();
     closed.push("}\n```\n");
+    // The oracle's last step: the closed stream equals the full render of the closed source.
     let done = streamed(80, 24, &closed, true);
-    rows_in_order(&done, &["let value_511 = 511;", "}"]);
+    let closed_whole = closed.concat();
+    done.assert_same_rows(&streamed(80, 24, &[closed_whole.as_str()], true).shot());
 }
 
 // ORACLE streaming/code_fence_render_tests.rs:77 ambiguous_and_normalized_fences_use_canonical_semantics kind=ui owner=chat-live
@@ -944,20 +908,18 @@ fn crossing_a_highlight_limit_removes_previously_highlighted_colors() {
 // ORACLE streaming/code_fence_render_tests.rs:124 recomputing_after_resize_or_mode_change_drops_fence_state kind=ui owner=chat-live
 #[test]
 fn recomputing_after_resize_or_mode_change_drops_fence_state() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: the screen now (right) differs from the screen then (left)",
-    );
     let first = "```rust\nfn first() {}\n";
     let mut s = streamed(80, 24, &[first], false);
-    // The resize recomputes the answer at width 20: the same rows as the message at 20.
+    // The resize recomputes the answer at width 20: the same rows as the message at 20. The
+    // rows above the `Working (Ns` row (row 18 since the transcript landing) are the answer;
+    // that row and the composer tick with the clock, which the two screens do not share.
     s.resize(20, 24);
     settle(&mut s);
-    s.assert_same_rows(&streamed(20, 24, &[first], false).shot());
+    s.assert_same_rows_in(&streamed(20, 24, &[first], false).shot(), 0..18);
     // The next delta extends the answer as the whole message at 20 does.
     s.feed(&delta("fn second() {}\n"));
     settle(&mut s);
     let whole = format!("{first}fn second() {{}}\n");
-    s.assert_same_rows(&streamed(20, 24, &[whole.as_str()], false).shot());
+    s.assert_same_rows_in(&streamed(20, 24, &[whole.as_str()], false).shot(), 0..18);
     // The oracle's open_code_fence and render.clear() checks are internal state, not drawn.
 }

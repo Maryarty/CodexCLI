@@ -49,6 +49,8 @@ fn large_draft_search() -> Screen {
         .open();
     s.type_text("draft");
     s.paste(&"x".repeat(1001));
+    // the oracle's `set_cursor(2)`
+    s.keys("home right right");
     s.keys("ctrl+r");
     s.paste("git");
     s.assert_row(prompt(&s), "› git log");
@@ -59,9 +61,15 @@ fn large_draft_search() -> Screen {
 
 // ---- oracle: bottom_pane/chat_composer/history_search.rs (16 screen-level tests here; 3 state tests left to chat-nav-pane)
 // ORACLE bottom_pane/chat_composer/history_search.rs:554 vim_normal_j_k_navigate_history_at_history_boundaries kind=ui owner=chat-nav-pane
-/// Ctrl+R reverse history search is not built on the chat composer (no `reverse-i-search` footer, match
-/// highlight or pasted query), the oracle's `history_search.rs`.
-const HISTORY_SEARCH: &str = "reverse history search (Ctrl+R) is not built on the chat composer: no `reverse-i-search` footer, no match highlight, no pasted query";
+/// The match highlight of Ctrl+R (`history_search_highlight_ranges`): the matched cells reversed and bold.
+/// G-new-1: rtwk's `TextArea` paints no style per range of its text (a Flutter `TextEditingController.buildTextSpan`
+/// override), so the preview cannot mark the match.
+const MATCH_HIGHLIGHT: &str = "G-new-1: rtwk TextArea paints no per-range style, so the matched part of the previewed entry is not reversed and bold";
+/// The oracle's paste snapshots are a bare composer rendered at 5 rows (a two-row textarea, the cursor in the
+/// footer's query), not the chat screen: the chat draws the same composer on rows 1-4 under a gap row, so the
+/// rows differ by the textarea's spare row and the cursor is the composer's caret; the same checks run as page
+/// tests (`tests/pages/popovers.rs`, Ctrl+R in the composer).
+const BARE_COMPOSER: &str = "the snapshot is a bare composer at 5 rows (the textarea has a spare row, the cursor stands in the footer's query), the chat draws the composer under its gap row with its own caret; page tests hold the same checks";
 
 /// G68: the oracle's popup is the pane's rows under the prompt, its name and description in aligned
 /// columns with a `›` marker and a hint line; rtwk's `OptionList` in a `Popover` floats above the
@@ -70,17 +78,14 @@ const POPUP_ROWS: &str = "G68: the popup is a floating OptionList (a `▎` bar, 
 
 #[test]
 fn vim_normal_j_k_navigate_history_at_history_boundaries() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .script(include_str!(
+            "fixtures/composer_popups/h_first_second.jsonl"
+        ))
+        .keymap(&[("global.toggle_vim_mode", "f9")])
         .open();
-    s.type_text("first").keys("enter");
-    s.type_text("second").keys("enter");
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("k");
     s.assert_row(prompt(&s), "› second");
     s.keys("k");
@@ -94,16 +99,16 @@ fn vim_normal_j_k_navigate_history_at_history_boundaries() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:602 remapped_vim_normal_history_navigation_does_not_fall_back_to_j_k kind=ui owner=chat-nav-pane
 #[test]
 fn remapped_vim_normal_history_navigation_does_not_fall_back_to_j_k() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only; the keymap rebinding of vim_normal move_up/move_down has no seed",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .script(include_str!("fixtures/composer_popups/h_first.jsonl"))
+        .keymap(&[
+            ("global.toggle_vim_mode", "f9"),
+            ("vim_normal.move_up", "f2"),
+            ("vim_normal.move_down", "f3"),
+        ])
         .open();
-    s.type_text("first").keys("enter");
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("k");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("f2");
@@ -115,34 +120,33 @@ fn remapped_vim_normal_history_navigation_does_not_fall_back_to_j_k() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:638 vim_normal_j_k_fall_back_to_multiline_cursor_movement kind=ui owner=chat-nav-pane
 #[test]
 fn vim_normal_j_k_fall_back_to_multiline_cursor_movement() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only; the oracle's check is the cursor line, which is not in the rows",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .keymap(&[("global.toggle_vim_mode", "f9")])
         .open();
+    s.keys("f9");
     s.paste("one\ntwo");
-    s.type_text("/vim").keys("enter esc");
+    // the oracle's `set_cursor(0)`: the first line's start
+    s.keys("esc k 0");
+    let first = prompt(&s);
     s.keys("j");
-    s.assert_row(prompt(&s), "two");
+    s.assert_cursor(2, first + 1);
+    s.keys("k");
+    s.assert_cursor(2, first);
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:663 vim_normal_operator_motion_does_not_navigate_history kind=ui owner=chat-nav-pane
 #[test]
 fn vim_normal_operator_motion_does_not_navigate_history() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .script(include_str!(
+            "fixtures/composer_popups/h_first_second.jsonl"
+        ))
+        .keymap(&[("global.toggle_vim_mode", "f9")])
         .open();
-    s.type_text("first").keys("enter");
-    s.type_text("second").keys("enter");
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("k");
     s.assert_row(prompt(&s), "› second");
     s.keys("d k");
@@ -181,19 +185,19 @@ fn history_search_accepts_matching_entry() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:815 vim_normal_history_search_preview_places_cursor_on_last_char kind=ui owner=chat-nav-pane
 #[test]
 fn vim_normal_history_search_preview_places_cursor_on_last_char() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only; the oracle's check is the cursor column, which is not in the rows",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_git_status.jsonl"))
+        // the oracle clears `vim_normal.redo`: Ctrl+R is free for the search
+        .keymap(&[("global.toggle_vim_mode", "f9"), ("vim_normal.redo", "")])
         .open();
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("ctrl+r");
     s.type_text("git");
     s.assert_row(prompt(&s), "› git status");
     s.assert_contains("reverse-i-search: git");
+    // the caret is on the last character of the preview
+    s.assert_cursor(2 + "git statu".len(), prompt(&s));
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:844 history_search_stays_on_single_match_at_boundaries kind=ui owner=chat-nav-pane
@@ -215,7 +219,6 @@ fn history_search_stays_on_single_match_at_boundaries() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:899 history_search_footer_action_hints_are_emphasized kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_footer_action_hints_are_emphasized() {
-    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_git_cargo.jsonl"))
@@ -235,7 +238,7 @@ fn history_search_footer_action_hints_are_emphasized() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:976 history_search_highlights_matches_until_accepted kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_highlights_matches_until_accepted() {
-    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
+    kit::pending(Owner::ChatNavPane, MATCH_HIGHLIGHT);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(60, 8)
         .script(include_str!("fixtures/composer_popups/h_git_cargo.jsonl"))
@@ -353,7 +356,7 @@ fn history_search_no_match_restores_preview_but_keeps_search_open() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:46 history_search_paste_appends_query_and_accepts_match kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_query
 #[test]
 fn history_search_paste_appends_query_and_accepts_match() {
-    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
+    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
@@ -374,7 +377,7 @@ fn history_search_paste_appends_query_and_accepts_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:83 history_search_large_paste_clamps_cursor kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_large_paste_cursor
 #[test]
 fn history_search_large_paste_clamps_cursor() {
-    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
+    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 5)
         .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
@@ -387,7 +390,7 @@ fn history_search_large_paste_clamps_cursor() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:101 history_search_empty_paste_preserves_selected_match kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_empty_paste
 #[test]
 fn history_search_empty_paste_preserves_selected_match() {
-    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
+    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
@@ -405,7 +408,7 @@ fn history_search_empty_paste_preserves_selected_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:121 history_search_paste_shows_separators_and_matches_original_query kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_separators
 #[test]
 fn history_search_paste_shows_separators_and_matches_original_query() {
-    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
+    kit::pending(Owner::ChatNavPane, BARE_COMPOSER);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .script(include_str!("fixtures/composer_popups/h_separators.jsonl"))
@@ -419,7 +422,6 @@ fn history_search_paste_shows_separators_and_matches_original_query() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:158 history_search_paste_preserves_original_draft_on_miss_and_cancel kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_paste_preserves_original_draft_on_miss_and_cancel() {
-    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     for cancel in ["esc", "ctrl+c"] {
         let mut s = large_draft_search();
         s.keys(cancel);
@@ -435,8 +437,9 @@ fn history_search_paste_preserves_original_draft_on_miss_and_cancel() {
 fn history_search_paste_uses_full_sanitized_text() {
     kit::pending(
         Owner::ChatNavPane,
-        "the image case needs a 1x1 png on disk: the shard may not touch files and the kit has no file helper; only the sanitized text case is written",
+        "screen bug (history search row): the sanitized text and the image path cases pass (the kit writes the png, `image_file`); a large paste (1001 chars) as the query overflows the search row by 2 columns (RenderFlex, the `+2` counter beside the wrapped query), which the app logs as an error",
     );
+    // the pasted text is the query, sanitized (CR LF and escape codes), in place of a placeholder
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
@@ -444,6 +447,27 @@ fn history_search_paste_uses_full_sanitized_text() {
     s.type_text("draft").keys("ctrl+r");
     s.paste("é\r\n中\r\u{1b}[31mtext\u{1b}[0m");
     s.assert_contains("reverse-i-search: é↵中↵text");
+    // an image path pasted into the search is its text, no attachment
+    let path = kit::image_file("history.png");
+    let path = path.to_string_lossy().into_owned();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(200, 24)
+        .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
+        .open();
+    s.type_text("draft").keys("ctrl+r");
+    s.paste(&path);
+    s.assert_contains(&format!("reverse-i-search: {path}"));
+    s.assert_absent("[Image #1]");
+    // a large paste is its text, no `[Pasted Content N chars]` placeholder
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
+        .open();
+    s.type_text("draft").keys("ctrl+r");
+    s.paste(&"x".repeat(1001));
+    s.assert_contains("reverse-i-search:");
+    s.assert_contains(&"x".repeat(70));
+    s.assert_absent("[Pasted Content");
 }
 
 // ---- oracle: bottom_pane/chat_composer/mentions_layout_tests.rs (3 screen-level tests here; 0 state tests left to chat-nav-pane)
@@ -704,7 +728,7 @@ fn changing_filter_resets_selection_after_scrolling() {
 fn long_paths_keep_distinguishing_filenames_and_original_selection() {
     kit::pending(
         Owner::ChatNavPane,
-        "the snapshot joins 18 popup renders (three directories, three widths, two selections) in one text, with no section names: one chat screen shows one state",
+        "the popovers/composer_popups entry's @ popup shows no rows once the mentions view is mounted (chunk-composer step 8b: key hook, wiring and mount still to do); the test passed on the old popup",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)

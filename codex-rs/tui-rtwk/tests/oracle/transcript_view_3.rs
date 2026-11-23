@@ -560,10 +560,6 @@ fn mouse_selection_preserves_header_reservation_at_turn_boundaries() {
 // ORACLE transcript_view/prompt_header_tests.rs:215 paused_header_reservation_survives_copy_until_scroll_or_resize kind=ui owner=chat-live
 #[test]
 fn paused_header_reservation_survives_copy_until_scroll_or_resize() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no pinned header and no paused header reservation after a copy",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 7)
         .script(include_str!(
@@ -633,20 +629,19 @@ fn reserved_margin_uses_the_same_alignment_for_painting_and_selection() {
 fn right_click_retains_selection_until_confirmed_and_preserves_reading_position() {
     kit::pending(
         Owner::ChatLive,
-        "the kit has no right-button mouse, and the chat draws no pinned header or copy feedback for a right-click copy",
+        "screen feature: the chat has no transcript selection copied by a right click and no copy feedback row (`Copy failed · try again`, `Copy sent to terminal · paste to verify`, `Copied 14 chars to host clipboard`); the kit sends the right click (`right_click`) and has no clipboard answer to seed the three results",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 4)
         .script(include_str!("fixtures/transcript_view_3/right_click.jsonl"))
         .open();
     s.wheel_up(0, 0, 1);
-    // the right press copies `selected text` and the feedback row shows the result (no kit call yet for the press)
+    // a triple click selects the first line, the right click copies it; the reading position stays
+    s.triple_click(0, 0);
+    s.right_click(4, 0);
     s.assert_row(0, "selected text");
     s.assert_row(1, "second line");
     s.assert_row(2, "third line");
-    s.assert_row(3, "Copy failed · try again");
-    s.assert_row(3, "Copy sent to terminal · paste to verify");
-    s.assert_row(3, "Copied 14 chars to host clipboard");
 }
 
 // ORACLE transcript_view/right_click_copy_tests.rs:80 right_click_requires_a_nonempty_selection_and_a_press_inside_the_transcript kind=ui owner=chat-live

@@ -169,14 +169,21 @@ fn txt(text: String) -> AnyWidget {
 /// `█` cells for the share left, `░` for the rest, `]`, then the text. A
 /// `CustomPaint` with a `CellPainter` (G40: no gauge draws whole cells).
 fn limit_bar(percent_left: i64, rest: &str) -> AnyWidget {
-    let filled = ((percent_left.clamp(0, 100) * Bar::CELLS) as f64 / 100.0).round() as i32;
     Row::new()
-        .child(
-            CustomPaint::new()
-                .painter(Bar { filled })
-                .size(Bar::CELLS as i32 + 2, 1),
-        )
+        .child(bar(percent_left))
         .child(Text::new(rest.to_string()))
+        .into()
+}
+
+/// The cells of the bar between its brackets.
+pub(super) const BAR_CELLS: i32 = 20;
+
+/// The bar alone: `[`, whole `█` cells for the share left, `░` for the rest, `]`.
+pub(super) fn bar(percent_left: i64) -> AnyWidget {
+    let filled = ((percent_left.clamp(0, 100) * Bar::CELLS) as f64 / 100.0).round() as i32;
+    CustomPaint::new()
+        .painter(Bar { filled })
+        .size(BAR_CELLS + 2, 1)
         .into()
 }
 
@@ -186,7 +193,7 @@ struct Bar {
 }
 
 impl Bar {
-    const CELLS: i64 = 20;
+    const CELLS: i64 = BAR_CELLS as i64;
 }
 
 impl CellPainter for Bar {

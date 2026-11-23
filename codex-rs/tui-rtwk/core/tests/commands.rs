@@ -1387,3 +1387,1033 @@ fn only_the_five_pages_are_routes() {
         assert_eq!(target.opens(), Opens::Mode, "{target:?}");
     }
 }
+
+// ---------------------------------------------------------------- notes
+// What a command line answered with is an entry of the thread's transcript
+// (oracle `add_info_message` / `add_error_message`, `new_info_event` /
+// `new_error_event`), through `apply` (ADR-003), not a line of the screen.
+
+mod notes {
+    use std::rc::Rc;
+
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::ids::{ThreadId, Ticket};
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::{ScreenIntent, chat};
+    use codex_tui_core::threads::{Item, Note, NoteKey, ThreadModel, Tone};
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    pub(super) const T: &str = "thread-1";
+
+    pub(super) fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    /// The app with its thread started, as after `Connected` and the reply.
+    pub(super) fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket: Ticket = fx
+            .commands()
+            .iter()
+            .find_map(|c| match c {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+        app
+    }
+
+    fn say(app: &mut CodexApp, thread: Option<&str>, notice: Notice) {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Note {
+                thread: thread.map(ThreadId::new),
+                note: Note::from(notice),
+            }))),
+        );
+    }
+
+    pub(super) fn notes_of(thread: &Rc<ThreadModel>) -> Vec<Note> {
+        thread
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Note(note) => Some(note.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `add_info_message` for the two answers the oracle shows as
+    /// information, `add_error_message` for every other.
+    #[test]
+    fn the_oracle_shows_two_answers_as_information() {
+        for (notice, tone) in [
+            (Notice::ModelStartup, Tone::Info),
+            (Notice::ShellHelp, Tone::Info),
+            (Notice::Unrecognized("x".into()), Tone::Error),
+            (Notice::Usage(UsageKey::Raw), Tone::Error),
+            (Notice::UsageNeedsLogin, Tone::Error),
+            (Notice::DisabledDuringTask(SlashCommand::New), Tone::Error),
+        ] {
+            assert_eq!(Note::from(notice.clone()).tone, tone, "{notice:?}");
+        }
+    }
+
+    #[test]
+    fn a_command_answer_becomes_an_entry_of_the_thread_it_was_submitted_in() {
+        let mut app = ready();
+        say(&mut app, Some(T), Notice::Usage(UsageKey::Raw));
+        say(&mut app, Some(T), Notice::ShellHelp);
+        assert_eq!(
+            notes_of(&app.active_thread()),
+            [
+                Note::from(NoteKey::Command(Notice::Usage(UsageKey::Raw))),
+                Note::from(NoteKey::Command(Notice::ShellHelp)),
+            ]
+        );
+    }
+
+    /// With no thread yet the answer is the screen's (the oracle has the
+    /// history above the live area for it; ours has no transcript to put it in).
+    #[test]
+    fn an_answer_with_no_thread_is_a_note_of_the_chat_screen() {
+        let mut app = CodexApp::new();
+        say(&mut app, None, Notice::ModelStartup);
+        assert_eq!(
+            app.screens().chat.notes,
+            [Note::from(NoteKey::Command(Notice::ModelStartup))]
+        );
+        // a thread that does not exist is no thread
+        say(&mut app, Some("thread-9"), Notice::ShellHelp);
+        assert_eq!(app.screens().chat.notes.len(), 2);
+    }
+
+    /// `chat_composer.rs` 3432-3524: the composer keeps the line of an
+    /// unrecognized command (not recalled), a command refused while a task
+    /// runs, and a command that is validated by dispatch (`/fork`, `/review`);
+    /// every other answer has taken the line, and recall holds it.
+    #[test]
+    fn the_composer_keeps_the_line_of_a_refused_command_as_the_oracle_does() {
+        let keeps = |n: Notice| (n.keeps_draft(), n.is_recalled());
+        assert_eq!(keeps(Notice::Unrecognized("x".into())), (true, false));
+        assert_eq!(keeps(Notice::InputTooLarge { provided: 1 }), (true, false));
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::New)),
+            (true, true)
+        );
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::Review)),
+            (true, true)
+        );
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::Cd)),
+            (true, true)
+        );
+        // `/resume` is let through by the composer and blocked by dispatch,
+        // after the composer cleared its text
+        assert_eq!(
+            keeps(Notice::DisabledDuringTask(SlashCommand::Resume)),
+            (false, true)
+        );
+        assert_eq!(keeps(Notice::Usage(UsageKey::Raw)), (false, true));
+        assert_eq!(keeps(Notice::UsageNeedsLogin), (false, true));
+        assert_eq!(
+            keeps(Notice::UnavailableInSide(SlashCommand::Copy)),
+            (false, true)
+        );
+        assert_eq!(
+            keeps(Notice::UnavailableInSide(SlashCommand::Review)),
+            (true, true)
+        );
+    }
+}
+
+/// What the commands that run at once do (oracle `slash_dispatch.rs`
+/// `dispatch_command`): their effect on the thread, and the answer they leave
+/// in its transcript.
+mod effects {
+    use codex_app_server_protocol::{RequestId, ServerNotification};
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::screens::{ScreenCommand, ScreenIntent, chat};
+    use codex_tui_core::threads::{Note, NoteKey, Stub, Tone, UserMessage};
+    use pretty_assertions::assert_eq;
+
+    use super::notes::{T, notes_of, ready, run};
+    use super::*;
+
+    /// `thread/started` of the thread, as the server describes it.
+    pub(super) fn started(cwd: &str, path: Option<&str>, can_accept: Option<bool>) -> AppEv {
+        started_with(cwd, path, can_accept, false)
+    }
+
+    pub(super) fn started_with(
+        cwd: &str,
+        path: Option<&str>,
+        can_accept: Option<bool>,
+        ephemeral: bool,
+    ) -> AppEv {
+        let notification: ServerNotification = serde_json::from_value(serde_json::json!({
+            "method": "thread/started",
+            "params": {"thread": {
+                "id": T, "environments": null, "extra": null, "sessionId": T,
+                "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+                "preview": "", "ephemeral": ephemeral, "section": null, "sectionEnteredAt": null,
+                "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+                "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+                "recencyAt": 0, "status": {"type": "idle"}, "path": path, "cwd": cwd,
+                "cliVersion": "0.0.0", "originator": null, "source": "cli",
+                "canAcceptDirectInput": can_accept, "threadSource": null,
+                "agentNickname": null, "agentRole": null, "gitInfo": null, "name": null,
+                "daybreakEnabled": null, "turns": []
+            }}
+        }))
+        .expect("thread/started");
+        AppEv::Backend(BackendEv::Notification(Box::new(notification)))
+    }
+
+    fn command(app: &mut CodexApp, command: SlashCommand, intent: SessionIntent) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: Some(ThreadId::new(T)),
+                command,
+                intent,
+            }))),
+        )
+    }
+
+    fn notes(app: &CodexApp) -> Vec<Note> {
+        notes_of(&app.active_thread())
+    }
+
+    #[test]
+    fn each_answer_has_the_tone_the_oracle_gives_it() {
+        for (key, tone) in [
+            (NoteKey::WorkingDirectory("/tmp".into()), Tone::Info),
+            (NoteKey::Rollout(None), Tone::Info),
+            (NoteKey::Rollout(Some("/tmp/r.jsonl".into())), Tone::Info),
+            (NoteKey::DesktopOpened, Tone::Info),
+            (NoteKey::StoppingTerminals, Tone::Info),
+            (NoteKey::RawOutput(true), Tone::Info),
+            (NoteKey::Stub(Stub::MemoryMaintenance), Tone::Error),
+            (NoteKey::ParentOwned, Tone::Error),
+        ] {
+            assert_eq!(Note::from(key.clone()).tone, tone, "{key:?}");
+        }
+    }
+
+    /// `clean_background_terminals`: the op, then the info line.
+    #[test]
+    fn stop_asks_the_thread_to_clean_its_terminals_and_says_so() {
+        let mut app = ready();
+        let fx = command(&mut app, SlashCommand::Stop, SessionIntent::Stop);
+        assert!(
+            fx.commands().iter().any(|c| matches!(
+                c,
+                Command::Screen {
+                    thread,
+                    command: ScreenCommand::Chat(chat::Command::CleanTerminals),
+                    ..
+                } if thread.as_str() == T
+            )),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(notes(&app), [Note::from(NoteKey::StoppingTerminals)]);
+    }
+
+    /// The request is the app-server's `thread/backgroundTerminals/clean`.
+    #[test]
+    fn the_cleanup_is_the_servers_background_terminals_request() {
+        let request = chat::wire(
+            &chat::Command::CleanTerminals,
+            &ThreadId::new(T),
+            RequestId::Integer(7),
+        );
+        let json = serde_json::to_value(&request).expect("json");
+        assert_eq!(json["method"], "thread/backgroundTerminals/clean");
+        assert_eq!(json["params"]["threadId"], T);
+    }
+
+    #[test]
+    fn memory_maintenance_is_a_stub_error() {
+        let mut app = ready();
+        command(
+            &mut app,
+            SlashCommand::MemoryDrop,
+            SessionIntent::MemoryMaintenance,
+        );
+        assert_eq!(
+            notes(&app),
+            [Note::from(NoteKey::Stub(Stub::MemoryMaintenance))]
+        );
+    }
+
+    #[test]
+    fn pwd_says_the_directory_the_thread_started_in() {
+        let mut app = ready();
+        run(&mut app, started("/tmp/project", None, Some(true)));
+        command(&mut app, SlashCommand::Pwd, SessionIntent::Pwd);
+        assert_eq!(
+            notes(&app),
+            [Note::from(NoteKey::WorkingDirectory("/tmp/project".into()))]
+        );
+    }
+
+    #[test]
+    fn rollout_says_the_path_or_that_the_server_has_not_named_it() {
+        let mut app = ready();
+        command(&mut app, SlashCommand::Rollout, SessionIntent::Rollout);
+        run(
+            &mut app,
+            started("/tmp", Some("/tmp/codex-test-rollout.jsonl"), Some(true)),
+        );
+        command(&mut app, SlashCommand::Rollout, SessionIntent::Rollout);
+        assert_eq!(
+            notes(&app),
+            [
+                Note::from(NoteKey::Rollout(None)),
+                Note::from(NoteKey::Rollout(Some(
+                    "/tmp/codex-test-rollout.jsonl".into()
+                ))),
+            ]
+        );
+    }
+
+    #[test]
+    fn app_hands_the_thread_to_the_desktop_app_by_its_link() {
+        let mut app = ready();
+        let fx = command(&mut app, SlashCommand::App, SessionIntent::App);
+        assert!(
+            fx.commands().iter().any(|c| matches!(
+                c,
+                Command::OpenUrl { url, .. } if url == "codex://threads/thread-1"
+            )),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(notes(&app), [Note::from(NoteKey::DesktopOpened)]);
+    }
+
+    #[test]
+    fn raw_toggles_the_mode_and_says_which_it_is_now() {
+        let mut app = ready();
+        let raw = |app: &CodexApp| app.screens().chat.raw_output;
+        command(&mut app, SlashCommand::Raw, SessionIntent::Raw { on: None });
+        assert!(raw(&app));
+        command(&mut app, SlashCommand::Raw, SessionIntent::Raw { on: None });
+        assert!(!raw(&app));
+        command(
+            &mut app,
+            SlashCommand::Raw,
+            SessionIntent::Raw { on: Some(false) },
+        );
+        assert!(!raw(&app));
+        command(
+            &mut app,
+            SlashCommand::Raw,
+            SessionIntent::Raw { on: Some(true) },
+        );
+        assert!(raw(&app));
+        assert_eq!(
+            notes(&app),
+            [true, false, false, true].map(|on| Note::from(NoteKey::RawOutput(on)))
+        );
+    }
+
+    /// `/init` sends the bundled prompt as a message of the thread.
+    #[test]
+    fn init_starts_a_turn_with_the_bundled_prompt() {
+        let mut app = ready();
+        let fx = command(&mut app, SlashCommand::Init, SessionIntent::Init);
+        let sent: Vec<UserMessage> = fx
+            .commands()
+            .iter()
+            .filter_map(|c| match c {
+                Command::StartTurn { message, .. } => Some(message.clone()),
+                _ => None,
+            })
+            .collect();
+        let prompt = include_str!("../assets/prompt_for_init_command.md");
+        assert_eq!(sent.len(), 1, "{:?}", fx.commands());
+        assert_eq!(sent[0].text, prompt.trim());
+        assert_eq!(
+            prompt,
+            include_str!("../../../tui/assets/prompt_for_init_command.md")
+        );
+    }
+
+    /// `submit_op`: a thread its parent controls takes no turn and no
+    /// compaction; it says so and starts nothing.
+    #[test]
+    fn a_parent_owned_thread_starts_no_turn_and_no_compaction() {
+        let mut app = ready();
+        run(&mut app, started("/tmp", None, Some(false)));
+        let fx = run(
+            &mut app,
+            AppEv::Intent(Intent::Submit {
+                thread: Some(ThreadId::new(T)),
+                message: UserMessage::text("hello"),
+            }),
+        );
+        assert!(
+            !fx.commands()
+                .iter()
+                .any(|c| matches!(c, Command::StartTurn { .. })),
+            "{:?}",
+            fx.commands()
+        );
+        let fx = command(&mut app, SlashCommand::Compact, SessionIntent::Compact);
+        assert!(
+            !fx.commands()
+                .iter()
+                .any(|c| matches!(c, Command::Screen { .. })),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(
+            notes(&app),
+            [
+                Note::from(NoteKey::ParentOwned),
+                Note::from(NoteKey::ParentOwned)
+            ]
+        );
+    }
+
+    /// The server's word wins; without it a spawned sub-agent is parent-owned.
+    #[test]
+    fn a_thread_that_can_take_direct_input_starts_its_turn() {
+        let mut app = ready();
+        run(&mut app, started("/tmp", None, Some(true)));
+        let fx = run(
+            &mut app,
+            AppEv::Intent(Intent::Submit {
+                thread: Some(ThreadId::new(T)),
+                message: UserMessage::text("hello"),
+            }),
+        );
+        assert!(
+            fx.commands()
+                .iter()
+                .any(|c| matches!(c, Command::StartTurn { .. })),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(notes(&app), []);
+    }
+
+    /// `parent_owned_command_is_allowed`, `handle_parent_owned_submission`.
+    #[test]
+    fn a_parent_owned_thread_takes_the_commands_that_do_not_reach_the_agent() {
+        let flags = CommandFlags::default();
+        for (line, takes) in [
+            ("/status", true),
+            ("/stop", true),
+            ("/rollout", true),
+            ("/diff", true),
+            ("/side", true),
+            ("/export a b", true),
+            ("/title x", true),
+            ("/statusline", true),
+            ("/init", false),
+            ("/review check this", false),
+            ("/side inspect this", false),
+            ("/diff now", false),
+            ("/archive", false),
+            ("/rename", false),
+            ("/subagents parent", false),
+            ("/pwd", false),
+            // an alias is not the command's own name
+            ("/cwd", false),
+            ("/nonsense", false),
+            ("!echo blocked", false),
+            (" !echo blocked", false),
+            ("keep this draft", false),
+        ] {
+            assert_eq!(parent_owned_takes(line, flags), takes, "{line}");
+        }
+    }
+}
+
+/// `/cd`: `request_working_directory_change` (chatwidget/working_directory.rs)
+/// and `AppEvent::ChangeWorkingDirectory` (app/event_dispatch.rs). The session
+/// goes on in the directory: a fork of the conversation when it has history,
+/// a fresh thread when it has none.
+mod directory {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent};
+    use codex_tui_core::commands::resolve_directory;
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::{
+        ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, ScreenThreadIntent, agents, chat,
+    };
+    use codex_tui_core::threads::{CdRefusal, Note, NoteKey, ThreadAsk, UserMessage};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    use super::effects::{started, started_with};
+    use super::notes::{T, notes_of, ready, run};
+    use super::*;
+
+    fn notified(app: &mut CodexApp, notification: serde_json::Value) {
+        let notification: ServerNotification =
+            serde_json::from_value(notification).expect("notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        );
+    }
+
+    fn turn_started(app: &mut CodexApp) {
+        notified(
+            app,
+            json!({"method": "turn/started", "params": {"threadId": T, "turn": {
+                "id": "turn-1", "items": [], "itemsView": "full", "status": "inProgress",
+                "error": null}}}),
+        );
+    }
+
+    /// One whole turn: the agent said something and the turn ended.
+    fn a_turn_with_history(app: &mut CodexApp) {
+        turn_started(app);
+        notified(
+            app,
+            json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
+                "completedAtMs": 0, "startedAtMs": 0,
+                "item": {"type": "agentMessage", "id": "a1", "text": "done", "phase": null}}}),
+        );
+        notified(
+            app,
+            json!({"method": "turn/completed", "params": {"threadId": T, "turn": {
+                "id": "turn-1", "items": [], "itemsView": "notLoaded", "status": "completed",
+                "error": null}}}),
+        );
+    }
+
+    fn cd(app: &mut CodexApp, thread: Option<&str>, path: &str) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: thread.map(ThreadId::new),
+                command: SlashCommand::Cd,
+                intent: SessionIntent::Cd {
+                    path: path.to_string(),
+                },
+            }))),
+        )
+    }
+
+    fn asks(fx: &AppFx) -> Vec<ThreadAsk> {
+        fx.commands()
+            .iter()
+            .filter_map(|c| match c {
+                Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+                    ..
+                } => Some(ask.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn refusal(why: CdRefusal) -> Vec<Note> {
+        vec![Note::from(NoteKey::CdRefused(why))]
+    }
+
+    fn queue(app: &mut CodexApp) {
+        run(
+            app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: ThreadId::new(T),
+                intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(UserMessage::text("q"))),
+            }),
+        );
+    }
+
+    fn submit(app: &mut CodexApp) {
+        run(
+            app,
+            AppEv::Intent(Intent::Submit {
+                thread: Some(ThreadId::new(T)),
+                message: UserMessage::text("s"),
+            }),
+        );
+    }
+
+    /// The oracle's table of `can_change_working_directory`.
+    #[test]
+    fn the_directory_is_not_changed_unless_the_session_is_idle_and_the_primary_one() {
+        type State = (&'static str, fn(&mut CodexApp));
+        let states: [State; 7] = [
+            ("pending", submit),
+            ("active", turn_started),
+            ("queued", |app| {
+                turn_started(app);
+                queue(app);
+            }),
+            ("steer", |app| {
+                turn_started(app);
+                submit(app);
+            }),
+            ("side", |app| {
+                run(
+                    app,
+                    AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(CommandFlags {
+                        side_conversation_active: true,
+                        ..CommandFlags::default()
+                    }))),
+                );
+            }),
+            ("owned", |app| {
+                run(app, started("/tmp", None, Some(false)));
+            }),
+            ("ephemeral", |app| {
+                run(app, started_with("/tmp", None, Some(true), true));
+            }),
+        ];
+        for (state, setup) in states {
+            let mut app = ready();
+            setup(&mut app);
+            let fx = cd(&mut app, Some(T), "/tmp");
+            assert!(asks(&fx).is_empty(), "{state}: {:?}", fx.commands());
+            assert!(
+                !fx.commands()
+                    .iter()
+                    .any(|c| matches!(c, Command::StartThread { .. })),
+                "{state}: {:?}",
+                fx.commands()
+            );
+            assert_eq!(
+                notes_of(&app.active_thread())
+                    .into_iter()
+                    .filter(|note| matches!(note.key, NoteKey::CdRefused(_)))
+                    .collect::<Vec<_>>(),
+                refusal(CdRefusal::NotIdle),
+                "{state}"
+            );
+        }
+    }
+
+    #[test]
+    fn cd_before_the_session_starts_says_so() {
+        let mut app = CodexApp::new();
+        run(&mut app, AppEv::Connected);
+        let fx = cd(&mut app, None, "/tmp");
+        assert!(asks(&fx).is_empty(), "{:?}", fx.commands());
+        assert_eq!(
+            app.screens().chat.notes,
+            refusal(CdRefusal::NotStarted),
+            "no thread yet: the answer waits above the composer"
+        );
+    }
+
+    #[test]
+    fn a_conversation_with_history_is_forked_into_the_directory() {
+        let mut app = ready();
+        run(
+            &mut app,
+            started("/tmp/project", Some("/tmp/r.jsonl"), Some(true)),
+        );
+        a_turn_with_history(&mut app);
+        let fx = cd(&mut app, Some(T), "/tmp");
+        assert_eq!(
+            asks(&fx),
+            [ThreadAsk::ForkAt {
+                thread: T.to_string(),
+                cwd: Some("/tmp".to_string())
+            }]
+        );
+        assert_eq!(notes_of(&app.active_thread()), []);
+    }
+
+    #[test]
+    fn a_conversation_without_history_starts_afresh_in_the_directory() {
+        let mut app = ready();
+        run(
+            &mut app,
+            started("/tmp/project", Some("/tmp/r.jsonl"), Some(true)),
+        );
+        let fx = cd(&mut app, Some(T), "sub");
+        assert_eq!(
+            asks(&fx),
+            [ThreadAsk::Start {
+                cwd: Some("/tmp/project/sub".to_string())
+            }]
+        );
+    }
+
+    #[test]
+    fn history_the_server_has_not_saved_cannot_be_carried_over() {
+        let mut app = ready();
+        run(&mut app, started("/tmp/project", None, Some(true)));
+        a_turn_with_history(&mut app);
+        let fx = cd(&mut app, Some(T), "/tmp");
+        assert!(asks(&fx).is_empty(), "{:?}", fx.commands());
+        assert_eq!(
+            notes_of(&app.active_thread()),
+            refusal(CdRefusal::HistoryNotSaved)
+        );
+    }
+
+    /// The new conversation takes the screen, as `/new` and `/fork` do.
+    #[test]
+    fn the_session_goes_on_in_the_conversation_the_server_started() {
+        for with_history in [true, false] {
+            let mut app = ready();
+            run(
+                &mut app,
+                started("/tmp/project", Some("/tmp/r.jsonl"), Some(true)),
+            );
+            if with_history {
+                a_turn_with_history(&mut app);
+            }
+            let fx = cd(&mut app, Some(T), "/tmp");
+            let ticket = fx
+                .commands()
+                .iter()
+                .find_map(|c| match c {
+                    Command::Screen { ticket, .. } => Some(*ticket),
+                    _ => None,
+                })
+                .expect("the ask");
+            let thread = serde_json::from_value(json!({
+                "id": "moved-1", "environments": null, "extra": null, "sessionId": "moved-1",
+                "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+                "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+                "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+                "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+                "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": "/tmp",
+                "cliVersion": "0.0.0", "originator": null, "source": "cli",
+                "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+                "agentRole": null, "gitInfo": null, "name": null, "daybreakEnabled": null,
+                "turns": []
+            }))
+            .expect("a thread");
+            let reply = if with_history {
+                agents::Reply::Forked(Box::new(thread))
+            } else {
+                agents::Reply::Started(Box::new(thread))
+            };
+            run(
+                &mut app,
+                AppEv::Reply(ticket, Reply::screen(ScreenReply::Agents(reply))),
+            );
+            assert_eq!(
+                app.session().active,
+                Some(ThreadId::new("moved-1")),
+                "with_history={with_history}"
+            );
+        }
+    }
+
+    /// `AbsolutePathBuf::resolve_path_against_base`.
+    #[test]
+    fn the_directory_is_resolved_against_the_threads_own() {
+        let home = Some("/home/me");
+        for (requested, expected) in [
+            ("/tmp", "/tmp"),
+            ("~", "/home/me"),
+            ("~/work", "/home/me/work"),
+            ("sub/dir", "/tmp/project/sub/dir"),
+            ("./sub", "/tmp/project/sub"),
+            ("..", "/tmp"),
+            ("../other", "/tmp/other"),
+            ("/a/b/../c/./d", "/a/c/d"),
+            ("/../..", "/"),
+            ("", "/tmp/project"),
+        ] {
+            assert_eq!(
+                resolve_directory(requested, "/tmp/project", home),
+                expected,
+                "{requested:?}"
+            );
+        }
+        // without a home the tilde is an ordinary name
+        assert_eq!(
+            resolve_directory("~", "/tmp/project", None),
+            "/tmp/project/~"
+        );
+    }
+}
+
+/// `/archive` and `/delete`: the confirmation the oracle shows
+/// (`chatwidget/slash_dispatch.rs`) and what the answer Yes does
+/// (`archive_current_thread`, `delete_current_thread` of
+/// `app/event_dispatch.rs`).
+mod removal {
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::agents::Action;
+    use codex_tui_core::screens::select::{Confirm, Intent as Select, Menu};
+    use codex_tui_core::screens::{
+        ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, agents, chat,
+    };
+    use codex_tui_core::threads::{Note, NoteKey, RemoveNote};
+    use pretty_assertions::assert_eq;
+
+    use super::notes::{T, notes_of, ready, run};
+    use super::*;
+
+    fn select(app: &mut CodexApp, intent: Select) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
+        )
+    }
+
+    /// The confirmation opens and `row` is picked.
+    fn pick(app: &mut CodexApp, confirm: Confirm, row: usize) -> AppFx {
+        select(app, Select::Open(Menu::Confirm(confirm)));
+        let id = if row == 1 { Confirm::YES } else { Confirm::NO };
+        select(app, Select::Choose(id.to_string()))
+    }
+
+    fn removals(fx: &AppFx) -> Vec<agents::Command> {
+        fx.commands()
+            .iter()
+            .filter_map(|command| match command {
+                Command::Screen {
+                    command:
+                        ScreenCommand::Agents(
+                            command @ (agents::Command::Archive { .. }
+                            | agents::Command::Delete { .. }),
+                        ),
+                    ..
+                } => Some(command.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn ticket_of(fx: &AppFx) -> codex_tui_core::ids::Ticket {
+        fx.commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Screen { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("the request")
+    }
+
+    fn removal(action: Action, note: RemoveNote) -> Vec<Note> {
+        vec![Note::from(NoteKey::Remove(action, note))]
+    }
+
+    fn turn_started(app: &mut CodexApp) {
+        let notification: codex_app_server_protocol::ServerNotification =
+            serde_json::from_value(serde_json::json!({
+                "method": "turn/started",
+                "params": {"threadId": T, "turn": {
+                    "id": "turn-1", "items": [], "itemsView": "full",
+                    "status": "inProgress", "error": null}}}))
+            .expect("notification");
+        run(
+            app,
+            AppEv::Backend(codex_tui_core::app::BackendEv::Notification(Box::new(
+                notification,
+            ))),
+        );
+    }
+
+    fn typed(app: &mut CodexApp, thread: Option<&str>, command: SlashCommand) {
+        let intent = match command {
+            SlashCommand::Archive => SessionIntent::Archive,
+            _ => SessionIntent::Delete,
+        };
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: thread.map(ThreadId::new),
+                command,
+                intent,
+            }))),
+        );
+    }
+
+    /// `SlashCommand::Archive` and `Delete` of `dispatch_command`: the
+    /// confirmation opens whatever the session is; the archive of a running
+    /// turn says it stops it.
+    #[test]
+    fn the_commands_open_the_confirmation_the_oracle_shows() {
+        let mut app = ready();
+        typed(&mut app, Some(T), SlashCommand::Archive);
+        assert_eq!(
+            app.screens().select.menu().cloned(),
+            Some(Menu::Confirm(Confirm::Archive { running: false }))
+        );
+        turn_started(&mut app);
+        typed(&mut app, Some(T), SlashCommand::Archive);
+        assert_eq!(
+            app.screens().select.menu().cloned(),
+            Some(Menu::Confirm(Confirm::Archive { running: true }))
+        );
+        typed(&mut app, Some(T), SlashCommand::Delete);
+        assert_eq!(
+            app.screens().select.menu().cloned(),
+            Some(Menu::Confirm(Confirm::Delete))
+        );
+        // before any thread: the question still opens, the refusal is Yes's
+        let mut app = CodexApp::new();
+        typed(&mut app, None, SlashCommand::Archive);
+        assert_eq!(
+            app.screens().select.menu().cloned(),
+            Some(Menu::Confirm(Confirm::Archive { running: false }))
+        );
+    }
+
+    #[test]
+    fn yes_asks_the_server_to_archive_or_delete_the_thread() {
+        for (confirm, expected) in [
+            (
+                Confirm::Archive { running: false },
+                agents::Command::Archive {
+                    thread: T.to_string(),
+                },
+            ),
+            (
+                Confirm::Archive { running: true },
+                agents::Command::Archive {
+                    thread: T.to_string(),
+                },
+            ),
+            (
+                Confirm::Delete,
+                agents::Command::Delete {
+                    thread: T.to_string(),
+                },
+            ),
+        ] {
+            let mut app = ready();
+            let fx = pick(&mut app, confirm, 1);
+            assert_eq!(removals(&fx), [expected], "{confirm:?}");
+            assert_eq!(app.screens().select.menu().cloned(), None, "{confirm:?}");
+            assert_eq!(app.session().active, Some(ThreadId::new(T)), "not yet gone");
+        }
+    }
+
+    #[test]
+    fn no_leaves_the_session_as_it_is() {
+        for confirm in [Confirm::Archive { running: true }, Confirm::Delete] {
+            let mut app = ready();
+            let fx = pick(&mut app, confirm, 0);
+            assert_eq!(removals(&fx), [], "{confirm:?}");
+            assert_eq!(app.screens().select.menu().cloned(), None, "{confirm:?}");
+            assert_eq!(notes_of(&app.active_thread()), [], "{confirm:?}");
+        }
+    }
+
+    #[test]
+    fn a_pick_of_the_confirmation_is_not_left_for_later() {
+        let mut app = ready();
+        pick(&mut app, Confirm::Delete, 1);
+        assert_eq!(app.screens().select.picked, []);
+    }
+
+    #[test]
+    fn without_a_thread_the_answer_says_it_must_start_first() {
+        for (confirm, action) in [
+            (Confirm::Archive { running: false }, Action::Archive),
+            (Confirm::Delete, Action::Delete),
+        ] {
+            let mut app = CodexApp::new();
+            run(&mut app, AppEv::Connected);
+            // the thread of the connection is never answered: none is active
+            assert_eq!(app.session().active, None);
+            let fx = pick(&mut app, confirm, 1);
+            assert_eq!(removals(&fx), [], "{confirm:?}");
+            assert_eq!(
+                app.screens().chat.notes,
+                removal(action, RemoveNote::NotStarted),
+                "{confirm:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_side_conversation_is_not_removed() {
+        for (confirm, action) in [
+            (Confirm::Archive { running: false }, Action::Archive),
+            (Confirm::Delete, Action::Delete),
+        ] {
+            let mut app = ready();
+            run(
+                &mut app,
+                AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(CommandFlags {
+                    side_conversation_active: true,
+                    ..CommandFlags::default()
+                }))),
+            );
+            let fx = pick(&mut app, confirm, 1);
+            assert_eq!(removals(&fx), [], "{confirm:?}");
+            assert_eq!(
+                notes_of(&app.active_thread()),
+                removal(action, RemoveNote::SideConversation),
+                "{confirm:?}"
+            );
+        }
+    }
+
+    /// `return_to_agents_after_removal`: the chat forgets the thread and the
+    /// command center takes its place.
+    #[test]
+    fn the_server_removing_the_thread_takes_the_chat_back_to_the_command_center() {
+        let mut app = ready();
+        let before = app.session().removed;
+        let fx = pick(&mut app, Confirm::Archive { running: false }, 1);
+        run(
+            &mut app,
+            AppEv::Reply(
+                ticket_of(&fx),
+                Reply::screen(ScreenReply::Agents(agents::Reply::Done)),
+            ),
+        );
+        assert_eq!(app.session().active, None);
+        assert_eq!(app.thread(&ThreadId::new(T)).map(|_| ()), None);
+        assert_eq!(app.session().removed, before + 1);
+    }
+
+    #[test]
+    fn a_refusal_of_the_server_is_said_in_the_chat() {
+        for (confirm, action) in [
+            (Confirm::Archive { running: false }, Action::Archive),
+            (Confirm::Delete, Action::Delete),
+        ] {
+            let mut app = ready();
+            let before = app.session().removed;
+            let fx = pick(&mut app, confirm, 1);
+            run(
+                &mut app,
+                AppEv::Reply(ticket_of(&fx), Reply::failed("the server said no")),
+            );
+            assert_eq!(
+                notes_of(&app.active_thread()),
+                removal(action, RemoveNote::Failed),
+                "{confirm:?}"
+            );
+            assert_eq!(app.session().active, Some(ThreadId::new(T)), "{confirm:?}");
+            assert_eq!(app.session().removed, before, "{confirm:?}");
+        }
+    }
+
+    #[test]
+    fn a_second_yes_while_the_first_is_unanswered_asks_once() {
+        let mut app = ready();
+        let first = pick(&mut app, Confirm::Delete, 1);
+        let second = pick(&mut app, Confirm::Delete, 1);
+        assert_eq!(removals(&first).len(), 1);
+        assert_eq!(removals(&second), []);
+    }
+}

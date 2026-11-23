@@ -7,9 +7,10 @@
 use codex_tui_core::app::AppEv;
 use codex_tui_core::fixtures::builders::{server_request_resolved, tool_input_request};
 use codex_tui_core::ids::{ConnEpoch, RequestKey, ServerRequestId, ThreadId};
+use codex_tui_core::screens::approvals::order::Family;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
-use codex_tui_rtwk::sheets::presenter::Presenter;
+use codex_tui_rtwk::sheets::presenter::{Presenter, TYPING_IDLE_DELAY};
 use rtwk::GlobalKey;
 
 use crate::common::{Harness, ms, start};
@@ -178,4 +179,60 @@ fn a_dead_origin_shows_nothing_and_its_none_is_not_retried() {
         h.t.read_app::<UiApp, _>(|app| app.ui.presenter.place().get().is_none()),
         "a dead handle is dropped: requests wait for the next home"
     );
+}
+
+mod typing_idle {
+    use std::time::Duration;
+
+    use super::*;
+
+    fn at(millis: u64) -> Duration {
+        Duration::from_millis(millis)
+    }
+
+    /// Oracle `bottom_pane/mod.rs` `approval_prompt_delay_remaining` (and its test at 3262): an
+    /// approval is held until a second after the last key, to the millisecond.
+    #[test]
+    fn an_approval_waits_the_idle_delay_after_the_last_key() {
+        let mut p = Presenter::new();
+        assert_eq!(
+            p.wait(Family::Approval, at(0)),
+            None,
+            "nothing typed, nothing held"
+        );
+        p.typed(at(100));
+        assert_eq!(p.wait(Family::Approval, at(100)), Some(TYPING_IDLE_DELAY));
+        assert_eq!(p.wait(Family::Approval, at(600)), Some(at(500)));
+        let just_before = at(100) + TYPING_IDLE_DELAY - Duration::from_millis(1);
+        assert_eq!(p.wait(Family::Approval, just_before), Some(at(1)));
+        assert_eq!(p.wait(Family::Approval, at(100) + TYPING_IDLE_DELAY), None);
+        assert_eq!(p.wait(Family::Approval, at(60_000)), None);
+    }
+
+    /// Oracle 3280-3292: more typing pushes the moment out again.
+    #[test]
+    fn typing_on_moves_the_moment_out() {
+        let mut p = Presenter::new();
+        p.typed(at(0));
+        p.typed(at(800));
+        assert_eq!(p.wait(Family::Approval, at(1000)), Some(at(800)));
+        assert_eq!(p.wait(Family::Approval, at(1800)), None);
+    }
+
+    /// Oracle 2098-2123: a form, a question and a verification are not delayed, only the
+    /// approval overlay is.
+    #[test]
+    fn only_an_approval_is_held() {
+        let mut p = Presenter::new();
+        p.typed(at(0));
+        for family in [
+            Family::Elicitation,
+            Family::UserInput,
+            Family::UserVerification,
+            Family::Other,
+        ] {
+            assert_eq!(p.wait(family, at(10)), None, "{family:?}");
+        }
+        assert_eq!(p.wait(Family::Approval, at(10)), Some(at(990)));
+    }
 }

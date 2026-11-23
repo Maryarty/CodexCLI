@@ -210,6 +210,67 @@ pub enum Notice {
     ContextCompacted,
     EnteredReview(String),
     ExitedReview(String),
+    /// Esc or Ctrl+C ended the turn (`new_interruption_notice`).
+    Interrupted,
+    /// The turn was interrupted to send the steers that waited
+    /// (`Model interrupted to submit steer instructions.`).
+    InterruptedForSteer,
+    /// The goal's token budget stopped the turn (`Goal budget reached`).
+    GoalBudgetReached,
+    /// Esc Esc with no prompt to edit (`NO_PREVIOUS_MESSAGE_TO_EDIT`).
+    NoPreviousMessage,
+    /// The e-mail to the owner of the workspace that a banner action asked for ended
+    /// (`finish_add_credits_nudge_email_request`).
+    AddCreditsNudge {
+        nudge: crate::screens::chat::Nudge,
+        outcome: crate::screens::chat::NudgeOutcome,
+    },
+    /// A request refused for biology safety (oracle `new_safety_access_block_event`).
+    SafetyAccessBlock,
+    /// A refused cybersecurity request, worded by the Daybreak setting at the
+    /// moment it was refused (oracle `new_cyber_policy_error_event`).
+    CyberPolicy(crate::screens::cells::Daybreak),
+    /// A newer release exists (oracle `UpdateAvailableHistoryCell`): the
+    /// running version, the latest, and the command that updates this
+    /// install (`None` when the install is not one the CLI knows).
+    UpdateAvailable {
+        current: String,
+        latest: String,
+        command: Option<String>,
+    },
+    /// The server runs another version than the client (oracle
+    /// `new_server_version_warning`): its message, and whether the local
+    /// background server can be updated (two more lines).
+    ServerVersion {
+        message: String,
+        offer_update: bool,
+    },
+    /// A write to (or a wait on) a background terminal (oracle
+    /// `UnifiedExecInteractionCell`): the command it runs and what was sent
+    /// to its stdin (empty: it only waited). Shown in the detailed transcript
+    /// only ([`Notice::detailed_only`]).
+    TerminalInteraction {
+        command: Option<String>,
+        stdin: String,
+    },
+    /// `/recap` is generating (oracle `ThreadRecapLoadingCell`).
+    RecapLoading,
+    /// A `request_user_input` exchange ended (oracle
+    /// `RequestUserInputResultCell`).
+    Questions {
+        questions: Vec<crate::screens::cells::AnsweredQuestion>,
+        interrupted: bool,
+    },
+    /// The startup card under the header (oracle `new_session_info`).
+    SessionInfo(crate::screens::cells::SessionInfo),
+}
+
+impl Notice {
+    /// Entries only the detailed transcript (Ctrl+T) shows; the app's
+    /// `Item::is_detailed_only` asks.
+    pub fn detailed_only(&self) -> bool {
+        matches!(self, Self::TerminalInteraction { .. })
+    }
 }
 
 /// A message another task delegated to this thread (oracle

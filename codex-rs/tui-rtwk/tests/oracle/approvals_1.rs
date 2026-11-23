@@ -251,7 +251,7 @@ fn apply_patch_prompt_without_changes_shows_unavailable_destination() {
 fn network_exec_prompt_title_includes_host() {
     kit::pending(
         Owner::DialogsPane,
-        "the kit cannot read the snapshot: oracle_snap::parse_row returns the Buffer row 1 (`Do you want to approve network access to \"example.com\"?`, an unescaped quote inside the Debug row) as raw text; the rows and the sheet equal the snapshot, pinned in tests/sheets/approvals.rs",
+        "screen feature (approval sheet): the selected option row `› 1. Yes, just this once` is drawn bold magenta, the oracle draws it bold reversed with the default colour; the cell after the title is bold in ours, plain in the oracle (the kit reads the snapshot, quote and all)",
     );
     // The sheet is bottom-aligned: 13 rows tall, the oracle's buffer.
     let s = Screen::build(Owner::DialogsPane)
@@ -278,7 +278,7 @@ fn ctrl_shift_a_opens_fullscreen() {
 fn exec_history_cell_wraps_with_two_space_indent() {
     kit::pending(
         Owner::DialogsPane,
-        "the decision cell (`✔ You approved ...`) is a transcript row the thread records when the answer goes out (core ThreadModel items and the transcript cells are chat-cells-2's), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_zsh_git_add exists)",
+        "the decision cell (`✔ You approved ...`) is a transcript row: its model (core `approvals::decided::Decided`) and widget (`sheets::approvals::DecisionCell`) are done and pinned in core/tests/approvals.rs `decided` and tests/sheets/approvals.rs `decision_cell`; open is the thread holding it (NEED threads.rs `Item::Decision` from `ThreadEv::Decided`, app.rs recording it on resolve, transcript_pane.rs drawing it), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_zsh_git_add exists); and G49: TextWrap::Word does not break after a slash (the cell's rows are pinned apart from that in tests/sheets/approvals.rs)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(28, 8)
@@ -299,7 +299,7 @@ fn exec_history_cell_wraps_with_two_space_indent() {
 fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
     kit::pending(
         Owner::DialogsPane,
-        "the decision cell (`✔ You approved ...`) is a transcript row the thread records when the answer goes out (core ThreadModel items and the transcript cells are chat-cells-2's), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_empty_command exists)",
+        "the decision cell (`✔ You approved ...`) is a transcript row: its model (core `approvals::decided::Decided`) and widget (`sheets::approvals::DecisionCell`) are done and pinned in core/tests/approvals.rs `decided` and tests/sheets/approvals.rs `decision_cell`; open is the thread holding it (NEED threads.rs `Item::Decision` from `ThreadEv::Decided`, app.rs recording it on resolve, transcript_pane.rs drawing it), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_empty_command exists)",
     );
     let mut approved = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -321,7 +321,7 @@ fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
 fn network_access_command_history_uses_target_without_structured_context() {
     kit::pending(
         Owner::DialogsPane,
-        "the decision cell (`✔ You approved ...`) is a transcript row the thread records when the answer goes out (core ThreadModel items and the transcript cells are chat-cells-2's), and an approvals entry draws the sheet over the debug menu, not over a chat (and no entry approvals/exec_network_access yet)",
+        "the decision cell (`✔ You approved ...`) is a transcript row: its model (core `approvals::decided::Decided`) and widget (`sheets::approvals::DecisionCell`) are done and pinned in core/tests/approvals.rs `decided` and tests/sheets/approvals.rs `decision_cell`; open is the thread holding it (NEED threads.rs `Item::Decision` from `ThreadEv::Decided`, app.rs recording it on resolve, transcript_pane.rs drawing it), and an approvals entry draws the sheet over the debug menu, not over a chat (and no entry approvals/exec_network_access yet)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -366,7 +366,7 @@ fn enter_sets_last_selected_index_without_dismissing() {
 fn clipped_exec_approval_opens_the_complete_command() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed for open_fullscreen (ctrl+g, then unbound) and no entry with the clipped sh -c command and reason; the snapshot frames are labelled `bound=true 80x14` (not a header the kit reads yet: oracle_snap header())",
+        "no keymap seed for open_fullscreen (ctrl+g, then unbound): the hint shows the default `⌃a` (entry approvals/exec_clipped; sheet tests `a_header_taller_than_the_pane_is_cut_with_its_line_count` and `a_cut_header_gives_up_its_rows_to_the_options_and_the_hint_last` hold the oracle's four bound frames with ⌃a), and ctrl+g opens no pager yet (the transcript chunk's static pager hook)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 14)

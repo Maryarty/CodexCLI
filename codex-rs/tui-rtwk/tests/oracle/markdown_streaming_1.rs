@@ -442,10 +442,6 @@ fn blank_table_continuations_do_not_repeat_the_first_cell() {
 // ORACLE markdown_render.rs:3228 annotates_explicit_web_link_label_and_visible_destination kind=ui owner=chat-live
 #[test]
 fn annotates_explicit_web_link_label_and_visible_destination() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle also writes the destination on screen (`assert_contains(\"https://example.com/reference\")`): its display for a terminal not known to support OSC 8 (tui web_links.rs WebLinkDisplay::for_terminal); the port has no terminal detection and draws a web label alone with its OSC 8 link (`LinkDestinations::Auto`; the `assert_link` half holds)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
@@ -665,16 +661,26 @@ fn file_citations_preserve_adjacent_entities_and_escaped_punctuation() {
 // ORACLE markdown_render/file_citations_tests.rs:186 file_citation_after_local_link_soft_break_starts_a_new_line_snapshot kind=snap owner=chat-live
 #[test]
 fn file_citation_after_local_link_soft_break_starts_a_new_line_snapshot() {
-    // The oracle's local link targets the session cwd's temp dir: no cwd seed in the kit yet.
-    kit::pending(
-        Owner::ChatLive,
-        "G63: MarkdownView joins a soft break with a blank, so the citation after `[first](<…>)` does not start a new line; the local target ` (first.txt)` needs the session cwd the kit cannot seed; the citation itself reads",
-    );
+    // The oracle's local link targets the temp dir, which is also its cwd.
+    let temp = std::env::temp_dir();
+    let cwd = temp
+        .to_str()
+        .expect("a temp dir path")
+        .trim_end_matches('/');
+    let markdown =
+        format!("[first](<{cwd}/first.txt>)\n:codex-file-citation{{path=\"second.txt\"}}");
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
-        .live()
+        .agent_says(&markdown)
+        .cwd(cwd)
         .open();
-    s.assert_in_order(&["first (first.txt)", "second.txt"]);
+    // The citation starts a new line after the link: the two rows follow each other.
+    let rows = s.grid().rows(false);
+    let at = rows
+        .iter()
+        .position(|row| row == "first (first.txt)")
+        .unwrap_or_else(|| panic!("no `first (first.txt)` row:\n{}", s.text()));
+    assert_eq!(rows.get(at + 1).map(String::as_str), Some("second.txt"));
 }
 
 // ORACLE markdown_render/file_citations_tests.rs:201 generic_markdown_keeps_assistant_directives_literal kind=ui owner=chat-live

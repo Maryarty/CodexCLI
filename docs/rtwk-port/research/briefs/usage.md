@@ -1,64 +1,169 @@
-# Brief: UsagePage reports 2-6 and keys (screen map U01-U03, tm alias `usage`, S20)
+# Brief: UsagePage, all reports, modes and reset credits (screen map U01-U03, tm alias `usage`, S20)
 
-Recon 2026-11-22, read-only, cut short by the orchestrator: sections marked `TODO (recon cut short)` were not read.
-Paths relative to `codex-rs/tui-rtwk` (ours) and `codex-rs/tui/src` (oracle).
+Recon 2026-11-22 (finished by recon-usage-status, read-only). Paths: `codex-rs/tui-rtwk` (ours), `codex-rs/tui/src` (oracle),
+`~/.cache/codexcli/backend-pin/codex-rs/backend-client` (backend client).
+
+## 0. First step for the porter
+1. Generate the shard (no oracle shard exists today; the analytics tests are listed as "Not VS2: S20 landed",
+   `tests/oracle/tools/shards.py:85`, `docs/rtwk-port/test-shards.md:130,149`). In `shards.py` add one RULES line before the OUT list
+   `(r'^analytics(/|\.rs$|_tests\.rs$)', 'S20', 'routes-lists', 'usage')` and delete the OUT line `(r'^analytics', ...)`; run
+   `python3 -I tests/oracle/tools/shards.py` then `--check`. Measured with the script's own `scan()`/`classify()` (2026-11-22): 158 tests
+   = 34 snap + 12 ui (one shard `tests/oracle/usage.rs`, 46 stubs, under MAX 60) + 112 logic (state tests: core tests). Owner `routes-lists`
+   (existing `tests/kit/verdict.rs:20`, so the kit needs no new Owner). The run also rewrites `tests/oracle.rs` (module list) and `test-shards.md`.
+   Only if the person says no (section 7): skip this and carry the snaps as page tests.
+2. No stale pendings: the page has no shard; `chat_live_6.rs:12-394` reset tests are all pending for a real reason (no reset flow).
+3. Read `widgets/tab_strip.rs` (the shared filled tab strip, oracle `render_filled_tab_bar`) before touching the tab row: ours hand-builds it.
 
 ## 1. Scope
-Oracle `analytics/` (27 files, ~6.4k lines of code + ~5.5k of tests, 144 tests, 28 `.snap` in `analytics/snapshots/`): the `/usage` full-screen dashboard, `AnalyticsView`.
-- Chrome: `render.rs` (230), `chrome.rs` (180), `hints.rs` (111: two fixed footer rows; actions row = focus/card/day/row/period/details/scroll/back; navigation row = `tab/1-N report · z focus|dashboard · ? help · R refresh`; `?` hidden when unavailable), `controls.rs` (292: period 7d/30d, grouping By surface/feature/model/turn start/speed/reasoning/token type, model filter), `mouse.rs` (55: tab hits, control hits, wheel on body +-3 rows, offsets per report/help/dashboard), `sections.rs` (305: `Section::{Summary, Usage, Credits, Activity, Plugins, Skills, Chats, Plan}`, visible sections depend on account kind), `styles.rs`.
-- Reports: `summary.rs` + `summary_panel.rs` (337; overview), `plot.rs` + `plot/{annotations,layout,painting}.rs` + `chart.rs` (353) + `activity_chart.rs` (319, heat map; palette) (stacked daily bar chart with braille/partial cells, axes, selected-day callout, other remainder, signed chart for credit deltas), `tokens.rs` (enterprise token report), `report_data.rs` (289), `normalize.rs` (364, response -> day series, attribution completeness), `tasks.rs` + `task_panel.rs` (399, "Chats" for consumers: task start groups), `chats.rs` + `chat_panel.rs` (325, local chats credits for business: ranked table, details), `plan.rs` + `plan_panel.rs` (255+121, consumer plan-limit history, periods, 12-hour clocks), `tool_panel.rs` (26), `dashboard.rs` (221, `z` mode: cards in 1 or 2 columns, `╭─ ▸ 1 Overview ─╮`, truncation "… z to maximize"), `models.rs` (100), `data.rs` (210, `Load<T>` with timeout 30 s: "Loading…", "No history has been reported.", "Request timed out. Press R to retry.").
-- Data: `client.rs` (291) `Live` over `codex_backend_client::AnalyticsSession` (HTTP, backend-owned auth, identity check before and after every request, per-session cache keyed (report,start,end), route by plan kind: Usage / Credits / Messages / Plugins{limit 10|8} / Skills{limit 10|6} / EnterpriseTokens / WorkspaceCredits / EnterpriseCredits{breakdown}); NOT the app-server protocol.
-- Also the usage popup + reset-credits flow: `chatwidget/usage.rs` (rate-limit reset picker, confirmation with idempotency key, in-flight not dismissible), shard `tests/oracle/chat_live_6.rs`.
-- What the user does: `/usage` opens it (login needed); tabs `1`-`N` / Tab; Enter focus (zoom a report); `z` dashboard of cards; `?` help; `R` refresh; Left/Right day, Up/Down row/period, PgUp/PgDn scroll, Enter details, Esc back; mouse: click tab/control, wheel body.
-- Note on tabs: ours has 6 tabs (Overview, Usage, Messages, Plugins, Skills, Chats) in `core Report`; the oracle's `Section` set is wider (Credits, Activity, Plan) and varies per account kind: TODO (recon cut short): reconcile the tab list with `sections.rs` `visible_sections()`.
+Oracle `analytics.rs` (536: `AnalyticsView`, keys 296-480) + `analytics/` (27 files of code, 12.4k lines with tests) + `analytics_tests.rs`:
+- Chrome `render.rs` (230), `chrome.rs` (180: tab labels 11-23, per-surface scroll 26-46), `hints.rs` (111), `controls.rs` (292), `mouse.rs` (55),
+  `sections.rs` (305: `Section` 11-20, routing 22-33, `visible_sections()` 160-201, `start_reports` 203-267, `range_group` 118-130, `group_label` 132-145), `styles.rs`.
+- Reports: `summary.rs` + `summary_panel.rs` (337), `activity_chart.rs` (319) + `activity_chart/palette.rs`, `chart.rs` (353) + `plot.rs` (176) +
+  `plot/{annotations,layout,painting}.rs`, `tokens.rs` (135), `report_data.rs` (289), `normalize.rs` (364), `tasks.rs` (248) + `task_panel.rs` (399),
+  `chats.rs` (201) + `chat_panel.rs` (325), `plan.rs` (121) + `plan_panel.rs` (255), `tool_panel.rs`, `dashboard.rs` (221), `models.rs` (100), `data.rs` (210, `Load<T>`).
+- Data `client.rs` (291): `Live` over `codex_backend_client::AnalyticsSession` (HTTP; identity check before and after each request; cache by
+  (report, start, end); `route()` 238-265 by plan; `request_error` 267); `chats.rs:39-110` lists root threads with `thread/list` over the app-server and
+  joins backend estimates (timeouts 60 s list, 25 s estimates, 90 s chats, 120 s tasks); `summary.rs:19` profile (`get_token_usage_profile`).
+- Usage menu + reset credits: `chatwidget/usage.rs` (601), `chatwidget/reset_credits.rs` (79), app side `app/event_dispatch.rs:2282-2320`, `app/background_requests.rs:182,896`.
+- `/usage [daily|weekly|cumulative]`: `chatwidget/slash_dispatch.rs:842-852` (summary view arg; error `Usage: /usage [daily|weekly|cumulative]`).
+User sees: a full-screen dashboard (heading `Usage · Plus`, tab strip, controls row, report body, two footer rows); tabs by digit/Tab/BackTab/click;
+Enter focuses a report, `z` dashboard of cards, `?` help, `R` refresh, r/g/m/a/s controls, arrows/h/l day and row, PgUp/PgDn, wheel; `/usage` with a reset
+credit available opens a small menu (dashboard / redeem reset) with picker, confirmation, in-flight state.
 
-## 2. Tests
-There is NO oracle shard for analytics (`docs/rtwk-port/test-shards.md:130,149` "S20 landed", screen-map line 138: UsagePage has no shards). Evidence = own tests + parity pack. So the spec of "done" is the oracle's snapshots, ported as own page tests compared against the `.snap` rows by hand-written asserts (or a new shard `tests/oracle/usage.rs` generated with `tests/oracle/tools/shards.py`: TODO (recon cut short): check if `shards.py` can take `analytics` top-level; ask the orchestrator: the manifest says analytics is "Not VS2").
-Oracle snapshot inventory (28), by feature (all under `analytics/snapshots/codex_tui__analytics__*`):
-- Summary/overview, 3 (+1): `summary__summary_daily_wide`, `summary_cumulative_narrow`, `summary_partial`; `dashboard__dashboard_cards_align_and_keep_stable_summary_heights`.
-- Plot / charts, 12: `plot__seven_day_totals`, `partial_cells_use_the_midpoint_and_descend_from_the_baseline`, `signed_chart_dark|light`, `selected_callout_keeps_the_authoritative_daily_total`, `tiny_segments_keep_their_series_color_beside_a_large_day`, `zero_credit_history_uses_a_readable_scale`, `duplicate_message_dates_render_the_full_other_remainder`, `missing_zero_and_narrow_charts_keep_the_selection_visible`, `narrow_equal_height_totals_remain_separate_numbers`, `narrow_long_range_charts_never_truncate_dates`, `oversized_axes_are_hidden_instead_of_truncated`.
-- Plan, 3: `plan__period_navigation_preserves_unknowns_and_resets_on_new_snapshot`, `plan_clocks_twelve_hour`, `unavailable_empty_and_zero_history_are_distinct`.
-- Chats, 3: `chats_table__chats_breakdown_ranks_nonzero_groups_and_reflows`, `chats_long_title_keeps_detail_indent_and_counts_missing_estimates`, `consumer_refresh__consumer_chat_all_metrics`.
-- Chrome/recovery, 4: `redesign__narrow_help`, `redesign__reports_keep_tabs_fixed_and_expose_data_on_small_screens`, `recovery__tall_reports_use_available_height_and_wide_reports_put_details_beside_plot`, `recovery__twelve_hour_metadata_keeps_utc_across_renderers`.
-- Client/identity, 1: `client__tests__live_account_identity_is_visible_and_closing_aborts_pending_loads`.
-- Non-snapshot oracle tests worth carrying as core tests (logic): `normalize_tests.rs` (358), `report_data_tests.rs`, `data_tests.rs`, `tokens_tests.rs`, `tasks_tests.rs`, `chats_tests.rs`, `plan_tests.rs` (362), `navigation_tests.rs` (326: keys), `mouse_tests.rs` (171), `client_tests.rs`, `connection_tests.rs`, `runtime_auth_tests.rs`, `account_plan_tests.rs`, `styles_tests.rs`, `palette_tests.rs`.
-Shard tests touching the popup/reset flow (`tests/oracle/chat_live_6.rs`, owner chat-live, 32 tests, 25 pending, mostly `usage_menu_*` and `rate_limit_reset_*`: lines 96-340) and `/usage` in `chat_commands_*` (screen-map C09: 2 red incl. "/usage with the wrong view"; TODO (recon cut short): list them). Own tests: `tests/pages/usage.rs` (3), `core/tests/usage.rs` (4).
+### Tabs: ours vs the oracle's `visible_sections()`
+Ours `core/src/screens/usage.rs:49-66` `Report::ALL` = Overview, Usage, Messages, Plugins, Skills, Chats, fixed (= the oracle's Consumer set without Plan).
+Oracle (`sections.rs:160-201`), labels `chrome.rs:11-23` (Activity reads "Messages"; Usage reads "Tokens" for Business/Enterprise):
+- Consumer, plan history enabled: Overview, Usage, Plan, Messages, Plugins, Skills, Chats (7: keys 1-7).
+- Consumer: Overview, Usage, Messages, Plugins, Skills, Chats.
+- Business/Enterprise with thread usage supported: Overview, Credits, Tokens, Plugins, Skills, Chats; without: the same minus Chats.
+- Unknown plan: Overview only. Account not loaded: none (Esc closes).
+So: `Section` (8 variants) in core and `visible_sections(account kind, plan enabled, thread_usage_supported)` as a pure fn; the selected section, the
+range per `RangeGroup` (Usage/Activity/Tools), the group per section, the model filter, zero-credit groups, task metric are core state (they choose the
+requests); cursor, detail, scroll per surface are widget state (R14).
+
+## 2. Tests (in-chunk: 46 shard + 26 chat_live_6 + 112 logic = 184; pass today: 0 shard, 0 reset)
+- `tests/oracle/usage.rs` (to generate) 46, by oracle file: plot 10 snap; activity_chart 4 snap + palette 1 snap; analytics_tests 5 snap + 2 ui;
+  summary 2 snap; plan 3 snap + 3 ui; chat_panel 2 snap; redesign 2 snap; recovery 2 snap; dashboard 1; consumer_refresh 1; client 1
+  (`live_account_identity_is_visible_and_closing_aborts_pending_loads`); navigation 2 ui; styles 2 ui; connection 1 ui; compact 1 ui; account_layout 1 ui.
+  All render the whole `AnalyticsView` into a `TestBackend` of a given size (`analytics_tests.rs:39-45`), so the kit's whole-screen compare fits; fixtures
+  come from `analytics/test_fixtures.rs:202-242` (`view(kind)` + `seed_reports`, END_DATE, 24-hour clock).
+- Logic 112 (normalize 10, client 19, account_layout 11, data 6, navigation 7, analytics_tests 7, activity_chart 4+5, plot 4, tokens 4, account_plan 4,
+  chats 3, chat_panel 5, summary 3, tool_panel 3, mouse 3, ...): carry as core tests named as the oracle's (`core/tests/usage*.rs`) or as page tests where
+  they assert widget state (mouse, navigation); a test that tests a ratatui internal is n/a with a one-line reason in the parity pack.
+- `tests/oracle/chat_live_6.rs:9-394` usage menu + reset 26 (21 pending, 5 n/a): in this chunk (chat-live brief C9 already calls it its own task).
+  File owned by chat-live: only these functions.
+- Other chunks: `chat_commands_2.rs:347,361` signed-out `/usage` notice (2 pending: kit seed is signed in) and `:375` invalid view: chat-commands.
+  `chat_live_6.rs:395-450` thread billing: status-card. `chat_status_1/2` rate-limit prompts: chat-status.
+- Own today: `tests/pages/usage.rs` 3 (no mouse test), `core/tests/usage.rs` 4.
 
 ## 3. What exists in ours
-- Core `core/src/screens/usage.rs` (258): `Model{account{name,handle,plan}, overview: Panel<Overview>, history/credits/usage: Panel<Vec<Day{date,total}>>, as_of, report}`; `Panel::{Loading, Unavailable, Failed(Analytics|Credits), Ready}`; `Overview{5 numbers, activity heat map (weeks, months, cells), insights, top}`; `Ev::{Account,Overview,History,Credits,Usage,AsOf}` (also the seed form), `Intent::{RefreshRateLimits, Report}`; `Command/Reply/Ctx/ThreadEv` EMPTY (no RPC).
-  Mismatches to the oracle: `Day` has one total (no per-series values, no unit, no `updated_at`), no selection cursor, period, grouping, help/zoom/dashboard flags, scroll offsets, request generation; reports Messages/Plugins/Skills/Chats have no data fields (the body falls through to the history message, `mod.rs:body()`).
-- View `src/pages/usage/mod.rs` (517): `Screen` page via `PageRoute`; header + tab Row + `Divider` + fixed `control_daily` text + body + two footer rows (`widgets::page_keys::footer`); overview body is real (figures, heat map with `□/■`, insights/top, centring at <=110 cells); Usage report = a text list of date + total; other reports = message only; keys 1-6, Tab, Esc work; `z`, `?`, `R` -> `NotYet` popup (`mod.rs` `Msg::NotYet`); no mouse beyond what `page_keys`/Navigator give (screen-map W03 says clicks/wheel exist: TODO (recon cut short): check `tests/pages/usage.rs`). `strings.rs` (151) EN table incl. hints. Entries: `overview`, `panel_states` (fixtures `src/pages/usage/fixtures/`).
-- Open path: `src/pages/session/actions.rs:136-150` emits `ScreenIntent::Usage(RefreshRateLimits)` + `open(cx, Target::Usage)` -> `usage::route()` (`open.rs:43`, `Opens::Page`); `Intent::RefreshRateLimits` is a no-op in core (`usage.rs apply_intent`), so nothing fetches.
-- Host/protocol: nothing for analytics. `codex_backend_client::AnalyticsSession` (`backend-client/src/analytics_session.rs`: `from_config`, `account()`, `ensure_identity()`, `request(|client| ..)`) is not a dependency of `host/Cargo.toml` (only app-server-client, daemon, protocol, config, core, login, http-client ... at the backend-pin path; `codex-backend-client` NOT listed) and core has no non-protocol command path: TODO (recon cut short): how `Command` reaches host for non-ClientRequest calls (`core/src/protocol/mod.rs wire`, `host/src/in_process.rs`) and whether `core/src/app.rs` has host-only commands (e.g. worktree, `ReadRateLimits` go via `ClientRequest`). Closest app-server data: `GetAccountTokenUsage` (`core/src/protocol/agents.rs:90,188`, used by the agents page), `GetAccountRateLimits`, `RateLimitResetCredits` (`GetAccountRateLimitsResponse.rate_limit_reset_credits`, `app-server-protocol/.../account.rs:369`) for the reset flow.
+- Core `core/src/screens/usage.rs` (258): `Model{account{name,handle,plan}, overview: Panel<Overview>, history/credits/usage: Panel<Vec<Day{date,total}>>,
+  as_of, report}`; `Panel::{Loading, Unavailable, Failed, Ready}`; `Intent::{RefreshRateLimits (no-op), Report}`; `Command/Reply/Ctx/ThreadEv` empty.
+  Missing: Section/visible set, per-series day values (unit, keys, labels, other remainder), ranges/groups/filters, generation ids, chats/tasks/plan/tokens data.
+- View `src/pages/usage/mod.rs` (517) + `strings.rs` (151): `Screen` via `PageRoute`; heading; hand Row of tab Texts (`mod.rs:407-421`, not `tab_strip::Tabs`);
+  `Divider`; fixed control text; overview body (figures, heat map as Text rows of `□/■`, insights/top); Usage = date+total list; others = message;
+  keys 1-6, Tab, Esc; `z`/`?`/`R` -> `Msg::NotYet` popup (`mod.rs:510-514`); no mouse; no per-report scroll.
+- Open path: `core/src/commands/dispatch.rs:359-365,442-450` (backend auth check, view arg parsed by `TokenActivityView::parse`) -> `Target::Usage`
+  (`Opens::Page`, dispatch.rs:66) -> `src/pages/session/actions.rs:136-142` emits `ScreenIntent::Usage(RefreshRateLimits)`; the bare `/usage` never opens
+  the menu.
+- Host: nothing. `codex-backend-client` is not in `host/Cargo.toml:16-46` (the oracle's `tui/Cargo.toml:38` has it). `AnalyticsSession::from_config(config,
+  http_client_factory, runtime_auth_mode)`, `account()`, `ensure_identity()`, `request(|client| ..)` (`backend-client/src/analytics_session.rs:37,138,142,155`).
+- Which enum carries what (answer to the recon question):
+  - Host-only asks (no app-server RPC) are variants of core `app::Command` that `protocol::wire` maps to `None` (`core/src/protocol/mod.rs:84-85,152-153`)
+    and the host runs in `host/src/in_process.rs:590-605` `work()`: `Startup{ask}`, `Import{ask}`, `Directories`, `SaveGrouping`, `CreateWorktree`. The
+    analytics loads are this kind: `Command::Usage { ask: usage::Ask }` answered with `usage::Ev` under the ask's generation, host module
+    `host/src/analytics.rs` (pattern `host/src/import.rs`), fake in `src/services/backend/fake.rs:448-460`.
+  - Account-scoped app-server RPCs are app `Command` variants with an `AppCtx` (`core/src/app.rs:231-305,339-360`): `ReadRateLimits{ticket, backend}` +
+    `AppCtx::RateLimits{backend}`. Reset credits: reads ride `ReadRateLimits` with an origin (status-card adds `RateLimitOrigin`), consume = new
+    `Command::ConsumeResetCredit{ticket, backend, idempotency_key, credit_id}` (`account/rateLimitResetCredit/consume`, common.rs:1443) + `AppCtx`.
+  - Not `ThreadFx`: no thread RPC is involved (ADR-003 kept); `thread/list` for Chats runs inside the host ask, as the oracle does.
 
 ## 4. Flutter -> rtwk
-- The page = a Flutter `Scaffold` with a `TabBar` + `TabBarView` over a `TabController` (6 tabs): rtwk `Tabs`/tab bar: TODO (recon cut short): find the widget in `rtwk-widgets`/`rtwk-controls` (grep `Tabs`, `TabBar`); keep the selected tab in the MODEL (`Model.report`, already) since the oracle's keys drive it, with a `Focus` + `Shortcuts`-like binding (`Focus::bind`, as now).
-- Period / grouping controls: `SegmentedButton`/`ToggleButtons`/`DropdownButton` = rtwk `rtwk-controls` equivalents (TODO find: segmented control, select). Clickable (ADR-011).
-- Charts: Flutter `fl_chart` BarChart/LineChart = `rtwk-data` `BarChart`/`Chart`/`Sparkline` (accepted visual delta from the braille plot engine, person 2026-11-17: list the deltas). Stacked per-series daily bars with a selected-day callout: check `rtwk-data/src/` BarChart stacking and selection; else gap row. Heat map: `Grid` of cells (ours is Text rows today).
-- Report body scroll: `SingleChildScrollView` + `ScrollController` = rtwk-scroll `ScrollView`/`ListView` with a controller (wheel +-3 rows: the controller, not hand arithmetic; per-report offsets = one controller per report kept in widget state (R14 ids/controllers only)).
-- Table of chats with details: `DataTable`/`ListView` + expandable rows = rtwk-data table / `ExpansionController`.
-- Help: `showDialog`/an overlay layer inside the page (a mode of the page, Amendment 2026-11-19b), not a route.
-- Dashboard `z`: `GridView`/`Wrap` of `Card`s with border = `Grid` + `Card`/`Dialog::bare` borders, 1 or 2 columns by `LayoutBuilder` width >= 104.
-- Async loads: `FutureBuilder` per report with generation ids = core `Command::Load{report, range, grouping, generation}` + `Reply` stale-dropped (ADR-003, acceptance of the task: "async results carry request/generation ids"); the cache lives in core model (`HashMap<(report,start,end), Series>`), not in the widget.
+- Page = `Scaffold` + `TabBar` over a `TabController`; the oracle's tab look is the filled strip: ours `src/widgets/tab_strip.rs` `Tabs` (G36/G45 "not a gap",
+  used by `src/pages/agents/view/mod.rs:48`, `src/sheets/select/dialog.rs:45`); tap selects (GestureDetector inside). Selected section stays in core.
+- Controls row (`r 7d/30d`, `g Feature`, `m model`, `a`, `s`): `SegmentedButton`/`DropdownButton` would be Flutter; the oracle draws key-labelled text
+  segments, so a `Row` of `GestureDetector(Text)` (tap = the key's intent); rtwk-controls `SegmentedButton` (`segmented_button.rs:98`) only if its caps
+  look matches (it draws caps/selection marks the oracle has not: try, then Row).
+- Plot (stacked daily columns, value labels, partial cells by midpoint, signed baseline, selected `▲`, date axis): Flutter = `CustomPainter` when fl_chart
+  lacks it. rtwk-data `BarChart` (`rtwk-data/src/bar_chart.rs:177`: one value per bar, labels, value text) has no stacked segments, no y ticks, no
+  selection mark: run it on `plot__seven_day_totals` once, then `CustomPaint` + `CellPainter` (rtwk-widgets/src/layout/custom_paint.rs; precedent G40
+  "not a gap") with the bar/segment math as pure core fns from `plot/layout.rs` + `painting.rs` (data -> cells, not text layout).
+- Activity heat map (`□/■` weeks x days, month labels, palette light/dark): rtwk-data `Heatmap` (`heatmap.rs:220`: `scale(HeatmapScale::shades_of(..))`,
+  `row_labels`, `column_labels`, `cell_width`) first; colours from theme tokens (rule: no literals).
+- Report body scroll + reading position per surface: `SingleChildScrollView` + one `ScrollController` per section / help / dashboard kept in widget
+  state (PageStorage) = rtwk-scroll `SingleChildScrollView` (`single_child_scroll_view.rs`) + `ScrollController` (`scrollable.rs:703`); wheel 3 rows is the
+  controller's, no hand offsets.
+- Rows with a cursor (chats table, plugin/skill rows, plan periods): `ListView` + controller = `widgets/session_list.rs` or rtwk-data `SelectionController`
+  (`selection_controller.rs:72`); details beside or under = `LayoutBuilder` choosing the layout (oracle `recovery` snaps: details beside the plot when wide).
+  Chats table columns: rtwk-data `Table` (`table.rs`) or `Grid` content tracks.
+- Dashboard `z`: `GridView` of `Card`s = `Grid` 1 or 2 columns (`LayoutBuilder`, width >= 104) of `Container` + `BoxDecoration::title(BorderTitle)`
+  (rtwk-widgets/src/layout/container.rs:215) for `╭─ ▸ 1 Overview ─╮`; "… z to maximize" truncation = `dots_end` composition.
+- Help `?`: a mode of the page (Amendment 2026-11-19b), its own scroll controller; not a route, not a dialog.
+- Async loads: `FutureBuilder` keyed by generation = core `Load<T>` + `Ask{generation}`; `R` bumps the generation; a late reply of an old generation is
+  dropped in `apply`; closing the page cancels (generation to none).
+- Usage menu / reset picker / confirmation: `showModalBottomSheet` with a list = the app's select sheet (`src/sheets/select`, as the oracle uses
+  `SelectionViewParams`); in-flight confirmation not dismissible (Esc ignored, Ctrl+C still quits).
 
-## 5. Dependencies and conflicts (tm active claims 2026-11-22)
-- Free: `src/pages/usage/**`, `core/src/screens/usage.rs` (and new `core/src/screens/usage/`), `core/tests/usage.rs`, `tests/pages/usage.rs`, a new `docs/rtwk-port/parity/usage.md`.
-- Held by others: `core/src/app.rs`, `core/src/app/session.rs`, `core/src/protocol/mod.rs`, `core/src/threads.rs`, `host/src`, `src/lib.rs` (startup-rest): the analytics data path needs a host service (HTTP via backend-client) and a command/reply route: needs an area widening or startup-rest to land first. `src/pages/session/actions.rs` (settings): the `/usage` open there stays as is.
-- ADR conformance: `Model` lives in `ScreenStates.usage` app-scoped (one writer through `apply`): fine; the oracle's `Live` (session cache, identity check) = a HOST service (IO only in host/services); core carries data + generation only. ADR-002/003: no thread RPC involved (usage is account-scoped, `ScreenCommand`, not `ThreadFx`): TODO (recon cut short): confirm which app-level command enum carries account-scoped RPCs (`core/src/screens/mod.rs ScreenCommand`, `AppCtx::RateLimits` pattern).
-- `chat_live_6` reset-credits popup: owner chat-live (the `usage_menu_*`, `rate_limit_reset_*` tests): a SHEET from the chat's `/usage` popup menu; belongs with chat-live unless the person assigns it here (U03 says "reset-credits"; D20 in the map lists it under chat-live): ask.
+## 5. Area and conflicts (tm active claims 2026-11-22)
+- Porter's area (all free): `core/src/screens/usage.rs` -> `core/src/screens/usage/` (mod, model, sections, normalize, report_data, tokens, plan, chats,
+  tasks, reset, seed), `core/tests/usage.rs` (+ `core/tests/usage_*.rs`), `src/pages/usage/**`, `tests/pages/usage.rs`, `tests/oracle/usage.rs` (new),
+  `tests/oracle/tools/shards.py` (one rule), `docs/rtwk-port/test-shards.md` + `tests/oracle.rs` (regenerated lines only), `docs/rtwk-port/parity/usage.md`,
+  `host/src/analytics.rs` (new), `host/Cargo.toml` (+ `codex-backend-client` at the backend-pin path, own commit; `Cargo.lock`), `src/sheets/usage_menu/` (new).
+- Needs in files others hold (minimal changes; orchestrator sequences):
+  - `core/src/app.rs` (keymap porter): `Command::Usage{ask}`, `Command::ConsumeResetCredit{..}` + its `AppCtx`, reply routing to `usage::apply`.
+  - `host/src/in_process.rs` (keymap porter): one `work()` arm `Command::Usage { ask } => crate::analytics::run(..)`, one for the consume RPC via `wire`.
+  - `core/src/protocol/mod.rs` (free; status-card widens to it): consume request/decode; `rate_limit_reset_credits` decode comes from status-card step 3.
+  - `core/src/app/session.rs` (free; status-card widens): `RateLimitOrigin::{UsageMenu, ResetPicker, Startup}` handling (status-card adds the enum).
+  - `core/src/commands/dispatch.rs:359-365` (free): bare `/usage` -> the menu when a reset credit is known available, else the page (oracle `usage.rs:17-30`).
+  - `src/sheets/mod.rs` (shared): register `usage_menu`. `src/services/backend/fake.rs` (shared): fake `Command::Usage` answers.
+  - `tests/oracle/chat_live_6.rs` (chat-live): functions at lines 9-394 only. `tests/oracle_snap/mod.rs` + `tests/kit/compare.rs` (kit, shared): a reader for
+    the plot snaps' `Palette:` / `Rows (column:palette):` sections (`plot_tests.rs:56`), only analytics uses that format.
+  - `src/pages/session/actions.rs:136-142` (settings porter): no change (the usage intent stays).
+- Keymap: the oracle drives the page by `RuntimeKeymap.list` `ListAction`s (`analytics.rs:307-336`); use the list context the keymap porter builds
+  (`core/src/keymap`, not landed yet); until then bind the default keys in one table in `src/pages/usage/keys.rs`.
+- ADR conformance: `usage::Model` is app-scoped in `ScreenStates` (one writer, `apply`); no thread state copied; IO only in `host/src/analytics.rs`;
+  widget state = cursors and scroll controllers only.
 
-## 6. Chunks
-1. **Report model + data shape** (core only, no IO), ~30 core tests ported from `normalize_tests`, `report_data_tests`, `tokens_tests`, `tasks_tests`, `chats_tests`, `plan_tests`, `data_tests`: `Series{unit, updated_at, days[{date,total,values[{key,label,value}]}]}`, normalize/ranking/other-remainder, plan periods, selection cursor, period/grouping/model filter state, generation ids, `Command::Load`/`Reply` stubs wired through a fake host. Area: `core/src/screens/usage.rs` + `core/src/screens/usage/**`, `core/tests/usage.rs`.
-2. **Usage report 2 + charts** (Usage, Messages): chart widget from rtwk-data over the series, selected-day callout, Left/Right, period + grouping controls (keys + clicks), scroll controller; port snaps `plot__*` (12, deltas allowed, list them) as own page tests. Area: `src/pages/usage/**`, `tests/pages/usage.rs`, `docs/rtwk-port/parity/usage.md`. Needs chunk 1.
-3. **Reports 4-6** (Plugins, Skills top lists; Chats table + details; Plan periods): `chats_table__*`, `plan__*`, `consumer_refresh__*` (6 snaps). Parallel with 2 after 1 if the files are split (`src/pages/usage/{chats,plan,lists}.rs`).
-4. **Keys and chrome**: `z` dashboard cards, `?` help mode (a mode of the page), `R` refresh (generation bump), footer rows per `hints.rs` incl. widths < 50/80, mouse (tab/control clicks, wheel), `redesign__*`, `recovery__*`, `dashboard__*` (5 snaps). Parallel with 2/3 only if `mod.rs` is split first (chunk 1 or 2 does the split).
-5. **Host data service** (needs startup-rest's files or a widening): `host` service wrapping `AnalyticsSession` (identity check around each request, cache, timeout 30 s, error strings of `client.rs request_error`), command/reply route, `Intent::RefreshRateLimits` -> loads; `client__tests__live_account_identity_*`. Can run in parallel with 1-4 against a fake host; lands last into the app.
-6. **Reset-credits flow** (`chatwidget/usage.rs`, chat_live_6 ~25 tests): separate task owner chat-live unless reassigned.
+## 6. The plan (one job, tests first in each step)
+1. Shard (section 0) + seeds: a JSONL seed per oracle fixture (`test_fixtures.rs` `view(Consumer|Business|Enterprise|Unknown)`, `seed_reports`, the plan,
+   chats and tasks fixtures) and one debug entry per shard test state (`src/pages/usage/fixtures/`, `EntryOpen::Route`).
+2. Core model (no IO): `Section`, `visible_sections`, `tab_label`, `RangeGroup`, ranges, groups, `group_label`, model filter, `Load<T>` + generation,
+   `Series{unit, updated_at, days[{date, total, values[{key,label,value}]}]}`, `normalize.rs`, `report_data.rs`, `tokens.rs`, `tasks.rs`, `chats.rs`, `plan.rs`
+   pure parts carried with a comment naming the oracle file; logic tests of normalize, report_data, data, tokens, tasks, chats, plan, account_plan,
+   account_layout (state ones) as core tests.
+3. Chrome: heading, `tab_strip::Tabs` over `visible_sections`, controls row (keys + taps), footer rows per `hints.rs` (widths < 50 / 80), loading /
+   empty / error / timeout texts (`data.rs`); turns on `analytics_tests` loading/errors, `redesign__reports_keep_tabs_fixed_*`, `styles` ui 2, `compact`, `connection`.
+4. Overview: `summary.rs` + `summary_panel.rs` (daily/weekly/cumulative view, `g`), activity heat map (Heatmap, palette by theme); snaps `summary__*` 3, activity_chart 4 + palette 1.
+5. Plot: chart + plot engine (`CustomPaint` after the BarChart trial), selection `▲` and callout, Left/Right; snaps `plot__*` 10 (+ the palette reader),
+   `analytics_tests` series/denominators/refunds snaps.
+6. Reports: Credits, Tokens (business), Messages, Plugins, Skills (tool panel, details on Enter), Chats (business table + details; consumer tasks with
+   `s` metric), Plan (periods, 12-hour clocks); snaps `chats_table__*` 2, `consumer_refresh__*` 1, `plan__*` 3 + ui 3, `recovery__*` 2.
+7. Modes, keys, mouse: Enter focus / `z` dashboard (cards, 1-2 columns), `?` help, per-surface scroll controllers, PgUp/PgDn, Home/End, Tab/BackTab,
+   digits 1-7, q / Ctrl+C / Esc; mouse tab and control taps, wheel on the body (ADR-011, `rtwk_test` mouse tests); `navigation` ui 2, `dashboard__*` 1,
+   `redesign__narrow_help`, mouse/navigation logic tests as page tests.
+8. Host service: `host/src/analytics.rs` (session from config, identity check around each request, cache by (report, start, end), plan routing,
+   timeouts 30/60/90/120 s, `request_error` texts, `thread/list` roots + estimates for Chats, profile), `Command::Usage`, fake host answers; `R`
+   refresh, stale generation dropped, close aborts; `client__live_account_identity_*` snap; client/connection/runtime_auth logic tests where they test our code.
+9. Usage menu + reset credits: `src/sheets/usage_menu/` (menu, picker sorted by soonest expiry, confirmation with backend copy and one idempotency key per
+   credit, in-flight not dismissible, success/failure/already-redeemed, post-consume refresh), startup reset hint; core `usage/reset.rs` state with
+   request ids; unpend `chat_live_6.rs:12-394`. Needs status-card step 3 (origins, `rate_limit_reset_credits`).
+10. Final: shard 46 green or `pending(Gxx)` on open rows, chat_live_6 reset 21 + 5 n/a, logic tests counted in the pack, parity pack, pty run of `/usage`
+    beside the oracle (keys and mouse on the main path).
 
-## 7. Gaps and risks
-- Charts: rtwk-data BarChart stacked series + selection callout + signed baseline chart: unverified (TODO (recon cut short): read `rtwk-data` `BarChart`/`Chart` before chunk 2; candidate gap rows: stacked/segmented partial cells, per-bar selection callout, axis thinning).
-- Heat map is Text rows; the oracle's `activity_chart` palette (`palette.rs` + 143 lines of tests) has light/dark scales: use theme tokens, no literal colours (rule).
-- `codex-backend-client` is not in the host's dependency set: adding a crate dependency = Cargo.toml change in `host/` (startup-rest area); and "backend crates are used as they are".
-- 144 oracle tests have no shard: nothing measures parity automatically; decide whether the orchestrator wants a generated shard (cheap) before chunk 2.
-- Tab set per account kind (Business/Enterprise/Consumer) changes which reports exist: our `Report::ALL` is fixed: model it as `visible_reports(account_kind)`.
-- TODO (recon cut short): `summary.rs`/`summary_panel.rs` vs our overview (insights wording), `controls.rs` key map, `navigation_tests.rs` keys, `chat_panel.rs` details, `sections.rs` ordering, `tests/pages/usage.rs` content.
+## 7. Gaps, risks, decisions
+- Charts: rtwk-data `BarChart` lacks stacked segments / y ticks / selection mark; route = `CustomPaint` (G40 precedent), not a gap unless a cell cannot
+  be drawn. `reuse-map.md:67,101` still says "REPLACE plots by rtwk-data, divergence for the person to approve": superseded by the 2026-11-18 no-delta
+  ruling; the brief assumes cell parity.
+- Two snaps join two frames with a newline (`redesign_tests.rs:19`, others): compare each half with `assert_snap_region`; the plot snaps carry a
+  `sign=` prelude: compare from the row after it.
+- Plan-kind data needs a real ChatGPT account for the pty run: run with the fake host fixtures and say so in the pack.
+- Host dependency `codex-backend-client` (backend crate used as is) is new to `host/Cargo.toml`: one commit, named in the handover.
+- Decision for the person, open as "analytics generated shard": generate it. Recommendation: yes. Evidence: one rule line in `shards.py`; 46 screen
+  tests fit one shard; every snap is a whole `AnalyticsView` screen at a fixed size, the kit's native compare; without it nothing measures this page,
+  the only big page with no shard. Cost: a palette reader in the kit for the 10 plot snaps.
+- Decision for the orchestrator: one porter or two. Recommendation: two, in parallel. Files are disjoint (usage: `screens/usage*`, `pages/usage`,
+  `sheets/usage_menu`, `host/src/analytics.rs`, shard `usage`; status-card: `screens/status*`, `cells/status`, shard `status`); they meet only in
+  app-level lines (`app.rs` Command/AppCtx, `in_process.rs` arms, `protocol/mod.rs` rate-limit decode, `session.rs` refresh origin). Status-card owns
+  the rate-limit plumbing (its step 3); usage step 9 lands after it; usage steps 1-7 need nothing from anyone, step 8 needs the keymap porter's
+  `app.rs`/`in_process.rs` landed. One porter carrying both would serialise ~230 tests behind the running status-card job.
+- Decision for the orchestrator: the 26 usage/reset functions of `chat_live_6.rs` go to this porter (chat-live brief C9 already sets them apart).

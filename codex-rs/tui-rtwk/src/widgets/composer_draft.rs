@@ -22,10 +22,26 @@ use std::rc::Rc;
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
 use codex_tui_core::screens::composer;
+use codex_tui_core::screens::composer::history::{
+    History as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
+};
+use codex_tui_core::screens::composer::mentions::rebind::find_next_mention_token_range;
+use codex_tui_core::screens::composer::mentions::session::Binding;
+use codex_tui_core::screens::composer::mentions::task::valid_thread_path;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::threads::{LocalImage, UserMessage};
 
 use crate::services::images;
+
+mod clipboard;
+mod mentions;
+mod remote;
+mod restricted;
+mod search;
+mod vim;
+
+pub use mentions::Mentions;
+pub use vim::{Snapshot, VimHost};
 
 /// One atomic element of the text: the bytes `start..end` show `label`
 /// and stand for `payload` on submit.
@@ -41,6 +57,9 @@ pub struct Element {
     /// When it was attached: images are numbered in this order
     /// (`AttachmentState::relabel_local_images`).
     pub seq: u64,
+    /// What a picked `$skill`, `@plugin` or task mention stands for
+    /// (`ComposerMentionBinding`), `None` for a paste or an image.
+    pub binding: Option<Binding>,
 }
 
 #[derive(Default)]
@@ -53,13 +72,10 @@ struct Inner {
     /// What the last `Ctrl+K` / `Ctrl+W` killed (`textarea.rs`
     /// `kill_buffer`), put back by `Ctrl+Y`, with the elements it held.
     kill: Option<(String, Vec<Element>)>,
-    /// The history entry Up and Down last recalled, and its text
-    /// (`chat_composer_history.rs`: `history_cursor`, `last_history_text`).
-    recalled: Option<(usize, String)>,
-    /// The drafts this composer submitted or cleared with placeholders in
-    /// them, by the text they sent: Up brings an entry back with its
-    /// placeholders (`HistoryEntry::pending_pastes`).
-    local: Vec<Local>,
+    /// The prompts history of this composer: what it sent or cleared, the
+    /// walk of Up and Down and the Ctrl+R search over them and the file's
+    /// (`ChatComposerHistory`; the file is the app's `Store`).
+    prompts: Prompts,
     /// Shell mode (`is_bash_mode`): a `!` typed at the draft's start left
     /// the text and became the prompt; a submit sends it back in front.
     shell: bool,
@@ -70,14 +86,20 @@ struct Inner {
     /// The paste-burst detector (`draft.paste_burst`): keys that arrive as
     /// fast as a paste are held and go in as one paste.
     burst: PasteBurst,
-}
-
-/// A local history entry with its elements.
-#[derive(Clone, Debug)]
-struct Local {
-    sent: String,
-    text: String,
-    elements: Vec<Element>,
+    /// Modal (Vim) editing: the engine, the register's kind, the undo
+    /// history and the search query.
+    vim: vim::Modal,
+    /// Reverse history search (Ctrl+R), while it is open.
+    search: Option<search::Session>,
+    /// The mention popups (`@`, `$`): rows, highlight and scroll.
+    mentions: Mentions,
+    /// The remote images above the text and the row selected.
+    remote: remote::Remote,
+    /// The Ctrl+V the draft waits an answer for.
+    clipboard: clipboard::Waiting,
+    /// Counts the changes of that search: a page that shows its footer asks
+    /// whether it is the one it drew (`ComposerDraft::search_rev`).
+    search_rev: u64,
 }
 
 /// The draft's elements and kill ring, shared by every clone (a handle,
@@ -100,6 +122,11 @@ impl std::fmt::Debug for ComposerDraft {
 }
 
 impl ComposerDraft {
+    /// The mention popups of this draft (a handle).
+    pub fn mentions(&self) -> Mentions {
+        self.0.borrow().mentions.clone()
+    }
+
     /// A mention completion `text` (`… $skill `, `… @file `) was put in
     /// before the caret with a separator space of its own. As the oracle's
     /// `advance_past_completion_separator`: a plain space already after the
@@ -264,7 +291,14 @@ impl ComposerDraft {
     /// Puts an element showing `label` for `payload` in place of the
     /// selection, the caret after it.
     pub fn insert_element(&self, c: &TextEditingController, label: &str, payload: &str) {
-        self.insert_with(c, label, payload, None);
+        self.insert_with(c, label, payload, None, None);
+    }
+
+    /// Puts the mention `text` (`$skill`, `@plugin`) in place of the
+    /// selection as one atomic element, the caret after it; `binding` is
+    /// what it stands for on submit (`insert_selected_mention`).
+    pub fn insert_mention(&self, c: &TextEditingController, text: &str, binding: Option<Binding>) {
+        self.insert_with(c, text, text, None, binding);
     }
 
     /// Attaches the image file `path` at the selection as the next
@@ -280,8 +314,8 @@ impl ComposerDraft {
             .iter()
             .filter(|e| e.image.is_some())
             .count();
-        let label = image(images + 1);
-        self.insert_with(c, &label, &label, Some(Rc::new(path)));
+        let label = image(self.remote_count() + images + 1);
+        self.insert_with(c, &label, &label, Some(Rc::new(path)), None);
     }
 
     fn insert_with(
@@ -290,6 +324,7 @@ impl ComposerDraft {
         label: &str,
         payload: &str,
         image: Option<Rc<PathBuf>>,
+        binding: Option<Binding>,
     ) {
         self.sync(c);
         let selection = c.selection();
@@ -309,6 +344,7 @@ impl ComposerDraft {
                 payload: Rc::from(payload),
                 image,
                 seq,
+                binding,
             },
         );
     }
@@ -324,8 +360,9 @@ impl ComposerDraft {
             .collect();
         by_seq.sort_by_key(|&i| elements[i].seq);
         let mut want: Vec<Option<String>> = vec![None; elements.len()];
+        let remote = self.remote_count();
         for (rank, &i) in by_seq.iter().enumerate() {
-            let label = image(rank + 1);
+            let label = image(remote + rank + 1);
             if *elements[i].label != *label {
                 want[i] = Some(label);
             }
@@ -549,7 +586,10 @@ impl ComposerDraft {
             })
             .collect();
         let text = c.text()[from..to].to_string();
-        self.0.borrow_mut().kill = Some((text, held));
+        let mut inner = self.0.borrow_mut();
+        inner.kill = Some((text, held));
+        // a kill pastes as characters; Vim's linewise yank says otherwise after
+        inner.vim.register_kind = Default::default();
     }
 
     /// Puts the last kill back at the caret, its elements whole; `false`
@@ -566,7 +606,7 @@ impl ComposerDraft {
             if at < e.start {
                 c.insert(&text[at..e.start]);
             }
-            self.insert_with(c, &e.label, &e.payload, e.image.clone());
+            self.insert_with(c, &e.label, &e.payload, e.image.clone(), e.binding.clone());
             at = e.end;
         }
         if at < text.len() {
@@ -577,111 +617,338 @@ impl ComposerDraft {
 }
 
 impl ComposerDraft {
-    /// Whether Up and Down walk the history now (`should_handle_navigation`):
-    /// on an empty draft, or on the text they recalled last with the caret
-    /// at one of its ends.
-    pub fn walks_history(&self, c: &TextEditingController, entries: usize) -> bool {
-        if entries == 0 {
+    /// Up (`up`) or Down at the draft's ends (`navigate_up`,
+    /// `navigate_down`, behind `should_handle_navigation`): the entry it
+    /// finds replaces the draft, caret at its end. A persistent entry the
+    /// store does not hold yet is asked for in `fx` and the draft waits
+    /// for `history_poll`. `false`: the key is the field's (the caret
+    /// moves).
+    pub fn history_step(
+        &self,
+        c: &TextEditingController,
+        store: &Store,
+        up: bool,
+        fx: &mut Vec<Lookup>,
+    ) -> bool {
+        let Some((text, cursor)) = self.navigation(c) else {
             return false;
+        };
+        let entry = {
+            let mut inner = self.0.borrow_mut();
+            if !inner.prompts.should_handle_navigation(store, &text, cursor) {
+                return false;
+            }
+            if up {
+                inner.prompts.navigate_up(store, fx)
+            } else {
+                inner.prompts.navigate_down(store, fx)
+            }
+        };
+        let Some(entry) = entry else {
+            return false;
+        };
+        self.recall(c, entry);
+        true
+    }
+
+    /// Whether Up and Down walk the history from here (an empty draft, or
+    /// the text of the last recall with the caret at an end): no popup
+    /// opens meanwhile, nothing steals the keys of the walk
+    /// (`browsing_history` in `sync_popups`).
+    pub fn history_browsing(&self, c: &TextEditingController, store: &Store) -> bool {
+        let Some((text, cursor)) = self.navigation(c) else {
+            return false;
+        };
+        self.0
+            .borrow()
+            .prompts
+            .should_handle_navigation(store, &text, cursor)
+    }
+
+    /// Whether a read the history asked for is outstanding: the composer
+    /// polls when the store changes.
+    pub fn history_waiting(&self) -> bool {
+        self.0.borrow().prompts.is_waiting()
+    }
+
+    /// The store changed: the entry Up or Down waited for goes into the
+    /// draft; a search's answer is returned for `search_poll`'s owner.
+    /// `true` when the draft or the search changed.
+    pub fn history_poll(
+        &self,
+        c: &TextEditingController,
+        store: &Store,
+        fx: &mut Vec<Lookup>,
+    ) -> bool {
+        use codex_tui_core::screens::composer::history::Response;
+        let response = self.0.borrow_mut().prompts.poll(store, fx);
+        match response {
+            Some(Response::Found(entry)) => {
+                self.recall(c, entry);
+                true
+            }
+            Some(Response::Search(result)) => {
+                self.search_result(c, result);
+                true
+            }
+            Some(Response::Ignored) | None => false,
         }
-        let text = c.text();
-        if text.is_empty() {
-            return true;
-        }
+    }
+
+    /// What the walk sees of the draft: its text as the oracle's
+    /// `current_text()` (shell mode's `!` in front) and the caret in it
+    /// (`history_navigation_cursor`: Vim's Normal mode rests on the last
+    /// character, which counts as the end). None while text is selected.
+    fn navigation(&self, c: &TextEditingController) -> Option<(String, usize)> {
         let selection = c.selection();
         if !selection.is_collapsed() {
-            return false;
+            return None;
         }
-        let caret = selection.extent_offset;
-        if caret != 0 && caret != text.len() {
-            return false;
-        }
-        matches!(&self.0.borrow().recalled, Some((_, last)) if **last == *text)
-    }
-
-    /// Up: the entry before the one recalled (the newest first), its text
-    /// in the draft with the caret at its end; `false` at the oldest
-    /// (`navigate_up`).
-    pub fn history_up(&self, c: &TextEditingController, history: &[String]) -> bool {
-        let at = match self.0.borrow().recalled {
-            None => history.len().checked_sub(1),
-            Some((0, _)) => None,
-            Some((i, _)) => Some(i - 1),
-        };
-        let Some(at) = at else {
-            return false;
-        };
-        self.recall(c, at, &history[at]);
-        true
-    }
-
-    /// Down: the entry after the one recalled, or past the newest an empty
-    /// draft and the walk over; `false` when not walking (`navigate_down`).
-    pub fn history_down(&self, c: &TextEditingController, history: &[String]) -> bool {
-        let Some((i, _)) = self.0.borrow().recalled.clone() else {
-            return false;
-        };
-        if i + 1 < history.len() {
-            self.recall(c, i + 1, &history[i + 1]);
+        let shell = self.shell();
+        let text = c.text();
+        let full = if shell {
+            format!("!{text}")
         } else {
-            {
-                let mut inner = self.0.borrow_mut();
-                inner.recalled = None;
-                inner.shell = false;
-            }
-            self.clear();
-            c.set_text("");
-        }
-        true
+            text.to_string()
+        };
+        let caret = selection.extent_offset;
+        let cursor = if shell && caret == 0 {
+            0
+        } else if !text.is_empty()
+            && self.0.borrow().vim.vim.is_normal()
+            && caret == self.vim_end(c)
+        {
+            full.len()
+        } else {
+            caret + usize::from(shell)
+        };
+        Some((full, cursor))
     }
 
-    fn recall(&self, c: &TextEditingController, at: usize, entry: &str) {
-        let local = {
-            let inner = self.0.borrow();
-            inner.local.iter().rev().find(|l| l.sent == entry).cloned()
+    /// The caret at the draft's end, where a recalled entry or an accepted
+    /// search match leaves it; Vim's Normal mode rests on the last
+    /// character instead (the textarea clamps it).
+    pub(super) fn rest_at_end(&self, c: &TextEditingController) {
+        let end = c.text().len();
+        let at = if end > 0 && self.0.borrow().vim.vim.is_normal() {
+            self.vim_end(c)
+        } else {
+            end
         };
-        // `imported_text_for_textarea`: a leading `!` is shell mode again.
-        let shell = entry.starts_with('!');
-        let (text, elements) = match local {
-            Some(l) => (l.text, l.elements),
-            None if shell => (entry[1..].to_string(), Vec::new()),
-            None => (entry.to_string(), Vec::new()),
-        };
+        c.set_selection(TextSelection::collapsed(at));
+    }
+
+    /// The caret that stands for the last item in Vim's Normal mode
+    /// (`vim_normal_end_cursor`): the start of the last character or
+    /// element.
+    fn vim_end(&self, c: &TextEditingController) -> usize {
+        let len = c.text().len();
+        match self.ending_at(c, len) {
+            Some(e) => e.start,
+            None => c.buffer().character_start_before(len),
+        }
+    }
+
+    /// The draft as a history entry: the text as it shows (`!` in front in
+    /// shell mode) with its placeholders, the images they stand for and the
+    /// pastes (`clear_for_ctrl_c`).
+    fn kept_entry(&self, c: &TextEditingController) -> HistoryEntry {
+        let skip = usize::from(self.shell());
+        let mut entry = HistoryEntry::new(if skip == 1 {
+            format!("!{}", c.text())
+        } else {
+            c.text().to_string()
+        });
+        for e in self.elements(c) {
+            entry.text_elements.push(TextElement {
+                start: e.start + skip,
+                end: e.end + skip,
+                placeholder: Some(e.label.to_string()),
+            });
+            match (&e.image, &e.binding) {
+                (Some(path), _) => entry.local_image_paths.push((**path).clone()),
+                (None, Some(binding)) => entry.mention_bindings.push(MentionBinding {
+                    sigil: binding.sigil,
+                    mention: binding.mention.clone(),
+                    path: binding.path.clone(),
+                }),
+                (None, None) => entry
+                    .pending_pastes
+                    .push((e.label.to_string(), e.payload.to_string())),
+            }
+        }
+        entry.remote_image_urls = self.remote_images();
+        entry
+    }
+
+    /// The draft as the submit sends it, as a history entry: pastes
+    /// expanded, the image placeholders kept (`prepare_submission_text`
+    /// records the expanded text).
+    fn sent_entry(&self, c: &TextEditingController) -> HistoryEntry {
+        let (text, placed) = self.expand(c);
+        let mut entry = HistoryEntry::new(text);
+        for (range, e) in placed {
+            if let Some(path) = &e.image {
+                entry.text_elements.push(TextElement {
+                    start: range.start,
+                    end: range.end,
+                    placeholder: Some(e.label.to_string()),
+                });
+                entry.local_image_paths.push((**path).clone());
+            } else if let Some(binding) = &e.binding {
+                entry.mention_bindings.push(MentionBinding {
+                    sigil: binding.sigil,
+                    mention: binding.mention.clone(),
+                    path: binding.path.clone(),
+                });
+            }
+        }
+        entry.remote_image_urls = self.remote_images();
+        entry
+    }
+
+    /// `entry` put in the draft's place (`apply_history_entry`): its text
+    /// without a leading `!` (shell mode again, `imported_text_for_textarea`),
+    /// its placeholders as elements with the payload or the image they
+    /// stand for, the caret at the end, and the text noted as the one the
+    /// walk goes on from.
+    pub(super) fn recall(&self, c: &TextEditingController, entry: HistoryEntry) {
+        let shell = entry.text.starts_with('!');
+        let skip = usize::from(shell);
+        let text = entry.text[skip..].to_string();
+        let mut images = entry.local_image_paths.iter();
+        let mut elements = Vec::new();
+        for e in &entry.text_elements {
+            let (Some(start), Some(end)) = (e.start.checked_sub(skip), e.end.checked_sub(skip))
+            else {
+                continue;
+            };
+            let Some(label) = text.get(start..end) else {
+                continue;
+            };
+            let label: Rc<str> = Rc::from(label);
+            let paste = entry.pending_pastes.iter().find(|(p, _)| **p == *label);
+            let (payload, image) = if let Some((_, payload)) = paste {
+                (Rc::from(payload.as_str()), None)
+            } else if let Some(path) = images.next() {
+                (label.clone(), Some(Rc::new(path.clone())))
+            } else {
+                continue;
+            };
+            elements.push(Element {
+                start,
+                end,
+                label,
+                payload,
+                image,
+                seq: 0,
+                binding: None,
+            });
+        }
+        bind_mentions(&text, &entry, skip, &mut elements);
         self.clear();
         self.set_shell(shell);
         c.set_text(&text);
         {
             let mut inner = self.0.borrow_mut();
-            inner.recalled = Some((at, text.clone()));
+            for e in &mut elements {
+                e.seq = inner.next_seq;
+                inner.next_seq += 1;
+            }
             inner.elements = elements;
             inner.seen = Some(c.buffer());
+            inner.remote.urls = entry.remote_image_urls.clone();
+            inner.remote.selected = None;
+            // a recalled entry is a new draft: Vim's undo steps were of the old one
+            inner.vim.history.reset();
         }
-        c.set_selection(TextSelection::collapsed(text.len()));
+        self.rest_at_end(c);
+        let shown = if shell { format!("!{text}") } else { text };
+        self.0.borrow_mut().prompts.record_recalled_text(shown);
     }
 
     /// The composer cleared (the thread took the submit, a command opened a
-    /// screen, `Ctrl+C`): the placeholders stay with the entry it sent
-    /// (`record_local_submission`), the history walk is over and shell mode
-    /// left. A submit the thread did not take clears nothing, and keeps all
-    /// of it.
+    /// screen): the line it sent is kept for Up and Ctrl+R with its
+    /// pastes expanded (`record_local_submission`), the history walk is
+    /// over and shell mode left. A submit the thread did not take clears
+    /// nothing, and keeps all of it.
     pub fn cleared(&self, c: &TextEditingController) {
-        let elements = self.elements(c);
-        let sent = self.expanded(c);
-        let mut inner = self.0.borrow_mut();
-        inner.recalled = None;
-        inner.shell = false;
-        if !elements.is_empty() {
-            inner.local.push(Local {
-                sent,
-                text: c.text().to_string(),
-                elements,
-            });
+        let entry = self.sent_entry(c);
+        self.clear_into_history(c, entry);
+    }
+
+    /// A command line the composer keeps because it was refused (a command
+    /// while a task runs, `/review` validated by dispatch): the line is in
+    /// the local recall and stays in the composer, to be corrected
+    /// (`record_pending_slash_command_history`).
+    pub fn recorded(&self, c: &TextEditingController) {
+        let entry = self.sent_entry(c);
+        self.0.borrow_mut().prompts.record_local_submission(entry);
+    }
+
+    /// Ctrl+C on a draft (`clear_for_ctrl_c`): the draft is kept for Up and
+    /// Ctrl+R whole, its placeholders and what they stand for with it.
+    pub fn cancelled(&self, c: &TextEditingController) {
+        let entry = self.kept_entry(c);
+        self.clear_into_history(c, entry);
+    }
+
+    fn clear_into_history(&self, c: &TextEditingController, entry: HistoryEntry) {
+        {
+            let mut inner = self.0.borrow_mut();
+            inner.shell = false;
+            inner.remote = remote::Remote::default();
+            inner.vim.history.reset();
+            inner.prompts.reset_navigation();
+            inner.prompts.record_local_submission(entry);
         }
+        self.vim_reset_mode(c);
     }
 }
 
 /// The changed part of `b` against `a`: `(start, old_end, new_end)` after
 /// the common head and tail, on character boundaries.
+/// The mentions of `entry` as elements of `text` again
+/// (`bind_mentions_from_snapshot`): a task's where the entry's text
+/// elements hold its token, any other at the next place its token stands as
+/// a word of its own; each after the one before.
+fn bind_mentions(text: &str, entry: &HistoryEntry, skip: usize, elements: &mut Vec<Element>) {
+    let mut scan_from = 0;
+    for binding in &entry.mention_bindings {
+        let token = format!("{}{}", binding.sigil, binding.mention);
+        let range = if valid_thread_path(&binding.path).is_some() {
+            entry
+                .text_elements
+                .iter()
+                .filter_map(|e| Some(e.start.checked_sub(skip)?..e.end.checked_sub(skip)?))
+                .find(|r| r.start >= scan_from && text.get(r.clone()) == Some(token.as_str()))
+        } else {
+            find_next_mention_token_range(text, &token, scan_from)
+        };
+        let Some(range) = range else { continue };
+        let taken = elements
+            .iter()
+            .any(|e| e.start < range.end && range.start < e.end);
+        if !taken {
+            elements.push(Element {
+                start: range.start,
+                end: range.end,
+                label: Rc::from(token.as_str()),
+                payload: Rc::from(token.as_str()),
+                image: None,
+                seq: 0,
+                binding: Some(Binding {
+                    sigil: binding.sigil,
+                    mention: binding.mention.clone(),
+                    path: binding.path.clone(),
+                }),
+            });
+        }
+        scan_from = range.end;
+    }
+    elements.sort_by_key(|e| e.start);
+}
+
 fn changed(a: &str, b: &str) -> (usize, usize, usize) {
     let head = a
         .char_indices()

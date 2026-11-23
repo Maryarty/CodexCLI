@@ -19,14 +19,44 @@ pub struct Citation {
     pub path: String,
 }
 
+/// One directive the oracle reads out of an assistant message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Directive {
+    Citation(Citation),
+    Followup(super::followups::Followup),
+}
+
+impl Directive {
+    /// The directive's bytes in the source.
+    pub fn range(&self) -> &Range<usize> {
+        match self {
+            Self::Citation(citation) => &citation.range,
+            Self::Followup(followup) => &followup.range,
+        }
+    }
+}
+
 /// The citations of `input` in source order. A directive that is escaped
 /// (an odd run of backslashes before it), follows a colon, or lies inside
 /// another directive is not one; neither is one without a path. Where a
 /// citation stands in code, HTML, a link or a reference definition is not
 /// known here: those are the parser's, and the view puts the text back.
 pub fn citations(input: &str) -> Vec<Citation> {
+    directives(input)
+        .into_iter()
+        .filter_map(|found| match found {
+            Directive::Citation(citation) => Some(citation),
+            Directive::Followup(_) => None,
+        })
+        .collect()
+}
+
+/// The directives of `input` in source order, one scan for both kinds
+/// (oracle `InlineDirectives::new`): the offsets are the source's, a
+/// directive after a colon, inside another one or escaped is not one.
+pub fn directives(input: &str) -> Vec<Directive> {
     let mut found = Vec::new();
-    if !input.contains("codex-file-citation") {
+    if !input.contains("codex-file-citation") && !input.contains(":codex-followup[") {
         return found;
     }
     let mut directive_end = 0;
@@ -66,18 +96,33 @@ pub fn citations(input: &str) -> Vec<Citation> {
             .count()
             % 2
             != 0;
-        if escaped || directive.name != "codex-file-citation" {
+        if escaped {
             continue;
         }
-        if let Some(path) = directive
-            .attributes
-            .get("path")
-            .filter(|path| !path.is_empty())
-        {
-            found.push(Citation {
-                range: start..end,
-                path: path.to_string(),
-            });
+        match directive.name {
+            "codex-file-citation" => {
+                if let Some(path) = directive
+                    .attributes
+                    .get("path")
+                    .filter(|path| !path.is_empty())
+                {
+                    found.push(Directive::Citation(Citation {
+                        range: start..end,
+                        path: path.to_string(),
+                    }));
+                }
+            }
+            "codex-followup" => {
+                if directive.raw.starts_with(":codex-followup[")
+                    && let Some(label) = directive.label.filter(|label| !label.trim().is_empty())
+                {
+                    found.push(Directive::Followup(super::followups::Followup {
+                        range: start..end,
+                        label: label.to_string(),
+                    }));
+                }
+            }
+            _ => {}
         }
     }
     found
@@ -98,7 +143,7 @@ pub fn label(path: &str, cwd: Option<&str>) -> String {
 /// looks local, else joined to `cwd` (`./` without one); `%`, `#` and `?`
 /// are percent-encoded because citation paths are literal, and a trailing
 /// `:line[:col]` has its colons encoded.
-fn destination(path: &str, cwd: Option<&str>) -> String {
+pub(crate) fn destination(path: &str, cwd: Option<&str>) -> String {
     let destination = if is_local_path_like(path) {
         path.to_owned()
     } else {
@@ -118,7 +163,7 @@ fn destination(path: &str, cwd: Option<&str>) -> String {
     destination
 }
 
-fn is_local_path_like(destination: &str) -> bool {
+pub(crate) fn is_local_path_like(destination: &str) -> bool {
     destination.starts_with("file://")
         || destination.starts_with('/')
         || destination.starts_with("~/")
@@ -133,7 +178,7 @@ fn is_local_path_like(destination: &str) -> bool {
 }
 
 /// A trailing `:line`, `:line:col` or range (`:1-2`, `:1:2-3:4`, en dash too).
-fn colon_location_suffix(text: &str) -> Option<&str> {
+pub(crate) fn colon_location_suffix(text: &str) -> Option<&str> {
     // Walk back over the tail made of digits, `:`, `-` and `–`, then take the longest
     // suffix of it that has the shape `:\d+(:\d+)?([-–]\d+(:\d+)?)?`.
     let mut start = text.len();
@@ -175,7 +220,7 @@ fn is_location(text: &str) -> bool {
 
 /// The path text a destination stands for: a `file://` URL's path (`None`
 /// where the URL does not parse), else the destination percent-decoded.
-fn target(destination: &str) -> Option<String> {
+pub(crate) fn target(destination: &str) -> Option<String> {
     let Some(rest) = destination.strip_prefix("file://") else {
         return Some(percent_decode(destination).into_owned());
     };
@@ -198,7 +243,7 @@ fn target(destination: &str) -> Option<String> {
     )
 }
 
-fn percent_decode(text: &str) -> Cow<'_, str> {
+pub(crate) fn percent_decode(text: &str) -> Cow<'_, str> {
     if !text.contains('%') {
         return Cow::Borrowed(text);
     }
@@ -229,7 +274,7 @@ fn percent_decode(text: &str) -> Cow<'_, str> {
 }
 
 /// Forward slashes only; `\\server\share` becomes `//server/share`.
-fn normalize(path: &str) -> String {
+pub(crate) fn normalize(path: &str) -> String {
     match path.strip_prefix("\\\\") {
         Some(rest) => format!("//{}", rest.replace('\\', "/").trim_start_matches('/')),
         None => path.replace('\\', "/"),
@@ -266,7 +311,7 @@ fn strip_cwd<'a>(path: &'a str, cwd: &str) -> Option<&'a str> {
         .and_then(|rest| rest.strip_prefix('/'))
 }
 
-fn display(path: &str, cwd: Option<&str>) -> String {
+pub(crate) fn display(path: &str, cwd: Option<&str>) -> String {
     let path = normalize(path);
     if !is_absolute(&path) {
         return path;

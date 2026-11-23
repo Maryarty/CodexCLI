@@ -6,46 +6,53 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rtwk::binding::TerminalTitle;
-use rtwk::controls::{Callout, Hyperlink, StatusKind};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
-use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
-use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::foundation::ListenableBuilder;
+use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack, StackFit};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
+use rtwk::navigation::{Navigator, PageRoute, Route};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
-use rtwk::style::Theme;
-use rtwk::text::TextOverflow;
+use rtwk::style::{Style, Theme};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::app::{ConnectionState, RequestQueue, Session, SessionSlice};
+use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
-use codex_tui_core::screens::popovers::{Direction, SearchStatus};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
+use codex_tui_core::screens::backtrack::{EscStep, Targets};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat};
+use codex_tui_core::threads::{Note, ThreadModel};
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
-use crate::pages::session::composer::footer::with_shell_mode;
-use crate::pages::session::composer::footer::{FooterLine, footer};
 use crate::pages::session::composer::{Composer, clear_sent, submission};
+use crate::pages::session::footer::{Footer, Line, StatusRows};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
-use crate::widgets::thread_ui::ThreadUi;
+use crate::widgets::status_line::{Notice, status_spans, with_warning_notice};
+use crate::widgets::thread_ui::{Modes, ThreadUi};
 
 use super::actions::*;
-use super::activity::Activity;
-use super::search_key::*;
-use super::status_surfaces::StatusContext;
-use super::transcript_pane::TranscriptPane;
+use super::activity::{Run, StatusSlot};
+use super::backtrack::{self, EditWatch};
+use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
+use super::live::browse::{self, Browse};
+use super::live::plan_mode::Seen as PlanSeen;
+use super::live::put_back;
+
+use super::status_surfaces::{StatusContext, TitleInputs};
+use super::transcript;
+use super::transcript_pane::Pane;
+
+/// The window height under which the chat draws nothing.
+const HIDDEN_BELOW_ROWS: i32 = 4;
 
 /// The chat screen of one thread's controllers.
 #[derive(Clone)]
@@ -63,14 +70,25 @@ impl PartialEq for Chat {
 /// last submit the model accepted (ids only, R14).
 pub struct ChatState {
     seen: Option<(ThreadId, Option<Ticket>)>,
-    /// Escape was pressed on an empty composer: the next one starts
-    /// backtrack (`app_backtrack.rs`).
-    esc_primed: bool,
+    /// The last restore (`Restore::seq`) the composer took from the model: a
+    /// number is applied once, in the thread that made it.
+    restored: Option<(ThreadId, Option<u64>)>,
+    /// The same for the prompt an edit of the transcript's backtrack put back
+    /// (the edit of a past prompt).
+    edited: Option<(ThreadId, Option<u64>)>,
+    /// The "Implement this plan?" questions the page has opened.
+    plan: PlanSeen,
+    /// How many removals (the app counts them) the chat has answered with
+    /// the command center.
+    removed: Option<u32>,
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
-    detailed_transcript: bool,
     draft_empty: bool,
+    /// The revision of the composer's reverse history search (Ctrl+R) this
+    /// page drew: its footer stands in the key footer's place, and a change of
+    /// the search draws the page again.
+    search_rev: u64,
     /// The composer is in shell mode: the footer label, no submit by the queue key.
     draft_shell: bool,
     /// The composer's focus node: the page sees `?` and `←` before the field
@@ -82,34 +100,61 @@ pub struct ChatState {
     /// The backend control is visible, so its chord (`change_host`, `Ctrl+X
     /// b`) is live; read by the key handler.
     control: Rc<Cell<bool>>,
+    /// The backend banner and the page: what it shows, and its rows' cursor.
+    banner: BannerGate,
+    /// A turn runs and the shortcut overlay is open: the banner's keys wait
+    /// (`handle_inline_banner_key`); written by the build, read by the key
+    /// handler.
+    banner_blocked: Rc<Cell<BannerBlocked>>,
     /// The composer of the thread the chat shows now (the page outlives a
     /// switch of thread; lifecycle updates keep the key handler current).
     composer: Rc<RefCell<TextEditingController>>,
     /// Its draft: the two shortcuts wait while keys are held as a paste.
     draft: Rc<RefCell<ComposerDraft>>,
+    /// The modes of its transcript: browsing the prompts takes keys before
+    /// the field does.
+    modes: Rc<RefCell<Modes>>,
+}
+
+/// What keeps the banner's keys from the banner (`handle_inline_banner_key`).
+#[derive(Clone, Copy, Debug, Default)]
+struct BannerBlocked {
+    /// A turn runs: the number keys and Esc are the turn's.
+    running: bool,
+    /// The shortcut overlay is open: Esc closes it.
+    overlay: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatMsg {
+    /// A row of the banner of `Ticket` was chosen (its number key).
+    BannerPick(BackendId, Ticket, usize),
+    /// Esc dismissed the banner of `Ticket`.
+    BannerDismiss(BackendId, Ticket),
     /// `change_host`: the empty conversation moves to the next backend.
     Cycle,
     Submit(Rc<str>),
     QueueDraft,
+    /// The edit-queued key: the newest queued message goes back to the composer.
+    EditQueued,
+    /// The reasoning shortcuts: a step down or up (`handle_reasoning_shortcut`).
+    Reasoning(codex_tui_core::screens::select::reasoning::Direction),
     CtrlC,
     RetryWriter,
     ForkWriter,
     QuitReadOnly,
     CtrlD,
-    DismissBanner(BackendId, Ticket),
     /// The hidden key: the debug menu over the chat.
     DebugMenu,
     /// A key action of the chat (`keys::defaults`).
     Action(Action),
+    /// PageUp (-1) and PageDown (1): the transcript a page.
+    Page(i8),
+    /// A key of the mode that browses the prompts.
+    Browse(Browse),
     /// A suggestion was put in: a command is run, the others are text.
     Picked(Rc<str>),
     Escape,
-    /// A key of history search.
-    Search(SearchKey),
     /// `?`: the shortcut overlay (the footer's hint).
     Shortcuts,
     /// `←` on an empty composer: the agents page (the footer's hint).
@@ -124,16 +169,22 @@ impl StatefulWidget for Chat {
     fn create_state(&self) -> ChatState {
         ChatState {
             seen: None,
-            esc_primed: false,
+            restored: None,
+            edited: None,
+            plan: PlanSeen::default(),
+            removed: None,
             shortcuts: false,
-            detailed_transcript: false,
             draft_empty: self.ui.composer.text().is_empty(),
+            search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
+            banner: BannerGate::new(),
+            banner_blocked: Rc::new(Cell::new(BannerBlocked::default())),
             composer: Rc::new(RefCell::new(self.ui.composer.clone())),
             draft: Rc::new(RefCell::new(self.ui.draft.clone())),
+            modes: Rc::new(RefCell::new(self.ui.modes.clone())),
         }
     }
 }
@@ -142,8 +193,10 @@ impl_widget!(stateful eq Chat);
 
 impl ChatState {
     /// What the page keeps of the draft (the footer and the Tab binding
-    /// read it): empty (shell mode's `!` is content) and in shell mode.
+    /// read it): empty (shell mode's `!` is content), in shell mode, in
+    /// history search.
     fn sync_draft(&mut self, w: &Chat) {
+        self.search_rev = w.ui.draft.search_rev();
         self.draft_shell = w.ui.draft.shell();
         self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
     }
@@ -160,8 +213,21 @@ impl State for ChatState {
         let send = cx.local_sender();
         let composer = self.composer.clone();
         let draft = self.draft.clone();
+        let modes = self.modes.clone();
         let (leader, control) = (self.leader.clone(), self.control.clone());
+        let (banner, blocked) = (self.banner.clone(), self.banner_blocked.clone());
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            // browsing the prompts: its keys come first, any other key ends it
+            // and goes on to the field
+            if modes.borrow().browsing() {
+                match browse::key(&key) {
+                    Some(step) => {
+                        send(ChatMsg::Browse(step));
+                        return KeyEventResult::Handled;
+                    }
+                    None => send(ChatMsg::Browse(Browse::Leave)),
+                }
+            }
             // `change_host` is the leader chord `Ctrl+X b`, live while the
             // backend control shows (`visible_new_backend_control`), and it
             // works with a draft in the composer.
@@ -177,6 +243,39 @@ impl State for ChatState {
                 }
             } else {
                 leader.set(false);
+            }
+            if let Some(pages) = transcript::follow::pager_key(&key, &composer.borrow()) {
+                send(ChatMsg::Page(pages));
+                return KeyEventResult::Handled;
+            }
+            // The banner's numbers and Esc: only on an empty composer, off a
+            // paste, with no turn running and no modifier
+            // (`handle_inline_banner_key`; a popup needs text in the field).
+            if composer.borrow().text().is_empty()
+                && !draft.borrow().in_burst()
+                && key.mods.is_empty()
+                && let Some(shown) = banner.keys.get().backend
+                && !blocked.get().running
+            {
+                let keys = banner.keys.get();
+                match (key.code, key.text()) {
+                    (KeyCode::Escape, _) if keys.dismissible && !blocked.get().overlay => {
+                        send(ChatMsg::BannerDismiss(shown.0, shown.1));
+                        return KeyEventResult::Handled;
+                    }
+                    (KeyCode::Char, Some(digit)) => {
+                        if let Some(row) = digit
+                            .parse::<usize>()
+                            .ok()
+                            .filter(|n| (1..=keys.actions).contains(n))
+                        {
+                            banner.options.set(row - 1);
+                            send(ChatMsg::BannerPick(shown.0, shown.1, row - 1));
+                            return KeyEventResult::Handled;
+                        }
+                    }
+                    _ => {}
+                }
             }
             // keys held as a paste are the paste's, not the shortcuts'
             // (`is_in_paste_burst`)
@@ -200,9 +299,10 @@ impl State for ChatState {
         if old != w {
             *self.composer.borrow_mut() = w.ui.composer.clone();
             *self.draft.borrow_mut() = w.ui.draft.clone();
+            *self.modes.borrow_mut() = w.ui.modes.clone();
             self.sync_draft(w);
-            self.esc_primed = false;
-            self.detailed_transcript = false;
+            // the thread under the page changed: what it had open closes
+            old.ui.modes.close();
             self.leader.set(false);
         }
     }
@@ -223,6 +323,67 @@ impl State for ChatState {
             self.sync_draft(w);
         }
         self.seen = Some(now);
+        // Messages the model gave back (an interrupt, a failed steer, the
+        // edit-queued key) go into the composer, once each.
+        let restore = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
+            (
+                thread.id().clone(),
+                thread.restore().map(codex_tui_core::threads::Restore::seq),
+            )
+        });
+        if let Some((thread, before)) = &self.restored
+            && *thread == restore.0
+            && *before != restore.1
+            && restore.1.is_some()
+        {
+            let model = read::<ThreadModel, _>(cx);
+            if let Some(restore) = model.restore() {
+                let table = crate::pages::session::composer::strings::of(cx);
+                let draft = w.ui.draft.submission(&w.ui.composer, |n| table.image(n));
+                put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
+                self.sync_draft(w);
+            }
+        }
+        self.restored = Some(restore);
+        // The prompt an edit of the backtrack put back, once (`restore_user_message_to_composer`).
+        let edited = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
+            (
+                thread.id().clone(),
+                thread
+                    .screen_slots()
+                    .backtrack
+                    .restore
+                    .as_ref()
+                    .map(|restore| restore.seq),
+            )
+        });
+        if let Some((thread, before)) = &self.edited
+            && *thread == edited.0
+            && *before != edited.1
+            && edited.1.is_some()
+        {
+            let model = read::<ThreadModel, _>(cx);
+            if let Some(restore) = &model.screen_slots().backtrack.restore {
+                let table = crate::pages::session::composer::strings::of(cx);
+                put_back(&w.ui, &restore.draft.message(), |n| table.image(n));
+                self.sync_draft(w);
+            }
+        }
+        self.edited = Some(edited);
+        self.plan.poll(cx);
+        // The thread was archived or deleted (`/archive`, `/delete`): the chat
+        // is empty again and the command center opens over it
+        // (`return_to_agents_after_removal`); under a sheet it waits until the
+        // chat is in front.
+        let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
+        match self.removed {
+            None => self.removed = Some(removed),
+            Some(before) if removed > before && Route::is_current_of(cx) => {
+                self.removed = Some(removed);
+                open(cx, Target::Agents);
+            }
+            Some(_) => {}
+        }
         let states = watch::<ScreenStates, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
         let thread = read::<ThreadModel, _>(cx);
@@ -234,51 +395,105 @@ impl State for ChatState {
                 thread.read_only(),
                 thread.transcript().is_empty(),
                 thread.queue().len(),
+                thread.pending_steers().len(),
+                thread.rejected_steers().len(),
                 thread.last_error().cloned(),
                 thread.screen_slots().chat.clone(),
                 thread.screen_slots().status.clone(),
             )
         });
-        self.control.set(
-            session.cycle_label(&thread, &states.agents).is_some()
-                && states.popovers.search.is_none(),
-        );
+        self.control
+            .set(session.cycle_label(&thread, &states.agents).is_some() && !w.ui.draft.searching());
+    }
+
+    fn dispose(&mut self) {
+        self.node.set_on_key_event(None);
+        self.banner.options.dispose();
     }
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
+        let modes = &w.ui.modes;
         let previous = (
             self.shortcuts,
-            self.esc_primed,
+            modes.primed(),
             self.draft_empty,
             self.draft_shell,
-            self.detailed_transcript,
+            self.search_rev,
+            modes.detailed(),
         );
+        // any other input between the two Escs ends the pair
         if !matches!(msg, ChatMsg::Escape) {
-            self.esc_primed = false;
+            modes.interrupt();
         }
         match msg {
+            ChatMsg::BannerPick(backend, ticket, row) => {
+                cx.emit(&hs.pick_banner, (backend, ticket, row));
+                return Rebuild::No;
+            }
+            ChatMsg::BannerDismiss(backend, ticket) => {
+                cx.emit(&hs.dismiss_banner, (backend, ticket));
+                return Rebuild::No;
+            }
             ChatMsg::Submit(text) => {
-                // The same Enter may have run it through a popup's pick.
-                if !w.ui.composer.text().is_empty() {
-                    run_line(&text, w, cx, &hs);
+                // The same Enter may have run it through a popup's pick. A
+                // draft in shell mode has the `!` as its mode, not as text: a
+                // bare `!` is the help line (`submit_shell_command`).
+                if !w.ui.composer.text().is_empty() || w.ui.draft.shell() {
+                    run_line(&text, w, cx, &hs, Delivery::Submit);
                     // a command that took the line cleared the composer
                     self.sync_draft(w);
+                } else if !previous.1 {
+                    // an Enter on the empty composer is the reader's way
+                    // back (`empty_enter_returns_to_latest`)
+                    w.ui.follow.jump_to_latest();
+                }
+            }
+            ChatMsg::Page(pages) => w.ui.follow.page(i64::from(pages)),
+            ChatMsg::Browse(step) => {
+                let thread = read::<ThreadModel, _>(cx);
+                let targets = Targets::of(thread.transcript(), thread.can_load_history());
+                browse::take(&step, modes, &w.ui.follow, targets.count);
+                // the prompt chosen: the transcript is the chat's again; the
+                // edit itself is the thread's intent (`ThreadIntent::EditPrompt`)
+                if step == Browse::Confirm
+                    && let Some(chosen) = modes.confirm(Some(thread.id()), targets.count)
+                {
+                    modes.close();
+                    if let Some(intent) = backtrack::edit_intent(cx, &thread, &chosen) {
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                 }
             }
             ChatMsg::QueueDraft => {
                 let draft = submission(&w.ui);
                 if !draft.is_empty() {
-                    run_line(&draft, w, cx, &hs);
+                    // Tab queues behind a running turn and submits otherwise.
+                    let running = read::<ThreadModel, _>(cx).is_running();
+                    let send = if running {
+                        Delivery::Queue
+                    } else {
+                        Delivery::Submit
+                    };
+                    run_line(&draft, w, cx, &hs, send);
                     self.sync_draft(w);
                 }
             }
+            ChatMsg::EditQueued => {
+                // `has_queued_follow_up_messages`: something waits behind the turn.
+                let thread = read::<ThreadModel, _>(cx);
+                if !thread.queue().is_empty() || !thread.rejected_steers().is_empty() {
+                    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::EditQueued);
+                    cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                }
+            }
+            ChatMsg::Reasoning(direction) => reasoning_shortcut(cx, &hs, direction),
             ChatMsg::Picked(text) => {
                 // `Autocomplete::on_selected`: a command picked in the popup
                 // runs as the pick names it (the command clears the composer
                 // itself); what `$` and `@` put in is text and stays.
                 if text.starts_with('/') {
-                    run_line(&text, w, cx, &hs);
+                    run_line(&text, w, cx, &hs, Delivery::Submit);
                     self.sync_draft(w);
                 }
             }
@@ -315,13 +530,12 @@ impl State for ChatState {
             }
             ChatMsg::Changed(text) => {
                 self.sync_draft(w);
+                // a paste or an edit while prompts are browsed ends browsing
+                modes.leave_browsing();
                 if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;
                 }
-            }
-            ChatMsg::DismissBanner(backend, ticket) => {
-                cx.emit(&hs.dismiss_banner, (backend, ticket))
             }
             ChatMsg::Cycle if !self.shortcuts => cx.emit(&hs.cycle, ()),
             ChatMsg::Cycle => {}
@@ -335,20 +549,42 @@ impl State for ChatState {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
             ChatMsg::Action(action) => match action {
-                Action::OpenTranscript => self.detailed_transcript = !self.detailed_transcript,
-                Action::SearchPrevious => {
-                    let draft = w.ui.composer.text().to_string();
-                    let intent = popovers::Intent::SearchStart { draft };
-                    cx.emit(&hs.screen, ScreenIntent::from(intent));
-                }
-                // `history_search_next` steps inside a search only
-                // (`search_key`); outside one it opens nothing.
-                Action::SearchNext => {}
+                Action::OpenTranscript => modes.toggle_detailed(),
+                // the find prompt is the sheet's (steps 4-7 of the transcript);
+                // F3 opens the sheet it will search
+                Action::FindTranscript => modes.open(),
                 Action::ToggleSide => {
-                    let notice = codex_tui_core::commands::Notice::NotAvailable(SlashCommand::Side);
-                    cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::Notice(notice)));
+                    let note = Note::from(codex_tui_core::commands::Notice::NotAvailable(
+                        SlashCommand::Side,
+                    ));
+                    let thread = read::<SessionSlice, _>(cx).active.clone();
+                    cx.emit(
+                        &hs.screen,
+                        ScreenIntent::from(chat::Intent::Note { thread, note }),
+                    );
+                }
+                // `toggle_raw_output_mode_and_notify`: what `/raw` does
+                Action::ToggleRaw => {
+                    let thread = read::<SessionSlice, _>(cx).active.clone();
+                    cx.emit(
+                        &hs.screen,
+                        ScreenIntent::from(chat::Intent::Session {
+                            thread,
+                            command: SlashCommand::Raw,
+                            intent: codex_tui_core::commands::SessionIntent::Raw { on: None },
+                        }),
+                    );
                 }
                 Action::OpenWarnings => open_warnings(cx, &hs),
+                // `cycle_collaboration_mode`: the thread's own switch; the model refuses
+                // it while a turn runs
+                Action::CycleMode => {
+                    let thread = read::<ThreadModel, _>(cx);
+                    if !thread.read_only() && !refuses_parent_owned(cx, &hs) {
+                        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::CycleMode);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
+                }
                 other => {
                     if let Some(target) = other.target() {
                         open(cx, target);
@@ -360,14 +596,45 @@ impl State for ChatState {
                     self.shortcuts = false;
                     return Rebuild::Yes;
                 }
-                if self.detailed_transcript {
-                    self.detailed_transcript = false;
+                let thread = read::<ThreadModel, _>(cx);
+                // the detailed transcript with an empty composer: Esc begins
+                // browsing the prompts, and with none to browse the transcript
+                // closes and the chat says so (`begin_overlay_backtrack_preview`)
+                if modes.detailed() && w.ui.composer.text().is_empty() {
+                    let targets = Targets::of(thread.transcript(), thread.can_load_history());
+                    if modes.esc(Some(thread.id()), targets) == EscStep::NoPrevious {
+                        modes.close();
+                        let intent =
+                            ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                     return Rebuild::Yes;
                 }
-                let thread = read::<ThreadModel, _>(cx);
+                // Esc is the reader's way back before it is the chat's
+                // (`handle_scroll_key`); on an empty composer it also primes
+                // the backtrack, below.
+                if !thread.read_only() && w.ui.follow.away() {
+                    w.ui.follow.jump_to_latest();
+                    if !w.ui.composer.text().is_empty() || thread.can_interrupt() {
+                        return Rebuild::No;
+                    }
+                }
                 if thread.can_interrupt() {
                     let hs = read::<Hs, _>(cx);
-                    cx.emit(&hs.interrupt, thread.id().clone());
+                    // Esc with steers waiting interrupts and sends them as one
+                    // message (`submit_pending_steers_after_interrupt`).
+                    // In review mode a waiting rejected steer takes the same
+                    // path: the core answers with the review warning.
+                    let waiting = !thread.pending_steers().is_empty()
+                        || (thread.screen_slots().chat.review_mode()
+                            && !thread.rejected_steers().is_empty());
+                    if !waiting {
+                        cx.emit(&hs.interrupt, thread.id().clone());
+                    } else {
+                        let intent =
+                            ScreenThreadIntent::Chat(chat::ThreadIntent::InterruptForSteers);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                     return Rebuild::No;
                 }
                 if thread.read_only() {
@@ -378,46 +645,28 @@ impl State for ChatState {
                 if Navigator::maybe_pop(cx) {
                     return Rebuild::No;
                 }
-                if !w.ui.composer.text().is_empty() {
-                    self.esc_primed = false;
-                } else if self.esc_primed {
-                    self.esc_primed = false;
-                    open(cx, Target::Backtrack);
-                } else {
-                    self.esc_primed = true;
-                }
-            }
-            ChatMsg::Search(key) => {
-                let states = read::<ScreenStates, _>(cx);
-                let Some(search) = &states.popovers.search else {
-                    return Rebuild::No;
-                };
-                let intent = match key {
-                    SearchKey::Char(text) => popovers::Intent::SearchAppend(text.to_string()),
-                    SearchKey::Backspace => popovers::Intent::SearchBackspace,
-                    SearchKey::Clear => popovers::Intent::SearchClear,
-                    SearchKey::Older => popovers::Intent::SearchStep(Direction::Older),
-                    SearchKey::Newer => popovers::Intent::SearchStep(Direction::Newer),
-                    SearchKey::Accept => {
-                        if let Some(entry) = search.preview(&states.popovers.history) {
-                            w.ui.composer.reset(entry);
-                        }
-                        // Core ends the search only on a match.
-                        popovers::Intent::SearchAccept
+                // the first Esc primes, the second opens the detailed transcript
+                // with the newest prompt marked (`handle_backtrack_esc_key`); while
+                // an edit is under way no other starts
+                if !thread.screen_slots().backtrack.editing() {
+                    let targets = Targets::of(thread.transcript(), thread.can_load_history());
+                    let empty = w.ui.composer.text().is_empty();
+                    if modes.chat_esc(Some(thread.id()), empty, targets) == EscStep::NoPrevious {
+                        let intent =
+                            ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
                     }
-                    SearchKey::Cancel => popovers::Intent::SearchEnd,
-                    SearchKey::Ignore => return Rebuild::No,
-                };
-                cx.emit(&hs.screen, ScreenIntent::from(intent));
+                }
             }
         }
         if previous
             == (
                 self.shortcuts,
-                self.esc_primed,
+                modes.primed(),
                 self.draft_empty,
                 self.draft_shell,
-                self.detailed_transcript,
+                self.search_rev,
+                modes.detailed(),
             )
         {
             Rebuild::No
@@ -436,146 +685,93 @@ impl State for ChatState {
         let connection = session.connections.get(&backend);
         let slots = thread.screen_slots();
         let facts = &states.chat.status;
-        let mut transcript = Stack::new()
-            .alignment(Alignment::CENTER)
-            .child(TranscriptPane(
-                w.ui.transcript.clone(),
-                self.detailed_transcript,
-            ));
+        // Reverse history search: the footer's row and what it takes from the page
+        let searching = w.ui.draft.search_state();
+        // Ctrl+T shows the details in the chat's own transcript, the composer
+        // below keeps the keys; browsing the prompts marks one in it. The
+        // modes tick when either moves (Flutter's `ListenableBuilder`).
+        let reader = {
+            let (follow, modes) = (w.ui.follow.clone(), w.ui.modes.clone());
+            ListenableBuilder::new(w.ui.modes.listenable(), move |_, _| {
+                Pane {
+                    follow: follow.clone(),
+                    detailed: modes.detailed(),
+                    mark: modes.selected(),
+                }
+                .into()
+            })
+        };
+        let mut transcript = Stack::new().alignment(Alignment::CENTER).child(reader);
         if facts.animations
             && facts.empty_state
             && self.draft_empty
             && !self.shortcuts
-            && states.popovers.search.is_none()
+            && searching.is_none()
             && thread.transcript().is_empty()
             && thread.last_submit().is_none()
             && !thread.read_only()
         {
             transcript = transcript.child(super::blossom::welcome());
         }
-        // The session's failure first, then the thread's last one.
-        let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
-        let failure = match (
-            &session.status,
-            thread.last_error().or(screen_error.as_ref()),
-        ) {
-            (Session::Failed(failure), _) | (_, Some(failure)) => Some(failure),
-            _ => None,
-        };
-        let running = match thread.turn() {
-            TurnState::Running(running) => Some(running),
-            TurnState::Idle => None,
-        };
-        let compacting = slots.chat.is_compacting();
-        let status: Option<AnyWidget> = if thread.read_only() {
-            None
-        } else if connection == Some(&ConnectionState::Reconnecting) {
-            Some(
-                Text::new(strings.chat.reconnecting)
-                    .style(tokens.dim())
-                    .into(),
-            )
-        } else if let Some(failure) = failure {
-            Some(
-                Text::new(failure_text(strings, failure))
-                    .style(tokens.error())
-                    .into(),
-            )
-        } else if session.status == Session::Starting {
-            Some(Text::new(strings.chat.starting).style(tokens.dim()).into())
-        } else if running.is_some() || compacting {
-            let offset_seconds = running
-                .and_then(|running| running.started_at)
-                .filter(|started| *started > 0)
-                .map(|started| {
-                    u64::try_from(states.agents.now.saturating_sub(started)).unwrap_or(0)
-                })
-                .unwrap_or(0);
-            Some(
-                AnyWidget::from(Activity {
-                    show_interrupt: thread.can_interrupt(),
-                    spinner: facts.animations && facts.progress_effect,
-                    shimmer: facts.animations && facts.shimmer_effect,
-                    header: if compacting {
-                        strings.chat.compacting
-                    } else if slots.chat.activity == chat::ActivityPhase::Thinking {
-                        strings.chat.thinking
-                    } else {
-                        strings.chat.working
-                    },
-                    step: slots.chat.step.clone(),
-                    offset_seconds,
-                })
-                .with_key(Key::value((
-                    thread.id().clone(),
-                    running.map(|running| running.turn.clone()),
-                ))),
-            )
-        } else {
-            None
-        };
-        let (panel, close) = shortcut_panel(cx);
+        let run = Run::of(&thread);
+        let reconnecting = connection == Some(&ConnectionState::Reconnecting);
+        let running = run.running();
+        let compacting = run.compacting();
+        let (panel, _) = shortcut_panel(cx, running);
         let chat_strings = chat_strings::of(cx);
-        let search = states.popovers.search.clone();
-        let (composer, footer): (AnyWidget, AnyWidget) = match &search {
-            Some(search) => {
-                // Reverse history search: the preview stands where the text
-                // is, the keys are the search's (`history_search.rs`).
-                let shown = search
-                    .preview(&states.popovers.history)
-                    .unwrap_or(&search.draft)
-                    .to_string();
-                let status = match search.status {
-                    SearchStatus::Idle => chat_strings::Search::Idle,
-                    SearchStatus::Match => chat_strings::Search::Match,
-                    SearchStatus::NoMatch => chat_strings::Search::NoMatch,
-                };
-                let line = Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(prompt(chat_strings.prompt, tokens.bold()))
-                    .child(Expanded::new(1, Text::new(shown)));
-                let field = Focus::new(line)
-                    .can_request_focus(true)
-                    .autofocus()
-                    .on_key(cx.keys(search_key));
-                (
-                    field.into(),
-                    Text::new(chat_strings.search_footer(&search.query, status))
-                        .style(tokens.dim())
-                        .into(),
-                )
-            }
-            None if thread.read_only() => (
+        let mut hints: Option<Footer> = None;
+        let (composer, footer): (AnyWidget, AnyWidget) = if thread.read_only() {
+            (
                 super::external_writer::notice(cx, chat_strings, &tokens),
                 super::external_writer::footer(chat_strings, &tokens),
-            ),
-            None => {
-                let composer = Composer::new(w.ui.clone(), self.node.clone())
-                    .on_changed(cx.map(ChatMsg::Changed))
-                    .on_submitted(cx.map(ChatMsg::Submit))
-                    .on_picked(cx.map(ChatMsg::Picked));
+            )
+        } else {
+            let composer = Composer::new(w.ui.clone(), self.node.clone())
+                .on_changed(cx.map(ChatMsg::Changed))
+                .on_submitted(cx.map(ChatMsg::Submit))
+                .on_picked(cx.map(ChatMsg::Picked));
+            let footer = if let Some((query, status)) = searching.clone() {
+                // Reverse history search: its row is the footer
+                // (`history_search_footer_line`).
+                super::composer::search::footer(cx, query, status)
+            } else {
                 let line = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
-                    FooterLine::Close(close)
-                } else if self.esc_primed && !thread.transcript().is_empty() {
-                    FooterLine::Hint(strings.chat.backtrack_hint)
-                } else if running.is_some() && !self.draft_empty {
-                    FooterLine::Hint(strings.chat.queue_hint)
+                    Line::Close
+                } else if w.ui.modes.primed()
+                    && Targets::of(thread.transcript(), thread.can_load_history()).count > 0
+                {
+                    Line::EscPrimed
                 } else {
-                    FooterLine::Keys
+                    Line::Passive
                 };
-                let footer = footer(cx, line);
-                let footer = if self.draft_shell {
-                    with_shell_mode(cx, footer)
+                let props = Footer {
+                    line,
+                    agents: true,
+                    draft_empty: self.draft_empty,
+                    shell: self.draft_shell,
+                    on_queue: Some(cx.send(ChatMsg::QueueDraft)),
+                    on_warnings: Some(cx.send(ChatMsg::Action(Action::OpenWarnings))),
+                    on_close: Some(cx.send(ChatMsg::Shortcuts)),
+                };
+                hints = Some(props.clone());
+                let footer: AnyWidget = props.into();
+                if line == Line::Passive {
+                    transcript::follow::footer(
+                        cx,
+                        w.ui.follow.clone(),
+                        self.draft_empty && !w.ui.modes.primed(),
+                        footer,
+                    )
                 } else {
                     footer
-                };
-                (composer.into(), footer)
-            }
+                }
+            };
+            (composer.into(), footer)
         };
-        // `⚠ N warnings · f2 to view` at the footer's right (not while history
-        // search owns the footer).
-        let footer = if search.is_none() {
+        // `⚠ N warnings · f2 to view` at the right of the read-only footer; the
+        // composer's footer holds its own.
+        let footer = if searching.is_none() && thread.read_only() {
             let data = Theme::of(cx);
             with_warning_notice(
                 footer,
@@ -594,74 +790,43 @@ impl State for ChatState {
         } else {
             footer
         };
+        // The status row, the queued messages and the notices are widgets of
+        // their own (`activity`, `pending_input`, `banners`): each reads what
+        // it shows from the providers.
+        // Whether `StatusSlot` shows a row: the reader's gap then sets itself
+        // apart from it with a blank row.
+        let status_above = !run.read_only
+            && (run.word(&session, reconnecting) != "Ready"
+                || run.has_activity_rows()
+                || matches!(session.status, codex_tui_core::app::Session::Starting));
+        // The bottom pane (`bottom_pane_renderable`): everything below the
+        // transcript, which gets the rows left; the reader's gap above the
+        // composer is a flexible row, the first thing a short window clips.
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(Expanded::new(1, transcript));
-        if let Some(status) = status {
-            if !thread.transcript().is_empty() {
-                body = body.child(SizedBox::new(None, Some(1), None));
-            }
-            body = body.child(status);
-        }
-        const QUEUE_PREVIEW: usize = 3;
-        for message in thread.queue().iter().take(QUEUE_PREVIEW) {
-            body = body.child(
-                Text::new(strings.queued(&message.text).to_string())
-                    .max_lines(Some(2))
-                    .overflow(TextOverflow::Ellipsis)
-                    .style(tokens.dim()),
-            );
-        }
-        let remaining = thread.queue().len().saturating_sub(QUEUE_PREVIEW);
-        if remaining > 0 {
-            body = body.child(Text::line(strings.more_queued(remaining)).style(tokens.dim()));
-        }
-        if let Some(notice) = &states.chat.notice {
-            let notice = match notice {
-                chat::ChatNotice::Command(notice) => notice.clone(),
-                chat::ChatNotice::NotAvailable(command) => {
-                    codex_tui_core::commands::Notice::NotAvailable(*command)
-                }
-            };
-            // `add_info_message` is plain text, `add_error_message` is red.
-            let text = Text::new(chat_strings.notice(&notice));
-            body = body.child(if notice.is_info() {
-                text
-            } else {
-                text.style(tokens.error())
-            });
-        }
-        if self.shortcuts && search.is_none() {
+            .main_axis_size(MainAxisSize::Min)
+            .overflow_intended(true)
+            .child(StatusSlot)
+            .child(NoticeLine)
+            .child(EditWatch);
+        if self.shortcuts && searching.is_none() {
             body = body.child(panel);
         }
-        let run_state = if compacting {
-            "Compacting"
-        } else if running.is_some() {
-            match slots.chat.activity {
-                chat::ActivityPhase::Working => "Working",
-                chat::ActivityPhase::Thinking => "Thinking",
-            }
-        } else if connection == Some(&ConnectionState::Reconnecting) {
-            "Reconnecting"
-        } else if failure.is_some() {
-            "Error"
-        } else {
-            "Ready"
-        };
         let context = StatusContext {
             thread_id: session.active.as_ref(),
             thread: Some(&slots.chat),
             usage: Some(&slots.status),
             rate_limits: session.rate_limits.get(&backend),
-            run_state: Some(run_state),
+            run_state: Some(run.word(&session, reconnecting)),
             strings,
+            catalog: &states.select.catalog,
         };
-        let line = status_line(context.items_for(facts), facts.colors, &tokens);
+        let line = status_spans(context.items_for(facts), facts.colors, &tokens);
         // The backend control above the composer (`rendering.rs`,
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session
             .cycle_label(&thread, &states.agents)
-            .filter(|_| search.is_none() && !self.shortcuts);
+            .filter(|_| searching.is_none() && !self.shortcuts);
         let mut body = body;
         if let Some(label) = control {
             body = body.child(
@@ -673,88 +838,96 @@ impl State for ChatState {
                     .child(Text::new(chat_strings.backend_cycle).style(tokens.dim())),
             );
         }
-        let active_model = slots.chat.model.as_deref().or(facts.model.as_deref());
-        if let Some(occurrence) = session
-            .backend_banners
-            .get(&backend)
-            .filter(|occurrence| occurrence.is_visible(active_model))
-        {
-            let banner = &occurrence.banner;
-            let (title, description) = if banner.reserve_pending(active_model) {
-                (
-                    strings.chat.usage_limit_title,
-                    strings.chat.usage_limit_detail,
-                )
-            } else {
-                (banner.title(), banner.description())
-            };
-            let mut callout = Callout::text(description.to_owned())
-                .title(title.to_owned())
-                .kind(StatusKind::Warning)
-                .actions(
-                    banner
-                        .links()
-                        .map(|(label, url)| Hyperlink::new(url).text(label.to_owned()).into()),
-                );
-            if occurrence.is_dismissible() {
-                let ticket = occurrence.ticket;
-                callout = callout.on_dismissed(cx.send(ChatMsg::DismissBanner(backend, ticket)));
-            }
-            body = body.child(AnyWidget::from(callout).with_key(Key::value(occurrence.ticket)));
-        }
-        if let Some(notice) = session.backend_notices.get(&backend) {
-            body = body.child(Text::new(notice.clone()).style(tokens.dim()));
-        }
+        self.banner_blocked.set(BannerBlocked {
+            running,
+            overlay: self.shortcuts,
+        });
+        let body = body.child(BackendBanners {
+            gate: self.banner.clone(),
+        });
         let mut body = if thread.read_only() {
             body.child(composer)
         } else {
-            body.child(
-                BoxWidget::new()
-                    .style(tokens.prompt_surface(cx, false))
-                    .padding(EdgeInsets::only(0, 1, 1, 1))
-                    .child(composer),
+            // the row the reader's control takes (`composer_gap`)
+            body.child(transcript::follow::gap(
+                cx,
+                w.ui.follow.clone(),
+                status_above,
+            ))
+            .child(
+                // keyed: the blank rows and the status come and go above it
+                // and the footer's type changes below, and an unkeyed child
+                // between two changed neighbours is a new element (its state,
+                // and the messages queued for it, lost)
+                AnyWidget::from(
+                    BoxWidget::new()
+                        .style(tokens.prompt_surface(cx, false))
+                        .padding(EdgeInsets::only(0, 1, 1, 1))
+                        .child(composer),
+                )
+                .with_key(Key::value("composer")),
             )
         };
-        if let Some(line) = line.filter(|_| !thread.read_only()) {
-            body = body.child(
-                Row::new()
-                    .child(SizedBox::new(Some(2), None, None))
-                    .child(Expanded::new(1, line)),
-            );
+        if !line.is_empty() && !thread.read_only() {
+            body = body.child(StatusRows {
+                spans: line,
+                composer: w.ui.composer.clone(),
+                hints,
+            });
         }
-        let mut body = body.child(footer);
+        let body = body.child(footer);
+        // the terminal title keeps being told while the selector takes the bottom pane
+        let mut titles: Vec<AnyWidget> = Vec::new();
         let action_required =
             select::<RequestQueue, bool, _>(cx, |queue| !queue.entries.is_empty());
-        let action = action_required.then_some(strings.chat.action_required);
-        if action.is_none()
-            && facts.animations
-            && facts.progress_effect
-            && (running.is_some() || compacting)
-            && StatusContext::title_has_activity(facts)
+        let title = context.title(
+            facts,
+            TitleInputs {
+                spinner: facts.animations && facts.progress_effect && (running || compacting),
+                action_required: action_required.then_some(strings.chat.action_required),
+            },
+        );
+        if title.has_spinner() {
+            titles.push(super::window_title::WindowTitle { title }.into());
+        } else if !title.text(None).is_empty()
+            || facts
+                .terminal_title
+                .as_ref()
+                .is_some_and(|items| !items.is_empty())
         {
-            let mut parts = context.title_parts(facts, Some(""));
-            if let Some(index) = parts.iter().position(String::is_empty) {
-                let after = parts.split_off(index + 1);
-                parts.pop();
-                body = body.child(super::window_title::WindowTitle {
-                    before: parts,
-                    after,
-                });
-            }
-        } else {
-            let parts = context.title_parts(facts, action);
-            if !parts.is_empty()
-                || facts
-                    .terminal_title
-                    .as_ref()
-                    .is_some_and(|items| !items.is_empty())
-            {
-                body = body.child(TerminalTitle::new(
-                    parts.join(" · "),
-                    super::window_title::empty(),
-                ));
-            }
+            titles.push(TerminalTitle::new(title.text(None), super::window_title::empty()).into());
         }
+        // The Luna Reserve selector owns the bottom pane (`show_selection_view`): no composer,
+        // no footer; the draft waits in `UiApp.ui`.
+        let mut body = if reserve_of(&session, &states, &thread).is_some() {
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .main_axis_size(MainAxisSize::Min)
+                .child(ReserveSelector)
+        } else {
+            body
+        };
+        for title in titles {
+            body = body.child(title);
+        }
+        // a window of three rows or fewer shows nothing, the running state
+        // included (`ui_snapshots_small_heights_idle`): the page keeps its
+        // layout and clips, and a blank sheet laid over it by a layout builder
+        // that holds no state covers it, so that nothing of the page's own
+        // state stands under a builder
+        let page = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .overflow_intended(true)
+            .child(Expanded::new(1, transcript))
+            .child(body);
+        let blank = LayoutBuilder::new(|_, constraints| {
+            if constraints.max_height < HIDDEN_BELOW_ROWS {
+                BoxWidget::new().style(Style::new()).into()
+            } else {
+                SizedBox::shrink().into()
+            }
+        });
+        let body = Stack::new().fit(StackFit::Expand).child(page).child(blank);
         let mut focus = Focus::new(body)
             .bind(
                 KeyPress::char('c').with_mods(Mods::CTRL),
@@ -765,10 +938,12 @@ impl State for ChatState {
                 cx.send(ChatMsg::CtrlD),
             )
             .bind(KeyPress::code(KeyCode::F12), cx.send(ChatMsg::DebugMenu))
-            .bind(KeyPress::ESC, cx.send(ChatMsg::Escape));
+            .bind(KeyPress::ESC, cx.send(ChatMsg::Escape))
+            .bind(KeyPress::code(KeyCode::PageUp), cx.send(ChatMsg::Page(-1)))
+            .bind(KeyPress::code(KeyCode::PageDown), cx.send(ChatMsg::Page(1)));
         // Tab queues while a turn runs and submits otherwise, but not a
         // shell command (`queue_keys` in `handle_key_event_without_popup`).
-        if (running.is_some() || !self.draft_shell) && !self.draft_empty && search.is_none() {
+        if (running || !self.draft_shell) && !self.draft_empty && searching.is_none() {
             focus = focus.bind(KeyPress::code(KeyCode::Tab), cx.send(ChatMsg::QueueDraft));
         }
         if thread.read_only() {
@@ -786,17 +961,32 @@ impl State for ChatState {
         // bound here.
         let pages = strings.pages;
         let focus = AnyWidget::from(focus).with_key(Key::value(thread.read_only()));
-        KeyBindings::new(
-            [
-                ("left", cx.send(ChatMsg::Agents)),
-                (pages.key_shortcuts, cx.send(ChatMsg::Shortcuts)),
-            ],
-            focus,
-        )
-        .hints([
-            ("left", pages.hint_agents),
-            (pages.key_shortcuts, pages.hint_shortcuts),
-        ])
-        .into()
+        let keymap = crate::keymap::keymap(cx);
+        let mut keys = vec![
+            ("left".to_string(), cx.send(ChatMsg::Agents)),
+            (pages.key_shortcuts.to_string(), cx.send(ChatMsg::Shortcuts)),
+        ];
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
+            &cx.send(ChatMsg::EditQueued),
+        ));
+        use codex_tui_core::screens::select::reasoning::Direction;
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_DECREASE_REASONING_EFFORT,
+            &cx.send(ChatMsg::Reasoning(Direction::Lower)),
+        ));
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_INCREASE_REASONING_EFFORT,
+            &cx.send(ChatMsg::Reasoning(Direction::Raise)),
+        ));
+        KeyBindings::new(crate::keymap::first_of_each(keys), focus)
+            .hints([
+                ("left", pages.hint_agents),
+                (pages.key_shortcuts, pages.hint_shortcuts),
+            ])
+            .into()
     }
 }

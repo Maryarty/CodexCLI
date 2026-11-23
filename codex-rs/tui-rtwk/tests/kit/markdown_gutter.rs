@@ -8,6 +8,7 @@
 //! reads the screen without the gutter, so every assertion and snapshot
 //! speaks of the oracle's rows. Nothing else of the screen changes.
 
+use super::Screen;
 use super::grid::Grid;
 use super::seed::{Open, Seed};
 
@@ -85,6 +86,26 @@ impl Open {
         // A test's script lives for the process, as the `include_str!` it extends does.
         self.seed = Seed::Script(Box::leak(format!("{script}\n{started}\n").into_boxed_str()));
         self
+    }
+}
+
+impl Screen {
+    /// The oracle's snapshot is the Markdown text alone (`plain_lines` of its renderer, from
+    /// the first row on); the chat draws the answer under its header and above the composer.
+    /// The rows of the snapshot equal ours from the row where its first text row is.
+    pub fn assert_markdown_snap(&self, name: &str) {
+        let rows = super::snap_rows(name, "");
+        let Some((lead, first)) = rows
+            .iter()
+            .enumerate()
+            .find(|(_, row)| !row.trim().is_empty())
+        else {
+            panic!("the snapshot `{name}` has no text row");
+        };
+        let Some((_, _, row)) = self.grid().locate(first.trim()) else {
+            panic!("no `{first}` on the screen:\n{}", self.text());
+        };
+        self.assert_snap_region(name, row.saturating_sub(lead), 0);
     }
 }
 

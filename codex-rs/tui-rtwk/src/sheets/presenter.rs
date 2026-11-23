@@ -1,5 +1,5 @@
 //! The request presenter: the one place that opens a dialog for the head of
-//! the model's request queue (ADR-002). The dialog is shown with rtwk's
+//! the model's request queue, in the oracle's order (ADR-002). The dialog is shown with rtwk's
 //! `AppCx::show_dialog_from` from the kept handle of the `Navigator`'s home
 //! (a memo node, see `home_node`), so it is a route of that navigator under
 //! the providers; the decision which request is next is made on the model,
@@ -8,6 +8,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use rtwk::AnyWidget;
 use rtwk::app::AppCx;
@@ -15,9 +16,15 @@ use rtwk::app::MemoCx;
 use rtwk::app::ViewRoot;
 
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::screens::approvals::order::{Family, to_show};
 
 use crate::app::UiApp;
 use crate::sheets;
+
+/// How long an approval waits after the last keystroke in the composer (the oracle's
+/// `APPROVAL_PROMPT_TYPING_IDLE_DELAY`): the user who is typing is not handed a prompt a stray
+/// `y` could answer.
+pub const TYPING_IDLE_DELAY: Duration = Duration::from_secs(1);
 
 /// Where the home left its handle: a request is shown from it, and the next
 /// one from the handle in the cell then (a replaced home writes its own).
@@ -36,6 +43,8 @@ pub struct Presenter {
     /// `closed` (that would run at every flush while the place is gone),
     /// but by the next ingested event.
     parked: bool,
+    /// The app clock at the last composer keystroke (`typed`).
+    last_typed: Option<Duration>,
 }
 
 impl Default for Presenter {
@@ -51,6 +60,7 @@ impl Presenter {
             shown: None,
             last: None,
             parked: false,
+            last_typed: None,
         }
     }
 
@@ -103,6 +113,24 @@ impl Presenter {
         }
     }
 
+    /// A key reached the composer at `now` (the app clock): approvals wait for the idle delay
+    /// after it. The composer owner calls this from the keys the oracle counts as activity
+    /// (characters, Backspace, Delete, Enter, Tab without ctrl or alt).
+    pub fn typed(&mut self, now: Duration) {
+        self.last_typed = Some(now);
+    }
+
+    /// How long a request of `family` still waits at `now`, `None` when it may be shown: only an
+    /// approval waits (a question or a form is not delayed), and only until the delay since the
+    /// last keystroke has passed; the caller arms one timer for the remainder.
+    pub fn wait(&self, family: Family, now: Duration) -> Option<Duration> {
+        if family != Family::Approval {
+            return None;
+        }
+        let at = self.last_typed?.checked_add(TYPING_IDLE_DELAY)?;
+        at.checked_sub(now).filter(|left| !left.is_zero())
+    }
+
     /// An event was ingested: a request parked by a `None` may be tried
     /// again, once.
     pub fn event(&mut self) {
@@ -120,7 +148,14 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         return;
     };
     let requests = app.core.requests();
-    let head = requests.head().map(|request| request.key.clone());
+    // The view on top by the oracle's order (approvals newest first, the rest oldest first, a
+    // kind that is not the last one's under it): `approvals::order`.
+    let queue: Vec<(RequestKey, Family)> = requests
+        .entries
+        .iter()
+        .map(|request| (request.key.clone(), Family::of(request.prompt.as_deref())))
+        .collect();
+    let head = to_show(&queue).cloned();
     let Some(key) = app
         .ui
         .presenter

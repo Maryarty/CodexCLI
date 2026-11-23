@@ -1,0 +1,4 @@
+# The full-access confirmation on a cyber model with auto-review available.
+# Oracle data: chatwidget/permission_popups.rs `open_full_access_confirmation` (is_cyber_model)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"full_access","current":{"guardian":true,"cyber":true,"auto_available":true,"discover":false}}}

@@ -8,7 +8,7 @@ use codex_tui_core::fixtures::builders::{
     agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
 };
 use codex_tui_core::ids::{ConnEpoch, ThreadId};
-use codex_tui_core::screens::Kind;
+use codex_tui_core::screens::{Kind, ScreenCommand, chat};
 use codex_tui_rtwk::app::debug;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
@@ -75,8 +75,9 @@ fn prompt_streams_the_answer_as_plain_text() {
     let commands = h.fake.commands();
     assert!(
         matches!(commands.as_slice(),
-            [Command::Startup { .. }, Command::StartThread { .. }, Command::StartTurn { thread, message, .. }]
-                if *thread == ThreadId::new(FAKE_THREAD) && message.text == "hi"),
+            [Command::Startup { .. }, Command::Screen { .. }, Command::StartThread { .. }, Command::Popovers { ask, .. }, Command::StartTurn { thread, message, .. }]
+                if *ask == codex_tui_core::screens::popovers::Ask::Append("hi".into())
+                    && *thread == ThreadId::new(FAKE_THREAD) && message.text == "hi"),
         "{commands:?}"
     );
     assert_snapshot(&h.t, "chat", "answer");
@@ -363,10 +364,28 @@ fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
         .collect()
 }
 
-/// R10: the model decides. A message sent while a turn runs is queued: the
-/// composer clears and the chat shows it as a dim line above the composer.
+fn steer_texts(h: &crate::common::Harness) -> Vec<String> {
+    steer_texts_of(&h.fake.commands())
+}
+
+fn steer_texts_of(commands: &[Command]) -> Vec<String> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Steer { message, .. }),
+                ..
+            } => Some(message.text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// R10: the model decides. A message sent with Enter while a turn runs steers
+/// it (`turn/steer`, the oracle's `submit_user_message_as_plain_user_turn`):
+/// the composer clears and no second turn starts.
 #[test]
-fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
+fn a_message_typed_while_a_turn_runs_is_steered() {
     let mut h = start();
     h.wait_idle();
     h.fake
@@ -376,13 +395,18 @@ fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
     h.wait_for("the turn to run", |s| s.contains("• so far"));
     h.t.type_text("two");
     h.press("enter");
-    h.wait_for("the queued line", |s| s.contains("(queued) two"));
+    let fake = h.fake.clone();
+    h.wait_for("the steer request", |_| {
+        !steer_texts_of(&fake.commands()).is_empty()
+    });
     let screen = h.t.screen();
     assert!(!screen.contains("› two"), "{screen}");
     h.settle();
-    assert_eq!(turn_texts(&h), vec!["one".to_string()], "not sent yet");
+    assert_eq!(steer_texts(&h), vec!["two".to_string()]);
+    assert_eq!(turn_texts(&h), vec!["one".to_string()], "no second turn");
 }
 
+/// Tab queues, Enter steers (the person, 2026-11-22).
 #[test]
 fn queued_messages_are_sent_in_order_one_per_turn_end() {
     let mut h = start();
@@ -396,20 +420,20 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
     h.wait_for("the turn to run", |s| s.contains("• so far"));
     for text in ["two", "three"] {
         h.t.type_text(text);
-        h.press("enter");
-        h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
+        h.press("tab");
+        h.wait_for("queued", |s| s.contains(&format!("↳ {text}")));
     }
     let epoch = h.fake.epoch().expect("attached");
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
     h.wait_for("the second turn", |s| s.contains("• second"));
     let screen = h.t.screen();
-    assert!(!screen.contains("(queued) two"), "{screen}");
-    assert!(screen.contains("(queued) three"), "{screen}");
+    assert!(!screen.contains("↳ two"), "{screen}");
+    assert!(screen.contains("↳ three"), "{screen}");
     assert_eq!(turn_texts(&h), ["one", "two"].map(String::from).to_vec());
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-2")));
-    h.wait_for("the third turn", |s| !s.contains("(queued) three"));
+    h.wait_for("the third turn", |s| !s.contains("↳ three"));
     h.settle();
     assert_eq!(
         turn_texts(&h),
@@ -417,6 +441,7 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
     );
 }
 
+/// Tab queues, Enter steers (the person, 2026-11-22).
 #[test]
 fn a_queue_survives_a_second_submit() {
     let mut h = start();
@@ -428,12 +453,12 @@ fn a_queue_survives_a_second_submit() {
     h.wait_for("the turn to run", |s| s.contains("• so far"));
     for text in ["two", "three"] {
         h.t.type_text(text);
-        h.press("enter");
-        h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
+        h.press("tab");
+        h.wait_for("queued", |s| s.contains(&format!("↳ {text}")));
     }
     let screen = h.t.screen();
-    assert!(screen.contains("(queued) two"), "{screen}");
-    assert!(screen.contains("(queued) three"), "{screen}");
+    assert!(screen.contains("↳ two"), "{screen}");
+    assert!(screen.contains("↳ three"), "{screen}");
 }
 
 #[test]
@@ -453,6 +478,7 @@ fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
     }));
 }
 
+/// Tab queues, Enter steers (the person, 2026-11-22).
 #[test]
 fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
     let mut h = start_quittable(false);
@@ -468,7 +494,7 @@ fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
     h.t.type_text("two");
     h.wait_for("queue hint", |s| s.contains("tab to queue message"));
     h.press("tab");
-    h.wait_for("queued message", |s| s.contains("(queued) two"));
+    h.wait_for("queued message", |s| s.contains("↳ two"));
     h.press("ctrl+c");
     let fake = h.fake.clone();
     h.wait_for("interrupt request", |_| {
@@ -497,7 +523,7 @@ fn streaming_markdown_fits_inside_the_transcript_viewport() {
     // Scroll the transcript backwards and keep reading the same area as more
     // Markdown arrives. The composer is outside that viewport.
     for _ in 0..4 {
-        h.t.input(b"\x1b[<64;12;5M");
+        h.t.input(b"\x1b[<64;12;2M");
         h.t.pump_for(crate::common::ms(40));
     }
     let screen = h.t.screen();
@@ -587,7 +613,7 @@ fn running_shell_preview_keeps_its_output_when_completion_omits_it() {
     h.wait_for("full command and intact draft", |s| {
         s.contains("$ printf test") && s.contains("tool output") && s.contains("pending draft")
     });
-    h.press("escape");
+    h.press("ctrl+t");
     h.wait_for("compact command and intact draft", |s| {
         s.contains("Ran printf test") && s.contains("pending draft")
     });

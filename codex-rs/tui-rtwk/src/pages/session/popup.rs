@@ -1,15 +1,13 @@
-//! What the composer's popups list for the text before the caret: the
-//! commands after a `/` at the start, the skills after `$`, the files and
-//! plugins after `@`. The data and the filtering are core's (`commands`,
-//! `popovers`); this turns rows into the suggestions the field shows and
-//! says what picking one puts in.
+//! What the slash popup lists for the text before the caret: the commands
+//! after a `/` at the start. The data and the filtering are core's
+//! (`commands`); this turns rows into the suggestions the field shows. The
+//! `$` and `@` popups are `popovers::mention`'s: they sit above the composer.
 
 use rtwk::editing::Suggestion;
 
 use codex_tui_core::commands::{CommandPopup, CommandPopupFlags, SlashCommandItem};
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::composer::{TriggerKind, trigger};
-use codex_tui_core::screens::popovers::{Candidate, CandidateKind, Sigil};
 
 use super::strings::Strings;
 
@@ -17,33 +15,35 @@ use super::strings::Strings;
 pub const ROWS: usize = codex_tui_core::commands::MAX_POPUP_ROWS;
 
 /// The suggestions for `before`, the composer's text up to the caret.
-pub fn suggestions(states: &ScreenStates, strings: &Strings, before: &str) -> Vec<Suggestion> {
-    let Some(trigger) = trigger(before) else {
-        return Vec::new();
-    };
-    let head = &before[..trigger.start];
-    match trigger.kind {
-        TriggerKind::Slash => commands(states, strings, before),
-        TriggerKind::Skill => states
-            .popovers
-            .candidates(Sigil::Dollar, &trigger.query)
-            .into_iter()
-            .map(|c| mention(strings, head, '$', &c))
-            .collect(),
-        TriggerKind::Mention => states
-            .popovers
-            .candidates(Sigil::At, &trigger.query)
-            .into_iter()
-            .map(|c| mention(strings, head, '@', &c))
-            .collect(),
+pub fn suggestions(
+    states: &ScreenStates,
+    strings: &Strings,
+    model: Option<&str>,
+    before: &str,
+) -> Vec<Suggestion> {
+    match trigger(before) {
+        Some(trigger) if trigger.kind == TriggerKind::Slash => {
+            commands(states, strings, model, before)
+        }
+        _ => Vec::new(),
     }
 }
 
-fn commands(states: &ScreenStates, strings: &Strings, before: &str) -> Vec<Suggestion> {
-    let mut popup = CommandPopup::new(
-        CommandPopupFlags::from(states.chat.flags),
-        states.chat.service_tiers.clone(),
+fn commands(
+    states: &ScreenStates,
+    strings: &Strings,
+    model: Option<&str>,
+    before: &str,
+) -> Vec<Suggestion> {
+    let tiers = codex_tui_core::screens::chat::facts::tier_commands(
+        &states.chat.status,
+        model,
+        &states.select.catalog,
+        &states.chat.service_tiers,
     );
+    let mut flags = states.chat.flags;
+    flags.service_tier_commands_enabled = !tiers.is_empty();
+    let mut popup = CommandPopup::new(CommandPopupFlags::from(flags), tiers);
     popup.on_composer_text_change(before.to_string());
     popup
         .rows()
@@ -60,26 +60,4 @@ fn commands(states: &ScreenStates, strings: &Strings, before: &str) -> Vec<Sugge
                 .detail(description)
         })
         .collect()
-}
-
-fn mention(strings: &Strings, head: &str, sigil: char, candidate: &Candidate) -> Suggestion {
-    let detail = match candidate.kind {
-        CandidateKind::File => String::new(),
-        CandidateKind::Skill => format!("{} {}", strings.tag_skill, candidate.description),
-        CandidateKind::App => format!("{} {}", strings.tag_app, candidate.description),
-        CandidateKind::Plugin => format!("{} {}", candidate.description, strings.tag_plugin),
-    };
-    // a skill is a `$` mention wherever it was found (`@` lists skills too)
-    let sigil = if candidate.kind == CandidateKind::Skill {
-        '$'
-    } else {
-        sigil
-    };
-    let suggestion = Suggestion::new(format!("{head}{sigil}{} ", candidate.insert))
-        .label(candidate.label.clone());
-    if detail.is_empty() {
-        suggestion
-    } else {
-        suggestion.detail(detail)
-    }
 }

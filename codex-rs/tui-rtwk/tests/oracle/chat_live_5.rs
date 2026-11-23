@@ -7,6 +7,14 @@ use crate::kit::{self, Owner, Screen};
 // Steps as `Screen::feed` takes them (shapes of src/screens/chat/fixtures/streamed_answer.jsonl).
 // The oracle's helpers (chatwidget/tests/helpers.rs) are named in each builder.
 
+/// The screen row that holds `text` (a locator for a cell's snapshot).
+fn row_of(s: &Screen, text: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|r| r.contains(text))
+        .unwrap_or(usize::MAX)
+}
+
 /// A `notify` step: one server notification (method and params JSON).
 fn notify(method: &str, params: &str) -> String {
     format!(r#"{{"step":"notify","message":{{"method":"{method}","params":{params}}}}}"#)
@@ -127,10 +135,6 @@ fn steer_refused() -> String {
 // ORACLE chatwidget/tests/review_mode.rs:106 entered_review_mode_uses_request_hint kind=ui owner=chat-live
 #[test]
 fn entered_review_mode_uses_request_hint() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the entered-review item draws no '>> Code review started: <hint> <<' banner",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("feature branch"));
     s.assert_has_row(">> Code review started: feature branch <<");
@@ -139,10 +143,6 @@ fn entered_review_mode_uses_request_hint() {
 // ORACLE chatwidget/tests/review_mode.rs:119 entered_review_mode_defaults_to_current_changes_banner kind=ui owner=chat-live
 #[test]
 fn entered_review_mode_defaults_to_current_changes_banner() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the entered-review item draws no 'current changes' banner",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("current changes"));
     s.assert_has_row(">> Code review started: current changes <<");
@@ -151,10 +151,6 @@ fn entered_review_mode_defaults_to_current_changes_banner() {
 // ORACLE chatwidget/tests/review_mode.rs:131 live_review_prompt_item_is_not_rendered kind=ui owner=chat-live
 #[test]
 fn live_review_prompt_item_is_not_rendered() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the review banner is not drawn, and the review prompt item is not hidden",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("changes against 'main'"));
     s.assert_contains("Code review started");
@@ -170,10 +166,6 @@ fn live_review_prompt_item_is_not_rendered() {
 // ORACLE chatwidget/tests/review_mode.rs:149 live_app_server_review_prompt_item_is_not_rendered kind=ui owner=chat-live
 #[test]
 fn live_app_server_review_prompt_item_is_not_rendered() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the entered-review item draws no banner and the completed review prompt item is not hidden",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("changes against 'main'"));
     s.assert_contains("Code review started");
@@ -194,10 +186,6 @@ fn live_app_server_review_prompt_item_is_not_rendered() {
 // ORACLE chatwidget/tests/review_mode.rs:293 esc_with_review_queued_steers_shows_warning_and_does_not_interrupt kind=snap owner=chat-live snap=review_submission_warning_snapshot
 #[test]
 fn esc_with_review_queued_steers_shows_warning_and_does_not_interrupt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no steer warning on the chat screen: Esc with a pending steer during /review draws no 'Steer messages aren't supported during /review' warning",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&entered_review("feature branch"));
@@ -205,16 +193,18 @@ fn esc_with_review_queued_steers_shows_warning_and_does_not_interrupt() {
     s.type_text("review follow-up");
     s.keys("enter");
     s.keys("esc");
-    s.assert_snap("review_submission_warning_snapshot");
+    // oracle: the warning is a transcript-only cell (`new_warning_event`); the detailed transcript shows it.
+    s.keys("ctrl+t");
+    s.assert_snap_region(
+        "review_submission_warning_snapshot",
+        row_of(&s, "Steer messages"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:316 live_agent_message_renders_during_review_mode kind=ui owner=chat-live
 #[test]
 fn live_agent_message_renders_during_review_mode() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the agent message completed during the review is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("current changes"));
     s.feed(&item_completed(&agent_message(
@@ -227,10 +217,6 @@ fn live_agent_message_renders_during_review_mode() {
 // ORACLE chatwidget/tests/review_mode.rs:489 steer_enter_queues_while_plan_stream_is_active kind=ui owner=chat-live
 #[test]
 fn steer_enter_queues_while_plan_stream_is_active() {
-    kit::pending(
-        Owner::ChatLive,
-        "no plan stream on the chat screen (item/plan/delta is not drawn) and no Plan collaboration mode seed: Enter during the plan stream does not queue the composer text as a message",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&plan_delta("- Step 1"));
@@ -243,10 +229,6 @@ fn steer_enter_queues_while_plan_stream_is_active() {
 // ORACLE chatwidget/tests/review_mode.rs:516 steer_enter_uses_pending_steers_while_turn_is_running_without_streaming kind=ui owner=chat-live
 #[test]
 fn steer_enter_uses_pending_steers_while_turn_is_running_without_streaming() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer on the chat screen: Enter while a turn runs without a stream is not sent as a steer, and its item completion is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.type_text("queued while running");
@@ -263,10 +245,6 @@ fn steer_enter_uses_pending_steers_while_turn_is_running_without_streaming() {
 // ORACLE chatwidget/tests/review_mode.rs:551 steer_enter_uses_pending_steers_while_final_answer_stream_is_active kind=ui owner=chat-live
 #[test]
 fn steer_enter_uses_pending_steers_while_final_answer_stream_is_active() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer on the chat screen: Enter during a streamed final answer is not sent as a steer, and its item completion is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -343,10 +321,6 @@ fn steer_enter_during_final_stream_preserves_follow_up_prompts_in_order() {
 // ORACLE chatwidget/tests/review_mode.rs:826 manual_interrupt_restores_pending_steers_to_composer kind=ui owner=chat-live
 #[test]
 fn manual_interrupt_restores_pending_steers_to_composer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no interrupt restore on the chat screen: an interrupted turn does not put the pending steer back into the composer",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -421,10 +395,6 @@ fn manual_interrupt_restores_pending_steer_mention_bindings_to_composer() {
 // ORACLE chatwidget/tests/review_mode.rs:1017 manual_interrupt_restores_pending_steers_before_queued_messages kind=ui owner=chat-live
 #[test]
 fn manual_interrupt_restores_pending_steers_before_queued_messages() {
-    kit::pending(
-        Owner::ChatLive,
-        "no interrupt restore on the chat screen: after an interrupt the composer does not read the pending steer above the queued draft",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -449,10 +419,6 @@ fn ctrl_c_shutdown_works_with_caps_lock() {
 // ORACLE chatwidget/tests/review_mode.rs:1069 ctrl_c_interrupts_without_arming_quit_when_double_press_disabled kind=ui owner=chat-live
 #[test]
 fn ctrl_c_interrupts_without_arming_quit_when_double_press_disabled() {
-    kit::pending(
-        Owner::ChatLive,
-        "no running turn to interrupt with Ctrl+C on the chat screen (turn/started is not applied to the bottom pane)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.keys("ctrl+c");
@@ -465,10 +431,6 @@ fn ctrl_c_interrupts_without_arming_quit_when_double_press_disabled() {
 // ORACLE chatwidget/tests/review_mode.rs:1087 ctrl_c_cleared_prompt_is_recoverable_via_history kind=ui owner=chat-live
 #[test]
 fn ctrl_c_cleared_prompt_is_recoverable_via_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "history recall does not restore images: the prompt history is text only (`popovers.history: Vec<String>`, shared with Ctrl+R search and the persisted history), so after Up `[Image #1]` is plain text and Enter sends no image; the oracle's recalled draft carries `preview.png` (take_recent_submission_images)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("draft message ");
     // oracle: attach_image(/tmp/preview.png) appends "[Image #1]" to the draft
@@ -556,14 +518,14 @@ fn interrupt_exec_marks_failed_snapshot() {
 // ORACLE chatwidget/tests/review_mode.rs:1270 interrupted_turn_error_message_snapshot kind=snap owner=chat-live snap=interrupted_turn_error_message
 #[test]
 fn interrupted_turn_error_message_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no interrupted notice on the chat screen: the interrupted turn draws no 'Conversation interrupted' cell",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&turn_ended("turn-1", "interrupted"));
-    s.assert_snap("interrupted_turn_error_message");
+    s.assert_snap_region(
+        "interrupted_turn_error_message",
+        row_of(&s, "Conversation interrupted"),
+        0,
+    );
     // oracle: every span of the notice has the secondary text style.
     s.assert_text_style(
         "Conversation interrupted - use /feedback if something went wrong",
@@ -574,39 +536,35 @@ fn interrupted_turn_error_message_snapshot() {
 // ORACLE chatwidget/tests/review_mode.rs:1298 interrupted_turn_after_goal_budget_limited_uses_budget_message_snapshot kind=snap owner=chat-live snap=interrupted_turn_goal_budget_limited_message
 #[test]
 fn interrupted_turn_after_goal_budget_limited_uses_budget_message_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread goal state on the chat screen: thread/goal/updated is not applied, and the Goals feature seed is not in the kit, so no 'Goal budget reached' message is drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&goal_budget_limited("turn-1"));
     s.feed(&turn_ended("turn-1", "interrupted"));
-    s.assert_snap("interrupted_turn_goal_budget_limited_message");
+    s.assert_snap_region(
+        "interrupted_turn_goal_budget_limited_message",
+        row_of(&s, "Goal budget reached"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:1366 direct_budget_limited_turn_uses_budget_message_snapshot kind=snap owner=chat-live snap=direct_budget_limited_turn_message
 #[test]
 fn direct_budget_limited_turn_uses_budget_message_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no budget-limited turn on the chat screen: the 'Goal budget reached - the turn was stopped.' message is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     // oracle: mark_budget_limited(turn-1) then the interrupt; the goal update stands in for the mark (no wire step of its own).
     s.feed(&goal_budget_limited("turn-1"));
     s.feed(&turn_ended("turn-1", "interrupted"));
-    s.assert_snap("direct_budget_limited_turn_message");
+    s.assert_snap_region(
+        "direct_budget_limited_turn_message",
+        row_of(&s, "Goal budget reached"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:1398 interrupted_turn_pending_steers_message_snapshot kind=snap owner=chat-live snap=interrupted_turn_pending_steers_message
 #[test]
 fn interrupted_turn_pending_steers_message_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no interrupt notice for pending steers on the chat screen: 'Model interrupted to submit steer instructions.' is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     // oracle: a pending steer ("steer 1") with submit_pending_steers_after_interrupt set.
@@ -614,7 +572,11 @@ fn interrupted_turn_pending_steers_message_snapshot() {
     s.keys("enter");
     s.keys("esc");
     s.feed(&turn_ended("turn-1", "interrupted"));
-    s.assert_snap("interrupted_turn_pending_steers_message");
+    s.assert_snap_region(
+        "interrupted_turn_pending_steers_message",
+        row_of(&s, "Model interrupted"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:1422 review_custom_prompt_escape_navigates_back_then_dismisses kind=ui owner=chat-live
@@ -712,9 +674,10 @@ fn suppressed_interrupted_turn_notice_skips_history_warning() {
 fn slash_commands_without_side_flag_are_rejected_for_side_threads() {
     kit::pending(
         Owner::ChatLive,
-        "no side-conversation state on the chat screen: '/review' in a side conversation draws no 'unavailable in side conversations' error",
+        "the gate runs (the notice reaches the screen) but ours is a bare line above the composer that wraps at 80, where the oracle adds an error history cell '■ ...' (add_error_message): the command notices becoming transcript error rows is chat-commands' (core/src/commands, notice.rs)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
     s.type_text("/review");
     s.keys("enter");
     s.assert_contains(
@@ -731,9 +694,10 @@ fn slash_commands_without_side_flag_are_rejected_for_side_threads() {
 fn slash_side_is_rejected_for_side_threads() {
     kit::pending(
         Owner::ChatLive,
-        "no side-conversation state on the chat screen: '/side' in a side conversation draws no 'unavailable in side conversations' error",
+        "the gate runs but ours is a bare line above the composer that wraps at 80, where the oracle adds an error history cell '■ ...' (add_error_message): chat-commands' (command notices as transcript error rows)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
     s.type_text("/side");
     s.keys("enter");
     s.assert_contains(
@@ -744,10 +708,6 @@ fn slash_side_is_rejected_for_side_threads() {
 // ORACLE chatwidget/tests/side.rs:135 side_aliases_are_rejected_during_review_mode kind=ui owner=chat-live
 #[test]
 fn side_aliases_are_rejected_during_review_mode() {
-    kit::pending(
-        Owner::ChatLive,
-        "no side-conversation command gate on the chat screen: '/side' and '/btw' during a review draw no 'unavailable while code review is running' error",
-    );
     for (command, name) in [("/side", "side"), ("/btw", "btw")] {
         let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
         s.feed(&entered_review("current changes"));

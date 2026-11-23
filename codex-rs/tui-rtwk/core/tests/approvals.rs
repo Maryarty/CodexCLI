@@ -884,6 +884,23 @@ mod inputs {
             } })
         );
     }
+
+    /// A request that ran out answers with no answer at all: an empty map on the wire (the
+    /// oracle's `submit_empty_auto_resolution`), not one empty list per question; the request
+    /// leaves the queue.
+    #[test]
+    fn a_request_that_ran_out_resolves_with_an_empty_map() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(1, two_questions()), &mut fx);
+        let ev = respond(&app, input::empty_answer());
+        apply_app(&mut app, ev, &mut fx);
+        assert!(app.requests().entries.is_empty());
+        let [Command::ResolveRequest { result, .. }] = fx.commands() else {
+            panic!("expected one answer: {:?}", fx.commands());
+        };
+        assert_eq!(*result, json!({ "answers": {} }));
+    }
 }
 
 /// `bottom_pane/user_verification.rs`: the request a server makes for a device verification.
@@ -951,20 +968,31 @@ mod user_verification {
         assert_eq!(waiting.decisions(), vec![Decision::Cancel]);
     }
 
-    /// Cancel answers the elicitation as cancelled; accepting needs the device's proof, so a
-    /// plain Accept (or Verify, which only starts the controller) sends nothing and keeps the
-    /// request.
+    /// Cancel answers the elicitation as cancelled and says why (oracle
+    /// `user_verification_cancellation_invalidates_the_inflight_result`: `_meta`
+    /// `openai/userVerificationReason: userCancelled`); accepting needs the device's proof, so a
+    /// plain Accept sends nothing and keeps the request; Verify only starts the controller (one
+    /// `VerifyUser`, no answer to the server).
     #[test]
     fn cancel_answers_and_accept_without_a_proof_does_not() {
         let mut app = CodexApp::new();
         let mut fx = AppFx::default();
         apply_app(&mut app, request(), &mut fx);
-        for decision in [Decision::Accept, Decision::Decline, Decision::Verify] {
+        for decision in [Decision::Accept, Decision::Decline] {
             let ev = answer(&app, decision);
             apply_app(&mut app, ev, &mut fx);
         }
         assert_eq!(app.requests().entries.len(), 1);
         assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+        let ev = answer(&app, Decision::Verify);
+        apply_app(&mut app, ev, &mut fx);
+        assert_eq!(app.requests().entries.len(), 1);
+        assert!(
+            matches!(fx.commands(), [Command::VerifyUser { .. }]),
+            "{:?}",
+            fx.commands()
+        );
+        let mut fx = AppFx::default();
         let ev = answer(&app, Decision::Cancel);
         apply_app(&mut app, ev, &mut fx);
         assert!(app.requests().entries.is_empty());
@@ -973,7 +1001,1051 @@ mod user_verification {
         };
         assert_eq!(
             *result,
-            json!({ "action": "cancel", "content": null, "_meta": null })
+            json!({
+                "action": "cancel",
+                "content": null,
+                "_meta": { "openai/userVerificationReason": "userCancelled" }
+            })
         );
+    }
+}
+
+/// The controller's state (`approvals::verify`): oracle `app/user_verification_requests_tests.rs`
+/// and `user_verification_errors_tests.rs`.
+mod verification_controller {
+    use codex_app_server_protocol::{
+        ServerRequest, UserVerificationErrorDetails, UserVerificationFailureReason,
+        UserVerificationProof, UserVerificationUnavailableReason,
+    };
+    use codex_tui_core::ids::{ConnEpoch, RequestKey, ServerRequestId, ThreadId};
+    use codex_tui_core::screens::approvals::verify::{Cause, Failure, Outcome, Verifications};
+    use codex_tui_core::screens::approvals::{Decision, RequestAnswer};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    fn request(id: u64) -> ServerRequest {
+        serde_json::from_value(json!({
+            "method": "mcpServer/elicitation/request",
+            "id": id,
+            "params": {
+                "threadId": "thread-1", "turnId": null, "serverName": "deployments",
+                "mode": "openai/userVerification", "_meta": null,
+                "title": "Approve deployment?",
+                "description": "Deploy the reviewed change.",
+                "challenge": "AQID"
+            }
+        }))
+        .expect("request")
+    }
+
+    fn key(thread: &str, epoch: u64, id: u64) -> RequestKey {
+        RequestKey {
+            backend: Default::default(),
+            epoch: ConnEpoch(epoch),
+            thread: ThreadId::new(thread),
+            id: ServerRequestId::new(id.to_string()),
+        }
+    }
+
+    /// An attempt is begun once per request and carries what the device signs, from the request.
+    #[test]
+    fn an_attempt_begins_once_and_carries_the_challenge() {
+        let mut verifications = Verifications::default();
+        let key = key("thread-1", 1, 7);
+        assert_eq!(verifications.begin(&key), None, "nothing noted yet");
+        verifications.note(key.clone(), &request(7));
+        let attempt = verifications.begin(&key).expect("pending request");
+        assert_eq!(attempt.params.title, "Approve deployment?");
+        assert_eq!(attempt.params.description, "Deploy the reviewed change.");
+        assert_eq!(attempt.params.challenge, "AQID");
+        assert_eq!(verifications.begin(&key), None, "one attempt at a time");
+        assert!(verifications.is_pending(&key, attempt.id));
+    }
+
+    /// A request that is not a user verification is not kept (the controller never saw it).
+    #[test]
+    fn another_request_is_not_noted() {
+        let mut verifications = Verifications::default();
+        let other: ServerRequest = serde_json::from_value(json!({
+            "method": "item/tool/requestUserInput", "id": 1,
+            "params": { "threadId": "thread-1", "turnId": "t", "itemId": "i", "questions": [] }
+        }))
+        .expect("request");
+        verifications.note(key("thread-1", 1, 1), &other);
+        assert_eq!(verifications.begin(&key("thread-1", 1, 1)), None);
+    }
+
+    /// Cancelled or resolved by the server: the request leaves, the in-flight result is void.
+    #[test]
+    fn answering_or_resolving_voids_the_inflight_result() {
+        let mut verifications = Verifications::default();
+        let key = key("thread-1", 1, 7);
+        verifications.note(key.clone(), &request(7));
+        let attempt = verifications.begin(&key).expect("attempt");
+        verifications.remove(&key);
+        assert!(!verifications.is_pending(&key, attempt.id));
+        assert_eq!(verifications.begin(&key), None);
+    }
+
+    /// A discarded thread voids only its own attempts.
+    #[test]
+    fn a_discarded_thread_voids_only_its_attempts() {
+        let mut verifications = Verifications::default();
+        let (gone, kept) = (key("thread-1", 1, 7), key("thread-2", 1, 7));
+        verifications.note(gone.clone(), &request(7));
+        verifications.note(kept.clone(), &request(7));
+        let gone_attempt = verifications.begin(&gone).expect("attempt");
+        let kept_attempt = verifications.begin(&kept).expect("attempt");
+        assert_eq!(
+            verifications.cancel_thread(&ThreadId::new("thread-1")),
+            vec![gone.clone()]
+        );
+        assert!(!verifications.is_pending(&gone, gone_attempt.id));
+        assert!(verifications.is_pending(&kept, kept_attempt.id));
+    }
+
+    /// After a reconnect the old connection's proof cannot answer the request that comes again
+    /// with the same id: the new attempt is another generation, and a request of the old epoch
+    /// is another key.
+    #[test]
+    fn a_reconnect_cannot_accept_a_previous_connections_proof() {
+        let mut verifications = Verifications::default();
+        let key = key("thread-1", 1, 7);
+        verifications.note(key.clone(), &request(7));
+        let previous = verifications.begin(&key).expect("first");
+        verifications.clear();
+        assert!(!verifications.is_pending(&key, previous.id));
+        verifications.note(key.clone(), &request(7));
+        let current = verifications.begin(&key).expect("second");
+        assert_ne!(previous.id, current.id);
+        assert!(!verifications.is_pending(&key, previous.id));
+        assert!(verifications.is_pending(&key, current.id));
+        // the same id on the next connection is another request
+        assert!(!verifications.is_pending(&self::key("thread-1", 2, 7), current.id));
+    }
+
+    /// Accept sends the proof as `content` and no `_meta`; cancel and failure send the closed
+    /// reason only (oracle `take_resolution`, `user_verification_proof_is_sent_to_the_server_*`).
+    #[test]
+    fn the_outcomes_answer_the_elicitation() {
+        let proof = UserVerificationProof {
+            credential_id: "private-credential".into(),
+            signature: "private-signature".into(),
+        };
+        assert_eq!(
+            Outcome::Accepted(proof).answer(),
+            Some(RequestAnswer::Elicitation {
+                decision: Decision::Accept,
+                content: Some(json!({
+                    "credentialId": "private-credential",
+                    "signature": "private-signature"
+                })),
+                meta: None,
+            })
+        );
+        assert_eq!(
+            Outcome::Cancelled.answer(),
+            Some(RequestAnswer::Elicitation {
+                decision: Decision::Cancel,
+                content: None,
+                meta: Some(json!({ "openai/userVerificationReason": "userCancelled" })),
+            })
+        );
+        assert_eq!(
+            Outcome::Failed(UserVerificationErrorDetails::Unavailable {
+                reason: UserVerificationUnavailableReason::BiometricsUnavailable,
+            })
+            .answer(),
+            Some(RequestAnswer::Elicitation {
+                decision: Decision::Cancel,
+                content: None,
+                meta: Some(json!({ "openai/userVerificationReason": "biometricsUnavailable" })),
+            })
+        );
+    }
+
+    /// The failure is read from the typed `data` only; the native diagnostics of `message` are
+    /// never looked at, and a payload outside the closed categories is a service error.
+    #[test]
+    fn a_failure_reads_the_typed_reason_and_nothing_else() {
+        let of = |data: serde_json::Value| Failure::of_server(Some(&data)).cause;
+        let unavailable = |reason: &str| json!({ "type": "unavailable", "reason": reason });
+        assert_eq!(
+            of(unavailable("credentialMissing")),
+            Cause::CredentialMissing
+        );
+        assert_eq!(
+            of(unavailable("biometricsUnavailable")),
+            Cause::BiometricsUnavailable
+        );
+        assert_eq!(
+            of(unavailable("providerUnavailable")),
+            Cause::ProviderUnavailable
+        );
+        assert_eq!(
+            of(json!({ "type": "invalidRequest", "reason": "invalidParams" })),
+            Cause::InvalidParams
+        );
+        assert_eq!(
+            of(json!({ "type": "cancelled", "reason": "userCancelled" })),
+            Cause::UserCancelled
+        );
+        assert_eq!(
+            of(json!({ "type": "cancelled", "reason": "interrupted" })),
+            Cause::Interrupted
+        );
+        assert_eq!(
+            of(json!({ "type": "failed", "reason": "authenticationFailed" })),
+            Cause::AuthenticationFailed
+        );
+        assert_eq!(
+            of(json!({ "type": "failed", "reason": "timeout" })),
+            Cause::Timeout
+        );
+        assert_eq!(
+            of(json!({ "type": "failed", "reason": "providerError" })),
+            Cause::Service
+        );
+        assert_eq!(of(unavailable("secret native failure")), Cause::Service);
+        let malformed = Failure::of_server(Some(&unavailable("secret native failure")));
+        assert_eq!(
+            malformed.details,
+            UserVerificationErrorDetails::Failed {
+                reason: UserVerificationFailureReason::ServiceError
+            }
+        );
+        assert_eq!(Failure::of_server(None).cause, Cause::Service);
+        assert_eq!(Failure::unreachable().cause, Cause::Unreachable);
+    }
+}
+
+mod auto_resolution {
+    use std::time::Duration;
+
+    use codex_tui_core::screens::approvals::input::{
+        AutoResolution, auto_resolution, remaining_text,
+    };
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    const SECS: fn(u64) -> Duration = Duration::from_secs;
+
+    // oracle request_user_input/mod.rs:1829 auto_resolution_absent_has_no_timer, :1849
+    // auto_resolution_uses_is_blocking_without_auto_resolution_ms
+    #[test]
+    fn a_blocking_request_has_no_timer() {
+        assert_eq!(
+            auto_resolution(false, false, SECS(0)),
+            AutoResolution::Disabled
+        );
+        assert_eq!(
+            auto_resolution(false, false, SECS(500)),
+            AutoResolution::Disabled
+        );
+    }
+
+    // :1881 auto_resolution_hides_timer_during_grace_period
+    #[test]
+    fn the_grace_period_hides_the_countdown() {
+        assert_eq!(
+            auto_resolution(true, false, SECS(0)),
+            AutoResolution::HiddenGrace {
+                remaining: SECS(60)
+            }
+        );
+        assert_eq!(
+            auto_resolution(true, false, SECS(59)),
+            AutoResolution::HiddenGrace { remaining: SECS(1) }
+        );
+    }
+
+    // :1912 auto_resolution_visible_countdown_snapshot, :1978 auto_resolution_expiry_emits_empty_answer
+    #[test]
+    fn the_countdown_shows_for_a_minute_then_the_request_is_due() {
+        assert_eq!(
+            auto_resolution(true, false, SECS(60)),
+            AutoResolution::VisibleCountdown {
+                remaining: SECS(60)
+            }
+        );
+        assert_eq!(
+            auto_resolution(true, false, SECS(119)),
+            AutoResolution::VisibleCountdown { remaining: SECS(1) }
+        );
+        assert_eq!(auto_resolution(true, false, SECS(120)), AutoResolution::Due);
+    }
+
+    // :2011 auto_resolution_key_interaction_snoozes_timer, :2038 ..._paste_...
+    #[test]
+    fn a_key_or_a_paste_stops_the_timer_for_good() {
+        assert_eq!(
+            auto_resolution(true, true, SECS(0)),
+            AutoResolution::Disabled
+        );
+        assert_eq!(
+            auto_resolution(true, true, SECS(200)),
+            AutoResolution::Disabled
+        );
+    }
+
+    #[test]
+    fn the_remaining_time_counts_a_started_second_whole() {
+        assert_eq!(remaining_text(SECS(60)), "1m 00s");
+        assert_eq!(remaining_text(SECS(61)), "1m 01s");
+        assert_eq!(remaining_text(Duration::from_millis(59_500)), "1m 00s");
+        assert_eq!(remaining_text(SECS(59)), "59s");
+        assert_eq!(remaining_text(Duration::from_millis(500)), "1s");
+        assert_eq!(remaining_text(SECS(0)), "0s");
+    }
+
+    #[test]
+    fn only_a_request_that_says_it_is_not_blocking_answers_itself() {
+        let request = |blocking: &str| {
+            format!(
+                r#"{{"method":"item/tool/requestUserInput","id":1,"params":{{"threadId":"thread-1","turnId":"turn-1","itemId":"call-1"{blocking},"questions":[{{"id":"q1","header":"H","question":"Q?","isOther":false,"isSecret":false,"options":null}}]}}}}"#
+            )
+        };
+        let can = |blocking: &str| match prompt(&play(&request(blocking))) {
+            Prompt::UserInput(input) => input.can_auto_resolve,
+            other => panic!("not a question: {other:?}"),
+        };
+        assert!(!can(""));
+        assert!(!can(r#","isBlocking":true"#));
+        assert!(can(r#","isBlocking":false"#));
+    }
+}
+
+/// What the transcript keeps of an answer (the oracle's `new_approval_decision_cell` and the
+/// plain permissions line, `approval_overlay.rs` `handle_exec_decision` and
+/// `handle_permissions_decision`): the model says WHAT happened, the cell says it in words.
+mod decided {
+    use codex_tui_core::screens::approvals::decided::{Actor, Decided, Grant, Outcome, Subject};
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    fn network(command: &str, context: &str) -> String {
+        format!(
+            r#"{{"method":"item/commandExecution/requestApproval","id":1,"params":{{"kind":"command","threadId":"thread-1","turnId":"turn-1","itemId":"call-1","startedAtMs":0,"approvalId":"call-1","environmentId":null,"command":"{command}","cwd":"/tmp"{context}}}}}"#
+        )
+    }
+
+    fn user(subject: Subject, outcome: Outcome) -> Option<Decided> {
+        Some(Decided::Request {
+            actor: Actor::User,
+            subject,
+            outcome,
+        })
+    }
+
+    fn command(text: &str) -> Subject {
+        Subject::Command(text.to_string())
+    }
+
+    fn target(text: &str) -> Subject {
+        Subject::Network {
+            target: text.to_string(),
+        }
+    }
+
+    // :2384 exec_history_cell_wraps_with_two_space_indent (the command, shell wrapper stripped)
+    #[test]
+    fn an_exec_answer_names_the_command_and_what_the_user_chose() {
+        let sandbox = play(&exec(r#","proposedExecpolicyAmendment":["echo","hello"]"#));
+        let prompt = prompt(&sandbox);
+        let of = |decision: Decision| Decided::of(&prompt, &decision);
+        let run = || command("echo hello world");
+        assert_eq!(of(Decision::Accept), user(run(), Outcome::Approved));
+        assert_eq!(
+            of(Decision::AcceptForSession),
+            user(run(), Outcome::ApprovedForSession)
+        );
+        assert_eq!(
+            of(Decision::AcceptWithPrefix("echo hello".into())),
+            user(run(), Outcome::ApprovedWithPrefix("echo hello".into()))
+        );
+        assert_eq!(of(Decision::Decline), user(run(), Outcome::Denied));
+        assert_eq!(of(Decision::Cancel), user(run(), Outcome::Aborted));
+    }
+
+    #[test]
+    fn a_decision_the_request_does_not_take_records_nothing() {
+        let sandbox = play(&exec(""));
+        let prompt = prompt(&sandbox);
+        for decision in [
+            Decision::AllowHost,
+            Decision::Verify,
+            Decision::GrantForTurn,
+            Decision::DenyPermissions,
+        ] {
+            assert_eq!(Decided::of(&prompt, &decision), None, "{decision:?}");
+        }
+    }
+
+    // network_access_command_history_uses_target_without_structured_context
+    #[test]
+    fn a_network_access_command_names_its_target() {
+        let sandbox = play(&network("network-access https://example.com:8443", ""));
+        assert_eq!(
+            Decided::of(&prompt(&sandbox), &Decision::Accept),
+            user(target("https://example.com:8443"), Outcome::Approved)
+        );
+    }
+
+    // network_exec_approval_history_describes_one_time_host_allowance: no target in the
+    // command, so the context's scheme and host are it
+    #[test]
+    fn a_network_context_names_its_scheme_and_host() {
+        let context = |protocol: &str| {
+            format!(r#","networkApprovalContext":{{"host":"example.com","protocol":"{protocol}"}}"#)
+        };
+        for (protocol, scheme) in [
+            ("http", "http"),
+            ("https", "https"),
+            ("socks5Tcp", "socks5-tcp"),
+            ("socks5Udp", "socks5-udp"),
+        ] {
+            let sandbox = play(&network("curl example.com", &context(protocol)));
+            assert_eq!(
+                Decided::of(&prompt(&sandbox), &Decision::Accept),
+                user(
+                    target(&format!("{scheme}://example.com")),
+                    Outcome::Approved
+                ),
+                "{protocol}"
+            );
+        }
+    }
+
+    // network_exec_approval_history_describes_canceled_host_request: the command's own target
+    // wins over the context
+    #[test]
+    fn the_target_of_the_command_wins_over_the_context() {
+        let sandbox = play(&network(
+            "network-access socks5-tcp://example.com:1080",
+            r#","networkApprovalContext":{"host":"example.com","protocol":"socks5Tcp"}"#,
+        ));
+        assert_eq!(
+            Decided::of(&prompt(&sandbox), &Decision::Cancel),
+            user(target("socks5-tcp://example.com:1080"), Outcome::Aborted)
+        );
+    }
+
+    #[test]
+    fn a_network_rule_names_the_rule_and_keeps_the_target() {
+        let sandbox = play(&network(
+            "curl example.com",
+            r#","networkApprovalContext":{"host":"example.com","protocol":"https"}"#,
+        ));
+        let rule = |allow| Decision::NetworkRule {
+            host: "example.com".into(),
+            allow,
+        };
+        let prompt = prompt(&sandbox);
+        assert_eq!(
+            Decided::of(&prompt, &rule(true)),
+            user(
+                target("https://example.com"),
+                Outcome::NetworkRule {
+                    host: "example.com".into(),
+                    allow: true
+                }
+            )
+        );
+        assert_eq!(
+            Decided::of(&prompt, &rule(false)),
+            user(
+                target("https://example.com"),
+                Outcome::NetworkRule {
+                    host: "example.com".into(),
+                    allow: false
+                }
+            )
+        );
+    }
+
+    // `if request.thread_label().is_none()`: the answer of another thread's request is not
+    // the shown thread's history
+    #[test]
+    fn a_request_of_another_thread_leaves_no_record() {
+        let sandbox = play(&exec(""));
+        let prompt = prompt(&sandbox).with_thread_label(Some("Robie".into()));
+        assert_eq!(Decided::of(&prompt, &Decision::Accept), None);
+    }
+
+    // handle_permissions_decision: a plain line, the four grants
+    #[test]
+    fn a_permissions_answer_says_what_was_granted() {
+        let sandbox = play(
+            r#"{"method":"item/permissions/requestApproval","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","itemId":"test","environmentId":null,"startedAtMs":0,"cwd":"/tmp","reason":"need workspace access","permissions":{"network":{"enabled":true}}}}"#,
+        );
+        let prompt = prompt(&sandbox);
+        for (decision, grant) in [
+            (Decision::GrantForTurn, Grant::Turn),
+            (Decision::GrantForTurnStrict, Grant::Strict),
+            (Decision::GrantForSession, Grant::Session),
+            (Decision::DenyPermissions, Grant::Nothing),
+        ] {
+            assert_eq!(
+                Decided::of(&prompt, &decision),
+                Some(Decided::Permissions(grant)),
+                "{decision:?}"
+            );
+        }
+        assert_eq!(Decided::of(&prompt, &Decision::Accept), None);
+    }
+
+    // a patch, a form and a question leave no decision cell (the oracle records the two above)
+    #[test]
+    fn a_patch_records_no_decision() {
+        let sandbox = play(
+            r#"{"method":"item/fileChange/requestApproval","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","itemId":"call-1","startedAtMs":0}}"#,
+        );
+        assert_eq!(Decided::of(&prompt(&sandbox), &Decision::Accept), None);
+    }
+}
+
+/// Which queued request is shown next (the oracle's view stack, `bottom_pane/mod.rs`
+/// 2085-2130, and the queue of each view): a request of another kind stacks over the one
+/// shown; the requests of one kind wait in one view, approvals newest first
+/// (`approval_overlay.rs` `advance_queue` pops a `Vec`), forms and questions oldest first.
+mod order {
+    use codex_tui_core::screens::approvals::order::{Family, to_show};
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    const A: Family = Family::Approval;
+    const E: Family = Family::Elicitation;
+    const Q: Family = Family::UserInput;
+
+    fn shown(queue: &[(&'static str, Family)]) -> Option<&'static str> {
+        to_show(queue).copied()
+    }
+
+    // approval_overlay.rs:507 advance_queue
+    #[test]
+    fn approvals_come_newest_first() {
+        assert_eq!(shown(&[("a1", A), ("a2", A), ("a3", A)]), Some("a3"));
+        assert_eq!(shown(&[("a1", A), ("a2", A)]), Some("a2"));
+        assert_eq!(shown(&[("a1", A)]), Some("a1"));
+    }
+
+    // mcp_server_elicitation.rs:2497 queues_requests_fifo
+    #[test]
+    fn elicitations_come_oldest_first() {
+        assert_eq!(shown(&[("e1", E), ("e2", E)]), Some("e1"));
+    }
+
+    // request_user_input/mod.rs:1770 queued_requests_are_fifo
+    #[test]
+    fn questions_come_oldest_first() {
+        assert_eq!(shown(&[("q1", Q), ("q2", Q), ("q3", Q)]), Some("q1"));
+    }
+
+    // bottom_pane/mod.rs push_approval_request, push_mcp_server_elicitation_request,
+    // push_user_input_request: a new kind is a new view on top
+    #[test]
+    fn a_request_of_another_kind_stacks_over_the_others() {
+        assert_eq!(shown(&[("a1", A), ("e1", E)]), Some("e1"));
+        assert_eq!(shown(&[("e1", E), ("a1", A)]), Some("a1"));
+        assert_eq!(
+            shown(&[("a1", A), ("a2", A), ("q1", Q), ("q2", Q)]),
+            Some("q1")
+        );
+        // once the view on top is done, the earlier one is the top again
+        assert_eq!(shown(&[("a1", A), ("a2", A)]), Some("a2"));
+    }
+
+    #[test]
+    fn nothing_queued_shows_nothing() {
+        assert_eq!(shown(&[]), None);
+    }
+
+    #[test]
+    fn the_family_follows_the_prompt() {
+        let sandbox = play(&exec(""));
+        assert_eq!(Family::of(Some(&prompt(&sandbox))), A);
+        let sandbox = play(
+            r#"{"method":"item/fileChange/requestApproval","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","itemId":"call-1","startedAtMs":0}}"#,
+        );
+        assert_eq!(Family::of(Some(&prompt(&sandbox))), A);
+        assert_eq!(Family::of(None), Family::Other);
+    }
+}
+
+// ---- guardian (auto-review): chatwidget/tool_requests.rs `on_guardian_assessment`,
+// auto_review_denials.rs, permission_popups.rs `open_auto_review_denials_popup` and
+// `approve_recent_auto_review_denial`, status_state.rs `PendingGuardianReviewStatus`.
+
+mod guardian {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::screens::approvals::decided::{
+        Actor, Decided, Outcome, Reviewed, Subject, Verdict,
+    };
+    use codex_tui_core::screens::approvals::guardian::{Action, Ask, History, project};
+    use codex_tui_core::screens::approvals::{ThreadEv, ThreadPart};
+    use pretty_assertions::assert_eq;
+
+    fn notification(method: &str, params: &str) -> ServerNotification {
+        serde_json::from_str(&format!(r#"{{"method":"{method}","params":{params}}}"#))
+            .expect("a notification")
+    }
+
+    fn review(id: &str, status: &str, action: &str, rationale: Option<&str>) -> ServerNotification {
+        let rationale = rationale.map_or("null".to_string(), |r| format!("{r:?}"));
+        let done = if status == "inProgress" {
+            String::new()
+        } else {
+            r#","completedAtMs":1,"decisionSource":"agent""#.to_string()
+        };
+        let method = if status == "inProgress" {
+            "item/autoApprovalReview/started"
+        } else {
+            "item/autoApprovalReview/completed"
+        };
+        notification(
+            method,
+            &format!(
+                r#"{{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0{done},"reviewId":"{id}","targetItemId":null,"review":{{"status":"{status}","riskLevel":null,"userAuthorization":null,"rationale":{rationale}}},"action":{action}}}"#
+            ),
+        )
+    }
+
+    fn command(text: &str) -> String {
+        format!(r#"{{"type":"command","source":"shell","command":{text:?},"cwd":"/tmp"}}"#)
+    }
+
+    const STDIN: &str = r#"{"type":"writeStdin","approvalId":"a","processId":"42","stdin":"confirm\n","cwd":"/tmp"}"#;
+
+    /// Applies `notification` to `part` the way the app does: projected for its thread.
+    fn feed(part: &mut ThreadPart, notification: &ServerNotification) -> Option<Ask> {
+        let (thread, ev) = project(notification).expect("a guardian notification");
+        assert_eq!(thread.as_str(), "thread-1");
+        part.apply(ev)
+    }
+
+    #[test]
+    fn only_the_three_guardian_notifications_are_projected() {
+        let turn = notification(
+            "turn/started",
+            r#"{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"inProgress"}}"#,
+        );
+        assert!(project(&turn).is_none());
+        let warning = notification(
+            "guardianWarning",
+            r#"{"threadId":"thread-1","message":"Automatic approval review denied"}"#,
+        );
+        assert!(project(&warning).is_some());
+        assert!(project(&review("g", "inProgress", &command("ls"), None)).is_some());
+        assert!(project(&review("g", "denied", &command("ls"), None)).is_some());
+    }
+
+    #[test]
+    fn a_review_in_progress_owns_the_status_until_it_ends() {
+        let mut part = ThreadPart::default();
+        feed(
+            &mut part,
+            &review("g1", "inProgress", &command("rm -rf '/tmp/a'"), None),
+        );
+        assert_eq!(part.reviews.len(), 1);
+        assert_eq!(
+            part.reviews[0].action,
+            Action::Command {
+                line: "rm -rf '/tmp/a'".into()
+            }
+        );
+        assert!(part.take_history().is_empty());
+        feed(
+            &mut part,
+            &review("g1", "approved", &command("rm -rf '/tmp/a'"), None),
+        );
+        assert!(part.reviews.is_empty());
+        assert!(part.take_history().is_empty(), "approved: no history");
+        assert!(part.recent_denials.is_empty());
+    }
+
+    #[test]
+    fn a_second_start_of_the_same_review_updates_it() {
+        let mut part = ThreadPart::default();
+        feed(
+            &mut part,
+            &review("g1", "inProgress", &command("first"), None),
+        );
+        feed(
+            &mut part,
+            &review("g1", "inProgress", &command("second"), None),
+        );
+        assert_eq!(part.reviews.len(), 1);
+        assert_eq!(
+            part.reviews[0].action,
+            Action::Command {
+                line: "second".into()
+            }
+        );
+    }
+
+    #[test]
+    fn parallel_reviews_stay_in_arrival_order_and_leave_one_by_one() {
+        let mut part = ThreadPart::default();
+        for (id, line) in [("g1", "rm one"), ("g2", "rm two"), ("g3", "rm three")] {
+            feed(&mut part, &review(id, "inProgress", &command(line), None));
+        }
+        let ids: Vec<_> = part.reviews.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["g1", "g2", "g3"]);
+        feed(
+            &mut part,
+            &review("g2", "approved", &command("rm two"), None),
+        );
+        let ids: Vec<_> = part.reviews.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["g1", "g3"]);
+    }
+
+    #[test]
+    fn a_denied_command_is_the_auto_reviewers_cell_and_a_stored_denial() {
+        let mut part = ThreadPart::default();
+        feed(
+            &mut part,
+            &review(
+                "g1",
+                "inProgress",
+                &command("curl https://example.com"),
+                None,
+            ),
+        );
+        feed(
+            &mut part,
+            &review(
+                "g1",
+                "denied",
+                &command("curl https://example.com"),
+                Some("Exfiltrates a file."),
+            ),
+        );
+        assert!(part.reviews.is_empty());
+        assert_eq!(
+            part.take_history(),
+            vec![History::Decided(Decided::Request {
+                actor: Actor::Guardian,
+                subject: Subject::Command("curl https://example.com".into()),
+                outcome: Outcome::Denied,
+            })]
+        );
+        let denials: Vec<_> = part.recent_denials.iter().collect();
+        assert_eq!(denials.len(), 1);
+        assert_eq!(denials[0].id, "g1");
+        assert_eq!(denials[0].rationale.as_deref(), Some("Exfiltrates a file."));
+    }
+
+    #[test]
+    fn a_shell_wrapper_is_stripped_from_the_command_of_the_cell() {
+        let mut part = ThreadPart::default();
+        feed(
+            &mut part,
+            &review("g1", "denied", &command("bash -lc 'echo hi'"), None),
+        );
+        assert_eq!(
+            part.take_history(),
+            vec![History::Decided(Decided::Request {
+                actor: Actor::Guardian,
+                subject: Subject::Command("echo hi".into()),
+                outcome: Outcome::Denied,
+            })]
+        );
+    }
+
+    #[test]
+    fn a_timed_out_command_leaves_a_cell_and_no_denial() {
+        let mut part = ThreadPart::default();
+        feed(&mut part, &review("g1", "timedOut", &command("make"), None));
+        assert_eq!(
+            part.take_history(),
+            vec![History::Decided(Decided::Request {
+                actor: Actor::Guardian,
+                subject: Subject::Command("make".into()),
+                outcome: Outcome::TimedOut,
+            })]
+        );
+        assert!(part.recent_denials.is_empty());
+    }
+
+    #[test]
+    fn an_aborted_review_leaves_nothing_but_the_status_goes() {
+        let mut part = ThreadPart::default();
+        feed(
+            &mut part,
+            &review("g1", "inProgress", &command("make"), None),
+        );
+        feed(&mut part, &review("g1", "aborted", &command("make"), None));
+        assert!(part.reviews.is_empty());
+        assert!(part.take_history().is_empty());
+        assert!(part.recent_denials.is_empty());
+    }
+
+    #[test]
+    fn what_is_not_a_command_has_its_own_subject() {
+        let cases = [
+            (
+                STDIN.to_string(),
+                Reviewed::Stdin { process: "42".into(), input: "confirm\n".into() },
+            ),
+            (
+                r#"{"type":"applyPatch","cwd":"/tmp","files":["/tmp/a.rs","/tmp/b.rs"]}"#.into(),
+                Reviewed::Patch(vec!["/tmp/a.rs".into(), "/tmp/b.rs".into()]),
+            ),
+            (
+                r#"{"type":"mcpToolCall","server":"docs","toolName":"search","connectorId":null,"connectorName":"Docs","toolTitle":null}"#.into(),
+                Reviewed::Mcp { server: "docs".into(), tool: "search".into() },
+            ),
+            (
+                r#"{"type":"networkAccess","target":"https://example.com:443","host":"example.com","protocol":"https","port":443}"#.into(),
+                Reviewed::Network("https://example.com:443".into()),
+            ),
+            (
+                r#"{"type":"requestPermissions","reason":"Need write access.","permissions":{"network":null,"fileSystem":null}}"#.into(),
+                Reviewed::Permissions(Some("Need write access.".into())),
+            ),
+        ];
+        for (action, about) in cases {
+            for (status, verdict) in [("denied", Verdict::Denied), ("timedOut", Verdict::TimedOut)]
+            {
+                let mut part = ThreadPart::default();
+                feed(&mut part, &review("g", status, &action, None));
+                assert_eq!(
+                    part.take_history(),
+                    vec![History::Decided(Decided::Reviewed {
+                        verdict,
+                        about: about.clone()
+                    })],
+                    "{action} {status}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_execve_is_a_command_of_its_arguments() {
+        let mut part = ThreadPart::default();
+        let execve = r#"{"type":"execve","source":"shell","program":"rm","argv":["rm","-rf","a b"],"cwd":"/tmp"}"#;
+        feed(&mut part, &review("g", "inProgress", execve, None));
+        assert_eq!(
+            part.reviews[0].action,
+            Action::Command {
+                line: "rm -rf 'a b'".into()
+            }
+        );
+        let empty = r#"{"type":"execve","source":"shell","program":"ls","argv":[],"cwd":"/tmp"}"#;
+        feed(&mut part, &review("h", "inProgress", empty, None));
+        assert_eq!(
+            part.reviews[1].action,
+            Action::Command { line: "ls".into() }
+        );
+    }
+
+    #[test]
+    fn the_ten_most_recent_denials_stay_newest_first() {
+        let mut part = ThreadPart::default();
+        for n in 0..12 {
+            feed(
+                &mut part,
+                &review(
+                    &format!("review-{n}"),
+                    "denied",
+                    &command(&format!("rm {n}")),
+                    None,
+                ),
+            );
+        }
+        let ids: Vec<_> = part.recent_denials.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "review-11",
+                "review-10",
+                "review-9",
+                "review-8",
+                "review-7",
+                "review-6",
+                "review-5",
+                "review-4",
+                "review-3",
+                "review-2"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_denial_seen_again_moves_to_the_front_without_a_copy() {
+        let mut part = ThreadPart::default();
+        for n in 0..3 {
+            feed(
+                &mut part,
+                &review(&format!("r{n}"), "denied", &command("x"), None),
+            );
+        }
+        feed(
+            &mut part,
+            &review("r0", "denied", &command("x"), Some("again")),
+        );
+        let ids: Vec<_> = part.recent_denials.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["r0", "r2", "r1"]);
+    }
+
+    #[test]
+    fn the_end_of_a_turn_drops_the_reviews_and_keeps_the_denials() {
+        let mut part = ThreadPart::default();
+        feed(
+            &mut part,
+            &review("stale", "inProgress", &command("rm stale"), None),
+        );
+        feed(
+            &mut part,
+            &review("old", "denied", &command("rm old"), None),
+        );
+        part.take_history();
+        assert!(part.apply(ThreadEv::TurnEnded).is_none());
+        assert!(part.reviews.is_empty());
+        assert_eq!(part.recent_denials.iter().count(), 1);
+    }
+
+    #[test]
+    fn a_warning_is_history_unless_the_review_approved() {
+        let mut part = ThreadPart::default();
+        for (message, shown) in [
+            ("Automatic approval review denied (risk: high): no.", true),
+            (
+                "Automatic approval review timed out while evaluating the requested approval.",
+                true,
+            ),
+            (
+                "Automatic approval review approved (risk: low, authorization: high): ok.",
+                false,
+            ),
+        ] {
+            let warning = notification(
+                "guardianWarning",
+                &format!(r#"{{"threadId":"thread-1","message":{message:?}}}"#),
+            );
+            feed(&mut part, &warning);
+            assert_eq!(
+                part.take_history(),
+                if shown {
+                    vec![History::Warning(message.into())]
+                } else {
+                    vec![]
+                },
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn approving_a_denial_takes_it_and_asks_the_server_with_its_event() {
+        let mut part = ThreadPart::default();
+        feed(
+            &mut part,
+            &review("g1", "denied", &command("rm x"), Some("Destructive.")),
+        );
+        part.take_history();
+        let ask = part.apply(ThreadEv::ApproveDenied { id: "g1".into() });
+        let Some(Ask::ApproveDenied { event, id }) = ask else {
+            panic!("an ask, got {ask:?}");
+        };
+        assert_eq!(id, "g1");
+        assert_eq!(event["id"], "g1");
+        assert_eq!(event["status"], "denied");
+        assert_eq!(event["rationale"], "Destructive.");
+        assert_eq!(event["action"]["command"], "rm x");
+        assert!(part.recent_denials.is_empty());
+        assert_eq!(part.take_history(), vec![History::RetryApproved]);
+    }
+
+    #[test]
+    fn approving_a_gone_denial_says_so_and_asks_nothing() {
+        let mut part = ThreadPart::default();
+        assert!(
+            part.apply(ThreadEv::ApproveDenied { id: "g1".into() })
+                .is_none()
+        );
+        assert_eq!(part.take_history(), vec![History::DenialGone]);
+    }
+
+    #[test]
+    fn no_denials_is_an_info_line() {
+        let mut part = ThreadPart::default();
+        assert!(part.apply(ThreadEv::NoDenials).is_none());
+        assert_eq!(part.take_history(), vec![History::NoDenials]);
+    }
+
+    #[test]
+    fn a_path_that_cannot_be_localized_is_an_error_line_with_the_servers_text() {
+        let mut part = ThreadPart::default();
+        assert!(
+            part.apply(ThreadEv::Unlocalized("bad path".into()))
+                .is_none()
+        );
+        assert_eq!(
+            part.take_history(),
+            vec![History::Unlocalized("bad path".into())]
+        );
+    }
+}
+
+/// The three guardian notifications through the app's own router: `project_thread` and
+/// `notification_thread` carry them to the thread's slot.
+mod through_the_app {
+    use codex_tui_core::fixtures::sandbox::Sandbox;
+    use codex_tui_core::ids::ThreadId;
+    use pretty_assertions::assert_eq;
+
+    const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+
+    fn notify(method: &str, params: &str) -> String {
+        format!(r#"{{"step":"notify","message":{{"method":"{method}","params":{params}}}}}"#)
+    }
+
+    fn review(id: &str, status: &str, rationale: &str) -> String {
+        let (method, done) = if status == "inProgress" {
+            ("item/autoApprovalReview/started", "")
+        } else {
+            (
+                "item/autoApprovalReview/completed",
+                r#","completedAtMs":1,"decisionSource":"agent""#,
+            )
+        };
+        notify(
+            method,
+            &format!(
+                r#"{{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0{done},"reviewId":"{id}","targetItemId":null,"review":{{"status":"{status}","riskLevel":null,"userAuthorization":null,"rationale":{rationale}}},"action":{{"type":"command","source":"shell","command":"rm -rf x","cwd":"/tmp"}}}}"#
+            ),
+        )
+    }
+
+    #[test]
+    #[ignore = "needs(chat-live, popups): `screens::project_thread` has no `approvals::project` arm and `protocol/targets.rs` `notification_thread` names none of ItemGuardianApprovalReviewStarted/Completed, GuardianWarning (checked green with those four lines added and reverted)"]
+    fn a_review_under_way_and_a_denial_reach_the_slot_of_their_thread() {
+        let script = format!(
+            "{SESSION}\n{}\n{}\n",
+            review("g1", "inProgress", "null"),
+            review("g2", "denied", r#""Destructive.""#)
+        );
+        let sandbox = Sandbox::play(&script).expect("plays");
+        let thread = sandbox
+            .app()
+            .thread(&ThreadId::new("thread-1"))
+            .expect("the thread");
+        let part = &thread.screen_slots().approvals;
+        let running: Vec<_> = part
+            .reviews
+            .iter()
+            .map(|review| review.id.as_str())
+            .collect();
+        let kept: Vec<_> = part
+            .recent_denials
+            .iter()
+            .map(|denial| denial.id.as_str())
+            .collect();
+        assert_eq!((running, kept), (vec!["g1"], vec!["g2"]));
     }
 }

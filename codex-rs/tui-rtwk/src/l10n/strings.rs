@@ -26,7 +26,6 @@ pub struct Chat {
     pub thinking: &'static str,
     pub action_required: &'static str,
     pub compacting: &'static str,
-    pub interrupt_elapsed: Msg<1>,
     pub backtrack_hint: &'static str,
     pub queue_hint: &'static str,
     pub model_fast: Msg<2>,
@@ -44,8 +43,6 @@ pub struct Chat {
     pub keys: &'static str,
     pub error: Msg<1>,
     pub lagged: Msg<1>,
-    pub queued: Msg<1>,
-    pub queued_more: Msg<1>,
     pub user_line: Msg<1>,
     pub agent_line: Msg<1>,
 }
@@ -110,7 +107,6 @@ pub const EN: Shared = Shared {
         thinking: "Thinking",
         action_required: "[ ! ] Action Required",
         compacting: "Compacting context",
-        interrupt_elapsed: msg!("({0} • esc to interrupt)"),
         backtrack_hint: "Esc again to edit the previous message",
         queue_hint: "tab to queue message",
         model_fast: msg!("{0} {1} fast"),
@@ -125,8 +121,6 @@ pub const EN: Shared = Shared {
         keys: "F12 screens  Ctrl+C quit",
         error: msg!("error: {0}"),
         lagged: msg!("error: the backend dropped {0} events"),
-        queued: msg!("(queued) {0}"),
-        queued_more: msg!("… and {0} more"),
         user_line: msg!("› {0}"),
         agent_line: msg!("• {0}"),
     },
@@ -163,10 +157,8 @@ pub const RU: Shared = Shared {
         thinking: "размышляю…",
         action_required: "[ ! ] Требуется действие",
         compacting: "Сжатие контекста",
-        interrupt_elapsed: msg!("({0} • Esc — прервать)"),
         backtrack_hint: "Нажмите Esc ещё раз, чтобы изменить предыдущее сообщение",
         queue_hint: "Tab — поставить сообщение в очередь",
-        queued_more: msg!("… и ещё {0}"),
         model_fast: msg!("{0} {1} быстро"),
         tasks_progress: msg!("Задачи {0}/{1}"),
         context_remaining: msg!("Осталось {0}% контекста"),
@@ -187,10 +179,6 @@ pub fn of(cx: &mut impl DependCx) -> &'static Shared {
 }
 
 impl Shared {
-    pub fn interrupt_elapsed<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
-        Fmt::new(self.chat.interrupt_elapsed, [Arg::Text(elapsed)], &self.num)
-    }
-
     pub fn error<'a>(&'a self, message: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.chat.error, [Arg::Text(message)], &self.num)
     }
@@ -201,14 +189,6 @@ impl Shared {
             [Arg::Int(u64::try_from(skipped).unwrap_or(u64::MAX))],
             &self.num,
         )
-    }
-
-    pub fn queued<'a>(&'a self, text: &'a str) -> Fmt<'a, 1> {
-        Fmt::new(self.chat.queued, [Arg::Text(text)], &self.num)
-    }
-
-    pub(crate) fn more_queued(&self, count: usize) -> String {
-        Fmt::new(self.chat.queued_more, [Arg::Int(count as u64)], &self.num).to_string()
     }
 
     pub fn user_line<'a>(&'a self, text: &'a str) -> Fmt<'a, 1> {

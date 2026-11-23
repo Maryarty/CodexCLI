@@ -5,10 +5,11 @@ use rtwk::binding::TerminalTitle;
 use rtwk::layout::SizedBox;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use super::status_surfaces::Title;
+
 #[derive(Clone, PartialEq)]
 pub(super) struct WindowTitle {
-    pub before: Vec<String>,
-    pub after: Vec<String>,
+    pub title: Title,
 }
 
 #[derive(Default)]
@@ -51,17 +52,10 @@ impl State for WindowTitleState {
             return empty().into();
         };
         let frames = SpinnerFrames::DOTS.frames;
-        let before = w.before.join(" · ");
-        let after = w.after.join(" · ");
+        let title = w.title.clone();
         AnimatedBuilder::new(animation.clone(), move |animation, _| {
             let index = (animation.value() * frames.len() as f64) as usize % frames.len();
-            let parts = [before.as_str(), &frames[index], after.as_str()];
-            let caption = parts
-                .into_iter()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" · ");
-            TerminalTitle::new(caption, empty()).into()
+            TerminalTitle::new(title.text(Some(&frames[index])), empty()).into()
         })
         .into()
     }

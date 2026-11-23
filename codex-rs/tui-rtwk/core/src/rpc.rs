@@ -78,17 +78,24 @@ impl Reply {
     }
 
     pub fn rate_limits(limits: crate::screens::status::RateLimits) -> Self {
-        Self::account_rate_limits(limits, None)
+        Self::account_rate_limits(limits, None, crate::screens::chat::Reserve::default())
     }
 
     pub(crate) fn account_rate_limits(
         limits: crate::screens::status::RateLimits,
         banner: Option<crate::screens::chat::Banner>,
+        reserve: crate::screens::chat::Reserve,
     ) -> Self {
         Self(Answer::RateLimits {
             limits,
             banner: banner.map(Box::new),
+            reserve,
         })
+    }
+
+    /// `account/sendAddCreditsNudgeEmail` answered.
+    pub(crate) fn add_credits_nudge(outcome: crate::screens::chat::NudgeOutcome) -> Self {
+        Self(Answer::AddCreditsNudge(outcome))
     }
 
     pub(crate) fn interrupt_turn_changed(actual: TurnId) -> Self {
@@ -135,7 +142,9 @@ pub enum Answer {
     RateLimits {
         limits: crate::screens::status::RateLimits,
         banner: Option<Box<crate::screens::chat::Banner>>,
+        reserve: crate::screens::chat::Reserve,
     },
+    AddCreditsNudge(crate::screens::chat::NudgeOutcome),
     Screen(ScreenReply),
     WorktreeCreated(Result<Checkout, String>),
     WorktreeBound(Result<(), BindFailure>),

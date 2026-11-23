@@ -13,6 +13,8 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::screens::approvals::verify::Cause;
+
 use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
@@ -133,6 +135,108 @@ pub struct Strings {
     // bottom_pane/request_user_input: the options form.
     pub question_progress: Msg<2>,
     pub question_unanswered: Msg<1>,
+    /// Between the progress and the countdown of a request that answers itself.
+    pub countdown_separator: &'static str,
+    pub auto_resolves_in: Msg<1>,
+    /// The row that stands for the header rows that did not fit (`[… 7 lines] ⌃a view all`).
+    pub clipped_lines: Msg<1>,
+    pub view_all_key: &'static str,
+    pub view_all: &'static str,
+    /// The marks of a decision cell and who decided (`history_cell/approvals.rs`).
+    pub approved_mark: &'static str,
+    pub refused_mark: &'static str,
+    /// The bullet of an info line and the mark of an error line of the review lines
+    /// (`new_info_event`, `new_error_event`).
+    pub info_mark: &'static str,
+    /// Between an info line's message and its dim hint.
+    pub info_gap: &'static str,
+    pub error_mark: &'static str,
+    pub you: &'static str,
+    pub auto_reviewer: &'static str,
+    pub verb_approved: &'static str,
+    pub verb_persisted: &'static str,
+    pub verb_denied: &'static str,
+    pub verb_did_not_approve: &'static str,
+    pub verb_canceled: &'static str,
+    pub verb_timed_out: &'static str,
+    pub cell_request: &'static str,
+    pub cell_review: &'static str,
+    pub cell_codex_to_run: &'static str,
+    pub cell_this_request: &'static str,
+    pub cell_this_time: &'static str,
+    pub cell_every_time: &'static str,
+    pub cell_always_run: &'static str,
+    pub cell_network_to: &'static str,
+    pub cell_persisted_network_to: &'static str,
+    pub cell_saved_rule: &'static str,
+    pub cell_canceled_run: &'static str,
+    pub cell_canceled_network: &'static str,
+    pub cell_denied_run: &'static str,
+    pub cell_timed_out_run: &'static str,
+    pub cell_timed_out_request: &'static str,
+    pub cell_timed_out_access: &'static str,
+    /// A command of several lines shows its first, and these dots; one over eighty graphemes ends in the others.
+    pub cell_more_lines: &'static str,
+    pub cell_cut: &'static str,
+    /// What the auto-reviewer judged that was not a command (`new_guardian_denied_*_request`,
+    /// `new_guardian_timed_out_*_request`, `on_guardian_assessment`).
+    pub cell_denied_for: &'static str,
+    pub cell_timed_out_before: &'static str,
+    pub cell_denied_apply: &'static str,
+    pub cell_timed_out_apply: &'static str,
+    pub cell_patch_touching: &'static str,
+    pub cell_files: &'static str,
+    pub codex_to: &'static str,
+    pub codex_could: &'static str,
+    pub act_send_input: Msg<2>,
+    pub act_call_mcp: Msg<2>,
+    pub act_access: Msg<1>,
+    pub act_request_permissions: &'static str,
+    pub with_reason: Msg<2>,
+    /// A review as the status line and the `/auto-review` rows say it (`action_summary`).
+    pub sum_patch_one: Msg<1>,
+    pub sum_patch_many: Msg<1>,
+    pub sum_network: Msg<1>,
+    pub sum_mcp: Msg<2>,
+    pub sum_permission: &'static str,
+    /// The status line while reviews run (`PendingGuardianReviewStatus`).
+    pub review_one: &'static str,
+    pub review_many: Msg<1>,
+    pub review_bullet: Msg<1>,
+    pub review_more: Msg<1>,
+    /// The `/auto-review` list (`open_auto_review_denials_popup`).
+    pub denials_title: &'static str,
+    pub denials_subtitle: &'static str,
+    pub denials_action: &'static str,
+    pub denials_rationale: &'static str,
+    pub denials_no_rationale: &'static str,
+    pub denials_hint: &'static str,
+    /// What the history says of the list and of a pick (`add_info_message`, `add_error_message`).
+    pub no_denials: &'static str,
+    pub no_denials_hint: &'static str,
+    pub retry_approved: &'static str,
+    pub retry_approved_hint: &'static str,
+    pub denial_gone: &'static str,
+    pub unlocalized: Msg<1>,
+    /// What the history warns when a user verification did not complete (oracle
+    /// `user_verification_errors.rs`, safe messages only, never the provider's diagnostics).
+    pub verify_unreachable: &'static str,
+    pub verify_invalid_params: &'static str,
+    pub verify_credential_missing: &'static str,
+    pub verify_biometrics_unavailable: &'static str,
+    pub verify_provider_unavailable: &'static str,
+    pub verify_user_cancelled: &'static str,
+    pub verify_interrupted: &'static str,
+    pub verify_authentication_failed: &'static str,
+    pub verify_timeout: &'static str,
+    pub verify_service: &'static str,
+    /// The warning of a user verification on a remote workspace.
+    pub verify_remote: &'static str,
+    /// What a permissions answer says (`handle_permissions_decision`).
+    pub granted_nothing: &'static str,
+    pub granted_turn: &'static str,
+    pub granted_strict: &'static str,
+    pub granted_session: &'static str,
     pub none_of_the_above: &'static str,
     pub none_description: &'static str,
     pub notes_placeholder: &'static str,
@@ -251,6 +355,95 @@ pub const EN: Strings = Strings {
     param_line: msg!("{0}: {1}"),
     question_progress: msg!("Question {0}/{1}"),
     question_unanswered: msg!(" ({0} unanswered)"),
+    countdown_separator: " \u{b7} ",
+    auto_resolves_in: msg!("auto-resolves in {0}"),
+    clipped_lines: msg!("[\u{2026} {0} lines]"),
+    view_all_key: "\u{2303}a",
+    view_all: " view all",
+    // The marks of a decision cell and who decided (`history_cell/approvals.rs`).
+    approved_mark: "\u{2714} ",
+    refused_mark: "\u{2717} ",
+    info_mark: "\u{2022} ",
+    info_gap: " ",
+    error_mark: "\u{25a0} ",
+    you: "You ",
+    auto_reviewer: "Auto-reviewer ",
+    verb_approved: "approved",
+    verb_persisted: "persisted",
+    verb_denied: "denied",
+    verb_did_not_approve: "did not approve",
+    verb_canceled: "canceled",
+    verb_timed_out: "timed out",
+    cell_request: "Request ",
+    cell_review: "Review ",
+    cell_codex_to_run: " codex to run ",
+    cell_this_request: " this request",
+    cell_this_time: " this time",
+    cell_every_time: " every time this session",
+    cell_always_run: " codex to always run commands that start with ",
+    cell_network_to: " codex network access to ",
+    cell_persisted_network_to: " Codex network access to ",
+    cell_saved_rule: " and saved that rule",
+    cell_canceled_run: " the request to run ",
+    cell_canceled_network: " the request for codex network access to ",
+    cell_denied_run: " for codex to run ",
+    cell_timed_out_run: " before codex could run ",
+    cell_timed_out_request: " before this request could be approved",
+    cell_timed_out_access: " before codex could access ",
+    // A command of several lines shows its first, and these dots; one over eighty graphemes ends in the others.
+    cell_more_lines: " ...",
+    cell_cut: "...",
+    // What the auto-reviewer judged that was not a command.
+    cell_denied_for: " for ",
+    cell_timed_out_before: " before ",
+    cell_denied_apply: " for codex to apply ",
+    cell_timed_out_apply: " before codex could apply ",
+    cell_patch_touching: "a patch touching ",
+    cell_files: " files",
+    codex_to: "codex to ",
+    codex_could: "codex could ",
+    act_send_input: msg!("send input to terminal {0}: {1}"),
+    act_call_mcp: msg!("call MCP tool {0}.{1}"),
+    act_access: msg!("access {0}"),
+    act_request_permissions: "request permissions",
+    with_reason: msg!("{0}: {1}"),
+    sum_patch_one: msg!("apply_patch touching {0}"),
+    sum_patch_many: msg!("apply_patch touching {0} files"),
+    sum_network: msg!("network access to {0}"),
+    sum_mcp: msg!("MCP {0} on {1}"),
+    sum_permission: "permission request",
+    review_one: "Reviewing approval request",
+    review_many: msg!("Reviewing {0} approval requests"),
+    review_bullet: msg!("• {0}"),
+    review_more: msg!("+{0} more"),
+    denials_title: "Auto-review Denials",
+    denials_subtitle: "Select a denied action to approve.",
+    denials_action: "Action",
+    denials_rationale: "Rationale",
+    denials_no_rationale: "Auto-review did not include a rationale",
+    denials_hint: "enter select · esc back",
+    no_denials: "No recent auto-review denials in this thread.",
+    no_denials_hint: "Denials are recorded after auto-review rejects an action.",
+    retry_approved: "Approval recorded for one retry of the selected auto-review denial.",
+    retry_approved_hint: "The model will see the approval context; the retry still goes through auto-review.",
+    denial_gone: "That auto-review denial is no longer available.",
+    unlocalized: msg!("failed to localize guardian filesystem paths: {0}"),
+    verify_unreachable: "Could not complete user verification with the local Codex binary.",
+    verify_invalid_params: "The local Codex binary could not verify this request.",
+    verify_credential_missing: "No user-verification credential is available in the local Codex binary.",
+    verify_biometrics_unavailable: "Biometric verification is currently unavailable on this device.",
+    verify_provider_unavailable: "User verification is unavailable for this request.",
+    verify_user_cancelled: "User verification was cancelled.",
+    verify_interrupted: "User verification was interrupted.",
+    verify_authentication_failed: "Biometric verification did not succeed. The request was cancelled.",
+    verify_timeout: "User verification timed out. The request was cancelled.",
+    verify_service: "The local Codex binary could not complete user verification.",
+    verify_remote: "User verification is unavailable for remote workspaces.",
+    // What a permissions answer says (`handle_permissions_decision`).
+    granted_nothing: "You did not grant additional permissions",
+    granted_turn: "You granted additional permissions",
+    granted_strict: "You granted additional permissions with strict auto review",
+    granted_session: "You granted additional permissions for this session",
     none_of_the_above: "None of the above",
     none_description: "Optionally, add details in notes (tab)",
     notes_placeholder: "Add notes",
@@ -330,6 +523,18 @@ impl Strings {
         Fmt::new(self.question_progress, [int(index), int(total)], &self.num)
     }
 
+    pub fn auto_resolves_in<'a>(&'a self, remaining: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.auto_resolves_in, [Arg::Text(remaining)], &self.num)
+    }
+
+    pub fn header_cut(&self, rows: usize) -> Fmt<'_, 1> {
+        Fmt::new(
+            self.clipped_lines,
+            [Arg::Int(u64::try_from(rows).unwrap_or(u64::MAX))],
+            &self.num,
+        )
+    }
+
     pub fn question_unanswered(&self, count: usize) -> Fmt<'_, 1> {
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
         Fmt::new(self.question_unanswered, [int(count)], &self.num)
@@ -343,5 +548,84 @@ impl Strings {
     pub fn confirm_proceed_many(&self, count: usize) -> Fmt<'_, 1> {
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
         Fmt::new(self.confirm_proceed_many, [int(count)], &self.num)
+    }
+
+    pub fn act_send_input<'a>(&'a self, process: &'a str, input: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.act_send_input,
+            [Arg::Text(process), Arg::Text(input)],
+            &self.num,
+        )
+    }
+
+    pub fn act_call_mcp<'a>(&'a self, server: &'a str, tool: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.act_call_mcp,
+            [Arg::Text(server), Arg::Text(tool)],
+            &self.num,
+        )
+    }
+
+    pub fn act_access<'a>(&'a self, target: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.act_access, [Arg::Text(target)], &self.num)
+    }
+
+    pub fn with_reason<'a>(&'a self, subject: &'a str, reason: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.with_reason,
+            [Arg::Text(subject), Arg::Text(reason)],
+            &self.num,
+        )
+    }
+
+    pub fn sum_patch_one<'a>(&'a self, file: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.sum_patch_one, [Arg::Text(file)], &self.num)
+    }
+
+    pub fn sum_patch_many(&self, files: usize) -> Fmt<'_, 1> {
+        let count = Arg::Int(u64::try_from(files).unwrap_or(u64::MAX));
+        Fmt::new(self.sum_patch_many, [count], &self.num)
+    }
+
+    pub fn sum_network<'a>(&'a self, target: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.sum_network, [Arg::Text(target)], &self.num)
+    }
+
+    pub fn sum_mcp<'a>(&'a self, tool: &'a str, label: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(self.sum_mcp, [Arg::Text(tool), Arg::Text(label)], &self.num)
+    }
+
+    pub fn review_many(&self, reviews: usize) -> Fmt<'_, 1> {
+        let count = Arg::Int(u64::try_from(reviews).unwrap_or(u64::MAX));
+        Fmt::new(self.review_many, [count], &self.num)
+    }
+
+    pub fn review_bullet<'a>(&'a self, detail: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.review_bullet, [Arg::Text(detail)], &self.num)
+    }
+
+    pub fn review_more(&self, more: usize) -> Fmt<'_, 1> {
+        let count = Arg::Int(u64::try_from(more).unwrap_or(u64::MAX));
+        Fmt::new(self.review_more, [count], &self.num)
+    }
+
+    /// The safe message of a failed verification (`verify::Failure::cause`).
+    pub fn verification_failure(&self, cause: Cause) -> &'static str {
+        match cause {
+            Cause::Unreachable => self.verify_unreachable,
+            Cause::InvalidParams => self.verify_invalid_params,
+            Cause::CredentialMissing => self.verify_credential_missing,
+            Cause::BiometricsUnavailable => self.verify_biometrics_unavailable,
+            Cause::ProviderUnavailable => self.verify_provider_unavailable,
+            Cause::UserCancelled => self.verify_user_cancelled,
+            Cause::Interrupted => self.verify_interrupted,
+            Cause::AuthenticationFailed => self.verify_authentication_failed,
+            Cause::Timeout => self.verify_timeout,
+            Cause::Service => self.verify_service,
+        }
+    }
+
+    pub fn unlocalized<'a>(&'a self, error: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.unlocalized, [Arg::Text(error)], &self.num)
     }
 }

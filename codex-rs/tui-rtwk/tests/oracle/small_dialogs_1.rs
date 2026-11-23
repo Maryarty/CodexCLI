@@ -955,21 +955,27 @@ fn feedback_success_cell_uses_issue_links_for_remaining_categories() {
 // ORACLE bottom_pane/hooks_browser_render_tests.rs:24 wide_titles_preserve_reverse_video_selection_and_dim_index kind=ui owner=dialogs-pane
 #[test]
 fn wide_titles_preserve_reverse_video_selection_and_dim_index() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser entry with the wide titles (`hooks_browser_wide_titles`, 40 columns): the hooks browser is not built",
-    );
-    let s = Screen::build(Owner::DialogsPane)
-        .size(40, 6)
-        .entry("dialogs", "hooks_browser_wide_titles")
+    // The oracle draws one row of the list; the port shows the row in the
+    // hooks page of the view (the entry with the wide title, 40 columns).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(40, 22)
+        .entry("settings", "hooks_status_messages")
         .open();
+    s.keys("enter");
     let (row, _) = locate(&s, "› [x]");
-    for x in 0..40 {
-        s.assert_style(x, row, "fg=Reset bg=Reset reversed");
-    }
     s.assert_style(7, row, "dim");
     s.assert_style(10, row, "!dim");
     s.assert_text_at(10, row, "检");
+    // The oracle's selection with no palette is reverse video over the whole
+    // row; the port's selection is the theme's accent and BOLD on every
+    // dialog (the same as the pickers' rows), a decision of the port.
+    kit::pending(
+        Owner::DialogsPane,
+        "the selected row is the theme's accent and bold in every dialog of the port, not the oracle's reverse video of an unprobed palette (the shared selection style, not this dialog)",
+    );
+    for x in 0..40 {
+        s.assert_style(x, row, "fg=Reset bg=Reset reversed");
+    }
 }
 
 // ORACLE bottom_pane/hooks_browser_render_tests.rs:57 wrapped_hook_command_preserves_the_complete_url_destination kind=snap owner=dialogs-pane snap=hooks_browser_wrapped_url
@@ -977,11 +983,11 @@ fn wide_titles_preserve_reverse_video_selection_and_dim_index() {
 fn wrapped_hook_command_preserves_the_complete_url_destination() {
     kit::pending(
         Owner::DialogsPane,
-        "no hooks browser entry with the wrapped URL command (`hooks_browser_wrapped_url`, 44 columns): the hooks browser is not built",
+        "G49 + G72: rtwk Text does not break after a slash (the oracle breaks `https://github.com/` / `openai/codex/pull/12345?` / `diff=split&review=complete-`) and the URL is plain text, so no cell carries its OSC 8 link",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(44, 19)
-        .entry("dialogs", "hooks_browser_wrapped_url")
+        .entry("settings", "hooks_wrapped_url")
         .open();
     s.keys("enter");
     s.assert_link(

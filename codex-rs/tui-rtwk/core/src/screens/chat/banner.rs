@@ -6,6 +6,40 @@ use serde::Deserialize;
 
 use crate::ids::Ticket;
 
+/// What the account read says of the Luna Reserve (`update_backend_banner`): whether ordinary
+/// usage is available again (the reserve-only `/model` ends) and the normal model the reserve
+/// quota stands for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Reserve {
+    pub recovered: bool,
+    pub normal_model: Option<String>,
+}
+
+impl Reserve {
+    /// A full, identity-validated read can authorize recovery; percentages, sparse
+    /// notifications and reset timestamps cannot prove it.
+    pub fn of(response: &codex_app_server_protocol::GetAccountRateLimitsResponse) -> Self {
+        let credits = response
+            .rate_limits
+            .credits
+            .as_ref()
+            .is_some_and(|credits| credits.unlimited || credits.has_credits);
+        let recovered = response.ordinary_usage_allowed.is_some()
+            && (response.ordinary_usage_allowed == Some(true) || credits)
+            && response.rate_limit_upsell.is_none()
+            && response.rate_limits.spend_control_reached != Some(true)
+            && response.rate_limits.rate_limit_reached_type.is_none();
+        let normal_model = response
+            .rate_limits_by_limit_id
+            .iter()
+            .flatten()
+            .map(|(_, snapshot)| snapshot)
+            .find(|snapshot| snapshot.limit_name.as_deref() == Some(crate::screens::select::models::RESERVE_MODEL))
+            .and_then(|snapshot| snapshot.normal_model_slug.clone());
+        Self { recovered, normal_model }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct Banner {
     banner_type: String,
@@ -19,6 +53,7 @@ pub struct Banner {
     fallback_model_slugs: Vec<String>,
     #[serde(default)]
     presentation: Presentation,
+    request_url: Option<String>,
     #[serde(skip)]
     account_id: Option<String>,
     #[serde(skip)]
@@ -80,7 +115,7 @@ impl Banner {
     }
 
     pub fn visible_for(&self, model: Option<&str>) -> bool {
-        if self.banner_type == "luna_reserve" {
+        if self.is_reserve() {
             return true;
         }
         match self.blocked_model_slug.as_deref() {
@@ -92,7 +127,13 @@ impl Banner {
     }
 
     pub fn reserve_pending(&self, model: Option<&str>) -> bool {
-        self.banner_type == "luna_reserve" && model != Some("gpt-reserve")
+        self.is_reserve() && model != Some("gpt-reserve")
+    }
+
+    /// The Luna Reserve banner: shown as a focused selector, not as the inline banner
+    /// (`LUNA_RESERVE_BANNER`).
+    pub fn is_reserve(&self) -> bool {
+        self.banner_type == "luna_reserve"
     }
 
     pub fn title(&self) -> &str {
@@ -103,14 +144,46 @@ impl Banner {
         &self.description
     }
 
-    pub fn links(&self) -> impl Iterator<Item = (&str, String)> + '_ {
-        self.ctas.iter().filter_map(move |cta| {
-            let label = cta.label.trim();
-            if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) {
-                return None;
+    /// The banner's actions in the order the backend gave them (oracle
+    /// `BackendBanner::actionable_banner`): a cta whose label is empty, longer
+    /// than 256 bytes or holds a control character, or whose action this
+    /// client cannot do, is left out.
+    pub fn ctas(&self) -> Vec<BannerCta> {
+        self.ctas
+            .iter()
+            .filter_map(|cta| {
+                let label = cta.label.as_str();
+                if label.trim().is_empty() || label.len() > 256 || label.chars().any(char::is_control) {
+                    return None;
+                }
+                Some(BannerCta {
+                    label: label.to_owned(),
+                    action: self.resolve(&cta.action)?,
+                })
+            })
+            .collect()
+    }
+
+    /// When the limit resets (unix seconds): the copy's `{time}`.
+    pub fn reset_at(&self) -> Option<i64> {
+        self.reset_at
+    }
+
+    /// Oracle `BackendBanner::resolve_action`.
+    fn resolve(&self, action: &str) -> Option<BannerAction> {
+        match action {
+            "notify_owner" | "contact_owner" => return Some(BannerAction::NotifyOwner(Nudge::Credits)),
+            "request_increase" => {
+                let Some(destination) = self.request_url.as_deref() else {
+                    return Some(BannerAction::NotifyOwner(Nudge::UsageLimit));
+                };
+                return web_url(destination).map(BannerAction::OpenUrl);
             }
-            Some((label, self.destination(&cta.action)?))
-        })
+            // the existing picker and its confirmation come before a reset is consumed
+            "reset_usage" => return Some(BannerAction::ResetUsage),
+            _ => {}
+        }
+        self.destination(action).map(BannerAction::OpenUrl)
     }
 
     fn destination(&self, action: &str) -> Option<String> {
@@ -143,6 +216,51 @@ impl Banner {
     }
 }
 
+/// What a banner action does (oracle `BannerAction`): the browser opens a
+/// page, the owner is told by e-mail, or the reset-credit flow opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BannerAction {
+    OpenUrl(String),
+    NotifyOwner(Nudge),
+    ResetUsage,
+}
+
+/// What the owner is asked for (`AddCreditsNudgeCreditType`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nudge {
+    Credits,
+    UsageLimit,
+}
+
+/// How the add-credits nudge ended (`finish_add_credits_nudge_email_request`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NudgeOutcome {
+    /// The e-mail went out.
+    Sent,
+    /// The owner was told recently (`cooldown_active`).
+    Cooldown,
+    /// The request failed.
+    Failed,
+}
+
+/// One numbered row of a banner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BannerCta {
+    pub label: String,
+    pub action: BannerAction,
+}
+
+/// `request_increase`'s own page: an http(s) URL with a host and no
+/// credentials (oracle `resolve_action`).
+fn web_url(destination: &str) -> Option<String> {
+    let rest = destination
+        .strip_prefix("https://")
+        .or_else(|| destination.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    (!authority.is_empty() && !authority.contains('@') && !destination.chars().any(char::is_whitespace))
+        .then(|| destination.to_owned())
+}
+
 /// A generation minted by the reducer ties a dismissal to the shown occurrence.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BannerOccurrence {
@@ -164,8 +282,20 @@ impl BannerOccurrence {
         self.banner.presentation == Presentation::Dismissible
     }
 
+    /// The user dismissed the occurrence (Esc on a dismissible banner; Esc or a pick in the Luna
+    /// selector, whatever its presentation: `picker_dismissed`).
     pub(crate) fn dismiss(&mut self, ticket: Ticket) {
-        if self.ticket == ticket && self.is_dismissible() {
+        if self.ticket == ticket && (self.is_dismissible() || self.banner.is_reserve()) {
+            self.dismissed = true;
+        }
+    }
+
+    /// A submit starts a turn: a dismissible banner the user was shown (visible
+    /// for the model in use) is dismissed, any other stays (oracle
+    /// `dismiss_backend_banner_for_new_turn`; a model that hides it does not
+    /// dismiss it).
+    pub(crate) fn dismiss_for_new_turn(&mut self, model: Option<&str>) {
+        if self.is_dismissible() && self.is_visible(model) {
             self.dismissed = true;
         }
     }
@@ -195,7 +325,13 @@ mod tests {
             panic!("valid banner");
         };
         assert!(!banner.same_occurrence(&other_account));
-        assert_eq!(banner.links().collect::<Vec<_>>(), [("Usage", "https://chatgpt.com/settings/usage".to_string())]);
+        assert_eq!(
+            banner.ctas(),
+            [BannerCta {
+                label: "Usage".to_string(),
+                action: BannerAction::OpenUrl("https://chatgpt.com/settings/usage".to_string()),
+            }]
+        );
         let mut mint = TicketMint::default();
         let ticket = mint.next();
         let mut occurrence = BannerOccurrence::new(banner, ticket);

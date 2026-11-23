@@ -56,6 +56,8 @@ pub struct Rows {
     pub home: Option<Rc<str>>,
     pub width: i32,
     pub markdown: MarkdownTheme,
+    /// The session cells' strings, which the transcript preview's Markdown reads.
+    pub cells: &'static crate::pages::session::cells::strings::Strings,
 }
 
 fn one_line(text: Text) -> Text {
@@ -335,7 +337,9 @@ impl Rows {
             Speaker::Assistant => DefaultTextStyle::new(
                 self.look.dim.clone(),
                 crate::widgets::markdown::themed(
-                    crate::pages::session::cells::citation::view(&line.text, cwd),
+                    crate::pages::session::cells::citation::view(
+                        &line.text, false, cwd, self.cells,
+                    ),
                     self.markdown.clone(),
                 ),
             )

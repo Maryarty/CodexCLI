@@ -1,0 +1,4 @@
+# The catalog could not be read: the error and a Retry row.
+# Oracle data: chatwidget/tests/permissions.rs:157 (permission_discovery_failure)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"failed","current":{"profile":"current-profile","discover":true},"failure":"disconnected"}}

@@ -14,8 +14,12 @@ use rtwk_test::{Finder, find};
 
 use crate::common::{Harness, slot};
 
+#[path = "chat_live.rs"]
+mod chat_live;
 #[path = "commands.rs"]
 mod commands;
+#[path = "permissions_live.rs"]
+mod permissions_live;
 #[path = "transitions.rs"]
 mod transitions;
 

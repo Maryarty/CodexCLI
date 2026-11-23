@@ -14,7 +14,9 @@ use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
 use codex_tui_core::commands::{Notice, SlashCommand, UsageKey};
+use codex_tui_core::screens::chat::{McpHeader, McpWarning, Retry, StatusHeader};
 use codex_tui_core::screens::composer;
+use codex_tui_core::threads::LocalWarning;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -23,6 +25,8 @@ use crate::l10n::lang;
 pub(super) const INLINE_GAP: &str = " ";
 pub(super) const MORE: &str = " …";
 pub(super) const LINE_BREAK: &str = "\n";
+const LIST_SEPARATOR: &str = ", ";
+const ELLIPSIS: &str = "…";
 
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug)]
@@ -55,10 +59,45 @@ pub struct Strings {
     /// The part of a command that needs the session (session-core) is not
     /// built yet: the slice's own text, not the oracle's.
     pub not_available: Msg<1>,
-    /// `chat_composer/history_search.rs`: the footer while searching.
-    pub search_idle: Msg<1>,
-    pub search_match: Msg<1>,
-    pub search_no_match: Msg<1>,
+    /// `slash_dispatch.rs`, `chatwidget.rs`: what a command that runs at once
+    /// says (`add_info_message`).
+    pub working_directory: Msg<1>,
+    pub rollout: Msg<1>,
+    pub rollout_missing: &'static str,
+    pub desktop_opened: &'static str,
+    pub stopping_terminals: &'static str,
+    pub raw_output_on: &'static str,
+    pub raw_output_off: &'static str,
+    /// `add_app_server_stub_message`: the feature, then the message.
+    pub stub: Msg<1>,
+    pub stub_memory_maintenance: &'static str,
+    /// `PARENT_OWNED_INPUT_MESSAGE`.
+    pub parent_owned: &'static str,
+    pub mode_busy: &'static str,
+    /// `plan_implementation.rs`: the question after a proposed plan.
+    pub plan_title: &'static str,
+    pub plan_yes: &'static str,
+    pub plan_yes_note: &'static str,
+    pub plan_clear: &'static str,
+    pub plan_clear_note: &'static str,
+    pub plan_clear_usage: Msg<1>,
+    pub plan_no: &'static str,
+    pub plan_no_note: &'static str,
+    pub plan_used_percent: Msg<1>,
+    pub plan_used_tokens: Msg<1>,
+    /// `working_directory.rs`, `event_dispatch.rs`: why `/cd` did nothing.
+    pub cd_not_started: &'static str,
+    pub cd_not_idle: &'static str,
+    pub cd_history_not_saved: &'static str,
+    /// `event_dispatch.rs` `archive_current_thread`, `delete_current_thread`:
+    /// why the thread was not removed (the failure carries the oracle's context
+    /// message, `thread_archive`, `thread_delete`).
+    pub archive_not_started: &'static str,
+    pub delete_not_started: &'static str,
+    pub archive_side: &'static str,
+    pub delete_side: &'static str,
+    pub archive_failed: &'static str,
+    pub delete_failed: &'static str,
     /// `skill_popup.rs`, `mentions_v2/candidate.rs`: the tags of a row.
     pub tag_skill: &'static str,
     pub tag_app: &'static str,
@@ -81,32 +120,6 @@ pub struct Strings {
     pub header_permissions: &'static str,
     pub header_yolo: &'static str,
     pub read_only_hint: &'static str,
-    pub running_command: &'static str,
-    pub ran_command: &'static str,
-    pub user_ran_command: &'static str,
-    pub calling_tool: &'static str,
-    pub called_tool: &'static str,
-    pub failed_tool: &'static str,
-    pub tool_result_image: &'static str,
-    pub tool_result_audio: &'static str,
-    pub image_label: Msg<1>,
-    pub explored: &'static str,
-    pub exploring: &'static str,
-    pub explored_read: Msg<1>,
-    pub explored_list: Msg<1>,
-    pub explored_search: Msg<1>,
-    pub explored_search_in: Msg<2>,
-    pub tool_no_output: &'static str,
-    pub show_tool_details: &'static str,
-    pub hide_tool_details: &'static str,
-    pub hidden_output_lines: Msg<1>,
-    pub hidden_output_line: &'static str,
-    pub command_exited: Msg<1>,
-    pub shell_prompt: &'static str,
-    pub exit_ok: &'static str,
-    pub exit_failed: &'static str,
-    pub exit_status: Msg<1>,
-    pub worked_for: Msg<1>,
     pub writer_retry_key: &'static str,
     pub writer_retry_detail: &'static str,
     pub writer_retry: &'static str,
@@ -115,10 +128,64 @@ pub struct Strings {
     pub writer_exit: &'static str,
     pub writer_transcript: &'static str,
     pub backend_cycle: &'static str,
+    /// `actionable_banner.rs` / `set_inline_banner`: the hint under the
+    /// banner's actions, and under an information-only one.
+    pub banner_choose: &'static str,
+    pub banner_choose_dismiss: &'static str,
+    pub banner_dismiss: &'static str,
+    /// The Luna Reserve selector (`backend_banners.rs`): its local row, and the footer that
+    /// names the keys (`accept_cancel_hint_line`).
+    pub reserve_continue: &'static str,
+    reserve_hint: Msg<2>,
     pub warning_singular: &'static str,
     pub warning_plural: &'static str,
     pub warning_key: &'static str,
     pub warning_view: &'static str,
+    /// `mcp_startup.rs`: the status header of one server, of several (the
+    /// answered, the total, the servers still starting), and the warnings.
+    pub mcp_booting: Msg<1>,
+    pub mcp_starting: Msg<3>,
+    pub mcp_failed: Msg<1>,
+    pub mcp_interrupted: Msg<1>,
+    pub mcp_incomplete: Msg<1>,
+    /// `protocol.rs`: a 429 reconnect reads as the server being busy.
+    pub retry_busy: Msg<1>,
+    /// `on_server_overloaded_error`: an overloaded server that said nothing.
+    pub high_load: &'static str,
+    /// `REVIEW_STEER_UNAVAILABLE_MESSAGE` (`interaction.rs`).
+    pub review_steer_unavailable: &'static str,
+    /// The words of the picker sheets (the effort and mode names the notes
+    /// repeat).
+    pub picker: &'static crate::sheets::select::strings::Strings,
+    // The notes of `/model`, `/permissions` and `/apps`
+    // (`model_defaults.rs`, `config_persistence.rs`, `connectors.rs`).
+    pub note_no_models: &'static str,
+    pub note_models_not_loaded: &'static str,
+    pub note_model_changed: Msg<1>,
+    pub note_session_only: &'static str,
+    pub note_default_effort: &'static str,
+    pub note_permissions_updated: Msg<1>,
+    pub note_permission_requested: Msg<1>,
+    pub note_save_model_failed: Msg<1>,
+    pub note_save_plan_failed: Msg<1>,
+    pub note_save_profile_failed: Msg<1>,
+    pub note_save_tier_failed: Msg<1>,
+    pub note_tier_set: Msg<1>,
+    pub note_reasoning_disabled: &'static str,
+    pub note_reserve_unavailable: &'static str,
+    pub note_reasoning_unavailable: Msg<1>,
+    pub note_reasoning_lowest: Msg<1>,
+    pub note_reasoning_highest: Msg<1>,
+    pub note_ultra_available: Msg<1>,
+    pub note_overridden: Msg<1>,
+    pub note_setting_model: &'static str,
+    pub note_setting_plan: &'static str,
+    pub note_setting_permissions: &'static str,
+    pub note_setting_tier: &'static str,
+    pub note_ultra: Msg<2>,
+    pub note_apps_disabled: &'static str,
+    pub note_apps_hint: &'static str,
+    pub note_no_apps: &'static str,
     /// The hint of the `/` popup is the framework's; this is the empty one.
     pub num: NumSyms,
 }
@@ -147,9 +214,36 @@ pub const EN: Strings = Strings {
     usage_mcp: "Usage: /mcp [verbose | login <name>]",
     mcp_login_needs_session: "MCP sign-in requires an active session.",
     not_available: msg!("'/{0}' is not available yet."),
-    search_idle: msg!("reverse-i-search: {0}"),
-    search_match: msg!("reverse-i-search: {0}  enter accept \u{b7} esc cancel"),
-    search_no_match: msg!("reverse-i-search: {0}  no match"),
+    working_directory: msg!("Current working directory: {0}"),
+    rollout: msg!("Current rollout path: {0}"),
+    rollout_missing: "Rollout path is not available yet.",
+    desktop_opened: "Opened this session in the Desktop app.",
+    stopping_terminals: "Stopping all background terminals.",
+    raw_output_on: "Raw output mode on: transcript text is shown for clean terminal selection.",
+    raw_output_off: "Raw output mode off: rich transcript rendering restored.",
+    stub: msg!("{0}: Not available in TUI yet."),
+    stub_memory_maintenance: "Memory maintenance",
+    parent_owned: "This sub-agent is controlled by its parent. Direct input is disabled.",
+    mode_busy: "Cannot switch collaboration mode while a turn is running.",
+    plan_title: "Implement this plan?",
+    plan_yes: "Yes, implement this plan",
+    plan_yes_note: "Switch to Default and start coding",
+    plan_clear: "Yes, clear context and implement",
+    plan_clear_note: "Fresh thread with this plan",
+    plan_clear_usage: msg!("Start a fresh thread (current context: {0})"),
+    plan_no: "No, stay in Plan mode",
+    plan_no_note: "Continue planning with the model",
+    plan_used_percent: msg!("{0}% used"),
+    plan_used_tokens: msg!("{0} used"),
+    cd_not_started: "The session must start before you can change its working directory.",
+    cd_not_idle: "Changing directories requires an idle primary session without queued input.",
+    cd_history_not_saved: "Conversation history is not saved.",
+    archive_not_started: "A thread must start before it can be archived.",
+    delete_not_started: "A thread must start before it can be deleted.",
+    archive_side: "'/archive' is unavailable in side conversations. Press Ctrl+C to return to the main thread first.",
+    delete_side: "'/delete' is unavailable in side conversations. Press Ctrl+C to return to the main thread first.",
+    archive_failed: "Failed to archive current thread: failed to archive session",
+    delete_failed: "Failed to delete current thread: failed to delete session",
     tag_skill: "[Skill]",
     tag_app: "[App]",
     tag_plugin: "Plugin",
@@ -165,32 +259,6 @@ pub const EN: Strings = Strings {
     header_permissions: "permissions: ",
     header_yolo: "YOLO mode",
     read_only_hint: "Close it there and press R to continue here.",
-    running_command: "Running",
-    ran_command: "Ran",
-    user_ran_command: "You ran",
-    calling_tool: "Calling",
-    called_tool: "Called",
-    failed_tool: "Failed",
-    tool_result_image: "Returned image",
-    tool_result_audio: "Returned audio",
-    image_label: msg!("[Image #{0}]"),
-    explored: "Explored",
-    exploring: "Exploring",
-    explored_read: msg!("Read {0}"),
-    explored_list: msg!("List {0}"),
-    explored_search: msg!("Search {0}"),
-    explored_search_in: msg!("Search {0} in {1}"),
-    tool_no_output: "(no output)",
-    show_tool_details: "+ Show details",
-    hide_tool_details: "− Hide details",
-    hidden_output_lines: msg!("+ {0} lines (⌃t to expand)"),
-    hidden_output_line: "+ 1 line (⌃t to expand)",
-    command_exited: msg!("Exited (status {0})"),
-    shell_prompt: "$",
-    exit_ok: "✓",
-    exit_failed: "✗",
-    exit_status: msg!(" ({0})"),
-    worked_for: msg!("Worked for {0}"),
     writer_retry_key: "r",
     writer_retry_detail: " to retry",
     writer_retry: "retry",
@@ -199,10 +267,59 @@ pub const EN: Strings = Strings {
     writer_exit: "exit",
     writer_transcript: "transcript",
     backend_cycle: " to cycle",
+    banner_choose: "Press a number to choose",
+    banner_choose_dismiss: "Press a number to choose \u{b7} esc to dismiss \u{b7} type to continue",
+    banner_dismiss: "esc to dismiss \u{b7} type to continue",
+    reserve_continue: "Continue with Luna Reserve",
+    reserve_hint: msg!("Press {0} to confirm or {1} to continue working"),
     warning_singular: "warning",
     warning_plural: "warnings",
     warning_key: "f2",
     warning_view: " to view",
+    mcp_booting: msg!("Booting MCP server: {0}"),
+    mcp_starting: msg!("Starting MCP servers ({0}/{1}): {2}"),
+    mcp_failed: msg!("MCP client for `{0}` failed to start"),
+    mcp_interrupted: msg!(
+        "MCP startup interrupted. The following servers were not initialized: {0}"
+    ),
+    mcp_incomplete: msg!("MCP startup incomplete (failed: {0})"),
+    retry_busy: msg!("Server is busy, reconnecting {0}"),
+    high_load: "Codex is currently experiencing high load.",
+    review_steer_unavailable: "Steer messages aren't supported during /review. Press Ctrl+C now to cancel the review.",
+    picker: &crate::sheets::select::strings::EN,
+    note_no_models: "No additional models are available right now.",
+    note_models_not_loaded: "Could not load models. Try /model again.",
+    note_model_changed: msg!("Model changed to {0}"),
+    note_session_only: " for this session only",
+    note_default_effort: "default",
+    note_permissions_updated: msg!("Permissions updated to {0}"),
+    note_permission_requested: msg!("Permission selection requested: {0}"),
+    note_save_model_failed: msg!("Failed to save default model: {0}"),
+    note_save_plan_failed: msg!("Failed to save Plan mode reasoning effort: {0}"),
+    note_save_profile_failed: msg!("Failed to set permission profile: {0}"),
+    note_save_tier_failed: msg!(
+        "Failed to save default service tier: {0}\nYou can continue this task. To save the default, resolve the error above, then switch to a different tier and back to the desired tier."
+    ),
+    note_tier_set: msg!("Service tier set to {0}"),
+    note_reasoning_disabled: "Reasoning shortcuts are disabled until startup completes.",
+    note_reserve_unavailable: "Luna model settings are unavailable; please try /model again in a moment.",
+    note_reasoning_unavailable: msg!("Reasoning shortcuts are unavailable for {0}."),
+    note_reasoning_lowest: msg!("Reasoning is already at the lowest level ({0})."),
+    note_reasoning_highest: msg!("Reasoning is already at the highest level ({0})."),
+    note_ultra_available: msg!("Ultra is available under /model → {0} → More reasoning…"),
+    note_overridden: msg!(
+        "Saved {0}, but a higher-priority configuration layer overrides the saved value."
+    ),
+    note_setting_model: "default model and reasoning effort",
+    note_setting_plan: "Plan mode reasoning effort",
+    note_setting_permissions: "permissions",
+    note_setting_tier: "default service tier",
+    note_ultra: msg!(
+        "Ultra reasoning may proactively use multiple agents. This session is configured for {0} concurrent threads with up to {1} subagents which can increase usage quickly. Consider setting features.multi_agent_v2.max_concurrent_threads_per_session below 8."
+    ),
+    note_apps_disabled: "Apps are disabled.",
+    note_apps_hint: "Enable the apps feature to use $ or /apps.",
+    note_no_apps: "No apps available.",
     num: NumSyms::ENGLISH,
 };
 
@@ -211,6 +328,31 @@ static TABLES: Tables<Strings> = Tables::english(&EN);
 /// The table of the locale below `cx`.
 pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
+}
+
+impl Strings {
+    /// The usage label of the plan prompt's clear-context row (`89% used`, `123K used`).
+    pub fn plan_usage(&self, used: codex_tui_core::screens::chat::plan_mode::Used) -> String {
+        use codex_tui_core::screens::chat::plan_mode::Used;
+        let (msg, text) = match used {
+            Used::Percent(percent) => (self.plan_used_percent, percent.to_string()),
+            Used::Tokens(tokens) => (
+                self.plan_used_tokens,
+                codex_tui_core::format::format_tokens_compact(tokens),
+            ),
+        };
+        Fmt::new(msg, [Arg::Text(&text)], &self.num).to_string()
+    }
+
+    /// The description of the clear-context row.
+    pub fn plan_clear_description(&self, label: Option<&str>) -> String {
+        match label {
+            Some(label) => {
+                Fmt::new(self.plan_clear_usage, [Arg::Text(label)], &self.num).to_string()
+            }
+            None => self.plan_clear_note.to_string(),
+        }
+    }
 }
 
 /// The title of the screen in `lang`, for code with no tree (the debug
@@ -225,21 +367,90 @@ pub fn description(lang: Lang, command: SlashCommand) -> &'static str {
 }
 
 impl Strings {
-    pub(super) fn search_in(&self, query: &str, path: &str) -> String {
+    /// The hint under a backend banner.
+    pub(super) fn banner_hint(
+        &self,
+        hint: crate::pages::session::banners::BannerHint,
+    ) -> Option<&'static str> {
+        use crate::pages::session::banners::BannerHint;
+        match hint {
+            BannerHint::Choose => Some(self.banner_choose),
+            BannerHint::ChooseOrDismiss => Some(self.banner_choose_dismiss),
+            BannerHint::Dismiss => Some(self.banner_dismiss),
+            BannerHint::None => None,
+        }
+    }
+
+    /// The Luna selector's footer, with the keys the list's keymap names.
+    pub(super) fn reserve_hint(&self, accept: &str, cancel: &str) -> String {
         Fmt::new(
-            self.explored_search_in,
-            [Arg::Text(query), Arg::Text(path)],
+            self.reserve_hint,
+            [Arg::Text(accept), Arg::Text(cancel)],
             &self.num,
         )
         .to_string()
     }
 
     pub(super) fn transcript_label(&self, message: Msg<1>, arg: &str) -> String {
+        self.one(message, arg)
+    }
+
+    fn one(&self, message: Msg<1>, arg: &str) -> String {
         Fmt::new(message, [Arg::Text(arg)], &self.num).to_string()
     }
 
-    pub(super) fn worked_for<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
-        Fmt::new(self.worked_for, [Arg::Text(elapsed)], &self.num)
+    /// The status row's header when a retry or MCP startup owns it.
+    pub fn status_header(&self, header: &StatusHeader) -> String {
+        match header {
+            StatusHeader::Retry(Retry::Server(message)) => message.clone(),
+            StatusHeader::Retry(Retry::Busy { attempt }) => self.one(self.retry_busy, attempt),
+            StatusHeader::Mcp(McpHeader::Booting { server }) => self.one(self.mcp_booting, server),
+            StatusHeader::Mcp(McpHeader::Starting {
+                completed,
+                total,
+                servers,
+                more,
+            }) => {
+                let mut named = servers.join(LIST_SEPARATOR);
+                if *more {
+                    named.push_str(LIST_SEPARATOR);
+                    named.push_str(ELLIPSIS);
+                }
+                Fmt::new(
+                    self.mcp_starting,
+                    [
+                        Arg::Text(&completed.to_string()),
+                        Arg::Text(&total.to_string()),
+                        Arg::Text(&named),
+                    ],
+                    &self.num,
+                )
+                .to_string()
+            }
+        }
+    }
+
+    /// The words of a warning the client raised itself.
+    pub fn local_warning(&self, warning: LocalWarning) -> &'static str {
+        match warning {
+            LocalWarning::ReviewSteerUnavailable => self.review_steer_unavailable,
+        }
+    }
+
+    /// The words of a warning MCP startup added to the history.
+    pub fn mcp_warning(&self, warning: &McpWarning) -> String {
+        match warning {
+            McpWarning::Failed { server, error } => match error {
+                Some(error) => error.clone(),
+                None => self.one(self.mcp_failed, server),
+            },
+            McpWarning::Interrupted { servers } => {
+                self.one(self.mcp_interrupted, &servers.join(LIST_SEPARATOR))
+            }
+            McpWarning::Incomplete { servers } => {
+                self.one(self.mcp_incomplete, &servers.join(LIST_SEPARATOR))
+            }
+        }
     }
 
     /// The name of a backend on the control.
@@ -257,6 +468,163 @@ impl Strings {
         }
     }
 
+    /// The words of a note of the transcript (a command line's answer).
+    pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
+        use codex_tui_core::screens::agents::Action;
+        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, Stub};
+        let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
+        match key {
+            NoteKey::Command(notice) => self.notice(notice),
+            NoteKey::Server(message) | NoteKey::ServerDone(message) => message.clone(),
+            NoteKey::WorkingDirectory(dir) => text(self.working_directory, dir),
+            NoteKey::Rollout(Some(path)) => text(self.rollout, path),
+            NoteKey::Rollout(None) => self.rollout_missing.to_string(),
+            NoteKey::DesktopOpened => self.desktop_opened.to_string(),
+            NoteKey::StoppingTerminals => self.stopping_terminals.to_string(),
+            NoteKey::Stub(Stub::MemoryMaintenance) => text(self.stub, self.stub_memory_maintenance),
+            NoteKey::RawOutput(true) => self.raw_output_on.to_string(),
+            NoteKey::RawOutput(false) => self.raw_output_off.to_string(),
+            NoteKey::ParentOwned => self.parent_owned.to_string(),
+            NoteKey::ModeBusy => self.mode_busy.to_string(),
+            NoteKey::CdRefused(CdRefusal::NotStarted) => self.cd_not_started.to_string(),
+            NoteKey::CdRefused(CdRefusal::NotIdle) => self.cd_not_idle.to_string(),
+            NoteKey::CdRefused(CdRefusal::HistoryNotSaved) => self.cd_history_not_saved.to_string(),
+            NoteKey::Remove(Action::Archive, RemoveNote::NotStarted) => {
+                self.archive_not_started.to_string()
+            }
+            NoteKey::Remove(Action::Delete, RemoveNote::NotStarted) => {
+                self.delete_not_started.to_string()
+            }
+            NoteKey::Remove(Action::Archive, RemoveNote::SideConversation) => {
+                self.archive_side.to_string()
+            }
+            NoteKey::Remove(Action::Delete, RemoveNote::SideConversation) => {
+                self.delete_side.to_string()
+            }
+            NoteKey::Remove(Action::Archive, RemoveNote::Failed) => self.archive_failed.to_string(),
+            NoteKey::Remove(Action::Delete, RemoveNote::Failed) => self.delete_failed.to_string(),
+            NoteKey::Select(note) => self.picker_note(note),
+        }
+    }
+
+    /// The words of what a picker said (`select::Note`).
+    fn picker_note(&self, note: &codex_tui_core::screens::select::Note) -> String {
+        use codex_tui_core::screens::select::permissions::{Label, Preset, Reviewer};
+        use codex_tui_core::screens::select::{Note, Setting};
+        let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        let picker = self.picker;
+        match note {
+            Note::NoAdditionalModels => self.note_no_models.to_string(),
+            Note::ModelsNotLoaded => self.note_models_not_loaded.to_string(),
+            Note::ModelChanged {
+                model,
+                effort,
+                session,
+            } => {
+                let mut line = text(self.note_model_changed, model);
+                if !model.starts_with("codex-auto-") {
+                    line.push(' ');
+                    match effort {
+                        None | Some(codex_protocol::openai_models::ReasoningEffort::None) => {
+                            line.push_str(self.note_default_effort);
+                        }
+                        Some(effort) => line.push_str(effort.as_str()),
+                    }
+                }
+                if *session {
+                    line.push_str(self.note_session_only);
+                }
+                line
+            }
+            Note::ServiceTierSet(tier) => text(self.note_tier_set, tier),
+            Note::ReasoningDisabled => self.note_reasoning_disabled.to_string(),
+            Note::ReserveUnavailable => self.note_reserve_unavailable.to_string(),
+            Note::ReasoningUnavailable(model) => text(self.note_reasoning_unavailable, model),
+            Note::ReasoningBound { direction, effort } => {
+                use codex_protocol::openai_models::ReasoningEffort as E;
+                use codex_tui_core::screens::select::reasoning::Direction;
+                let label = match effort {
+                    E::XHigh => "extra high".to_string(),
+                    E::Custom(value) => value.clone(),
+                    other => other.as_str().to_string(),
+                };
+                let message = match direction {
+                    Direction::Lower => self.note_reasoning_lowest,
+                    Direction::Raise => self.note_reasoning_highest,
+                };
+                text(message, &label)
+            }
+            Note::UltraAvailable(model) => {
+                let path = if model.starts_with("codex-auto-") {
+                    model.clone()
+                } else {
+                    format!("All models → {model}")
+                };
+                text(self.note_ultra_available, &path)
+            }
+            Note::UltraConcurrency(threads) => Fmt::new(
+                self.note_ultra,
+                [int(*threads), int(threads.saturating_sub(1))],
+                &self.num,
+            )
+            .to_string(),
+            Note::PermissionsUpdated(label) | Note::PermissionSelectionRequested(label) => {
+                let name = match label {
+                    Label::Mode {
+                        preset: Preset::Auto,
+                        reviewer: Reviewer::AutoReview,
+                    } => picker.mode_approve.to_string(),
+                    Label::Mode {
+                        preset: Preset::Auto,
+                        ..
+                    } => picker.mode_ask.to_string(),
+                    Label::Mode {
+                        preset: Preset::FullAccess,
+                        ..
+                    } => picker.mode_full.to_string(),
+                    Label::Mode {
+                        preset: Preset::ReadOnly,
+                        ..
+                    } => picker.mode_read.to_string(),
+                    Label::Profile(id) => id.clone(),
+                };
+                let message = match note {
+                    Note::PermissionSelectionRequested(_) => self.note_permission_requested,
+                    _ => self.note_permissions_updated,
+                };
+                text(message, &name)
+            }
+            Note::SaveFailed { setting, error } => text(
+                match setting {
+                    Setting::Model => self.note_save_model_failed,
+                    Setting::PlanEffort => self.note_save_plan_failed,
+                    Setting::Permissions => self.note_save_profile_failed,
+                    Setting::ServiceTier => self.note_save_tier_failed,
+                },
+                error,
+            ),
+            Note::Overridden(setting) => text(
+                self.note_overridden,
+                match setting {
+                    Setting::Model => self.note_setting_model,
+                    Setting::PlanEffort => self.note_setting_plan,
+                    Setting::Permissions => self.note_setting_permissions,
+                    Setting::ServiceTier => self.note_setting_tier,
+                },
+            ),
+            Note::AppsDisabled => format!(
+                "{}{INLINE_GAP}{}",
+                self.note_apps_disabled, self.note_apps_hint
+            ),
+            Note::NoApps => self.note_no_apps.to_string(),
+            Note::AppsFailed(error) => error.clone(),
+            Note::AppLinkUnavailable(status) => {
+                picker.app_status_line(picker.apps_no_link, *status)
+            }
+        }
+    }
+
     /// The words of a notice a command line ended in.
     pub fn notice(&self, notice: &Notice) -> String {
         let text =
@@ -265,6 +633,7 @@ impl Strings {
             Notice::Unrecognized(name) => text(self.unrecognized, name),
             Notice::DisabledDuringTask(c) => text(self.disabled_during_task, c.command()),
             Notice::UnavailableInSide(c) => text(self.unavailable_in_side, c.command()),
+            Notice::TierUnavailableInSide(name) => text(self.unavailable_in_side, name),
             Notice::UnavailableInReview(c) => text(self.unavailable_in_review, c.command()),
             Notice::SessionStarting(c) => text(self.session_starting, c.command()),
             Notice::NotAvailable(c) => text(self.not_available, c.command()),
@@ -292,24 +661,6 @@ impl Strings {
             .to_string(),
         }
     }
-
-    /// The footer while history search is open.
-    pub fn search_footer(&self, query: &str, status: Search) -> String {
-        let msg = match status {
-            Search::Idle => self.search_idle,
-            Search::Match => self.search_match,
-            Search::NoMatch => self.search_no_match,
-        };
-        Fmt::new(msg, [Arg::Text(query)], &self.num).to_string()
-    }
-}
-
-/// Which footer of history search.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Search {
-    Idle,
-    Match,
-    NoMatch,
 }
 
 /// The oracle's `SlashCommand::description` (`slash_command.rs`), exhaustive

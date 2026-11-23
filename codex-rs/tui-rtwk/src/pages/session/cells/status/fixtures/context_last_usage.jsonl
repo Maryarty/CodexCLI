@@ -1,0 +1,4 @@
+# The /status cell: a 272K window, the last usage 13_679 tokens (99% left) and a total usage of 102_000.
+# Oracle: status/tests.rs:2283 status_context_window_uses_last_usage (the cwd is the sanitised `[[workspace]]` of its snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.1-codex-max","directory":"[[workspace]]","permissions":{"sandbox":"workspace","network":true,"approval":"on_request"},"tokens":{"input":12800,"cached_input":0,"output":879,"total":102000},"usage_link":true,"hour24":true,"context":{"window":272000,"used":13679,"percent_left":99},"limits":{"snapshots":[],"now":1717243200,"refreshing":false}}}

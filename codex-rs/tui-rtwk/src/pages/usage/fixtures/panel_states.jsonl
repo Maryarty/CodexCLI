@@ -1,7 +1,4 @@
-# `analytics_loading_errors_and_empty_reports_stay_independent`: four panels
+# `analytics_loading_errors_and_empty_reports_stay_independent`: four reports
 # in four states (loading, unavailable, a credits error, an empty range).
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"usage","ev":{"overview":"loading"}}
-{"step":"screen","dir":"usage","ev":{"history":"unavailable"}}
-{"step":"screen","dir":"usage","ev":{"credits":{"failed":"credits"}}}
-{"step":"screen","dir":"usage","ev":{"usage":{"ready":[]}}}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"plus","today":"2026-09-09"},"histories":[{"section":"usage","load":"loading"},{"section":"plugins","load":"unavailable"},{"section":"credits","load":{"error":"Couldn't load credits. Press R to retry."}},{"section":"activity","load":{"ready":{"unit":"tokens","updated_at":null,"data":[]}}}]}}

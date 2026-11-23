@@ -5,11 +5,13 @@
 #![allow(dead_code)]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::fixtures::script::Input;
+use codex_tui_core::keymap::{Keymap, KeymapSpec};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_rtwk::app::UiApp;
@@ -170,6 +172,13 @@ const QUIESCE_ROUNDS: usize = 200;
 /// make progress when the test lets them, never in parallel with its reads.
 /// The oracle kit builds its screens on it.
 pub fn start_driven(debug: bool, width: u16, height: u16) -> Harness {
+    start_driven_with(debug, Options::new().size(width, height))
+}
+
+/// `start_driven` on a terminal made with `options` (its size, its default
+/// colours, its colour depth, the environment the app reads): the kit's seeds
+/// of the terminal (`kit::env`).
+pub fn start_driven_with(debug: bool, options: Options) -> Harness {
     let runtime: &'static tokio::runtime::Runtime = Box::leak(Box::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -180,7 +189,7 @@ pub fn start_driven(debug: bool, width: u16, height: u16) -> Harness {
     let guard = rtwk_tokio::enter(runtime);
     let (server, fake) = FakeServer::new();
     let app = UiApp::new(Backend::Fake(server)).with_debug_screens(debug);
-    let mut t = Tester::with(Options::new().size(width, height));
+    let mut t = Tester::with(options);
     t.pump_widget(localized(root(app_view(app)), Lang::En));
     let mut h = Harness {
         t,
@@ -375,6 +384,52 @@ pub fn debug_row(dir: &str, entry: Option<&str>) -> usize {
 }
 
 impl Harness {
+    /// Runs the app until the backend has attached its connection (the epoch
+    /// the app's events are stamped with).
+    pub fn connect(&mut self) {
+        for _ in 0..200 {
+            if self.fake.epoch().is_some() {
+                break;
+            }
+            self.t.pump_for(ms(20));
+            self.pause(ms(5));
+        }
+    }
+
+    /// Hands the app the user's bindings, as the host does once it has read
+    /// the config (`AppEv::Keymap`); the app is connected first. A pair names
+    /// an action as the oracle's tests set the fields of its `RuntimeKeymap`
+    /// (`list.move_down`; `app.` is the config's `global` table and a bare
+    /// action is a global one) and a key as the config writes it (`ctrl+x
+    /// enter` is `ctrl-x enter`); the pairs of one action add up, an empty key
+    /// alone unbinds it. The oracle's tests set the fields without the
+    /// config's checks, so the keymap is not checked either.
+    pub fn set_keymap(&mut self, bindings: &[(&str, &str)]) {
+        self.connect();
+        let mut table: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+        for (action, key) in bindings {
+            let (context, name) = action.split_once('.').unwrap_or(("global", action));
+            let context = if context == "app" { "global" } else { context };
+            let keys = table
+                .entry((context.to_owned(), name.to_owned()))
+                .or_default();
+            if !key.is_empty() {
+                keys.push(
+                    key.split(' ')
+                        .map(|k| k.replace('+', "-"))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                );
+            }
+        }
+        let mut spec = KeymapSpec::default();
+        for ((context, name), keys) in &table {
+            let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+            spec = spec.with(context, name, &keys);
+        }
+        self.inject([AppEv::Keymap(Box::new(Keymap::resolve_unchecked(&spec)))]);
+    }
+
     /// Opens a row of the debug menu (the menu is the home, nothing above it).
     pub fn open_debug_row(&mut self, dir: &str, entry: Option<&str>) {
         for _ in 0..debug_row(dir, entry) {

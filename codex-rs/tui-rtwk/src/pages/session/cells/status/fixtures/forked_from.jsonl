@@ -1,0 +1,4 @@
+# The /status cell: a session forked from another: both ids.
+# Oracle: status/tests.rs:973 status_snapshot_includes_forked_from (the cwd is the sanitised `[[workspace]]` of its snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning":{"effort":"none","summary":"auto"},"directory":"[[workspace]]","permissions":{"sandbox":"workspace","network":true,"approval":"on_request"},"tokens":{"input":800,"cached_input":0,"output":400,"total":1200},"usage_link":true,"hour24":true,"session_id":"0f0f3c13-6cf9-4aa4-8b80-7d49c2f1be2e","forked_from":"e9f18a88-8081-4e51-9d4e-8af5cde2d8dd","context":{"window":272000,"used":1200,"percent_left":100},"limits":{"snapshots":[],"now":1723198272,"refreshing":false}}}

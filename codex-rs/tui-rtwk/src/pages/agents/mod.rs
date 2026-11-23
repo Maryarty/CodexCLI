@@ -35,9 +35,12 @@ use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 
+use hints::Hints;
+
 mod debug;
 mod dialogs;
 mod help;
+mod hints;
 mod keys;
 mod opening;
 pub(crate) mod path;

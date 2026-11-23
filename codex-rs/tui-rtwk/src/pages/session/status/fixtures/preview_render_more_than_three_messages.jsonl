@@ -1,0 +1,3 @@
+# Ported from codex-tui bottom_pane/pending_input_preview.rs render_more_than_three_messages.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"pending":{"thread":"thread-1","queued":["Hello, world!","This is another message","This is a third message","This is a fourth message"]}}}

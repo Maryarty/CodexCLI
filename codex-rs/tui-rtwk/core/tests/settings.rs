@@ -13,6 +13,7 @@
 
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::settings::hooks::{Hook, HookEvent, HookTrust, Hooks};
 use codex_tui_core::screens::settings::{
     ConfigPanel, Edit, Ev as SettingsEv, Experimental, Feature, FeaturesStatus,
     Intent as SettingsIntent, MEMORIES_GENERATE, MEMORIES_USE, Memories, Open, Section, SettingId,
@@ -921,4 +922,186 @@ fn slash_memories_opens_from_the_facts_when_the_memory_tool_is_on() {
             confirming: false
         }
     );
+}
+
+// ---- the hooks browser (`bottom_pane/hooks_browser_view.rs`: the state
+// tests at 1561..1700)
+
+const HOOKS_EVENTS: &str = include_str!("../../src/sheets/settings/fixtures/hooks_events.jsonl");
+const HOOKS_REVIEW_MIXED: &str =
+    include_str!("../../src/sheets/settings/fixtures/hooks_events_review_mixed.jsonl");
+
+fn browser(sandbox: &Sandbox) -> Hooks {
+    match &sandbox.app().screens().settings.open {
+        Some(Open::Hooks(browser)) => browser.clone(),
+        other => panic!("hooks browser expected, got {other:?}"),
+    }
+}
+
+fn hook(key: &str, event: &str, trust: &str) -> Hook {
+    serde_json::from_value(serde_json::json!({
+        "key": key, "event": event, "handler": "command", "command": "x",
+        "source": "user", "enabled": false, "trust": trust,
+    }))
+    .expect("a hook")
+}
+
+/// The events page counts what is installed, what is active (on, and managed
+/// or trusted) and what waits for a review, and starts on the first event
+/// with a hook to review (`HooksBrowserView::new`'s `initial_event`).
+#[test]
+fn hooks_events_count_installed_active_and_review_and_start_on_the_first_review() {
+    let sandbox = Sandbox::play(HOOKS_REVIEW_MIXED).expect("plays");
+    let browser = browser(&sandbox);
+    let row = |event| {
+        let row = browser.rows()[HookEvent::index(event)];
+        (row.installed, row.active, row.needs_review)
+    };
+    assert_eq!(row(HookEvent::PreToolUse), (2, 1, 1));
+    assert_eq!(row(HookEvent::Stop), (1, 0, 1));
+    assert_eq!(row(HookEvent::PostToolUse), (0, 0, 0));
+    assert_eq!(browser.review_total(), 2);
+    assert_eq!(browser.initial_event(), 0);
+
+    let late = Hooks::new(
+        vec![
+            hook("a", "pre_tool_use", "trusted"),
+            hook("b", "stop", "modified"),
+        ],
+        vec![],
+        vec![],
+    );
+    assert_eq!(late.initial_event(), HookEvent::Stop.index());
+    assert_eq!(Hooks::new(vec![], vec![], vec![]).initial_event(), 0);
+}
+
+/// An event opens its page once; Esc goes back to the events and closes only
+/// from there; Ctrl+C (`HookClose`) closes from either page.
+#[test]
+fn hooks_an_event_opens_its_page_esc_goes_back_then_closes_and_ctrl_c_closes_from_either() {
+    let mut sandbox = Sandbox::play(HOOKS_EVENTS).expect("plays");
+    assert_eq!(browser(&sandbox).page, None);
+    send(
+        &mut sandbox,
+        SettingsIntent::HookOpen(HookEvent::PreToolUse),
+    );
+    assert_eq!(browser(&sandbox).page, Some(HookEvent::PreToolUse));
+    // Another event while a page is open: not taken.
+    send(&mut sandbox, SettingsIntent::HookOpen(HookEvent::Stop));
+    assert_eq!(browser(&sandbox).page, Some(HookEvent::PreToolUse));
+    send(&mut sandbox, SettingsIntent::Close);
+    assert_eq!(browser(&sandbox).page, None);
+    send(&mut sandbox, SettingsIntent::Close);
+    assert_eq!(sandbox.app().screens().settings.open, None);
+
+    let mut sandbox = Sandbox::play(HOOKS_EVENTS).expect("plays");
+    send(&mut sandbox, SettingsIntent::HookClose);
+    assert_eq!(sandbox.app().screens().settings.open, None);
+    let mut sandbox = Sandbox::play(HOOKS_EVENTS).expect("plays");
+    send(&mut sandbox, SettingsIntent::HookOpen(HookEvent::Stop));
+    send(&mut sandbox, SettingsIntent::HookClose);
+    assert_eq!(sandbox.app().screens().settings.open, None);
+}
+
+/// A switch is recorded (`SetHookEnabled`); managed hooks and those waiting
+/// for a review stay as they are (`toggle_selected_hook`), as an unknown key.
+#[test]
+fn hooks_toggle_flips_a_user_hook_and_leaves_managed_and_review_needed_ones() {
+    let mut sandbox = Sandbox::play(HOOKS_EVENTS).expect("plays");
+    let enabled = |sandbox: &Sandbox, key: &str| {
+        browser(sandbox)
+            .hooks
+            .iter()
+            .find(|hook| hook.key == key)
+            .map(|hook| hook.enabled)
+    };
+    send(
+        &mut sandbox,
+        SettingsIntent::HookToggle("path:user-config".to_string()),
+    );
+    assert_eq!(enabled(&sandbox, "path:user-config"), Some(true));
+    send(
+        &mut sandbox,
+        SettingsIntent::HookToggle("path:managed".to_string()),
+    );
+    send(
+        &mut sandbox,
+        SettingsIntent::HookToggle("unknown".to_string()),
+    );
+    assert_eq!(enabled(&sandbox, "path:managed"), Some(true));
+    assert_eq!(
+        sandbox.app().screens().settings.edits,
+        vec![Edit::HookEnabled {
+            key: "path:user-config".to_string(),
+            enabled: true
+        }]
+    );
+    send(
+        &mut sandbox,
+        SettingsIntent::HookToggle("path:user-config".to_string()),
+    );
+    assert_eq!(enabled(&sandbox, "path:user-config"), Some(false));
+
+    let mut sandbox = Sandbox::play(HOOKS_REVIEW_MIXED).expect("plays");
+    send(
+        &mut sandbox,
+        SettingsIntent::HookToggle("path:untrusted".to_string()),
+    );
+    send(
+        &mut sandbox,
+        SettingsIntent::HookToggle("path:modified".to_string()),
+    );
+    assert_eq!(sandbox.app().screens().settings.edits, vec![]);
+}
+
+/// `t` trusts the hook waiting for a review and leaves its enablement; a
+/// trusted one records nothing (`trust_selected_hook`).
+#[test]
+fn hooks_trust_vouches_for_one_hook_and_keeps_its_enablement() {
+    let mut sandbox = Sandbox::play(HOOKS_REVIEW_MIXED).expect("plays");
+    send(
+        &mut sandbox,
+        SettingsIntent::HookTrust("path:trusted".to_string()),
+    );
+    assert_eq!(sandbox.app().screens().settings.edits, vec![]);
+    send(
+        &mut sandbox,
+        SettingsIntent::HookTrust("path:untrusted".to_string()),
+    );
+    let after = browser(&sandbox);
+    let untrusted = after
+        .hooks
+        .iter()
+        .find(|hook| hook.key == "path:untrusted")
+        .expect("the hook");
+    assert_eq!(
+        (untrusted.trust, untrusted.enabled),
+        (HookTrust::Trusted, false)
+    );
+    assert_eq!(after.review_total(), 1);
+    assert_eq!(
+        sandbox.app().screens().settings.edits,
+        vec![Edit::HookTrusted {
+            key: "path:untrusted".to_string(),
+            current_hash: "sha256:current".to_string()
+        }]
+    );
+}
+
+/// `t` on the events page trusts every hook waiting for a review, in one
+/// edit; with none to review it records nothing (`trust_all_hooks`).
+#[test]
+fn hooks_trust_all_vouches_for_every_review_needed_hook_in_one_edit() {
+    let mut sandbox = Sandbox::play(HOOKS_REVIEW_MIXED).expect("plays");
+    send(&mut sandbox, SettingsIntent::HookTrustAll);
+    assert_eq!(browser(&sandbox).review_total(), 0);
+    assert_eq!(
+        sandbox.app().screens().settings.edits,
+        vec![Edit::HooksTrusted(vec![
+            ("path:untrusted".to_string(), "sha256:current".to_string()),
+            ("path:modified".to_string(), "sha256:current".to_string()),
+        ])]
+    );
+    send(&mut sandbox, SettingsIntent::HookTrustAll);
+    assert_eq!(sandbox.app().screens().settings.edits.len(), 1);
 }

@@ -22,13 +22,11 @@ fn row_starting(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-const NO_DISCOVERY: &str = "the /permissions discovery is not built: the picker has no loading, server-catalog, failure or empty state and does not wait behind a covering modal (select's permissions menu is two fixed rows, select/dialog.rs:162)";
-const NO_PROFILE_POPUP: &str = "the profile-permissions popup (explicit permission-profile mode with the built-in and custom profile rows) is not built: no entry for it, and select's permissions menu is the two-row preset menu";
+const NO_DISCOVERY: &str = "the discovery menus (loading, the server's catalog, failure with Retry, empty) are built (core `select::permissions`, entries `permission_discovery_*`, the 30 state tests of core/tests/permissions.rs, the sheet tests) but `/permissions` does not open them: the opener (src/pages/session) and the app's `permissionProfile/list` + `configRequirements/read` routing are other owners' files (parity/popups.md, Needs); the wait behind a covering modal is the app's hold, not the picker's";
 const NO_WINDOWS: &str = "the Windows sandbox prompts, setup status and degraded-sandbox labels are not built (the oracle runs these tests on Windows only)";
-const NO_FULL_ACCESS: &str = "the full-access confirmation (`Enable full access?`) is not built: select's permissions menu has no confirmation step (select/dialog.rs:162)";
+const NO_FULL_ACCESS: &str = "the confirmation's rows are built (`Enable full access?`, Yes, continue anyway / Cancel, the cyber text) but its header is plain subtitle text (the oracle's header is a Paragraph: bold title, the caution sentence in red) and its Centered presentation over the retained composer (`› As` / `GP` at the left edge) is not in the Picker brick; the live open waits on the /permissions opener (parity/popups.md, Needs)";
 const NO_HISTORY: &str = "the /permissions selection history cells (`Permissions updated to ...`) are not built: no transcript cell comes from a permissions pick";
-const NO_AUTO_REVIEW: &str = "the Approve for me (auto-review) row, its feature gate and its (current) marker are not built: select's permissions menu has two rows (select/dialog.rs:162)";
-const NO_CONSTRAINED: &str = "the constrained approval presets (`(disabled)` rows with their reasons) are not built: no seed for an approval policy that requirements disable";
+const NO_AUTO_REVIEW: &str = "the Approve for me row, its feature gate and its (current) marker are built (core `select::permissions`, `Current.guardian`/`reviewer`, entry `permissions_unnamed_server_profile`) but `/permissions` does not open the menu: the opener (src/pages/session) reads the thread's policy and the feature gate (parity/popups.md, Needs)";
 const NO_QUEUE: &str =
     "the queued-input recovery after a cancelled /permissions picker is not built";
 const NO_PLUGINS: &str = "the plugins popup (marketplace tabs, plugin rows, detail and install action) is not built: the port has no plugins screen";
@@ -142,7 +140,6 @@ fn inline_permission_discovery_retry_preserves_profile_id() {
 // ORACLE chatwidget/tests/permissions.rs:296 permission_discovery_discards_stale_results_and_preserves_covering_modal kind=ui owner=dialogs-pane
 #[test]
 fn permission_discovery_discards_stale_results_and_preserves_covering_modal() {
-    kit::pending(Owner::DialogsPane, NO_DISCOVERY);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/permissions").keys("enter");
     s.keys("esc");
@@ -190,7 +187,6 @@ fn approvals_selection_popup_snapshot() {
 // ORACLE chatwidget/tests/permissions.rs:458 profile_permissions_selection_popup_snapshot kind=snap owner=dialogs-pane snap=profile_permissions_selection_popup
 #[test]
 fn profile_permissions_selection_popup_snapshot() {
-    kit::pending(Owner::DialogsPane, NO_PROFILE_POPUP);
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .entry("select", "profile_permissions")
@@ -205,7 +201,6 @@ fn profile_permissions_selection_popup_snapshot() {
 // ORACLE chatwidget/tests/permissions.rs:478 profile_permissions_selection_popup_with_disallowed_full_access_snapshot kind=snap owner=dialogs-pane snap=profile_permissions_selection_popup_with_disallowed_full_access
 #[test]
 fn profile_permissions_selection_popup_with_disallowed_full_access_snapshot() {
-    kit::pending(Owner::DialogsPane, NO_PROFILE_POPUP);
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .entry("select", "profile_permissions_disallowed_full_access")
@@ -220,7 +215,6 @@ fn profile_permissions_selection_popup_with_disallowed_full_access_snapshot() {
 // ORACLE chatwidget/tests/permissions.rs:505 profile_permissions_selection_popup_with_custom_profiles_snapshot kind=snap owner=dialogs-pane snap=profile_permissions_selection_popup_with_custom_profiles
 #[test]
 fn profile_permissions_selection_popup_with_custom_profiles_snapshot() {
-    kit::pending(Owner::DialogsPane, NO_PROFILE_POPUP);
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .entry("select", "profile_permissions_custom")
@@ -417,19 +411,31 @@ fn windows_sandbox_required_fallback_prompt_snapshot() {
 // ORACLE chatwidget/tests/permissions.rs:1280 approvals_popup_shows_disabled_presets kind=ui owner=dialogs-pane
 #[test]
 fn approvals_popup_shows_disabled_presets() {
-    kit::pending(Owner::DialogsPane, NO_CONSTRAINED);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/permissions").keys("enter");
-    s.assert_contains("(disabled)");
-    s.assert_contains("this message should be printed in the description");
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .entry("select", "permissions_constrained")
+        .open();
+    // The oracle collapses the whitespace: the reason wraps at 80 columns.
+    let collapsed = s
+        .rows()
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(collapsed.contains("(disabled)"), "{collapsed}");
+    assert!(
+        collapsed.contains("this message should be printed in the description"),
+        "{collapsed}"
+    );
 }
 
 // ORACLE chatwidget/tests/permissions.rs:1317 approvals_popup_navigation_skips_disabled kind=ui owner=dialogs-pane
 #[test]
 fn approvals_popup_navigation_skips_disabled() {
-    kit::pending(Owner::DialogsPane, NO_CONSTRAINED);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/permissions").keys("enter");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .entry("select", "permissions_constrained")
+        .open();
     s.assert_contains("Update Model Permissions");
     // Ten Downs: the selection never lands on the disabled row.
     s.keys("down down down down down down down down down down");
@@ -509,7 +515,6 @@ fn permissions_selection_hides_auto_review_when_feature_disabled() {
 // ORACLE chatwidget/tests/permissions.rs:1574 permissions_selection_hides_auto_review_when_feature_disabled_even_if_auto_review_is_active kind=ui owner=dialogs-pane
 #[test]
 fn permissions_selection_hides_auto_review_when_feature_disabled_even_if_auto_review_is_active() {
-    kit::pending(Owner::DialogsPane, NO_AUTO_REVIEW);
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
@@ -521,12 +526,10 @@ fn permissions_selection_hides_auto_review_when_feature_disabled_even_if_auto_re
 // ORACLE chatwidget/tests/permissions.rs:1603 permissions_selection_marks_auto_review_current_after_session_configured kind=snap owner=dialogs-pane snap=permissions_unnamed_server_profile
 #[test]
 fn permissions_selection_marks_auto_review_current_after_session_configured() {
-    kit::pending(Owner::DialogsPane, NO_AUTO_REVIEW);
-    let mut s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
-        .live()
+        .entry("select", "permissions_unnamed_server_profile")
         .open();
-    s.type_text("/permissions").keys("enter");
     s.assert_snap_region(
         "permissions_unnamed_server_profile",
         row_of(&s, "Update Model Permissions"),

@@ -438,8 +438,11 @@ impl ScreenState {
                             return Rebuild::Yes;
                         }
                     }
+                    // A line already renaming keeps its target (oracle:
+                    // `rename_target.is_none()`).
                     Act::Rename => {
-                        if let Some(id) = task()
+                        if !matches!(self.mode, Mode::Rename(_))
+                            && let Some(id) = task()
                             && !model.held()
                             && model.has_task(&id)
                         {
@@ -461,6 +464,7 @@ impl ScreenState {
                             self.ask_removal(model, view::Confirm { thread, action }, cx);
                         }
                     }
+                    Act::Swallow => {}
                     Act::Right => {
                         if let Some(sel) = at {
                             self.accept(model, sel, &center, cx);
@@ -564,6 +568,8 @@ impl ScreenState {
     fn view(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
+        let keymap = crate::keymap::keymap(cx);
+        let hints = Hints::new(keymap.clone());
         let agents = watched(cx);
         let look = view::Look::new(&Theme::of(cx), agents.thread_colors());
         let center = Rc::new(agents.center_at(
@@ -586,10 +592,10 @@ impl ScreenState {
             focus: self.list_focus.clone(),
             empty_focus: self.empty_focus.clone(),
             keys: view::Keys {
-                browse: table(cx, BROWSE_KEYS),
-                search: table(cx, SEARCH_KEYS),
-                rename: table(cx, RENAME_KEYS),
-                help: table(cx, HELP_KEYS),
+                browse: table(cx, browse(&keymap)),
+                search: table(cx, search(&keymap)),
+                rename: table(cx, rename(&keymap)),
+                help: table(cx, help(&keymap)),
             },
             edit_focus: self.edit_focus.clone(),
             scroll: self.scroll.clone(),
@@ -609,7 +615,7 @@ impl ScreenState {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch);
             if constraints.max_height >= 6 {
                 column = column.child(view::header(
-                    &look, strings, &num, model, &ui, &center, &taps,
+                    &look, strings, &hints, &num, model, &ui, &center, &taps,
                 ));
             }
             // Both stay mounted (the list keeps its cursor and scroll); the
@@ -623,7 +629,7 @@ impl ScreenState {
             );
             let help_pane = KeyBindings::new(
                 controls.keys.help.clone(),
-                Focus::new(view::help(&look, strings, model, &center))
+                Focus::new(view::help(&look, strings, &hints, model, &center))
                     .focus_node(help_focus.clone()),
             );
             let stack = Stack::new()
@@ -635,7 +641,9 @@ impl ScreenState {
                 ));
             column = column.child(Expanded::new(1, stack));
             if constraints.max_height >= 2 {
-                column = column.child(view::footer_row(&look, strings, model, &ui, can_return));
+                column = column.child(view::footer_row(
+                    &look, strings, &hints, model, &ui, can_return,
+                ));
             }
             column.into()
         });

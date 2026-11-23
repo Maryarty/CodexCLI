@@ -3,6 +3,9 @@
 
 use crate::common::slot;
 
+#[path = "../oracle_snap/mod.rs"]
+mod oracle_snap;
+
 #[test]
 fn cells_slot_is_registered_and_empty() {
     slot("cells");
@@ -239,6 +242,51 @@ mod patch_preview {
             "a wrapped line takes the rows it needs: {shown:#?}"
         );
     }
+
+    #[test]
+    fn an_added_or_removed_row_is_tinted_over_its_whole_width_and_context_is_not() {
+        // oracle `style_line_bg_for`: the tint fills the row from the indent to the right edge,
+        // not only the text; the two tints differ, the context row has none.
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(30, 12));
+        t.pump_widget(PatchCell {
+            detailed: true,
+            ..cell("@@ -1,2 +1,2 @@\n-a\n+b\n c\n")
+        });
+        let rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|l| l.trim_end().to_string())
+            .collect();
+        let at = |needle: &str| {
+            rows.iter()
+                .position(|row| row.ends_with(needle))
+                .unwrap_or_else(|| panic!("no row ends with `{needle}`: {rows:#?}"))
+        };
+        let (removed, added, context) = (at("1 -a"), at("1 +b"), at("2  c"));
+        for x in [0, 3, 7, 29] {
+            assert_eq!(
+                t.cell(x, removed).bg,
+                t.cell(0, removed).bg,
+                "removed row at {x}"
+            );
+            assert_eq!(t.cell(x, added).bg, t.cell(0, added).bg, "added row at {x}");
+        }
+        assert_ne!(
+            t.cell(0, added).bg,
+            t.cell(0, context).bg,
+            "the added row is tinted"
+        );
+        assert_ne!(
+            t.cell(0, removed).bg,
+            t.cell(0, context).bg,
+            "the removed row is tinted"
+        );
+        assert_ne!(
+            t.cell(0, added).bg,
+            t.cell(0, removed).bg,
+            "the two tints differ"
+        );
+    }
 }
 
 // ---- a revealed patch survives the turn's timing row (the row sits in the
@@ -415,13 +463,13 @@ mod reasoning_style {
 // text, escaped and nested directives stay literal) ----
 
 mod citations {
-    use codex_tui_rtwk::pages::session::cells::citation;
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
 
     const C: &str = r#":codex-file-citation{path="/tmp/report.xlsx" purpose="output"}"#;
 
     fn show(source: &str, cwd: Option<&str>) -> (rtwk_test::Tester, Vec<String>) {
         let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 12));
-        t.pump_widget(citation::view(source, cwd));
+        t.pump_widget(citation::view(source, false, cwd, &strings::EN));
         let mut rows: Vec<String> = t
             .screen()
             .lines()
@@ -1642,6 +1690,589 @@ files."
     }
 }
 
+/// The notices that are a card or a refusal (oracle history_cell/tests.rs:
+/// cyber policy, safety access block, update available, server version),
+/// mounted at the oracle's widths and compared with its snapshots.
+mod notice_cells {
+    use codex_tui_core::screens::cells::{AnsweredQuestion, Daybreak, SessionInfo};
+    use codex_tui_core::threads::Notice;
+    use codex_tui_rtwk::pages::session::cells::notice::NoticeCell;
+    use rtwk::style::{Attrs, Color};
+
+    use super::oracle_snap;
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        oracle_snap::screen(t)
+    }
+
+    fn show(notice: Notice, width: u16) -> rtwk_test::Tester {
+        show_tall(notice, width, 14)
+    }
+
+    fn show_tall(notice: Notice, width: u16, height: u16) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, height));
+        t.pump_widget(NoticeCell { notice });
+        t
+    }
+
+    fn snap(name: &str) -> Vec<String> {
+        oracle_snap::rows(&oracle_snap::find(name))
+    }
+
+    #[test]
+    fn the_cyber_policy_apply_form_at_80() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 80);
+        let expected = snap("cyber_policy_error_event_snapshot");
+        // The oracle breaks the apply address after its last slash
+        // (`...-for-` / `cyber/`); rtwk's Word wrap moves the whole token (G49).
+        oracle_snap::assert_fragment("cyber apply", &rows(&t), 0, &expected[..3]);
+    }
+
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word never breaks after a slash or a hyphen, so an address that does not fit moves whole to the next row"]
+    fn the_cyber_policy_apply_form_at_80_whole() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 80);
+        oracle_snap::assert_same(
+            "cyber apply",
+            &rows(&t),
+            &snap("cyber_policy_error_event_snapshot"),
+        );
+    }
+
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word never breaks after a slash or a hyphen, so an address that does not fit moves whole to the next row"]
+    fn the_cyber_policy_apply_form_at_36() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 36);
+        oracle_snap::assert_same(
+            "cyber narrow",
+            &rows(&t),
+            &snap("cyber_policy_error_event_narrow_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_cyber_policy_narrow_message_wraps_like_the_oracle() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 36);
+        let expected = snap("cyber_policy_error_event_narrow_snapshot");
+        oracle_snap::assert_fragment("cyber narrow message", &rows(&t), 0, &expected[..6]);
+    }
+
+    #[test]
+    fn the_disabled_and_enabled_forms_are_the_body_and_learn_more() {
+        let expected = snap("cyber_policy_error_event_available_snapshot");
+        let first = show(Notice::CyberPolicy(Daybreak::Disabled), 80);
+        oracle_snap::assert_same("disabled", &rows(&first), &expected[..4]);
+        let second = show(Notice::CyberPolicy(Daybreak::Enabled), 80);
+        oracle_snap::assert_same("enabled", &rows(&second), &expected[5..]);
+    }
+
+    #[test]
+    fn the_astra_form_names_astra() {
+        let t = show(Notice::CyberPolicy(Daybreak::Astra), 80);
+        oracle_snap::assert_same(
+            "astra",
+            &rows(&t),
+            &snap("cyber_policy_error_event_astra_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_safety_block_is_its_explanation_the_body_and_two_actions() {
+        let t = show(Notice::SafetyAccessBlock, 80);
+        oracle_snap::assert_same(
+            "safety",
+            &rows(&t),
+            &snap("safety_access_block_event_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_mark_is_accent_the_title_bold_the_message_dim_the_address_underlined() {
+        let t = show(Notice::SafetyAccessBlock, 80);
+        let mark = t.cell(0, 0);
+        assert_ne!(mark.fg, Color::default(), "{mark:?}");
+        let title = t.cell(3, 0);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+        let message = t.cell(2, 1);
+        assert!(message.attrs.intersects(Attrs::DIM), "{message:?}");
+        let label = t.cell(2, 4);
+        assert!(label.attrs.intersects(Attrs::DIM), "{label:?}");
+        let address = t.cell(20, 4);
+        assert!(address.attrs.intersects(Attrs::UNDERLINE), "{address:?}");
+    }
+
+    fn update(command: Option<&str>) -> Notice {
+        Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: command.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn the_update_card_is_a_box_as_wide_as_its_words() {
+        let t = show(update(Some("pnpm add -g @openai/codex")), 110);
+        oracle_snap::assert_same(
+            "pnpm",
+            &rows(&t),
+            &snap("pnpm_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn a_long_command_wraps_inside_the_box_to_the_width() {
+        let t = show(
+            update(Some(
+                "sh -c 's=$(curl -fsSL https://chatgpt.com/codex/install.sh) && CODEX_NON_INTERACTIVE=1 eval \"$s\"'",
+            )),
+            110,
+        );
+        oracle_snap::assert_same(
+            "standalone unix",
+            &rows(&t),
+            &snap("standalone_unix_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_windows_command_wraps_after_its_words() {
+        let t = show(
+            update(Some(
+                "powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex'",
+            )),
+            110,
+        );
+        oracle_snap::assert_same(
+            "standalone windows",
+            &rows(&t),
+            &snap("standalone_windows_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn without_a_command_it_points_at_the_install_options() {
+        let t = show(update(None), 110);
+        let rows = rows(&t);
+        assert!(
+            rows[2].contains("See https://github.com/openai/codex for installation options."),
+            "{rows:?}"
+        );
+    }
+
+    fn version(message: &str, offer_update: bool) -> Notice {
+        Notice::ServerVersion {
+            message: message.into(),
+            offer_update,
+        }
+    }
+
+    #[test]
+    fn a_connected_server_notice_is_one_warning_row() {
+        let t = show(
+            version(
+                "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+                false,
+            ),
+            100,
+        );
+        oracle_snap::assert_same(
+            "connected",
+            &rows(&t),
+            &snap("connected_server_version_notice_snapshot"),
+        );
+    }
+
+    #[test]
+    fn a_local_daemon_notice_adds_the_daemon_hint_and_the_interruption_warning() {
+        let t = show(
+            version(
+                "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+                true,
+            ),
+            100,
+        );
+        oracle_snap::assert_same(
+            "local daemon",
+            &rows(&t),
+            &snap("local_daemon_version_notice_snapshot"),
+        );
+    }
+
+    fn expected(rows: &[&str]) -> Vec<String> {
+        rows.iter().map(|row| (*row).to_owned()).collect()
+    }
+
+    fn interaction(command: Option<&str>, stdin: &str) -> Notice {
+        Notice::TerminalInteraction {
+            command: command.map(Into::into),
+            stdin: stdin.into(),
+        }
+    }
+
+    #[test]
+    fn a_terminal_write_keeps_every_input_line_under_the_branch() {
+        // oracle history_cell/tests.rs unified_exec_interaction_cell_retains_detailed_input
+        let input: String = (1..=16).map(|line| format!("line {line}\n")).collect();
+        let t = show_tall(interaction(Some("cat"), &input), 80, 20);
+        let mut want = vec![
+            "↳ Interacted with background terminal · cat".to_owned(),
+            "  └ line 1".to_owned(),
+        ];
+        want.extend((2..=16).map(|line| format!("    line {line}")));
+        let rows = rows(&t);
+        oracle_snap::assert_fragment("interaction", &rows, 0, &want);
+        let dim = t.cell(0, 0);
+        assert!(dim.attrs.intersects(Attrs::DIM), "{dim:?}");
+        let title = t.cell(3, 0);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+    }
+
+    #[test]
+    fn a_wait_is_one_bold_row() {
+        // oracle unified_exec_interaction_cell_retains_detailed_wait
+        let t = show(interaction(None, ""), 80);
+        assert_eq!(rows(&t)[0], "• Waited for background terminal");
+        let bullet = t.cell(0, 0);
+        assert!(bullet.attrs.intersects(Attrs::BOLD), "{bullet:?}");
+    }
+
+    const URL_LIKE: &str =
+        "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
+
+    #[test]
+    fn a_long_stdin_line_wraps_under_its_branch() {
+        // oracle unified_exec_interaction_details_wrap_long_input
+        let t = show(interaction(Some("true"), URL_LIKE), 90);
+        assert_eq!(rows(&t)[1], format!("  └ {URL_LIKE}"));
+        let narrow = show(interaction(Some("true"), URL_LIKE), 24);
+        let rows = rows(&narrow);
+        assert!(rows[0].starts_with("↳ Interacted with"), "{rows:?}");
+        // the header wraps with no indent, the input under its branch
+        assert_eq!(rows[1], "background terminal ·", "{rows:?}");
+        assert!(rows[3].starts_with("  └ example"), "{rows:?}");
+        assert!(rows[4].starts_with("    "), "{rows:?}");
+    }
+
+    #[test]
+    #[ignore = "pending(G-urltoken): TextWrap::Word breaks a token longer than the row after a hyphen or a slash; the oracle's adaptive wrap keeps a URL-like token whole on one row (clipped)"]
+    fn a_url_like_stdin_token_stays_whole() {
+        // oracle unified_exec_interaction_details_do_not_split_url_like_stdin_token (24 columns)
+        let t = show(interaction(Some("true"), URL_LIKE), 24);
+        let whole = rows(&t).iter().filter(|row| row.contains(URL_LIKE)).count();
+        assert_eq!(whole, 1, "{:?}", rows(&t));
+    }
+
+    #[test]
+    fn the_recap_loading_row_is_a_static_bullet_and_the_bold_title() {
+        let t = show(Notice::RecapLoading, 80);
+        assert_eq!(rows(&t)[0], "• Generating conversation recap…");
+        let title = t.cell(3, 0);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+    }
+
+    fn question(text: &str, answers: &[&str]) -> AnsweredQuestion {
+        AnsweredQuestion {
+            question: text.into(),
+            secret: false,
+            has_options: true,
+            answers: answers.iter().map(|answer| (*answer).into()).collect(),
+        }
+    }
+
+    fn questions(list: Vec<AnsweredQuestion>, interrupted: bool) -> Notice {
+        Notice::Questions {
+            questions: list,
+            interrupted,
+        }
+    }
+
+    const ASK: &str = "Which approach should we use for the next step?";
+
+    #[test]
+    fn a_completed_exchange_lists_the_answer_and_the_note() {
+        // oracle request_user_input_tests.rs completed_and_interrupted_results, "completed" (40 columns)
+        let t = show(
+            questions(
+                vec![question(
+                    ASK,
+                    &["Keep it small", "user_note: Preserve the behavior"],
+                )],
+                false,
+            ),
+            40,
+        );
+        oracle_snap::assert_fragment(
+            "completed",
+            &rows(&t),
+            0,
+            &expected(&[
+                "• Questions 1/1 answered",
+                "  • Which approach should we use for the",
+                "    next step?",
+                "    answer: Keep it small",
+                "    note: Preserve the behavior",
+            ]),
+        );
+        let label = t.cell(4, 3);
+        assert!(label.attrs.intersects(Attrs::DIM), "{label:?}");
+        let answer = t.cell(14, 3);
+        assert_ne!(answer.fg, Color::default(), "{answer:?}");
+        assert!(!answer.attrs.intersects(Attrs::DIM), "{answer:?}");
+    }
+
+    #[test]
+    fn an_interrupted_exchange_marks_what_was_not_answered() {
+        // the same test's "interrupted" frame
+        let t = show(questions(vec![question(ASK, &[])], true), 40);
+        oracle_snap::assert_fragment(
+            "interrupted",
+            &rows(&t),
+            0,
+            &expected(&[
+                "• Questions 0/1 answered (interrupted)",
+                "  • Which approach should we use for the",
+                "    next step? (unanswered)",
+                "  ↳ interrupted with 1 unanswered",
+            ]),
+        );
+        let flag = t.cell(25, 0);
+        assert_ne!(flag.fg, Color::default(), "{flag:?}");
+    }
+
+    #[test]
+    fn a_secret_answer_is_bullets_and_a_note_without_options_reads_as_the_answer() {
+        let mut secret = question("Token?", &["hunter2"]);
+        secret.secret = true;
+        let mut free = question("Why?", &["user_note: because"]);
+        free.has_options = false;
+        let t = show(questions(vec![secret, free], false), 60);
+        oracle_snap::assert_fragment(
+            "secret",
+            &rows(&t),
+            0,
+            &expected(&[
+                "• Questions 2/2 answered",
+                "  • Token?",
+                "    answer: ••••••",
+                "  • Why?",
+                "    answer: because",
+            ]),
+        );
+    }
+
+    #[test]
+    fn the_first_session_card_is_the_help_under_a_blank_row() {
+        let t = show(
+            Notice::SessionInfo(SessionInfo {
+                help: true,
+                ..SessionInfo::default()
+            }),
+            80,
+        );
+        oracle_snap::assert_fragment(
+            "help",
+            &rows(&t),
+            1,
+            &expected(&[
+                "  To get started, describe a task or try one of these commands:",
+                "",
+                "  /init - create an AGENTS.md file with instructions for Codex",
+                "  /status - show current session configuration",
+                "  /permissions - choose what Codex is allowed to do",
+                "  /model - choose what model and reasoning effort to use",
+                "  /review - review any changes and find issues",
+            ]),
+        );
+        assert_eq!(rows(&t)[0], "");
+        let words = t.cell(10, 3);
+        assert!(words.attrs.intersects(Attrs::DIM), "{words:?}");
+    }
+
+    #[test]
+    fn a_tip_is_markdown_two_columns_in() {
+        // oracle session_info_availability_nux_tooltip_snapshot (below the header's rows)
+        let t = show(
+            Notice::SessionInfo(SessionInfo {
+                tip: Some("Model just became available".into()),
+                ..SessionInfo::default()
+            }),
+            80,
+        );
+        oracle_snap::assert_fragment(
+            "tip",
+            &rows(&t),
+            1,
+            &expected(&["  Tip: Model just became available"]),
+        );
+        // oracle session_info_preserves_styled_tooltip_links (30 columns)
+        let styled = show(
+            Notice::SessionInfo(SessionInfo {
+                tip: Some(
+                    "Use **/copy** or `ctrl+y`; visit the [Codex community forum](https://example.com)."
+                        .into(),
+                ),
+                ..SessionInfo::default()
+            }),
+            30,
+        );
+        oracle_snap::assert_fragment(
+            "styled tip",
+            &rows(&styled),
+            1,
+            &expected(&[
+                "  Tip: Use /copy or ctrl+y;",
+                "  visit the Codex community",
+                "  forum (https://example.com).",
+            ]),
+        );
+    }
+
+    #[test]
+    fn a_model_other_than_the_requested_one_is_a_three_row_block() {
+        let t = show(
+            Notice::SessionInfo(SessionInfo {
+                model_changed: Some(("gpt-5".into(), "gpt-5-mini".into())),
+                ..SessionInfo::default()
+            }),
+            80,
+        );
+        oracle_snap::assert_fragment(
+            "model changed",
+            &rows(&t),
+            1,
+            &expected(&["model changed:", "requested: gpt-5", "used: gpt-5-mini"]),
+        );
+        let title = t.cell(0, 1);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+    }
+}
+
+mod raw_mode {
+    use codex_tui_core::fixtures::builders::{agent_completed, turn_completed};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+
+    use codex_tui_core::threads::Item;
+    use codex_tui_rtwk::pages::session::cells::{raw, strings};
+
+    use crate::common::{Harness, start};
+
+    const SOURCE: &str = "- first item\n\nfinalized **markdown**\n\n```text\ncopy me\n```";
+
+    fn chat_with_an_answer() -> Harness {
+        let mut h = start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            agent_completed(FAKE_THREAD, "turn-1", "item-1", SOURCE),
+            turn_completed(FAKE_THREAD, "turn-1"),
+        ]);
+        h.t.type_text("hi");
+        h.press("enter");
+        h.wait_for("the answer", |s| s.contains("finalized"));
+        h.wait_idle();
+        h
+    }
+
+    #[test]
+    fn source_lines_keep_blank_lines_and_drop_the_trailing_newline() {
+        // oracle history_cell/tests.rs raw_lines_from_source_* (the lines of a source)
+        assert_eq!(raw::source_lines("alpha\n\nbeta"), ["alpha", "", "beta"]);
+        assert_eq!(raw::source_lines("alpha\n"), ["alpha"]);
+        assert_eq!(raw::source_lines("alpha\n\n"), ["alpha", ""]);
+        assert!(raw::source_lines("").is_empty());
+    }
+
+    #[test]
+    fn an_item_with_a_source_has_raw_lines_and_one_without_has_none() {
+        let text = |item: Item| raw::lines(&item, &strings::EN);
+        let agent = Item::Agent {
+            text: "- a\n\n| A |\n".into(),
+            phase: None,
+        };
+        assert_eq!(text(agent).unwrap(), ["- a", "", "| A |"]);
+        let plan = Item::Plan {
+            text: "1. Inspect\n\n```sh\ncargo test\n```".into(),
+        };
+        assert_eq!(
+            text(plan).unwrap(),
+            ["1. Inspect", "", "```sh", "cargo test", "```"]
+        );
+        let reasoning = Item::Reasoning {
+            summary: "first thought\n\nsecond thought\n".into(),
+        };
+        assert_eq!(
+            text(reasoning).unwrap(),
+            ["first thought", "", "second thought"]
+        );
+    }
+
+    #[test]
+    fn alt_r_flips_an_answer_between_its_rendering_and_its_source() {
+        // oracle history_cell/messages_tests.rs raw_markdown_bypasses_the_rich_render_cache,
+        // history_cell/tests.rs raw_mode_toggle_transcript_snapshot (the agent cell)
+        let mut h = chat_with_an_answer();
+        let rich = h.t.screen();
+        assert!(rich.contains("• "), "{rich}");
+        assert!(!rich.contains("**markdown**"), "{rich}");
+        h.press("alt+r");
+        h.wait_for("the source", |s| s.contains("finalized **markdown**"));
+        let raw = h.t.screen();
+        let rows: Vec<&str> = raw.lines().map(str::trim_end).collect();
+        let at = rows
+            .iter()
+            .position(|row| *row == "- first item")
+            .unwrap_or_else(|| panic!("{raw}"));
+        // the source lines, a blank row kept, no bullet, no fence drawn as a rule
+        assert_eq!(rows[at + 1], "", "{raw}");
+        assert_eq!(rows[at + 2], "finalized **markdown**", "{raw}");
+        assert_eq!(rows[at + 4], "```text", "{raw}");
+        assert_eq!(rows[at + 5], "copy me", "{raw}");
+        assert_eq!(rows[at + 6], "```", "{raw}");
+        assert!(raw.contains("Raw output mode on"), "{raw}");
+        h.press("alt+r");
+        h.wait_for("the rendering", |s| !s.contains("**markdown**"));
+        assert!(h.t.screen().contains("Raw output mode off"));
+    }
+
+    #[test]
+    fn a_prompt_is_its_text_without_the_chevron_in_raw_mode() {
+        // oracle source_backed_cells_render_raw_source_without_prefix_or_style (the prompt)
+        let mut h = chat_with_an_answer();
+        assert!(h.t.screen().contains("› hi"), "{}", h.t.screen());
+        h.press("alt+r");
+        h.wait_for("raw", |s| s.contains("Raw output mode on"));
+        let screen = h.t.screen();
+        assert!(!screen.contains("› hi"), "{screen}");
+        assert!(screen.lines().any(|row| row.trim_end() == "hi"), "{screen}");
+    }
+
+    #[test]
+    fn the_toggle_changes_the_cells_and_leaves_the_rest_of_the_page_alone() {
+        // Flutter: a ListView's items rebuild when the mode flag changes, the composer
+        // above/below them is a different subtree: its draft and caret stay.
+        let mut h = chat_with_an_answer();
+        h.t.type_text("a draft");
+        h.wait_for("the draft", |s| s.contains("› a draft"));
+        h.press("alt+r");
+        h.wait_for("the source", |s| s.contains("finalized **markdown**"));
+        assert!(h.t.screen().contains("› a draft"), "{}", h.t.screen());
+        h.t.type_text("!");
+        h.wait_for("the caret kept", |s| s.contains("› a draft!"));
+        h.press("alt+r");
+        h.wait_for("the rendering", |s| !s.contains("**markdown**"));
+        assert!(h.t.screen().contains("› a draft!"), "{}", h.t.screen());
+    }
+
+    #[test]
+    fn the_slash_command_and_the_key_are_one_toggle() {
+        let mut h = chat_with_an_answer();
+        h.t.type_text("/raw");
+        h.press("enter");
+        h.wait_for("raw on", |s| s.contains("finalized **markdown**"));
+        h.press("alt+r");
+        h.wait_for("raw off", |s| !s.contains("**markdown**"));
+    }
+}
+
 mod errors_and_warnings_in_the_chat {
     use codex_app_server_protocol::{ServerNotification, WarningNotification};
     use codex_tui_core::app::BackendEv;
@@ -1764,5 +2395,959 @@ mod plan_in_transcript {
         assert!(screen.contains("□ Four"), "{screen}");
         h.advance(1000);
         assert!(h.t.screen().contains("− Hide details"));
+    }
+}
+
+// ---- local file links and soft breaks (oracle markdown_render.rs `soft_break`,
+// `pop_link`, `pending_local_link_soft_break`; markdown_render/local_links.rs): a link to a
+// local file reads its label and then the path in code style; a line break of the source
+// is a line break of the screen, except before a `:` that follows such a link ----
+
+mod local_links {
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
+
+    const CWD: Option<&str> = Some("/work/repo");
+
+    fn show(source: &str) -> (rtwk_test::Tester, Vec<String>) {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(60, 12));
+        t.pump_widget(citation::view(source, false, CWD, &strings::EN));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        (t, rows)
+    }
+
+    #[test]
+    fn a_local_link_reads_its_label_then_the_path_below_the_cwd_in_code_style() {
+        let (t, rows) = show("see [the lib](/work/repo/src/lib.rs#L12C3) now");
+        assert_eq!(rows, ["see the lib (src/lib.rs:12:3) now"]);
+        let style = |x| {
+            let cell = t.cell(x, 0);
+            (cell.fg, cell.bg, cell.attrs)
+        };
+        assert_eq!(
+            style(4),
+            style(0),
+            "the label is plain text, not link style"
+        );
+        assert_ne!(style(13), style(0), "the path is drawn as code");
+        assert_eq!(style(13), style(25), "one style over the whole path");
+    }
+
+    #[test]
+    fn a_local_link_with_no_label_text_reads_the_path_alone() {
+        let (_, rows) = show("open [](/work/repo/a.rs:3) and [ ](~/notes)");
+        assert_eq!(rows, ["open a.rs:3 and ~/notes"]);
+    }
+
+    #[test]
+    fn a_local_link_is_found_through_a_reference_definition() {
+        let (_, rows) = show("see [lib][l]\n\n[l]: /work/repo/src/lib.rs:7");
+        assert_eq!(rows, ["see lib (src/lib.rs:7)"]);
+    }
+
+    #[test]
+    fn a_web_link_and_a_relative_name_are_not_local_links() {
+        let (_, rows) = show("[docs](https://example.com/docs) and [a](a.rs)");
+        let text = rows.join(" ");
+        assert!(text.contains("docs"), "{text}");
+        assert!(!text.contains("(a.rs:"), "{text}");
+    }
+
+    #[test]
+    fn a_line_break_of_the_source_is_a_line_break_of_the_screen() {
+        let (_, rows) = show("first\nsecond\nthird");
+        assert_eq!(rows, ["first", "second", "third"]);
+        // In a quote and a list item as in a paragraph (the quote's prefix is G73's).
+        let (_, rows) = show("> quoted\n> again");
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert!(
+            rows[0].ends_with("quoted") && rows[1].ends_with("again"),
+            "{rows:?}"
+        );
+        let (_, rows) = show("- item\n  more");
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert!(
+            rows[0].ends_with("item") && rows[1].ends_with("more"),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_line_break_after_a_local_link_stays_inline_before_a_colon_only() {
+        let (_, rows) = show("[x](/work/repo/a.rs:3)\n: why");
+        assert_eq!(rows, ["x (a.rs:3): why"]);
+        let (_, rows) = show("[x](/work/repo/a.rs:3)\n  : why");
+        assert_eq!(rows, ["x (a.rs:3): why"]);
+        let (_, rows) = show("[x](/work/repo/a.rs:3)\nwhy");
+        assert_eq!(rows, ["x (a.rs:3)", "why"]);
+        let (_, rows) = show("[x](https://example.com)\n: why");
+        assert_eq!(rows.len(), 2, "{rows:?}");
+    }
+
+    #[test]
+    fn a_line_break_inside_a_local_link_label_is_a_space() {
+        let (_, rows) = show("[two\nlines](/work/repo/a.rs)");
+        assert_eq!(rows, ["two lines (a.rs)"]);
+    }
+
+    #[test]
+    fn a_table_cell_keeps_a_line_break_as_a_space_and_reads_its_local_link() {
+        let (_, rows) = show("| f |\n|---|\n| [x](/work/repo/a.rs:1) |\n");
+        let text = rows.join("\n");
+        assert!(text.contains("x (a.rs:1)"), "{text}");
+    }
+}
+
+// What the Markdown widget rewrites besides links (`widgets/markdown/inlines.rs`).
+mod markdown_inlines {
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
+
+    fn rows(source: &str) -> Vec<String> {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 8));
+        t.pump_widget(citation::view(source, false, None, &strings::EN));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    #[test]
+    fn an_ordered_list_is_numbered_with_a_dot_whatever_its_source_delimiter() {
+        assert_eq!(rows("1) one\n2) two"), ["1. one", "2. two"]);
+        assert_eq!(rows("1. one\n2. two"), ["1. one", "2. two"]);
+    }
+
+    #[test]
+    fn a_url_in_the_text_reads_with_its_character_references_decoded() {
+        assert_eq!(
+            rows("see https://example.com/a&amp;b&#126;c now"),
+            ["see https://example.com/a&b~c now"]
+        );
+        // Not a reference: a name the table does not know stays as written.
+        assert_eq!(
+            rows("https://example.com/?a=1&b=2&nope;"),
+            ["https://example.com/?a=1&b=2&nope;"]
+        );
+    }
+}
+
+// ---- the preview of an answer that is still streaming (oracle streaming/prose_preview.rs
+// `rich_safe_len`, markdown_render/inline_directives.rs follow-up labels, inline_visualization.rs):
+// the unfinished tail waits, a follow-up reads as its label once closed ----
+
+mod streaming_preview {
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
+
+    fn rows(source: &str, live: bool) -> Vec<String> {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(50, 8));
+        t.pump_widget(citation::view(source, live, None, &strings::EN));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    #[test]
+    fn a_live_answer_hides_the_prompt_of_an_open_follow_up() {
+        let open = "Next:\n:codex-followup[Try it]{prompt=\"run the su";
+        assert_eq!(rows(open, true), ["Next:"]);
+        // The finished answer holds the same text: nothing is held back.
+        assert_ne!(rows(open, false), ["Next:"]);
+    }
+
+    #[test]
+    fn a_closed_follow_up_reads_as_its_label_and_never_shows_the_prompt() {
+        let closed = "Next: :codex-followup[Try **it**]{prompt=\"run the suite\"}";
+        for live in [true, false] {
+            let got = rows(closed, live).join("\n");
+            assert!(got.contains("Try it"), "{got}");
+            assert!(!got.contains("run the suite"), "{got}");
+            assert!(!got.contains("codex-followup"), "{got}");
+        }
+    }
+
+    #[test]
+    fn an_unfinished_link_destination_waits_for_its_closing_paren() {
+        // The destination waits: only what stands before its `(` shows.
+        assert_eq!(rows("See [docs](https://exam", true), ["See [docs]"]);
+        assert_eq!(
+            rows("See [docs](https://example.com) now", true),
+            ["See docs now"]
+        );
+        // Finished, the unclosed destination is plain text, as the oracle's finalize shows it.
+        assert_eq!(
+            rows("See [docs](https://exam", false),
+            ["See [docs](https://exam"]
+        );
+    }
+
+    #[test]
+    fn complete_lines_show_whole_and_an_unfinished_table_row_waits() {
+        assert_eq!(rows("one\ntwo", true), ["one", "two"]);
+        assert_eq!(rows("one\n| a | b", true), ["one"]);
+    }
+
+    #[test]
+    fn a_visualization_line_reads_as_the_unavailable_note_and_code_is_untouched() {
+        let got = rows("::codex-inline-vis{file=\"x.html\"}\n", true).join("\n");
+        assert!(
+            got.contains("Visualization unavailable on this device."),
+            "{got}"
+        );
+        let code = rows("```\n::codex-inline-vis{file=\"x.html\"}\n```\n", false).join("\n");
+        assert!(code.contains("::codex-inline-vis"), "{code}");
+    }
+}
+
+// ---- MCP, dynamic and computer-activity cells in the transcript (oracle
+// history_cell/{mcp,mcp_preview,dynamic,computer_activity}.rs: the compact
+// rows are `compact_hyperlink_lines`; the shared control, a tap or Enter on
+// the cell, reveals `transcript_hyperlink_lines`) ----
+
+mod tool_cells_in_transcript {
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common::{self, Harness};
+
+    fn item(payload: serde_json::Value) -> codex_tui_core::app::BackendEv {
+        match serde_json::from_value(json!({
+            "method": "item/completed",
+            "params": {"threadId": FAKE_THREAD, "turnId": "turn-1", "completedAtMs": 0,
+                "item": payload}
+        })) {
+            Ok(notification) => {
+                codex_tui_core::app::BackendEv::Notification(Box::new(notification))
+            }
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    fn mcp(
+        id: &str,
+        server: &str,
+        arguments: serde_json::Value,
+        rows: &[&str],
+    ) -> serde_json::Value {
+        let content: Vec<_> = rows
+            .iter()
+            .map(|text| json!({"type": "text", "text": text}))
+            .collect();
+        json!({"type": "mcpToolCall", "id": id, "server": server, "tool": "js",
+            "status": "completed", "arguments": arguments, "appContext": null, "mcpAppUi": null,
+            "pluginId": null, "readOnlyHint": null,
+            "result": {"content": content, "structuredContent": null, "_meta": null,
+                "isError": false},
+            "error": null, "durationMs": null})
+    }
+
+    fn show(items: Vec<serde_json::Value>, until: &str) -> Harness {
+        let mut h = common::start();
+        h.wait_idle();
+        let mut events = vec![turn_started(FAKE_THREAD, "turn-1")];
+        events.extend(items.into_iter().map(item));
+        h.fake.script_turn(events);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the cells", |screen| screen.contains(until));
+        h
+    }
+
+    fn row_of(h: &Harness, text: &str) -> (usize, usize) {
+        let screen = h.t.screen();
+        let y = screen
+            .lines()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text:?}:\n{screen}"));
+        let x = screen
+            .lines()
+            .nth(y)
+            .and_then(|row| row.find(text))
+            .unwrap_or_default();
+        (x, y)
+    }
+
+    #[test]
+    fn an_mcp_call_keeps_the_last_rows_and_a_tap_on_the_control_reveals_all() {
+        let mut h = show(
+            vec![mcp(
+                "m1",
+                "docs",
+                json!({"q": "x"}),
+                &["one", "two", "three", "four", "five"],
+            )],
+            "five",
+        );
+        let screen = h.t.screen();
+        assert!(screen.contains("• Called docs.js"), "{screen}");
+        assert!(
+            !screen.contains("one") && screen.contains("three"),
+            "{screen}"
+        );
+        assert!(screen.contains("+ Show details"), "{screen}");
+        let (x, y) = row_of(&h, "+ Show details");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("the whole result", |s| {
+            s.contains("− Hide details") && s.contains("one")
+        });
+        assert!(
+            h.t.screen().contains("docs.js({\"q\":\"x\"})"),
+            "{}",
+            h.t.screen()
+        );
+        let (x, y) = row_of(&h, "− Hide details");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("the compact form", |s| {
+            s.contains("+ Show details") && !s.contains("one")
+        });
+    }
+
+    #[test]
+    fn a_run_of_computer_calls_is_one_group_a_tap_on_its_header_reveals_each_call() {
+        let titled =
+            |id: &str, title: &str| mcp(id, "cua_repl", json!({"title": title}), &["done"]);
+        let mut h = show(
+            vec![
+                titled("c1", "Inspect page 1"),
+                titled("c2", "Inspect page 2"),
+            ],
+            "Inspect page 2",
+        );
+        let screen = h.t.screen();
+        assert!(screen.contains("• Used computer · 2 actions"), "{screen}");
+        assert!(
+            screen.contains("├ Inspect page 1") && screen.contains("└ Inspect page 2"),
+            "{screen}"
+        );
+        let (x, y) = row_of(&h, "Used computer");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("each call", |s| s.contains("− Hide details"));
+        let screen = h.t.screen();
+        assert_eq!(screen.matches("Called cua_repl.js(").count(), 2, "{screen}");
+        h.press("enter");
+        h.wait_for("the group again", |s| {
+            s.contains("• Used computer · 2 actions")
+        });
+    }
+
+    #[test]
+    fn a_dynamic_call_names_its_duration_and_the_last_rows_of_its_output() {
+        let call = json!({"type": "dynamicToolCall", "id": "d1", "namespace": "example",
+            "tool": "inspect", "arguments": {"path": "a"}, "status": "completed",
+            "success": true, "durationMs": 25,
+            "contentItems": [{"type": "inputText", "text": "r1\nr2\nr3\nr4"}]});
+        let h = show(vec![call], "r4");
+        let screen = h.t.screen();
+        assert!(
+            screen.contains("• Called example.inspect · 25ms"),
+            "{screen}"
+        );
+        assert!(screen.contains("… 1 earlier lines hidden"), "{screen}");
+        assert!(!screen.contains("r1"), "{screen}");
+    }
+}
+
+// ---- the series token (owed to the usage plot: oracle plot/painting.rs, the
+// terminal's cyan, magenta and green, then its own ink) ----
+
+// ---- the separator under a finished turn follows the host's facts: the clock setting and the
+// turn's runtime metrics arrive after the row is drawn and redraw it.
+mod separator_facts {
+    use codex_tui_core::app::{AppEv, BackendEv};
+    use codex_tui_core::fixtures::builders::{agent_completed, turn_started};
+    use codex_tui_core::ids::TurnId;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::cells::{ClockFormat, Ev, RuntimeMetrics, Totals, ViewerClock};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common::{self, Harness};
+
+    /// `turn/completed` of turn-1 with its duration and end time.
+    fn finished(duration_ms: i64, completed_at: i64) -> BackendEv {
+        match serde_json::from_value(json!({
+            "method": "turn/completed",
+            "params": {"threadId": FAKE_THREAD, "turn": {
+                "id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary",
+                "status": "completed", "error": null, "startedAt": null,
+                "completedAt": completed_at, "durationMs": duration_ms}}
+        })) {
+            Ok(notification) => BackendEv::Notification(Box::new(notification)),
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    fn separator() -> Harness {
+        let mut h = common::start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            turn_started(FAKE_THREAD, "turn-1"),
+            agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Done."),
+            // 2000-09-06 14:32 UTC, long before the viewer's today.
+            finished(125_000, 968_250_720),
+        ]);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the separator", |screen| {
+            screen.contains("Worked for 2m 5s")
+        });
+        h
+    }
+
+    fn cells(ev: Ev) -> AppEv {
+        AppEv::Screen(ScreenEv::Cells(ev))
+    }
+
+    #[test]
+    fn the_clock_setting_and_the_runtime_metrics_arrive_after_the_row_and_redraw_it() {
+        let mut h = separator();
+        h.inject([cells(Ev::Clock(ViewerClock {
+            format: ClockFormat::TwentyFourHour,
+            utc_offset: Some(0),
+        }))]);
+        h.wait_for("the 24-hour time with its date", |screen| {
+            screen.contains("Worked for 2m 5s • Sep 6, 2000 at 14:32")
+        });
+        h.inject([cells(Ev::Clock(ViewerClock {
+            format: ClockFormat::TwelveHour,
+            utc_offset: Some(0),
+        }))]);
+        h.wait_for("the 12-hour time", |screen| {
+            screen.contains("Worked for 2m 5s • Sep 6, 2000 at 2:32 PM")
+        });
+        h.inject([cells(Ev::RuntimeMetrics {
+            turn: TurnId::new("turn-1"),
+            metrics: RuntimeMetrics {
+                tool_calls: Totals {
+                    count: 1,
+                    duration_ms: 5,
+                },
+                ..RuntimeMetrics::default()
+            },
+        })]);
+        h.wait_for("the metrics after the time", |screen| {
+            screen.contains("at 2:32 PM • Local tools: 1 call (5ms)")
+        });
+    }
+}
+
+mod series_token {
+    use std::rc::Rc;
+
+    use codex_tui_rtwk::app::theme::Tokens;
+    use rtwk::prelude::ThemeData;
+    use rtwk::style::Style;
+
+    #[test]
+    fn the_series_are_the_info_accent_and_success_hues_then_the_terminals_ink() {
+        let tokens = Tokens::new(Rc::new(ThemeData::DARK));
+        assert_eq!(tokens.series(0), tokens.info());
+        assert_eq!(tokens.series(1), tokens.accent());
+        assert_eq!(tokens.series(2), tokens.success());
+        assert_eq!(tokens.series(3), Style::new());
+        assert_eq!(tokens.series(9), Style::new());
+    }
+}
+
+/// The assistant's and the user's message cells at the widths the oracle's
+/// `wrapped_and_prefixed_cells_handle_tiny_widths` draws them at: the mark is
+/// cut when the cell is narrower than it, never an overflow (the cells alone;
+/// the chat's composer and status rows are not in the way here). Width 3 is
+/// left out: the oracle's wrap width never goes below one column (`› t`), the
+/// port's body loses its column to the free column on its right (`›`).
+mod message_cells_at_tiny_widths {
+    use codex_tui_core::threads::UserPrompt;
+    use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
+    use codex_tui_rtwk::pages::session::cells::{agent, user};
+    use codex_tui_rtwk::pages::session::strings::EN as CHAT;
+    use rtwk::style::Style;
+    use rtwk_rich::markdown::MarkdownTheme;
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        t.screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn an_agent_message_narrower_than_its_bullet_shows_the_bullet_cut() {
+        let theme = MarkdownTheme::default();
+        for (width, first) in [(1, "•"), (2, "•"), (4, "• t")] {
+            let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 6));
+            t.pump_widget(agent::message(
+                "tiny width agent line",
+                false,
+                None,
+                &agent::Look {
+                    bullet: "• ",
+                    bullet_style: Style::new(),
+                    markdown: &theme,
+                    cells: &CELLS,
+                },
+            ));
+            assert_eq!(rows(&t)[0], first, "width {width}");
+        }
+    }
+
+    #[test]
+    fn a_user_prompt_narrower_than_its_mark_shows_the_mark_cut() {
+        let tokens = codex_tui_rtwk::app::theme::Tokens::new(std::rc::Rc::new(
+            rtwk::prelude::ThemeData::DARK,
+        ));
+        let theme = MarkdownTheme::default();
+        let prompt = UserPrompt {
+            text: "tiny width user line".into(),
+            ..UserPrompt::default()
+        };
+        for (width, first) in [(1, "›"), (2, "›"), (4, "› t")] {
+            let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 8));
+            t.pump_widget(user::panel(
+                &prompt,
+                &user::Look {
+                    surface: Style::new(),
+                    tokens: &tokens,
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    markdown: &theme,
+                    highlighted: false,
+                },
+                false,
+            ));
+            // the cell's blank row of the surface above the mark
+            assert_eq!(rows(&t)[1], first, "width {width}");
+        }
+    }
+}
+
+/// The text contract (`cells::text`): the texts the app keeps of an item
+/// (rtwk's `ItemTexts`) are the strings of the `Text`s its cell builds, in
+/// tree order, joined by line breaks; what a `SelectionArea` over the mounted
+/// cell selects. Gutters (a bullet or prompt mark of its own `Text`, the
+/// disclosure control) are left out of the selection by `ExcludeSelection`,
+/// so they are not in it.
+mod text_contract {
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    use codex_tui_core::screens::cells::Daybreak;
+    use codex_tui_core::screens::chat::{McpWarning, Nudge, NudgeOutcome};
+    use codex_tui_core::threads::{
+        GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Item, Notice, UserPrompt,
+        WebAction, WebActivity,
+    };
+    use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
+    use codex_tui_rtwk::pages::session::cells::text::{Env, GUTTERS_SELECTED, Gap, Texts, texts};
+    use codex_tui_rtwk::pages::session::cells::{
+        agent, deprecation, error, generated_image, hook, notice, user, viewed_image, warning, web,
+    };
+    use codex_tui_rtwk::pages::session::strings::EN as CHAT;
+    use rtwk::AnyWidget;
+    use rtwk::gestures::{SelectionArea, SelectionAreaController};
+    use rtwk::style::Style;
+    use rtwk_core::input::{Mods, MouseKind};
+    use rtwk_rich::markdown::MarkdownTheme;
+
+    const WIDTH: u16 = 60;
+    const HEIGHT: u16 = 24;
+
+    fn env(detailed: bool, expanded: bool) -> Env<'static> {
+        Env {
+            cells: &CELLS,
+            chat: &CHAT,
+            detailed,
+            expanded,
+        }
+    }
+
+    fn widget(item: &Item, detailed: bool) -> AnyWidget {
+        let tokens =
+            codex_tui_rtwk::app::theme::Tokens::new(Rc::new(rtwk::prelude::ThemeData::DARK));
+        let theme = MarkdownTheme::default();
+        match item {
+            Item::User(prompt) => user::panel(
+                prompt,
+                &user::Look {
+                    surface: Style::new(),
+                    tokens: &tokens,
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    markdown: &theme,
+                    highlighted: false,
+                },
+                false,
+            )
+            .into(),
+            Item::Agent { text, .. } => agent::message(
+                text,
+                false,
+                None,
+                &agent::Look {
+                    bullet: "• ",
+                    bullet_style: Style::new(),
+                    markdown: &theme,
+                    cells: &CELLS,
+                },
+            ),
+            Item::Error { message } => error::ErrorCell {
+                message: message.clone(),
+            }
+            .into(),
+            Item::HighLoad => error::ErrorCell {
+                message: CHAT.high_load.to_string(),
+            }
+            .into(),
+            Item::Warning { message } => warning::WarningCell {
+                message: message.clone(),
+            }
+            .into(),
+            Item::StartupWarning(w) => warning::WarningCell {
+                message: CHAT.mcp_warning(w),
+            }
+            .into(),
+            Item::Deprecation { summary, details } => deprecation::DeprecationCell {
+                summary: summary.clone(),
+                details: details.clone(),
+            }
+            .into(),
+            Item::Notice(n) => notice::NoticeCell { notice: n.clone() }.into(),
+            Item::Hook(run) => hook::HookCell { run: run.clone() }.into(),
+            Item::Generated(image) => generated_image::GeneratedImageCell {
+                image: image.clone(),
+            }
+            .into(),
+            Item::Web(activity) => web::WebCell {
+                activity: activity.clone(),
+            }
+            .into(),
+            Item::ImageView { path, name } => viewed_image::ViewedImageCell {
+                name: name.clone(),
+                path: path.clone(),
+                detailed,
+            }
+            .into(),
+            other => panic!("no widget in this test for {other:?}"),
+        }
+    }
+
+    /// What a drag over the whole mounted cell selects, as the area gives it.
+    fn selected(widget: AnyWidget) -> String {
+        let selection = SelectionAreaController::new();
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+        t.pump_widget(
+            SelectionArea::new(widget)
+                .trim_trailing_blanks(false)
+                .controller(selection.clone()),
+        );
+        t.mouse(MouseKind::Down, 0, 0, 0, Mods::NONE);
+        t.mouse(MouseKind::Drag, WIDTH - 1, HEIGHT - 1, 0, Mods::NONE);
+        t.mouse(MouseKind::Up, WIDTH - 1, HEIGHT - 1, 0, Mods::NONE);
+        t.pump();
+        selection.text()
+    }
+
+    #[track_caller]
+    fn agrees(item: Item) {
+        agrees_in(item, false);
+    }
+
+    #[track_caller]
+    fn agrees_in(item: Item, detailed: bool) {
+        let texts = texts(&item, &env(detailed, false));
+        let Some(want) = texts.joined(GUTTERS_SELECTED) else {
+            panic!("{item:?}: the contract names no texts for it yet: {texts:?}");
+        };
+        assert_eq!(want, selected(widget(&item, detailed)), "{item:?}");
+    }
+
+    fn prompt(text: &str) -> UserPrompt {
+        UserPrompt {
+            text: text.into(),
+            ..UserPrompt::default()
+        }
+    }
+
+    fn hook_run(status: HookStatus, entries: &[(HookEntryKind, &str)]) -> Arc<HookRun> {
+        Arc::new(HookRun {
+            status,
+            entries: entries
+                .iter()
+                .map(|(kind, text)| HookEntry {
+                    kind: *kind,
+                    text: (*text).into(),
+                })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn a_users_prompt_is_its_text_without_the_mark() {
+        agrees(Item::User(prompt("fix the build\nthen the tests")));
+        agrees(Item::User(UserPrompt {
+            text: "look at [Image #1] and @src/main.rs".into(),
+            elements: vec![8..18, 23..34],
+            images: vec![1],
+        }));
+        agrees(Item::User(UserPrompt {
+            text: "".into(),
+            elements: vec![],
+            images: vec![1, 2],
+        }));
+    }
+
+    #[test]
+    fn the_error_family_is_one_text_each() {
+        agrees(Item::Error {
+            message: "stream closed".into(),
+        });
+        agrees(Item::HighLoad);
+        agrees(Item::Warning {
+            message: "careful now".into(),
+        });
+        agrees(Item::StartupWarning(McpWarning::Failed {
+            server: "docs".into(),
+            error: None,
+        }));
+        agrees(Item::StartupWarning(McpWarning::Incomplete {
+            servers: vec!["a".into(), "b".into()],
+        }));
+    }
+
+    #[test]
+    fn a_deprecation_is_the_summary_row_then_the_details() {
+        agrees(Item::Deprecation {
+            summary: "old flag".into(),
+            details: None,
+        });
+        agrees(Item::Deprecation {
+            summary: "old flag".into(),
+            details: Some("use the new one".into()),
+        });
+    }
+
+    #[test]
+    fn notices_are_their_row() {
+        agrees(Item::Notice(Notice::ContextCompacted));
+        agrees(Item::Notice(Notice::EnteredReview("the diff".into())));
+        agrees(Item::Notice(Notice::ExitedReview("the diff".into())));
+        for outcome in [
+            NudgeOutcome::Sent,
+            NudgeOutcome::Cooldown,
+            NudgeOutcome::Failed,
+        ] {
+            for nudge in [Nudge::Credits, Nudge::UsageLimit] {
+                agrees(Item::Notice(Notice::AddCreditsNudge { nudge, outcome }));
+            }
+        }
+    }
+
+    #[test]
+    fn a_refusal_a_card_and_a_version_notice_agree_with_their_widget() {
+        agrees(Item::Notice(Notice::SafetyAccessBlock));
+        for kind in [
+            Daybreak::Apply,
+            Daybreak::Disabled,
+            Daybreak::Astra,
+            Daybreak::Enabled,
+        ] {
+            agrees(Item::Notice(Notice::CyberPolicy(kind)));
+        }
+        agrees(Item::Notice(Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: Some("pnpm add -g @openai/codex".into()),
+        }));
+        agrees(Item::Notice(Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: None,
+        }));
+        for offer_update in [false, true] {
+            agrees(Item::Notice(Notice::ServerVersion {
+                message: "A background Codex service is running v1.".into(),
+                offer_update,
+            }));
+        }
+    }
+
+    #[test]
+    fn a_terminal_write_a_recap_a_question_result_and_the_card_agree_with_their_widget() {
+        use codex_tui_core::screens::cells::{AnsweredQuestion, SessionInfo};
+        agrees(Item::Notice(Notice::TerminalInteraction {
+            command: Some("cat".into()),
+            stdin: "one\ntwo\nthree\n".into(),
+        }));
+        agrees(Item::Notice(Notice::TerminalInteraction {
+            command: None,
+            stdin: String::new(),
+        }));
+        agrees(Item::Notice(Notice::RecapLoading));
+        let ask = |answers: &[&str], secret: bool| AnsweredQuestion {
+            question: "Which one?".into(),
+            secret,
+            has_options: true,
+            answers: answers.iter().map(|answer| (*answer).into()).collect(),
+        };
+        for interrupted in [false, true] {
+            agrees(Item::Notice(Notice::Questions {
+                questions: vec![
+                    ask(&["a", "user_note: because"], false),
+                    ask(&[], false),
+                    ask(&["x"], true),
+                ],
+                interrupted,
+            }));
+        }
+        agrees(Item::Notice(Notice::SessionInfo(SessionInfo {
+            help: true,
+            ..SessionInfo::default()
+        })));
+        agrees(Item::Notice(Notice::SessionInfo(SessionInfo {
+            model_changed: Some(("a".into(), "b".into())),
+            ..SessionInfo::default()
+        })));
+    }
+
+    #[test]
+    fn a_tip_makes_the_card_a_markdown_gap() {
+        use codex_tui_core::screens::cells::SessionInfo;
+        let item = Item::Notice(Notice::SessionInfo(SessionInfo {
+            tip: Some("Use **/copy**".into()),
+            ..SessionInfo::default()
+        }));
+        assert!(matches!(
+            texts(&item, &env(false, false)),
+            Texts::Gap(Gap::Markdown)
+        ));
+    }
+
+    #[test]
+    fn a_hook_is_its_rows_a_blank_one_included() {
+        agrees(Item::Hook(hook_run(
+            HookStatus::Completed,
+            &[(HookEntryKind::Warning, "all good\n")],
+        )));
+        agrees(Item::Hook(hook_run(
+            HookStatus::Failed,
+            &[
+                (HookEntryKind::Warning, "bad\nthing"),
+                (HookEntryKind::Error, "first\n\nsecond"),
+            ],
+        )));
+        agrees(Item::Hook(hook_run(HookStatus::Blocked, &[])));
+    }
+
+    #[test]
+    fn a_generated_image_is_the_heading_the_detail_and_where_it_went() {
+        agrees(Item::Generated(Arc::new(GeneratedImage {
+            failed: false,
+            detail: "a red fox".into(),
+            saved_to: Some("file:///tmp/fox.png".into()),
+        })));
+        agrees(Item::Generated(Arc::new(GeneratedImage {
+            failed: true,
+            detail: "no quota".into(),
+            saved_to: None,
+        })));
+    }
+
+    #[test]
+    fn a_web_row_reads_as_drawn() {
+        for (completed, action, detail) in [
+            (true, WebAction::Search { known: true }, "rust async"),
+            (false, WebAction::Search { known: false }, ""),
+            (true, WebAction::OpenPage, "https://example.com"),
+            (false, WebAction::OpenPage, ""),
+            (true, WebAction::FindInPage { pattern: true }, "'x' in y"),
+            (true, WebAction::FindInPage { pattern: false }, "y"),
+        ] {
+            agrees(Item::Web(WebActivity {
+                completed,
+                action,
+                detail: detail.into(),
+            }));
+        }
+    }
+
+    #[test]
+    fn a_viewed_image_in_the_detailed_transcript_is_the_bullet_and_the_full_path() {
+        agrees_in(
+            Item::ImageView {
+                path: "/workspace/assets/example.png".into(),
+                name: "example.png".into(),
+            },
+            true,
+        );
+    }
+
+    /// A drag over a disclosing cell is taken by its control (the tap opens
+    /// it), so what it selects is not read here: the rows it shows hold the
+    /// parts, in order, and the control is the part that is a gutter.
+    #[test]
+    fn a_viewed_image_with_its_control_shows_the_row_then_the_control() {
+        let item = Item::ImageView {
+            path: "/workspace/assets/example.png".into(),
+            name: "example.png".into(),
+        };
+        let Texts::Exact(parts) = texts(&item, &env(false, false)) else {
+            panic!("exact");
+        };
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+        t.pump_widget(widget(&item, false));
+        let rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+        assert_eq!(parts.len(), rows.len(), "{rows:?}");
+        for (part, row) in parts.iter().zip(&rows) {
+            assert!(
+                row.trim_start().starts_with(part.text.trim_start()),
+                "{part:?} in {row:?}"
+            );
+        }
+        assert!(!parts[0].gutter && parts[1].gutter);
+    }
+
+    /// The texts of a Markdown body are a declared gap (pack: "G-new text of
+    /// Markdown"): rtwk gives no function of the source for the strings a
+    /// `MarkdownView` under a `SelectionArea` selects. The day it does, this
+    /// test turns into `agrees(Item::Agent { .. })` for each of these.
+    #[test]
+    fn a_markdown_body_is_a_declared_gap() {
+        let md = "Hello **bold**\n\n- one\n- two";
+        for item in [
+            Item::Agent {
+                text: md.into(),
+                phase: None,
+            },
+            Item::Reasoning { summary: md.into() },
+            Item::Plan { text: md.into() },
+            Item::User(prompt(md)),
+        ] {
+            assert_eq!(
+                texts(&item, &env(false, false)),
+                Texts::Gap(Gap::Markdown),
+                "{item:?}"
+            );
+        }
     }
 }

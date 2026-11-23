@@ -1,0 +1,6 @@
+# The live turn after the replayed one (a new turn id, plan_mode.rs:828).
+# the turn is not completed here: turn_done.jsonl completes it.
+{"step":"notify","message":{"method":"thread/settings/updated","params":{"threadId":"thread-1","threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,"model":"gpt-5","modelProvider":"openai","serviceTier":null,"effort":null,"summary":null,"collaborationMode":{"mode":"plan","settings":{"model":"gpt-5","reasoning_effort":null,"developer_instructions":null}},"personality":null}}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/plan/delta","params":{"threadId":"thread-1","turnId":"turn-2","itemId":"plan-2b","delta":"- Step 1\n- Step 2\n"}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"plan","id":"plan-2b","text":"- Step 1\n- Step 2\n"},"threadId":"thread-1","turnId":"turn-2","completedAtMs":0}}}

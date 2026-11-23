@@ -271,7 +271,7 @@ fn selected_newlines_respect_wrapping_and_synthetic_rows() {
 fn offsets_can_reach_rows_after_u16_limit() {
     kit::pending(
         Owner::ChatLive,
-        "no entry of 65,538 rows and no scroll past the u16 limit: the kit's wheel notch count is a u16 and no seed of that size exists",
+        "screen feature: no 65,538-row seed (an agent message of 65,538 chars at width 1) and the chat draws nothing at 1x1; the kit wheels any count of notches (`wheel_down(x, y, u16::MAX)` then 2 more)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(1, 1).live().open();
     s.wheel_down(0, 0, u16::MAX);
@@ -373,7 +373,7 @@ fn prompt_adjacency_uses_cached_retained_presentations() {
 fn page_keys_follow_pager_scroll_bindings() {
     kit::pending(
         Owner::ChatLive,
-        "no pager keymap in the chat: the oracle's frames run under the default, half-page, single-row and unbound bindings, which the kit cannot set in config",
+        "the oracle's frames are the view alone (8 rows) under the default, half-page, single-row and unbound pager keymaps, which the kit cannot set in config; at 20x8 the chat screen has 3 transcript rows above the gap row, composer and footer. PageUp/PageDown by a page less one row are built: tests/pages/transcript_follow.rs",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(20, 8)
@@ -411,10 +411,6 @@ fn terminal_output_disclosure_counts_only_revealable_lines() {
 // ORACLE transcript_view_tests.rs:394 startup_warning_keeps_first_visible_header_in_place kind=ui owner=chat-live
 #[test]
 fn startup_warning_keeps_first_visible_header_in_place() {
-    kit::pending(
-        Owner::ChatLive,
-        "no startup-warning entry (a skill manifest notice) and no session header kept in the live tail: no script shape yet",
-    );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     let before = s.shot();
     // The warning arrives below the header and the header is then inserted above it: no script shape yet.

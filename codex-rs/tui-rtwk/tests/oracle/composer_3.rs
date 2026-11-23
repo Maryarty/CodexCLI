@@ -260,7 +260,7 @@ fn history_navigation_restores_remote_and_local_image_attachments() {
 fn history_navigation_restores_remote_only_submissions() {
     kit::pending(
         Owner::ChatLive,
-        "no remote image URLs and no prompt history on the chat composer: a remote-only submission is recorded, and Up restores it with an empty draft",
+        "the kit has no seed for set_remote_image_urls, and a remote-only submit is not recorded: `UserMessage` has no remote_images (the draft restores them from history, tests/pages/composer_images.rs)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: two remote image URLs and no text; Enter records the empty submission
@@ -308,10 +308,6 @@ fn vim_normal_operator_pending_consumes_submit_key() {
 // ORACLE bottom_pane/chat_composer.rs:11197 remapped_editor_history_navigation_does_not_fall_back_to_up kind=ui owner=chat-live
 #[test]
 fn remapped_editor_history_navigation_does_not_fall_back_to_up() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed for editor.move_up on the chat composer, and no prompt history: F2 recalls 'first' while Up on an empty draft does nothing",
-    );
     // oracle: editor.move_up remapped to F2
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
@@ -319,6 +315,8 @@ fn remapped_editor_history_navigation_does_not_fall_back_to_up() {
         .live()
         .open();
     s.type_text("first").keys("enter");
+    s.wait(100);
+    s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("up");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("f2");
@@ -538,7 +536,7 @@ fn slash_with_leading_space_submits_as_text() {
 fn shortcut_modified_input_does_not_enter_paste_bursts() {
     kit::pending(
         Owner::ChatLive,
-        "keys() has no SUPER modifier (the kit does not enable the kitty keyboard protocol): 'a', SUPER+space, 'b' must render as 'ab' with no space, and SUPER/HYPER/META spaces must not start a burst",
+        "screen feature (chat-status): the oracle's footer after `ab` reads `100% context left` (ours: `← for agents · ? for shortcuts`); the typed `ab` with no space (a SUPER+space between) is equal",
     );
     // oracle snapshot shortcut_modified_space_is_not_rendered: 'a', SUPER+space, 'b' typed fast, then the flush
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
@@ -565,10 +563,6 @@ fn plain_and_shift_spaces_insert_normally() {
 // ORACLE bottom_pane/chat_composer.rs:11987 non_text_input_flushes_pending_paste_without_inserting_text kind=ui owner=chat-live
 #[test]
 fn non_text_input_flushes_pending_paste_without_inserting_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "keys() has no SUPER modifier (the kit does not enable the kitty keyboard protocol): 'ab' typed fast is held until a non-text key flushes it, with no space inserted",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 'a', 'b' typed fast (the burst is pending), then SUPER+space, a non-text input
     s.type_text("ab");
@@ -761,10 +755,6 @@ fn parent_owned_thread_allows_safe_command_selected_from_prefix() {
 // ORACLE bottom_pane/chat_composer/agents_navigation_tests.rs:59 left_navigates_only_from_an_empty_prompt kind=ui owner=chat-live
 #[test]
 fn left_navigates_only_from_an_empty_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no agents command center on the chat composer: Left in a draft moves the cursor, and Left on an empty prompt opens the agents overview",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 'ab', Left, '!' inserted between: 'a!b'
     s.type_text("ab");
@@ -775,6 +765,8 @@ fn left_navigates_only_from_an_empty_prompt() {
     s.keys("ctrl+c");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("left");
+    s.wait(100);
+    s.assert_contains("Agent command center");
 }
 
 // ORACLE bottom_pane/chat_composer/agents_navigation_tests.rs:82 left_respects_attachments_pastes_and_other_input_surfaces kind=ui owner=chat-live

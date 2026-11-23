@@ -243,7 +243,7 @@ fn spec_tokens(spec: &str) -> Vec<String> {
 
 /// An oracle style assertion, written as it reads: `fg=Cyan bg=Reset bold
 /// !dim reversed plain`: `fg=`/`bg=` the color named as ratatui does (`Rgb(1,2,3)`
-/// without spaces is fine); a modifier name (`bold dim italic underlined
+/// without spaces is fine; `!fg=Red` asks the color is not that one); a modifier name (`bold dim italic underlined
 /// reversed hidden crossed_out`) asks the modifier is on, `!name` that it is
 /// off, `plain` that none is. Returns what differs, empty when all hold.
 pub fn check_style(spec: &str, style: &CellStyle) -> Vec<String> {
@@ -254,12 +254,20 @@ pub fn check_style(spec: &str, style: &CellStyle) -> Vec<String> {
             None => (false, token.as_str()),
         };
         if let Some(want) = tok.strip_prefix("fg=") {
-            if !same_color(want, &style.fg) {
-                bad.push(format!("fg is {}, the oracle's is {want}", style.fg));
+            if same_color(want, &style.fg) == negate {
+                bad.push(if negate {
+                    format!("fg is {}, the oracle's is not {want}", style.fg)
+                } else {
+                    format!("fg is {}, the oracle's is {want}", style.fg)
+                });
             }
         } else if let Some(want) = tok.strip_prefix("bg=") {
-            if !same_color(want, &style.bg) {
-                bad.push(format!("bg is {}, the oracle's is {want}", style.bg));
+            if same_color(want, &style.bg) == negate {
+                bad.push(if negate {
+                    format!("bg is {}, the oracle's is not {want}", style.bg)
+                } else {
+                    format!("bg is {}, the oracle's is {want}", style.bg)
+                });
             }
         } else if tok == "plain" {
             if style.modifier != "NONE" {

@@ -5,24 +5,28 @@
 //! grows.
 
 mod banner;
+pub mod facts;
+mod mcp;
+pub mod plan_mode;
 
 use std::rc::Rc;
 
-pub use banner::{Banner, BannerOccurrence};
+pub use facts::{Ev as FactEv, Facts, Footer, Probe};
+pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve};
+pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
 use crate::commands::CommandFlags;
-use crate::commands::Notice;
 use crate::commands::ServiceTierCommand;
 use crate::commands::SessionIntent;
 use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
-use crate::threads::ThreadFx;
+use crate::threads::{Note, ThreadFx};
 
 pub const NAME: &str = "chat";
 pub const ID: &str = "S10";
@@ -39,11 +43,17 @@ pub struct Model {
     /// Signed in with a ChatGPT backend (`/usage`). True until session-core
     /// carries the account; a script seeds the signed-out case.
     pub signed_in: bool,
-    /// What the last command answered with: shown above the composer until
-    /// the next submit.
-    pub notice: Option<ChatNotice>,
+    /// What commands answered before any thread existed: shown above the
+    /// composer, where a thread's notes would be in its transcript.
+    pub notes: Vec<Note>,
+    /// `/raw`: the transcript is shown as text for terminal selection
+    /// (`raw_output_mode`). The rendering reads it.
+    pub raw_output: bool,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
+    /// The footer's and the status line's other facts: the workspace probes, the side and
+    /// agent labels (`facts`).
+    pub facts: Facts,
 }
 
 /// The oracle's default list (`DEFAULT_STATUS_LINE_ITEMS`) when the config
@@ -74,6 +84,10 @@ pub struct StatusFacts {
     pub cwd: Option<String>,
     pub home_directory: Option<String>,
     pub service_tier: Option<String>,
+    /// `Feature::FastMode`: the tiers other than flex and ultrafast need it.
+    pub fast_mode: bool,
+    /// `Feature::UltrafastMode`: the `ultrafast` tier needs it.
+    pub ultrafast_mode: bool,
     /// The name of the project root (the git root's directory).
     pub project_root: Option<String>,
     pub branch: Option<String>,
@@ -92,6 +106,8 @@ pub struct StatusFacts {
     pub account_usage: bool,
     pub empty_state: bool,
     pub notification_policy: NotificationPolicy,
+    /// What the config says of `/permissions` (guardian, requirements, limits).
+    pub permissions: super::select::permissions::Facts,
 }
 
 impl Default for StatusFacts {
@@ -105,6 +121,8 @@ impl Default for StatusFacts {
             cwd: None,
             home_directory: None,
             service_tier: None,
+            fast_mode: true,
+            ultrafast_mode: true,
             project_root: None,
             branch: None,
             items: None,
@@ -120,6 +138,7 @@ impl Default for StatusFacts {
             account_usage: false,
             empty_state: false,
             notification_policy: NotificationPolicy::default(),
+            permissions: Default::default(),
         }
     }
 }
@@ -221,16 +240,6 @@ impl StatusFacts {
     }
 }
 
-/// An answer to a command shown in the chat.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ChatNotice {
-    /// Dispatch said no, or what is wrong with the arguments.
-    Command(Notice),
-    /// The command needs the session, which has not been built yet
-    /// (`session-core`): the oracle-style "not available" key.
-    NotAvailable(SlashCommand),
-}
-
 impl Default for Model {
     fn default() -> Self {
         Self {
@@ -245,8 +254,10 @@ impl Default for Model {
             },
             service_tiers: Vec::new(),
             signed_in: true,
-            notice: None,
+            notes: Vec::new(),
+            raw_output: false,
             status: Rc::default(),
+            facts: Facts::default(),
         }
     }
 }
@@ -260,6 +271,23 @@ pub enum Ev {
     SignedIn(bool),
     /// The host read the config and the workspace.
     Status(Box<StatusFacts>),
+    /// An app-wide fact of the footer or the status line (`facts`).
+    Facts(FactEv),
+    /// The details under `thread`'s status row, set as a fixture does (the
+    /// app routes it to the thread, which owns the fact).
+    Details { thread: String, details: Option<StatusDetails> },
+    /// What `thread` holds of the user's input during a turn, set as a fixture
+    /// does (the app routes it to the thread, which owns the lists).
+    Pending { thread: String, pending: PendingTexts },
+}
+
+/// The three lists the pending-input preview shows, as texts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct PendingTexts {
+    pub steers: Vec<String>,
+    pub rejected: Vec<String>,
+    pub queued: Vec<String>,
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -276,10 +304,14 @@ pub enum Intent {
         thread: Option<ThreadId>,
         command: String,
     },
-    /// A command dispatch refused.
-    Notice(Notice),
-    /// The next submit starts clean.
-    ClearNotice,
+    /// A command line was answered (refused, or its words): a note of the
+    /// thread shown when it was submitted, else of the screen.
+    Note {
+        thread: Option<ThreadId>,
+        note: Note,
+    },
+    /// `/raw`: the render mode of the transcript (`set_raw_output_mode`).
+    RawOutput(bool),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -289,19 +321,23 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::ServiceTiers(tiers) => model.service_tiers = tiers,
         Ev::SignedIn(on) => model.signed_in = on,
         Ev::Status(facts) => model.status = Rc::from(facts),
+        Ev::Facts(ev) => model.facts.apply(ev),
+        // the thread owns it (`apply_app` routes it)
+        Ev::Details { .. } | Ev::Pending { .. } => {}
     }
+    // what the configured items need is asked for after every change that may alter it
+    model.facts.sync(&model.status, model.signed_in);
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::Session { command, .. } => {
-            model.notice = Some(ChatNotice::NotAvailable(command));
-        }
-        // the app routes it to the thread (`apply_app`); the screen keeps nothing
-        Intent::Shell { .. } => {}
-        Intent::Notice(notice) => model.notice = Some(ChatNotice::Command(notice)),
-        Intent::ClearNotice => model.notice = None,
+        // the app routes these to the thread (`apply_app`); the screen keeps nothing
+        Intent::Session { .. } | Intent::Shell { .. } => {}
+        Intent::Note { thread: None, note } => model.notes.push(note),
+        Intent::RawOutput(enabled) => model.raw_output = enabled,
+        // a thread's note is an entry of its transcript (`session::note`)
+        Intent::Note { .. } => {}
     }
 }
 
@@ -312,15 +348,88 @@ pub struct ThreadPart {
     pub error: Option<RpcError>,
     pub name: Option<String>,
     pub cwd: Option<String>,
+    /// The file the thread's history is written to (`/rollout`), once the
+    /// server has named it.
+    pub path: Option<String>,
+    /// The thread is controlled by its parent: it takes no direct input
+    /// (`thread_blocks_direct_input`).
+    pub parent_owned: bool,
+    /// The thread is not kept (`config.ephemeral`).
+    pub ephemeral: bool,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub provider: Option<String>,
     pub service_tier: Option<Option<String>>,
     pub daybreak: Option<bool>,
+    /// The collaboration mode (`thread/settings/updated`, or the user's switch); read through `mode()`.
+    mode: codex_protocol::config_types::ModeKind,
+    /// Plan mode: the proposed plan and the question asked when the turn ends.
+    pub plan: plan_mode::PlanMode,
+    /// Resumed with history: the token usage is pending until `status` counts one.
+    awaiting_usage: bool,
     pub activity: ActivityPhase,
     live_compaction: bool,
     pub progress: Option<(usize, usize)>,
     pub step: Option<String>,
+    /// The lines under the status row's header; read through `details()`.
+    details: Option<StatusDetails>,
+    /// MCP startup of this thread (oracle `mcp_startup_status`).
+    pub mcp: McpStartup,
+    /// A retrying error's header, until the thread's next notification
+    /// (oracle `retry_status_header`).
+    retry_header: Option<Retry>,
+    /// A code review runs in this thread (oracle `review.is_review_mode`).
+    review_mode: bool,
+    /// Turns the goal's budget stopped, until their interrupted completion
+    /// is seen (oracle `budget_limited_turn_ids`).
+    budget_limited: Vec<TurnId>,
+}
+
+/// The default of `STATUS_DETAILS_DEFAULT_MAX_LINES`.
+pub const STATUS_DETAILS_MAX_LINES: usize = 3;
+
+/// The lines under the status row's header (oracle `StatusIndicatorState`):
+/// the text trimmed at the start and capitalized unless the source says its
+/// case is its own, the lines it may take at most.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatusDetails {
+    pub text: String,
+    pub max_lines: usize,
+}
+
+impl StatusDetails {
+    /// Capitalizes the first letter (oracle `StatusDetailsCapitalization::CapitalizeFirst`).
+    pub fn new(text: String, max_lines: usize) -> Self {
+        let trimmed = text.trim_start();
+        let mut chars = trimmed.chars();
+        let text = match chars.next() {
+            Some(first) => first.to_uppercase().chain(chars).collect(),
+            None => String::new(),
+        };
+        Self { text, max_lines: max_lines.max(1) }
+    }
+
+    /// Keeps the case as given (`Preserve`).
+    pub fn preserved(text: &str, max_lines: usize) -> Self {
+        Self { text: text.trim_start().to_string(), max_lines: max_lines.max(1) }
+    }
+}
+
+/// What owns the status row's header besides the activity phase; the UI's
+/// string tables hold the words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StatusHeader {
+    Retry(Retry),
+    Mcp(McpHeader),
+}
+
+/// A retrying error (oracle `on_error` with `will_retry`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Retry {
+    /// The server's own words (`Reconnecting... 2/5`).
+    Server(String),
+    /// A 429 reconnect: the attempt (`2/5`) of a busy server.
+    Busy { attempt: String },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -332,6 +441,7 @@ pub enum ActivityPhase {
 
 impl ThreadPart {
     pub(crate) fn begin_turn(&mut self) {
+        self.details = None;
         self.progress = None;
         self.activity = ActivityPhase::Working;
         self.live_compaction = false;
@@ -339,7 +449,60 @@ impl ThreadPart {
     }
 
     pub(crate) fn end_turn(&mut self) {
+        self.details = None;
         self.live_compaction = false;
+        self.retry_header = None;
+    }
+
+    /// The status row's header when something other than the phase owns it:
+    /// a retry, else MCP startup (oracle `set_status_header`).
+    pub fn header(&self) -> Option<StatusHeader> {
+        self.retry_header
+            .clone()
+            .map(StatusHeader::Retry)
+            .or_else(|| self.mcp.header().map(StatusHeader::Mcp))
+    }
+
+    /// The lines under the status row's header, if the thread sets any.
+    pub fn details(&self) -> Option<&StatusDetails> {
+        self.details.as_ref()
+    }
+
+    /// A code review runs in this thread (oracle `review.is_review_mode`).
+    pub fn review_mode(&self) -> bool {
+        self.review_mode
+    }
+
+    pub(crate) fn set_review_mode(&mut self, on: bool) {
+        self.review_mode = on;
+    }
+
+    /// Any notification of the thread but a retrying error ends the retry header.
+    /// A budget-limited goal stopped `turn` (`on_thread_goal_updated`).
+    pub(crate) fn mark_budget_limited(&mut self, turn: TurnId) {
+        if !self.budget_limited.contains(&turn) {
+            self.budget_limited.push(turn);
+        }
+    }
+
+    /// The turn's interruption is the budget's (`take_budget_limited`): true once.
+    pub(crate) fn take_budget_limited(&mut self, turn: &TurnId) -> bool {
+        let before = self.budget_limited.len();
+        self.budget_limited.retain(|marked| marked != turn);
+        self.budget_limited.len() != before
+    }
+
+    pub(crate) fn clear_retry(&mut self) {
+        self.retry_header = None;
+    }
+
+    /// The user's switch of the mode: the thread's mode changes at once (the next turn is
+    /// sent in it) and the server's settings follow (`set_collaboration_mask_from_user_action`).
+    pub(crate) fn set_mode(&mut self, kind: codex_protocol::config_types::ModeKind, fx: &mut ThreadFx<'_>) {
+        self.mode = kind;
+        self.error = None;
+        let mode = plan_mode::collaboration_mode(kind, self.model.as_deref());
+        fx.request(Ctx::Mode, Command::Mode(mode));
     }
 
     pub fn is_compacting(&self) -> bool {
@@ -355,10 +518,36 @@ impl ThreadPart {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadIntent {
     Compact,
+    /// `/stop`: stop the thread's background terminals
+    /// (`AppCommand::clean_background_terminals`).
+    CleanTerminals,
     Rename(String),
     /// `!cmd` from the composer: a user shell command (the oracle's
     /// `AppCommand::RunUserShellCommand`), run while a turn runs too.
     Shell(String),
+    /// Tab: the message waits behind the running turn (the oracle's
+    /// `InputResult::Queued`); `threads::apply` owns the queue.
+    Queue(crate::threads::UserMessage),
+    /// Esc while steers are pending: interrupt the turn, then send the
+    /// steers as one message (`submit_pending_steers_after_interrupt`).
+    InterruptForSteers,
+    /// The edit-queued key: the newest queued message goes back to the
+    /// composer (`pop_latest_queued_composer_state`).
+    EditQueued,
+    /// Esc Esc found no prompt to edit: the chat says so
+    /// (`NO_PREVIOUS_MESSAGE_TO_EDIT`, an info line in the history).
+    NoPreviousMessage,
+    /// The user's switch of the collaboration mode (`/plan`, Shift+Tab, the prompt's Yes):
+    /// the thread goes on in `ModeKind` and the server is told.
+    SetMode(codex_protocol::config_types::ModeKind),
+    /// Shift+Tab: the next mode, only while the thread is idle (`cycle_collaboration_mode`).
+    CycleMode,
+    /// The fresh thread of the prompt's "clear context" row takes the approved plan: the server
+    /// answers with the prompt that starts the work.
+    ApprovePlan(String),
+    /// The prompt's answer Yes (`submit_user_message_with_mode`): the thread goes on in Default
+    /// and `Implement the plan.` is sent; a running turn refuses the switch.
+    ImplementPlan,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -366,10 +555,15 @@ pub enum ThreadEv {
     Metadata {
         name: Option<String>,
         cwd: String,
+        path: Option<String>,
+        parent_owned: bool,
+        ephemeral: bool,
         model: Option<String>,
         effort: Option<String>,
         provider: String,
         daybreak: Option<bool>,
+        /// The thread came with turns (a resume or a fork): its token usage is yet to come.
+        resumed: bool,
     },
     Settings {
         cwd: String,
@@ -377,17 +571,31 @@ pub enum ThreadEv {
         effort: Option<String>,
         provider: String,
         service_tier: Option<String>,
+        mode: codex_protocol::config_types::ModeKind,
     },
     Phase { turn: TurnId, phase: ActivityPhase },
     Compaction { turn: TurnId, running: bool },
     Name(Option<String>),
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
+    /// The server retries the turn's request: the header says so, and the
+    /// error's own details sit under it.
+    Retry { turn: TurnId, retry: Retry, details: Option<String> },
+    /// What the status row says under its header (oracle `set_status`'s
+    /// `details`); `None` clears it.
+    Details(Option<StatusDetails>),
+    /// The thread's goal reached its token budget during `turn`
+    /// (`on_thread_goal_updated` with `BudgetLimited`).
+    BudgetLimited { turn: TurnId },
 }
 
 impl ThreadEv {
     pub(crate) fn turn(&self) -> Option<&TurnId> {
         match self {
-            Self::Plan { turn, .. } | Self::Phase { turn, .. } | Self::Compaction { turn, .. } => Some(turn),
+            Self::Plan { turn, .. }
+            | Self::Phase { turn, .. }
+            | Self::Compaction { turn, .. }
+            | Self::Retry { turn, .. }
+            | Self::BudgetLimited { turn } => Some(turn),
             _ => None,
         }
     }
@@ -408,14 +616,34 @@ pub(crate) fn plan_progress(turn: &TurnId, update: &crate::threads::PlanUpdate) 
     }
 }
 
+/// `thread_blocks_direct_input`: the server's word when it gives one, else a
+/// spawned sub-agent's thread.
+fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) -> bool {
+    use codex_app_server_protocol::SessionSource;
+    use codex_protocol::protocol::SubAgentSource;
+    thread.can_accept_direct_input.map_or_else(
+        || {
+            matches!(
+                &thread.source,
+                SessionSource::SubAgent(SubAgentSource::ThreadSpawn { agent_path: Some(_), .. })
+            )
+        },
+        |can_accept| !can_accept,
+    )
+}
+
 pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
     ThreadEv::Metadata {
         name: thread.name.clone(),
         cwd: thread.cwd.display().to_string(),
+        path: thread.path.as_ref().map(|path| path.display().to_string()),
+        parent_owned: blocks_direct_input(thread),
+        ephemeral: thread.ephemeral,
         model: thread.model.clone(),
         effort: thread.reasoning_effort.as_ref().map(|effort| effort.as_str().to_string()),
         provider: thread.model_provider.clone(),
         daybreak: thread.daybreak_enabled,
+        resumed: !thread.turns.is_empty(),
     }
 }
 
@@ -432,7 +660,29 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
                 effort: settings.effort.as_ref().map(|effort| effort.as_str().to_string()),
                 provider: settings.model_provider.clone(),
                 service_tier: settings.service_tier.clone(),
+                mode: settings.collaboration_mode.mode,
             })
+        }
+        ServerNotification::Error(note) if note.will_retry => {
+            // `Reconnecting... 2/5` after a 429 reads as the server being busy.
+            let busy = matches!(
+                note.error.codex_error_info,
+                Some(codex_app_server_protocol::CodexErrorInfo::ResponseStreamDisconnected {
+                    http_status_code: Some(429)
+                })
+            );
+            let retry = match note.error.message.strip_prefix("Reconnecting... ") {
+                Some(attempt) if busy => Retry::Busy { attempt: attempt.to_string() },
+                _ => Retry::Server(note.error.message.clone()),
+            };
+            let details = note.error.additional_details.clone();
+            (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), retry, details })
+        }
+        ServerNotification::ThreadGoalUpdated(note)
+            if note.goal.status == codex_app_server_protocol::ThreadGoalStatus::BudgetLimited =>
+        {
+            let turn = TurnId::new(note.turn_id.as_deref()?);
+            (&note.thread_id, ThreadEv::BudgetLimited { turn })
         }
         ServerNotification::ReasoningSummaryPartAdded(note) => (&note.thread_id, ThreadEv::Phase {
             turn: TurnId::new(&note.turn_id),
@@ -458,20 +708,45 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     Compact,
+    CleanTerminals,
     Rename(String),
     Shell(String),
+    /// `turn/steer`: the message joins the running turn `turn`.
+    Steer {
+        turn: TurnId,
+        message: crate::threads::UserMessage,
+    },
+    /// `thread/settings/update` of the collaboration mode.
+    Mode(codex_protocol::config_types::CollaborationMode),
+    /// `thread/prepareApprovedPlan` with the plan's markdown.
+    ApprovePlan(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     Ack,
+    /// The turn the steer joined.
+    Steered(TurnId),
+    /// The prompt that starts the work of an approved plan.
+    Prepared(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
+    Mode,
+    ApprovePlan,
     Compact,
+    CleanTerminals,
     Rename,
     Shell,
+    /// A steer in flight: `threads::apply` reads its reply (the queue and the
+    /// previews are the thread's, not the slot's); `retried` once the turn id
+    /// was corrected.
+    Steer {
+        turn: TurnId,
+        retried: bool,
+        message: crate::threads::UserMessage,
+    },
 }
 
 pub fn apply_thread_intent(
@@ -486,6 +761,16 @@ pub fn apply_thread_intent(
             part.compact_pending = true;
             fx.request(Ctx::Compact, Command::Compact);
         }
+        ThreadIntent::CleanTerminals => {
+            part.error = None;
+            fx.request(Ctx::CleanTerminals, Command::CleanTerminals);
+        }
+        ThreadIntent::SetMode(kind) => part.set_mode(kind, fx),
+        ThreadIntent::ApprovePlan(markdown) => {
+            part.error = None;
+            fx.request(Ctx::ApprovePlan, Command::ApprovePlan(markdown));
+        }
+        ThreadIntent::CycleMode if !busy => part.set_mode(plan_mode::next(part.mode), fx),
         ThreadIntent::Rename(name) if !name.trim().is_empty() => {
             part.error = None;
             fx.request(Ctx::Rename, Command::Rename(name));
@@ -494,6 +779,7 @@ pub fn apply_thread_intent(
             part.error = None;
             fx.request(Ctx::Shell, Command::Shell(command));
         }
+        // the queue and the steers are the thread model's (`threads::apply`)
         _ => {}
     }
 }
@@ -501,15 +787,21 @@ pub fn apply_thread_intent(
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Metadata { name, cwd, model, effort, provider, daybreak } => {
+        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak, resumed } => {
             part.name = name;
             part.daybreak = daybreak;
             part.cwd = Some(cwd);
+            part.path = path;
+            part.parent_owned = parent_owned;
+            part.ephemeral = ephemeral;
             part.model = model;
             part.effort = effort;
             part.provider = (!provider.is_empty()).then_some(provider);
+            // a later `thread/started` without turns does not make a resumed thread fresh
+            part.awaiting_usage |= resumed;
         }
-        ThreadEv::Settings { cwd, model, effort, provider, service_tier } => {
+        ThreadEv::Settings { cwd, model, effort, provider, service_tier, mode } => {
+            part.mode = mode;
             part.cwd = Some(cwd);
             part.model = Some(model);
             part.effort = effort;
@@ -519,6 +811,16 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         ThreadEv::Phase { phase, .. } => part.activity = phase,
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
         ThreadEv::Name(name) => part.name = name,
+        ThreadEv::Retry { retry, details, .. } => {
+            part.retry_header = Some(retry);
+            part.details = details.map(|text| StatusDetails::new(text, STATUS_DETAILS_MAX_LINES));
+        }
+        ThreadEv::Details(details) => part.details = details,
+        ThreadEv::BudgetLimited { turn } => {
+            if !part.budget_limited.contains(&turn) {
+                part.budget_limited.push(turn);
+            }
+        }
         ThreadEv::Plan { completed, total, step, .. } => {
             part.progress = (total > 0).then_some((completed, total));
             part.step = step;
@@ -536,12 +838,16 @@ pub fn apply_reply(
     if matches!(ctx, Ctx::Compact) {
         part.compact_pending = false;
     }
-    part.error = result.err();
+    // a steer's reply is read by `threads::apply`, never here
+    if !matches!(ctx, Ctx::Steer { .. }) {
+        part.error = result.err();
+    }
 }
 
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
     let ask = match command {
         Command::Compact => crate::threads::ThreadAsk::Compact { thread: thread.to_string() },
+        Command::CleanTerminals => crate::threads::ThreadAsk::CleanTerminals { thread: thread.to_string() },
         Command::Rename(name) => crate::threads::ThreadAsk::Rename {
             thread: thread.to_string(),
             name: name.clone(),
@@ -550,18 +856,43 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             thread: thread.to_string(),
             command: command.clone(),
         },
+        Command::Steer { turn, message } => crate::threads::ThreadAsk::Steer {
+            thread: thread.to_string(),
+            turn: turn.to_string(),
+            message: message.clone(),
+        },
+        Command::ApprovePlan(markdown) => crate::threads::ThreadAsk::PrepareApprovedPlan {
+            thread: thread.to_string(),
+            markdown: markdown.clone(),
+        },
+        Command::Mode(mode) => crate::threads::ThreadAsk::SettingsUpdate {
+            thread: thread.to_string(),
+            patch: crate::threads::SettingsPatch {
+                collaboration_mode: Some(mode.clone()),
+                ..crate::threads::SettingsPatch::default()
+            },
+        },
     };
     ask.wire(id)
 }
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     use codex_app_server_protocol::{
-        ThreadCompactStartResponse, ThreadSetNameResponse, ThreadShellCommandResponse,
+        ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse, ThreadSetNameResponse,
+        ThreadPrepareApprovedPlanResponse, ThreadShellCommandResponse, TurnSteerResponse,
     };
     let decoded = match command {
         Command::Compact => serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack),
+        Command::CleanTerminals => {
+            serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result).map(|_| Reply::Ack)
+        }
         Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
         Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
+        Command::Mode(_) => Ok(Reply::Ack),
+        Command::ApprovePlan(_) => serde_json::from_value::<ThreadPrepareApprovedPlanResponse>(result)
+            .map(|response| Reply::Prepared(response.prompt)),
+        Command::Steer { .. } => serde_json::from_value::<TurnSteerResponse>(result)
+            .map(|response| Reply::Steered(TurnId::new(response.turn_id))),
     };
     decoded.map_err(|error| RpcError::Malformed(error.to_string()))
 }
@@ -569,7 +900,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// The seed form of this screen's events:
 /// `{"flags":{"voice_command_enabled":true}}` (the named gates switch on, the
 /// others keep their defaults), `{"service_tiers":[{id,name,description}]}`,
-/// `{"signed_in":false}`, `{"status":{StatusFacts}}`.
+/// `{"signed_in":false}`, `{"status":{StatusFacts}}`, `{"facts":{"cwd":"/w"}}` (`FactEv`).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
@@ -577,6 +908,19 @@ enum SeedEv {
     ServiceTiers(Vec<SeedTier>),
     SignedIn(bool),
     Status(Box<StatusFacts>),
+    Facts(FactEv),
+    Details(SeedDetails),
+    Pending { thread: String, #[serde(flatten)] pending: PendingTexts },
+}
+
+/// `{"details":{"thread":"thread-1","text":"a\nb","max_lines":3,"preserve":true}}`
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedDetails {
+    thread: String,
+    text: String,
+    max_lines: Option<usize>,
+    #[serde(default)]
+    preserve: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]
@@ -647,5 +991,18 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         ),
         SeedEv::SignedIn(on) => Ev::SignedIn(on),
         SeedEv::Status(facts) => Ev::Status(facts),
+        SeedEv::Facts(ev) => Ev::Facts(ev),
+        SeedEv::Pending { thread, pending } => Ev::Pending { thread, pending },
+        SeedEv::Details(d) => {
+            let max = d.max_lines.unwrap_or(STATUS_DETAILS_MAX_LINES);
+            Ev::Details {
+                thread: d.thread,
+                details: Some(if d.preserve {
+                    StatusDetails::preserved(&d.text, max)
+                } else {
+                    StatusDetails::new(d.text, max)
+                }),
+            }
+        }
     })
 }

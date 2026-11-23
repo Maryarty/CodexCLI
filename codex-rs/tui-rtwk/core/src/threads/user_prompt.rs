@@ -1,5 +1,6 @@
 //! The prompt and its visible attachments, shared by history and live events.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use codex_app_server_protocol::UserInput;
@@ -13,7 +14,30 @@ pub struct UserPrompt {
     pub images: Vec<usize>,
 }
 
+/// What the transcript shows of a prompt: its text without control
+/// sequences, and the inline elements that still fit it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shown<'a> {
+    pub text: Cow<'a, str>,
+    pub elements: &'a [Range<usize>],
+}
+
 impl UserPrompt {
+    /// The prompt as history draws it (`sanitize_user_text`, oracle
+    /// history_cell/messages.rs): CSI sequences and control characters
+    /// removed, tabs and newlines kept; a text that changed loses its inline
+    /// elements, their byte ranges no longer fit it. The text itself, which
+    /// the model has and steers are matched by, is not touched.
+    pub fn shown(&self) -> Shown<'_> {
+        let text = without_controls(&self.text);
+        let elements = if matches!(text, Cow::Borrowed(_)) {
+            self.elements.as_slice()
+        } else {
+            &[]
+        };
+        Shown { text, elements }
+    }
+
     pub(super) fn from_input(content: &[UserInput]) -> Self {
         let mut prompt = Self::default();
         let mut text_parts = 0;
@@ -69,4 +93,31 @@ impl UserPrompt {
             .collect();
         prompt
     }
+}
+
+/// `text` without CSI sequences and control characters but tabs and
+/// newlines. A lone ESC goes on its own; a CSI sequence that never ends
+/// takes the rest of the text with it.
+fn without_controls(text: &str) -> Cow<'_, str> {
+    let hidden = |ch: char| ch == '\x1b' || ch.is_control() && !matches!(ch, '\n' | '\t');
+    if !text.contains(hidden) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(hidden) {
+        out.push_str(&rest[..at]);
+        let after = &rest[at..];
+        let sequence = after.strip_prefix("\x1b[");
+        rest = match sequence {
+            // a CSI sequence ends at its final byte, `@` to `~`
+            Some(sequence) => match sequence.find(|ch: char| ('@'..='~').contains(&ch)) {
+                Some(end) => &sequence[end + 1..],
+                None => return Cow::Owned(out),
+            },
+            None => &after[after.chars().next().map_or(0, char::len_utf8)..],
+        };
+    }
+    out.push_str(rest);
+    Cow::Owned(out)
 }

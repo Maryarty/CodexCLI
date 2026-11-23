@@ -6,11 +6,10 @@
 
 mod dialog;
 mod lists;
-mod rows;
-mod side;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
+use rtwk::layout::Alignment;
 use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use crate::app::debug::DebugEntry;
@@ -22,16 +21,91 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 41] = [
+    let entries: [(&'static str, &'static str, &'static str); 79] = [
         (
             "model_picker",
             "three models, the first in use",
             include_str!("fixtures/model_picker.jsonl"),
         ),
         (
+            "models_quick",
+            "the quick /model menu: an auto mode and All models",
+            include_str!("fixtures/models_quick.jsonl"),
+        ),
+        (
+            "model_reasoning",
+            "the reasoning menu of one model, More reasoning… last",
+            include_str!("fixtures/model_reasoning.jsonl"),
+        ),
+        (
+            "model_advanced",
+            "the advanced reasoning menu: Max and Ultra",
+            include_str!("fixtures/model_advanced.jsonl"),
+        ),
+        (
+            "model_plan_scope",
+            "where a reasoning change in Plan mode applies",
+            include_str!("fixtures/model_plan_scope.jsonl"),
+        ),
+        (
+            "model_loading",
+            "the /model menu while the catalog loads",
+            include_str!("fixtures/model_loading.jsonl"),
+        ),
+        (
             "permissions_menu",
             "the /permissions menu",
             include_str!("fixtures/permissions_menu.jsonl"),
+        ),
+        (
+            "profile_permissions",
+            "the /permissions menu on a catalog: the built-in modes, :workspace in use",
+            include_str!("fixtures/profile_permissions.jsonl"),
+        ),
+        (
+            "profile_permissions_disallowed_full_access",
+            "the /permissions menu with Full Access disabled by requirements",
+            include_str!("fixtures/profile_permissions_disallowed_full_access.jsonl"),
+        ),
+        (
+            "profile_permissions_custom",
+            "the /permissions menu with the server's custom profiles",
+            include_str!("fixtures/profile_permissions_custom.jsonl"),
+        ),
+        (
+            "permission_discovery_loading",
+            "the /permissions menu while the catalog is read",
+            include_str!("fixtures/permission_discovery_loading.jsonl"),
+        ),
+        (
+            "permission_discovery_remote",
+            "the /permissions menu on a remote server's catalog",
+            include_str!("fixtures/permission_discovery_remote.jsonl"),
+        ),
+        (
+            "permission_discovery_empty",
+            "the /permissions menu of an empty catalog",
+            include_str!("fixtures/permission_discovery_empty.jsonl"),
+        ),
+        (
+            "permission_discovery_failure",
+            "the /permissions menu after a failed read, with Retry",
+            include_str!("fixtures/permission_discovery_failure.jsonl"),
+        ),
+        (
+            "permissions_unnamed_server_profile",
+            "the /permissions menu with Approve for me in use",
+            include_str!("fixtures/permissions_unnamed_server_profile.jsonl"),
+        ),
+        (
+            "permissions_constrained",
+            "the /permissions preset menu with Full Access forbidden by the config",
+            include_str!("fixtures/permissions_constrained.jsonl"),
+        ),
+        (
+            "permissions_cyber_full_access",
+            "the full-access confirmation of a cyber model",
+            include_str!("fixtures/permissions_cyber_full_access.jsonl"),
         ),
         (
             "secondary_action",
@@ -228,6 +302,121 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "one tab",
             include_str!("fixtures/filled_tab_all.jsonl"),
         ),
+        (
+            "multi_orderable",
+            "a multi-select with a fixed row, a rule and two orderable rows",
+            include_str!("fixtures/multi_orderable.jsonl"),
+        ),
+        (
+            "multi_orderable_two",
+            "two orderable multi-select rows",
+            include_str!("fixtures/multi_orderable_two.jsonl"),
+        ),
+        (
+            "section_break",
+            "a multi-select whose first row has a rule under it",
+            include_str!("fixtures/section_break.jsonl"),
+        ),
+        (
+            "multi_alpha_jupiter",
+            "a searchable multi-select of alpha and jupiter",
+            include_str!("fixtures/multi_alpha_jupiter.jsonl"),
+        ),
+        (
+            "multi_appearance",
+            "twelve fields with a rule, ordering and a preview line",
+            include_str!("fixtures/multi_appearance.jsonl"),
+        ),
+        (
+            "multi_fields_twelve",
+            "twelve orderable fields",
+            include_str!("fixtures/multi_fields_twelve.jsonl"),
+        ),
+        (
+            "browser_keymap",
+            "the keymap browser: five tabs of thirty actions, search",
+            include_str!("fixtures/browser_keymap.jsonl"),
+        ),
+        (
+            "browser_single_line",
+            "the browser, single-line rows",
+            include_str!("fixtures/browser_single_line.jsonl"),
+        ),
+        (
+            "browser_wrapped",
+            "the browser, wrapped rows",
+            include_str!("fixtures/browser_wrapped.jsonl"),
+        ),
+        (
+            "description_hide_when_narrow",
+            "two rows whose description column hides when narrow",
+            include_str!("fixtures/description_hide_when_narrow.jsonl"),
+        ),
+        (
+            "shared_menu",
+            "the shared menu: a title, a subtitle, three rows",
+            include_str!("fixtures/shared_menu.jsonl"),
+        ),
+        (
+            "multi_twelve",
+            "twelve multi-select rows",
+            include_str!("fixtures/multi_twelve.jsonl"),
+        ),
+        (
+            "accept_alternative",
+            "a searchable row, accept bound to a printable key",
+            include_str!("fixtures/accept_alternative.jsonl"),
+        ),
+        (
+            "toggle_then_next",
+            "a toggle row and the row after it, searchable",
+            include_str!("fixtures/toggle_then_next.jsonl"),
+        ),
+        (
+            "animations_checkbox",
+            "one checkbox row",
+            include_str!("fixtures/animations_checkbox.jsonl"),
+        ),
+        (
+            "first_second_searchable",
+            "two rows under a search line",
+            include_str!("fixtures/first_second_searchable.jsonl"),
+        ),
+        (
+            "first_second_searchable_second",
+            "two rows under a search line, the second highlighted",
+            include_str!("fixtures/first_second_searchable_second.jsonl"),
+        ),
+        (
+            "twelve_items",
+            "twelve rows, no title",
+            include_str!("fixtures/twelve_items.jsonl"),
+        ),
+        (
+            "hint_default",
+            "one row, the standard footer",
+            include_str!("fixtures/hint_default.jsonl"),
+        ),
+        (
+            "hint_picker",
+            "one row, the standard footer, shared picker preset",
+            include_str!("fixtures/hint_picker.jsonl"),
+        ),
+        (
+            "semantic_spans",
+            "a row with underlined, success and dim runs",
+            include_str!("fixtures/semantic_spans.jsonl"),
+        ),
+        (
+            "selected_row",
+            "one highlighted row in the accent style",
+            include_str!("fixtures/selected_row.jsonl"),
+        ),
+        (
+            "hard_breaks",
+            "a two-line name, a two-line description",
+            include_str!("fixtures/hard_breaks.jsonl"),
+        ),
     ];
     entries
         .into_iter()
@@ -251,6 +440,22 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
         move |_| dialog::MenuDialog.into(),
         DialogOptions {
             use_root_navigator: false,
+            ..crate::sheets::sheet_options()
+        },
+    )
+}
+
+/// Opens the same dialog as a confirmation floats: centered on the screen, not
+/// at its bottom (the oracle's `ViewPresentation::Centered`, the shared dialog
+/// geometry of `SelectionViewParams::confirmation()`). The menu it shows is a
+/// `Menu::Confirm`; the dialog lays itself out to the width the oracle gives it.
+pub fn open_centered<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    show_dialog(
+        cx,
+        move |_| dialog::MenuDialog.into(),
+        DialogOptions {
+            use_root_navigator: false,
+            alignment: Alignment::CENTER,
             ..crate::sheets::sheet_options()
         },
     )

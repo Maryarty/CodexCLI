@@ -12,20 +12,36 @@ mod kit;
 
 #[path = "pages/agents_mouse.rs"]
 mod agents_mouse;
+#[path = "pages/chat_status.rs"]
+mod chat_status;
 #[path = "pages/composer_burst.rs"]
 mod composer_burst;
 #[path = "pages/composer_draft.rs"]
 mod composer_draft;
+#[path = "pages/composer_history.rs"]
+mod composer_history;
 #[path = "pages/composer_images.rs"]
 mod composer_images;
+#[path = "pages/composer_mentions.rs"]
+mod composer_mentions;
 #[path = "pages/composer_mouse.rs"]
 mod composer_mouse;
 #[path = "pages/composer_startup.rs"]
 mod composer_startup;
 #[path = "pages/composer_suggest.rs"]
 mod composer_suggest;
+#[path = "pages/composer_vim.rs"]
+mod composer_vim;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
+#[path = "pages/text_mode.rs"]
+mod text_mode;
+#[path = "pages/transcript_follow.rs"]
+mod transcript_follow;
+#[path = "pages/transcript_pager.rs"]
+mod transcript_pager;
+#[path = "pages/transcript_sheet.rs"]
+mod transcript_sheet;
 
 mod rtwk_g46;
 mod rtwk_g49_g51;

@@ -14,7 +14,7 @@ use rtwk::provider::{MultiProvider, Provider};
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Intent;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
 
 use crate::app::UiApp;
@@ -31,8 +31,13 @@ pub struct Hs {
     /// Close a request without answering it.
     pub dismiss: Handler<RequestKey>,
     pub dismiss_banner: Handler<(BackendId, Ticket)>,
+    /// A row of a backend banner was chosen (a number key, a tap).
+    pub pick_banner: Handler<(BackendId, Ticket, usize)>,
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
+    /// An intent of a screen slot of one thread (the queue, Esc with
+    /// steers, the edit of a queued message): `apply` owns the outcome.
+    pub thread_screen: Handler<(ThreadId, ScreenThreadIntent)>,
     pub open_thread: Handler<ThreadId>,
     pub load_history: Handler<ThreadId>,
     pub interrupt: Handler<ThreadId>,
@@ -57,9 +62,23 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
                 ticket,
             }));
         }),
+        pick_banner: cx.on_with(
+            |app: &mut UiApp, (backend, ticket, row): (BackendId, Ticket, usize), _cx| {
+                app.send(AppEv::Intent(Intent::PickBannerCta {
+                    backend,
+                    ticket,
+                    row,
+                }));
+            },
+        ),
         screen: cx.on_with(|app: &mut UiApp, intent: ScreenIntent, _cx| {
             app.send(AppEv::Intent(Intent::Screen(intent)));
         }),
+        thread_screen: cx.on_with(
+            |app: &mut UiApp, (thread, intent): (ThreadId, ScreenThreadIntent), _cx| {
+                app.send(AppEv::Intent(Intent::ThreadScreen { thread, intent }));
+            },
+        ),
         open_thread: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
             app.send(AppEv::Intent(Intent::OpenThread(id)));
         }),
@@ -110,6 +129,10 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         .with(Provider::value_shared(app.core.active_thread()))
         .with(Provider::value_shared(app.core.requests().clone()))
         .with(Provider::value_shared(app.core.screens().clone()))
+        .with(
+            Provider::value_shared(app.core.keymap().clone())
+                .update_should_notify(|old, new| old != new),
+        )
         .with(
             Provider::value(app.core.agents_threads()).update_should_notify(|old, new| old != new),
         )

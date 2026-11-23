@@ -433,7 +433,7 @@ fn image_placeholder_snapshots() {
 fn remote_image_rows_snapshots() {
     kit::pending(
         Owner::ChatLive,
-        "no remote image URLs on the chat composer (set_remote_image_urls has no seed): the remote image rows above the draft are not drawn",
+        "the port draws the remote image rows and their keys (tests/pages/composer_images.rs holds the rows of both snapshots), but the kit has no seed for set_remote_image_urls, and the oracle's snapshot is the composer alone with its own `100% context left` footer (pane-footer)",
     );
     let mut s = ready(100, 9);
     s.type_text("describe these");
@@ -471,10 +471,6 @@ fn service_tier_slash_command_dispatches_from_catalog_name() {
 // ORACLE bottom_pane/chat_composer.rs:9550 slash_init_dispatches_command_and_does_not_submit_literal_text kind=ui owner=chat-live
 #[test]
 fn slash_init_dispatches_command_and_does_not_submit_literal_text() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "`/init` is not available yet in the port (SessionIntent::Init has no handler: \"'/init' is not available yet.\"), so the command is not dispatched",
-    );
     let mut s = ready(100, 24);
     s.type_text("/init").keys("enter");
     // the command is dispatched and the draft cleared: no literal `/init` is submitted
@@ -560,10 +556,6 @@ fn tab_queues_slash_led_prompts_while_task_running_without_validation() {
 // ORACLE bottom_pane/chat_composer.rs:9820 remapped_submit_does_not_fall_back_to_enter kind=ui owner=chat-live
 #[test]
 fn remapped_submit_does_not_fall_back_to_enter() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed: the port reads no composer.submit binding (keymap(..) is missing), so the remapped submit (ctrl+j) cannot be set",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .live()
@@ -577,10 +569,6 @@ fn remapped_submit_does_not_fall_back_to_enter() {
 // ORACLE bottom_pane/chat_composer.rs:9856 remapped_queue_does_not_fall_back_to_tab kind=ui owner=chat-live
 #[test]
 fn remapped_queue_does_not_fall_back_to_tab() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed: the port reads no composer.queue binding (keymap(..) is missing), so the remapped queue key (ctrl+q) cannot be set",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .script(include_str!("fixtures/composer_2/running.jsonl"))

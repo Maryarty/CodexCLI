@@ -112,6 +112,7 @@ pub(crate) fn answer(
             .ok()
         }
         (R::McpServerElicitationRequest { params, .. }, A::Choice(choice)) => {
+            let mut meta = None;
             let content = match (&params.request, &choice) {
                 (
                     McpServerElicitationRequest::Form {
@@ -120,13 +121,19 @@ pub(crate) fn answer(
                     D::Accept,
                 ) if requested_schema.properties.is_empty() => Some(serde_json::json!({})),
                 // Accepting a user verification carries the device's proof: the controller
-                // answers, never a plain choice.
-                (McpServerElicitationRequest::UserVerification { .. }, D::Cancel) => None,
+                // answers, never a plain choice. Cancelling it says why, as the controller's
+                // `verify::Outcome::Cancelled` does.
+                (McpServerElicitationRequest::UserVerification { .. }, D::Cancel) => {
+                    meta = Some(serde_json::json!({
+                        "openai/userVerificationReason": "userCancelled"
+                    }));
+                    None
+                }
                 (McpServerElicitationRequest::UserVerification { .. }, _) => return None,
                 (_, D::Accept | D::Decline | D::Cancel) => None,
                 _ => return None,
             };
-            elicitation(choice, content, None)
+            elicitation(choice, content, meta)
         }
         (
             R::McpServerElicitationRequest { .. },
@@ -137,11 +144,14 @@ pub(crate) fn answer(
             },
         ) => elicitation(decision, content, meta),
         (R::ToolRequestUserInput { params, .. }, A::UserInput(answers)) => {
-            if params.questions.len() != answers.len()
-                || params
-                    .questions
-                    .iter()
-                    .any(|question| !answers.contains_key(&question.id))
+            // No answer at all is the one that a request which ran out sends (the oracle's
+            // `submit_empty_auto_resolution`: an empty map); else every question is answered.
+            if !answers.is_empty()
+                && (params.questions.len() != answers.len()
+                    || params
+                        .questions
+                        .iter()
+                        .any(|question| !answers.contains_key(&question.id)))
             {
                 return None;
             }

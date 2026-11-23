@@ -14,10 +14,16 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod decided;
 pub mod form;
+pub mod guardian;
 pub mod input;
+pub mod order;
+pub mod verify;
 
 pub use form::{Entered, Form};
+/// The projection `screens::project_thread` asks, as the other screens' `project`.
+pub use guardian::project;
 
 pub const NAME: &str = "approvals";
 pub const ID: &str = "S13";
@@ -60,6 +66,9 @@ pub struct ExecPrompt {
     pub command: String,
     pub environment: Option<String>,
     pub network_host: Option<String>,
+    /// What network access the request is about, as the history says it: the target the
+    /// command names (`network-access <target>`), else the context's `scheme://host`.
+    pub network_target: Option<String>,
     /// The rule of the additional permissions the command asks for.
     pub permission_rule: Vec<Rule>,
     /// What a `writeStdin` request sends to the terminal (shown as `Input:`
@@ -111,6 +120,10 @@ pub struct UserVerificationPrompt {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserInputPrompt {
     pub questions: Vec<Question>,
+    /// The request is not blocking (`isBlocking: false`): it answers itself, empty, once the
+    /// grace and the countdown ran out (`input::auto_resolution`). A request that does not say
+    /// is blocking, as the protocol reads it.
+    pub can_auto_resolve: bool,
 }
 
 /// What the user can decide, the oracle's `ApprovalDecision` of every kind of
@@ -309,28 +322,61 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
 /// only by `apply_thread` and `apply_reply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ThreadPart {}
+pub struct ThreadPart {
+    /// The auto-reviews under way, in the order they began: the status line names them.
+    pub reviews: Vec<guardian::Reviewing>,
+    /// The denials `/auto-review` offers to approve once, newest first.
+    pub recent_denials: guardian::Denials,
+    /// What the thread's history should gain from the last events (`take_history`).
+    outbox: Vec<guardian::History>,
+    /// How the last request of this part ended.
+    pub error: Option<RpcError>,
+}
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadEv {}
+pub enum ThreadEv {
+    /// An answer left a record in the history (`decided::Decided::of`, the app's call once the
+    /// request is resolved).
+    Decided(decided::Decided),
+    /// A review of the auto-reviewer started, or ended (`guardian::project`).
+    Review(Box<guardian::Review>),
+    /// The auto-reviewer's warning (`guardian::project`).
+    Warning(String),
+    /// The paths of a review could not be localized.
+    Unlocalized(String),
+    /// The turn ended (completed, interrupted or failed): its reviews are over.
+    TurnEnded,
+    /// `/auto-review` found nothing to list.
+    NoDenials,
+    /// The user picked this denial to approve once.
+    ApproveDenied { id: String },
+}
 
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    /// `thread/approveGuardianDeniedAction` with the serialized assessment event.
+    ApproveDenied { event: serde_json::Value },
+}
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    Approved,
+}
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
+pub enum Ctx {
+    ApproveDenied,
+}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    let _ = (part, fx);
-    match ev {}
+    if let Some(guardian::Ask::ApproveDenied { event, .. }) = part.apply(ev) {
+        fx.request(Ctx::ApproveDenied, Command::ApproveDenied { event });
+    }
 }
 
 pub fn apply_reply(
@@ -339,20 +385,36 @@ pub fn apply_reply(
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    let _ = fx;
+    match ctx {
+        Ctx::ApproveDenied => part.error = result.err(),
+    }
 }
 
 /// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    match command {
+        Command::ApproveDenied { event } => ClientRequest::ThreadApproveGuardianDeniedAction {
+            request_id: id,
+            params: codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams {
+                thread_id: thread.to_string(),
+                event: event.clone(),
+            },
+        },
+    }
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    match command {
+        Command::ApproveDenied { .. } => {
+            serde_json::from_value::<codex_app_server_protocol::ThreadApproveGuardianDeniedActionResponse>(
+                result,
+            )
+            .map(|_| Reply::Approved)
+            .map_err(|error| RpcError::Malformed(error.to_string()))
+        }
+    }
 }
 
 /// The seed form of this screen's events: the protocol's own server request
@@ -509,6 +571,8 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
             })
         }
         "item/tool/requestUserInput" => Prompt::UserInput(UserInputPrompt {
+            can_auto_resolve: params.get("isBlocking").and_then(serde_json::Value::as_bool)
+                == Some(false),
             questions: params
                 .get("questions")
                 .and_then(|q| q.as_array())
@@ -576,17 +640,50 @@ fn exec_prompt(params: &serde_json::Value) -> ExecPrompt {
         }
     };
     let write_stdin = params.get("kind").and_then(|k| k.as_str()) == Some("writeStdin");
-    let command = text("command").unwrap_or_default();
+    let raw = text("command").unwrap_or_default();
+    let command = strip_shell_wrapper(&raw);
+    let network_target = network_target(params, &command, network_host.as_deref());
     ExecPrompt {
         thread_label: None,
         reason: text("reason"),
-        input: write_stdin.then(|| split_words(&command).pop().unwrap_or_default()),
-        command: strip_shell_wrapper(&command),
+        input: write_stdin.then(|| split_words(&raw).pop().unwrap_or_default()),
+        command,
         environment: text("environmentId"),
         network_host,
+        network_target,
         permission_rule,
         decisions,
     }
+}
+
+/// `network_approval_command_target` and `network_approval_target`: the command names its target
+/// (`network-access <target>`), or the context's protocol and host say it.
+fn network_target(
+    params: &serde_json::Value,
+    command: &str,
+    host: Option<&str>,
+) -> Option<String> {
+    let named = command
+        .strip_prefix("network-access ")
+        .filter(|target| !target.is_empty());
+    let Some(host) = host else {
+        return named.map(str::to_string);
+    };
+    if let Some(target) = named {
+        return Some(target.to_string());
+    }
+    let scheme = match params
+        .get("networkApprovalContext")
+        .and_then(|c| c.get("protocol"))
+        .and_then(|p| p.as_str())
+    {
+        Some("http") => "http://",
+        Some("https") => "https://",
+        Some("socks5Tcp") => "socks5-tcp://",
+        Some("socks5Udp") => "socks5-udp://",
+        _ => "",
+    };
+    Some(format!("{scheme}{host}"))
 }
 
 fn decision_of(value: &serde_json::Value) -> Option<Decision> {

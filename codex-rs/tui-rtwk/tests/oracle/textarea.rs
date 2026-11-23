@@ -8,9 +8,6 @@ use crate::kit::{self, Owner, Screen};
 
 // Reasons shared by several tests: what the port's chat composer does not have yet.
 const WRAP: &str = "G65: rtwk TextArea wraps and places the caret differently from the oracle's textarea at full rows (a caret after a full row, wide and half-width graphemes), on hanging spaces and tabs, and does not clear its rect's cells or keep its scroll as the oracle does";
-const VIM: &str = "no vim mode in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) has no vim bindings and no seed turns them on";
-const KILL: &str = "no kill-line command in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) binds no kill_current_line, and no key reaches it";
-const KEYMAP: &str = "no keymap seed: the port reads no key bindings from a config yet (the keymap slice), so the kill_whole_line binding of the test cannot be set";
 const LINK: &str = "the port's composer draws no OSC 8 links for URLs (rtwk-editing has no hyperlink annotation) and keeps no link cache to reuse";
 const MOUSE: &str = "the bare text area takes the mouse (a drag selects, a tap places the caret), but these rows are the oracle's wrap of the rect (G65), and its rect offsets (a 1-row rect at y 1, a resize mid-test) have no kit seed yet";
 
@@ -27,6 +24,30 @@ fn draft(width: u16, height: u16, text: &str) -> Screen {
         .entry("composer", "textarea")
         .open();
     s.paste(text);
+    s
+}
+
+/// As `draft`, with the user's bindings (`(action, key)` pairs of the keymap config).
+fn draft_keyed(
+    width: u16,
+    height: u16,
+    text: &str,
+    bindings: &'static [(&'static str, &'static str)],
+) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(width, height)
+        .entry("composer", "textarea")
+        .keymap(bindings)
+        .open();
+    s.paste(text);
+    s
+}
+
+/// The oracle's `vim_composer`: the draft pasted, Vim on (Normal mode), the caret on its first cell.
+/// The kit has no Vim seed: `global.toggle_vim_mode` is bound to F9 (no default key).
+fn vim_draft(width: u16, height: u16, text: &str) -> Screen {
+    let mut s = draft_keyed(width, height, text, &[("global.toggle_vim_mode", "f9")]);
+    s.keys("f9 g g");
     s
 }
 
@@ -57,11 +78,13 @@ fn delete_backward_removes_thai_marks_one_at_a_time() {
 // ORACLE bottom_pane/textarea.rs:3077 vim_e_advances_from_each_word_end kind=snap owner=chat-live snap=vim_e_advances_from_each_word_end
 #[test]
 fn vim_e_advances_from_each_word_end() {
-    kit::pending(Owner::ChatLive, VIM);
+    kit::pending(
+        Owner::ChatLive,
+        "the oracle's snapshot joins the three states, each followed by a caret row (`^`); the kit compares one screen without caret rows, so the snapshot cannot equal ours (the three `e` presses are driven and pass in the page test `composer_vim`)",
+    );
     // oracle: "alpha beta gamma" with the caret after "alph" (byte 4) in vim normal mode, three `e` presses, one state each. The oracle joins the three states in one snapshot; the kit compares one screen, so the last state is compared here.
-    let mut s = draft(80, 24, "alpha beta gamma");
-    s.keys("esc");
-    step(&mut s, 16, 4);
+    let mut s = vim_draft(80, 24, "alpha beta gamma");
+    step(&mut s, 0, 4);
     s.keys("e e e");
     s.assert_snap("vim_e_advances_from_each_word_end");
 }
@@ -69,20 +92,25 @@ fn vim_e_advances_from_each_word_end() {
 // ORACLE bottom_pane/textarea.rs:3149 vim_linewise_yank_pastes_below_current_line kind=ui owner=chat-live
 #[test]
 fn vim_linewise_yank_pastes_below_current_line() {
-    kit::pending(Owner::ChatLive, VIM);
     // oracle: "abc\n123\nxyz" with the caret on byte 1 (line 1); `yy` then `p` pastes "abc" below line 1.
-    let mut s = draft(80, 24, "abc\n123\nxyz");
-    s.keys("esc k k 0 l y y p");
+    let mut s = vim_draft(80, 24, "abc\n123\nxyz");
+    s.keys("k k 0 l y y p");
     s.assert_in_order(&["abc", "abc", "123", "xyz"]);
 }
 
 // ORACLE bottom_pane/textarea.rs:3232 kill_current_line_removes_current_line_linewise kind=ui owner=chat-live
 #[test]
 fn kill_current_line_removes_current_line_linewise() {
-    kit::pending(Owner::ChatLive, KILL);
-    // oracle: "abc\ndef\nghi" with the caret on byte 5 (line 2): kill_current_line removes "def" and its newline. No key reaches the call yet; the step below is the oracle's caret.
-    let mut s = draft(80, 24, "abc\ndef\nghi");
+    // oracle: "abc\ndef\nghi" with the caret on byte 5 (line 2): kill_current_line removes "def" and its newline.
+    // The method has no default key: `editor.kill_whole_line` is bound to ctrl+u here, as the oracle's keymap test does.
+    let mut s = draft_keyed(
+        80,
+        24,
+        "abc\ndef\nghi",
+        &[("editor.kill_whole_line", "ctrl+u")],
+    );
     step(&mut s, 11, 5);
+    s.keys("ctrl+u");
     s.assert_in_order(&["abc", "ghi"]);
     s.assert_absent("def");
 }
@@ -90,10 +118,10 @@ fn kill_current_line_removes_current_line_linewise() {
 // ORACLE bottom_pane/textarea.rs:3245 kill_current_line_keeps_previous_newline_for_final_line kind=ui owner=chat-live
 #[test]
 fn kill_current_line_keeps_previous_newline_for_final_line() {
-    kit::pending(Owner::ChatLive, KILL);
     // oracle: "abc\ndef" with the caret on byte 5: kill_current_line leaves "abc" and its newline.
-    let mut s = draft(80, 24, "abc\ndef");
+    let mut s = draft_keyed(80, 24, "abc\ndef", &[("editor.kill_whole_line", "ctrl+u")]);
     step(&mut s, 7, 5);
+    s.keys("ctrl+u");
     s.assert_has_row("abc");
     s.assert_absent("def");
 }
@@ -101,9 +129,13 @@ fn kill_current_line_keeps_previous_newline_for_final_line() {
 // ORACLE bottom_pane/textarea.rs:3258 kill_whole_line_keymap_dispatch_uses_linewise_kill kind=ui owner=chat-live
 #[test]
 fn kill_whole_line_keymap_dispatch_uses_linewise_kill() {
-    kit::pending(Owner::ChatLive, KEYMAP);
     // oracle: "abc\ndef\nghi" with the caret on byte 5 and ctrl+u bound to kill_whole_line: the line "def" goes.
-    let mut s = draft(80, 24, "abc\ndef\nghi");
+    let mut s = draft_keyed(
+        80,
+        24,
+        "abc\ndef\nghi",
+        &[("editor.kill_whole_line", "ctrl+u")],
+    );
     step(&mut s, 11, 5);
     s.keys("ctrl+u");
     s.assert_in_order(&["abc", "ghi"]);
@@ -682,10 +714,9 @@ fn mouse_multiclick_preserves_the_initial_word_or_wrapped_line_when_reversing() 
 // ORACLE bottom_pane/textarea/vim_commands_tests.rs:695 editor_commands_have_visual_snapshot_coverage kind=snap owner=chat-live
 #[test]
 fn editor_commands_have_visual_snapshot_coverage() {
-    kit::pending(Owner::ChatLive, VIM);
     // oracle: "alpha beta\ngamma delta" at the start in vim normal mode: `rZ` gives "Zlpha beta" on the first row; `cw` then gives " beta" with "gamma delta" below.
-    let mut s = draft(80, 24, "alpha beta\ngamma delta");
-    s.keys("esc 0 r Z");
+    let mut s = vim_draft(80, 24, "alpha beta\ngamma delta");
+    s.keys("0 r Z");
     s.assert_in_order(&["Zlpha beta", "gamma delta"]);
     s.keys("c w");
     s.assert_in_order(&[" beta", "gamma delta"]);
@@ -694,10 +725,9 @@ fn editor_commands_have_visual_snapshot_coverage() {
 // ORACLE bottom_pane/textarea/vim_commands_tests.rs:716 dot_repeat_has_visual_snapshot_coverage kind=snap owner=chat-live
 #[test]
 fn dot_repeat_has_visual_snapshot_coverage() {
-    kit::pending(Owner::ChatLive, VIM);
     // oracle: "alpha beta\ngamma delta" at the start in vim normal mode: `dw` leaves "beta\ngamma delta", and `.` repeats it, leaving "gamma delta".
-    let mut s = draft(80, 24, "alpha beta\ngamma delta");
-    s.keys("esc 0 d w");
+    let mut s = vim_draft(80, 24, "alpha beta\ngamma delta");
+    s.keys("0 d w");
     s.assert_in_order(&["beta", "gamma delta"]);
     s.keys(".");
     s.assert_in_order(&["gamma delta"]);
@@ -706,10 +736,9 @@ fn dot_repeat_has_visual_snapshot_coverage() {
 // ORACLE bottom_pane/textarea/vim_commands_tests.rs:737 find_and_navigation_have_visual_snapshot_coverage kind=snap owner=chat-live
 #[test]
 fn find_and_navigation_have_visual_snapshot_coverage() {
-    kit::pending(Owner::ChatLive, VIM);
     // oracle: "alpha beta\ngamma delta" at the start in vim normal mode: the motions tb, fb, Ta, Fa, G and gg move the caret and leave the text. The carets of the inline snapshot are not compared (the composer's text origin differs).
-    let mut s = draft(80, 24, "alpha beta\ngamma delta");
-    s.keys("esc 0");
+    let mut s = vim_draft(80, 24, "alpha beta\ngamma delta");
+    s.keys("0");
     for command in ["t b", "f b", "T a", "F a", "G", "g g"] {
         s.keys(command);
         s.assert_in_order(&["alpha beta", "gamma delta"]);

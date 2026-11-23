@@ -7,6 +7,7 @@
 //! places the composer and runs what it submits. Oracle:
 //! `bottom_pane/chat_composer.rs`, `bottom_pane/textarea.rs`.
 
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -14,15 +15,23 @@ use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextArea};
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
-use rtwk::layout::{BoxWidget, CrossAxisAlignment, Expanded, Row, Shadow};
+use rtwk::layout::{
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
+    Shadow, SizedBox,
+};
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
 use rtwk::provider::{read, watch};
 use rtwk::style::{Attrs, Style, Theme};
+use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
+use codex_tui_core::app::{ConnectionState, SessionSlice};
+use codex_tui_core::screens::composer::history::Lookup;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
+use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
+use codex_tui_core::threads::ThreadModel;
 
 use crate::app::debug::seeded::Seeded;
 use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
@@ -37,8 +46,11 @@ use crate::widgets::thread_ui::ThreadUi;
 pub mod burst;
 pub mod editing;
 pub mod footer;
+pub mod mentions;
+pub mod search;
 pub mod strings;
 pub mod suggest;
+pub mod vim;
 
 use burst::BurstEnv;
 use editing::KeyData;
@@ -73,11 +85,17 @@ pub struct Composer {
     on_changed: Option<Handler<Rc<str>>>,
     on_submitted: Option<Handler<Rc<str>>>,
     on_picked: Option<Handler<Rc<str>>>,
+    /// Told the queue key (`composer.queue`) when it is not Tab.
+    on_queue: Option<Handler<()>>,
     /// The text area alone: no prompt, no placeholder, no suggestions.
     bare: bool,
     /// Shell mode as the page built this widget: the page resets it when
     /// the composer clears, and the prompt follows.
     shell: bool,
+    /// Why the page restricts the composer (a thread that cannot take a
+    /// turn, a draft handed over to a cloud switch); a lost connection is
+    /// the composer's own to see.
+    restricted: Option<Restricted>,
 }
 
 impl PartialEq for Composer {
@@ -87,8 +105,10 @@ impl PartialEq for Composer {
             && self.on_changed == other.on_changed
             && self.on_submitted == other.on_submitted
             && self.on_picked == other.on_picked
+            && self.on_queue == other.on_queue
             && self.bare == other.bare
             && self.shell == other.shell
+            && self.restricted == other.restricted
     }
 }
 
@@ -102,7 +122,9 @@ impl Composer {
             on_changed: None,
             on_submitted: None,
             on_picked: None,
+            on_queue: None,
             bare: false,
+            restricted: None,
         }
     }
 
@@ -115,7 +137,9 @@ impl Composer {
             on_changed: None,
             on_submitted: None,
             on_picked: None,
+            on_queue: None,
             bare: true,
+            restricted: None,
         }
     }
 
@@ -123,6 +147,14 @@ impl Composer {
     #[must_use]
     pub fn on_changed(mut self, h: Handler<Rc<str>>) -> Composer {
         self.on_changed = Some(h);
+        self
+    }
+
+    /// The composer only edits, and Enter runs only the commands `mode` lets
+    /// pass (`handle_restricted_key`).
+    #[must_use]
+    pub fn restricted(mut self, mode: Restricted) -> Composer {
+        self.restricted = Some(mode);
         self
     }
 
@@ -139,12 +171,27 @@ impl Composer {
         self.on_picked = Some(h);
         self
     }
+
+    /// Told a press of the queue key when it is not Tab (the page binds Tab
+    /// itself; `composer.queue` may be any key).
+    #[must_use]
+    pub fn on_queue(mut self, h: Handler<()>) -> Composer {
+        self.on_queue = Some(h);
+        self
+    }
 }
 
 /// The text the composer of `ui` would submit now: its draft with every
 /// paste placeholder expanded and shell mode's `!` in front.
 pub fn submission(ui: &ThreadUi) -> Rc<str> {
     Rc::from(ui.draft.expanded(&ui.composer))
+}
+
+/// The composer of `ui` emptied by Ctrl+C: the draft is kept whole for Up
+/// and Ctrl+R (`clear_for_ctrl_c`), the file is not written.
+pub fn clear_cancelled(ui: &ThreadUi) {
+    ui.draft.cancelled(&ui.composer);
+    ui.composer.clear();
 }
 
 /// The composer of `ui` emptied for a line that went out or a command that
@@ -163,6 +210,7 @@ impl StatefulWidget for Composer {
         ComposerState {
             listener: None,
             suggest: Rc::default(),
+            restricted: Cell::new(false),
         }
     }
 }
@@ -175,6 +223,9 @@ pub struct ComposerState {
     listener: Option<(Rc<ThreadUi>, VoidCallback, VoidCallback)>,
     /// The popup's rows and highlight, read by the key hook.
     suggest: Rc<suggest::Suggest>,
+    /// Whether the last build saw a restricted composer: a change into it
+    /// restricts the draft.
+    restricted: Cell<bool>,
 }
 
 /// What the composer's own children tell it.
@@ -200,16 +251,62 @@ pub enum ComposerMsg {
     Dismiss,
     /// Ctrl+C on a draft: it is cleared and kept in history.
     ClearForCtrlC,
+    /// The history needs reads the store lacks: the app gets them from the
+    /// file.
+    Lookups(Vec<Lookup>),
+    /// The store changed while the draft waits for a read: it takes what
+    /// came in.
+    Polled,
     /// The draft entered or left shell mode.
     Shell,
+    /// The queue key (`composer.queue`) other than Tab.
+    Queue,
+    /// Reverse history search opened, took a key or ended: the preview and
+    /// the footer's query are drawn again.
+    Searched,
     /// The timer of the paste-burst detector: what it holds goes in if its
     /// time is up.
     BurstDue,
+    /// Row `i` of the `@`/`$` popup was picked (Enter, Tab or a click).
+    MentionPick(usize),
+    /// The view was built while a mention popup is up: the app's data may
+    /// have changed under it, it asks them again.
+    SyncMentions,
+    /// Ctrl+V: the clipboard's image is asked of the app.
+    PasteImage,
+    /// The view was built after the image this draft asked for came in:
+    /// it is attached.
+    ImageArrived,
+    /// A remote image row was selected, deselected or removed.
+    Remote,
+    /// The composer became restricted: what a burst holds goes in, the
+    /// history search ends, the popups close and the pastes are expanded.
+    Restrict,
+}
+
+/// The reads the history needs from the file go to the app, which asks the
+/// host (`popovers::Intent::Lookup`).
+fn ask(cx: &mut Cx<'_, ComposerState>, lookups: Vec<Lookup>) {
+    if lookups.is_empty() {
+        return;
+    }
+    let hs = read::<Hs, _>(cx);
+    for lookup in lookups {
+        cx.emit(
+            &hs.screen,
+            ScreenIntent::from(popovers::Intent::Lookup(lookup)),
+        );
+    }
 }
 
 impl ComposerState {
     fn listen(&mut self, ui: &Rc<ThreadUi>, tell: Rc<dyn Fn(ComposerMsg)>) {
         self.unlisten();
+        // a click on a row of the mention popup picks as Enter does
+        let chosen = tell.clone();
+        ui.draft
+            .mentions()
+            .on_choose(Rc::new(move |at| chosen(ComposerMsg::MentionPick(at))));
         let (c, d) = (ui.composer.clone(), ui.draft.clone());
         let snap: VoidCallback = Rc::new(move || d.snap_caret(&c));
         ui.composer.listenable().add_listener(snap.clone());
@@ -227,18 +324,47 @@ impl ComposerState {
     }
 
     /// Asks the popup's sources for the rows of the text before the caret
-    /// (none in shell mode: `allow_command_popup`); whether they changed.
-    fn refresh(&self, w: &Composer, states: &ScreenStates, table: &chat_strings::Strings) -> bool {
-        if w.bare || w.ui.draft.shell() {
-            return self.suggest.refresh(&w.ui.composer, |_| Vec::new());
+    /// (none in shell mode, nor where `@` or `$` calls for the mention
+    /// popup: `allow_command_popup`); whether they changed.
+    fn refresh(
+        &self,
+        w: &Composer,
+        states: &ScreenStates,
+        table: &chat_strings::Strings,
+        model: Option<&str>,
+    ) -> bool {
+        let (draft, c) = (&w.ui.draft, &w.ui.composer);
+        if w.bare || draft.shell() || draft.mentions_claim_caret(c, &states.popovers.sources()) {
+            return self.suggest.refresh(c, |_| Vec::new());
         }
         self.suggest.refresh(&w.ui.composer, |before| {
-            popup::suggestions(states, table, before)
+            popup::suggestions(states, table, model, before)
         })
     }
 }
 
 impl ComposerState {
+    /// Why this composer is restricted now: the page's reason, or the lost
+    /// connection of the thread's backend (`reconnect.offline`: reconnecting
+    /// or given up). The bare text area is never.
+    fn mode(&self, w: &Composer, cx: &mut Cx<'_, Self>) -> Option<Restricted> {
+        if w.bare {
+            return None;
+        }
+        if w.restricted.is_some() {
+            return w.restricted;
+        }
+        let session = watch::<SessionSlice, _>(cx);
+        let states = watch::<ScreenStates, _>(cx);
+        let thread = read::<ThreadModel, _>(cx);
+        let backend = states.agents.owner_of(thread.id().as_str());
+        matches!(
+            session.connections.get(&backend),
+            Some(ConnectionState::Reconnecting | ConnectionState::Disconnected)
+        )
+        .then_some(Restricted::Disconnected)
+    }
+
     /// `field` with the popup of the suggestions over or under it: a
     /// `Popover` of an `OptionList` (no focus of its own, the caret stays
     /// in the field), closed by Esc, a press outside or the focus leaving.
@@ -337,6 +463,12 @@ impl State for ComposerState {
                 }
             }
             ComposerMsg::Pasted => {
+                // an offline draft shows what Enter would run at once (the
+                // app's Null key after a paste); the other modes expand it
+                // on the next key
+                if self.mode(w, cx).is_some_and(Restricted::expands_on_paste) {
+                    w.ui.draft.expand_pastes(&w.ui.composer);
+                }
                 let table = strings::of(cx);
                 w.ui.draft
                     .relabel_images(&w.ui.composer, |n| table.image(n));
@@ -345,6 +477,11 @@ impl State for ComposerState {
                 }
                 // a paste at the start may have made it shell mode
                 return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Queue => {
+                if let Some(h) = &w.on_queue {
+                    cx.emit(h, ());
+                }
             }
             ComposerMsg::Submitted(_) => {
                 // the draft clears when the thread takes it (`clear_sent`)
@@ -359,13 +496,27 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::ClearForCtrlC => {
-                let text = submission(&w.ui);
-                clear_sent(&w.ui);
-                let hs = read::<Hs, _>(cx);
-                cx.emit(
-                    &hs.screen,
-                    ScreenIntent::from(popovers::Intent::Record(text.to_string())),
-                );
+                clear_cancelled(&w.ui);
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Lookups(lookups) => {
+                ask(cx, lookups);
+                return rtwk::Rebuild::No;
+            }
+            ComposerMsg::Polled => {
+                let states = read::<ScreenStates, _>(cx);
+                let mut asks = Vec::new();
+                let changed =
+                    w.ui.draft
+                        .history_poll(&w.ui.composer, &states.popovers.history, &mut asks);
+                ask(cx, asks);
+                if !changed {
+                    return rtwk::Rebuild::No;
+                }
+                // the page's footer and the app hear of the new draft
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, w.ui.composer.text());
                 }
@@ -400,13 +551,32 @@ impl State for ComposerState {
             ComposerMsg::Refresh => {
                 let states = read::<ScreenStates, _>(cx);
                 let table = chat_strings::of(cx);
-                return if self.refresh(w, &states, table) {
+                mentions::sync(w, &states, cx);
+                // a click or a key of the field ended the row's selection
+                let deselected = w.ui.draft.remote_deselect_on_move(&w.ui.composer);
+                let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
+                return if self.refresh(w, &states, table, model.as_deref()) || deselected {
                     rtwk::Rebuild::Yes
                 } else {
                     rtwk::Rebuild::No
                 };
             }
-            ComposerMsg::Redraw => return rtwk::Rebuild::Yes,
+            ComposerMsg::Redraw => {
+                // a Vim `/` query may have opened: no mention popup meanwhile
+                let states = read::<ScreenStates, _>(cx);
+                mentions::sync(w, &states, cx);
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Searched => {
+                // history search owns the keys: no mention popup meanwhile
+                let states = read::<ScreenStates, _>(cx);
+                mentions::sync(w, &states, cx);
+                // the page's footer is the query: it hears of every change
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
             ComposerMsg::Highlight(at) => {
                 if let Ok(at) = usize::try_from(at) {
                     self.suggest.highlight(at);
@@ -427,6 +597,58 @@ impl State for ComposerState {
             }
             ComposerMsg::Dismiss => {
                 self.suggest.hide(w.ui.composer.text());
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::MentionPick(at) => {
+                let states = read::<ScreenStates, _>(cx);
+                let table = strings::of(cx);
+                if !mentions::pick(w, at, |n| table.image(n), &states, cx) {
+                    return rtwk::Rebuild::No;
+                }
+                // the page's footer and the app hear of the new draft
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::SyncMentions => {
+                // the popup draws itself again: the composer stays as it is
+                let states = read::<ScreenStates, _>(cx);
+                mentions::sync(w, &states, cx);
+            }
+            ComposerMsg::PasteImage => {
+                let hs = read::<Hs, _>(cx);
+                cx.emit(&hs.screen, ScreenIntent::from(popovers::Intent::PasteImage));
+            }
+            ComposerMsg::ImageArrived => {
+                let states = read::<ScreenStates, _>(cx);
+                let table = strings::of(cx);
+                let (draft, c) = (&w.ui.draft, &w.ui.composer);
+                let took = draft.vim_direct(c, || {
+                    draft.take_pasted_image(c, &states.popovers.pasted, |n| table.image(n))
+                });
+                if !took {
+                    return rtwk::Rebuild::No;
+                }
+                // the page's footer and the app hear of the new draft
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Remote => return rtwk::Rebuild::Yes,
+            ComposerMsg::Restrict => {
+                if let Some(binding) = AppBinding::maybe_of(cx) {
+                    let table = strings::of(cx);
+                    let tell = cx.local_sender();
+                    let env = burst_env(&binding, cx, table);
+                    burst::flush_held_with(&w.ui.draft, &*tell, &env, &w.ui.composer);
+                }
+                w.ui.draft.restrict(&w.ui.composer);
+                self.suggest.hide(w.ui.composer.text());
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
                 return rtwk::Rebuild::Yes;
             }
         }
@@ -453,14 +675,36 @@ impl State for ComposerState {
         }
         let states = watch::<ScreenStates, _>(cx);
         let table = strings::of(cx);
+        if w.ui.draft.history_waiting() {
+            // a read the history waits for may be in the store now
+            cx.local_sender()(ComposerMsg::Polled);
+        }
+        if w.ui.draft.mentions().is_open() {
+            // the mentions or the file matches may have changed under it
+            cx.local_sender()(ComposerMsg::SyncMentions);
+        }
+        if w.ui.draft.image_arrived(&states.popovers.pasted) {
+            // the clipboard's image this draft asked for is in
+            cx.local_sender()(ComposerMsg::ImageArrived);
+        }
+        let restricted = self.mode(w, cx);
+        if self.restricted.replace(restricted.is_some()) != restricted.is_some()
+            && restricted.is_some()
+        {
+            cx.local_sender()(ComposerMsg::Restrict);
+        }
         let data = KeyData {
+            restricted,
             draft: w.ui.draft.clone(),
-            history: Rc::from(states.popovers.history.as_slice()),
+            history: states.popovers.history.clone(),
             tell: cx.local_sender(),
             burst: AppBinding::maybe_of(cx).map(|binding| burst_env(&binding, cx, table)),
             suggest: self.suggest.clone(),
+            keymap: crate::keymap::keymap(cx),
+            states: states.clone(),
         };
         let env = data.burst.clone();
+        let searching = data.clone();
         let keys = |child: AnyWidget| -> AnyWidget {
             EditingKeys::new(
                 move |c, key, kcx| editing::take_key(&data, c, key, kcx),
@@ -481,13 +725,31 @@ impl State for ComposerState {
                 burst::flush_held_with(&draft, &*tell, env, &pasted_into);
             }
             draft.burst(PasteBurst::clear_after_explicit_paste);
-            let took = draft.paste(
+            // a paste while history search is open goes into its query
+            if draft.searching() {
+                search::paste(&searching, &pasted_into, text);
+                return true;
+            }
+            // a paste while the `/` query is typed goes into the query
+            if vim::paste_into_query(&draft, text) {
+                tell(ComposerMsg::Redraw);
+                return true;
+            }
+            draft.vim_begin_edit(&pasted_into);
+            let mut took = draft.paste(
                 &pasted_into,
                 text,
                 |chars| table.pasted(chars),
                 |n| table.image(n),
             );
+            // a plain paste is the field's own insert, after this returns;
+            // Vim's step has to close with it, so the draft inserts it here
+            if !took && draft.vim_enabled() {
+                pasted_into.insert(text);
+                took = true;
+            }
             if took {
+                vim::pasted(&draft, &pasted_into, text);
                 tell(ComposerMsg::Pasted);
             }
             took
@@ -502,7 +764,8 @@ impl State for ComposerState {
         }
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
-        self.refresh(w, &states, table);
+        let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
+        self.refresh(w, &states, table, model.as_deref());
         let field = self.popup(keys(area.into()), cx);
         let mark = if w.ui.draft.shell() {
             prompt(
@@ -513,10 +776,37 @@ impl State for ComposerState {
         } else {
             prompt(table.prompt, tokens.bold())
         };
-        Row::new()
+        let draft_row = Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(mark)
-            .child(Expanded::new(1, field))
+            .child(Expanded::new(1, field));
+        let remote = w.ui.draft.remote_count();
+        if remote == 0 {
+            return draft_row.into();
+        }
+        // the remote images stand above the draft, one blank row between
+        let selected = w.ui.draft.remote_selected();
+        let labels = strings::of(cx);
+        let start = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .main_axis_size(MainAxisSize::Min);
+        let rows = (0..remote).fold(start, |column, at| {
+            let style = if selected == Some(at) {
+                tokens.info().attrs(Attrs::REVERSE)
+            } else {
+                tokens.info()
+            };
+            column.child(Padding::new(
+                EdgeInsets::only(PROMPT_COLS, 0, 0, 0),
+                Text::line(labels.image(at + 1)).style(style),
+            ))
+        });
+        rows.child(SizedBox::new(None, Some(1), None))
+            .child(draft_row)
             .into()
     }
 }
+
+/// The columns the prompt takes before the draft's text
+/// (`LIVE_PREFIX_COLS`): the remote image rows start there.
+const PROMPT_COLS: i32 = 2;

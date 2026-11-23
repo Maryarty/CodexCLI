@@ -12,7 +12,7 @@ mod warnings;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
-use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
+use rtwk::overlay::{DialogResult, show_dialog};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -22,10 +22,17 @@ pub mod strings;
 
 /// The shortcut overlay's body for a bottom pane, and its close hint (the
 /// footer's line while it is open). Oracle: `shortcut_overlay.rs`.
-pub fn shortcut_panel(cx: &mut Cx<'_, impl Sized>) -> (AnyWidget, &'static str) {
+///
+/// `running` is the turn: `Queue message` and `Interrupt` for `Send message`
+/// and `Quit`. The panel is a `Flexible` that outweighs the reader's gap
+/// beside it (flex 1, `transcript::follow::gap`): it takes the rows it needs
+/// before the gap's one.
+pub fn shortcut_panel<S: 'static>(cx: &mut Cx<'_, S>, running: bool) -> (AnyWidget, &'static str) {
     let tokens = crate::app::theme::Tokens::of(cx);
     let s = strings::of(cx);
-    (shortcuts::panel(s, &tokens), s.shortcuts_close)
+    let keymap = crate::keymap::keymap(cx);
+    let sections = shortcuts::resolve(s, &keymap, running);
+    (shortcuts::panel(s, &tokens, sections), s.shortcuts_close)
 }
 
 /// What the debug menu lists for this directory: one entry per dialog worth
@@ -80,7 +87,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(
         cx,
         move |_| dialog::SmallDialog.into(),
-        DialogOptions::default(),
+        crate::sheets::sheet_options(),
     )
 }
 

@@ -25,6 +25,9 @@ use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::import::Places;
 use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::oneshot;
 
 use crate::services::agents::search::Gate;
 use crate::services::agents::search::Latest;
@@ -204,6 +207,7 @@ impl Workspace for FakeWorkspace {
 pub struct FakeServer {
     shared: Arc<Mutex<Shared>>,
     workspace: Arc<FakeWorkspace>,
+    barriers: UnboundedReceiver<oneshot::Sender<()>>,
 }
 
 /// The test's side: script, inspect, inject.
@@ -211,18 +215,36 @@ pub struct FakeServer {
 pub struct FakeHandle {
     shared: Arc<Mutex<Shared>>,
     workspace: Arc<FakeWorkspace>,
+    barriers: UnboundedSender<oneshot::Sender<()>>,
+}
+
+/// A barrier asked of the fake's command loop (`FakeHandle::barrier`).
+pub struct Barrier(oneshot::Receiver<()>);
+
+impl Barrier {
+    /// Whether the loop has taken every command that was sent before the
+    /// barrier was asked (a loop that ended counts: nothing more comes).
+    pub fn passed(&mut self) -> bool {
+        !matches!(self.0.try_recv(), Err(oneshot::error::TryRecvError::Empty))
+    }
 }
 
 impl FakeServer {
     pub fn new() -> (FakeServer, FakeHandle) {
         let shared = Arc::new(Mutex::new(Shared::default()));
         let workspace = Arc::new(FakeWorkspace::default());
+        let (barrier_tx, barriers) = unbounded_channel();
         (
             FakeServer {
                 shared: shared.clone(),
                 workspace: workspace.clone(),
+                barriers,
             },
-            FakeHandle { shared, workspace },
+            FakeHandle {
+                shared,
+                workspace,
+                barriers: barrier_tx,
+            },
         )
     }
 }
@@ -282,6 +304,18 @@ impl FakeHandle {
             .lock()
             .map(|shared| shared.requests.clone())
             .unwrap_or_default()
+    }
+
+    /// A barrier on the command loop: it passes once the loop has taken and
+    /// handled every command the app sent before this call (a search that a
+    /// newer one drops is dropped by then). The app sends a command
+    /// synchronously from its handler, so a test that has seen the screen
+    /// show a key's effect has the key's commands in the queue. Without it a
+    /// test measures whether the loop got to them yet.
+    pub fn barrier(&self) -> Barrier {
+        let (done, passed) = oneshot::channel();
+        let _ = self.barriers.send(done);
+        Barrier(passed)
     }
 
     /// Plays `events` after the next unscripted turn starts.
@@ -348,6 +382,7 @@ async fn run_as(
     epoch: ConnEpoch,
 ) {
     let shared = server.shared;
+    let mut barriers = server.barriers;
     let backend = other.unwrap_or_default();
     if let Ok(mut guard) = shared.lock() {
         guard.ingress = Some((ingress.clone(), epoch, backend));
@@ -389,7 +424,19 @@ async fn run_as(
             }
         });
     }
-    while let Some(command) = commands.recv().await {
+    loop {
+        // Commands first: a barrier is seen only when none is queued.
+        let command = tokio::select! {
+            biased;
+            command = commands.recv() => match command {
+                Some(command) => command,
+                None => return,
+            },
+            Some(done) = barriers.recv() => {
+                let _ = done.send(());
+                continue;
+            }
+        };
         let scripted = {
             let Ok(mut guard) = shared.lock() else {
                 return;
@@ -443,7 +490,14 @@ async fn run_as(
             // responder answers them as the client does.
             Command::RejectRequest { .. }
             | Command::ResolveRequest { .. }
-            | Command::InterruptTurn { .. } => {}
+            | Command::InterruptTurn { .. }
+            | Command::OpenUrl { .. }
+            // Host-run asks (the clipboard, the diff, the history file, the analytics, the
+            // device): recorded; a test answers with `inject` of the matching `AppEv`.
+            | Command::Popovers { .. }
+            | Command::Usage { .. }
+            | Command::Effect { .. }
+            | Command::VerifyUser { .. } => {}
             // The scripted server has no launch facts: nothing is due.
             Command::Startup { .. } => {}
             // The import flow: answered as the responder scripts the
@@ -505,7 +559,9 @@ async fn run_as(
                     let _ = ingress.send(Ingress::of(backend, epoch, ev));
                 });
             }
-            other @ (Command::Screen { .. } | Command::ReadRateLimits { .. }) => {
+            other @ (Command::Screen { .. }
+            | Command::ReadRateLimits { .. }
+            | Command::SendAddCreditsNudge { .. }) => {
                 let (responder, facts) = shared
                     .lock()
                     .map(|guard| (guard.responder.clone(), guard.facts))

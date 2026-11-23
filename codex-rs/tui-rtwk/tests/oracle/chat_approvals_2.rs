@@ -12,7 +12,7 @@ use crate::kit::{self, Owner, Screen};
 fn app_server_guardian_write_stdin_denial_preserves_child_action() {
     kit::pending(
         Owner::DialogsPane,
-        "no guardian review status row, denial history cell or auto-review denials popup on the chat screen: the chat ignores guardian notifications",
+        "needs(chat-live, chat-status, popups): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status), `/auto-review` opens no list and a pick is not mapped to `ThreadEv::ApproveDenied` (commands/dispatch.rs, `sheets::approvals::open_auto_review`: popups); the denials popup also waits on the select rows cutting the name with an ellipsis",
     );
     // oracle: a write_stdin review starts (InProgress) under a running turn and draws the review status row (width 80);
     // then it is denied: the only history cell is the stdin denial, the header is back to Working; the denials popup (width 110)
@@ -32,7 +32,7 @@ fn app_server_guardian_write_stdin_denial_preserves_child_action() {
 fn app_server_guardian_write_stdin_approval_and_timeout_clear_review_status() {
     kit::pending(
         Owner::DialogsPane,
-        "no guardian review status or timed-out history cell on the chat screen: the chat ignores guardian notifications",
+        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status)",
     );
     // oracle: a write_stdin review InProgress then Approved draws no history and no status; InProgress then TimedOut leaves
     // one history cell (the stdin timeout) and the header Working.
@@ -49,7 +49,7 @@ fn app_server_guardian_write_stdin_approval_and_timeout_clear_review_status() {
 fn auto_review_denials_popup_lists_stored_auto_review_denials() {
     kit::pending(
         Owner::DialogsPane,
-        "no auto-review denials popup on the chat screen (the stored denial list and its opener are not built)",
+        "needs(chat-live, popups): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `/auto-review` opens no list and a pick is not mapped to `ThreadEv::ApproveDenied` (commands/dispatch.rs, `sheets::approvals::open_auto_review`: popups); the select rows wrap the name column where the oracle cuts it with an ellipsis (`@…`)",
     );
     // oracle: one denied auto review (curl ... https://example.com, risk high) is stored; the popup is drawn at width 40.
     let s = Screen::build(Owner::DialogsPane).size(40, 24).live().open();
@@ -62,7 +62,7 @@ fn auto_review_denials_popup_lists_stored_auto_review_denials() {
 fn guardian_denied_exec_renders_warning_and_denied_request() {
     kit::pending(
         Owner::DialogsPane,
-        "no guardian warning or denied-request history cell on the chat screen: the chat ignores guardian assessments",
+        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), and the guardian warning has no visible transcript item (`Item::Warning` is detailed-only)",
     );
     // oracle: an InProgress assessment, a warning line, then the Denied assessment: the history and the bottom pane at width 140, 20 rows.
     let s = Screen::build(Owner::DialogsPane)
@@ -78,7 +78,7 @@ fn guardian_denied_exec_renders_warning_and_denied_request() {
 fn guardian_approved_exec_is_hidden_from_history() {
     kit::pending(
         Owner::DialogsPane,
-        "no guardian warning line or approved-review handling on the chat screen: an approved review must draw no history cell",
+        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), and the approved-warning filter and the approved review are built (no cell), the chat only has to carry them",
     );
     // oracle: a guardian warning (approved, risk low) and an Approved assessment draw no history; the bottom pane at width 120.
     let s = Screen::build(Owner::DialogsPane)
@@ -94,7 +94,7 @@ fn guardian_approved_exec_is_hidden_from_history() {
 fn guardian_approved_request_permissions_clears_status_without_history() {
     kit::pending(
         Owner::DialogsPane,
-        "no 'Reviewing approval request' status with its permission details on the chat screen: guardian assessments are not drawn",
+        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status)",
     );
     // oracle: a RequestPermissions review InProgress shows the header and details; Approved clears it without history.
     let s = Screen::build(Owner::DialogsPane)
@@ -114,7 +114,7 @@ fn guardian_approved_request_permissions_clears_status_without_history() {
 fn guardian_timed_out_exec_renders_warning_and_timed_out_request() {
     kit::pending(
         Owner::DialogsPane,
-        "no guardian warning or timed-out request history cell on the chat screen: the chat ignores guardian assessments",
+        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), and the guardian warning has no visible transcript item (`Item::Warning` is detailed-only)",
     );
     // oracle: an InProgress assessment, the timeout warning, then TimedOut: history and bottom pane at width 140, 20 rows.
     let s = Screen::build(Owner::DialogsPane)
@@ -130,7 +130,7 @@ fn guardian_timed_out_exec_renders_warning_and_timed_out_request() {
 fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-server guardian review started/completed handling on the chat screen: the denied request is not drawn",
+        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner)",
     );
     // oracle: ItemGuardianApprovalReviewStarted then Completed (Denied, risk high) draw the denied request at width 140.
     let s = Screen::build(Owner::DialogsPane)
@@ -146,7 +146,7 @@ fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
 fn app_server_guardian_review_timed_out_renders_timed_out_request_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-server guardian review handling on the chat screen: the timed-out request is not drawn",
+        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner)",
     );
     // oracle: ItemGuardianApprovalReviewStarted then Completed (TimedOut) draw the timed-out request at width 140.
     let s = Screen::build(Owner::DialogsPane)
@@ -162,7 +162,7 @@ fn app_server_guardian_review_timed_out_renders_timed_out_request_snapshot() {
 fn guardian_parallel_reviews_render_aggregate_status_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no aggregate guardian review status row on the chat screen (two parallel reviews)",
+        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status)",
     );
     // oracle: two InProgress reviews under a started turn draw one aggregate status at width 72.
     let s = Screen::build(Owner::DialogsPane).size(72, 24).live().open();
@@ -175,7 +175,7 @@ fn guardian_parallel_reviews_render_aggregate_status_snapshot() {
 fn guardian_cleanup_drops_stale_reviews_and_restores_mcp_status() {
     kit::pending(
         Owner::DialogsPane,
-        "no guardian review status and no MCP 'Booting MCP server' status on the chat screen: the chat ignores guardian notifications",
+        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), the turn's end must apply `ThreadEv::TurnEnded` to the slot (threads.rs `end_turn`), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status); no MCP startup status either",
     );
     // oracle: alpha MCP starting, a stale review under turn-1, turn-1 interrupted: the header is Booting MCP server: alpha;
     // turn-2 with a current review draws the aggregate (width 72); turn-2 completes: the header is again Booting MCP server: alpha.

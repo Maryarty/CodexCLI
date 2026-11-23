@@ -275,7 +275,7 @@ fn app_server_model_verification_renders_warning() {
 fn status_line_git_summary_items_render_values() {
     kit::pending(
         Owner::UiPane,
-        "no status-line git items (PR number, branch changes) on the chat screen",
+        "no git summary fact: StatusFacts.git (PR number + url, additions/deletions; chunk-live's) and the host's probe (`branch_summary`, host/src/facts.rs) are needs; the items `pull-request-number` (a link) and `branch-changes` (`+3 -1` / `No changes`) are written once they exist",
     );
     // oracle: git summary PR 20252 and +143 -22 render as the PR number and branch-changes status values.
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -289,7 +289,7 @@ fn status_line_git_summary_items_render_values() {
 fn status_line_branch_changes_render_no_changes() {
     kit::pending(
         Owner::UiPane,
-        "no status-line branch-changes item on the chat screen",
+        "no git summary fact: StatusFacts.git (chunk-live's); the item `branch-changes` reads `No changes` for 0/0 once it exists",
     );
     // oracle: a zero diff renders "No changes" in the branch-changes item.
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -302,7 +302,7 @@ fn status_line_branch_changes_render_no_changes() {
 fn raw_output_mode_can_change_without_inserting_notice() {
     kit::pending(
         Owner::UiPane,
-        "no raw output mode (its status item and its notice) on the chat screen",
+        "no raw-output fact: StatusFacts.raw_output (chunk-live's) and the `/raw` toggle; the item `raw-output` (`raw output`) follows",
     );
     // oracle: enabling raw output inserts no history; disabling it inserts the notice.
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -688,31 +688,28 @@ fn final_answer_completion_restores_status_indicator_for_pending_steer() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2732 ui_snapshots_small_heights_idle kind=snap owner=ui-pane
 #[test]
 fn ui_snapshots_small_heights_idle() {
-    kit::pending(
-        Owner::UiPane,
-        "no chat render at 1 to 3 rows (the inline small-height layout of the chat screen)",
-    );
     // oracle: width 40, heights 1, 2 and 3 for the idle chat.
-    let h1 = Screen::build(Owner::UiPane).size(40, 1).live().open();
-    h1.assert_snap("chat_small_idle_h1");
-    let h2 = Screen::build(Owner::UiPane).size(40, 2).live().open();
-    h2.assert_snap("chat_small_idle_h2");
-    let h3 = Screen::build(Owner::UiPane).size(40, 3).live().open();
-    h3.assert_snap("chat_small_idle_h3");
+    for (h, snap) in [
+        (1u16, "chat_small_idle_h1"),
+        (2, "chat_small_idle_h2"),
+        (3, "chat_small_idle_h3"),
+    ] {
+        let s = Screen::build(Owner::UiPane).size(40, h).live().open();
+        s.assert_snap(snap);
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2748 ui_small_heights_hide_running_state kind=ui owner=ui-pane
 #[test]
 fn ui_small_heights_hide_running_state() {
-    kit::pending(
-        Owner::UiPane,
-        "no running state at 1 to 3 rows: the chat screen does not hide the running state at small heights",
-    );
     // oracle: at width 40 and heights 1, 2 and 3, the running chat (turn started, reasoning "**Thinking**") draws the same rows as the idle chat.
+    // (the reasoning delta only sets the header, which is hidden with the row)
     for h in [1u16, 2, 3] {
         let idle = Screen::build(Owner::UiPane).size(40, h).live().open();
-        let running = Screen::build(Owner::UiPane).size(40, h).live().open();
-        // needs feed: turn started, reasoning delta "**Thinking**" on the running screen
+        let running = Screen::build(Owner::UiPane)
+            .size(40, h)
+            .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
+            .open();
         running.assert_same_rows(&idle.shot());
     }
 }
@@ -816,7 +813,7 @@ fn status_widget_and_approval_modal_snapshot() {
 fn status_widget_active_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no status widget (the running header with its reasoning detail) on the chat screen",
+        "the Working row is on the chat screen (`• Working (0s • esc to interrupt)`), the rest of the oracle's snapshot is not: the header `Analyzing` comes from the bold line of a reasoning delta (`on_agent_reasoning_delta`, `reasoning_buffer` and `latest_summary_line`: no reasoning header in the thread model, chunk-live's), the status line `GPT-5.6-Sol default · /tmp/project` is chat_status_2's, and the footer hint row differs (the oracle's chat widget has agents navigation off, ours reads `← for agents · ? for shortcuts`; needs a kit option or a flag for it); the oracle's snapshot is the pane's desired height (8 rows), ours the window's",
     );
     // oracle: width 80; a running turn with reasoning "**Analyzing**".
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();

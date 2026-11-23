@@ -1,4 +1,4 @@
-# settings (S15): parity pack (partial landing, in progress)
+# settings (S15): parity pack (partial landing 2, in progress)
 
 Task `settings`, branch `claude/settings`. Oracle: `codex-rs/tui` `bottom_pane/{multi_select_picker,
 status_line_setup, title_setup, skills_toggle_view, experimental_features_view, ...}`. Twin: modal sheets
@@ -13,8 +13,9 @@ in `codex-rs/tui-rtwk/src/sheets/settings`, core state in `core/src/screens/sett
 | 3 | theme picker (sheet, preview in the model, `/theme` through the app) | picker.rs 1 shard | done (host feed: needs) |
 | 4 | skills toggle | small_dialogs_2: 4 of 5 shard green (`SetupSheet` kind Skills) | done; 1 pending (keymap hint) |
 | 5 | experimental features (`FeaturesSheet`) | small_dialogs_1: 3 of 3 shard green | done (sheet + model); `/experimental` and host feed: needs |
-| 6 | memories settings + reset confirmation (1 shard) | | left (a plain select list: see "Left") |
-| 7 | hooks browser (23 + 2 shard, entries `dialogs/hooks_*`), config panel + child pickers (19 snaps, no shard rows), keymap setup/capture/debug, provider editor | | left |
+| 6 | memories settings + reset confirmation (`MemoriesSheet`, `/memories` through the app) | picker/small_dialogs rows | done (landed 04ff6c716; enable prompt and host feed: needs) |
+| 7 | hooks browser (`HooksSheet`, 17 entries `settings/hooks_*`) | small_dialogs_2: 19 of 23 hooks tests green, 4 pending after their first asserts; small_dialogs_1: 2 pending (wide_titles' reverse video, wrapped URL) | done (host `hooks/list` and persistence: needs) |
+| 8 | config panel + child pickers (19 snaps, no shard rows), keymap setup/capture/debug, provider editor | | left |
 
 ## What the sheets use (rtwk, Flutter counterpart)
 
@@ -35,6 +36,19 @@ in `codex-rs/tui-rtwk/src/sheets/settings`, core state in `core/src/screens/sett
   (`Open`), the flags and order (`Setup`, `Experimental`), what a dialog asked for (`Edit`) and intents.
   Async answers of the experimental dialog carry the open's `generation`; a stale one is dropped (core test
   `answers_of_another_open_and_read_only_rows_change_nothing`, shown biting by removing the guard).
+
+- Hooks browser (Flutter: a `Navigator`-less two-page sheet, the model's `page` picks the page): one
+  `SelectionController<usize>` per page, one `ListController` + a `ValueNotifier<Scrolled>` for the window
+  marks (`↑`/`↓` rows of the oracle) fed by a `NotificationListener<ScrollNotification>`; the list sits in a
+  `Flexible` under the header and above the details so a short terminal shrinks the window first
+  (`overflow_intended` on the page columns: below the header and the two marks the oracle clips too). The
+  events table picks wide or narrow from the sheet's width in a `LayoutBuilder` (72 cells); the details are
+  `Row(label in a ConstrainedBox min 10, Expanded(Text wrap Word))`; a title that does not fit is `dots_end`.
+  The page's cursor is reset in `build` (`arrive`), not in `did_change_dependencies`: a `select`ed model
+  value that changes after the first call does not re-call it (found by the handler pages' stray `↓`).
+  Mouse: a tap puts the cursor on a row, a second tap opens the event / toggles the hook, the wheel is the
+  `ListView`'s. Keys: the oracle's list keymap (`move_of`), space/enter toggle, `t` trust (all on the events
+  page), Esc back then close, Ctrl+C closes from either page (`Intent::HookClose`).
 
 ## What is wired through the app
 
@@ -77,6 +91,23 @@ in `tests/pages/transitions.rs`, which now passes unchanged).
 - The select dialog (`Menu::List`) could not draw the skills layout (private `rows`, no top blank, no
   reserved rows), so `SetupSheet` was generalised (kind Skills) instead of using it.
 
+- Hooks: the selected row is the theme's accent and bold (the port's selection style in every dialog), not
+  the oracle's `selection_style()` of an unprobed palette: `selected_event_rows_use_the_shared_selection_style`,
+  the review-column count cell and the reverse-video part of `wide_titles` are `pending` with that reason
+  (the shared selection style, not this dialog).
+- Hooks, gaps: G74 (new): `Text(maxLines: 3, overflow: ellipsis)` cuts the third row through the rest of the
+  text (`fourteen fift…`), the oracle wraps first and appends `…` to the third row: `renders_command_details_with_three_line_cap`
+  `pending(G74)` after its first assert. G49/G72 (existing): the wrapped URL command
+  (`wrapped_hook_command_preserves_the_complete_url_destination`) breaks at a hyphen and carries no link.
+  G50/G51 (existing): `Column` cannot rank flex children; the list gives way first and the details keep
+  their rows, which is the oracle's order for every size the oracle tests.
+- Hooks, tests: `review_needed_handler_rows_use_warning_color` located its text by the command
+  (`untrusted.sh`), which is on screen only in the selected row's details; the oracle's subject is the second
+  row's line (`handler_row_lines(..)[1]`), so the shard asserts "Unnamed hook · new" yellow. The footer hints
+  are fixed strings (no keymap config): `renders_event_browser`'s `hooks_events_no_accept` part is pending.
+- `small_dialogs_2::warning_pages_wrap_and_scroll_long_diagnostics` is red in the shard (the warnings viewer,
+  S23, `/warnings`; the script route opens no dialog): not this task.
+
 ## Needs outside the area (the orchestrator)
 
 - Host (`host/src`, claimed by startup-rest): `facts::settings(&config)` reading `config.tui_theme`, listing
@@ -87,32 +118,58 @@ in `tests/pages/transitions.rs`, which now passes unchanged).
 - Persistence: a root `app::Command` variant (pattern `SaveGrouping`, `ConfigBatchWrite`) for
   `Edit::ThemeSelected`, `SetupSaved`, `SkillToggled`, `Toggled`, `FeaturesSave`, with a confirmation `Ev`.
 - Skills: the real list and the `skills/config` write.
-- Keymap config for the hint footers (skills, experimental accept/cancel chords).
+- Keymap config for the hint footers (skills, experimental accept/cancel chords, hooks).
+- Hooks browser: the host `hooks/list` RPC mapped to `Open::Hooks(Hooks::new(hooks, warnings, errors))`
+  (`HookMetadata` -> `Hook`: the source path as the directory display writes it, the server's display order)
+  sent as `Ev::Opened`, and `/hooks` (`SessionIntent::Hooks`, `src/pages/session/actions.rs`) to open the
+  slot; the edits `Edit::HookEnabled` / `HookTrusted` / `HooksTrusted` to `SetHookEnabled`, `TrustHook`,
+  `TrustHooks` (persistence `Command`, with the others above).
+- Memories: the enable prompt of the oracle and the host `Facts::memories`.
+- A shared sheet surface helper (the older sheets are transparent in blank cells; `HooksSheet` clears its
+  rows with `BoxWidget::new().style(Style::new())` under the footer).
 
 ## Left (next agent)
 
-- Memories reset confirmation: a plain select list (title, subtitle, two items with descriptions, hint
-  `enter select · esc back`); try the select sheet (`MenuDialog` with a `dir: select` fixture) first, with
-  per-width heights as above.
-- Hooks browser (`hooks_browser_view.rs`, 1700 lines; shard entries `dialogs/hooks_*` renamed to
-  `settings/hooks_*`), config panel (tabs, search, value column; core `ConfigPanel` exists, no view),
-  keymap picker (core `KeymapPicker` exists, no view), provider editor, memories settings toggles.
+- Config panel (tabs, search, value column, child pickers: effects, copy on select, notification condition,
+  session picker layout; core `ConfigPanel` exists with `visible`, fixture `config_panel.jsonl`; 18 oracle
+  snapshots in `codex-rs/tui/src/config_panel/snapshots`, the 15 tests of `config_panel_tests.rs` have no
+  shard rows yet: the owner adds a shard file or checks the snapshots through the kit's `assert_snap`).
+- Keymap picker/capture/debug (core `KeymapPicker` exists, no view), provider editor.
 - chat_popups_4 experimental rows (`/experimental` through the app) pend on the host data above.
 
 ## Checks
 
-- `settings::` sheet tests 25/25 (three runs), core settings tests 30/30 (incl. the 4 experimental), oracle
-  `small_dialogs_1::experimental_features*` 3/3 and `small_dialogs_2` skills 4 under `--profile oracle`.
-- clippy `--workspace --all-targets -D warnings` clean (RUSTUP_TOOLCHAIN=1.99.1-aarch64-apple-darwin);
-  `binary(rules)` green (no literal colours: the experimental sheet's surface is `prompt_surface` as is;
-  ADR-010: the diff gutter cell is `Strings.diff_gutter`).
-- Mutations: Right reorders by +1, flipped: `right_moves_the_item_down_the_order_and_left_back` fails;
-  the stale-generation guard removed: `answers_of_another_open...` fails; Esc saving after an unconfirmed
-  write: `a_failed_write_keeps_the_choices_...` fails.
+- Oracle shards under `--profile oracle` (summary.py, after the rebase onto c797c066f): small_dialogs_1
+  5 pass / 45 pending; small_dialogs_2 28 pass / 13 pending / 1 red (the warnings viewer, above); picker
+  24 pass / 36 pending; chat_popups_4 2 pass / 52 pending; 0 todo, 0 stale in all four.
+- Sheet tests `settings::` 37 (6 hooks: keys, Ctrl+C, trust, the window, tap, tap + wheel), core settings
+  tests 37 (5 new hooks: rows and initial event, pages and Ctrl+C, toggle, trust, trust all).
+  Shown biting: the second-tap branch of `Msg::Row` switched off, both tap tests fail.
+- The flaky `settings::esc_goes_back_from_the_confirmation_...` and its three memories siblings: cause was
+  the shared multi-thread runtime of `start()`, on which a key's intent to the shell and its answer take real
+  time (a press followed by another before the model answered read a stale `confirming`); the `/memories`
+  and `/theme` command tests now start on `start_driven` (the runtime runs only when the test lets it;
+  `press` = key pace + `advance(100)` + `quiesce`). 12 runs of the 31 `settings::` tests at machine load
+  40..75: 372 of 372 green; before the fix 2 of 2 red at load 40.
+- clippy `--workspace --all-targets -D warnings` clean; fmt clean; `binary(rules)` 66/66 (R14: the hooks
+  state holds no model type, R15: the label column is a `ConstrainedBox(min 10)`, no segmenter).
 
 ## Binary run
 
-Not done. The mock-model driver has no `settings` scenario and its turns are model turns (a slash command
-that leaves a sheet open has no sentinel); `/theme` opens in the real binary through the app. To do:
-`acargo build -q -p codex-rtwk --bin codex-rtwk`, `check.py --bin rtwk --bin oracle --only settings`
-(new `scenarios/settings.py`, area widening) and record one checkpoint's differing rows.
+`acargo build -q -p codex-rtwk --bin codex-rtwk`, then `codex-rtwk --debug-screens` in a 112x30 pty (a
+scratch driver outside the repo: `tools/rtwk-port/mock-model/check.py`'s `spawn_pty`, a small VT reader, keys
+and SGR mouse; the mock-model has no `settings` scenario and `/hooks` has no host feed, so the debug menu's
+entries are the way in). Walked on `settings/hooks_events` and `settings/hooks_many`:
+
+- events page: `Hooks` / subtitle / table (`Event Installed Active Description`, 112 wide) / `↓` mark /
+  `enter details · esc close`; Down, Up move the cursor; Enter opens `PreToolUse hooks` with the details of
+  the row under the cursor and `space/enter toggle · esc back`; Space flips `[x]`/`[ ]`, Down + Enter flips
+  the second hook; Esc returns to the events with the cursor on the event it came from; Ctrl+C closes
+  from either page; a managed hook's page reads `Managed (always on) · esc back` and Space does nothing.
+- mouse: a tap on `PermissionRequest` moves the cursor, a second tap opens its page; on `hooks_many` End
+  scrolls the window to hook 11 (`↑` mark, no `↓`), the wheel up x3 scrolls it back (`↓` mark), Home returns.
+- One checkpoint against the oracle (the events page, 112 wide, `hooks_browser_events`) is equal to the
+  snapshot in the shard test (`renders_event_browser`, green); the differing rows of any hooks checkpoint:
+  none but the selection colour (accent and bold, not the oracle's palette-less selection).
+- A false lead worth keeping: the reader showed a stray `Event` after the events page was left: the
+  presenter deletes characters (`CSI n P`) and the reader had no `P`; not the app.

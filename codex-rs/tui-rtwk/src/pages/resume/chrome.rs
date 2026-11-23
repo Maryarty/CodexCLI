@@ -10,26 +10,23 @@ use rtwk::layout::{EdgeInsets, Padding, SizedBox};
 use rtwk::style::Style;
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, LayoutBuilder};
-use rtwk_core::unicode::{TextMode, string_width};
+
+use crate::widgets::measure::Measure;
 
 use crate::widgets::page_keys::Variant;
 
 use super::strings::Strings;
 
-fn width(text: &str) -> usize {
-    string_width(text, TextMode::Graphemes, 1)
-}
-
 /// The three spellings of the footer's progress, widest first, the first
 /// that is narrower than `w` (oracle: `picker_footer_progress_label`).
-pub fn progress_label(position: usize, total: &str, percent: u8, w: usize) -> String {
+pub fn progress_label(seg: Measure, position: usize, total: &str, percent: u8, w: usize) -> String {
     [
         format!(" {position} / {total} · {percent}% "),
         format!(" {position}/{total} · {percent}% "),
         format!(" {percent}% "),
     ]
     .into_iter()
-    .find(|label| width(label) < w)
+    .find(|label| seg.width(label) < w)
     .unwrap_or_default()
 }
 
@@ -228,4 +225,22 @@ pub fn hint_rows(strings: &Strings, facts: HintFacts) -> [Vec<Variant>; 2] {
         hint(strings.key_browse, strings.browse, strings.browse, 5),
     ];
     [hint_variants(&first), hint_variants(&second)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rtwk_core::unicode::TextSegmenter;
+
+    /// A halfwidth katakana and its sound mark: one cell clustered, two in legacy.
+    const MARKED: &str = "\u{ff76}\u{ff9e}";
+
+    #[test]
+    fn the_progress_label_counts_the_terminals_cells() {
+        // ` 1 / ｶﾞ · 5% ` takes 12 cells clustered, 13 in legacy; it must be narrower than 13
+        let graphemes = progress_label(TextSegmenter::default(), 1, MARKED, 5, 13);
+        let legacy = progress_label(TextSegmenter::legacy(), 1, MARKED, 5, 13);
+        assert_eq!(graphemes, format!(" 1 / {MARKED} \u{b7} 5% "));
+        assert_eq!(legacy, format!(" 1/{MARKED} \u{b7} 5% "));
+    }
 }

@@ -1,0 +1,4 @@
+# The reasoning menu of one model: the standard efforts, "More reasoning…" for Max and Ultra.
+# Oracle data: chatwidget snapshot model_reasoning_selection_popup
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"reasoning","preset":{"model":"gpt-5.5","name":"GPT-5.5","description":"Legacy coding model.","default_effort":"medium","efforts":[{"effort":"low","description":"Fast responses with lighter reasoning"},{"effort":"medium","description":"Balances speed and reasoning depth for everyday tasks"},{"effort":"high","description":"Greater reasoning depth for complex problems"},{"effort":"xhigh","description":"Extra high reasoning depth for complex problems"},{"effort":"persistent","description":"Continue working until put to sleep"},{"effort":"max","description":"Maximum available reasoning"},{"effort":"ultra","description":"Ultra reasoning"}]},"current":{"model":"gpt-5.5","effort":"high"}}}

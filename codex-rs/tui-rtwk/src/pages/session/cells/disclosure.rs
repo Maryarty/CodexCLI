@@ -16,7 +16,7 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, State};
 pub fn disclosing<S: State<Msg = bool>>(
     cx: &mut Cx<'_, S>,
     content: AnyWidget,
-    label: &'static str,
+    label: impl Into<String>,
     style: Style,
     expanded: bool,
 ) -> AnyWidget {
@@ -24,7 +24,7 @@ pub fn disclosing<S: State<Msg = bool>>(
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(content)
-        .child(control(label, style))
+        .child(control(label.into(), style))
         .into();
     let toggle = cx.send(!expanded);
     Pressable::new(move |_, _| content.clone())
@@ -34,12 +34,12 @@ pub fn disclosing<S: State<Msg = bool>>(
 }
 
 /// The control's row: indented a quarter of the width, at most four columns.
-fn control(label: &'static str, style: Style) -> AnyWidget {
+fn control(label: String, style: Style) -> AnyWidget {
     LayoutBuilder::new(move |_, room| {
         let indent = (room.max_width / 4).min(4);
         Padding::new(
             EdgeInsets::only(indent, 0, 0, 0),
-            Text::new(label).style(style.clone()),
+            Text::new(label.clone()).style(style.clone()),
         )
         .into()
     })

@@ -1,0 +1,6 @@
+# The footer of an idle thread with the status line off (tui.status_line = []).
+# Ported from codex-tui bottom_pane/footer.rs footer_snapshots: the footer is
+# drawn from props there; here the model is a thread script and the footer
+# reads it, so the status line is turned off the way a config turns it off.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}

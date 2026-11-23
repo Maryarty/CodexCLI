@@ -5,6 +5,8 @@ use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::chat::{self, DEFAULT_STATUS_LINE_ITEMS, StatusFacts};
 use codex_tui_core::screens::status;
 
+use rtwk_core::unicode::grapheme_boundaries;
+
 use crate::l10n::strings::Shared;
 
 /// Read-only inputs for the status line and terminal title.
@@ -15,6 +17,8 @@ pub(super) struct StatusContext<'a> {
     pub rate_limits: Option<&'a status::RateLimits>,
     pub run_state: Option<&'a str>,
     pub strings: &'a Shared,
+    /// The model catalog: the tier the model runs on and its name.
+    pub catalog: &'a codex_tui_core::screens::select::models::Catalog,
 }
 
 impl StatusContext<'_> {
@@ -28,16 +32,43 @@ impl StatusContext<'_> {
         .collect()
     }
 
-    pub fn title_parts(&self, facts: &StatusFacts, activity: Option<&str>) -> Vec<String> {
-        const DEFAULT: [&str; 3] = ["activity", "thread-name", "project-name"];
-        match &facts.terminal_title {
-            Some(items) => items.iter().map(String::as_str).collect::<Vec<_>>(),
-            None => DEFAULT.to_vec(),
+    /// The terminal title (`terminal_title_text_for_selections`): the configured items (or the
+    /// default three) that are valid ids, each cut to its length; while the agent waits for the
+    /// user the action-required line replaces the spinner and holds the other items.
+    pub fn title(&self, facts: &StatusFacts, state: TitleInputs) -> Title {
+        let items = title_items(facts);
+        if let Some(prefix) = state
+            .action_required
+            .filter(|_| items.iter().any(|id| is_spinner(id)))
+        {
+            let parts = items
+                .iter()
+                .filter(|id| !is_spinner(id) && !matches!(**id, "run-state" | "status"))
+                .filter_map(|id| self.title_value(id, facts));
+            let text = std::iter::once(prefix.to_string())
+                .chain(parts)
+                .collect::<Vec<_>>();
+            return Title {
+                pieces: vec![Piece::Text(text.join(" | "))],
+            };
         }
-        .into_iter()
-        .filter_map(|id| match id {
-            "activity" | "spinner" => activity.map(str::to_owned),
-            "app-name" => Some("codex".to_string()),
+        let pieces = items
+            .iter()
+            .filter_map(|id| {
+                if is_spinner(id) {
+                    state.spinner.then_some(Piece::Spinner)
+                } else {
+                    self.title_value(id, facts).map(Piece::Text)
+                }
+            })
+            .collect();
+        Title { pieces }
+    }
+
+    /// `terminal_title_value_for_item`: the value of an item as the title shows it.
+    fn title_value(&self, id: &str, facts: &StatusFacts) -> Option<String> {
+        let value = match id {
+            "app-name" => "codex".to_string(),
             "project" | "project-name" => facts.project_root.clone().or_else(|| {
                 let cwd = self
                     .thread
@@ -46,18 +77,13 @@ impl StatusContext<'_> {
                 cwd.rsplit(['/', '\\'])
                     .find(|part| !part.is_empty())
                     .map(str::to_owned)
-            }),
-            "thread" => self.value_for("thread-title", facts),
-            _ => self.value_for(id, facts),
-        })
-        .collect()
-    }
-
-    pub fn title_has_activity(facts: &StatusFacts) -> bool {
-        facts.terminal_title.as_ref().is_none_or(|items| {
-            items
-                .iter()
-                .any(|item| matches!(item.as_str(), "activity" | "spinner"))
+            })?,
+            "thread" => self.value_for("thread-title", facts)?,
+            _ => self.value_for(id, facts)?,
+        };
+        Some(match title_cut(id) {
+            Some(max) => cut(value, max),
+            None => value,
         })
     }
 
@@ -71,6 +97,7 @@ impl StatusContext<'_> {
         let model = thread
             .and_then(|thread| thread.model.as_deref())
             .or_else(|| facts.model_name());
+        let slug = model;
         let model = model.map(|model| {
             if model.eq_ignore_ascii_case("gpt-reserve") {
                 "Luna Reserve"
@@ -78,34 +105,55 @@ impl StatusContext<'_> {
                 model
             }
         });
+        // the catalog's name of the model, else the slug (`model_display_name`)
+        let model = model.map(|model| {
+            self.catalog
+                .presets
+                .iter()
+                .find(|preset| Some(preset.model.as_str()) == slug)
+                .map_or(model, |preset| preset.name.as_str())
+        });
         let effort = thread
             .and_then(|thread| thread.effort.as_deref())
             .unwrap_or_else(|| facts.effort_label());
         let tier = thread
             .and_then(|thread| thread.service_tier.as_ref())
             .map_or(facts.service_tier.as_deref(), |tier| tier.as_deref());
-        let fast = tier == Some("priority");
+        let tier = chat::facts::effective_service_tier(facts, tier, slug, self.catalog);
+        // `processing_tier_display_name`: the name the model's catalog entry gives the tier;
+        // without one the fast tier is `Fast`
+        let tier_name = tier.as_deref().and_then(|id| {
+            let offered =
+                slug.and_then(|slug| self.catalog.presets.iter().find(|p| p.model == slug));
+            offered
+                .and_then(|preset| preset.service_tiers.iter().find(|t| t.id == id))
+                .map(|t| t.name.clone())
+                .or_else(|| {
+                    (id == "flex" && facts.provider.as_deref() != Some("amazon-bedrock"))
+                        .then(|| "Flex".to_string())
+                })
+                .or_else(|| (id == "priority").then(|| "Fast".to_string()))
+        });
         let usage = self.usage.filter(|usage| usage.received);
         let tokens = usage.map(|usage| usage.tokens);
         let context_usage = usage.and_then(|usage| usage.context);
         match id {
             "model" | "model-name" => model.map(str::to_owned),
-            "model-with-reasoning" => model.map(|model| {
-                if fast {
-                    self.strings.status_model_fast(model, effort)
-                } else {
-                    format!("{model} {effort}")
-                }
+            "model-with-reasoning" => model.map(|model| match &tier_name {
+                Some(name) if name == "Fast" => self.strings.status_model_fast(model, effort),
+                Some(name) => format!("{model} {effort} {}", name.to_lowercase()),
+                None => format!("{model} {effort}"),
             }),
-            "fast-mode" => Some(if fast { "Fast" } else { "Standard" }.to_string()),
-            "daybreak" => thread.and_then(|thread| thread.daybreak).map(|enabled| {
-                if enabled {
+            "fast-mode" => Some(tier_name.unwrap_or_else(|| "Standard".to_string())),
+            // the preference is off until the thread says it is on (`daybreak_enabled` is false by default)
+            "daybreak" => Some(
+                if thread.and_then(|thread| thread.daybreak).unwrap_or(false) {
                     "Daybreak on"
                 } else {
                     "Daybreak off"
                 }
-                .to_string()
-            }),
+                .to_string(),
+            ),
             "reasoning" => Some(effort.to_string()),
             "current-dir" => thread
                 .and_then(|thread| thread.cwd.as_deref())
@@ -159,6 +207,133 @@ impl StatusContext<'_> {
     }
 }
 
+/// What the title is made of while the page draws it.
+pub(super) struct TitleInputs<'a> {
+    /// The spinner has a frame (animations on, a turn or a compaction running).
+    pub spinner: bool,
+    /// The agent waits for the user: the line that says so (`[ ! ] Action Required`).
+    pub action_required: Option<&'a str>,
+}
+
+/// The title's pieces in order: the spinner takes its frame from the animation.
+#[derive(Clone, PartialEq)]
+pub(super) struct Title {
+    pieces: Vec<Piece>,
+}
+
+#[derive(Clone, PartialEq)]
+enum Piece {
+    Spinner,
+    Text(String),
+}
+
+impl Title {
+    /// A spinner slot to animate.
+    pub fn has_spinner(&self) -> bool {
+        self.pieces.contains(&Piece::Spinner)
+    }
+
+    /// `separator_from_previous`: a space beside the spinner, ` | ` between the others. A
+    /// spinner without a `frame` has no value and leaves no separator.
+    pub fn text(&self, frame: Option<&str>) -> String {
+        let mut out = String::new();
+        let mut previous: Option<bool> = None;
+        for piece in &self.pieces {
+            let (spinner, value) = match (piece, frame) {
+                (Piece::Spinner, Some(frame)) => (true, frame),
+                (Piece::Spinner, None) => continue,
+                (Piece::Text(value), _) => (false, value.as_str()),
+            };
+            if let Some(before) = previous {
+                out.push_str(if before || spinner { " " } else { " | " });
+            }
+            out.push_str(value);
+            previous = Some(spinner);
+        }
+        out
+    }
+}
+
+/// The ids `TerminalTitleItem` knows, with its aliases; others are no item.
+fn is_title_item(id: &str) -> bool {
+    matches!(
+        id,
+        "app-name"
+            | "project-name"
+            | "project"
+            | "current-dir"
+            | "activity"
+            | "spinner"
+            | "run-state"
+            | "status"
+            | "thread-name"
+            | "thread-title"
+            | "thread"
+            | "git-branch"
+            | "context-remaining"
+            | "context-used"
+            | "context-usage"
+            | "five-hour-limit"
+            | "weekly-limit"
+            | "codex-version"
+            | "used-tokens"
+            | "total-input-tokens"
+            | "total-output-tokens"
+            | "thread-credits"
+            | "estimated-thread-cost"
+            | "thread-id"
+            | "session-id"
+            | "fast-mode"
+            | "daybreak"
+            | "model"
+            | "model-name"
+            | "model-with-reasoning"
+            | "reasoning"
+            | "task-progress"
+    )
+}
+
+fn is_spinner(id: &str) -> bool {
+    matches!(id, "activity" | "spinner")
+}
+
+/// `configured_terminal_title_items` that parse (`DEFAULT_TERMINAL_TITLE_ITEMS` when unset).
+fn title_items(facts: &StatusFacts) -> Vec<&str> {
+    const DEFAULT: [&str; 3] = ["activity", "thread-name", "project-name"];
+    match &facts.terminal_title {
+        Some(items) => items.iter().map(String::as_str).collect::<Vec<_>>(),
+        None => DEFAULT.to_vec(),
+    }
+    .into_iter()
+    .filter(|id| is_title_item(id))
+    .collect()
+}
+
+/// The most graphemes the title takes of an item (`terminal_title_value_for_item`).
+fn title_cut(id: &str) -> Option<usize> {
+    match id {
+        "app-name" | "activity" | "spinner" | "run-state" | "status" | "daybreak"
+        | "task-progress" => None,
+        "project" | "project-name" => Some(24),
+        "thread" | "thread-name" | "thread-title" => Some(48),
+        _ => Some(32),
+    }
+}
+
+/// `truncate_terminal_title_part`: at most `max` graphemes, the last three dots when it is cut.
+fn cut(value: String, max: usize) -> String {
+    let Some((head, _)) = grapheme_boundaries(&value).nth(max) else {
+        return value;
+    };
+    if max <= 3 {
+        return value[..head].to_string();
+    }
+    let keep = grapheme_boundaries(&value)
+        .nth(max - 3)
+        .map_or(head, |(start, _)| start);
+    format!("{}...", &value[..keep])
+}
+
 fn format_label(label: &str, value: &str) -> String {
     format!("{label}: {value}")
 }
@@ -182,5 +357,59 @@ pub(super) fn display_dir(cwd: &str, home: Option<&str>) -> String {
         Some(path) if path.as_os_str().is_empty() => "~".to_string(),
         Some(path) => format!("~{}{}", std::path::MAIN_SEPARATOR, path.display()),
         None => cwd.display().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn title(pieces: Vec<Piece>) -> Title {
+        Title { pieces }
+    }
+
+    fn text(value: &str) -> Piece {
+        Piece::Text(value.to_string())
+    }
+
+    /// `separator_from_previous`: a space beside the spinner, ` | ` between the others.
+    #[test]
+    fn the_title_joins_its_items_as_the_oracle_does() {
+        let t = title(vec![Piece::Spinner, text("name"), text("project")]);
+        assert_eq!(t.text(Some("⠋")), "⠋ name | project");
+        // no frame: no value, and no separator for it
+        assert_eq!(t.text(None), "name | project");
+        let t = title(vec![text("name"), Piece::Spinner, text("project")]);
+        assert_eq!(t.text(Some("⠙")), "name ⠙ project");
+        assert_eq!(t.text(None), "name | project");
+        assert_eq!(title(vec![Piece::Spinner]).text(None), "");
+    }
+
+    /// `truncate_terminal_title_part`: the last three of `max` graphemes are dots when it is cut.
+    #[test]
+    fn a_title_part_is_cut_to_its_graphemes_with_dots() {
+        assert_eq!(cut("abcdef".to_string(), 6), "abcdef");
+        assert_eq!(cut("abcdefg".to_string(), 6), "abc...");
+        assert_eq!(cut("abcdefg".to_string(), 3), "abc");
+        assert_eq!(cut("日本語の文字列".to_string(), 5), "日本...");
+        let id = "550e8400-e29b-41d4-a716-446655440000".to_string();
+        assert_eq!(cut(id, 32), "550e8400-e29b-41d4-a716-44665...");
+    }
+
+    #[test]
+    fn only_the_ids_of_the_oracle_are_title_items() {
+        let facts = StatusFacts {
+            terminal_title: Some(vec![
+                "project".into(),
+                "no-such-item".into(),
+                "status".into(),
+            ]),
+            ..StatusFacts::default()
+        };
+        assert_eq!(title_items(&facts), ["project", "status"]);
+        assert_eq!(
+            title_items(&StatusFacts::default()),
+            ["activity", "thread-name", "project-name"]
+        );
     }
 }

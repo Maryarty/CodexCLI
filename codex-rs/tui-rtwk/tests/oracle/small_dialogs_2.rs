@@ -10,24 +10,28 @@ use crate::kit::{self, Owner, Screen};
 // ORACLE bottom_pane/hooks_browser_view.rs:902 renders_event_browser kind=snap owner=dialogs-pane snap=hooks_browser_events snap=hooks_browser_model_requests
 #[test]
 fn renders_event_browser() {
+    Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("settings", "hooks_events")
+        .open()
+        .assert_snap("hooks_browser_events");
+    // The last event selected: Up wraps to it.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("settings", "hooks_events")
+        .open();
+    s.keys("up");
+    s.assert_snap("hooks_browser_model_requests");
+    // The oracle clears keymap.accept after the last event is selected; the
+    // footers of the port are fixed strings (the default keymap) until the
+    // keymap config reaches the sheets.
     kit::pending(
         Owner::DialogsPane,
-        "no hooks browser in the port: no entries dialogs/hooks_events (the oracle's view() data), dialogs/hooks_events_last (the last event selected), dialogs/hooks_events_no_accept (keymap accept cleared)",
+        "no keymap config in the port: the sheets' footers are fixed strings, so an accept key cleared from the list keymap (the oracle's `keymap.accept` emptied) cannot hide `enter details` (the same gap as the skills footer test)",
     );
     Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_events")
-        .open()
-        .assert_snap("hooks_browser_events");
-    Screen::build(Owner::DialogsPane)
-        .size(112, 17)
-        .entry("dialogs", "hooks_events_last")
-        .open()
-        .assert_snap("hooks_browser_model_requests");
-    // The oracle clears keymap.accept after the last event is selected: the seed hooks_events_no_accept.
-    Screen::build(Owner::DialogsPane)
-        .size(112, 17)
-        .entry("dialogs", "hooks_events_no_accept")
+        .entry("settings", "hooks_events_no_accept")
         .open()
         .assert_absent("enter details");
 }
@@ -35,14 +39,11 @@ fn renders_event_browser() {
 // ORACLE bottom_pane/hooks_browser_view.rs:915 compact_hooks_keep_the_last_event_and_selection_visible kind=snap owner=dialogs-pane snap=compact_hooks_keep_the_last_event_and_selection_visible
 #[test]
 fn compact_hooks_keep_the_last_event_and_selection_visible() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events_last at 40x16",
-    );
-    let s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 16)
-        .entry("dialogs", "hooks_events_last")
+        .entry("settings", "hooks_events")
         .open();
+    s.keys("up");
     s.assert_snap("compact_hooks_keep_the_last_event_and_selection_visible");
     s.assert_contains("Interrupt");
     s.assert_contains("Active/Installed");
@@ -54,44 +55,40 @@ fn compact_hooks_keep_the_last_event_and_selection_visible() {
 // ORACLE bottom_pane/hooks_browser_view.rs:945 selected_event_rows_use_the_shared_selection_style kind=ui owner=dialogs-pane
 #[test]
 fn selected_event_rows_use_the_shared_selection_style() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_events")
+        .entry("settings", "hooks_events")
         .open();
     // The selected event row: the shared selection foreground and BOLD (without a probed background: Reset).
+    kit::pending(
+        Owner::DialogsPane,
+        "the selected row is the theme's accent and bold in every dialog of the port, not the oracle's unprobed-palette selection foreground (the shared selection style, not this dialog)",
+    );
     s.assert_text_style("PreToolUse", "fg=Reset bold");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:965 renders_event_browser_with_review_column_when_needed kind=snap owner=dialogs-pane snap=hooks_browser_events_with_review_column
 #[test]
 fn renders_event_browser_with_review_column_when_needed() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events_review_column (one untrusted PreToolUse hook)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(112, 19)
-        .entry("dialogs", "hooks_events_review_column")
+        .entry("settings", "hooks_events_review_column")
         .open();
     s.assert_snap("hooks_browser_events_with_review_column");
     // The review count of the first event row: the selection foreground and BOLD.
+    kit::pending(
+        Owner::DialogsPane,
+        "the selected row is the theme's accent and bold in every dialog of the port, not the oracle's unprobed-palette selection foreground (the shared selection style, not this dialog)",
+    );
     s.assert_style(48, 8, "fg=Reset bold");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1002 renders_event_browser_with_issues kind=snap owner=dialogs-pane snap=hooks_browser_events_with_issues
 #[test]
 fn renders_event_browser_with_issues() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events_issues (no hooks, one skipped matcher, one parse error at /tmp/hooks.json)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(112, 21)
-        .entry("dialogs", "hooks_events_issues")
+        .entry("settings", "hooks_events_issues")
         .open();
     s.assert_snap("hooks_browser_events_with_issues");
 }
@@ -99,13 +96,9 @@ fn renders_event_browser_with_issues() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1021 renders_handler_browser_with_details kind=snap owner=dialogs-pane snap=hooks_browser_handlers
 #[test]
 fn renders_handler_browser_with_details() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events (the oracle's view() data, events page)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_events")
+        .entry("settings", "hooks_events")
         .open();
     s.keys("enter");
     s.assert_snap("hooks_browser_handlers");
@@ -114,13 +107,9 @@ fn renders_handler_browser_with_details() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1028 renders_handler_status_messages_with_blank_fallback kind=snap owner=dialogs-pane snap=hooks_browser_status_messages
 #[test]
 fn renders_handler_status_messages_with_blank_fallback() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_status_messages (the view() data with two status messages set, events page); the selection colours under the oracle's two probed palettes need a terminal-colour seed the kit has not",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 18)
-        .entry("dialogs", "hooks_status_messages")
+        .entry("settings", "hooks_status_messages")
         .open();
     s.keys("enter");
     s.assert_snap("hooks_browser_status_messages");
@@ -135,13 +124,9 @@ fn renders_handler_status_messages_with_blank_fallback() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1068 renders_mcp_tool_handler_with_server_and_tool_details kind=snap owner=dialogs-pane snap=hooks_browser_mcp_tool_handler
 #[test]
 fn renders_mcp_tool_handler_with_server_and_tool_details() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_mcp_tool (one plugin hook with an MCP tool handler, server scanner, tool scan_file)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 16)
-        .entry("dialogs", "hooks_mcp_tool")
+        .entry("settings", "hooks_mcp_tool")
         .open();
     s.keys("enter");
     s.assert_snap("hooks_browser_mcp_tool_handler");
@@ -150,13 +135,9 @@ fn renders_mcp_tool_handler_with_server_and_tool_details() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1100 renders_handler_additional_context_limit kind=snap owner=dialogs-pane snap=hooks_browser_additional_context_limit
 #[test]
 fn renders_handler_additional_context_limit() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_context_limit (one user hook with additional_context_limit 0)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_context_limit")
+        .entry("settings", "hooks_context_limit")
         .open();
     s.keys("enter");
     s.assert_snap("hooks_browser_additional_context_limit");
@@ -165,13 +146,9 @@ fn renders_handler_additional_context_limit() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1129 renders_untrusted_enabled_handler_as_inactive kind=snap owner=dialogs-pane snap=hooks_browser_untrusted_enabled_handler
 #[test]
 fn renders_untrusted_enabled_handler_as_inactive() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_untrusted_enabled (one untrusted, enabled, async command hook)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 16)
-        .entry("dialogs", "hooks_untrusted_enabled")
+        .entry("settings", "hooks_untrusted_enabled")
         .open();
     s.keys("enter");
     s.assert_snap("hooks_browser_untrusted_enabled_handler");
@@ -180,29 +157,23 @@ fn renders_untrusted_enabled_handler_as_inactive() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1161 review_needed_handler_rows_use_warning_color kind=ui owner=dialogs-pane
 #[test]
 fn review_needed_handler_rows_use_warning_color() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_trusted_and_review",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_trusted_and_review")
+        .entry("settings", "hooks_trusted_and_review")
         .open();
     s.keys("enter");
-    // The row of the untrusted handler is yellow.
-    s.assert_text_style("untrusted.sh", "fg=Yellow");
+    // The oracle's subject is the second row (`handler_row_lines(..)[1]`), the
+    // untrusted handler's: its title is yellow. (The command, `untrusted.sh`,
+    // is on the screen only in the details of the selected row.)
+    s.assert_text_style("Unnamed hook · new", "fg=Yellow");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1217 renders_managed_handler_without_toggle_hint kind=snap owner=dialogs-pane snap=hooks_browser_managed_handler
 #[test]
 fn renders_managed_handler_without_toggle_hint() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events (the view() data: a managed hook is the second row of PermissionRequest)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 16)
-        .entry("dialogs", "hooks_events")
+        .entry("settings", "hooks_events")
         .open();
     s.keys("down enter");
     s.assert_snap("hooks_browser_managed_handler");
@@ -211,13 +182,9 @@ fn renders_managed_handler_without_toggle_hint() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1228 renders_selected_managed_handler kind=snap owner=dialogs-pane snap=hooks_browser_selected_managed_handler
 #[test]
 fn renders_selected_managed_handler() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_two_managed (two System PreToolUse hooks)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_two_managed")
+        .entry("settings", "hooks_two_managed")
         .open();
     s.keys("enter down");
     s.assert_snap("hooks_browser_selected_managed_handler");
@@ -226,13 +193,9 @@ fn renders_selected_managed_handler() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1266 renders_scrolled_handler_window kind=snap owner=dialogs-pane snap=hooks_browser_scrolled_handlers
 #[test]
 fn renders_scrolled_handler_window() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_many (MAX_POPUP_ROWS + 3 user hooks, every second one with a status message); the oracle's last assert, the selected key hook-9, is model state the snapshot shows only as the selected row",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 23)
-        .entry("dialogs", "hooks_many")
+        .entry("settings", "hooks_many")
         .open();
     s.keys("enter");
     // MAX_POPUP_ROWS + 1 = 9 presses of down
@@ -243,28 +206,25 @@ fn renders_scrolled_handler_window() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1304 renders_command_details_with_three_line_cap kind=snap owner=dialogs-pane snap=hooks_browser_capped_command_details
 #[test]
 fn renders_command_details_with_three_line_cap() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_long_command (one hook whose command is twenty words, with a status message), at 44 columns",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(44, 19)
-        .entry("dialogs", "hooks_long_command")
+        .entry("settings", "hooks_long_command")
         .open();
     s.keys("enter");
+    s.assert_contains("twelve thirteen fourteen");
+    kit::pending(
+        Owner::DialogsPane,
+        "pending(G74): rtwk's ellipsis of the last of max_lines rows cuts the rest of the text at the width (`fourteen fift…`), the oracle wraps first and appends the ellipsis to the third row (`fourteen…`)",
+    );
     s.assert_snap("hooks_browser_capped_command_details");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1333 renders_empty_handler_browser_message kind=snap owner=dialogs-pane snap=hooks_browser_empty_handlers
 #[test]
 fn renders_empty_handler_browser_message() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_empty (no hooks at all)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 8)
-        .entry("dialogs", "hooks_empty")
+        .entry("settings", "hooks_empty")
         .open();
     s.keys("down enter");
     s.assert_snap("hooks_browser_empty_handlers");
@@ -273,13 +233,9 @@ fn renders_empty_handler_browser_message() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1438 renders_review_needed_handler kind=snap owner=dialogs-pane snap=hooks_browser_review_needed_handler
 #[test]
 fn renders_review_needed_handler() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_review_needed (one untrusted PreToolUse hook)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 16)
-        .entry("dialogs", "hooks_review_needed")
+        .entry("settings", "hooks_review_needed")
         .open();
     s.keys("enter");
     s.assert_snap("hooks_browser_review_needed_handler");
@@ -288,13 +244,9 @@ fn renders_review_needed_handler() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1502 space_does_not_toggle_managed_handler kind=ui owner=dialogs-pane
 #[test]
 fn space_does_not_toggle_managed_handler() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_managed_handler (one managed PreToolUse hook)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_managed_handler")
+        .entry("settings", "hooks_managed_handler")
         .open();
     s.keys("enter");
     let before = s.shot();
@@ -307,13 +259,9 @@ fn space_does_not_toggle_managed_handler() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1526 trust_key_trusts_review_needed_handler_without_changing_enablement kind=ui owner=dialogs-pane
 #[test]
 fn trust_key_trusts_review_needed_handler_without_changing_enablement() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_review_needed (one untrusted, disabled PreToolUse hook)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_review_needed")
+        .entry("settings", "hooks_review_needed")
         .open();
     s.keys("enter");
     s.keys("t");
@@ -326,13 +274,9 @@ fn trust_key_trusts_review_needed_handler_without_changing_enablement() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1562 trust_key_preserves_disabled_modified_handler kind=ui owner=dialogs-pane
 #[test]
 fn trust_key_preserves_disabled_modified_handler() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_modified_handler (one modified, disabled PreToolUse hook)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_modified_handler")
+        .entry("settings", "hooks_modified_handler")
         .open();
     s.keys("enter");
     s.keys("t");
@@ -345,13 +289,9 @@ fn trust_key_preserves_disabled_modified_handler() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1601 trust_key_on_event_page_trusts_all_review_needed_hooks kind=ui owner=dialogs-pane
 #[test]
 fn trust_key_on_event_page_trusts_all_review_needed_hooks() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events_review_mixed (an untrusted, a modified and a trusted hook)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_events_review_mixed")
+        .entry("settings", "hooks_events_review_mixed")
         .open();
     s.keys("t");
     // All three are trusted: no hook needs review any more (the TrustHooks event is not drawn).
@@ -362,13 +302,9 @@ fn trust_key_on_event_page_trusts_all_review_needed_hooks() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1679 escape_returns_to_the_selected_event kind=ui owner=dialogs-pane
 #[test]
 fn escape_returns_to_the_selected_event() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events (the oracle's view() data)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_events")
+        .entry("settings", "hooks_events")
         .open();
     s.keys("down enter esc");
     // Back on the events page, the second event (PermissionRequest) is selected.
@@ -379,13 +315,9 @@ fn escape_returns_to_the_selected_event() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1693 esc_routes_through_the_view kind=ui owner=dialogs-pane
 #[test]
 fn esc_routes_through_the_view() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events (the oracle's view() data)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
-        .entry("dialogs", "hooks_events")
+        .entry("settings", "hooks_events")
         .open();
     s.keys("enter");
     // esc is handled by the view (back to the events page) and does not close the dialog.

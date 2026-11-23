@@ -12,6 +12,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::widgets::measure::Measure;
 use rtwk::controls::{SelectionController, TabController};
 use rtwk::editing::{EditingKeys, TextEditingController, TextField};
 use rtwk::focus::{ExcludeFocus, FocusNode};
@@ -25,7 +26,7 @@ use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
 use rtwk::scroll::ListController;
 use rtwk::style::Theme;
-use rtwk::text::{Text, TextOverflow, TextWrap};
+use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::resume::{
@@ -284,7 +285,8 @@ struct Frame {
 /// The header, the toolbar, the search line, the list and the footer, one
 /// under the other with the oracle's collapsing gaps.
 fn screen(frame: Rc<Frame>) -> AnyWidget {
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
         let width = usize::try_from(constraints.max_width).unwrap_or(0);
         let height = u16::try_from(constraints.max_height).unwrap_or(0);
         let areas = layout::areas(height);
@@ -336,7 +338,7 @@ fn screen(frame: Rc<Frame>) -> AnyWidget {
                     .into(),
                 ),
             ))
-            .child(footer(&frame, width))
+            .child(footer(&frame, seg, width))
             .into()
     })
     .into()
@@ -382,7 +384,7 @@ fn search(frame: &Frame) -> AnyWidget {
 }
 
 /// The footer: the rule with the progress label, then the hint rows.
-fn footer(frame: &Frame, width: usize) -> AnyWidget {
+fn footer(frame: &Frame, seg: Measure, width: usize) -> AnyWidget {
     let look = frame.look.clone();
     let model = &frame.screens.resume;
     let facts = chrome::HintFacts {
@@ -437,7 +439,7 @@ fn footer(frame: &Frame, width: usize) -> AnyWidget {
                 } else {
                     ((at.pixels.min(max) as f64 / max as f64) * 100.0).round() as u8
                 };
-                let label = chrome::progress_label(position, &total, percent, width);
+                let label = chrome::progress_label(seg, position, &total, percent, width);
                 Row::new()
                     .child(Expanded::new(
                         1,
@@ -904,6 +906,7 @@ impl State for ScreenState {
         let screens = watch::<ScreenStates, _>(cx);
         let look = Look::of(cx);
         let markdown = theme::Tokens::of(cx).transcript_markdown(cx);
+        let cells = crate::pages::session::cells::strings::of(cx);
         // The oracle cuts a title with three dots, rtwk's theme glyph is the
         // one-cell mark: the glyph for this screen.
         let mut data = (*Theme::of(cx)).clone();
@@ -964,6 +967,7 @@ impl State for ScreenState {
                 home,
                 width: 0,
                 markdown,
+                cells,
             },
             look,
             strings,

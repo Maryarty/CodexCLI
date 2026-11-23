@@ -12,34 +12,37 @@ use crate::kit::{self, Owner, Screen};
 fn typed_prompt_markdown_keeps_the_prompt_gutter_and_links() {
     kit::pending(
         Owner::ChatLive,
-        "the transcript draws a user prompt as plain text rows (src/screens/chat/home.rs:328): no prompt gutter, markdown bold and italic, hyperlinks, or wrap at the prompt width",
+        "G73 code padded one cell (the fence row reads `   echo '*literal*'`, the oracle's `  echo '*literal*'`; at width 20 it wraps its last quote); G49 no break after a slash (the link destination at width 20 wraps `(https://example.` / `test/docs)`, the oracle's `(https://` / `example.test/` / `docs)`); the gutter, the bold, italic and link styles and width 64 equal",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(64, 6)
+        .size(64, 20)
         .script(include_str!(
             "fixtures/cells_2/typed_prompt_markdown_keeps_the_prompt_gutter_and_links.jsonl"
         ))
         .open();
-    s.assert_row(0, "› testing hello example documentation");
-    s.assert_row(1, "  (https://example.test/docs)");
-    s.assert_row(2, "");
-    s.assert_row(3, "  • Try the command");
-    s.assert_row(4, "");
-    s.assert_row(5, "  echo '*literal*'");
+    // The oracle's snapshot is the cell alone: the screen holds it among the chat's rows.
+    let y = row_of(&s, "› testing");
+    s.assert_row(y, "› testing hello example documentation");
+    s.assert_row(y + 1, "  (https://example.test/docs)");
+    s.assert_row(y + 2, "");
+    s.assert_row(y + 3, "  • Try the command");
+    s.assert_row(y + 4, "");
+    s.assert_row(y + 5, "  echo '*literal*'");
     s.assert_text_style("testing", "bold");
     s.assert_text_style("hello", "italic");
     s.assert_link("example documentation", "https://example.test/docs");
-    s.resize(20, 10);
-    s.assert_row(0, "› testing hello");
-    s.assert_row(1, "  example");
-    s.assert_row(2, "  documentation");
-    s.assert_row(3, "  (https://");
-    s.assert_row(4, "  example.test/");
-    s.assert_row(5, "  docs)");
-    s.assert_row(6, "");
-    s.assert_row(7, "  • Try the command");
-    s.assert_row(8, "");
-    s.assert_row(9, "  echo '*literal*'");
+    s.resize(20, 24);
+    let y = row_of(&s, "› testing");
+    s.assert_row(y, "› testing hello");
+    s.assert_row(y + 1, "  example");
+    s.assert_row(y + 2, "  documentation");
+    s.assert_row(y + 3, "  (https://");
+    s.assert_row(y + 4, "  example.test/");
+    s.assert_row(y + 5, "  docs)");
+    s.assert_row(y + 6, "");
+    s.assert_row(y + 7, "  • Try the command");
+    s.assert_row(y + 8, "");
+    s.assert_row(y + 9, "  echo '*literal*'");
 }
 
 // ORACLE history_cell/messages_tests.rs:51 user_prompt_urls_keep_destinations_across_widths kind=snap owner=chat-live snap=user_prompt_urls_keep_destinations_across_widths
@@ -47,50 +50,53 @@ fn typed_prompt_markdown_keeps_the_prompt_gutter_and_links() {
 fn user_prompt_urls_keep_destinations_across_widths() {
     kit::pending(
         Owner::ChatLive,
-        "the transcript draws a user prompt as plain text rows (src/screens/chat/home.rs:328): no URL hyperlinks and no wrap at the prompt width; the oracle's per-width link text at width 24 needs wrapped links",
+        "G48 TextWrap::Word breaks after a hyphen inside the URL: at 120 columns `.../solid-` ends the prose row and `octants` follows, the oracle keeps the token whole on a row of its own and cuts it only at the width (`terminal-link-wrappin` / `g/solid-octants` at 24); G49 no break before a slash (`(https://example.test` / `/a).`); the link destinations, the gutter and the image label equal",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(120, 4)
+        .size(120, 20)
         .script(include_str!(
             "fixtures/cells_2/user_prompt_urls_keep_destinations_across_widths.jsonl"
         ))
         .open();
+    let y = row_of(&s, "› from this site");
     s.assert_row(
-        0,
+        y,
         "› from this site, write out the ascii for solid octants 18 columns",
     );
     s.assert_row(
-        1,
+        y + 1,
         "  https://example.test/terminal-link-wrapping/solid-octants",
     );
-    s.assert_row(2, "  [Image #1] See (https://example.test/a).");
+    s.assert_row(y + 2, "  [Image #1] See (https://example.test/a).");
     s.assert_link(
         "https://example.test/terminal-link-wrapping/solid-octants",
         "https://example.test/terminal-link-wrapping/solid-octants",
     );
     s.assert_link("https://example.test/a", "https://example.test/a");
-    s.resize(60, 4);
+    s.resize(60, 20);
+    let y = row_of(&s, "› from this site");
     s.assert_row(
-        0,
+        y,
         "› from this site, write out the ascii for solid octants 18",
     );
-    s.assert_row(1, "  columns");
+    s.assert_row(y + 1, "  columns");
     s.assert_row(
-        2,
+        y + 2,
         "  https://example.test/terminal-link-wrapping/solid-octants",
     );
-    s.assert_row(3, "  [Image #1] See (https://example.test/a).");
-    s.resize(24, 10);
-    s.assert_row(0, "› from this site, write");
-    s.assert_row(1, "  out the ascii for");
-    s.assert_row(2, "  solid octants 18");
-    s.assert_row(3, "  columns");
-    s.assert_row(4, "  https://example.test/");
-    s.assert_row(5, "  terminal-link-wrappin");
-    s.assert_row(6, "  g/solid-octants");
-    s.assert_row(7, "  [Image #1] See");
-    s.assert_row(8, "  (https://example.test");
-    s.assert_row(9, "  /a).");
+    s.assert_row(y + 3, "  [Image #1] See (https://example.test/a).");
+    s.resize(24, 24);
+    let y = row_of(&s, "› from this site");
+    s.assert_row(y, "› from this site, write");
+    s.assert_row(y + 1, "  out the ascii for");
+    s.assert_row(y + 2, "  solid octants 18");
+    s.assert_row(y + 3, "  columns");
+    s.assert_row(y + 4, "  https://example.test/");
+    s.assert_row(y + 5, "  terminal-link-wrappin");
+    s.assert_row(y + 6, "  g/solid-octants");
+    s.assert_row(y + 7, "  [Image #1] See");
+    s.assert_row(y + 8, "  (https://example.test");
+    s.assert_row(y + 9, "  /a).");
 }
 
 // ORACLE history_cell/messages_tests.rs:107 local_image_only_user_message_remains_visible kind=snap owner=chat-live snap=local_image_only_user_message_remains_visible
@@ -172,12 +178,12 @@ fn spoken_user_messages_have_a_red_chevron_without_changing_raw_text() {
 // ORACLE history_cell/messages_tests.rs:261 finalized_markdown_reuses_rendered_transcript_lines kind=ui owner=chat-live
 #[test]
 fn finalized_markdown_reuses_rendered_transcript_lines() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "a finalized agent message is drawn as plain text (src/screens/chat/home.rs:333), not the rich markdown cell with its transcript lines; the oracle's render-cache seed (replace_cached_lines) is internal and not reachable through the kit",
+        "asserts the cell's render cache (its transcript lines equal the cached display lines): internal state, nothing is drawn differently; the drawn half is checked below",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
+        .size(48, 10)
         .script(include_str!(
             "fixtures/cells_2/finalized_markdown_reuses_rendered_transcript_lines.jsonl"
         ))
@@ -187,7 +193,8 @@ fn finalized_markdown_reuses_rendered_transcript_lines() {
     // file-citation snapshot).
     s.assert_has_row("• finalized markdown");
     let before = s.shot();
-    s.resize(48, 4);
+    s.resize(40, 10);
+    s.resize(48, 10);
     s.assert_same_rows(&before);
 }
 
@@ -207,12 +214,12 @@ fn finalized_assistant_file_citation_renders_as_local_path_snapshot() {
 // ORACLE history_cell/messages_tests.rs:294 finalized_markdown_cache_misses_when_width_or_render_style_changes kind=ui owner=chat-live
 #[test]
 fn finalized_markdown_cache_misses_when_width_or_render_style_changes() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "a finalized agent message is drawn as plain text (src/screens/chat/home.rs:333), not the rich markdown cell; the oracle's cache-key edits (width, syntax theme, terminal fg) are internal and not reachable through the kit",
+        "asserts the cell's render-cache key (a cache built for another width, syntax theme or terminal foreground misses): internal state, nothing is drawn differently; the drawn half is checked below",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
+        .size(48, 10)
         .script(include_str!(
             "fixtures/cells_2/finalized_markdown_cache_misses_when_width_or_render_style_changes.jsonl"
         ))
@@ -220,26 +227,28 @@ fn finalized_markdown_cache_misses_when_width_or_render_style_changes() {
     s.assert_has_row("• finalized markdown");
     // The visible half: after a re-render at the same width the rows are the same.
     let before = s.shot();
-    s.resize(48, 4);
+    s.resize(40, 10);
+    s.resize(48, 10);
     s.assert_same_rows(&before);
 }
 
 // ORACLE history_cell/messages_tests.rs:316 raw_markdown_bypasses_the_rich_render_cache kind=ui owner=chat-live
 #[test]
 fn raw_markdown_bypasses_the_rich_render_cache() {
-    kit::pending(
-        Owner::ChatLive,
-        "the rich markdown row is not drawn (src/screens/chat/home.rs:333); the raw view `finalized **markdown**` (toggle_raw_output, keymap/bindings.rs:343) is not built in the S11 transcript",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
+    // 14 rows, not the oracle's 10: our toggle note ("Raw output mode on", two rows at 48
+    // columns) joins the history below the cell, which the 7-row history of a 10-row
+    // terminal cannot hold with the cell above it.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(48, 14)
         .script(include_str!(
             "fixtures/cells_2/raw_markdown_bypasses_the_rich_render_cache.jsonl"
         ))
         .open();
     s.assert_has_row("• finalized markdown");
-    // Raw half, not ported: after the raw toggle the screen shows the source row
-    // `finalized **markdown**` (the oracle's display_lines_for_mode(Raw)).
+    // Raw half: after the raw toggle the screen shows the source row.
+    s.keys("alt+r");
+    s.assert_has_row("finalized **markdown**");
+    s.assert_absent("• finalized markdown");
 }
 
 // ORACLE history_cell/messages_tests.rs:331 visualization_directives_are_not_cached kind=ui owner=chat-live
@@ -327,7 +336,7 @@ fn compact_patches_retain_full_changes_and_failure_details() {
 fn viewed_image_retains_original_path_in_details() {
     // The oracle's transcript lines (width 200) are what the control reveals in place.
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 9)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details.jsonl"
         ))
@@ -337,7 +346,7 @@ fn viewed_image_retains_original_path_in_details() {
     s.assert_has_row("• Viewed image /workspace/assets/example.png");
     // Not ported: the raw row (raw scrollback, not built).
     let mut w = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 9)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details_windows.jsonl"
         ))
@@ -351,7 +360,7 @@ fn viewed_image_retains_original_path_in_details() {
 #[test]
 fn viewed_image_narrow_summary() {
     let s = Screen::build(Owner::ChatLive)
-        .size(32, 8)
+        .size(32, 9)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_narrow_summary.jsonl"
         ))
@@ -364,28 +373,16 @@ fn viewed_image_narrow_summary() {
 // ORACLE history_cell/plans_tests.rs:5 finalized_plan_reuses_rendered_transcript_lines kind=ui owner=chat-live
 #[test]
 fn finalized_plan_reuses_rendered_transcript_lines() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle's check is the cell's render cache: on the screen the running turn's spinner ticks between the two shots and the 48x4 screen shows only the bottom pane; the fixture never completes the turn",
+        "D5: the oracle's check is the cell's render cache (the second call returns the first call's lines); no screen holds a cache, and the running turn's spinner ticks between two shots of the 48x4 screen, which shows only the bottom pane",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
-        .script(include_str!(
-            "fixtures/cells_2/finalized_plan_reuses_rendered_transcript_lines.jsonl"
-        ))
-        .open();
-    // The visible half: the plan's rows are the same after a re-render (the oracle's
-    // transcript lines equal its display lines).
-    let before = s.shot();
-    s.resize(48, 4);
-    s.assert_same_rows(&before);
 }
-
 // ORACLE history_cell/plans_tests.rs:28 finalized_plan_file_citation_renders_as_local_path_snapshot kind=snap owner=chat-live
 #[test]
 fn finalized_plan_file_citation_renders_as_local_path_snapshot() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 12)
+        .size(80, 13)
         .script(include_str!(
             "fixtures/cells_2/finalized_plan_file_citation_renders_as_local_path_snapshot.jsonl"
         ))
@@ -404,7 +401,7 @@ fn finalized_plan_file_citation_renders_as_local_path_snapshot() {
 fn completed_and_interrupted_results() {
     kit::pending(
         Owner::ChatLive,
-        "no request-user-input result cell and no seed for its answers or the interrupted state: the transcript carries no such item; the oracle also pins the default colours (240,240,240 on 24,24,24), which the kit cannot set",
+        "the cell is built (cells::request_input, rows of both frames equal in tests/pages/cells.rs notice_cells, the answer and flag colours checked); need: the host appends Notice::Questions when the request-user-input exchange ends, which the kit cannot seed; the oracle also pins the default colours (240,240,240 on 24,24,24), which the kit cannot set",
     );
     let s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
     s.assert_snap_section("completed_and_interrupted_results", "completed");
@@ -482,139 +479,208 @@ fn batched_search_retains_each_query() {
 }
 
 // ---- oracle: history_cell/separators_tests.rs (9 screen-level tests here; 0 state tests left to chat-live)
+// The fixtures seed the viewer's today (the agents clock the pane reads) and the clock setting
+// (`cells` clock: 12 or 24 hour, zone UTC, so no label depends on the machine's zone); a turn is
+// its message and the separator below it. The raw halves of the oracle's asserts (`raw_lines`)
+// are the raw scrollback's (step 11, `cells/raw.rs`).
+// Epochs of the fixtures: 968250720 is 2000-09-06 14:32 UTC, 968337120 the next day, 999873120
+// 2001-09-07 14:32 UTC.
+
+/// The rows of `labels` are on the screen, each exactly, in this order.
+fn assert_labels(s: &Screen, labels: &[&str]) {
+    for label in labels {
+        s.assert_has_row(label);
+    }
+    s.assert_in_order(labels);
+}
+
 // ORACLE history_cell/separators_tests.rs:22 completion_label_shows_known_durations_including_short_turns kind=snap owner=chat-live
 #[test]
 fn completion_label_shows_known_durations_including_short_turns() {
-    kit::pending(
-        Owner::ChatLive,
-        "no completion separator in the S11 transcript: the chat draws no `Worked for …` label (the turn's end is not a row); and the viewer's today is the real clock, which the kit cannot set, so the time-only label cannot be seeded",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 16)
+        .size(80, 40)
         .script(include_str!(
             "fixtures/cells_2/completion_label_shows_known_durations_including_short_turns.jsonl"
         ))
         .open();
-    s.assert_in_order(&[
-        "2:32 PM",
-        "Worked for <1s • 2:32 PM",
-        "Worked for 12s • 2:32 PM",
-        "Worked for 1m 0s • 2:32 PM",
-        "Worked for 1m 1s • 2:32 PM",
-        "Worked for 2m 5s • 2:32 PM",
-        "Worked for 1h 0m 5s • 2:32 PM",
-    ]);
+    assert_labels(
+        &s,
+        &[
+            "  2:32 PM",
+            "  Worked for <1s • 2:32 PM",
+            "  Worked for 12s • 2:32 PM",
+            "  Worked for 1m 0s • 2:32 PM",
+            "  Worked for 1m 1s • 2:32 PM",
+            "  Worked for 2m 5s • 2:32 PM",
+            "  Worked for 1h 0m 5s • 2:32 PM",
+        ],
+    );
 }
 
 // ORACLE history_cell/separators_tests.rs:54 completion_label_includes_date_when_viewed_on_another_day kind=snap owner=chat-live
 #[test]
 fn completion_label_includes_date_when_viewed_on_another_day() {
-    kit::pending(
-        Owner::ChatLive,
-        "no completion separator in the S11 transcript; the 'viewed on another day' date needs the viewer's today set a day (and a year) after the completion, which the kit's clock cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 2)
+    let tomorrow = Screen::build(Owner::ChatLive)
+        .size(80, 8)
         .script(include_str!(
             "fixtures/cells_2/completion_label_includes_date_when_viewed_on_another_day.jsonl"
         ))
         .open();
-    s.assert_contains("Worked for 2m 5s • Sep 6 at 2:32 PM");
-    // Not ported: the next-year label `Worked for 2m 5s • Sep 6, 2000 at 2:32 PM` (viewer in 2001).
+    tomorrow.assert_has_row("  Worked for 2m 5s • Sep 6 at 2:32 PM");
+    let next_year = Screen::build(Owner::ChatLive)
+        .size(80, 8)
+        .script(concat!(
+            include_str!(
+                "fixtures/cells_2/completion_label_includes_date_when_viewed_on_another_day.jsonl"
+            ),
+            "\n",
+            r#"{"step":"screen","dir":"agents","ev":{"clock":999873120}}"#
+        ))
+        .open();
+    next_year.assert_has_row("  Worked for 2m 5s • Sep 6, 2000 at 2:32 PM");
 }
 
 // ORACLE history_cell/separators_tests.rs:69 completion_uses_twelve_hour_time_at_midnight_noon_and_afternoon kind=snap owner=chat-live
 #[test]
 fn completion_uses_twelve_hour_time_at_midnight_noon_and_afternoon() {
-    kit::pending(
-        Owner::ChatLive,
-        "no completion separator in the S11 transcript, and the time-only label needs the viewer's today to be the completion day, which the kit's real clock cannot be set to",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 4)
+        .size(80, 16)
         .script(include_str!(
             "fixtures/cells_2/completion_uses_twelve_hour_time_at_midnight_noon_and_afternoon.jsonl"
         ))
         .open();
-    s.assert_in_order(&["12:32 AM", "12:32 PM", "3:32 PM"]);
+    assert_labels(&s, &["  12:32 AM", "  12:32 PM", "  3:32 PM"]);
 }
 
 // ORACLE history_cell/separators_tests.rs:85 completion_uses_twenty_four_hour_time_with_dates_and_wrapping kind=snap owner=chat-live snap=completion_uses_twenty_four_hour_time_with_dates_and_wrapping
 #[test]
 fn completion_uses_twenty_four_hour_time_with_dates_and_wrapping() {
-    kit::pending(
-        Owner::ChatLive,
-        "no completion separator in the S11 transcript; the 24-hour clock format is a setting the kit cannot seed, and the today / tomorrow / next-year viewer dates need a clock seam",
+    // The oracle's snapshot joins nine labels (three hours, each seen today, tomorrow and next
+    // year) and the three that wrap at width 24: one screen shows one viewer's day.
+    let fixture = include_str!(
+        "fixtures/cells_2/completion_uses_twenty_four_hour_time_with_dates_and_wrapping.jsonl"
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(24, 15)
-        .script(include_str!(
-            "fixtures/cells_2/completion_uses_twenty_four_hour_time_with_dates_and_wrapping.jsonl"
+    let today = Screen::build(Owner::ChatLive)
+        .size(80, 16)
+        .script(fixture)
+        .open();
+    assert_labels(
+        &today,
+        &[
+            "  Worked for 2m 5s • 00:25",
+            "  Worked for 2m 5s • 12:25",
+            "  Worked for 2m 5s • 23:25",
+        ],
+    );
+    let tomorrow = Screen::build(Owner::ChatLive)
+        .size(80, 16)
+        .script(concat!(
+            include_str!(
+                "fixtures/cells_2/completion_uses_twenty_four_hour_time_with_dates_and_wrapping.jsonl"
+            ),
+            "\n",
+            r#"{"step":"screen","dir":"agents","ev":{"clock":968337120}}"#
         ))
         .open();
-    s.assert_snap_region(
-        "completion_uses_twenty_four_hour_time_with_dates_and_wrapping",
-        0,
-        0,
+    assert_labels(
+        &tomorrow,
+        &[
+            "  Worked for 2m 5s • Sep 6 at 00:25",
+            "  Worked for 2m 5s • Sep 6 at 12:25",
+            "  Worked for 2m 5s • Sep 6 at 23:25",
+        ],
+    );
+    let next_year = Screen::build(Owner::ChatLive)
+        .size(80, 16)
+        .script(concat!(
+            include_str!(
+                "fixtures/cells_2/completion_uses_twenty_four_hour_time_with_dates_and_wrapping.jsonl"
+            ),
+            "\n",
+            r#"{"step":"screen","dir":"agents","ev":{"clock":999873120}}"#
+        ))
+        .open();
+    assert_labels(
+        &next_year,
+        &[
+            "  Worked for 2m 5s • Sep 6, 2000 at 00:25",
+            "  Worked for 2m 5s • Sep 6, 2000 at 12:25",
+            "  Worked for 2m 5s • Sep 6, 2000 at 23:25",
+        ],
+    );
+    let wrapped = Screen::build(Owner::ChatLive)
+        .size(24, 24)
+        .script(concat!(
+            include_str!(
+                "fixtures/cells_2/completion_uses_twenty_four_hour_time_with_dates_and_wrapping.jsonl"
+            ),
+            "\n",
+            r#"{"step":"screen","dir":"agents","ev":{"clock":999873120}}"#
+        ))
+        .open();
+    assert_labels(
+        &wrapped,
+        &[
+            "  Worked for 2m 5s • Sep",
+            "  6, 2000 at 00:25",
+            "  Worked for 2m 5s • Sep",
+            "  6, 2000 at 12:25",
+            "  Worked for 2m 5s • Sep",
+            "  6, 2000 at 23:25",
+        ],
     );
 }
 
 // ORACLE history_cell/separators_tests.rs:118 completion_without_metadata_has_no_visible_or_raw_lines kind=ui owner=chat-live
 #[test]
 fn completion_without_metadata_has_no_visible_or_raw_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no completion separator to leave out (src/screens/chat/home.rs draws no turn end): the test pins that a completion without elapsed time and timestamp adds no row",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 4)
+        .size(80, 12)
         .script(include_str!(
             "fixtures/cells_2/completion_without_metadata_has_no_visible_or_raw_lines.jsonl"
         ))
         .open();
+    // The turn is there; no row says how long it took or when it ended.
+    s.assert_contains("Done.");
     s.assert_absent("Worked for");
     s.assert_absent("PM");
     s.assert_absent("AM");
-    // Not ported: the raw lines (none) in raw scrollback.
 }
 
 // ORACLE history_cell/separators_tests.rs:126 completion_without_timestamp_retains_known_elapsed_duration kind=snap owner=chat-live
 #[test]
 fn completion_without_timestamp_retains_known_elapsed_duration() {
-    kit::pending(
-        Owner::ChatLive,
-        "the test pins the raw text `Worked for 2m 5s` of a completion without timestamp; that text is drawn only in the raw scrollback (toggle_raw_output, keymap/bindings.rs:343), not built in the S11 transcript",
-    );
-    let _s = Screen::build(Owner::ChatLive)
-        .size(80, 3)
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
         .script(include_str!(
             "fixtures/cells_2/completion_without_timestamp_retains_known_elapsed_duration.jsonl"
         ))
         .open();
-    // Not ported: the raw row `Worked for 2m 5s` in the raw scrollback.
+    // The oracle pins the raw row `Worked for 2m 5s`; the display row is the same text, indented.
+    s.assert_has_row("  Worked for 2m 5s");
+    s.assert_absent("•  ");
 }
 
 // ORACLE history_cell/separators_tests.rs:135 completion_wraps_metadata_and_preserves_unwrapped_raw_text kind=snap owner=chat-live snap=completion_wraps_metadata_and_preserves_unwrapped_raw_text
 #[test]
 fn completion_wraps_metadata_and_preserves_unwrapped_raw_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "no completion separator in the S11 transcript, and no runtime-metrics seed (3 tool calls, 2.5s) the chat reads from the turn; the viewer date needs a clock seam",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(24, 6)
+        .size(24, 16)
         .script(include_str!(
             "fixtures/cells_2/completion_wraps_metadata_and_preserves_unwrapped_raw_text.jsonl"
         ))
         .open();
-    s.assert_in_order(&[
-        "Worked for 2m 5s • Sep",
-        "6, 2000 at 2:32 PM •",
-        "Local tools: 3 calls",
-        "(2.5s)",
-    ]);
-    // Not ported: the raw line (unwrapped) in raw scrollback, and the width loop 0, 1, 5, 24
-    // (no line wider than the width).
+    assert_labels(
+        &s,
+        &[
+            "  Worked for 2m 5s • Sep",
+            "  6, 2000 at 2:32 PM •",
+            "  Local tools: 3 calls",
+            "  (2.5s)",
+        ],
+    );
+    // The raw line (unwrapped) is the raw scrollback's (step 11). The oracle's width loop (0, 1,
+    // 5, 24: no line wider than the width) is a property of the screen's width here.
 }
 
 // ORACLE history_cell/separators_tests.rs:168 completion_renders_with_dim_default_colors kind=ui owner=chat-live
@@ -622,35 +688,38 @@ fn completion_wraps_metadata_and_preserves_unwrapped_raw_text() {
 fn completion_renders_with_dim_default_colors() {
     kit::pending(
         Owner::ChatLive,
-        "no completion separator in the S11 transcript: the dim, default-coloured separator row is not drawn; the viewer's today is the real clock, which the kit cannot set",
+        "G-new dim indent: the two blank cells of the indent are DIM in the oracle (one dim span `  2:32 PM`); rtwk's Text leaves the leading blanks of a line unpainted and a Padding paints nothing, so a modifier-only style on a blank is lost (invisible on screen; the text cells are DIM and default-coloured, equal)",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 1)
+        .size(80, 12)
         .script(include_str!(
             "fixtures/cells_2/completion_renders_with_dim_default_colors.jsonl"
         ))
         .open();
+    let Some(y) = s
+        .rows()
+        .iter()
+        .position(|row| row.trim_end() == "  2:32 PM")
+    else {
+        panic!("no separator row:\n{}", s.text());
+    };
     // The oracle's display row `  2:32 PM` (nine cells) is Reset on Reset and DIM in every cell.
     for x in 0..9 {
-        s.assert_style(x, 0, "fg=Reset bg=Reset dim");
+        s.assert_style(x, y, "fg=Reset bg=Reset dim");
     }
 }
 
 // ORACLE history_cell/separators_tests.rs:192 completion_rendering_uses_the_captured_display_date kind=snap owner=chat-live
 #[test]
 fn completion_rendering_uses_the_captured_display_date() {
-    kit::pending(
-        Owner::ChatLive,
-        "no completion separator in the S11 transcript: the time-only `  2:32 PM` row is not drawn; it needs the viewer's today to be the captured display date, which the kit's real clock cannot set",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 2)
+        .size(80, 12)
         .script(include_str!(
             "fixtures/cells_2/completion_rendering_uses_the_captured_display_date.jsonl"
         ))
         .open();
     s.assert_has_row("  2:32 PM");
-    // Not ported: the raw line `2:32 PM` (raw scrollback, not built).
+    // The raw line `2:32 PM` is the raw scrollback's (step 11).
 }
 
 // ---- oracle: history_cell/session_transcript_tests.rs (2 screen-level tests here; 0 state tests left to chat-live)
