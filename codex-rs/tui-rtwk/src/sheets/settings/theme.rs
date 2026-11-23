@@ -389,6 +389,8 @@ impl State for ThemeState {
         let column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            // the panel's padding row: the preview centres below it, in the content area
+            .child(Text::new(String::new()))
             .child(sheet)
             .child(Text::line(format!("{}{}", s.indent, s.popup_hint)).style(tokens.dim()));
         Dialog::bare(BoxWidget::new().style(Style::new()).child(column)).into()
@@ -485,7 +487,6 @@ fn header_and_rows(
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(Text::new(String::new()))
         .child(Text::line(format!("{}{}", s.indent, s.theme_title)).style(tokens.bold()))
         .child(Text::line(format!("{}{subtitle}", s.indent)).style(tokens.dim()))
         .child(Text::new(String::new()))

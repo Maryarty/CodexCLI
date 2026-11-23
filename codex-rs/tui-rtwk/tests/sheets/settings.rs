@@ -232,10 +232,10 @@ fn the_theme_picker_in_a_wide_terminal_puts_the_preview_beside_the_rows() {
         sample_x > list_x + 40,
         "the preview is on the right\n{screen}"
     );
-    // centred in the sheet's height as the oracle's `centered_offset` has it:
-    // the sheet is 13 rows (a blank row to the second mark), the sample 8,
-    // five free: a frame row, then (5 - 2) / 2 more
-    assert_eq!(sample_y, title_y + 1, "centred\n{screen}");
+    // centred in the content area below the panel's padding row, as the oracle's
+    // `centered_offset` has it: the sheet is 12 rows (title to the second mark), the
+    // sample 8, four free: a frame row, then (4 - 2) / 2 more
+    assert_eq!(sample_y, title_y + 2, "centred\n{screen}");
     // all eight lines of the wide sample, one row each (a long line is cut,
     // not wrapped), numbers 31..36
     assert!(screen.contains("  31  fn summarize"), "{screen}");
