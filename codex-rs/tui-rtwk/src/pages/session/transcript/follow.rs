@@ -18,18 +18,20 @@ use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
 use rtwk::layout::{Center, Column, Expanded, Flexible, MainAxisSize, Row, SizedBox};
 use rtwk::prelude::KeyCode;
-use rtwk::provider::watch;
+use rtwk::provider::{select, watch};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::composer::trigger;
+use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::copy::Shown;
 use super::copy_feedback::CopyFeedback;
+use super::history;
 use super::strings::{self, Strings};
 
 /// The row above the composer, there while the window has the room (the oracle
@@ -184,10 +186,11 @@ impl State for FollowControlState {
     }
 }
 
-/// The footer while something is selected (the keys of the selection), or the reader is away
-/// (the keys that return): `keys` (the footer of the page) otherwise. `enter`: an Enter on the
-/// empty composer returns too. The news is named first, then in short, then dropped, as the
-/// width allows (`footer.rs`).
+/// The footer while something is selected (the keys of the selection), the reader is away (the
+/// keys that return) or an older page is on its way or was refused (`history`): `keys` (the
+/// footer of the page) otherwise. `enter`: an Enter on the empty composer returns too. The row is
+/// the one `history` spells for the width: the news named first, then in short, then dropped
+/// (`footer.rs`).
 pub fn footer<S>(
     cx: &mut Cx<'_, S>,
     follow: Follow,
@@ -198,35 +201,41 @@ pub fn footer<S>(
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
     let (key_style, dim) = (tokens.bold(), tokens.dim());
+    let look = history::Look {
+        accent: tokens.accent(),
+        dim: dim.clone(),
+        key: key_style.clone(),
+    };
+    let state = select::<ThreadModel, _, _>(cx, ThreadModel::history_state);
     let listenable = Rc::new(<dyn Listenable>::merge([
         Some(follow.listenable()),
         Some(selection.listenable()),
     ]));
     ListenableBuilder::new(listenable, move |_, _| {
         let selected = selection.held();
-        if !follow.away() && !selected {
+        let pending = history::pending(state);
+        if !follow.away() && !selected && !pending {
             return keys.clone();
         }
-        let unseen = follow.unseen();
-        let (key_style, dim) = (key_style.clone(), dim.clone());
+        let (away, unseen) = (follow.away(), follow.unseen());
+        let (key_style, dim, look) = (key_style.clone(), dim.clone(), look.clone());
         let hint: AnyWidget = LayoutBuilder::new(move |cx, constraints| {
             let segmenter = segmenter_of(cx);
-            let navigation = |lead: &'static str| -> Vec<Span> {
-                let mut spans = Vec::new();
-                if !lead.is_empty() {
-                    spans.push(Span::styled(lead, dim.clone()));
-                    spans.push(Span::styled(table.footer_joiner, dim.clone()));
-                }
-                spans.push(Span::styled(
-                    if enter {
-                        table.latest_keys_enter
-                    } else {
-                        table.latest_keys
-                    },
-                    key_style.clone(),
-                ));
-                spans.push(Span::styled(table.latest_action, dim.clone()));
-                spans
+            // the way back, once the reader is away
+            let latest: Vec<Span> = if away {
+                vec![
+                    Span::styled(
+                        if enter {
+                            table.latest_keys_enter
+                        } else {
+                            table.latest_keys
+                        },
+                        key_style.clone(),
+                    ),
+                    Span::styled(table.latest_action, dim.clone()),
+                ]
+            } else {
+                Vec::new()
             };
             // what the keys of a selection do: pairs of keys and their action
             let hint = |pairs: &[(&'static str, &'static str)]| -> Vec<Span> {
@@ -242,32 +251,40 @@ pub fn footer<S>(
                 }
                 spans
             };
+            let fits = |spans: &[Span]| {
+                let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
+                i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
+            };
             let candidates: Vec<Vec<Span>> = if selected {
-                // the widest hint, led by the news while the reader is away and has some
-                // (`status_line_with_navigation`), then the hints alone
+                // the widest hint, led by the news while the reader is away and has some, or by
+                // the page on its way (`status_line_with_navigation`), then the hints alone
                 let mut all = Vec::new();
-                if unseen {
-                    let mut news = vec![
-                        Span::styled(table.new_activity, dim.clone()),
-                        Span::styled(table.footer_joiner, dim.clone()),
-                    ];
-                    news.extend(hint(table.selection_hints[0]));
-                    all.push(news);
+                if unseen || pending {
+                    all.push(history::whole(
+                        table,
+                        &look,
+                        &history::Say {
+                            history: state,
+                            news: unseen,
+                            navigation: &hint(table.selection_hints[0]),
+                            selected: true,
+                        },
+                    ));
                 }
                 all.extend(table.selection_hints.iter().map(|pairs| hint(pairs)));
                 all
-            } else if unseen {
-                vec![
-                    navigation(table.new_activity),
-                    navigation(table.new_short),
-                    navigation(""),
-                ]
             } else {
-                vec![navigation("")]
-            };
-            let fits = |spans: &Vec<Span>| {
-                let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
-                i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
+                history::candidates(
+                    table,
+                    &look,
+                    &history::Say {
+                        history: state,
+                        news: unseen,
+                        navigation: &latest,
+                        selected: false,
+                    },
+                    &fits,
+                )
             };
             // none fits: the shortest, clipped
             let mut chosen = candidates

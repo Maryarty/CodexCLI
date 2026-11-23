@@ -24,8 +24,9 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_wi
 
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::{HistoryState, ThreadModel};
 
+use super::history;
 use super::pager;
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
@@ -171,8 +172,8 @@ impl State for SheetState {
             })
         };
         let bottom = (w.chrome == Chrome::Overlay).then(|| {
-            // older messages can still be loaded (`TranscriptHistoryState::Partial`)
-            let partial = select::<ThreadModel, _, _>(cx, ThreadModel::can_load_history);
+            // what the thread's history is doing: loaded, loadable, on its way, refused
+            let state = select::<ThreadModel, _, _>(cx, ThreadModel::history_state);
             // the reader and the mode both change what the rows below say
             let listenable = <dyn Listenable>::merge([
                 Some(follow.listenable()),
@@ -202,11 +203,19 @@ impl State for SheetState {
                     // the reader is away: one status row, the hints give way to it
                     // (`footer_with_navigation`)
                     rows = rows
-                        .child(status(true, follow.unseen(), partial, table, &bold, &dim))
+                        .child(status(
+                            true,
+                            follow.unseen(),
+                            state,
+                            table,
+                            &bold,
+                            &accent,
+                            &dim,
+                        ))
                         .child(SizedBox::new(None, Some(2), None));
                 } else {
                     rows = rows
-                        .child(status(false, false, partial, table, &bold, &dim))
+                        .child(status(false, false, state, table, &bold, &accent, &dim))
                         .child(pager::hint_row(
                             &pager::navigation(table),
                             table,
@@ -259,20 +268,25 @@ fn second(highlight: bool, table: &'static Strings) -> Vec<pager::Pair> {
     pairs
 }
 
-/// The status row (`status_line_with_navigation`): the news the reader has not
-/// seen, that older messages can be loaded, then the key that goes on from
-/// here: the way back to the latest while the reader is away (`away`, the
-/// passive row of `footer_with_navigation`), the select key otherwise. When
-/// the row is too wide the news shortens, then goes, then the history text
-/// (the oracle's fallbacks and `first_fitting_line`).
+/// The status row (`status_line_with_navigation`): the news the reader has not seen, what the
+/// thread's history is doing or can do (`history`), then the key that goes on from here: the way
+/// back to the latest while the reader is away (`away`, the passive row of
+/// `footer_with_navigation`), the select key otherwise. When the row is too wide the news shortens,
+/// then goes, then the history text (the oracle's fallbacks and `first_fitting_line`).
 fn status(
     away: bool,
     news: bool,
-    partial: bool,
+    history: HistoryState,
     table: &'static Strings,
     key: &Style,
+    accent: &Style,
     dim: &Style,
 ) -> AnyWidget {
+    let look = history::Look {
+        accent: accent.clone(),
+        dim: dim.clone(),
+        key: key.clone(),
+    };
     let (key, dim) = (key.clone(), dim.clone());
     LayoutBuilder::new(move |cx, constraints| {
         let segmenter = segmenter_of(cx);
@@ -281,44 +295,28 @@ fn status(
         } else {
             (table.status_select_key, table.status_select_action)
         };
-        let navigation = |lead: Vec<Span>| -> Vec<Span> {
-            let mut spans = lead;
-            spans.push(Span::styled(keys, key.clone()));
-            spans.push(Span::styled(action, dim.clone()));
-            spans
-        };
-        let news_lead = |text: &'static str| {
-            vec![
-                Span::styled(text, dim.clone()),
-                Span::styled(table.footer_joiner, dim.clone()),
-            ]
-        };
-        let mut whole = Vec::new();
-        if news {
-            whole.extend(news_lead(table.new_activity));
-        }
-        if partial {
-            whole.push(Span::styled(table.history_partial, dim.clone()));
-        }
-        let fits = |spans: &Vec<Span>| {
+        let navigation = vec![
+            Span::styled(keys, key.clone()),
+            Span::styled(action, dim.clone()),
+        ];
+        let fits = |spans: &[Span]| {
             let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
             i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
         };
-        let mut candidates = vec![navigation(whole)];
-        if away {
-            // too wide: the news in short, else the keys alone
-            candidates.push(navigation(if news {
-                news_lead(table.new_short)
-            } else {
-                Vec::new()
-            }));
-            candidates.push(navigation(Vec::new()));
-        }
-        let chosen = candidates
-            .iter()
-            .find(|spans| fits(spans))
-            .cloned()
-            .unwrap_or_default();
+        let say = history::Say {
+            history,
+            news,
+            navigation: &navigation,
+            selected: false,
+        };
+        let chosen = if away {
+            history::candidates(table, &look, &say, &fits)
+                .into_iter()
+                .find(|spans| fits(spans))
+                .unwrap_or_default()
+        } else {
+            history::whole(table, &look, &say)
+        };
         Text::rich_line(chosen).overflow(TextOverflow::Clip).into()
     })
     .into()

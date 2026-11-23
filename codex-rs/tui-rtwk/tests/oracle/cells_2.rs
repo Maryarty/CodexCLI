@@ -762,37 +762,70 @@ fn completion_rendering_uses_the_captured_display_date() {
 // ORACLE history_cell/session_transcript_tests.rs:15 wheel_at_hidden_session_header_keeps_the_loaded_message_anchor kind=ui owner=chat-live
 #[test]
 fn wheel_at_hidden_session_header_keeps_the_loaded_message_anchor() {
-    kit::pending(
-        Owner::ChatLive,
-        "no script step answers `thread/turns/list`, so a thread never gets a next cursor (the header is hidden only while `ThreadModel::can_load_history`), and the wheel at the top of the chat does not page older turns in or keep the anchor (the chat-transcript slice: TranscriptView history states)",
-    );
+    // The oracle's view is 3 rows of the transcript alone; the chat is 12 rows with its composer.
+    // The thread is a replayed one whose server has older turns behind a cursor; the wheel at the
+    // top of what is loaded asks for them, the answer joins above.
+    let recent: Vec<_> = (0..6)
+        .rev()
+        .map(|n| kit::agent_turn(&format!("recent-{n}"), &[&format!("recent row {n}")]))
+        .collect();
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 3)
-        .script(include_str!(
-            "fixtures/cells_2/wheel_at_hidden_session_header_keeps_the_loaded_message_anchor.jsonl"
-        ))
+        .size(30, 12)
+        .replay(Vec::new())
         .open();
-    s.wheel_up(0, 0, 1);
-    s.wheel_up(0, 0, 1);
+    s.wait_for("Ask Codex to do anything");
+    s.history_page(recent, Some("cursor-1"));
+    // one wheel gesture after the other to the top of what is loaded
+    for _ in 0..5 {
+        s.wheel_up(0, 0, 10);
+    }
+    // the session header is hidden while older pages exist
+    assert!(!s.text().contains("OpenAI Codex"), "{}", s.text());
     let before = s.shot();
-    s.feed(include_str!(
-        "fixtures/cells_2/wheel_at_hidden_session_header_keeps_the_loaded_message_anchor_older.jsonl"
-    ));
+    let older: Vec<_> = (0..3)
+        .rev()
+        .map(|n| kit::agent_turn(&format!("older-{n}"), &[&format!("older row {n}")]))
+        .collect();
     // One wheel gesture must not keep requesting older pages, and the loaded page leaves the
     // rows where they were.
-    s.assert_same_rows(&before);
+    assert_eq!(s.page_requests().len(), 2);
+    s.history_page(older, None);
+    s.assert_same_rows_in(&before, 0..8);
+    assert_eq!(s.page_requests().len(), 2);
+    for _ in 0..4 {
+        s.wheel_up(0, 0, 10);
+    }
+    s.assert_contains("older row 0");
 }
 
 // ORACLE history_cell/session_transcript_tests.rs:64 session_information_waits_for_older_pages_and_reappears_after_completion kind=ui owner=chat-live
 #[test]
 fn session_information_waits_for_older_pages_and_reappears_after_completion() {
-    kit::pending(
-        Owner::ChatLive,
-        "the header is hidden while older pages exist (`can_load_history`, the oracle's Partial) and shown when the history is complete, but the kit cannot give a thread a next cursor (no `thread/turns/list` script step) and core has no LoadingOlder, LoadingBeginning or Failed states (the chat-transcript slice); the row to compare is the pane's `OpenAI Codex` header, the oracle text `session announcement` is its test stand-in",
+    // The oracle's stand-in `session announcement` is the pane's `OpenAI Codex` header: hidden
+    // while older pages exist (Partial, and while one is Loading), the first row once the
+    // history is Complete.
+    let rows = |n: usize| -> Vec<_> {
+        (0..n)
+            .rev()
+            .map(|n| kit::agent_turn(&format!("turn-{n}"), &[&format!("row {n}")]))
+            .collect()
+    };
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 20)
+        .replay(Vec::new())
+        .open();
+    s.wait_for("Ask Codex to do anything");
+    s.history_page(rows(2), Some("cursor-1"));
+    assert!(!s.text().contains("OpenAI Codex"), "{}", s.text());
+    // the wheel at the top asks for the next page: loading, the header is still not there
+    s.wheel_up(0, 0, 10);
+    assert_eq!(s.page_requests().len(), 2);
+    assert!(!s.text().contains("OpenAI Codex"), "{}", s.text());
+    s.history_page(rows(2), None);
+    s.wheel_up(0, 0, 10);
+    let first = s.rows().into_iter().find(|row| !row.is_empty());
+    assert_eq!(
+        first.as_deref().map(str::trim),
+        Some(">_ OpenAI Codex (v0.170.0)")
     );
-    let s = Screen::build(Owner::ChatLive).size(30, 2).live().open();
-    // The Complete state: the session announcement is the first row. The oracle's other
-    // states draw nothing until their history is complete (not reachable through the kit yet).
-    s.assert_row(0, "session announcement");
-    s.assert_row(1, "");
 }

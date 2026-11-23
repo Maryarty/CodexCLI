@@ -15,6 +15,7 @@ use crate::app::debug::DebugOpen;
 pub mod copy;
 mod copy_feedback;
 pub mod follow;
+pub mod history;
 pub mod pager;
 pub mod selection;
 pub mod sheet;

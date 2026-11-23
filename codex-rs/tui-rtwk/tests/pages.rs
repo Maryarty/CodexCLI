@@ -38,6 +38,8 @@ mod composer_startup;
 mod composer_suggest;
 #[path = "pages/composer_vim.rs"]
 mod composer_vim;
+#[path = "pages/history_pages.rs"]
+mod history_pages;
 #[path = "pages/onboarding_focus.rs"]
 mod onboarding_focus;
 #[path = "pages/resume_focus.rs"]
