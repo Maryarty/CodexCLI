@@ -8,10 +8,10 @@
 //! switching modes and sending the implement message mean.
 
 use rtwk::Cx;
+use rtwk::navigation::Route;
 use rtwk::provider::read;
 
 use crate::widgets::picker::list::{Columns, Item, List};
-use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat::plan_mode::{Answer, Used};
 use codex_tui_core::threads::ThreadModel;
 
@@ -50,7 +50,8 @@ pub fn menu(s: &Strings, used: Option<Used>) -> List {
 /// that raised it): opens the sheet, unless another sheet is open (`no_modal_or_popup_active`:
 /// the question is skipped, not kept waiting).
 pub fn ask<S>(cx: &mut Cx<'_, S>) {
-    if read::<ScreenStates, _>(cx).select.menu().is_some() {
+    // another sheet over the page (the route is not on top) is the oracle's other popup
+    if !Route::is_current_of(cx) {
         return;
     }
     let thread = read::<ThreadModel, _>(cx);
