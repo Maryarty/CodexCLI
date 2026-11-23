@@ -31,9 +31,9 @@ use rtwk::{
     AnyWidget, Cx, Handler, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
 };
 
-use codex_tui_core::screens::composer::mentions::candidate::{MentionType, Row as Candidate};
-use codex_tui_core::screens::composer::mentions::catalog::MentionKind;
-use codex_tui_core::screens::composer::mentions::files::Empty;
+use codex_tui_core::data::mention::{MentionType, Row as Candidate};
+use codex_tui_core::data::mention::MentionKind;
+use codex_tui_core::kit::mentions::files::Empty;
 use codex_tui_core::kit::mentions::search_mode::SearchMode;
 use codex_tui_core::kit::mentions::session::Active;
 

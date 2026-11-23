@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 
 use crate::kit::history::TextElement;
-use crate::screens::composer::mentions::task;
+use crate::data::task;
 
 /// Default plaintext sigil for tools (`codex_utils_plugins::mention_syntax`).
 pub const TOOL_MENTION_SIGIL: char = '$';

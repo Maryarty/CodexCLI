@@ -18,11 +18,12 @@ use super::target::{
     current_prefixed_token_range_with_dollar_predicate, dollar_query_kind,
     prefixed_token_range_is_editable,
 };
-use crate::screens::composer::mentions::candidate::Selection;
-use crate::screens::composer::mentions::catalog::{Mention, MentionKind, build_search_catalog};
-use crate::screens::composer::mentions::files::{FileMatches, FileSearchAsk};
-use crate::screens::composer::mentions::task::{TaskMention, valid_thread_path};
-use crate::screens::composer::mentions::usage::MentionUsage;
+use crate::data::mention::Selection;
+use super::catalog::build_search_catalog;
+use crate::data::mention::{Mention, MentionKind};
+use crate::data::files::{FileMatches, FileSearchAsk};
+use crate::data::task::{TaskMention, valid_thread_path};
+use crate::data::usage::MentionUsage;
 
 /// What the popups are fed from: the model's data.
 #[derive(Clone, Copy)]
@@ -605,8 +606,8 @@ fn dollar_target(doc: &Doc, mentions: &[Mention]) -> Option<MentionTarget> {
 mod tests {
     use super::*;
     use crate::ids::ThreadId;
-    use crate::screens::composer::mentions::candidate::uri;
-    use crate::screens::composer::mentions::catalog::MentionKind;
+    use crate::data::mention::uri;
+    use crate::data::mention::MentionKind;
     use pretty_assertions::assert_eq;
 
     fn doc<'a>(text: &'a str, cursor: usize, elements: &'a [Range<usize>]) -> Doc<'a> {

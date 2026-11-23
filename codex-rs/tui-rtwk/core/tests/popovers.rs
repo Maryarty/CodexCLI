@@ -6,8 +6,9 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
 use codex_tui_core::kit::history::{
-    WalkDirection, PromptWalk, HistorySearch, Lookup, SearchPreview, SearchStatus, Store,
+    WalkDirection, PromptWalk, HistorySearch, SearchPreview, SearchStatus,
 };
+use codex_tui_core::data::history::{Lookup, Store};
 use codex_tui_core::screens::composer::{Trigger, TriggerKind, trigger};
 use codex_tui_core::screens::popovers::*;
 use pretty_assertions::assert_eq;

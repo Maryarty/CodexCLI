@@ -1,7 +1,7 @@
 //! The `$` picks file (oracle `bottom_pane/mention_usage.rs`): a bounded
 //! window of the confirmed picker selections, kept under the Codex home as
 //! `mention_usage.json`. The window itself is the core's
-//! (`composer::mentions::usage::MentionUsage`, updated at once); this is its
+//! (`data::usage::MentionUsage`, updated at once); this is its
 //! file: loaded when the app starts, one write per pick.
 //!
 //! Writes are serialized, and a bounded file-lock wait merges selections made

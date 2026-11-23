@@ -21,7 +21,7 @@ use codex_tui_core::keymap::actions::{
     EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_TOGGLE_VIM_MODE,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::kit::history::Store;
+use codex_tui_core::data::history::Store;
 use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::kit::vim::{EditorAction, VimPending};
 use codex_tui_core::screens::{Shared, popovers};

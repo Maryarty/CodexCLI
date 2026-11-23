@@ -1,12 +1,13 @@
-//! The composer's history (`screens::composer::history`): the oracle's
+//! The composer's history (`kit::history`): the oracle's
 //! `chat_composer_history.rs` state tests and `search_batch_tests.rs`, carried
 //! with the split of the oracle's one machine into the shared `Store` and one
 //! composer's `History` (a reply goes to the store, then the composer polls).
 //! A read the oracle sent as an `AppEvent` is a `Lookup` in `fx`.
 
 use codex_tui_core::kit::history::{
-    WalkDirection, PromptWalk, HistoryEntry, Lookup, MAX_BATCH_READ_RETRIES, Response, SearchResult, Store,
+    WalkDirection, PromptWalk, HistoryEntry, Response, SearchResult,
 };
+use codex_tui_core::data::history::{Lookup, MAX_BATCH_READ_RETRIES, Store};
 use pretty_assertions::assert_eq;
 
 fn entry(text: &str) -> HistoryEntry {

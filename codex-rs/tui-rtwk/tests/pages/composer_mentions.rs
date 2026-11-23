@@ -121,12 +121,12 @@ mod popup {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use codex_tui_core::screens::composer::mentions::catalog::{Mention, MentionKind};
-    use codex_tui_core::screens::composer::mentions::files::{FileMatch, FileMatches, MatchType};
+    use codex_tui_core::data::mention::{Mention, MentionKind};
+    use codex_tui_core::data::files::{FileMatch, FileMatches, MatchType};
     use codex_tui_core::kit::mentions::search_mode::SearchMode;
     use codex_tui_core::kit::mentions::session::{Active, Sources};
     use codex_tui_core::kit::mentions::target::Doc;
-    use codex_tui_core::screens::composer::mentions::usage::MentionUsage;
+    use codex_tui_core::data::usage::MentionUsage;
     use codex_tui_rtwk::pages::session::popovers::mention::MentionPopup;
     use codex_tui_rtwk::widgets::thread_ui::ThreadUi;
 

@@ -6,8 +6,9 @@
 
 use super::filter::filtered_candidates;
 use super::search_mode::SearchMode;
-use crate::screens::composer::mentions::candidate::{Candidate, Row, Selection};
-use crate::screens::composer::mentions::files::{Empty, FileMatch, FileSearch};
+use crate::data::mention::{Candidate, Row, Selection};
+use super::files::{Empty, FileSearch};
+use crate::data::files::FileMatch;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Popup {
@@ -102,8 +103,8 @@ impl Popup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::screens::composer::mentions::candidate::MentionType;
-    use crate::screens::composer::mentions::files::MatchType;
+    use crate::data::mention::MentionType;
+    use crate::data::files::MatchType;
 
     fn skill(name: &str) -> Candidate {
         Candidate {

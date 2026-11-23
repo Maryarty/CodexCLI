@@ -2866,7 +2866,7 @@ fn attach_thread_with_metadata(
 /// The apps the mentions offer are the installed ones the directory lists
 /// (`connectors_for_mentions`): an app it does not list as accessible leaves them.
 fn drop_uncallable_apps(app: &mut CodexApp, listed: &[screens::select::apps::App]) {
-    use screens::composer::mentions::catalog::MentionKind;
+    use crate::data::mention::MentionKind;
     let callable = |path: &Option<String>| {
         path.as_deref()
             .and_then(|path| path.strip_prefix("app://"))

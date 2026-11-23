@@ -14,7 +14,6 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod clipboard;
-pub mod history;
 pub mod mentions;
 pub mod restricted;
 

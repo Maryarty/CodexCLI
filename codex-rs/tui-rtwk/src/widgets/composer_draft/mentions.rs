@@ -16,7 +16,7 @@ use rtwk::editing::{TextEditingController, TextSelection};
 use rtwk::foundation::ChangeNotifier;
 use rtwk::scroll::ListController;
 
-use codex_tui_core::kit::mentions::FileSearchAsk;
+use codex_tui_core::data::files::FileSearchAsk;
 use codex_tui_core::kit::mentions::search_mode::SearchMode;
 use codex_tui_core::kit::mentions::session::{
     Active, MentionPick, PickAction, Separator, MentionSession, Sources, completion_separator,

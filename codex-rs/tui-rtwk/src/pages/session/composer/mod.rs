@@ -29,7 +29,7 @@ use rtwk_core::presenter::CursorShape;
 use codex_tui_core::app::{ConnectionState, SessionSlice};
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::screens::composer;
-use codex_tui_core::kit::history::Lookup;
+use codex_tui_core::data::history::Lookup;
 use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};

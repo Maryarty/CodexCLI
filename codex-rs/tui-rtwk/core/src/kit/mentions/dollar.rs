@@ -7,8 +7,8 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::commands::fuzzy_match;
-use crate::screens::composer::mentions::candidate::uri;
-use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
+use crate::data::mention::uri;
+use crate::data::mention::{Mention, MentionKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MentionItem {

@@ -1,6 +1,68 @@
-//! What the unified `@` popup lists (`mentions_v2/candidate.rs`, carried):
-//! the candidates of the catalog, the rows a query leaves of them and what
-//! picking a row puts in the draft. Looks (tag colours) are the view's.
+//! What can be mentioned and what the unified `@` popup lists (`mentions_v2/candidate.rs`,
+//! carried): the skills, apps and plugins of the catalog, the candidates built of it, the rows a
+//! query leaves of them, what picking a row puts in the draft and the tools a message names.
+//! Plain values (`core::data`); looks (tag colours) are the view's.
+
+/// What a mention is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MentionKind {
+    Skill,
+    App,
+    Plugin,
+}
+
+/// A skill, app or plugin that can be mentioned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Mention {
+    pub kind: MentionKind,
+    /// The display name.
+    pub name: String,
+    /// Empty: none (a plugin then says what it carries).
+    pub description: String,
+    /// What follows the sigil when it is picked: a skill's name, an app's
+    /// slug (a plugin's config name when `path` is absent).
+    pub insert: String,
+    /// The binding: a skill's path, `plugin://<config name>`, `app://<id>`.
+    pub path: Option<String>,
+    /// The plugin a skill belongs to; the skill hides behind the plugin's
+    /// own row.
+    pub plugin_id: Option<String>,
+    /// What a plugin carries.
+    pub capabilities: Vec<Capability>,
+}
+
+impl Mention {
+    pub fn new(kind: MentionKind, name: &str, description: &str, insert: &str) -> Self {
+        Self {
+            kind,
+            name: name.to_string(),
+            description: description.to_string(),
+            insert: insert.to_string(),
+            path: None,
+            plugin_id: None,
+            capabilities: Vec::new(),
+        }
+    }
+
+    /// A plugin's config name (`name@marketplace`).
+    pub fn config_name(&self) -> &str {
+        self.path
+            .as_deref()
+            .and_then(|path| path.strip_prefix("plugin://"))
+            .unwrap_or(&self.insert)
+    }
+}
+
+/// A skill, plugin or app the message names: what the turn carries beside the text so the
+/// model gets the tool itself (`UserInput::Skill` / `UserInput::Mention`). The composer
+/// resolves its bound mentions against its catalog (`mentions::tool_mentions`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolMention {
+    /// A skill: its name and the path of its file.
+    Skill { name: String, path: String },
+    /// A plugin or an app: its display name and its `plugin://` / `app://` path.
+    Mention { name: String, path: String },
+}
 
 /// What a row is; its order is the order of the sections.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

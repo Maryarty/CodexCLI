@@ -9,8 +9,7 @@ use codex_app_server_protocol::PluginSummary;
 use codex_app_server_protocol::SkillMetadata;
 use codex_app_server_protocol::SkillsListResponse;
 
-use super::candidate::uri;
-use super::catalog::{Mention, MentionKind};
+use crate::data::mention::{Mention, MentionKind, uri};
 use crate::screens::select::apps::App;
 
 /// The enabled skills of the entry for `cwd` (the first entry when none is named, since the

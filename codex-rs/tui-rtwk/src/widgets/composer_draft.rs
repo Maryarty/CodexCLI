@@ -23,9 +23,12 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
 use codex_tui_core::kit::paste as paste_rules;
 use codex_tui_core::kit::history::{
-    PromptWalk as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
+    PromptWalk as Prompts, HistoryEntry, MentionBinding, TextElement,
 };
-use codex_tui_core::kit::mentions::{Mention, tool_mentions, valid_thread_path};
+use codex_tui_core::data::history::{Lookup, Store};
+use codex_tui_core::data::mention::Mention;
+use codex_tui_core::data::task::valid_thread_path;
+use codex_tui_core::kit::mentions::tool_mentions;
 use codex_tui_core::kit::mentions::rebind::find_next_mention_token_range;
 use codex_tui_core::kit::mentions::session::ComposerBinding;
 use codex_tui_core::kit::paste_burst::PasteBurst;

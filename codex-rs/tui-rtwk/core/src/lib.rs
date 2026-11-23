@@ -8,6 +8,7 @@
 
 pub mod app;
 pub mod commands;
+pub mod data;
 pub mod features;
 pub mod fixtures;
 pub mod format;

@@ -412,7 +412,7 @@ mod tests {
     use codex_tui_core::app::effects::Done;
     use codex_tui_core::ids::ThreadId;
     use codex_tui_core::screens::ScreenIntent;
-    use codex_tui_core::screens::composer::history::Lookup;
+    use codex_tui_core::data::history::Lookup;
     use codex_tui_core::screens::transcript::diff;
     use codex_tui_rtwk::services::clipboard::Environment;
     use codex_tui_rtwk::services::clipboard::Lease;
@@ -718,7 +718,7 @@ mod tests {
         let ev = answer(
             &rig,
             popover(popovers::Intent::SearchFiles(
-                codex_tui_core::screens::composer::mentions::files::FileSearchAsk::Stop,
+                codex_tui_core::data::files::FileSearchAsk::Stop,
             )),
         )
         .await;

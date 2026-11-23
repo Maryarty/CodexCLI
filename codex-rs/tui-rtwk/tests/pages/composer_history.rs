@@ -9,7 +9,7 @@ use crate::common;
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::kit::history::Lookup;
+use codex_tui_core::data::history::Lookup;
 use codex_tui_core::screens::popovers::{Ask, Ev};
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 

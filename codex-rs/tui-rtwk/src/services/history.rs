@@ -16,7 +16,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use codex_tui_core::screens::composer::history::Lookup;
+use codex_tui_core::data::history::Lookup;
 use codex_tui_core::screens::popovers::Ev;
 
 /// A batch the file gave: the rows (offset, text; `None` for a row that could

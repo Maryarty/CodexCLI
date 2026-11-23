@@ -261,7 +261,7 @@ mod tests {
     use std::time::Instant;
 
     use codex_tui_core::ids::ThreadId;
-    use codex_tui_core::screens::composer::history::Lookup;
+    use codex_tui_core::data::history::Lookup;
     use codex_tui_core::screens::transcript::diff;
     use pretty_assertions::assert_eq;
 

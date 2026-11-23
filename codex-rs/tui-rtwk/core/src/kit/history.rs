@@ -8,7 +8,7 @@
 //! `chat_composer_history/search_batch.rs` (`ChatComposerHistory`). The oracle
 //! keeps one state machine per composer and hands it each reply; here the
 //! split follows who may change what (ADR-003):
-//! - [`Store`] (`screens::composer::history`): what the file said (the metadata, the entries
+//! - [`Store`] (`data::history`): what the file said (the metadata, the entries
 //!   fetched so far, the outcome of batch reads), shared by every composer, changed only by
 //!   `apply` (`popovers::Ev::History*`);
 //! - [`History`]: one composer's walk: its local entries, the Up/Down cursor
@@ -27,7 +27,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::mentions::codec::decode_history_mentions_with_at_mentions;
-pub use crate::screens::composer::history::{Lookup, MAX_BATCH_READ_RETRIES, Store};
+use crate::data::history::{Lookup, MAX_BATCH_READ_RETRIES, Store};
 
 /// A placeholder or span of the entry's text (`TextElement`): the bytes
 /// `start..end`, with the placeholder text when the span is atomic.
