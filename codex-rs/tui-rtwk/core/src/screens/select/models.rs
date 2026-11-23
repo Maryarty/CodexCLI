@@ -446,7 +446,7 @@ pub enum Next {
     /// The default provider was written (`dismiss_stale_model_picker`): the sheet is stale.
     Close,
     /// The answer of the request the loading page waits for came: this page takes its place.
-    Replace(ModelMenu),
+    Replace(Box<ModelMenu>),
     /// The page cannot go on and leaves, saying why (`Intent::GiveUp`).
     GiveUp(GaveUp),
 }
@@ -514,7 +514,7 @@ impl ModelMenu {
                 }
                 Some((answered, Answer::Listed)) if answered == *request => {
                     let menu = ModelMenu::Models(current.clone());
-                    Some(if menu.is_empty(catalog) { gave_up(&menu) } else { Next::Replace(menu) })
+                    Some(if menu.is_empty(catalog) { gave_up(&menu) } else { Next::Replace(Box::new(menu)) })
                 }
                 _ => None,
             },

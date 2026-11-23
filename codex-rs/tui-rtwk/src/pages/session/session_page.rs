@@ -828,9 +828,8 @@ impl State for ChatState {
         thread_shape(cx);
         let drawn = slice::drawn(cx, thread.id());
         // the backend control's chord is live while the control shows
-        self.control.set(
-            session.cycle_label(&thread, drawn.offer.clone()).is_some() && !w.ui.draft.searching(),
-        );
+        self.control
+            .set(session.cycle_label(&thread, drawn.offer).is_some() && !w.ui.draft.searching());
         let backend = drawn.owner;
         let connection = session.connections.get(&backend);
         let slots = thread.screen_slots();

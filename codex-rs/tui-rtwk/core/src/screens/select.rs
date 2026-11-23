@@ -876,9 +876,6 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.abandon_inline();
             model.apps.invalidate();
             model.worktree.rescope();
-            model.stack.retain(|menu| match menu {
-                _ => true,
-            });
         }
         Ev::AppsLoaded { request, result } => {
             model.apps.loaded(request, result);

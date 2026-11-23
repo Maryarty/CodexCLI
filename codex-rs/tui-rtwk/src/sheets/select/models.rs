@@ -209,7 +209,7 @@ impl State for PageState {
                 self.leave(cx);
             }
             Msg::Next(Next::Replace(menu)) => {
-                drop(Navigator::of(cx).push_replacement::<()>(route(menu)));
+                drop(Navigator::of(cx).push_replacement::<()>(route(*menu)));
             }
         }
         Rebuild::No

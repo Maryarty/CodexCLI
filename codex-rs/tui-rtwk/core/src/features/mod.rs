@@ -55,11 +55,12 @@ pub enum Never<F> {
     ),
 }
 
+/// How a script's `fact` step reads one fact of a feature from its JSON (`Feature::SEED`).
+pub type SeedFn<T> = fn(serde_json::Value) -> Result<T, SeedError>;
+
 impl<F> Clone for Never<F> {
     fn clone(&self) -> Self {
-        match self {
-            Never::Void(never, _) => match *never {},
-        }
+        *self
     }
 }
 
@@ -105,7 +106,7 @@ pub trait Feature: 'static {
     /// How a script's `fact` step makes one of the feature's facts (`seed_fact`): the feature's
     /// own reading of the JSON, so a slice seeds its facts without editing the shared loader.
     /// None: the feature has no seedable fact.
-    const SEED: Option<fn(serde_json::Value) -> Result<Self::Fact, SeedError>> = None;
+    const SEED: Option<SeedFn<Self::Fact>> = None;
 
     /// The slash command that opens the feature's own sheet and what it names
     /// (`Target::Feature`; the generated `FeatureTarget` and `target_of`). None: no command opens

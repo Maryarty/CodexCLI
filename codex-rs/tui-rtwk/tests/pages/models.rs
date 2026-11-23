@@ -6,6 +6,8 @@
 //! writes the defaults and the sheet is gone. The state rules of the family are
 //! `core/tests/models.rs`; the refresh and provider flows are `tests/oracle/chat_popups_4.rs`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use codex_tui_core::app::Command;
 use codex_tui_core::screens::{ScreenCommand, select};
 

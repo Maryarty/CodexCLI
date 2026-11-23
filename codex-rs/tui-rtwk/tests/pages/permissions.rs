@@ -6,6 +6,8 @@
 //! `/permissions <profile>` opens the same sheet while the catalog is read and takes the pick
 //! once it came.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use codex_tui_core::app::Command;
 use codex_tui_core::screens::{ScreenCommand, select};
 
