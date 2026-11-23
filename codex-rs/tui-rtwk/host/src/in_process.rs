@@ -391,9 +391,17 @@ async fn run(
             AppEv::Screen(ScreenEv::Dialogs(DialogsEv::Retained(warnings))),
         );
     }
+    // The first conversation opens with the update banner when the cache holds a newer release
+    // (the startup page already refreshed a stale cache).
+    if let Some(notice) =
+        crate::update::update_available(&config, &crate::startup::Updates::system(&config))
+    {
+        emit(&ingress, epoch, AppEv::Announce(notice));
+    }
     let daemon = matches!(mode, Mode::Daemon | Mode::Remote { daemon: true, .. });
+    let mut version_shown = None;
     if show_version && let Some(client) = held.get() {
-        emit_version(&ingress, epoch, client, daemon);
+        emit_version(&ingress, epoch, client, daemon, &mut version_shown);
     }
     let Some(mut handle) = held.get().map(|client| client.request_handle()) else {
         return;
@@ -523,7 +531,7 @@ async fn run(
         };
         handle = client.request_handle();
         if show_version {
-            emit_version(&ingress, epoch, client, daemon);
+            emit_version(&ingress, epoch, client, daemon, &mut version_shown);
         }
         inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
     }
@@ -626,19 +634,41 @@ async fn connect_remote(endpoint: RemoteAppServerEndpoint) -> Option<AppServerCl
     .map(AppServerClient::Remote)
 }
 
-/// The older-server words of the connected server, or their absence.
-fn emit_version(ingress: &IngressTx, epoch: ConnEpoch, client: &AppServerClient, daemon: bool) {
+/// The older-server words of the connected server, or their absence: the command center's
+/// banner, and, once per distinct notice, a notice in the open conversation (oracle
+/// `pending_server_version_notice`: the message is the key, a reconnect to the same server says
+/// nothing again).
+fn emit_version(
+    ingress: &IngressTx,
+    epoch: ConnEpoch,
+    client: &AppServerClient,
+    daemon: bool,
+    shown: &mut Option<String>,
+) {
     let AppServerClient::Remote(remote) = client else {
         return;
     };
-    let text = remote
-        .server_version()
-        .and_then(|server| version::notice(env!("CARGO_PKG_VERSION"), server, daemon));
+    let server = remote.server_version();
+    let text = server.and_then(|server| version::notice(env!("CARGO_PKG_VERSION"), server, daemon));
     emit(
         ingress,
         epoch,
         AppEv::Screen(ScreenEv::Agents(AgentsEv::ServerVersion(text))),
     );
+    if let Some(message) = server
+        .and_then(|server| crate::update::server_version_message(env!("CARGO_PKG_VERSION"), server))
+        && shown.as_ref() != Some(&message)
+    {
+        *shown = Some(message.clone());
+        emit(
+            ingress,
+            epoch,
+            AppEv::Announce(codex_tui_core::threads::Notice::ServerVersion {
+                message,
+                offer_update: daemon,
+            }),
+        );
+    }
 }
 
 /// The work a command of ours asks, as one boxed future (the pump holds many

@@ -23,6 +23,10 @@
 //!   writes (the server refuses the resume: "already has an active writer"),
 //!   so the view is read-only; `fork_refused()` also has the server refuse the
 //!   fork (otherwise it stays in progress).
+//! - `update_available(latest, action)` / `server_notice(message, offer_update)`: the
+//!   notices the host announces to the first conversation (`AppEv::Announce`): the
+//!   update banner (the running version is the source build's `0.0.0`) and the
+//!   other-version notice of the connected service.
 //!
 //! Files of the session: `kit::image_file(name)` writes a tiny PNG, `Open::cwd`
 //! (markdown seeds) names the session's directory.
@@ -33,6 +37,8 @@ use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev as AgentsEv, Page};
 use codex_tui_core::screens::settings::{Ev as SettingsEv, Facts};
+use codex_tui_core::threads::Notice;
+use codex_tui_rtwk::services::startup::UpdateAction;
 use rtwk_core::style::ColorMode;
 use rtwk_core::unicode::TextMode;
 use rtwk_test::Options;
@@ -79,6 +85,8 @@ pub(super) struct Env {
     /// otherwise: the fork stays in progress).
     fork_refused: bool,
     replay: Option<Vec<serde_json::Value>>,
+    /// What the host announces to the first conversation.
+    announced: Vec<Notice>,
 }
 
 impl Env {
@@ -111,7 +119,10 @@ impl Env {
 
     /// An app event is to be delivered (the app has to be connected first).
     pub(super) fn needs_app(&self) -> bool {
-        self.syntax_theme.is_some() || self.foreign_writer.is_some() || self.replay.is_some()
+        self.syntax_theme.is_some()
+            || self.foreign_writer.is_some()
+            || self.replay.is_some()
+            || !self.announced.is_empty()
     }
 
     /// Delivers what is an app event rather than a terminal's property, once
@@ -124,6 +135,10 @@ impl Env {
             };
             h.connect();
             h.inject([AppEv::Screen(ScreenEv::Settings(SettingsEv::Facts(facts)))]);
+        }
+        if !self.announced.is_empty() {
+            h.connect();
+            h.inject(self.announced.iter().cloned().map(AppEv::Announce));
         }
         if let Some(thread) = self.foreign_writer {
             // the server refuses to resume the thread: another process writes it
@@ -252,6 +267,27 @@ impl Open {
     /// `replay_thread_turns` / `initial_messages`.
     pub fn replay(mut self, turns: Vec<serde_json::Value>) -> Open {
         self.env.replay = Some(turns);
+        self
+    }
+
+    /// The host announces a newer release `latest` (to run: `action`'s command, none for an
+    /// install the CLI does not know) as the first conversation opens.
+    pub fn update_available(mut self, latest: &str, action: Option<UpdateAction>) -> Open {
+        self.env.announced.push(Notice::UpdateAvailable {
+            current: "0.0.0".to_owned(),
+            latest: latest.to_owned(),
+            command: action.map(UpdateAction::command_str),
+        });
+        self
+    }
+
+    /// The host announces that the connected service runs another version than the CLI
+    /// (`message`; `offer_update`: it is the local daemon, `/daemon` manages it).
+    pub fn server_notice(mut self, message: &str, offer_update: bool) -> Open {
+        self.env.announced.push(Notice::ServerVersion {
+            message: message.to_owned(),
+            offer_update,
+        });
         self
     }
 

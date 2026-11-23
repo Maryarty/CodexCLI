@@ -15,32 +15,61 @@ fn row_of(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+/// The row of the notice (`⚠ ...`): the oracle's snapshot is the bare cell, the chat draws a
+/// bottom pane under the transcript.
+fn warning_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.starts_with("⚠ "))
+        .unwrap_or_else(|| panic!("no notice row:\n{}", s.text()))
+}
+
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE history_cell/tests.rs:40 connected_server_version_notice_snapshot kind=snap owner=chat-live snap=connected_server_version_notice_snapshot
 #[test]
 fn connected_server_version_notice_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: app.rs appends Notice::ServerVersion from the remote-connection check (show_server_version_notice), which the kit cannot seed",
+    // The host words it (host/src/update.rs `server_version_message`, tested there) and announces
+    // it to the first conversation; the remote service is not the local daemon: no `/daemon` lines.
+    let s = Screen::build(Owner::ChatLive)
+        .size(100, 12)
+        .live()
+        .server_notice(
+            "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+            false,
+        )
+        .open();
+    s.assert_snap_region(
+        "connected_server_version_notice_snapshot",
+        warning_row(&s),
+        0,
     );
-    let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
-    s.assert_snap_region("connected_server_version_notice_snapshot", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:67 local_daemon_version_notice_snapshot kind=snap owner=chat-live snap=local_daemon_alpha_mismatch snap=local_daemon_source_mismatch snap=local_daemon_version_notice_snapshot
 #[test]
 fn local_daemon_version_notice_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: app.rs appends Notice::ServerVersion from the remote-connection check (show_server_version_notice), which the kit cannot seed",
-    );
     // One screen per (client, server) pair of the oracle loop.
-    let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
-    s.assert_snap_region("local_daemon_version_notice_snapshot", 0, 0);
-    let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
-    s.assert_snap_region("local_daemon_alpha_mismatch", 0, 0);
-    let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
-    s.assert_snap_region("local_daemon_source_mismatch", 0, 0);
+    for (message, snapshot) in [
+        (
+            "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+            "local_daemon_version_notice_snapshot",
+        ),
+        (
+            "A background Codex service is running v0.156.0, different from your Codex CLI v0.155.0-alpha.12.",
+            "local_daemon_alpha_mismatch",
+        ),
+        (
+            "A background Codex service is running v0.156.0, different from your Codex CLI v0.0.0.",
+            "local_daemon_source_mismatch",
+        ),
+    ] {
+        let s = Screen::build(Owner::ChatLive)
+            .size(100, 12)
+            .live()
+            .server_notice(message, true)
+            .open();
+        s.assert_snap_region(snapshot, warning_row(&s), 0);
+    }
 }
 
 // ORACLE history_cell/tests.rs:119 streaming_agent_tail_blank_line_uses_one_viewport_row kind=snap owner=chat-live
