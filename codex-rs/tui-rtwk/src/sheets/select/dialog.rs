@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use rtwk::layout::{EdgeInsets, Padding};
 use rtwk::overlay::{Dialog, close_dialog};
-use rtwk::provider::{read, select};
+use rtwk::provider::{read, watch};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
@@ -67,8 +67,14 @@ impl State for MenuDialogState {
     type Widget = MenuDialog;
     type Msg = Msg;
 
+    // Watches the whole model, not a selection of it: a dependent that is
+    // dirty when the provider notifies it (the `Rebuild::Yes` of `update`
+    // below, a pick that empties the stack) is not told of a change it only
+    // selects from, and a dialog that then missed the menu going stayed open
+    // and empty over the chat. Watching tells it of every change; `build`
+    // watches too, so the registration is kept whichever of the two ran last.
     fn did_change_dependencies(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
-        let present = select::<ScreenStates, bool, _>(cx, |states| states.select.menu().is_some());
+        let present = watch::<ScreenStates, _>(cx).select.menu().is_some();
         if !present && self.shown {
             close_dialog::<_, ()>(cx, None);
         }
@@ -99,7 +105,7 @@ impl State for MenuDialogState {
     }
 
     fn build(&self, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let Some(head) = select::<ScreenStates, Option<Head>, _>(cx, head) else {
+        let Some(head) = head(&watch::<ScreenStates, _>(cx)) else {
             return AnyWidget::default();
         };
         let Some(list) = lists::of(&head.menu, head.page.as_ref(), strings::of(cx)) else {
