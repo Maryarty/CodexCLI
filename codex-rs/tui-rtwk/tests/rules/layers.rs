@@ -716,8 +716,9 @@ fn names_feature_path(line: &str, feature: &str) -> bool {
 }
 
 /// The files that route the oracle's slash list (`SessionIntent`) into a feature's intent:
-/// the one place besides a feature's own files that may name `features::<f>::Intent`, and
-/// nothing else of the feature.
+/// the one place besides a feature's own files that may name `features::<f>::Intent` (and
+/// `ThreadIntent`, for what a command asks of the thread it starts: `/new <name>`), and nothing
+/// else of the feature.
 const SLASH_ROUTERS: &[&str] = &["core/src/app/session.rs"];
 
 /// The file that sends a fact the host read, unasked, to a feature (`AppEv::Feature`): the one
@@ -750,11 +751,12 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
                 continue;
             }
             let intent = format!("features::{feature}::Intent");
+            let thread_intent = format!("features::{feature}::ThreadIntent");
             let fact = format!("features::{feature}::Fact");
             for (index, line) in code_lines(text) {
                 let mut line_left = line.to_string();
                 if SLASH_ROUTERS.contains(&name.as_str()) {
-                    line_left = line_left.replace(&intent, "");
+                    line_left = line_left.replace(&intent, "").replace(&thread_intent, "");
                 }
                 if FACT_SENDERS.contains(&name.as_str()) {
                     line_left = line_left.replace(&fact, "");
@@ -908,7 +910,18 @@ fn the_feature_naming_scan_bites() {
         found("core/src/app/session.rs", "features::goal::Fact::Seen"),
         1
     );
-    // the slash router builds an intent and names nothing else
+    // the slash router builds an intent, or a thread intent, and names nothing else
+    assert_eq!(
+        found(
+            "core/src/app/session.rs",
+            "features::goal::ThreadIntent::Set(name).into()"
+        ),
+        0
+    );
+    assert_eq!(
+        found("core/src/app.rs", "features::goal::ThreadIntent::Set(name)"),
+        1
+    );
     assert_eq!(
         found("core/src/app/session.rs", "features::goal::Intent::Open"),
         0

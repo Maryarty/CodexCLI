@@ -1,0 +1,651 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>tui-rtwk: архитектура</title>
+<style>body{font:15px/1.55 -apple-system,sans-serif;max-width:1150px;margin:0 auto;padding:0 18px 40px;color:#222}
+nav{position:sticky;top:0;background:#fff;padding:10px 0;border-bottom:1px solid #ddd;z-index:9}nav button{font:inherit;margin-right:6px;padding:4px 12px;border:1px solid #bbb;border-radius:6px;background:#f4f4f4;cursor:pointer}nav button.on{background:#2b6cb0;color:#fff;border-color:#2b6cb0}
+.pane{display:none}.pane.on{display:block}table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}th{background:#eee}
+pre.code{background:#f6f6f6;padding:8px;overflow:auto;font-size:13px}pre.mermaid{text-align:center;background:#fff}code{background:#eee;padding:0 3px;border-radius:3px;font-size:13px}blockquote{border-left:4px solid #2b6cb0;margin:8px 0;padding:4px 12px;background:#f3f8fd}h1{font-size:24px}h2{border-top:1px solid #eee;padding-top:14px}</style>
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";mermaid.initialize({startOnLoad:false,theme:"default",securityLevel:"loose"});
+window.show=async k=>{document.querySelectorAll('.pane').forEach((p,i)=>p.classList.toggle('on',i==k));document.querySelectorAll('nav button').forEach((b,i)=>b.classList.toggle('on',i==k));await mermaid.run({nodes:document.querySelectorAll('#p'+k+' pre.mermaid:not([data-processed])'),suppressErrors:true});};show(0);</script>
+</head><body><nav><button onclick="show(0)" id="t0">Архитектура</button><button onclick="show(1)" id="t1">Схемы d1–d15</button><button onclick="show(2)" id="t2">Ревью: подводные камни</button></nav><div class="pane" id="p0"><h1>tui-rtwk: целевая архитектура (ADR-013 «граница по вводу-выводу» в полном виде)</h1>
+<p>Статус: <b>проект на утверждение человеком</b>, 2026-11-23, tm <code>adr013-review</code>. После утверждения документ заменяет целевую часть <code>docs/rtwk-port/architecture.md</code>:</p>
+<ul><li style="margin-left:0ch">навигационную часть ADR-002 и поправки 2026-11-18 и 2026-11-19b;</li><li style="margin-left:0ch">область ADR-003;</li><li style="margin-left:0ch">форму ADR-012;</li><li style="margin-left:0ch">раздел «Layers».</li></ul>
+<p>ADR-001, 004–011 не меняются, кроме мест, названных в §14. Обоснование и найденные ловушки — <u>review.md</u>, схемы — <u>diagrams.md</u> (ссылки вида «d8»). Пути кода от <code>codex-rs/tui-rtwk/</code>. Имена с пометкой *(новое)* в коде пока не существуют.</p>
+<p>Документ самодостаточен: чтобы строить приложение, другие документы читать не нужно. Исследования, на которые он опирается, перечислены в §17.</p>
+<p>---</p>
+<h2>0. Что строим и в каком порядке смотреть</h2>
+<ul><li style="margin-left:0ch"><b>Оракул</b> <code>codex-rs/tui</code> (ratatui) задаёт только вид и поведение. Его внутреннее устройство (нижняя панель со стеком видов, шина <code>AppEvent</code>, один <code>select!</code>) моделью не служит.</li><li style="margin-left:0ch"><b>tui-rtwk</b> — нативное приложение на rtwk, построенное как приложение Flutter. Неизменяемые виджеты описывают UI, у элементов есть <code>State</code>, раскладка идёт по constraints, перестраивается только изменившееся поддерево.</li><li style="margin-left:0ch"><b>Бэкенд</b> — <code>codex-app-server-client</code> и <code>codex-app-server-protocol</code> как есть. Фронтенд — чистая замена.</li><li style="margin-left:0ch"><b>Цель документа</b> — сделать классы ошибок невозможными (типом или модульной приватностью) или пойманными (тестом-правилом). Слова без правила — долг с задачей.</li></ul>
+<p>---</p>
+<h2>1. Принципы</h2>
+<h3>1.1 Как это называется во Flutter</h3>
+<table><tr><th>во Flutter</th><th>у нас</th><th>где</th></tr><tr><td><code>main()</code>, platform channels</td><td>host: бинарь, in-process app-server, факты конфига</td><td><code>host/</code></td></tr><tr><td>repository / data layer, исполнитель эффектов</td><td>shell: единственный, кто делает IO и спавнит</td><td><code>src/services/</code></td></tr><tr><td>Bloc/Redux store, одно на приложение</td><td><code>CodexApp</code> + <code>apply_app</code></td><td><code>core/src/app.rs</code></td></tr><tr><td>Riverpod <code>.family</code> (стор на сущность)</td><td><code>ThreadModel</code> на поток + <code>threads::apply</code></td><td><code>core/src/threads.rs</code></td></tr><tr><td><code>Cmd</code> / side effects как данные</td><td><code>AppFx</code>, <code>ThreadFx</code>, <code>AppCx</code>-outbox</td><td>core</td></tr><tr><td>поток событий Bloc</td><td>ingress: один упорядоченный канал</td><td><code>Ingress</code>, <code>AppCx::channel</code></td></tr><tr><td><code>context.select</code> / <code>watch</code></td><td>провайдеры-проекции модели</td><td><code>src/app/view.rs</code></td></tr><tr><td><code>BlocListener</code></td><td>presenter-ы: запросы сервера, желания показать</td><td><code>src/app/presenters/</code> *(новое место)*</td></tr><tr><td><code>BlocListener</code> с <code>listenWhen: seq</code></td><td>слушатели директив</td><td><code>src/widgets/directives.rs</code> *(новое)*</td></tr><tr><td>Riverpod <code>autoDispose</code> + <code>ref.onDispose</code></td><td>интерес поверхности со счётчиком</td><td><code>src/widgets/interest.rs</code> *(новое)*</td></tr><tr><td>Riverpod <code>Mutation</code> / состояние операции</td><td><code>Op</code> по доменному ключу</td><td><code>core/src/features/&lt;f&gt;/</code></td></tr><tr><td>feature-first папки</td><td>срез фичи: две половины, одна строка в списке</td><td><code>core/src/features/&lt;f&gt;/</code>, <code>src/features/&lt;f&gt;/</code></td></tr><tr><td><code>Navigator</code> + <code>PageRoute</code></td><td>страницы</td><td><code>src/pages/</code></td></tr><tr><td>Navigator 2.0 <code>pages:</code> в <code>State</code></td><td><code>SheetStack&lt;Page&gt;</code> в шторке</td><td><code>src/widgets/sheet_stack.rs</code> *(новое)*</td></tr><tr><td><code>Scaffold.bottomSheet</code> / <code>showModalBottomSheet</code></td><td>шторка: докнутая (<code>SheetHost</code>) или модальная</td><td>§6, О2</td></tr><tr><td><code>showDialog</code></td><td>диалог</td><td><code>rtwk::overlay::show_dialog</code></td></tr><tr><td><code>Autocomplete</code>, <code>Overlay</code></td><td>поповеры композера</td><td><code>src/pages/session/popovers/</code></td></tr><tr><td><code>TextEditingController</code>, <code>ScrollController</code>, <code>TabController</code>, <code>ExpansionController</code>, <code>FocusNode</code></td><td>те же контроллеры rtwk</td><td><code>State</code> или <code>ThreadUi</code></td></tr><tr><td><code>PageStorage</code> / контроллеры над страницей</td><td><code>ThreadUi</code> на поток</td><td><code>src/widgets/thread_ui.rs</code></td></tr><tr><td><code>Shortcuts</code> / <code>Actions</code> / <code>Intent</code></td><td>те же в rtwk; карта из keymap пользователя</td><td>§7</td></tr><tr><td><code>AppLocalizations.of(context)</code></td><td><code>strings::of(cx)</code></td><td><code>src/**/strings.rs</code>, <code>src/l10n/</code></td></tr><tr><td>чистые Dart-библиотеки (форматтеры, парсеры)</td><td><code>core::kit</code></td><td><code>core/src/kit/</code> *(новое место)*</td></tr><tr><td><code>bloc_test</code> / widget test / golden / integration_test</td><td>core-тесты / <code>Tester</code> / oracle-шарды / pty-сценарии</td><td>§12</td></tr></table>
+<h3>1.2 Пять родов состояния</h3>
+<table><tr><th>род</th><th>пример</th><th>владелец</th><th>кто меняет</th></tr><tr><td><b>Д. Домен</b>: факты сервера и host и то, что из них выведено</td><td>транскрипт, каталог плагинов, лимиты, конфиг, keymap</td><td>core</td><td><code>apply</code> по событию</td></tr><tr><td><b>З. Запись запроса</b>: тикет, параметры как ключ ответа, статус операции</td><td><code>Remote&lt;Detail&gt;</code> по <code>PluginKey</code>, <code>Listing</code> по <code>query</code>, <code>ops[Install(k)]</code></td><td>core</td><td><code>apply</code> по глаголу и по ответу</td></tr><tr><td><b>Ж. Жизненный цикл и разовые сигналы домена</b>: шаги запуска, очередь сообщений, желания показать, директивы контроллерам</td><td><code>start_held</code>, <code>queue</code>, <code>SurfaceWish</code>, <code>Directive&lt;Restore&gt;</code></td><td>core</td><td><code>apply</code></td></tr><tr><td><b>И. Интерес</b>: какая поверхность сейчас хочет данных</td><td><code>Interest(Plugins{cwd})</code> со счётчиком</td><td>core (счётчик), UI (виджет <code>Interest</code>)</td><td><code>Intent::Interest(Open/Close)</code></td></tr><tr><td><b>Н. Нарисованное</b>: курсор, прокрутка, вкладка, страница и стек шторки, свёрнутость, плотность, подсветка, текст поля до отправки, открыта ли поверхность</td><td><code>ListController</code>, <code>TabController</code>, <code>SheetStack</code></td><td>UI: <code>State</code> виджета или <code>ThreadUi</code></td><td>жест в виджете, локальный <code>setState</code></td></tr></table>
+<h3>1.3 IO-тест: где живёт значение</h3>
+<p>Вопросы задаются по порядку, и первое «да» решает:</p>
+<ol><li style="margin-left:0ch">Это ответ или факт сервера или host, или выведено из них? → <b>Д</b>, core.</li><li style="margin-left:0ch">Это параметр запроса или статус операции, без которого ответ не к чему приложить? → <b>З</b>, core. Это <b>кэш по параметру</b>, а не «текущее X»: core хранит <code>Map&lt;Key, Remote&lt;T&gt;&gt;</code>, а не «открытая деталь».</li><li style="margin-left:0ch">От этого зависит шаг жизненного цикла (старт потока, очередь, запуск) или это сигнал, который домен посылает поверхности, — открыть её или положить текст в контроллер? → <b>Ж</b>, core.</li><li style="margin-left:0ch">Домен должен знать, нужны ли данные прямо сейчас (загрузка при открытии, опрос, перезапрос после переподключения)? → <b>И</b>: счётчик в core, сам факт открытия в UI.</li><li style="margin-left:0ch">Иначе → <b>Н</b>, UI.</li></ol>
+<p>Уточнения, которые снимают спорные случаи:</p>
+<ul><li style="margin-left:0ch">Текст поля ввода всегда <b>Н</b> (контроллер). Core получает его только глаголом при отправке или поиске (<code>Submit</code>, <code>Search{query}</code>) и никогда не пишет обратно. Если домену нужно изменить текст, он шлёт <code>Directive</code> (§4.6).</li><li style="margin-left:0ch">«Другой экран читает» — не довод. Довод — кто <b>пишет</b>. Значение, которое пишут только жесты одной поверхности, — это <b>Н</b>, даже если его читают двое: тогда его поднимают к общему предку в UI (<code>ThreadUi</code>, <code>UiState</code>), а не в core.</li><li style="margin-left:0ch">Ошибка, видимая до следующего действия пользователя: факт — <b>Д</b> с <code>seq</code>, «погашено» — <b>Н</b> (UI помнит последний погашенный <code>seq</code>).</li></ul>
+<h3>1.4 Инварианты (каждый закреплён правилом, §13)</h3>
+<ol><li style="margin-left:0ch"><b>Один писатель.</b> Состояние приложения меняет только <code>apply</code>/<code>apply_app</code> на UI-потоке. Все входы идут через один ingress в порядке поступления (R10).</li><li style="margin-left:0ch"><b>Core без UI и IO.</b> В core нет rtwk, tokio, часов, файлов и прозы. Это держит компилятор (манифест) и сканы.</li><li style="margin-left:0ch"><b>IO только в shell.</b> Спавн, RPC, файлы, буфер обмена, часы — только в shell (R1, R11, R12).</li><li style="margin-left:0ch"><b>Аргументы — id, не данные</b> (R14). Маршрут, шторка или диалог получает id и читает данные через провайдеры. Копию берёт только редактор, и это его черновик.</li><li style="margin-left:0ch"><b>Ни одного тикета в UI.</b> UI сопоставляет ответы по доменному ключу операции (§4.5).</li><li style="margin-left:0ch"><b>Нарисованное не попадает в core.</b> Скан по типам, достижимым из корней домена (§13).</li><li style="margin-left:0ch"><b>Слова только в UI</b> (ADR-010). Core отдаёт ключи заметок и ошибок как типизированные значения.</li></ol>
+<p>---</p>
+<h2>2. Слои и модули</h2>
+<p>Рабочее пространство <code>codex-rs/tui-rtwk</code> (ADR-001): пакеты <code>codex-tui-core</code> (<code>core/</code>), <code>codex-tui-rtwk</code> (UI, <code>src/</code>), <code>codex-rtwk</code> (<code>host/</code>). Знание течёт в одну сторону: host → UI → core; core → protocol, serde, std.</p>
+<h3>2.1 Карта (d13)</h3>
+<table><tr><th>модуль</th><th>отвечает за</th><th>владеет</th><th>входы</th><th>выходы</th><th>может называть</th><th>не может</th></tr><tr><td><b>host</b> <code>host/src</code></td><td><code>main</code>, <code>arg0</code>, tokio-рантайм, in-process app-server (<code>in_process.rs</code>), облако (<code>cloud.rs</code>), факты конфига и запуска (<code>facts.rs</code>, <code>launch.rs</code>), эффекты host (<code>effects.rs</code>)</td><td>клиент app-server, рантайм</td><td>CLI, окружение, конфиг</td><td><code>Ingress</code> с эпохой; ответы <code>effects::Done</code></td><td>всё</td><td>спавнить вне shell-API (<code>r1_the_host_neither_spawns_nor_allows</code>)</td></tr><tr><td><b>UI · app</b> <code>src/app/</code></td><td>корень композиции (<code>run.rs</code>), <code>UiApp { core, ui, link }</code>, <code>view</code> (провайдеры + <code>Navigator</code>), presenter-ы, debug-меню</td><td><code>UiState</code>: <code>nav_key</code>, <code>thread_ui</code>, <code>lang</code>, presenter-ы, флаги старта</td><td><code>Ingress</code> (через <code>ingest</code>), жесты через <code>Hs</code></td><td><code>AppEv</code> в ingress, <code>AppFx</code> в shell</td><td>core, rtwk, shell (<code>link</code>)</td><td>протокол в видах</td></tr><tr><td><b>UI · services/shell</b> <code>src/services/</code></td><td>единственный исполнитель эффектов: RPC (<code>shell.rs</code>), буфер обмена, open_url, поиск файлов, история, часы, fake-backend для тестов</td><td>соединения, подписки, эпоха каждой подписки</td><td><code>AppFx</code></td><td>события с тикетом и эпохой в ingress</td><td>core, протокол, tokio, <code>Cx</code>/<code>DialogResult</code> rtwk для спавна</td><td>виджеты (<code>shell_names_no_widget</code>)</td></tr><tr><td><b>UI · pages</b> <code>src/pages/&lt;p&gt;/</code></td><td>5 страниц: Startup (шаги onboarding, import), Session (транскрипт, композер, футер), Agents, Resume, Usage</td><td><code>State</code> страниц: Н</td><td>проекции, <code>ThreadUi</code></td><td>глаголы через <code>Hs</code></td><td>core (проекции, интенты), widgets, свои <code>strings.rs</code></td><td>протокол, shell, IO, <code>apply</code>, <code>core::screens::*::wire</code></td></tr><tr><td><b>UI · sheets</b> <code>src/sheets/&lt;s&gt;/</code></td><td>общие шторки и диалоги: approvals (presenter), dialogs, settings, pets, voice, общий select для небольших меню хаба</td><td><code>State</code> шторки, <code>SheetStack</code></td><td>проекции, аргументы-id</td><td>глаголы</td><td>как pages</td><td>как pages</td></tr><tr><td><b>UI · features</b> <code>src/features/&lt;f&gt;/</code></td><td>видимая половина фичи: <code>open(cx, args)</code>, её шторка и страницы, слова заметок и меню (<code>strings.rs</code>)</td><td><code>State</code> своей шторки</td><td><code>FeatureStates</code> (срез фичи)</td><td><code>Intent::Feature(&lt;f&gt;::Intent)</code></td><td>core::features::&lt;f&gt; (типы), widgets</td><td>чужие фичи, протокол</td></tr><tr><td><b>UI · widgets</b> <code>src/widgets/</code></td><td>общие кирпичи: <code>Picker</code> (+ его <code>List/Item/Span/Role</code>, <code>layout</code>, переехавшие из core), <code>session_list</code>, <code>options</code>, <code>tab_strip</code>, <code>thread_ui</code>, <code>sheet_stack</code>, <code>interest</code>, <code>directives</code>, <code>markdown</code></td><td>ничего доменного</td><td>пропсы</td><td>события пропсов</td><td>rtwk, <code>core::kit</code>, <code>core::ids</code></td><td><code>core::screens</code>, <code>core::features</code>, pages (<code>widgets_never_import_pages</code>)</td></tr><tr><td><b>UI · keymap, l10n, theme</b></td><td>разрешённый keymap → <code>Shortcuts</code>; таблицы строк (<code>Lang</code>, <code>Tables&lt;T&gt;</code>), <code>TwkLocalizations</code>; токены стиля</td><td>—</td><td><code>Keymap</code> (проекция), <code>UiState.lang</code></td><td>—</td><td>rtwk</td><td>литералы слов и цветов вне таблиц</td></tr><tr><td><b>core · app</b> <code>core/src/app*</code></td><td><code>CodexApp</code>, <code>apply_app</code>, <code>ingest</code> (эпоха R1), маршрутизация ответов, сессия, очередь запросов сервера, интересы, желания показать, факты</td><td><code>session</code>, <code>ThreadSet</code> (приватно), <code>requests</code>, <code>screens</code>, <code>features</code>, <code>outgoing</code>, <code>interests</code> *(новое)*, <code>wishes</code> *(новое)*, <code>keymap</code>, <code>tui</code></td><td><code>Ingress</code></td><td><code>AppFx</code>; проекции через <code>&amp;</code>-геттеры</td><td>protocol, serde, kit</td><td>rtwk, IO, прозу</td></tr><tr><td><b>core · threads</b> <code>core/src/threads*</code></td><td><code>ThreadModel</code> (создаётся только в <code>ThreadSet::open</code>), <code>apply</code>, <code>project</code> (протокол → <code>ThreadEv</code>), транскрипт (R4), очередь и старт ходов, <code>ThreadAsk</code> (жизненный цикл RPC), директивы потока</td><td>на поток: <code>core</code>, <code>slots</code> (доменные части экранов), <code>features</code> (части фич), <code>seal</code></td><td><code>ThreadEv</code></td><td><code>ThreadFx</code></td><td>как app</td><td>—</td></tr><tr><td><b>core · features</b> <code>core/src/features/&lt;f&gt;/</code></td><td>домен фичи: глаголы, каталоги, <code>Remote</code>, <code>Op</code>, заметки, факты, хуки жизненного цикла; одна строка в <code>feature_list!</code></td><td><code>State</code>, <code>ThreadPart</code></td><td><code>Intent</code>, ответы, факты, хуки</td><td><code>AppCx</code>-outbox: <code>ask</code>, <code>effect</code>, <code>note</code>, <code>thread</code>, <code>settled</code>, <code>wish</code> *(новое)*</td><td><code>AppView</code>/<code>ThreadView</code>, kit</td><td><code>CodexApp</code>, <code>ThreadModel</code>, <code>AppFx</code>, UI-формы (<code>Menu/Pick/Prompt</code>)</td></tr><tr><td><b>core · screens</b> <code>core/src/screens/&lt;dir&gt;/</code></td><td>только домен экранов (Д/З/Ж): списки resume, лимиты usage, шаги onboarding, запросы approvals, каталоги select (модели, профили), popovers (совпадения файлов, история)</td><td><code>ScreenStates</code> (срезы), <code>ThreadSlots</code></td><td><code>ScreenIntent</code> (глаголы), события</td><td>эффекты через <code>AppFx</code></td><td>как features</td><td>поля отрисовки (Н)</td></tr><tr><td><b>core · commands</b> <code>core/src/commands*</code></td><td>slash-роутер: текст → <code>Target</code> + глагол (<code>SessionIntent</code>, <code>Intent::Feature</code>); фильтр команд (kit)</td><td>—</td><td>текст отправки</td><td><code>Target</code>, глагол</td><td>—</td><td>открывать поверхности</td></tr><tr><td><b>core · keymap</b> <code>core/src/keymap/</code></td><td>разбор <code>tui.keymap.*</code>, контексты, аккорды, лидер, разрешение конфликтов</td><td><code>Keymap</code> (в <code>CodexApp</code>)</td><td>факт конфига</td><td><code>Rc&lt;Keymap&gt;</code></td><td>—</td><td>rtwk-клавиши</td></tr><tr><td><b>core · protocol, rpc, ids</b></td><td>отображение протокола, <code>Ticket</code>, <code>Reply&lt;T&gt;</code>, <code>Pending::resolve</code>, <code>ConnEpoch</code>, <code>RequestKey</code>, newtypes id (R13)</td><td>—</td><td>—</td><td>—</td><td>protocol</td><td>—</td></tr><tr><td><b>core · kit</b> <code>core/src/kit/</code> *(новое место)*</td><td>чистая логика без состояния приложения: vim, paste_burst, навигация по истории (<code>History</code>), кодек упоминаний, фильтр команд (<code>CommandPopup</code>), машина backtrack, нечёткий поиск, форматирование</td><td>ничего; типы kit принадлежат тем, кто их держит (UI)</td><td>аргументы</td><td>значения</td><td>std, protocol-типы данных</td><td>корни домена (<code>CodexApp</code>, <code>ThreadModel</code>, <code>*States</code>)</td></tr><tr><td><b>core · fixtures</b> <code>core/src/fixtures/</code></td><td>JSONL-скрипты (<code>seed</code>, <code>screen</code>, <code>notify</code>, <code>request</code>, <code>respond</code>, <code>reply</code>, <code>lagged</code>; UI-шаги <code>key</code>, <code>resize</code>, <code>ui</code> *(новое)* отдаются тестеру как есть), <code>Sandbox</code></td><td>—</td><td>скрипт</td><td>состояние через живой <code>ingest</code></td><td>—</td><td>строить состояние мимо <code>ingest</code></td></tr><tr><td><b>tests</b></td><td><code>core/tests</code> (домен), <code>tests/sheets</code>, <code>tests/pages</code> (виджеты), <code>tests/kit</code> + <code>tests/oracle</code> (чёрный ящик против оракула), <code>tests/rules</code> (правила), <code>tests/scenarios</code> (pty), <code>perf/</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr></table>
+<h3>2.2 Что видит фича (ADR-012 в форме C)</h3>
+<p><code>trait Feature</code> (core) — ассоциированные типы <code>State</code>, <code>ThreadPart</code>, <code>Intent</code>, <code>ThreadIntent</code>, <code>Command</code>, <code>Reply</code>, <code>Ctx</code>, <code>Note</code>, <code>Fact</code>, <code>Wish</code> *(новое)*, <code>Interest</code> *(новое)*. Шаги:</p>
+<ul><li style="margin-left:0ch"><code>intent</code>, <code>answered</code>, <code>effect_done</code>;</li><li style="margin-left:0ch"><code>on_fact</code>, <code>on_interest(state, interest, open, cx)</code> *(новое)*;</li><li style="margin-left:0ch"><code>on_resumed</code>, <code>thread_intent</code>, <code>thread_answered</code>, <code>on_turn_end</code>, <code>on_interrupted</code>, <code>on_settled</code>;</li><li style="margin-left:0ch"><code>note_tone</code>, <code>wire</code>, <code>decode</code>.</li></ul>
+<p><b>Уходят</b>: <code>Menu</code>, <code>Pick</code>, <code>Prompt</code>, <code>choose</code>, <code>picked</code>, <code>prompt_submitted</code>, <code>AppCx::open</code>, <code>AppCx::prompt</code>, <code>FeatureView::menu_list</code>, <code>FeatureView::prompt_words</code>. Хаб теряет <code>Menu::Feature</code>, <code>Picked::Feature</code>, <code>PromptKind::Feature</code>. Бюджет <code>hub_budget.txt</code> уменьшается.</p>
+<p>Видимая половина <code>src/features/&lt;f&gt;/</code>:</p>
+<ul><li style="margin-left:0ch"><code>pub fn open(cx, args: &lt;f&gt;::OpenArgs)</code> — аргументы-id и начальная страница;</li><li style="margin-left:0ch">шторка <code>&lt;F&gt;Sheet</code> (<code>StatefulWidget</code>, <code>eq</code>) на <code>SheetStack&lt;Page&gt;</code>;</li><li style="margin-left:0ch"><code>note_words</code>, <code>strings.rs</code>.</li></ul>
+<p>Slash-роутер возвращает <code>Target::Feature(FeatureTarget)</code> и (необязательно) глагол. Страница сессии вызывает <code>features::open(cx, target)</code> (сгенерировано <code>feature_list!</code>).</p>
+<p>---</p>
+<h2>3. Владельцы состояния (полная таблица, d9)</h2>
+<table><tr><th>состояние</th><th>род</th><th>владелец</th><th>читают</th><th>меняют</th><th>переживает</th></tr><tr><td>сессия: эпохи, активный поток, статус, backend-ы</td><td>Д/Ж</td><td><code>CodexApp.session</code> (<code>Rc&lt;SessionSlice&gt;</code>)</td><td><code>select::&lt;SessionSlice&gt;</code></td><td><code>apply_app</code> (активный поток — только там, <code>the_shown_thread_is_set_only_in_apply_app</code>)</td><td>всё, кроме выхода</td></tr><tr><td>поток: транскрипт, ход, очередь, steers, директивы</td><td>Д/Ж</td><td><code>ThreadModel</code> (через <code>ThreadSet::open</code>)</td><td><code>select::&lt;ThreadModel&gt;</code> активного; <code>AppView::thread(id)</code></td><td><code>ThreadEv</code> → <code>threads::apply</code></td><td>смену потока, переподключение (снимок заменяет ходы, R4)</td></tr><tr><td>доменные части экранов на поток</td><td>Д</td><td><code>ThreadModel.slots</code> (<code>ThreadSlots</code>)</td><td>проекция потока</td><td><code>ScreenThreadEv</code></td><td>как поток</td></tr><tr><td>запросы сервера (approvals, elicitation, user input)</td><td>Д</td><td><code>CodexApp.requests</code> (ключ <code>(BackendId, ConnEpoch, ThreadId, ServerRequestId)</code>)</td><td>presenter, шторка запроса</td><td><code>apply_app</code>; на <code>attach</code> удаляются запросы этого backend</td><td>до ответа, разрешения или переподключения</td></tr><tr><td>наши RPC в полёте</td><td>З</td><td><code>CodexApp.outgoing: Pending&lt;AppCtx&gt;</code></td><td>никто вне core</td><td><code>apply_app</code>; на <code>attach</code> → <code>Failed(Disconnected)</code> *(новое, F6)*</td><td>до ответа или переподключения</td></tr><tr><td>каталоги и факты фич, <code>Remote&lt;T&gt;</code> по ключу, <code>Op</code> по <code>OpKey</code></td><td>Д/З</td><td><code>FeatureStates</code> (срез <code>Rc</code> на фичу *(новое)*)</td><td><code>select</code> по срезу фичи</td><td>шаги <code>Feature</code></td><td>смену потока; переподключение (перезапрос интересов)</td></tr><tr><td>домен экранов (resume <code>Listing</code>, usage, onboarding, select-каталоги, popovers)</td><td>Д/З/Ж</td><td><code>ScreenStates</code> (срез <code>Rc</code> на экран *(новое)*)</td><td><code>select</code> по срезу</td><td><code>ScreenIntent</code> → <code>apply_app</code></td><td>как фичи</td></tr><tr><td>интересы</td><td>И</td><td><code>CodexApp.interests: Map&lt;InterestKey, u32&gt;</code> *(новое)*</td><td>core</td><td><code>Intent::Interest</code> из виджета <code>Interest</code></td><td>переподключение (перезапрос)</td></tr><tr><td>желания показать</td><td>Ж</td><td><code>CodexApp.wishes: VecDeque&lt;SurfaceWish&gt;</code> *(новое)*</td><td><code>SurfacePresenter</code></td><td><code>AppCx::wish</code>, <code>apply_app</code>; снимается presenter-ом (<code>Intent::WishShown(seq)</code>) или устаревает по <code>scope</code></td><td>до показа или смены <code>scope</code></td></tr><tr><td>директивы контроллерам (восстановить черновик, префилл, засеять историю, очистить отправленное)</td><td>Ж</td><td><code>ThreadModel</code> (<code>Directive&lt;T&gt;</code> с <code>seq</code>)</td><td>слушатели <code>widgets/directives.rs</code></td><td><code>threads::apply</code></td><td>смену потока (видимый <code>seq</code> в <code>ThreadUi</code>)</td></tr><tr><td>keymap, <code>[tui]</code></td><td>Д</td><td><code>CodexApp.keymap</code>, <code>tui</code></td><td>провайдеры</td><td><code>AppEv::Keymap/Tui</code></td><td>всё</td></tr><tr><td>стек страниц приложения</td><td>Н</td><td><code>Navigator</code> (ключ <code>UiState.nav_key</code>, G15)</td><td><code>Navigator::of</code></td><td>push/pop из виджетов</td><td>всё</td></tr><tr><td>стек и страница шторки, вкладка, курсоры, прокрутка, подсветка, плотность, свёрнутость</td><td>Н</td><td><code>State</code> шторки или страницы; контроллеры rtwk; <code>SheetStack</code></td><td>—</td><td>жесты</td><td>только жизнь элемента</td></tr><tr><td>ожидание своей операции</td><td>Н</td><td><code>State</code> шторки: <code>awaiting: Option&lt;(OpKey, Gen)&gt;</code></td><td>—</td><td>emit глагола; ответ в домене</td><td>жизнь шторки</td></tr><tr><td>черновик композера, история-навигация, kill ring, vim, режимы транскрипта (Ctrl+T, backtrack), прокрутка транскрипта, виденные <code>seq</code> директив</td><td>Н</td><td><code>ThreadUi</code> по <code>ThreadId</code></td><td>поддерево потока</td><td>контроллеры</td><td>смену потока; удаляется с потоком</td></tr><tr><td>presenter-ы (показанный запрос, последнее желание, время последней клавиши)</td><td>Н</td><td><code>UiState.presenters</code></td><td>—</td><td>presenter-ы</td><td>всё</td></tr><tr><td>язык</td><td>Н (факт UI)</td><td><code>UiState.lang</code></td><td><code>strings::of(cx)</code></td><td>раз при старте</td><td>всё</td></tr></table>
+<p>---</p>
+<h2>4. Пути</h2>
+<h3>4.1 Событие сервера (d5)</h3>
+<p><code>app-server</code> → host (<code>in_process.rs</code>) → <code>Ingress { backend, epoch, ev }</code> → shell → <code>UiApp::ingest</code> → <code>CodexApp::ingest</code>. Там сверяется эпоха (R1): чужая — отбросить. Дальше <code>apply_event</code> → <code>threads::project</code> / <code>project_unrouted</code> → <code>threads::apply(ThreadEv)</code> и <code>screens::project_thread</code> → доменные части. Результат — <code>AppFx</code>.</p>
+<p>После <code>ingest</code> UI делает:</p>
+<ol><li style="margin-left:0ch"><code>follow_core</code> — создаёт <code>ThreadUi</code> новых потоков и удаляет их у закрытых *(новое)*;</li><li style="margin-left:0ch">presenter-ы: запросы, желания;</li><li style="margin-left:0ch"><code>shell::run_effects(fx)</code>;</li><li style="margin-left:0ch">view перезапускается, проекции получают новые <code>Rc</code>, перестраиваются только <code>select</code>-нувшие.</li></ol>
+<h3>4.2 Жест → глагол (d6)</h3>
+<p>Жест обрабатывает сам виджет: <code>Shortcuts/Actions</code> или мышь. Если жест меняет только <b>Н</b>, это локальный <code>setState</code> или вызов контроллера, и до core он не доходит. Если меняет <b>Д/З/Ж</b>, виджет делает <code>cx.emit(&amp;hs.&lt;handler&gt;, verb)</code>. Обработчик кладёт <code>AppEv::Intent(...)</code> в ingress под текущей эпохой (R10): глагол не обгонит уже полученное событие. Глаголы называют намерение в терминах домена (<code>Install{key}</code>, <code>Search{query}</code>, <code>NeedMore</code>, <code>OpenThread(id)</code>), а не жест (<code>Choose(row)</code>, <code>Cursor(i)</code>, <code>Toggle</code>) — правило <code>adr013_core_intents_name_no_gesture</code>.</p>
+<h3>4.3 Эффект и ответ</h3>
+<p><code>apply</code> кладёт эффект как данные:</p>
+<ul><li style="margin-left:0ch"><code>AppFx</code>/<code>ThreadFx</code> — RPC с тикетом из <code>TicketMint</code>;</li><li style="margin-left:0ch"><code>effects::Ask</code> — эффекты host.</li></ul>
+<p>Shell выполняет их через rtwk-tokio. Ответ приходит в ingress с тикетом и эпохой отправки → <code>Pending::resolve</code> (R1) → шаг владельца (<code>answered</code>, <code>thread_answered</code>, <code>Reply::screen</code>). Старый тикет отбрасывается.</p>
+<h3>4.4 Желание показать (d10)</h3>
+<p>Домен решает, что поверхность должна появиться (запрос сервера, установка требует авторизации приложений, стартовый промпт). Запросы сервера идут через <code>RequestQueue</code>, всё остальное — через <code>SurfaceWish { seq, scope, kind }</code>; фича пишет <code>cx.wish(&lt;f&gt;::Wish)</code>. <code>SurfacePresenter</code> в UI — обобщение <code>src/sheets/presenter.rs</code>; решает он по модели в <code>ingest</code>, а не по проекции в том же flush (G14). Дальше:</p>
+<ul><li style="margin-left:0ch">если поверхность закрыта — открыть её с начальной страницей;</li><li style="margin-left:0ch">если открыта — она сама увидит желание через свой срез и перейдёт на страницу;</li><li style="margin-left:0ch">presenter шлёт <code>WishShown(seq)</code>, core снимает желание.</li></ul>
+<p>Порядок как у оракула: запрос сервера встаёт поверх открытой шторки, после ответа шторка снова сверху (маршруты в стеке).</p>
+<h3>4.5 Операция фичи и её страница</h3>
+<ol><li style="margin-left:0ch">Шторка шлёт <code>Install{key}</code> и запоминает <code>awaiting = (OpKey::Install(key), gen_before)</code>.</li><li style="margin-left:0ch">Core: если <code>ops[key]</code> в полёте, игнорирует (двойное нажатие). Иначе <code>ops[key] = Op { gen+1, Running }</code> и <code>ask</code>.</li><li style="margin-left:0ch">Ответ: <code>ops[key] = Done(..)</code> или <code>Failed(..)</code>, заметка в транскрипт, при необходимости <code>wish</code>.</li><li style="margin-left:0ch">Шторка выводит страницу как f(свой <code>SheetStack</code>, <code>awaiting</code>, <code>ops[key]</code>). Пока <code>ops[key].gen &lt;= gen_before</code>, страница «загрузка» берётся из <code>awaiting</code>.</li><li style="margin-left:0ch">Если шторку закрыли, ответ всё равно ложится в домен. Заметка появляется, а если оракул открывает поверхность и без пользователя — срабатывает <code>wish</code>.</li></ol>
+<h3>4.6 Директива контроллеру (d11)</h3>
+<p>Домену иногда нужно изменить контроллер UI:</p>
+<ul><li style="margin-left:0ch">вернуть сообщения в композер (<code>give_back</code>, threads.rs:2995);</li><li style="margin-left:0ch">префилл после backtrack;</li><li style="margin-left:0ch">засеять историю из реплея;</li><li style="margin-left:0ch">очистить отправленное после подтверждения <code>last_submit</code>.</li></ul>
+<p>Это <code>Directive&lt;T&gt; { seq, value }</code> в <code>ThreadModel</code>. Слушатель по одному на род в <code>widgets/directives.rs</code>. Он сравнивает <code>seq</code> с <code>ThreadUi.seen.&lt;род&gt;</code> <b>своего</b> потока и применяет к контроллерам этого потока. Поток, который не показан, применяет директиву при показе: не теряется и не повторяется.</p>
+<h3>4.7 Интерес (d12)</h3>
+<p><code>Interest { key, child }</code> берёт <code>Hs</code> в <code>did_change_dependencies</code>. В <code>init_state</code> он шлёт <code>Interest(key, Open)</code>, в <code>dispose_with</code> — <code>Close</code> (rtwk разрешает <code>emit</code> там). Core:</p>
+<ul><li style="margin-left:0ch">счётчик <code>0 → 1</code>: вызывает <code>Feature::on_interest(open)</code> (загрузить, начать опрос);</li><li style="margin-left:0ch"><code>1 → 0</code>: <code>on_interest(close)</code> (остановить опрос, перестать ждать);</li><li style="margin-left:0ch">на <code>attach</code>: для каждого ключа со счётчиком <code>&gt; 0</code> снова <code>on_interest(open)</code>.</li></ul>
+<h3>4.8 Заметки и ошибки</h3>
+<p>Заметка в транскрипт — <code>NoteKey</code> (хаб) или <code>FeatureNote</code> с аргументами-данными, слова из <code>strings.rs</code> UI. Ошибка RPC — <code>RpcError</code> в <code>Remote::Failed</code>/<code>Op::Failed</code>, слова в UI. Ошибка поверхности до следующего действия — факт с <code>seq</code>, гасится в UI. Уведомления рабочего стола — <code>DesktopNotice</code> из <code>AppFx</code> (политика из <code>[tui]</code>), выполняет UI-обёртка <code>TerminalEffects</code>.</p>
+<p>---</p>
+<h2>5. Жизненные циклы</h2>
+<h3>5.1 Запуск (d8)</h3>
+<ol><li style="margin-left:0ch"><code>host::main</code> → <code>arg0_dispatch_or_else</code> → многопоточный tokio-рантайм → разбор CLI, язык (<code>Cli::lang</code>) → факты запуска (конфиг, auth, trust, обновление).</li><li style="margin-left:0ch"><code>run_app_view</code> на потоке <code>block_on</code> с входом в рантайм (rtwk-tokio). <code>UiApp::new(backend)</code>, <code>UiState.awaits_facts = true</code>.</li><li style="margin-left:0ch">Shell стартует backend: in-process app-server, облачный или fake. <code>CodexApp::attach()</code> даёт эпоху. Подписка штампует ею события.</li><li style="margin-left:0ch">Корневой view: <code>MultiProvider</code> (фиксированный список, G15) → <code>Navigator</code> (<code>GlobalKey</code>) → home <code>StartupGate</code>. Пока фактов нет, home пуст (оракул не мигает чатом до промптов).</li><li style="margin-left:0ch">Факты (<code>AppEv::Facts</code>) → <code>onboarding::Model</code>: шаги sign-in, provider, trust, migration, import, стартовые промпты. Шаги — род <b>Ж</b> (они держат старт первого потока: <code>FirstThread::AfterLaunch</code>, <code>start_held</code>).</li><li style="margin-left:0ch"><code>StartupPage</code> выводит текущий шаг как f(домен). Выбор внутри шага — <b>Н</b>, решение шага — глагол.</li><li style="margin-left:0ch">Шаги кончились → <code>apply_app</code> стартует первый поток (<code>ThreadAsk::Start</code>). Композер работает как черновик и до <code>Ready</code>: отправка ждёт в <code>queued_submits</code> (R10).</li><li style="margin-left:0ch">Ответ → <code>ThreadSet::open(id, Origin)</code> → <code>session.active = id</code> → <code>follow_core</code> создаёт <code>ThreadUi</code> → <code>SessionPage</code> в <code>thread_scope(id)</code>.</li></ol>
+<p><code>codex-rtwk resume</code> и <code>codex-rtwk agents</code> кладут <code>start_resume</code> / <code>start_agents</code> в <code>UiState</code>, и <code>StartPage</code> пушит соответствующую страницу над чатом.</p>
+<h3>5.2 Поток: открыть, переключить, закрыть (d9)</h3>
+<ul><li style="margin-left:0ch"><b>Открыть</b>: любая страница (resume, agents, переключатель субагентов) шлёт <code>Intent::OpenThread(id)</code>. <code>apply_app</code> решает так:</li><li style="margin-left:2ch">писатель уже держится → показать;</li><li style="margin-left:2ch">resume в полёте → ждать;</li><li style="margin-left:2ch">иначе выпустить один resume.</li></ul>
+<p>  Esc отменяет навигацию, а поздний успешный ответ всё равно устанавливает единственного писателя. События до ответа attach копятся в <code>attaching_events</code>.</p>
+<ul><li style="margin-left:0ch"><b>Переключить</b>: <code>session.active</code> меняется только в <code>apply_app</code>. UI: <code>thread_scope(new_id)</code> перемонтирует поддерево потока, контроллеры берутся из <code>ThreadUi[new_id]</code> (черновик A→B→A цел, R2). Директивы B применяются по его <code>seen</code>. Шторки, привязанные к потоку (аргумент <code>ThreadId</code>), закрываются по предикату жизни. Докнутая шторка (О2) уходит вместе с поддеревом, как у оракула (<code>replace_chat_widget</code>). Шторки уровня приложения (<code>/apps</code>, <code>/plugins</code>, <code>/status</code>-диалоги) остаются.</li><li style="margin-left:0ch"><b>Фон</b>: каждый поток получает свои события и без показа (<code>ThreadModel</code> всегда актуален). Переключение не требует реплея в UI.</li><li style="margin-left:0ch"><b>Закрыть</b> (архив, удаление, отписка): <code>ThreadSet</code> убирает модель. <code>follow_core</code> удаляет <code>ThreadUi[id]</code> и через <code>dispose</code> освобождает контроллеры. Запросы сервера этого потока снимаются.</li></ul>
+<h3>5.3 Переподключение (d9)</h3>
+<p><code>Disconnected</code> → <code>ConnectionState</code>, баннер. Новый <code>attach_backend(b)</code> → новая эпоха, после чего:</p>
+<ul><li style="margin-left:0ch">(а) запросы сервера этого backend удаляются, и шторки запросов закрываются по предикату;</li><li style="margin-left:0ch">(б) <b>все <code>outgoing</code> этого backend разрешаются <code>Err(RpcError::Disconnected)</code></b> *(новое, F6)*, <code>Op</code>/<code>Remote</code> → <code>Failed</code>;</li><li style="margin-left:0ch">(в) потоки переподписываются, снимок <code>thread/read</code> заменяет затронутые ходы (R4);</li><li style="margin-left:0ch">(г) интересы со счётчиком <code>&gt; 0</code> получают <code>on_interest(open)</code> снова.</li></ul>
+<p>Шторки остаются открытыми и видят <code>Loading</code>/<code>Failed</code> в своих срезах.</p>
+<h3>5.4 Выход</h3>
+<p><code>Hs.quit</code> (Ctrl+C или Ctrl+D по правилам оракула, <code>/quit</code>, выход из шага onboarding) → <code>AppCx::quit</code>. <code>fx.ends_app()</code>: соединение не поднялось, host сообщает причину. Shell роняет клиента, задачи отменяются. Ctrl+Z приостанавливает приложение, внешний редактор тоже (ADR-006).</p>
+<h3>5.5 Шторка (d10)</h3>
+<ol><li style="margin-left:0ch"><b>Открытие.</b> Жест пользователя — страница зовёт <code>features::open(cx, target)</code> или <code>sheets::&lt;s&gt;::open(cx, args)</code>. По воле домена — открывает <code>SurfacePresenter</code>. Аргументы: <code>scope</code> (поток или cwd), начальная страница, id.</li><li style="margin-left:0ch"><b>Монтирование.</b> <code>init_state</code> создаёт контроллеры. <code>Interest</code> шлёт <code>Open</code>. Срез домена читается через <code>select</code>.</li><li style="margin-left:0ch"><b>Жизнь.</b> Жесты меняют <code>SheetStack</code> и контроллеры, глаголы уходят в core, страница = f(стек, <code>awaiting</code>, срез).</li><li style="margin-left:0ch"><b>Закрытие</b> — одной из четырёх причин:</li><li style="margin-left:3ch">(а) пользователь (Esc на первой странице, выбор, который завершает);</li><li style="margin-left:3ch">(б) предикат жизни стал ложным: запроса больше нет, <code>scope</code> устарел, поток сменился;</li><li style="margin-left:3ch">(в) домен снял желание;</li><li style="margin-left:3ch">(г) снятие поддерева.</li></ol>
+<p>   В (а)–(в) шторка сама вызывает <code>close_dialog</code> или снимает свой слот. Решение принимается в <code>did_change_dependencies</code> по срезу, после flush, а не в том же flush, что и emit.</p>
+<ol><li style="margin-left:0ch"><b>dispose.</b> <code>Interest</code> шлёт <code>Close</code>, контроллеры освобождаются, фокус возвращается открывшему (rtwk делает это для маршрутов; докнутая шторка возвращает фокус композеру явно).</li></ol>
+<p>---</p>
+<h2>6. Навигация и поверхности</h2>
+<h3>6.1 Классы (поправка 2026-11-19b, без изменений по сути)</h3>
+<ul><li style="margin-left:0ch"><b>Страницы</b> (<code>PageRoute</code> корневого <code>Navigator</code>): Startup (шаги), Session (home), Agents, Resume, Usage.</li><li style="margin-left:0ch"><b>Режимы</b> страницы — состояние её контроллера, а не новая страница: развёрнутый транскрипт (Ctrl+T, <code>/diff</code>, backtrack), активный поток (субагенты). Режим одного виджета ведёт его контроллер, второй копии виджета нет.</li><li style="margin-left:0ch"><b>Шторки</b> — виды нижней панели оракула: approvals, пикеры, настройки, pets, голос, <code>/plugins</code>, <code>/apps</code>, подтверждения.</li><li style="margin-left:0ch"><b>Диалоги</b> — центрированные виды оракула и настоящие диалоги (<code>show_dialog</code>).</li><li style="margin-left:0ch"><b>Поповеры</b> — <code>/</code>, <code>@</code>, <code>$</code>, поиск по истории (<code>Autocomplete</code> над композером).</li><li style="margin-left:0ch"><b>Виджеты</b> — ячейки транскрипта (<code>/status</code> — ячейка), строка статуса, футер, питомец.</li></ul>
+<h3>6.2 Стек страниц шторки</h3>
+<p><code>SheetStack&lt;P&gt;</code> *(новое, <code>widgets/sheet_stack.rs</code>)* — это <code>State</code>-владеемый <code>Vec&lt;Entry&lt;P&gt;&gt;</code>, где <code>Entry { page: P, list: ListController, tabs: Option&lt;TabController&gt; }</code>. Рисуется верхняя запись, нижние держат свои контроллеры: Esc возвращает родителя с курсором на исходной строке, и поле <code>kept</code> в core не нужно. Операции стека: <code>push</code>, <code>pop</code>, <code>replace_top</code>, <code>reset(initial)</code>. Анимации и затемнения нет (паритет). Высота равна высоте верхней страницы. Вложенный <code>Navigator</code> для страниц шторки <b>не используется</b>: под ограниченными constraints его <code>RenderTheater</code> занимает всю высоту (rtwk navigator.rs:2650-2661). Другой путь — решение О1.</p>
+<h3>6.3 Где живёт шторка (О2)</h3>
+<p>Рекомендация: виды нижней панели оракула стоят в <code>SheetHost</code> *(новое)* — слоте в <code>Column</code> страницы сессии под транскриптом, внутри <code>thread_scope</code>. Это <code>Scaffold.bottomSheet</code>: хвост транскрипта поднимается над шторкой, как у оракула, а смена потока сбрасывает слот. <code>SheetHost</code> держит стек открытых шторок уровня потока (верхняя видна; запрос сервера всегда сверху). Центрированные виды и диалоги идут через <code>show_dialog</code> корневого навигатора. Шторки уровня приложения в debug-входах открываются на ближайшем навигаторе (seeded-scope, F9). До решения О2 шторки остаются, как сейчас, модальными маршрутами с <code>sheet_options()</code> (src/sheets/mod.rs:19-27), а правила §6.4 действуют одинаково.</p>
+<h3>6.4 Открытие и закрытие</h3>
+<ul><li style="margin-left:0ch">Открывает только тот, кто просит: страница, фича (<code>open</code>) или presenter. Аргументы — id, <code>scope</code>, начальная страница (R14). Шторка не копирует доменные данные в <code>State</code> (<code>r14_widget_state_fields_hold_no_model_types</code>).</li><li style="margin-left:0ch">Каждая шторка объявляет <b>предикат жизни</b> <code>fn alive(args, &amp;срез) -&gt; bool</code>: запрос ещё в очереди, <code>scope</code> совпадает с доменом, поток активен. Ложный предикат → шторка закрывает себя. Правило: у каждой шторки есть <code>alive</code> (скан <code>impl Sheet</code>).</li><li style="margin-left:0ch">Шторка не решает по проекции в том же flush, в котором отправила глагол (G14): своё ожидание она хранит в <code>awaiting</code>.</li></ul>
+<h3>6.5 Аргументы и результаты</h3>
+<p><code>Navigator::push::&lt;T&gt;</code> / <code>show_dialog::&lt;T&gt;</code> возвращают результат. Если результат меняет домен, он уходит глаголом с доменным ключом, а не через сохранённый тикет. Страницы получают <code>ThreadId</code>/ключи. Редактор (настройки) копирует значение как черновик и возвращает его глаголом.</p>
+<p>---</p>
+<h2>7. Фокус и клавиши</h2>
+<ul><li style="margin-left:0ch"><b>Владение.</b> Разбор и разрешение <code>tui.keymap.*</code> (9 контекстов, аккорды, лидер) — в core (<code>core/src/keymap</code>), результат <code>Rc&lt;Keymap&gt;</code> в <code>CodexApp</code> (факт конфига). Каждая поверхность объявляет свои <code>Intent</code> rtwk (<code>MoveDown</code>, <code>Accept</code>, <code>Back</code>, <code>NextTab</code>…) и строит <code>Shortcuts</code> из контекста <code>Keymap</code> (<code>src/keymap</code>). <code>Actions</code> живут в <code>State</code> поверхности и вызывают контроллеры (<b>Н</b>) или шлют глаголы (<b>Д</b>).</li><li style="margin-left:0ch"><b>Порядок.</b> Фокус-дерево rtwk: маршрут → шторка/диалог → поле. Ближайший к фокусу <code>Shortcuts</code> берёт клавишу первым. <code>back_key</code> навигатора лежит слоем выше маршрутов (rtwk navigator.rs:1693-1699). Если маршрут клавишу не взял, Esc снимает маршрут. Шторка с операцией в полёте держит Esc через <code>PopScope</code>, если так делает оракул.</li><li style="margin-left:0ch"><b>Фокус при открытии и закрытии.</b> Маршрут или диалог берёт фокус и возвращает его открывшему (rtwk). Докнутая шторка (О2) запрашивает фокус в <code>init_state</code> и отдаёт его композеру в <code>deactivate</code>.</li><li style="margin-left:0ch"><b>Ввод никогда не замораживается</b> RPC (ADR-006). Карантин набора перед approvals — gap G8. Задержка показа approval после набора (<code>TYPING_IDLE_DELAY</code>) — в presenter-е (UI).</li><li style="margin-left:0ch"><b>Правило</b>: <code>KeyCode::</code>/<code>KeyPress::code</code> только в <code>src/keymap/</code> и примитивах <code>widgets/</code> (ratchet от 280 вхождений в 31 файле). Подсказки футера строятся из тех же привязок, что и <code>Shortcuts</code>.</li></ul>
+<h2>8. Мышь (ADR-011 без изменений)</h2>
+<p>Мышь — род <b>Н</b>: клик выделяет, клик по выделенному или двойной клик принимает, колесо прокручивает, вкладки и кнопки кликаются. Её обрабатывает виджет: <code>Picker</code>, <code>session_list</code>, <code>tab_strip</code>, <code>SheetStack</code>. Каждый вид с выделением тестируется событиями мыши <code>rtwk_test</code>. Выделение текста терминала и копирование работают (G9, G11).</p>
+<h2>9. Ошибки и заметки</h2>
+<ul><li style="margin-left:0ch">Ошибка — значение: <code>RpcError</code> (тикет, несовпадение, отказ, <code>Disconnected</code>), <code>Failure</code> потока, <code>Problem</code> экрана. Паник в путях <code>apply</code> нет.</li><li style="margin-left:0ch">Видимые слова ошибок и заметок — только в <code>strings.rs</code> UI. Core хранит ключ и данные (<code>core_sources_hold_no_user_visible_prose</code>).</li><li style="margin-left:0ch">Ошибки задачи вида (rtwk <code>report_task_error</code>) уходят в debug-журнал. Пользователю их не показывают, если оракул молчит.</li></ul>
+<h2>10. Локализация (ADR-010 без изменений по сути)</h2>
+<p>Строки — типизированные <code>const</code>-таблицы, <code>strings.rs</code> на каталог UI (pages, sheets, features, widgets) и <code>src/l10n/</code> для общих. Английский — текст оракула байт в байт. Язык согласуется один раз при старте и попадает в дерево как <code>TwkLocalizations</code>. Шторки и страницы, переехавшие из core, забирают с собой свои слова. Ключи заметок остаются в core как типы.</p>
+<h2>11. Производительность</h2>
+<ul><li style="margin-left:0ch"><b>Горячие пути.</b> Дельта стрима → <code>threads::apply</code> → <code>select::&lt;ThreadModel&gt;</code> активного потока → живой хвост транскрипта (один элемент, не чаще раза в кадр, ADR-004). Клавиша в шторке → локальный <code>setState</code>, перестраивается одно поддерево, core не участвует (C убирает курсоры из <code>apply</code>).</li><li style="margin-left:0ch"><b>Срезы.</b> <code>ScreenStates</code> и <code>FeatureStates</code> разбиты на <code>Rc</code> по экрану и по фиче *(новое)*, провайдер на срез, <code>select</code> по срезу. Клонируется только изменённый срез, и проснутся только его читатели. Запрещено <code>watch</code> целого <code>ScreenStates</code>/<code>FeatureStates</code> (ratchet от 27).</li><li style="margin-left:0ch"><b>memo.</b> Один уровень на регион. Ключи — дешёвые значения по строке или <code>(rev, Rc&lt;T&gt;)</code> (<code>Versioned&lt;T&gt;</code>). <code>unchanged()</code> в коде фич запрещён.</li><li style="margin-left:0ch"><b>Виджеты.</b> Экраны и шторки — <code>stateful eq</code> (ADR-002, условие 1). Списки — <code>ListView</code> с builder-ом (виртуализация). Монтируются только видимые экраны.</li><li style="margin-left:0ch"><b>Измерение.</b> ADR-008: pty A/B против оракула, 11 сценариев, отчёт с интервалами. Бюджет на сценарий масштаба (1 000 потоков, 30 панелей) — тест на релиз. Запас по семейству 4 (entities + notify) включается только по профилю выше ~1 мс на кадр.</li></ul>
+<h2>12. Тестирование (d14)</h2>
+<table><tr><th>уровень</th><th>что проверяет</th><th>где</th><th>чем</th><th>когда</th></tr><tr><td>1. правила</td><td>слои, R-правила, ADR-010/012/013, бюджеты хаба</td><td><code>tests/rules</code></td><td>сканы исходников с синтетическим укусом</td><td>каждый коммит</td></tr><tr><td>2. домен</td><td><code>apply</code>: события → модель + эффекты; гонки (поздний ответ, смена потока посреди стрима, approvals во время диалога, переподключение посреди операции), перестановки R9/R10, <code>assert_consistent</code> R7</td><td><code>core/tests/*.rs</code>, <code>core/tests/adr003.rs</code>, фичи через <code>CodexApp</code></td><td>события и скрипты JSONL через <code>ingest</code>, без UI</td><td>коммит фичи</td></tr><tr><td>3. kit</td><td>чистая логика: vim, paste_burst, история, фильтр команд, backtrack</td><td><code>core/src/kit/**</code> (тесты в файлах)</td><td>обычные unit</td><td>коммит</td></tr><tr><td>4. виджеты</td><td>шторки, страницы, кирпичи: жесты, мышь, <code>SheetStack</code>, предикаты жизни, директивы, <code>Interest</code> (Open/Close/dispose), presenter-ы</td><td><code>tests/sheets</code>, <code>tests/pages</code>, <code>tests/app</code></td><td><code>rtwk_test::Tester</code> над <code>UiApp</code> с fake backend или <code>Sandbox</code></td><td>коммит</td></tr><tr><td>5. паритет (чёрный ящик)</td><td>строки и стили против снимков оракула при его размере</td><td><code>tests/oracle/&lt;shard&gt;.rs</code> через <code>tests/kit</code> (<code>Screen::build(owner).entry(dir, entry)</code> / <code>.script</code> / <code>.live</code>)</td><td>debug-входы (<code>DebugEntry</code> = скрипт + <code>ui</code>-шаг)</td><td>ключевые тесты в задаче, полный прогон — land-check</td></tr><tr><td>6. сценарии</td><td>оба бинаря в pty против одного мок-модели</td><td><code>tests/scenarios</code></td><td>rtwk-term <code>TerminalSession</code>, wiremock SSE</td><td>функция готова</td></tr><tr><td>7. производительность</td><td>A/B против оракула</td><td><code>perf/</code></td><td><code>drive.py</code>, <code>report.py</code></td><td>вехи</td></tr></table>
+<p>Правила тестов: core-тест не знает виджетов; тест виджета не строит состояние core мимо <code>ingest</code> (скрипт или <code>Sandbox</code>); тест kit не трогает <code>Tester</code>; oracle-тест не видит ни core, ни виджетов (<code>tests/kit/mod.rs:3-8</code>). Начальная страница шторки в debug-входе задаётся шагом <code>ui</code> (<code>{&quot;step&quot;:&quot;ui&quot;,&quot;open&quot;:&quot;&lt;entry&gt;&quot;,&quot;props&quot;:{…}}</code>). Core отдаёт его как есть, как <code>key</code> и <code>resize</code> (core/src/fixtures/script.rs:25-26). Имена входов стабильны, поэтому oracle-тесты при переезде не меняются.</p>
+<p>---</p>
+<h2>13. Правила, которые закрепляют решения</h2>
+<p>Существующие (остаются): <code>core_manifest_has_no_ui_or_runtime_dependency</code>, <code>core_sources_name_no_ui_runtime_or_io</code>, <code>core_sources_hold_no_user_visible_prose</code>, <code>views_never_name_protocol_shell_tokio_or_io</code>, <code>views_never_apply_the_model</code>, <code>screen_dirs_hold_view_files_only</code>, <code>ui_crate_has_only_the_known_folders</code>, <code>shell_names_no_widget</code>, <code>the_ui_model_is_the_core_model_plus_ui_state</code>, <code>thread_model_is_made_only_in_threads_rs</code>, <code>codex_app_holds_its_threads_privately</code>, <code>thread_rpcs_only_in_threads</code>, <code>the_shown_thread_is_set_only_in_apply_app</code>, <code>widgets_never_import_pages</code>, <code>features_are_named_only_through_the_list</code>, <code>features_hold_no_app</code>, <code>feature_slices_ask_only_through_the_outbox</code>, <code>hub_enums_only_shrink</code>, <code>the_feature_trait_has_the_hooks_the_budget_says</code>, <code>threads_apply_matches_no_screen_or_feature_intent</code>, R1 (<code>r1_*</code>), R4, R11/R12, R13, R14 (<code>r14_*</code>), R15, ADR-010, <code>adr002_the_navigator_is_keyed</code>.</p>
+<p>Новые (каждое с синтетическим укусом; ratchet, где перенос идёт по шагам):</p>
+<table><tr><th>правило</th><th>что ловит</th><th>решение</th></tr><tr><td><code>adr013_domain_types_hold_no_draw_state</code></td><td>поле типа, достижимого из <code>CodexApp</code>, <code>ThreadModel</code>, <code>ScreenStates</code>, <code>FeatureStates</code>, с именем или типом отрисовки (<code>cursor</code>, <code>selected</code>, <code>scroll</code>, <code>focus</code>, <code>highlight</code>, <code>hover</code>, <code>tab</code>, <code>page</code>, <code>stack</code>, <code>kept</code>, <code>expanded</code>, <code>density</code>, <code>menu</code>, <code>shown</code>, <code>open</code>, контроллеры, <code>ScrollState</code>); ratchet</td><td>заменяет <code>core_screen_models_hold_no_ui_state_fields</code></td></tr><tr><td><code>adr013_kit_is_not_app_state</code></td><td>тип <code>core::kit</code> как поле типа домена; kit называет корни домена</td><td>граница kit</td></tr><tr><td><code>adr013_feature_trait_has_no_view_types</code></td><td><code>Menu</code>, <code>Pick</code>, <code>Prompt</code>, <code>choose</code>, <code>picked</code>, <code>prompt_submitted</code> в <code>Feature</code>, <code>AppCx::open/prompt</code></td><td>ADR-012 в C</td></tr><tr><td><code>adr013_core_intents_name_no_gesture</code></td><td>варианты интентов core <code>Choose</code>, <code>Secondary</code>, <code>Toggle</code>, <code>Reorder</code>, <code>Close</code>, <code>Back</code>, <code>Tab</code>, <code>Hot</code>, <code>Highlight</code>, <code>Cursor</code>, <code>Expand</code>, <code>ToggleDensity</code>, <code>Activate</code>, <code>Preview</code>, <code>Move</code>, <code>Room</code>, <code>End</code>; ratchet</td><td>глаголы, не жесты</td></tr><tr><td><code>adr013_widgets_name_no_screen_half</code></td><td><code>core::screens::*</code>, <code>core::features::*</code> в <code>src/widgets</code></td><td>picker независим</td></tr><tr><td><code>adr013_no_ticket_in_ui</code></td><td><code>Ticket</code> в <code>src/pages</code>, <code>src/sheets</code>, <code>src/features</code>, <code>src/widgets</code> (кроме баннеров, где тикет — id сущности, по списку)</td><td>§1.4.5</td></tr><tr><td><code>adr013_interest_made_in_one_place</code></td><td><code>Intent::Interest</code> вне <code>src/widgets/interest.rs</code></td><td>§4.7</td></tr><tr><td><code>adr013_directives_read_in_one_place</code></td><td>чтение <code>Directive</code>/<code>restore()</code> вне <code>src/widgets/directives.rs</code></td><td>§4.6</td></tr><tr><td><code>adr013_wishes_shown_by_the_presenter</code></td><td><code>WishShown</code> вне <code>src/app/presenters</code></td><td>§4.4</td></tr><tr><td><code>adr013_sheets_declare_alive</code></td><td>шторка (<code>impl Sheet</code>) без <code>alive</code></td><td>§6.4</td></tr><tr><td><code>adr013_no_whole_state_watch</code></td><td><code>watch::&lt;ScreenStates&gt;</code> / <code>watch::&lt;FeatureStates&gt;</code>; ratchet от 27</td><td>§11</td></tr><tr><td><code>r2_thread_subtree_is_keyed</code></td><td>ключ по <code>ThreadId</code> вне <code>thread_scope</code></td><td>R2</td></tr><tr><td><code>adr002_screen_and_sheet_widgets_are_eq</code></td><td><code>impl_widget!(stateful …)</code> без <code>eq</code> в pages, sheets, features</td><td>ADR-002</td></tr><tr><td><code>adr006_keycode_only_in_keymap</code></td><td><code>KeyCode::</code> вне <code>src/keymap/</code> и примитивов <code>widgets/</code>; ratchet</td><td>§7</td></tr><tr><td>поведенческий <code>adr003_reconnect_fails_inflight_ops</code> (core/tests/adr003.rs)</td><td>операция в полёте после <code>attach</code> → <code>Failed</code>, интерес перезапрошен</td><td>§5.3</td></tr></table>
+<p>Семантическую часть IO-теста (вопрос 2 против 5: «это ключ запроса или курсор?») скан решить не может. Она идёт в чек-лист ревью (process.md §A5) и в долговую задачу «IO-тест: семантический аудит после переезда select» (process.md A4.1).</p>
+<p>---</p>
+<h2>14. Что меняется в действующих ADR</h2>
+<table><tr><th>ADR</th><th>было</th><th>стало</th></tr><tr><td>001</td><td>core держит «each screen&#x27;s model»</td><td>core держит домен экранов и фич (роды Д/З/Ж/И); kit — модуль core</td></tr><tr><td>002</td><td>поправка 2026-11-18: «core view stack», слот рисует верх стека core</td><td><b>снята</b>. Стек шторки — <code>SheetStack</code> в <code>State</code>; шторки в <code>SheetHost</code> (О2) или модальные маршруты; навигация — состояние rtwk, как в исходном тексте ADR-002</td></tr><tr><td>003</td><td>область: «application state» без определения границы</td><td>область задаёт IO-тест (§1.3); пять родов состояния; R14 дополнен: аргументы-id и для шторок фич; новые механизмы <code>SurfaceWish</code>, <code>Directive</code>, <code>Interest</code>, <code>OpKey</code></td></tr><tr><td>006</td><td>keymap читается в <code>Shortcuts</code></td><td>плюс правило <code>KeyCode</code> и <code>Intent</code>/<code>Actions</code> в каждой поверхности</td></tr><tr><td>010</td><td>—</td><td>слова меню и промптов фич переезжают в <code>src/features/&lt;f&gt;/strings.rs</code></td></tr><tr><td>012</td><td><code>Feature</code> с <code>Menu/Pick/Prompt</code>, <code>FeatureView::menu_list</code>, «живое меню» через picker по глубине</td><td><code>Feature</code> без UI-форм, с <code>Wish</code>, <code>Interest</code>, <code>on_interest</code>; видимая половина фичи — <code>open</code> и своя шторка</td></tr></table>
+<p>Отступление на время переезда: семейства <code>select::Menu</code> (models, permissions, review, worktree, apps, quick dials, collaboration, export), <code>settings</code>, <code>dialogs</code>, <code>resume</code> (плотность, развёрнутость), <code>pets</code> (подсветка) держат <b>Н</b> в core до своего переезда. Долг — задачи миграции §15, ratchet правил §13.</p>
+<p>---</p>
+<h2>15. Миграция (фичи не встают)</h2>
+<ol><li style="margin-left:0ch"><b>ADR-013 + правила в режиме ratchet</b> (<code>hub_budget</code>, счётчики нарушений). С этого дня новый код не добавляет <code>Menu/Pick/Prompt</code> и интентов-жестов. Сюда же исправление F6 (<code>outgoing</code> на <code>attach</code>): оно не зависит от C.</li><li style="margin-left:0ch"><b>Пилот <code>/plugins</code>.</b> Домен из WIP <code>6cafa8de1</code> без дверей. Шторка <code>PluginsSheet</code> на <code>SheetStack</code> + <code>TabController</code>, <code>Interest(Plugins{cwd})</code>, <code>ops</code> по <code>PluginKey</code>, <code>wish(PluginAuth)</code>. Прототип О1/О2 на нём же. Тесты: core (глаголы, двойное нажатие, поздний ответ, смена cwd, переподключение), <code>Tester</code> (страницы, мышь, Esc), oracle-шард <code>/plugins</code> без изменений.</li><li style="margin-left:0ch"><b>Общий select.</b> <code>list.rs</code>, <code>layout.rs</code> → <code>widgets/picker</code>; <code>stack</code>, <code>kept</code> → <code>SheetStack</code>; <code>Picked</code> → глаголы; шаги фикстур <code>screen</code> с формами списков → шаг <code>ui</code>. Семейства по одному, каждое целиком (F15).</li><li style="margin-left:0ch"><b>По касанию</b>: settings, dialogs, resume (<code>Cursor/Room/End</code> → <code>NeedMore</code>, <code>density</code>/<code>expanded</code> → <code>State</code>), pets, agents; <code>/goal</code>, <code>/export</code>, <code>/rename</code> переносят меню и промпты в UI-половину.</li><li style="margin-left:0ch"><b>Срезы</b> <code>ScreenStates</code>/<code>FeatureStates</code> и <code>thread_scope</code> — до шага 2: от них зависит стоимость шторок.</li></ol>
+<p><code>95826e191</code> сливается как есть.</p>
+<p>---</p>
+<h2>16. Открытые решения (решает человек; рекомендация первой)</h2>
+<table><tr><th>#</th><th>вопрос</th><th>варианты</th><th>рекомендация</th></tr><tr><td>О0</td><td>принять C</td><td>C / A (двери) / B (всё в UI)</td><td><b>C</b> в редакции этого документа (с §4.4–§4.7)</td></tr><tr><td>О1</td><td>страницы шторки</td><td><code>SheetStack</code> в <code>State</code> / вложенный <code>Navigator</code> (+ gap rtwk «навигатор по размеру верхнего маршрута»)</td><td><b><code>SheetStack</code></b>: без анимации, без затемнения, по высоте содержимого, засевается аргументом</td></tr><tr><td>О2</td><td>где стоит шторка</td><td>докнутый <code>SheetHost</code> в странице сессии / модальный маршрут <code>show_dialog</code> у нижнего края (как сейчас)</td><td><b><code>SheetHost</code></b> для видов нижней панели оракула (паритет: хвост транскрипта над панелью, сброс при смене потока); сначала сверить снимок оракула</td></tr><tr><td>О3</td><td>где чистая UI-логика</td><td><code>core::kit</code> / отдельный крейт</td><td><b><code>core::kit</code></b> (один крейт для upstream)</td></tr><tr><td>О4</td><td>ключ операций</td><td>доменный ключ + <code>gen</code> / корреляционный id от UI</td><td><b>доменный ключ</b>: двойное нажатие схлопывается естественно</td></tr><tr><td>О5</td><td>кто пишет правила шага 0 и долговую задачу</td><td>—</td><td>одна задача <code>adr013-rules</code> (codex-porter) до пилота</td></tr><tr><td>О6</td><td>WIP <code>6cafa8de1</code></td><td>сливать двери / пилот с нуля</td><td><b>не сливать двери</b>, домен из WIP взять в пилот</td></tr><tr><td>О7</td><td><code>Rc</code> или <code>Arc</code> в core для upstream</td><td>—</td><td>без изменений: решает <code>session-core</code> (уже открыто)</td></tr></table>
+<p>---</p>
+<h2>17. Источники</h2>
+<p>Код: <code>core/src/app.rs</code>, <code>core/src/threads.rs</code>, <code>core/src/features/mod.rs</code>, <code>core/src/screens/select.rs</code>, <code>core/src/screens/select/plugins.rs</code>, <code>src/app/view.rs</code>, <code>src/app/mod.rs</code>, <code>src/sheets/presenter.rs</code>, <code>src/sheets/select/dialog.rs</code>, <code>src/pages/session/session_page.rs</code>, <code>src/widgets/thread_ui.rs</code>, <code>tests/rules/layers.rs</code>, <code>tests/kit/mod.rs</code>. rtwk: <code>crates/rtwk/src/navigation/navigator.rs</code>, <code>crates/rtwk-framework/src/widget.rs</code>, <code>crates/rtwk-overlay/src/dialog.rs</code>, <code>crates/rtwk-controls/src/tabs.rs</code>, <code>docs/guide/state.md</code>. Оракул: <code>chatwidget/plugins.rs</code>, <code>bottom_pane/mod.rs</code>, <code>app/session_lifecycle.rs</code>. Исследования: <code>docs/rtwk-port/research/arch-boundary/report.md</code>, <code>state-approaches.md</code>, <code>state-bug-classes.md</code>, <code>nav-proto.md</code>, <code>pages-vs-widgets.md</code>, <code>core-slices/report.md</code>.</p></div><div class="pane" id="p1"><h1>tui-rtwk: диаграммы целевой архитектуры</h1>
+<p>К <u>architecture.md</u> и <u>review.md</u>. d1–d7 — исправленные схемы из <code>research/arch-boundary/diagrams.md</code> (695e300e5); что исправлено, сказано под каждой. d8–d15 — новые. Числа — строки кода на <code>b2eeacb7c</code>.</p>
+<h2>d1. Текущая карта слоёв и крейтов</h2>
+<p>Исправлено: добавлены зависимость фич от picker (UI-формы в <code>Feature</code>), <code>outgoing</code> в core и шаги фикстур, строящие формы списков в core.</p>
+<pre class="mermaid">flowchart TB
+  subgraph HOST[&quot;host 6,2k&quot;]
+    H1[&quot;in_process: app-server&quot;]
+    H2[&quot;effects, facts: конфиг&quot;]
+  end
+  subgraph UI[&quot;UI-крейт 77,6k&quot;]
+    U0[&quot;app 2,7k: UiApp, view, presenter&quot;]
+    U1[&quot;pages 45,2k: 5 страниц&quot;]
+    U2[&quot;sheets 13,6k: шторки&quot;]
+    U3[&quot;widgets 7,3k: picker&quot;]
+    U4[&quot;features 0,3k: FeatureView&quot;]
+    U5[&quot;services 7,6k: shell&quot;]
+  end
+  subgraph CORE[&quot;core 69,2k без rtwk&quot;]
+    C1[&quot;app 5,2k: CodexApp, outgoing&quot;]
+    C2[&quot;threads 7,3k: ThreadModel&quot;]
+    C3[&quot;screens 47,1k: модели экранов&quot;]
+    C4[&quot;features 2,3k: Feature с Menu, Pick, Prompt&quot;]
+    C5[&quot;commands, keymap, protocol 6,4k&quot;]
+    C6[&quot;fixtures: шаг screen&quot;]
+  end
+  H1 --&gt;|&quot;Ingress&quot;| U5
+  U5 --&gt;|&quot;ingest&quot;| C1
+  C1 --&gt; C2
+  C1 --&gt; C3
+  C1 --&gt; C4
+  U1 --&gt;|&quot;ScreenIntent, жесты&quot;| C3
+  U2 --&gt;|&quot;Choose id строки&quot;| C3
+  U3 --&gt;|&quot;list, layout&quot;| C3
+  C4 --&gt;|&quot;Menu формы picker&quot;| C3
+  U4 --&gt;|&quot;menu_list&quot;| C4
+  C6 --&gt;|&quot;seed форм списков&quot;| C3
+  C1 --&gt;|&quot;AppFx&quot;| U5
+  U5 --&gt;|&quot;RPC&quot;| H1</pre>
+<h2>d2. Текущие владельцы состояния</h2>
+<p>Красное — отрисовка в core, жёлтое — смесь. Исправлено: <code>plugins.shown</code>, <code>resume.previews</code>, слой presenter, <code>outgoing</code> без очистки на attach, четыре seq-слушателя.</p>
+<pre class="mermaid">flowchart LR
+  subgraph UIAPP[&quot;UiApp&quot;]
+    CA[&quot;CodexApp&quot;]
+    US[&quot;UiState: nav_key, presenter&quot;]
+    TU[&quot;ThreadUi: композер, follow, modes&quot;]
+  end
+  CA --&gt; SES[&quot;session&quot;]
+  CA --&gt; TS[&quot;ThreadSet&quot;]
+  TS --&gt; TM[&quot;ThreadModel: core, slots, features&quot;]
+  CA --&gt; RQ[&quot;requests: снимаются на attach&quot;]
+  CA --&gt; OG[&quot;outgoing: не снимаются на attach&quot;]:::mixed
+  CA --&gt; FS[&quot;FeatureStates: один Rc&quot;]
+  CA --&gt; SS[&quot;ScreenStates: один Rc&quot;]
+  SS --&gt; SEL[&quot;select: stack, kept&quot;]:::draw
+  SS --&gt; PLG[&quot;plugins: cache, waiting и menu, tab, shown&quot;]:::mixed
+  SS --&gt; RES[&quot;resume: listing, query и density, expanded&quot;]:::mixed
+  SS --&gt; SET[&quot;settings: facts и open, edits&quot;]:::mixed
+  SS --&gt; DLG[&quot;dialogs: open, page&quot;]:::draw
+  TM --&gt; RST[&quot;restore seq&quot;]
+  RST --&gt;|&quot;слушатель по ThreadId, seq&quot;| TU
+  W[&quot;State виджетов: курсор, прокрутка&quot;]
+  classDef draw fill:#fdd,stroke:#a33
+  classDef mixed fill:#ffd,stroke:#aa3</pre>
+<h2>d3. Целевая карта слоёв</h2>
+<p>Исправлено: kit — отдельный модуль без корней домена; шторки в <code>SheetHost</code> или через <code>show_dialog</code>; presenter-ы; виджеты не называют половины экранов.</p>
+<pre class="mermaid">flowchart TB
+  subgraph HOST[&quot;host&quot;]
+    H[&quot;app-server, конфиг, IO&quot;]
+  end
+  subgraph UI[&quot;UI-крейт&quot;]
+    PR[&quot;app: view, presenter-ы&quot;]
+    P[&quot;pages: 5 страниц&quot;]
+    SHT[&quot;SheetHost или show_dialog&quot;]
+    S[&quot;sheets: approvals, dialogs, settings&quot;]
+    F[&quot;features/f: open, шторка, слова&quot;]
+    W[&quot;widgets: picker, SheetStack, Interest&quot;]
+    SH[&quot;services: shell&quot;]
+  end
+  subgraph CORE[&quot;core без rtwk&quot;]
+    D[&quot;app, threads: домен&quot;]
+    DF[&quot;features/f: глаголы, каталог, Op&quot;]
+    DS[&quot;screens: только домен&quot;]
+    K[&quot;kit: чистые функции&quot;]
+  end
+  P --&gt; SHT
+  SHT --&gt; S
+  SHT --&gt; F
+  P --&gt;|&quot;глагол&quot;| D
+  S --&gt;|&quot;ответ на запрос&quot;| D
+  F --&gt;|&quot;Intent::Feature&quot;| DF
+  F --&gt; W
+  P --&gt; W
+  W -.-&gt; K
+  D --&gt;|&quot;проекции, срезы&quot;| P
+  DS --&gt;|&quot;срез экрана&quot;| P
+  DF --&gt;|&quot;срез фичи&quot;| F
+  D --&gt;|&quot;запросы, желания&quot;| PR
+  PR --&gt;|&quot;открыть&quot;| SHT
+  D --&gt;|&quot;AppFx&quot;| SH
+  SH --&gt;|&quot;RPC&quot;| H
+  H --&gt;|&quot;Ingress&quot;| SH
+  SH --&gt;|&quot;ingest&quot;| D</pre>
+<h2>d4. Целевые владельцы состояния</h2>
+<p>Исправлено: вложенный <code>Navigator</code> заменён на <code>SheetStack</code>; добавлены <code>Interest</code>, <code>Directive</code>, <code>SurfaceWish</code>, <code>ops</code> по <code>OpKey</code>, <code>awaiting</code>.</p>
+<pre class="mermaid">flowchart LR
+  subgraph CORE[&quot;core: Д, З, Ж, И&quot;]
+    CA[&quot;CodexApp&quot;]
+    TM[&quot;ThreadModel: транскрипт, Directive&quot;]
+    FS[&quot;FeatureStates: каталоги, Remote, ops&quot;]
+    SS[&quot;ScreenStates: query, listing&quot;]
+    IN[&quot;interests: счётчики&quot;]
+    WQ[&quot;wishes: SurfaceWish&quot;]
+  end
+  subgraph UI[&quot;UI: Н&quot;]
+    UA[&quot;UiState: nav_key, presenter-ы&quot;]
+    TU[&quot;ThreadUi: контроллеры, seen seq&quot;]
+    WS[&quot;State шторки: SheetStack, awaiting&quot;]
+    CT[&quot;контроллеры rtwk&quot;]
+    NV[&quot;Navigator: страницы&quot;]
+  end
+  CA --&gt; TM
+  CA --&gt; FS
+  CA --&gt; SS
+  CA --&gt; IN
+  CA --&gt; WQ
+  FS --&gt;|&quot;select среза&quot;| WS
+  SS --&gt;|&quot;select среза&quot;| WS
+  WS --&gt; CT
+  WS --&gt;|&quot;глагол&quot;| CA
+  WS --&gt;|&quot;Interest Open, Close&quot;| IN
+  WQ --&gt;|&quot;presenter&quot;| UA
+  UA --&gt;|&quot;open&quot;| WS
+  TM --&gt;|&quot;Directive по seq&quot;| TU
+  NV --&gt; WS</pre>
+<h2>d5. Уведомление стрима хода: сейчас и в цели</h2>
+<p>Сейчас (без изменений):</p>
+<pre class="mermaid">sequenceDiagram
+  participant AS as app-server
+  participant H as host
+  participant SH as shell
+  participant UA as UiApp
+  participant CA as CodexApp
+  participant TM as ThreadModel
+  participant V as view
+  AS-&gt;&gt;H: item/agentMessage/delta
+  H-&gt;&gt;SH: Ingress с эпохой
+  SH-&gt;&gt;UA: ingest
+  UA-&gt;&gt;CA: ingest, проверка эпохи R1
+  CA-&gt;&gt;CA: project и project_thread
+  CA-&gt;&gt;TM: threads::apply ThreadEv
+  CA-&gt;&gt;CA: ScreenThreadEv в slots экранов
+  CA--&gt;&gt;UA: AppFx
+  UA-&gt;&gt;SH: run_effects
+  UA-&gt;&gt;V: view заново
+  V-&gt;&gt;V: watch ThreadModel, ListView</pre>
+<p>Цель. Исправлено: slots остаются, это доменные части экранов на поток (род Д), переносить их некуда. Меняются только срезы и <code>select</code>.</p>
+<pre class="mermaid">sequenceDiagram
+  participant AS as app-server
+  participant H as host
+  participant SH as shell
+  participant UA as UiApp
+  participant CA as CodexApp
+  participant TM as ThreadModel
+  participant V as view
+  AS-&gt;&gt;H: item/agentMessage/delta
+  H-&gt;&gt;SH: Ingress с эпохой
+  SH-&gt;&gt;UA: ingest
+  UA-&gt;&gt;CA: ingest, проверка эпохи R1
+  CA-&gt;&gt;TM: threads::apply ThreadEv
+  CA-&gt;&gt;TM: ScreenThreadEv в slots
+  CA--&gt;&gt;UA: AppFx
+  UA-&gt;&gt;UA: follow_core, presenter-ы
+  UA-&gt;&gt;SH: run_effects
+  UA-&gt;&gt;V: view заново
+  V-&gt;&gt;V: select ThreadModel активного, живой хвост</pre>
+<h2>d6. /plugins install: сейчас и в цели</h2>
+<p>Сейчас (без изменений):</p>
+<pre class="mermaid">sequenceDiagram
+  actor U as Пользователь
+  participant PK as Picker
+  participant MD as MenuDialog
+  participant CA as CodexApp
+  participant PL as plugins в core
+  participant SH as shell
+  participant AS as app-server
+  participant H as host
+  U-&gt;&gt;PK: Enter на строке
+  PK-&gt;&gt;MD: Event::Choose id
+  MD-&gt;&gt;CA: Intent::Choose через ingress
+  CA-&gt;&gt;PL: apply_choice, choose id
+  PL-&gt;&gt;PL: menu = InstallLoading, ask Install
+  CA-&gt;&gt;SH: Command::Plugins
+  SH-&gt;&gt;AS: plugin/install
+  AS--&gt;&gt;SH: ответ, конфиг записан
+  SH-&gt;&gt;CA: Reply с тикетом
+  CA-&gt;&gt;PL: Ev::Plugins Answer
+  PL-&gt;&gt;PL: menu = шаг авторизации, заметка
+  H-&gt;&gt;CA: AppEv::PluginConfig
+  CA--&gt;&gt;MD: watch ScreenStates
+  MD-&gt;&gt;PK: новая страница из core</pre>
+<p>Цель. Исправлено: ожидание <code>awaiting</code> в шторке, ключ операции — <code>PluginKey</code> с <code>gen</code>, двойное нажатие схлопывается, Auth открывается желанием даже при закрытой шторке (как у оракула, plugins.rs:446-500).</p>
+<pre class="mermaid">sequenceDiagram
+  actor U as Пользователь
+  participant PS as PluginsSheet
+  participant SP as SurfacePresenter
+  participant CA as CodexApp
+  participant PF as plugins домен
+  participant SH as shell
+  participant AS as app-server
+  U-&gt;&gt;PS: Enter на Install
+  PS-&gt;&gt;PS: awaiting = Install key, gen 3
+  PS-&gt;&gt;CA: Intent::Feature Install key
+  CA-&gt;&gt;PF: intent
+  PF-&gt;&gt;PF: ops key = gen 4, Running
+  CA-&gt;&gt;SH: Command::Feature
+  U-&gt;&gt;PS: Enter ещё раз
+  PS-&gt;&gt;CA: Install key
+  CA-&gt;&gt;PF: ops key в полёте, игнор
+  SH-&gt;&gt;AS: plugin/install
+  AS--&gt;&gt;SH: ответ, конфиг записан
+  SH-&gt;&gt;CA: Reply с тикетом и эпохой
+  CA-&gt;&gt;PF: answered
+  PF-&gt;&gt;PF: ops key = Done, заметка
+  PF-&gt;&gt;CA: wish PluginAuth key
+  CA--&gt;&gt;PS: select среза plugins
+  PS-&gt;&gt;PS: страница = f от стека, awaiting, ops
+  CA--&gt;&gt;SP: wishes в ingest
+  alt шторка закрыта
+    SP-&gt;&gt;PS: open с страницей Auth
+  else шторка открыта
+    PS-&gt;&gt;PS: replace_top Auth
+  end
+  SP-&gt;&gt;CA: WishShown seq</pre>
+<h2>d7. Фича в цели: обе половины</h2>
+<p>Исправлено: <code>SheetStack</code> вместо вложенного <code>Navigator</code>; <code>Wish</code>, <code>Interest</code>, <code>on_interest</code>; правила.</p>
+<pre class="mermaid">flowchart LR
+  subgraph CORE[&quot;core/src/features/plugins&quot;]
+    I[&quot;Intent: Load, Install, Uninstall, SetEnabled&quot;]
+    ST[&quot;State: каталог по cwd, Remote, ops&quot;]
+    WR[&quot;wire, decode: RPC&quot;]
+    N[&quot;Note, Fact, Wish&quot;]
+    HK[&quot;хуки: on_fact, on_interest&quot;]
+  end
+  subgraph UIH[&quot;src/features/plugins&quot;]
+    O[&quot;open cx, args&quot;]
+    SH[&quot;PluginsSheet: State, alive&quot;]
+    SK[&quot;SheetStack: List, Detail, Auth&quot;]
+    TC[&quot;TabController, ListController&quot;]
+    IT[&quot;Interest Plugins cwd&quot;]
+    STR[&quot;strings.rs: слова&quot;]
+  end
+  subgraph T[&quot;тесты&quot;]
+    T1[&quot;core/tests/plugins.rs&quot;]
+    T2[&quot;tests/sheets/plugins.rs&quot;]
+    T3[&quot;tests/oracle: без изменений&quot;]
+  end
+  O --&gt; SH
+  SH --&gt; SK
+  SH --&gt; TC
+  SH --&gt; IT
+  IT --&gt;|&quot;Open, Close&quot;| HK
+  SH --&gt;|&quot;глагол&quot;| I
+  ST --&gt;|&quot;select&quot;| SH
+  I --&gt; ST
+  ST --&gt; WR
+  HK --&gt; ST
+  N --&gt; STR
+  T1 --&gt; CORE
+  T2 --&gt; UIH
+  T3 --&gt; UIH</pre>
+<h2>d8. Запуск</h2>
+<pre class="mermaid">sequenceDiagram
+  participant M as host main
+  participant RT as tokio
+  participant UA as UiApp
+  participant SH as shell
+  participant AS as app-server
+  participant CA as CodexApp
+  participant NV as Navigator
+  M-&gt;&gt;M: arg0, CLI, язык, факты запуска
+  M-&gt;&gt;RT: рантайм
+  M-&gt;&gt;UA: run_app_view, awaits_facts
+  UA-&gt;&gt;NV: MultiProvider, Navigator, StartupGate пуст
+  UA-&gt;&gt;SH: старт backend
+  SH-&gt;&gt;AS: in-process или облако
+  SH-&gt;&gt;CA: attach, эпоха 1
+  SH-&gt;&gt;CA: AppEv::Facts
+  CA-&gt;&gt;CA: onboarding: шаги, start_held
+  CA--&gt;&gt;NV: StartupPage рисует шаг
+  loop каждый шаг
+    NV-&gt;&gt;CA: глагол шага
+  end
+  CA-&gt;&gt;SH: ThreadAsk Start
+  SH-&gt;&gt;AS: thread/start
+  AS--&gt;&gt;CA: ответ
+  CA-&gt;&gt;CA: ThreadSet::open, session.active
+  CA--&gt;&gt;UA: follow_core
+  UA-&gt;&gt;UA: ThreadUi нового потока
+  UA-&gt;&gt;NV: SessionPage в thread_scope id</pre>
+<h2>d9. Поток: переключение и переподключение</h2>
+<pre class="mermaid">sequenceDiagram
+  actor U as Пользователь
+  participant AG as AgentsPage
+  participant CA as CodexApp
+  participant SH as shell
+  participant UA as UiApp
+  participant SC as thread_scope
+  participant TU as ThreadUi
+  U-&gt;&gt;AG: Enter на потоке B
+  AG-&gt;&gt;CA: Intent::OpenThread B
+  alt писатель B есть
+    CA-&gt;&gt;CA: session.active = B
+  else
+    CA-&gt;&gt;SH: один resume B
+    SH--&gt;&gt;CA: ответ, ThreadSet::open B
+    CA-&gt;&gt;CA: session.active = B
+  end
+  CA--&gt;&gt;UA: follow_core
+  UA-&gt;&gt;SC: ключ ThreadId B
+  SC-&gt;&gt;TU: контроллеры ThreadUi B
+  SC-&gt;&gt;SC: директивы B по seen B
+  SC-&gt;&gt;SC: шторки потока A: alive ложно, закрыты
+  Note over SH,CA: обрыв связи
+  SH-&gt;&gt;CA: Disconnected
+  SH-&gt;&gt;CA: attach_backend, эпоха 2
+  CA-&gt;&gt;CA: requests backend сняты
+  CA-&gt;&gt;CA: outgoing backend: Failed Disconnected
+  CA-&gt;&gt;SH: переподписка, thread/read
+  CA-&gt;&gt;CA: interests больше 0: on_interest open
+  CA--&gt;&gt;UA: шторки видят Failed или Loading</pre>
+<h2>d10. Шторка: жизнь и закрытие доменом</h2>
+<pre class="mermaid">stateDiagram-v2
+  [*] --&gt; Closed
+  Closed --&gt; Mounted: open жестом или SurfacePresenter
+  Mounted --&gt; Live: init_state, Interest Open
+  Live --&gt; Live: жест меняет SheetStack
+  Live --&gt; Waiting: глагол, awaiting
+  Waiting --&gt; Live: ops gen больше awaiting
+  Live --&gt; Closing: Esc на первой странице
+  Live --&gt; Closing: alive ложно
+  Waiting --&gt; Closing: alive ложно
+  Live --&gt; Closing: желание снято
+  Live --&gt; Closing: поддерево снято
+  Closing --&gt; Disposed: close_dialog или слот пуст
+  Disposed --&gt; [*]: Interest Close, фокус назад</pre>
+<h2>d11. Директива контроллеру</h2>
+<pre class="mermaid">sequenceDiagram
+  participant CA as CodexApp
+  participant TM as ThreadModel A
+  participant DL as слушатель restore
+  participant TU as ThreadUi A
+  participant CO as композер A
+  CA-&gt;&gt;TM: give_back, Directive seq 7
+  alt A показан
+    TM--&gt;&gt;DL: select среза A
+    DL-&gt;&gt;TU: seen.restore меньше 7
+    DL-&gt;&gt;CO: текст в контроллер
+    DL-&gt;&gt;TU: seen.restore = 7
+  else A не показан
+    Note over DL,TU: директива ждёт в модели
+    DL-&gt;&gt;TU: при показе A сравнить seen
+    DL-&gt;&gt;CO: применить один раз
+  end</pre>
+<h2>d12. Интерес поверхности</h2>
+<pre class="mermaid">sequenceDiagram
+  participant SH1 as PluginsSheet
+  participant IW as Interest
+  participant CA as CodexApp
+  participant PF as plugins домен
+  participant SV as shell
+  SH1-&gt;&gt;IW: монтирование
+  IW-&gt;&gt;CA: Interest Plugins cwd, Open
+  CA-&gt;&gt;CA: счётчик 0 в 1
+  CA-&gt;&gt;PF: on_interest open
+  PF-&gt;&gt;SV: plugin/list
+  Note over CA: переподключение
+  CA-&gt;&gt;PF: on_interest open снова
+  SH1-&gt;&gt;IW: dispose_with
+  IW-&gt;&gt;CA: Interest Plugins cwd, Close
+  CA-&gt;&gt;CA: счётчик 1 в 0
+  CA-&gt;&gt;PF: on_interest close</pre>
+<h2>d13. Карта модулей и ответственности</h2>
+<pre class="mermaid">flowchart TB
+  subgraph HOST[&quot;host: main, рантайм, app-server&quot;]
+    HF[&quot;facts, launch, effects&quot;]
+  end
+  subgraph UIC[&quot;UI-крейт: Н, слова, жесты&quot;]
+    AP[&quot;app: UiApp, UiState, view, presenter-ы&quot;]
+    SV[&quot;services: shell, единственный IO&quot;]
+    PG[&quot;pages: Startup, Session, Agents, Resume, Usage&quot;]
+    ST[&quot;sheets: approvals, dialogs, settings&quot;]
+    FE[&quot;features/f: open, шторка, strings&quot;]
+    WG[&quot;widgets: Picker, SheetStack, Interest, directives&quot;]
+    KM[&quot;keymap, l10n, theme&quot;]
+  end
+  subgraph CORE[&quot;core: Д, З, Ж, И без rtwk и IO&quot;]
+    CAP[&quot;app: CodexApp, apply_app, ingest&quot;]
+    CTH[&quot;threads: ThreadModel, apply&quot;]
+    CFE[&quot;features/f: глаголы, Op, Remote&quot;]
+    CSC[&quot;screens: домен экранов&quot;]
+    CCM[&quot;commands: slash в Target&quot;]
+    CKM[&quot;keymap: разбор, контексты&quot;]
+    CPR[&quot;protocol, rpc, ids&quot;]
+    CKT[&quot;kit: чистые функции&quot;]
+    CFX[&quot;fixtures: скрипты&quot;]
+  end
+  HOST --&gt;|&quot;Ingress&quot;| SV
+  SV --&gt;|&quot;ingest&quot;| CAP
+  CAP --&gt; CTH
+  CAP --&gt; CFE
+  CAP --&gt; CSC
+  CAP --&gt; CCM
+  CAP --&gt; CKM
+  CTH --&gt; CPR
+  CFE --&gt; CPR
+  CAP --&gt;|&quot;AppFx&quot;| SV
+  AP --&gt; PG
+  PG --&gt; ST
+  PG --&gt; FE
+  PG --&gt; WG
+  ST --&gt; WG
+  FE --&gt; WG
+  WG --&gt; CKT
+  KM --&gt; CKM
+  CFX --&gt;|&quot;через ingest&quot;| CAP</pre>
+<h2>d14. Пирамида тестов</h2>
+<pre class="mermaid">flowchart TB
+  L7[&quot;7 perf: pty A/B против оракула&quot;]
+  L6[&quot;6 сценарии: оба бинаря в pty&quot;]
+  L5[&quot;5 паритет: tests/oracle через kit&quot;]
+  L4[&quot;4 виджеты: Tester над UiApp&quot;]
+  L3[&quot;3 kit: unit&quot;]
+  L2[&quot;2 домен: core/tests через ingest&quot;]
+  L1[&quot;1 правила: tests/rules&quot;]
+  L7 --&gt; L6
+  L6 --&gt; L5
+  L5 --&gt; L4
+  L4 --&gt; L3
+  L3 --&gt; L2
+  L2 --&gt; L1</pre>
+<h2>d15. Фокус и клавиши</h2>
+<pre class="mermaid">flowchart TB
+  KEY[&quot;клавиша из rtwk-input&quot;]
+  NB[&quot;back_key навигатора: Esc&quot;]
+  RT[&quot;верхний маршрут или диалог&quot;]
+  SHC[&quot;Shortcuts шторки из Keymap&quot;]
+  ACT[&quot;Actions в State шторки&quot;]
+  FLD[&quot;поле: TextField, Picker&quot;]
+  LOC[&quot;контроллер: Н&quot;]
+  VERB[&quot;глагол в ingress: Д&quot;]
+  POP[&quot;pop маршрута&quot;]
+  KMAP[&quot;Keymap в core&quot;]
+  KEY --&gt; FLD
+  FLD --&gt;|&quot;не взято&quot;| SHC
+  KMAP --&gt;|&quot;привязки&quot;| SHC
+  SHC --&gt; ACT
+  ACT --&gt; LOC
+  ACT --&gt; VERB
+  SHC --&gt;|&quot;не взято&quot;| RT
+  RT --&gt;|&quot;не взято&quot;| NB
+  NB --&gt; POP</pre></div><div class="pane" id="p2"><h1>Ревью arch-boundary: вариант C и черновик ADR-013</h1>
+<p>tm <code>adr013-review</code>, codex-reviewer, 2026-11-23. Вход: <code>docs/rtwk-port/research/arch-boundary/{report.md, diagrams.md, architecture.html}</code> @ <code>695e300e5</code> (код тот же, что на <code>b2eeacb7c</code>: после него только два коммита документов). Пути кода от <code>codex-rs/tui-rtwk/</code>, пути rtwk от <code>/Users/admin/Documents/dev_projects/rtwk/</code>, пути оракула от <code>codex-rs/tui/src/</code>. Полная целевая архитектура — <u>architecture.md</u>, диаграммы — <u>diagrams.md</u>.</p>
+<h2>0. Вердикт</h2>
+<p><b>Направление C верное. Принимать ADR-013 в черновой редакции нельзя: в нём четыре блокера.</b> Диагноз отчёта подтверждается кодом: «модель экрана» в core, двери на каждую форму UI, дырявое правило. IO-тест разделяет состояние правильно. Но черновик держит только путь «жест → глагол → домен → проекция». Четыре других пути, которые оракул использует постоянно, в нём не описаны:</p>
+<ol><li style="margin-left:0ch">домен сам открывает поверхность (оракул открывает шторку авторизации после ответа install, даже если пользователь её закрыл);</li><li style="margin-left:0ch">домен пишет в контроллер UI (вернуть сообщения в композер, префилл после backtrack, запись истории);</li><li style="margin-left:0ch">поверхность заявляет интерес к данным (открыта или закрыта), и домен должен знать это при переподключении;</li><li style="margin-left:0ch">UI сопоставляет ответ со своим жестом, хотя тикет чеканит core.</li></ol>
+<p>Сверх того, предложенный механизм (вложенный <code>Navigator</code> в нижней шторке) в rtwk занимает всю высоту экрана. Всё это решается небольшими общими механизмами. Они описаны в architecture.md §4–§6, и с ними C становится полным.</p>
+<p>Шкала: <b>Б</b> — блокер, решить до принятия ADR-013; <b>Р</b> — риск, решить в ADR или завести долговую задачу; <b>З</b> — замечание.</p>
+<table><tr><th>#</th><th>сев.</th><th>коротко</th></tr><tr><td>F1</td><td>Б</td><td>вложенный <code>Navigator</code> в шторке занимает всю высоту; анимация и затемнение страниц</td></tr><tr><td>F2</td><td>Б</td><td>открытие поверхности по воле домена не покрыто (plugins auth, стартовые промпты)</td></tr><tr><td>F3</td><td>Б</td><td>«шаг после ответа ключуется тикетом»: UI не знает тикета; двойное нажатие; лаг G14</td></tr><tr><td>F4</td><td>Б</td><td>«открыта ли поверхность» в черновике объявлено состоянием UI, а Open/Close-глаголы — состоянием core; кто шлёт Close</td></tr><tr><td>F5</td><td>Р</td><td>шторки — маршруты корневого навигатора и переживают смену потока; страница сессии не ключуется ThreadId</td></tr><tr><td>F6</td><td>Р</td><td>переподключение: <code>outgoing</code> не чистится, <code>Op::Installing</code> зависнет навсегда</td></tr><tr><td>F7</td><td>Р</td><td>директивы «домен → контроллер» сделаны вручную, «виденный seq» хранится в State страницы, возможна потеря при смене потока</td></tr><tr><td>F8</td><td>Р</td><td>правило 1 бьёт по законным типам kit и остаётся текстовым</td></tr><tr><td>F9</td><td>Р</td><td>фикстуры: <code>screen</code>-шаги засевают формы UI, которые разбирает core; <code>EntryOpen</code> — указатель на fn без данных</td></tr><tr><td>F10</td><td>Р</td><td>производительность: 27 <code>watch::&lt;ScreenStates&gt;</code>, клон всего <code>ScreenStates</code> на каждое изменение, особенность <code>select</code> в rtwk</td></tr><tr><td>F11</td><td>Р</td><td>шторка как оверлей или как докнутая панель: оракул сдвигает хвост транскрипта вверх</td></tr><tr><td>F12</td><td>Р</td><td>клавиши: 280 сырых <code>KeyCode::</code> в 31 файле, пользовательский keymap до шторок не дойдёт</td></tr><tr><td>F13</td><td>З</td><td>критерий (3) IO-теста размыт; нужна таблица трудных случаев</td></tr><tr><td>F14</td><td>З</td><td>поправка 2026-11-18 в коде уже наполовину отменена; ADR должен снять её целиком</td></tr><tr><td>F15</td><td>З</td><td>миграция: двойной владелец на время переезда семейства</td></tr><tr><td>F16</td><td>З</td><td>условие 1 ADR-002 (<code>stateful eq</code>) не проверяется правилом</td></tr><tr><td>F17</td><td>З</td><td>неточности замеров и формулировок</td></tr></table>
+<h2>1. Проверка замеров</h2>
+<table><tr><th>утверждение отчёта</th><th>проверено</th><th>итог</th></tr><tr><td>core src 69 207 строк</td><td>`find core/src -name &#x27;*.rs&#x27; \</td><td>xargs cat \</td><td>wc -l` = 69 207</td><td>верно</td></tr><tr><td>screens 47 127</td><td>47 010</td><td>расхождение 0,25 %, на выводы не влияет</td></tr><tr><td><code>select::Model.stack</code>, <code>kept</code> (select.rs:290, :315), <code>cursor_row()</code> :326</td><td>select.rs:286-330</td><td>верно; <code>kept</code> приватный, <code>stack</code> публичный</td></tr><tr><td>plugins <code>menu/tab/shown</code> рядом с <code>cache/waiting</code> (plugins.rs:206-224)</td><td>plugins.rs:197-226</td><td>верно</td></tr><tr><td>правило layers.rs:315 видит 8 имён только в <code>pub</code>-полях <code>pub struct Model {</code></td><td>tests/rules/layers.rs:314-347</td><td>верно; мимо проходят <code>kept</code>, <code>stack</code>, <code>tab</code>, <code>menu</code>, <code>density</code>, <code>expanded</code></td></tr><tr><td><code>Feature</code> с <code>type Menu/Pick/Prompt</code>, <code>choose/picked/prompt_submitted</code></td><td>core/src/features/mod.rs:145-191</td><td>верно</td></tr><tr><td>picker импортирует <code>core::screens::select::{list,layout}</code>, 15 файлов UI</td><td>grep: 17 импортов в 15 файлах</td><td>верно</td></tr><tr><td><code>ThreadUi</code> widgets/thread_ui.rs:22-32; <code>UiApp {core, ui, link}</code></td><td>src/widgets/thread_ui.rs:22-33, src/app/mod.rs:57-62</td><td>верно</td></tr><tr><td>448 фикстур с шагом <code>screen</code></td><td>`find … -name &#x27;*.jsonl&#x27; \</td><td>xargs grep -l &#x27;&quot;screen&quot;&#x27; \</td><td>wc -l` = 448</td><td>верно</td></tr><tr><td>48 % UI-коммитов правили core</td><td>не перемерял</td><td>принято как оценка</td></tr><tr><td>шторки — «вложенный Navigator + TabController» есть в rtwk</td><td><code>Navigator::of/root_of</code> rtwk/src/navigation/navigator.rs:1838-1857; <code>TabController</code> rtwk-controls/src/tabs.rs:63; <code>ExpansionController</code> rtwk-widgets/src/layout/expansion.rs:33</td><td>существуют; размер вложенного навигатора см. F1</td></tr><tr><td>State переживает pop</td><td>закрытые маршруты держат элементы (navigator.rs:2637-2645); снятый маршрут уничтожает State (<code>dispose</code>, rtwk-framework/src/widget.rs:592-613); <code>PageStorage</code>/keep-alive в rtwk нет (grep пуст)</td><td>что должно пережить pop или снятие, живёт выше (<code>ThreadUi</code>, <code>UiState</code>) или в домене</td></tr></table>
+<h2>2. Находки</h2>
+<h3>F1 (Б) Вложенный <code>Navigator</code> в нижней шторке занимает всю высоту</h3>
+<p><b>Суть.</b> d7 и §4 черновика строят <code>PluginsSheet</code> на «вложенном Navigator: List, Detail, Auth». <code>RenderTheater</code> навигатора rtwk при ограниченных constraints берёт <code>max_width × max_height</code> (rtwk/src/navigation/navigator.rs:2650-2661). Шторка показывается через <code>show_dialog</code> с <code>Alignment::BOTTOM_CENTER</code> (src/sheets/mod.rs:19-27), и её constraints ограничены экраном. Значит, шторка с навигатором внутри становится высотой во весь экран. У оракула высота панели равна высоте её содержимого. Кроме того, <code>PageRoute</code> по умолчанию въезжает справа, а закрытые маршруты рисуются под новым, затемнёнными (navigator.rs:1688-1691). У оракула нет ни анимации, ни просвечивания. И по Esc на первой странице ключ уходит дальше навигатора (navigator.rs:1693-1699): это нужное поведение, но тогда Esc во время загрузки надо явно держать <code>PopScope</code>. <b>Исправление.</b> Страницы шторки — это декларативный локальный стек в её <code>State</code>: <code>SheetStack&lt;Page&gt;</code>, рисуется верхняя страница, контроллеры нижних страниц хранятся в записях стека. Это аналог Navigator 2.0 <code>pages:</code>; в rtwk есть только императивный Navigator. Возврат по Esc к родителю с курсором на исходной строке (<code>kept</code>) получается сам: <code>ListController</code> нижней страницы цел. Страница, которую требует домен (F2), — простое присваивание. Тесты засевают стек через аргумент <code>initial</code>. <code>Navigator</code> остаётся только для страниц (<code>PageRoute</code>) и корневых диалогов. Если человек хочет именно Navigator, нужен прототип и gap в rtwk («навигатор по размеру верхнего маршрута»).</p>
+<h3>F2 (Б) Открытие поверхности по воле домена не покрыто</h3>
+<p><b>Суть.</b> Черновик: «открыта ли поверхность» — это <code>State</code> виджета, «core не знает ни страниц». Но оракул открывает поверхности из обработчиков ответов. После успешного install с приложениями, которым нужна авторизация, оракул вызывает <code>open_plugin_install_auth_popup</code> (chatwidget/plugins.rs:483-486). Тот сначала пробует <code>replace_selection_view_if_active</code>, а если вид не активен, делает <code>show_selection_view</code> (:840-851): шторка открывается, даже если пользователь её закрыл. Ошибка install, наоборот, заменяет вид только если он активен (:491-499). В порте это сейчас поле <code>Plugins.shown</code> («The setup of apps wants to be shown whether or not a menu is», core/src/screens/select/plugins.rs:224-225), и оно попадает под «открыта ли поверхность». Тот же род: запросы сервера (approvals, elicitation; уже есть presenter src/sheets/presenter.rs), стартовые промпты (<code>onboarding::Model.prompts</code>, core/src/screens/onboarding.rs:83), шаги onboarding. <b>Исправление.</b> Пятый род в IO-тесте: <b>«желание показать»</b> — доменный факт, у которого есть потребитель-поверхность. Core держит очередь <code>SurfaceWish { seq, scope, kind }</code> (как <code>RequestQueue</code>). Один UI-<code>SurfacePresenter</code> — обобщение существующего presenter запросов, ADR-002 «BlocListener» — открывает поверхность, если она закрыта, или просит открытую перейти на страницу. Каждое желание показывается один раз: presenter помнит последний показанный seq. Ошибка, которая «заменяет вид, только если он открыт», в желания не попадает: открытая шторка выводит страницу из <code>Op::Failed</code> сама (F3).</p>
+<h3>F3 (Б) Корреляция «жест → ответ»: тикета UI не знает</h3>
+<p><b>Суть.</b> Черновик: «шаг после ответа ключуется тикетом операции», d6: «страница = f от Detail и ops id». Но тикет чеканится внутри <code>apply</code> (<code>TicketMint</code> в <code>CodexApp</code>, core/src/app.rs:550). Шторка отправляет глагол через ingress (<code>cx.emit(&amp;hs.screen, …)</code>, src/sheets/select/dialog.rs:113-139) и тикета не получает. В том же flush проекция ещё старая (G14; ADR-002 условие 4, architecture.md:253-257). Значит, если шторка решит по <code>select</code> сразу после emit, она один кадр увидит «нет операции». Двойное нажатие Enter на Install даст два глагола, и черновик не говорит, кто их схлопывает. <b>Исправление.</b> (а) Операции фичи ключуются <b>доменным ключом</b> цели: <code>ops: Map&lt;OpKey, Op&gt;</code>, где <code>OpKey::Install(PluginId)</code>, и у <code>Op</code> есть <code>gen</code>. Core игнорирует повторный глагол, пока операция с тем же ключом в полёте (идемпотентность). Двойное нажатие безвредно. (б) Шторка держит локальное <code>awaiting: Option&lt;(OpKey, gen_before)&gt;</code> с момента emit. Пока домен не покажет <code>gen &gt; gen_before</code>, она рисует «загрузку» из своего <code>awaiting</code>, а не из проекции. Так нет ни мерцания, ни решения по той же проекции в том же flush. (в) Тикет остаётся внутренним делом core (R1) и в UI не выходит.</p>
+<h3>F4 (Б) «Интерес» поверхности: кто шлёт Close</h3>
+<p><b>Суть.</b> Черновик противоречит сам себе: в тексте ADR «открыта ли поверхность» отдана UI, в §3 «query/range живут в CodexApp с явными Open/Close». Домену знание об открытости действительно нужно, чтобы:</p>
+<ul><li style="margin-left:0ch">загрузить при открытии (<code>/plugins</code> → <code>plugin/list</code>);</li><li style="margin-left:0ch">остановить опрос, когда поверхность закрыта (agents center);</li><li style="margin-left:0ch">запросить заново при переподключении то, что открыто;</li><li style="margin-left:0ch">отбросить ответ, который уже никому не нужен.</li></ul>
+<p>Если Close шлёт обработчик Esc, то закрытие другими путями даст «вечно открыто». Другие пути: снятие маршрута при смене потока, перемонтирование по <code>GlobalKey</code>, выход через debug-меню, <code>pop_until</code>. <b>Исправление.</b> Один виджет <code>Interest { key, child }</code>. Он берёт <code>Hs</code> в <code>did_change_dependencies</code> и шлёт <code>Intent::Interest(key, Open)</code> в <code>init_state</code>, а <code>Close</code> — в <code>dispose_with</code>. rtwk разрешает в <code>dispose_with</code> вызывать <code>emit</code> в обработчик другого элемента, но предков там уже не прочитать, поэтому обработчик надо взять раньше (rtwk-framework/src/widget.rs:596-613). Core считает ссылки на каждый ключ. При <code>attach</code> он заново спрашивает ключи с ненулевым счётчиком. Правило: <code>Intent::Interest</code> создаётся только в <code>widgets/interest.rs</code>.</p>
+<h3>F5 (Р) Смена потока и шторки</h3>
+<p><b>Суть.</b> Шторки — маршруты корневого навигатора (src/sheets/mod.rs:19-27; <code>select::open</code> — ближайшего, src/sheets/select/mod.rs:458-468). Смену потока они переживают. Оракул при смене потока заменяет <code>ChatWidget</code> целиком (app/session_lifecycle.rs:547), и его стек видов нижней панели теряется. Если в C шторка действует «на активный поток», пик после смены попадёт не в тот поток. Отдельно: страница сессии не ключуется <code>ThreadId</code>. Её корень ключуется <code>(read_only, provider)</code> (src/pages/session/session_page.rs:1143-1144), а помощника <code>thread_scope</code>, которого требует R2 (architecture.md:532), в коде нет (grep пуст). В C в <code>State</code> уйдёт больше состояния, и всё, что под страницей сессии, будет протекать между потоками. <b>Исправление.</b> (а) Аргументы шторки, привязанной к потоку, несут <code>ThreadId</code> (R14). Предикат жизни <code>scope == session.active</code>; при <code>false</code> шторка закрывается сама (§6.4 архитектуры) — паритет с оракулом. (б) <code>thread_scope(id, child)</code> ключует поддерево потока по <code>ThreadId</code>; что должно пережить переключение, лежит в <code>ThreadUi</code>. Правило <code>r2_thread_subtree_is_keyed</code> (единственное место ключа — <code>thread_scope</code>).</p>
+<h3>F6 (Р) Переподключение оставляет операции в полёте</h3>
+<p><b>Суть.</b> <code>attach_backend</code> чистит только запросы сервера (<code>drop_requests_of</code>, core/src/app.rs:887-933). <code>outgoing</code> (наши RPC) не трогает. Ответы старой эпохи <code>ingest</code> отбрасывает (:940). Значит, ответ на <code>plugin/install</code>, отправленный до разрыва, не придёт никогда, и <code>Op::Installing</code> повиснет навсегда. Со стороны домена это будет вечный спиннер. Проверено чтением; тест-воспроизведение не запускал. <b>Исправление.</b> На <code>attach</code> разрешать все <code>outgoing</code> этого backend синтетическим <code>Err(RpcError::Disconnected)</code> через <code>pending.resolve</code>, чтобы <code>Remote</code>/<code>Op</code> перешли в <code>Failed</code>. Затем перезапросить открытые интересы (F4). Тест в core/tests/adr003.rs: «install → reconnect → op Failed, plugin/list спрошен заново».</p>
+<h3>F7 (Р) Директивы «домен → контроллер»</h3>
+<p><b>Суть.</b> Домен пишет в контроллеры UI четырьмя самодельными слушателями в <code>State</code> страницы сессии: <code>last_submit</code>, <code>restore</code>, <code>replayed_submissions</code>, <code>backtrack.restore</code> (src/pages/session/session_page.rs:340-420, поля :74-82). Источник — seq в <code>ThreadModel</code> (<code>give_back</code>, core/src/threads.rs:2994-3005). «Виденный seq» хранится в одном <code>State</code> вместе с <code>ThreadId</code>. Если seq потока A вырос, пока показан B, то при возврате на A условие <code>*thread == restore.0</code> ложно, и восстановление пропускается. Сообщения, отданные потоком A в фоне (например, отказ steer), в композер A не попадут. Это вывод из кода, тестом не проверено. Черновик этот род не упоминает. <b>Исправление.</b> Тип <code>Directive&lt;T&gt; { seq, value }</code> в core, по одному на род. «Виденный seq» лежит в <code>ThreadUi</code> своего потока (<code>ThreadUi.seen: DirectiveSeen</code>), а не в <code>State</code> страницы. Слушатель один на род (<code>widgets/directives.rs</code>). Правило: <code>Directive</code> читается только там.</p>
+<h3>F8 (Р) Правило 1 бьёт по kit и остаётся текстовым</h3>
+<p><b>Суть.</b> <code>adr013_core_states_hold_no_draw_state</code> проверяет все поля структур в screens/features по списку имён. Законные типы kit держат состояние отрисовки, потому что ими владеет UI:</p>
+<ul><li style="margin-left:0ch"><code>History.history_cursor</code> (core/src/screens/composer/history.rs:266-280), владелец — <code>ComposerDraft</code> в <code>ThreadUi</code>;</li><li style="margin-left:0ch">машина <code>Backtrack</code> (src/widgets/thread_ui.rs:36-49);</li><li style="margin-left:0ch"><code>CommandPopup.state: ScrollState</code> (core/src/commands.rs:858-866), считается на каждый вызов из src/pages/session/popup.rs:46.</li></ul>
+<p>Правило либо даст ложные срабатывания, либо получит список исключений, который снова протечёт. <b>Исправление.</b> Сначала перенести kit в <code>core::kit</code> (только путь модуля, логика не меняется). Правило 1 смотрит типы, <b>достижимые из корней домена</b>: <code>CodexApp</code>, <code>ThreadModel</code>, <code>FeatureStates</code>, <code>ScreenStates</code>. Правило 5 в обратную сторону: тип из <code>core::kit</code> не бывает полем типа домена. Ratchet — на число нарушений, не на имена.</p>
+<h3>F9 (Р) Фикстуры и debug-входы</h3>
+<p><b>Суть.</b> Шаги <code>screen</code> засевают формы UI, которые разбирает core: <code>SeedEv::List(list)</code> → <code>Menu::List</code> (core/src/screens/select.rs:1650-1680), <code>List</code> выводит <code>serde::Deserialize</code> (core/src/screens/select/list.rs:10). Когда <code>list.rs</code> уедет в <code>widgets/picker</code>, core не сможет разобрать шаг. <code>EntryOpen</code> — <code>fn(&amp;Seeded) -&gt; AnyWidget</code> без данных (src/app/debug/mod.rs:33-42), так что «шаг → <code>DebugEntry.open</code>» не механический перенос. Ещё: seeded-scope даёт свою модель только своему маршруту, поэтому шторки там открываются на ближайшем навигаторе (<code>use_root_navigator: false</code>, src/sheets/select/mod.rs:458-468). Это условие должно стать правилом, иначе в debug-входе шторка прочтёт живую модель. <b>Исправление.</b> Новый род шага <code>ui</code> (<code>{&quot;step&quot;:&quot;ui&quot;,&quot;open&quot;:&quot;select.list&quot;,&quot;props&quot;:{…}}</code>). Core отдаёт его тестеру и входу как есть, так же как уже отдаёт <code>key</code> и <code>resize</code> (core/src/fixtures/script.rs:25-26). Вход UI разбирает <code>props</code> в аргументы поверхности (<code>initial</code> стек шторки, <code>List</code> для picker). Имена входов (<code>dir</code>, <code>entry</code>) сохраняются, поэтому 2 622 теста kit не меняются, меняются только фикстуры. Правило: шторка открывается только через <code>sheets::open(cx, …)</code>, а он выбирает навигатор.</p>
+<h3>F10 (Р) Производительность и уведомления</h3>
+<p><b>Суть.</b></p>
+<ul><li style="margin-left:0ch"><code>ScreenStates</code> — один <code>Rc</code> на 19 моделей (core/src/app.rs:546). Каждое изменение делает <code>Rc::make_mut</code>, и, пока провайдер держит второй <code>Rc</code>, клонируется всё, кроме <code>Shared</code> (комментарий core/src/screens/popovers.rs:44-46).</li><li style="margin-left:0ch">Сейчас по этому пути идёт каждое движение курсора в меню (<code>Intent::Choose/Cursor</code>).</li><li style="margin-left:0ch">27 мест делают <code>watch::&lt;ScreenStates&gt;</code> целиком (grep). Каждое изменение любого экрана перестраивает их все.</li><li style="margin-left:0ch"><code>MenuDialog</code> смотрит целиком сознательно: rtwk не сообщает зависимому, который уже грязный, об изменении, если тот только <code>select</code>-ит (src/sheets/select/dialog.rs:88-94).</li><li style="margin-left:0ch">В C одна <code>FeatureStates</code> на все фичи повторит ту же картину.</li></ul>
+<p><b>Исправление.</b> (а) C убирает курсор и страницы с горячего пути: это локальный <code>setState</code> и перестройка одного поддерева. (б) Срезы <code>Rc</code> по экрану и по фиче (<code>ScreenStates</code> → поля <code>Rc&lt;…&gt;</code>, провайдер на срез) и <code>select</code> по срезу. (в) Особенность <code>select</code> записать в rtwk-gaps как gap (ведёт человек). До исправления закрытие по воле домена смотрит маленький срез через <code>watch</code>. (г) Правило: <code>watch::&lt;ScreenStates&gt;</code> и <code>watch::&lt;FeatureStates&gt;</code> запрещены, ratchet от 27.</p>
+<h3>F11 (Р) Шторка-оверлей или докнутая панель</h3>
+<p><b>Суть.</b> У оракула виды нижней панели стоят на месте композера: высота панели растёт, а хвост транскрипта поднимается и остаётся виден. Шторки порта — диалоги-оверлеи у нижнего края (src/sheets/mod.rs:19-27). Если шторка выше композера, она закрывает нижние строки транскрипта. rtwk-gaps.md:101 (G28) прямо называет недостающее: «a docked bottom pane that replaces the composer». Во Flutter есть оба варианта: <code>Scaffold.bottomSheet</code> (докнутая, часть раскладки) и <code>showModalBottomSheet</code> (маршрут). У <code>Scaffold</code> в rtwk нижнего слота нет (rtwk/src/navigation/scaffold.rs:684-719), но слот собирается композицией. <b>Исправление.</b> Это открытое решение О2 в architecture.md. Рекомендация: <code>SheetHost</code> — слот в <code>Column</code> страницы сессии под транскриптом. Его содержимое — <code>SheetStack</code> (F1), он сам внутри <code>thread_scope</code> (F5), поэтому смена потока сбрасывает его, как у оракула. Через <code>show_dialog</code> идут только центрированные виды оракула и настоящие диалоги. Сначала сверить по снимку оракула: popup поверх длинного транскрипта.</p>
+<h3>F12 (Р) Клавиши и keymap</h3>
+<p><b>Суть.</b> <code>KeyCode::</code> встречается 280 раз в 31 файле pages/sheets/widgets, <code>keymap(cx)</code> читается в 22 местах. Страница сессии биндит <code>keys::defaults()</code>, то есть дефолты оракула, а не настроенный keymap (src/pages/session/session_page.rs:1136-1138; модуль src/pages/session/keys.rs:1-7 сам говорит «will replace»). Когда шторки уйдут в UI, перепривязка <code>tui.keymap.*</code> до них не дойдёт. <b>Исправление.</b> Разбор и разрешение keymap — в core (<code>core/src/keymap</code>, это конфиг). Каждая поверхность объявляет свои <code>Intent</code> rtwk и строит <code>Shortcuts</code> из <code>Keymap</code> контекста. <code>Actions</code> — в <code>State</code> поверхности. Правило ratchet: <code>KeyCode::</code> только в <code>src/keymap/</code> и примитивах <code>widgets/</code>.</p>
+<h3>F13 (З) Критерий (3) IO-теста размыт</h3>
+<p>«Его читает другой экран, поток или шаг жизненного цикла». Под это подпадает почти всё: футер читает выбранную модель, но это домен из конфига, а не курсор пикера. Нужна формулировка по владельцу записи плюс таблица трудных случаев (§3 ниже). Вписано в architecture.md §1.3.</p>
+<h3>F14 (З) Поправка 2026-11-18 уже наполовину отменена</h3>
+<p>В коде слот под транскриптом заменён на <code>show_dialog</code> у нижнего края (src/sheets/mod.rs, по поправке 2026-11-19b). От поправки 2026-11-18 осталось «core view stack» (<code>select.stack</code>). ADR-013 должен снять её целиком и сказать, где теперь живёт стек (F1, F11).</p>
+<h3>F15 (З) Двойной владелец на время переезда</h3>
+<p>Пока семейство меню переезжает, <code>select.stack</code> и новый <code>SheetStack</code> могут держать одну шторку. Правило: семейство (<code>Menu::X</code>) переезжает целиком за один коммит. <code>hub_budget.txt</code> уменьшается в том же коммите, а смешанное семейство (вариант <code>Menu::X</code> и <code>SheetStack</code> для X одновременно) ловит проверка в <code>hub_enums_only_shrink</code> (по списку переехавших).</p>
+<h3>F16 (З) Условие 1 ADR-002 не проверяется</h3>
+<p><code>stateful eq</code> для экранов и шторок есть в тексте (architecture.md:246-247), а правило есть только для ключа навигатора (<code>adr002_the_navigator_is_keyed</code>, tests/rules/rules.rs:132). В C шторок со <code>State</code> станет больше. Нужно <code>adr002_screen_and_sheet_widgets_are_eq</code>.</p>
+<h3>F17 (З) Формулировки отчёта</h3>
+<ul><li style="margin-left:0ch">d5 «доменные части chat и status в ThreadModel, без slots экранов»: в C <code>ThreadSlots</code> остаются (доменная часть экранов на поток), уходят только поля отрисовки.</li><li style="margin-left:0ch">«composer → core::kit, 0 строк в UI»: верно по путям, но <code>Store</code> истории — домен (<code>popovers::Model.history</code>, core/src/screens/popovers.rs:44-47), а навигация по истории — kit в <code>ThreadUi</code> (src/widgets/composer_draft.rs:26, :78).</li><li style="margin-left:0ch">«2 622 oracle-теста без изменений» верно, только если имена входов сохраняются (F9).</li></ul>
+<h2>3. Трудные случаи IO-теста: решения</h2>
+<table><tr><th>случай</th><th>что в core (домен)</th><th>что в UI</th><th>механизм</th></tr><tr><td>деталь плагина (<code>plugin/read</code>)</td><td><code>details: Map&lt;PluginKey, Remote&lt;Detail&gt;&gt;</code> — кэш по параметру, без указателя «текущая»</td><td>страница <code>Detail(PluginKey)</code> в <code>SheetStack</code></td><td>глагол <code>Read{key}</code> при показе страницы; поздний ответ ложится в кэш; страница = f(свой ключ, кэш)</td></tr><tr><td>install → auth</td><td><code>ops[Install(key)]</code>, после ответа <code>SurfaceWish::PluginAuth{plugin}</code></td><td>страница <code>Auth</code></td><td>F2 + F3</td></tr><tr><td>смена cwd во время открытой шторки</td><td><code>scope</code> (cwd), <code>forget</code> при смене (plugins.rs:369-380); ответы другого cwd отбрасываются, как у оракула (chatwidget/plugins.rs:454-456)</td><td>шторка держит <code>scope</code> в аргументах, предикат жизни</td><td>закрытие по воле домена (§6.4)</td></tr><tr><td>approvals</td><td><code>RequestQueue</code> (ключ эпоха+поток+id)</td><td>выделенная опция, черновик отказа с отзывом</td><td>presenter; шторка закрывается, когда запроса нет; при смене потока по предикату</td></tr><tr><td><code>@</code> файлы</td><td><code>FileMatches{query, matches}</code> (popovers.rs:39-40), запрос через host</td><td>открыт ли popup, выделение — <code>Autocomplete</code></td><td>глагол <code>FileSearch{query}</code> при изменении текста; показ, только если <code>matches.query == текущий префикс</code></td></tr><tr><td><code>$</code> и <code>/</code></td><td>каталог упоминаний — домен; фильтр <code>/</code> — kit (<code>CommandPopup</code>)</td><td>выделение</td><td>чистая функция над доменом</td></tr><tr><td>поиск resume</td><td><code>Listing</code> по <code>query</code> + курсорам страниц, <code>previews</code> по ключу, <code>Remote&lt;Transcript&gt;</code></td><td>текст поля — <code>TextEditingController</code>; плотность, развёрнутая строка, фокус тулбара</td><td><code>Search{query}</code> (core не пишет текст обратно); <code>Cursor/Room/End</code> → <code>NeedMore</code>; <code>inline_error</code> с seq, UI помнит «погашенный» seq</td></tr><tr><td>Ctrl+T в resume</td><td><code>Remote&lt;Transcript&gt;</code> по <code>ThreadId</code></td><td><code>awaiting: Option&lt;ThreadId&gt;</code>, маршрут пейджера</td><td>слушатель: пришёл и всё ещё ждём → push</td></tr><tr><td>onboarding</td><td>шаги — жизненный цикл (держат старт первого потока, <code>start_held</code>)</td><td>выделение опции, поле API-ключа</td><td>шаг = f(домен)</td></tr><tr><td>выделение и поиск транскрипта</td><td>— (данные в <code>ThreadModel</code>)</td><td><code>SelectionArea</code>, запрос поиска, позиция</td><td>чистая функция поиска (kit) по <code>ThreadModel</code>, memo</td></tr><tr><td>backtrack</td><td><code>Rollback{thread, n}</code> → <code>ThreadAsk</code>; снимок заменяет ходы; <code>Directive</code> префилла</td><td>машина <code>Backtrack</code> в <code>ThreadUi.modes</code> (как сейчас)</td><td>F7</td></tr><tr><td>Ctrl+T пейджер</td><td>—</td><td>режим страницы сессии (<code>ThreadUi.modes</code>)</td><td>контроллер</td></tr><tr><td>смена потока</td><td><code>session.active</code> (только <code>apply_app</code>)</td><td><code>ThreadUi</code> по <code>ThreadId</code>; поддерево по ключу</td><td><code>thread_scope</code>, предикаты жизни шторок (F5)</td></tr><tr><td>переподключение</td><td>эпоха; <code>outgoing</code> → <code>Failed</code>; перезапрос интересов</td><td>шторки остаются, видят <code>Remote::Loading</code></td><td>F4, F6</td></tr></table>
+<h2>4. Что C оставляет без ответа (в architecture.md как открытые решения)</h2>
+<p>О1 стек страниц шторки: <code>SheetStack</code> в <code>State</code> или вложенный <code>Navigator</code> (рекомендация — <code>SheetStack</code>, F1). О2 шторка докнутая или оверлей (рекомендация — докнутая для видов нижней панели оракула, F11). О3 где kit: <code>core::kit</code> или отдельный крейт (рекомендация — <code>core::kit</code>, проще для upstream). О4 ключ операций: доменный ключ или UI-корреляция (рекомендация — доменный ключ + <code>gen</code>). О5 кто пишет правила шага 0 и долговую задачу семантики IO-теста. О6 судьба WIP <code>6cafa8de1</code> (рекомендация отчёта — не сливать, пилот с нуля по C) и <code>95826e191</code> (сливать как есть). О7 <code>Rc</code> против <code>Arc</code> для upstream-core (уже открыт в architecture.md:1080-1084, ADR-013 его не меняет).</p>
+<h2>5. Что сделать до принятия ADR-013</h2>
+<ol><li style="margin-left:0ch">Вписать в ADR механизмы <code>SurfaceWish</code>, <code>Directive</code>, <code>Interest</code>, <code>OpKey</code> (F2–F4, F7) и предикат жизни шторки (F5).</li><li style="margin-left:0ch">Решить О1 и О2. Для О1 и О2 — прототип на <code>/plugins</code> в рамках пилота, а не отдельная задача.</li><li style="margin-left:0ch">Правила шага 0: таблица в architecture.md §13, плюс F8 (достижимость), F10 (<code>watch</code> срезов), F12 (<code>KeyCode</code>), F16 (<code>eq</code>).</li><li style="margin-left:0ch">Исправить F6 отдельной задачей: это дефект текущего кода, он не зависит от C.</li></ol></div></body></html>

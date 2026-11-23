@@ -31,6 +31,8 @@
 //!   instruction sources, model and cwd the thread starts with).
 //! - `daybreak(models)`: what the host knows of the account's cyber access (an eligible
 //!   account and the catalog's `(model, standard, daybreak)` programs) that words a refusal.
+//! - `raw_reasoning()`: the config's `show_raw_agent_reasoning` is on (a reasoning block also
+//!   shows the model's raw reasoning).
 //!
 //! Files of the session: `kit::image_file(name)` writes a tiny PNG, `Open::cwd`
 //! (markdown seeds) names the session's directory.
@@ -40,6 +42,7 @@ use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev as AgentsEv, Page};
+use codex_tui_core::screens::cells::Ev as CellsEv;
 use codex_tui_core::screens::settings::{Ev as SettingsEv, Facts};
 use codex_tui_core::threads::Notice;
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
@@ -96,6 +99,8 @@ pub(super) struct Env {
     daybreak: Option<Access>,
     /// The server's answer to the session's `thread/start` (its instruction sources, settings).
     pub(super) thread_start: Option<serde_json::Value>,
+    /// `show_raw_agent_reasoning` is on.
+    raw_reasoning: bool,
 }
 
 impl Env {
@@ -133,6 +138,7 @@ impl Env {
             || self.replay.is_some()
             || !self.announced.is_empty()
             || self.daybreak.is_some()
+            || self.raw_reasoning
     }
 
     /// Delivers what is an app event rather than a terminal's property, once
@@ -149,6 +155,10 @@ impl Env {
         if let Some(access) = &self.daybreak {
             h.connect();
             h.inject([AppEv::Daybreak(access.clone())]);
+        }
+        if self.raw_reasoning {
+            h.connect();
+            h.inject([AppEv::Screen(ScreenEv::Cells(CellsEv::RawReasoning(true)))]);
         }
         if !self.announced.is_empty() {
             h.connect();
@@ -325,6 +335,12 @@ impl Open {
     /// the instruction sources the thread loaded, its model and cwd) instead of the fake's own.
     pub fn thread_start(mut self, response: serde_json::Value) -> Open {
         self.env.thread_start = Some(response);
+        self
+    }
+
+    /// The config's `show_raw_agent_reasoning` is on.
+    pub fn raw_reasoning(mut self) -> Open {
+        self.env.raw_reasoning = true;
         self
     }
 

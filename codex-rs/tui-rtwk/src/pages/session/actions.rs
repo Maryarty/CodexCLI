@@ -272,6 +272,18 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 open_confirmation(cx);
                 return;
             }
+            // `/export` opens the destination picker the feature builds (`features/export`): the
+            // feature is asked, then the select sheet shows the menu it opened.
+            if let Some(intent) = feature_menu_intent(opened.command) {
+                screen(
+                    cx,
+                    chat::Intent::Session {
+                        thread: session.active.clone(),
+                        command: opened.command,
+                        intent,
+                    },
+                );
+            }
             // `/model`, `/permissions` and `/apps` fill the selection dialog
             // from the thread's facts, and the app asks the server for the rest.
             if let Some(intent) = select_intent(
@@ -339,6 +351,15 @@ fn removal_intent(command: SlashCommand) -> Option<SessionIntent> {
     match command {
         SlashCommand::Archive => Some(SessionIntent::Archive),
         SlashCommand::Delete => Some(SessionIntent::Delete),
+        _ => None,
+    }
+}
+
+/// What the feature is asked before the select sheet shows the menu it opens (a bare `/export`:
+/// the destination picker).
+fn feature_menu_intent(command: SlashCommand) -> Option<SessionIntent> {
+    match command {
+        SlashCommand::Export => Some(SessionIntent::Export { path: None }),
         _ => None,
     }
 }

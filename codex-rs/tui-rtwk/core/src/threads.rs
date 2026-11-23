@@ -40,7 +40,7 @@ pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
-pub use note::{CdRefusal, CopyLabel, ExportNote, ModeNote, Note, NoteKey, RemoveNote, Stub, Tone};
+pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
 pub use user_prompt::{Shown, UserPrompt};
@@ -114,9 +114,13 @@ pub enum Item {
     },
     Tool(Arc<ToolActivity>),
     /// The model's reasoning summary; shown only in the detailed transcript
-    /// (oracle `ReasoningSummaryCell::transcript_only`).
+    /// (oracle `ReasoningSummaryCell::transcript_only`). `with_raw` is the same
+    /// body with the raw reasoning content after the summary parts, kept only when
+    /// the item has content: the oracle joins it under `show_raw_agent_reasoning`
+    /// (`replace_reasoning_parts`), which the view reads (`Item::reasoning_text`).
     Reasoning {
         summary: String,
+        with_raw: Option<String>,
     },
     Patch(Arc<PatchActivity>),
     Plan {
@@ -181,6 +185,18 @@ pub enum Item {
 }
 
 impl Item {
+    /// The Markdown body of a reasoning item (empty for another kind): the summary, and with
+    /// `show_raw` (`show_raw_agent_reasoning`) the raw reasoning content after it.
+    pub fn reasoning_text(&self, show_raw: bool) -> &str {
+        match self {
+            Self::Reasoning { summary, with_raw } => match with_raw {
+                Some(text) if show_raw => text,
+                _ => summary,
+            },
+            _ => "",
+        }
+    }
+
     /// Entries only the detailed transcript (Ctrl+T) shows: the reasoning
     /// summary, the server's warnings and its deprecation notices.
     pub fn is_detailed_only(&self) -> bool {
@@ -2780,6 +2796,11 @@ fn feature_reply(
     result: Result<features::FeatureReply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
+    // An RPC of a feature that failed is the thread's last failure, as a turn start's is: the
+    // feature words what else it wants said (a note), and need not set the error line itself.
+    if let Err(error) = &result {
+        model.last_error = Some(Failure::from(error.clone()));
+    }
     with_features(model, fx, |parts, cx| {
         features::apply_thread_reply(parts, ctx, result, cx);
     });

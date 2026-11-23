@@ -42,6 +42,8 @@ pub struct CellEnv<'a> {
     pub detailed: bool,
     /// Raw output mode (alt+r, `/raw`): source text, no rendering.
     pub raw: bool,
+    /// `show_raw_agent_reasoning`: a reasoning block also draws the raw reasoning.
+    pub show_raw_reasoning: bool,
 }
 
 /// Where the item sits in the list.
@@ -259,12 +261,20 @@ pub fn cell(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             separator,
             crate::sheets::approvals::ReviewLineCell { line: line.clone() }.into(),
         ),
-        Item::Reasoning { summary } => below(
-            separator,
-            reasoning::ReasoningCell {
-                summary: summary.clone(),
+        // A block with nothing to say (its parts empty or `<!-- -->`) draws nothing, not even
+        // the blank row above it (oracle: an empty layout takes no separator).
+        Item::Reasoning { .. } => {
+            let summary = item.reasoning_text(env.show_raw_reasoning);
+            if summary.trim().is_empty() {
+                return AnyWidget::default();
             }
-            .into(),
-        ),
+            below(
+                separator,
+                reasoning::ReasoningCell {
+                    summary: summary.to_owned(),
+                }
+                .into(),
+            )
+        }
     }
 }
