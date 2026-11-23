@@ -284,10 +284,6 @@ pub struct Model {
     /// An inline `/permissions <profile>` pick failed or was given up: what waits in the thread's
     /// queue stays unsent (`retain_input_after_failed_permission_selection`). The app takes it.
     pub hold_queue: bool,
-    /// The id of the row that opened the menu above the one at this depth of
-    /// the stack: Esc shows that menu again with the cursor on it (the
-    /// oracle's parent view keeps its highlight).
-    kept: std::collections::BTreeMap<usize, String>,
     /// How many intents were applied: a sheet opened with the intent that asks for its menu
     /// compares it to tell a menu that has not come yet from one the intent left a note for
     /// (`/model` blocked by a provider switch, or over a catalog with nothing to pick).
@@ -305,26 +301,10 @@ impl Model {
         self.stack.last()
     }
 
-    /// The row the shown menu opens its cursor on: the one that opened the menu above it, shown
-    /// again by Esc (the oracle's parent view keeps its highlight).
-    pub fn cursor_row(&self) -> Option<&str> {
-        self.kept
-            .get(&self.stack.len().checked_sub(1)?)
-            .map(String::as_str)
-    }
-
     /// The rows of the menu shown now, if it is one of the typed families.
     pub fn page(&self) -> Option<Page> {
         match self.menu()? {
-            Menu::Model(menu) => {
-                let mut page = menu.page(&self.catalog);
-                let kept = self.kept.get(&(self.stack.len() - 1));
-                if let Some(at) = kept.and_then(|id| page.rows.iter().position(|row| &row.id == id))
-                {
-                    page.initial = Some(at);
-                }
-                Some(Page::Model(page))
-            }
+            Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
             Menu::Confirm(_)
@@ -391,15 +371,6 @@ impl Model {
                 self.stack.pop();
             }
         }
-    }
-
-    /// What a pick of the row `id` did to the stack; a menu pushed over this
-    /// one remembers the row that opened it.
-    fn step_from(&mut self, id: String, step: Step) {
-        if matches!(step, Step::Push(_)) {
-            self.kept.insert(self.stack.len() - 1, id);
-        }
-        self.step(step);
     }
 
     /// `quick_dials_available`: whether presets can be used here; a note says why not.
@@ -512,10 +483,8 @@ impl Model {
         self.stack.retain(|menu| !matches!(menu, Menu::Model(_)));
     }
 
-    /// Forgets the rows kept for menus that are gone.
+    /// Forgets what the menus that are gone were waiting for.
     fn tidy(&mut self) {
-        let depth = self.stack.len();
-        self.kept.retain(|at, _| *at < depth);
         if !self.stack.iter().any(|menu| matches!(menu, Menu::Review(_))) {
             self.review.forget();
         }
@@ -983,7 +952,6 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 Some(Menu::Review(menu)) if **menu == review::Menu::Presets
             );
             if model.review.answered(request) && over_presets {
-                model.kept.insert(model.stack.len() - 1, listing.kind().row().to_string());
                 model.stack.push(Menu::Review(Box::new(listing.menu())));
             }
         }
@@ -1172,7 +1140,7 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
-                model.step_from(id, step);
+                model.step(step);
             }
             Some(Menu::Permissions(menu)) => {
                 let step = menu.choose(&model.profiles, &id);
@@ -1184,7 +1152,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 match menu.choose(&id) {
                     Some(Chosen::Ask(git)) => model.review.want(git),
                     Some(Chosen::Prompt) => {
-                        model.kept.insert(model.stack.len() - 1, id);
                         model.stack.push(Menu::Review(Box::new(review::Menu::Instructions)));
                     }
                     Some(Chosen::Target(target)) => {
@@ -1198,11 +1165,9 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 use quick_dials::Chosen;
                 match menu.choose(&id, &model.quick) {
                     Some(Chosen::Push(next)) => {
-                        model.kept.insert(model.stack.len() - 1, id);
                         model.stack.push(Menu::Quick(Box::new(next)));
                     }
                     Some(Chosen::Confirm { slot, new }) => {
-                        model.kept.insert(model.stack.len() - 1, id);
                         model.quick_confirm(slot, new);
                     }
                     Some(Chosen::Write { slot, dial }) => {
@@ -1277,7 +1242,7 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Secondary(id) => {
             if let Some(Menu::Model(menu)) = model.stack.last() {
                 let step = menu.choose(&model.catalog, &id, true);
-                model.step_from(id, step);
+                model.step(step);
             }
         }
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.

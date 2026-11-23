@@ -166,11 +166,6 @@ fn the_base_branch_picker_lists_the_hosts_branches_and_a_pick_dismisses_both() {
         panic!("expected the branches, got {:?}", menu(&app));
     };
     select(&mut app, Select::Close);
-    assert_eq!(
-        app.screens().select.cursor_row(),
-        Some(review::BASE),
-        "Esc shows the presets on the row that opened the list"
-    );
     assert_eq!(menu(&app), Some(Review::Presets));
     let fx = select(&mut app, Select::Choose(review::BASE.into()));
     let (request, _) = asked(&fx);
@@ -217,7 +212,6 @@ fn the_commit_picker_searches_subject_and_sha_and_esc_returns_to_the_presets() {
     assert_eq!(rows[0].search.as_deref(), Some("Fix the parser abc123"));
     select(&mut app, Select::Close);
     assert_eq!(menu(&app), Some(Review::Presets));
-    assert_eq!(app.screens().select.cursor_row(), Some(review::COMMIT));
     // again, and pick the second commit
     let fx = select(&mut app, Select::Choose(review::COMMIT.into()));
     let (request, _) = asked(&fx);

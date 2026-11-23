@@ -159,16 +159,6 @@ pub enum Git {
     Log,
 }
 
-impl Git {
-    /// The row of the presets this list opens from (the cursor returns to it on Esc).
-    pub(super) fn row(self) -> &'static str {
-        match self {
-            Git::Branches => BASE,
-            Git::Log => COMMIT,
-        }
-    }
-}
-
 /// The host's list, as the app tells it (`Done::GitBranches`, `Done::GitLog`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Listing {
@@ -180,13 +170,6 @@ pub enum Listing {
 }
 
 impl Listing {
-    pub(super) fn kind(&self) -> Git {
-        match self {
-            Listing::Branches { .. } => Git::Branches,
-            Listing::Log(_) => Git::Log,
-        }
-    }
-
     pub(super) fn menu(self) -> Menu {
         match self {
             Listing::Branches { current, branches } => Menu::Branches { current, branches },
