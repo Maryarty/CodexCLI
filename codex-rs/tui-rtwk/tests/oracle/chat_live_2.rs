@@ -554,6 +554,24 @@ fn snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes() {
 }
 
 // ---- oracle: chatwidget/tests/history_replay.rs (24 screen-level tests here; 11 state tests left to chat-live)
+
+/// A chat of a resumed thread whose recorded turns are `turns` (`replay_turn`s), oldest first as
+/// the oracle's tests give them; the server answers newest first.
+fn resumed(mut turns: Vec<serde_json::Value>) -> Screen {
+    turns.reverse();
+    Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .replay(turns)
+        .live()
+        .open()
+}
+
+/// A recorded user message `text` with the extra inputs `more`.
+fn user_message(id: &str, text: &str, more: serde_json::Value) -> serde_json::Value {
+    let mut content = vec![serde_json::json!({"type": "text", "text": text, "text_elements": []})];
+    content.extend(more.as_array().cloned().unwrap_or_default());
+    serde_json::json!({"type": "userMessage", "id": id, "content": content})
+}
 // ORACLE chatwidget/tests/history_replay.rs:18 resumed_initial_messages_render_history kind=snap owner=chat-live
 #[test]
 fn resumed_initial_messages_render_history() {
@@ -584,19 +602,42 @@ fn restored_conversation_ultra_remains_selected_after_switching_to_plan() {
 // ORACLE chatwidget/tests/history_replay.rs:219 replayed_user_messages_seed_composer_history kind=ui owner=chat-live
 #[test]
 fn replayed_user_messages_seed_composer_history() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
-    );
+    let mut s = resumed(vec![
+        kit::replay_turn(
+            "turn-1",
+            serde_json::json!([user_message(
+                "user-1",
+                "use $sample",
+                serde_json::json!([{"type": "mention", "name": "Sample Plugin", "path": "plugin://sample@test"}])
+            )]),
+        ),
+        kit::replay_turn(
+            "turn-2",
+            serde_json::json!([user_message(
+                "user-2",
+                "use $google-calendar",
+                serde_json::json!([{"type": "mention", "name": "Google Calendar", "path": "app://google_calendar"}])
+            )]),
+        ),
+    ]);
+    s.keys("up");
+    s.assert_composer("use $google-calendar");
+    s.keys("up");
+    s.assert_composer("use $sample");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:309 replayed_review_prompt_does_not_seed_composer_history kind=ui owner=chat-live
 #[test]
 fn replayed_review_prompt_does_not_seed_composer_history() {
-    kit::missing(
-        Owner::ChatLive,
-        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
-    );
+    let mut s = resumed(vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([
+            {"type": "enteredReviewMode", "id": "review-start", "review": "changes against main"},
+            user_message("review-prompt", "Review the code changes against the base branch 'main'.", serde_json::json!([]))
+        ]),
+    )]);
+    s.keys("up");
+    s.assert_composer("");
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:333 replayed_delegated_tool_output_is_attributed_without_seeding_composer_history kind=snap owner=chat-live snap=replayed_delegated_tool_output
