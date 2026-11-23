@@ -33,6 +33,7 @@ mod keymap;
 mod model;
 mod models;
 mod onboarding;
+mod permission_args;
 mod permissions;
 mod pets;
 mod plan_mode;

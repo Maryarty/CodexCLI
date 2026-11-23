@@ -174,6 +174,14 @@ pub(super) fn reviewed(
 /// transcript of the thread in use, as typed notes: the screen keeps no
 /// history of its own.
 fn drain(app: &mut CodexApp, fx: &mut AppFx) {
+    if app.screens.select.hold_queue {
+        Rc::make_mut(&mut app.screens).select.hold_queue = false;
+        if let Some(thread) = app.session.active.clone() {
+            let intent = crate::screens::chat::ThreadIntent::HoldQueue;
+            let ev = crate::threads::ThreadEv::ScreenIntent(crate::screens::ScreenThreadIntent::Chat(intent));
+            super::apply_thread(app, &thread, ev, fx);
+        }
+    }
     if app.screens.select.notes.is_empty() {
         return;
     }
@@ -295,6 +303,7 @@ pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
     select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     asked_apps(app, before, fx);
     plugins_asked(app, fx);
+    picks(app, fx);
     drain(app, fx);
 }
 
@@ -449,10 +458,13 @@ fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &
         // (`apply_permission_profile_selection`, `already_selected`).
         permissions::Selection::Profile { id, unchanged, .. } => {
             if *unchanged && id.starts_with(':') {
+                Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
                 return;
             }
             let then = select::Note::PermissionSelectionRequested(label);
-            settings(app, patch, select::Setting::Permissions, Some(then), fx);
+            if !settings(app, patch, select::Setting::Permissions, Some(then), fx) {
+                Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
+            }
         }
         // Without a thread the legacy list has nothing to update: the
         // oracle's config is the host's, and its line is still said.
@@ -493,6 +505,8 @@ fn text(error: RpcError) -> String {
 pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
     answered(app, ctx, answer, fx);
     plugins_asked(app, fx);
+    // The catalog an inline `/permissions <profile>` waited for may have made its pick.
+    picks(app, fx);
     drain(app, fx);
 }
 
@@ -506,16 +520,22 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     };
     match (ctx, result) {
-        (select::Ctx::Settings { setting, then }, result) => match result {
-            Ok(_) => notes(app, then),
-            Err(error) => notes(
-                app,
-                [select::Note::SaveFailed {
-                    setting,
-                    error: text(error),
-                }],
-            ),
-        },
+        (select::Ctx::Settings { setting, then }, result) => {
+            // `complete_permission_shortcut`: the pick of a shortcut has its answer.
+            if setting == select::Setting::Permissions {
+                Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
+            }
+            match result {
+                Ok(_) => notes(app, then),
+                Err(error) => notes(
+                    app,
+                    [select::Note::SaveFailed {
+                        setting,
+                        error: text(error),
+                    }],
+                ),
+            }
+        }
         (select::Ctx::Write { setting, then }, result) => match result {
             Ok(select::Reply::Written { overridden }) => {
                 if overridden {

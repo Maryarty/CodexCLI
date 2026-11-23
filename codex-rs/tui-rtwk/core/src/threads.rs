@@ -1241,6 +1241,12 @@ impl ThreadModel {
         &self.queue
     }
 
+    /// What waits in the queue is held back: it goes out only when the user sends again
+    /// (oracle `recovered_queue`).
+    pub fn queue_held(&self) -> bool {
+        self.recovered
+    }
+
     pub fn pending_steers(&self) -> &[PendingSteer] {
         &self.pending_steers
     }
@@ -2448,6 +2454,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             );
             let message = UserMessage::text(screens::chat::plan_mode::IMPLEMENT_MESSAGE);
             apply_ev(model, ThreadEv::Submit { message }, fx);
+        }
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::HoldQueue,
+        )) if model.has_writer() => {
+            model.recovered |= !model.queue.is_empty()
+                || !model.rejected_steers.is_empty()
+                || !model.pending_steers.is_empty();
         }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::EditQueued,

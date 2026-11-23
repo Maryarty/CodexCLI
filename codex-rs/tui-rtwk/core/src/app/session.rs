@@ -276,6 +276,13 @@ pub(super) fn session_intent(
         // `AppEvent::ExportTranscript` with a path: the conversation is written there. The bare
         // command opens the destination picker, which is the view's list (`select::export`).
         S::Export { path: Some(path) } => export::run(app, Destination::File(path), fx),
+        // `/permissions <profile> ..`: the profile is picked without a menu (`select_permission_profile`);
+        // the select screen holds the arguments while the catalog is read.
+        S::Permissions { args: Some(args) } => {
+            use crate::screens::select::{Intent, permissions::Current};
+            let current = Current::from_facts(&app.screens.chat.status);
+            super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
+        }
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
@@ -298,7 +305,7 @@ pub(super) fn session_intent(
         | S::Ps
         | S::Review { args: None }
         | S::Model { .. }
-        | S::Permissions { .. }
+        | S::Permissions { args: None }
         | S::Title { .. }
         | S::Statusline { .. }
         | S::VoiceControl(_)

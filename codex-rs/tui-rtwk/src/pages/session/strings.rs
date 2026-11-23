@@ -709,6 +709,13 @@ impl Strings {
                 picker.app_status_line(picker.apps_no_link, *status)
             }
             Note::Plugins(say) => plugin_say(say),
+            // The words of the `/permissions` arguments and shortcut notes are the view task's
+            // (chunk-popups-permission-args); the oracle's English stands until its catalog entries
+            // exist.
+            Note::PermissionArgs(error) => permission_args_error(error),
+            Note::PermissionRefused(refusal) => permission_refusal(picker, refusal),
+            Note::PermissionsFailed(failure) => picker.failure(failure),
+            Note::NoOtherPermissionModes => "No other permission modes are available.".to_string(),
         }
     }
 
@@ -821,6 +828,60 @@ fn description_en(command: SlashCommand) -> &'static str {
         SlashCommand::Logout => "log out of Codex",
         SlashCommand::Rollout => "print the rollout file path",
         SlashCommand::TestApproval => "test approval request",
+    }
+}
+
+/// `parse_permission_profile_args` and `slash_command_args::parse` failures.
+fn permission_args_error(error: &codex_tui_core::screens::select::permission_args::Error) -> String {
+    use codex_tui_core::commands::args::ArgError;
+    use codex_tui_core::screens::select::permission_args::Error;
+    match error {
+        Error::Usage => "Usage: /permissions <profile-id> [--approval-policy=<policy>] [--reviewer=user|auto_review]".to_string(),
+        Error::Unexpected(argument) => format!("Unexpected permission argument `{argument}`."),
+        Error::Approval(value) => format!(
+            "Unknown approval policy `{value}`. Expected `untrusted`, `on-request`, `never`, or a granular policy."
+        ),
+        Error::Reviewer(value) => {
+            format!("Unknown permission reviewer `{value}`. Expected `user` or `auto_review`.")
+        }
+        Error::Args(ArgError::Quoting) => "Invalid command arguments. Check the quoting.".to_string(),
+        Error::Args(ArgError::NeedsValue(name)) => {
+            format!("Command setting `{name}` requires a value.")
+        }
+        Error::Args(ArgError::TakesNoValue(name)) => {
+            format!("Command setting `{name}` does not take a value.")
+        }
+        Error::Args(ArgError::OnlyOne(name)) => format!("Specify only one of --{name} or --no-{name}."),
+        Error::Args(ArgError::Repeated(name)) => {
+            format!("Command setting `{name}` was provided more than once.")
+        }
+        Error::Args(ArgError::Unknown(name)) => format!("Unknown command setting `{name}`."),
+    }
+}
+
+/// `try_select_permission_profile`'s error lines.
+fn permission_refusal(
+    picker: &crate::sheets::select::strings::Strings,
+    refusal: &codex_tui_core::screens::select::permission_args::Refusal,
+) -> String {
+    use codex_tui_core::screens::select::permission_args::Refusal;
+    use codex_tui_core::screens::select::permissions::Disabled;
+    match refusal {
+        Refusal::ApproveUnavailable => {
+            "Approve for me is unavailable. Run `/permissions` to see available profiles.".to_string()
+        }
+        Refusal::Unknown(id) => format!(
+            "Unknown permission profile `{id}`. Run `/permissions` to see available profiles."
+        ),
+        Refusal::Unavailable { profile, why } => {
+            let reason = match why {
+                Disabled::NotOnServer => picker.not_on_server.to_string(),
+                Disabled::Requirements => picker.disabled_by_requirements.to_string(),
+                Disabled::Reason(text) => text.clone(),
+                Disabled::Idle => String::new(),
+            };
+            format!("Permission profile `{profile}` is unavailable: {reason}.")
+        }
     }
 }
 

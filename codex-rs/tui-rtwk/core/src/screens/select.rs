@@ -18,6 +18,8 @@ pub mod export;
 pub mod layout;
 pub mod list;
 pub mod models;
+pub mod permission_args;
+pub mod permission_shortcuts;
 pub mod permissions;
 pub mod persist;
 pub mod plugins;
@@ -216,6 +218,15 @@ pub enum Note {
     PresetDeleted(u8),
     /// A line of the plugin browser.
     Plugins(plugins::Say),
+    /// The arguments of `/permissions <profile> ..` do not parse (an error).
+    PermissionArgs(permission_args::Error),
+    /// The profile `/permissions` named cannot be picked (an error).
+    PermissionRefused(permission_args::Refusal),
+    /// The catalog an inline `/permissions <profile>` waited for could not be read (an error): the
+    /// failure's own words.
+    PermissionsFailed(permissions::Failure),
+    /// `No other permission modes are available.` (the shortcut found no other mode).
+    NoOtherPermissionModes,
 }
 
 impl Note {
@@ -233,7 +244,10 @@ impl Note {
             | Note::PresetInvalid(_)
             | Note::PresetBroken { .. }
             | Note::PresetOutside(_)
-            | Note::PresetFailed { .. } => Tone::Error,
+            | Note::PresetFailed { .. }
+            | Note::PermissionArgs(_)
+            | Note::PermissionRefused(_)
+            | Note::PermissionsFailed(_) => Tone::Error,
             Note::Plugins(say) if say.error() => Tone::Error,
             _ => Tone::Info,
         }
@@ -284,6 +298,9 @@ pub struct Model {
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
     pub notes: Vec<Note>,
+    /// An inline `/permissions <profile>` pick failed or was given up: what waits in the thread's
+    /// queue stays unsent (`retain_input_after_failed_permission_selection`). The app takes it.
+    pub hold_queue: bool,
     /// The id of the row that opened the menu above the one at this depth of
     /// the stack: Esc shows that menu again with the cursor on it (the
     /// oracle's parent view keeps its highlight).
@@ -570,9 +587,99 @@ impl Model {
             }
             Step::Done(selection) => {
                 self.stack.clear();
+                // `complete_inline_permission_profile_selection`: the pick is the settled one.
+                self.profiles.inline = None;
                 self.picked.push(Picked::Permissions(selection));
             }
             Step::Reopen(current) | Step::Retry(current) => self.open_permissions(current),
+        }
+    }
+
+    /// An inline pick is given up (`recover_inline_permission_profile_selection`): what waits in
+    /// the queue stays unsent. False when none was pending.
+    fn abandon_inline(&mut self) -> bool {
+        let pending = self.profiles.inline.take().is_some();
+        self.hold_queue |= pending;
+        pending
+    }
+
+    /// The menus were left (Esc) with an inline pick still waiting on them: it is given up
+    /// (`cancel_pending_permission_profile_selection`).
+    fn inline_unattended(&mut self) {
+        let shown = self
+            .stack
+            .iter()
+            .any(|menu| matches!(menu, Menu::Permissions(_)));
+        if !shown {
+            self.abandon_inline();
+        }
+    }
+
+    /// `/permissions <profile> ..` (`select_permission_profile`): the arguments are checked, and
+    /// the profile is picked at once when the catalog is held, else after it is read (the
+    /// `Loading` menu shows meanwhile).
+    fn permissions_args(&mut self, line: &str, mut current: permissions::Current) {
+        use permission_args::Inline;
+        let args = match permission_args::parse(line) {
+            Ok(args) => args,
+            Err(error) => {
+                self.notes.push(Note::PermissionArgs(error));
+                self.hold_queue = true;
+                return;
+            }
+        };
+        current.discover = true;
+        self.profiles.inline = Some(Inline::Discovering { args, current: current.clone() });
+        if !self.apply_inline() {
+            self.open_permissions(current);
+        }
+    }
+
+    /// The inline pick waiting for the catalog, applied now that it is held
+    /// (`apply_pending_permission_profile`): the profile becomes the pick of the menus, or is
+    /// refused with a note. False when nothing waits or the catalog is not held.
+    fn apply_inline(&mut self) -> bool {
+        use permission_args::Inline;
+        let Some(discovery) = self.profiles.found.clone() else {
+            return false;
+        };
+        if !matches!(self.profiles.inline, Some(Inline::Discovering { .. })) {
+            return false;
+        }
+        let Some(Inline::Discovering { args, current }) =
+            self.profiles.inline.replace(Inline::Applying)
+        else {
+            return false;
+        };
+        self.stack.clear();
+        match permission_args::resolve(&args, &discovery, current.guardian) {
+            Ok(selection) => self.permissions_step(permissions::settle(&current, selection)),
+            Err(refusal) => {
+                self.notes.push(Note::PermissionRefused(refusal));
+                self.abandon_inline();
+            }
+        }
+        true
+    }
+
+    /// The permission shortcut keys (`handle_permission_shortcut`): the pick of the next or
+    /// previous built-in mode over the catalog held, or the catalog asked for (and its menu shown)
+    /// when there is none. A pick still on its way ignores the key.
+    fn permission_shortcut(&mut self, forward: bool, mut current: permissions::Current) {
+        if self.profiles.shortcut {
+            return;
+        }
+        let Some(discovery) = &self.profiles.found else {
+            current.discover = true;
+            self.open_permissions(current);
+            return;
+        };
+        match permission_shortcuts::next(&current, discovery, forward) {
+            Some(selection) => {
+                self.profiles.shortcut = true;
+                self.picked.push(Picked::Permissions(selection));
+            }
+            None => self.notes.push(Note::NoOtherPermissionModes),
         }
     }
 
@@ -607,22 +714,46 @@ impl Model {
     /// (`on_permission_profiles_loaded`).
     fn discovered(&mut self, result: Result<permissions::Discovery, permissions::Failure>) {
         use permissions::PermissionsMenu as Perms;
+        let loading = |menu: &Menu| {
+            matches!(menu, Menu::Permissions(menu) if matches!(**menu, Perms::Loading(_)))
+        };
         if let Ok(discovery) = &result {
             self.profiles.found = Some(discovery.clone());
         }
-        let Some(Menu::Permissions(menu)) = self.stack.last() else {
+        if self.stack.last().is_some_and(loading) {
+            let Some(Menu::Permissions(menu)) = self.stack.pop() else {
+                return;
+            };
+            let current = menu.current().clone();
+            match result {
+                // An inline pick takes the catalog first; else the menu shows it.
+                Ok(_) => {
+                    if !self.apply_inline() {
+                        self.stack
+                            .push(Menu::Permissions(Box::new(Perms::Profiles(current))));
+                    }
+                }
+                Err(failure) => self
+                    .stack
+                    .push(Menu::Permissions(Box::new(Perms::Failed { current, failure }))),
+            }
             return;
-        };
-        let Perms::Loading(current) = &**menu else {
+        }
+        // The user left the menu, or another one covers it: the catalog is held, and a menu below
+        // another is not shown over it (`dismiss_view_by_id`).
+        let covered = self.stack.iter().any(loading);
+        self.stack.retain(|menu| !loading(menu));
+        if covered && result.is_ok() {
             return;
-        };
-        let current = current.clone();
-        let next = match result {
-            Ok(_) => Perms::Profiles(current),
-            Err(failure) => Perms::Failed { current, failure },
-        };
-        self.stack.pop();
-        self.stack.push(Menu::Permissions(Box::new(next)));
+        }
+        if let Err(failure) = result
+            && matches!(self.profiles.inline, Some(permission_args::Inline::Discovering { .. }))
+        {
+            self.notes.push(Note::PermissionsFailed(failure));
+        }
+        if matches!(self.profiles.inline, Some(permission_args::Inline::Discovering { .. })) {
+            self.abandon_inline();
+        }
     }
 
     /// `open_model_popup_with_presets`: the quick menu, or a note when the
@@ -743,6 +874,12 @@ pub enum Intent {
     /// `/permissions`: the menu for what the thread has now; the catalog is
     /// asked for when it has none (`Profiles::pending` is the request).
     OpenPermissions(permissions::Current),
+    /// `/permissions <profile> ..`: the profile is picked without a menu once the catalog is
+    /// read (`select_permission_profile`); `current` is what the thread has now.
+    PermissionsArgs { args: String, current: permissions::Current },
+    /// The next or previous built-in mode (`handle_permission_shortcut`): the pick of the cycle,
+    /// or the catalog asked for when none is held.
+    PermissionShortcut { forward: bool, current: permissions::Current },
     /// `/apps` (`enabled`: the apps feature is on): the directory, asked for
     /// again (`Apps::pending` is the request).
     OpenApps { enabled: bool },
@@ -884,6 +1021,8 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::ScopeChanged => {
             use permissions::PermissionsMenu as Perms;
             model.profiles.pending = None;
+            // `invalidate_permission_discovery`: an inline pick waiting on the old scope is given up.
+            model.abandon_inline();
             model.apps.invalidate();
             model.worktree.forget();
             model.plugins.forget();
@@ -969,6 +1108,10 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::OpenPermissions(current) => model.open_permissions(current),
+        Intent::PermissionsArgs { args, current } => model.permissions_args(&args, current),
+        Intent::PermissionShortcut { forward, current } => {
+            model.permission_shortcut(forward, current);
+        }
         Intent::ServiceTier { id, current } => {
             let next = if current.as_deref() == Some(id.as_str()) {
                 codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()
@@ -1185,6 +1328,7 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 return;
             }
             model.stack.pop();
+            model.inline_unattended();
         }
     }
 }

@@ -599,6 +599,10 @@ pub enum ThreadIntent {
     /// The prompt's answer Yes (`submit_user_message_with_mode`): the thread goes on in Default
     /// and `Implement the plan.` is sent; a running turn refuses the switch.
     ImplementPlan,
+    /// A settings pick that was to run before the queue went on failed (an inline
+    /// `/permissions <profile>`): what waits in the queue and the pending steers stay unsent
+    /// until the user sends again (`retain_input_after_failed_permission_selection`).
+    HoldQueue,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
