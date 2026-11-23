@@ -11,8 +11,8 @@ use rtwk::l10n::NumSyms;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize, SizedBox};
 use rtwk::scroll::ScrollController;
 use rtwk::style::Style;
+use rtwk::text::segmenter_of;
 use rtwk::{AnyWidget, LayoutBuilder};
-use rtwk_core::unicode::{TextMode, string_width};
 
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::usage::{Model, Section};
@@ -20,6 +20,7 @@ use codex_tui_core::screens::usage::{Model, Section};
 use super::keys;
 use super::report;
 use super::strings::Strings;
+use crate::widgets::measure::Measure;
 
 /// The separator between parts.
 const SEPARATOR: &str = " \u{b7} ";
@@ -41,13 +42,10 @@ pub(super) struct Facts<'a> {
 /// A hint: the keys as shown and what they do (empty: the keys alone).
 type Part = (String, String);
 
-fn cells(text: &str) -> i32 {
-    string_width(text, TextMode::Graphemes, 1) as i32
-}
-
-/// The parts that fit `width`, in order (oracle: the greedy loop of
-/// `footer_lines`; a part without keys is skipped).
-fn fit(parts: Vec<Part>, width: i32) -> Vec<Part> {
+/// The parts that fit `width`, in order, measured by the tree's own segmenter
+/// (oracle: the greedy loop of `footer_lines`; a part without keys is skipped).
+fn fit(seg: Measure, parts: Vec<Part>, width: i32) -> Vec<Part> {
+    let cells = |text: &str| seg.width(text) as i32;
     let mut taken: Vec<Part> = Vec::new();
     let mut used = 0;
     for (key, word) in parts {
@@ -69,7 +67,7 @@ fn fit(parts: Vec<Part>, width: i32) -> Vec<Part> {
 }
 
 /// The two rows' parts for a row `width` cells wide.
-pub(super) fn rows(facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2] {
+pub(super) fn rows(seg: Measure, facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2] {
     let Facts {
         model,
         strings,
@@ -153,7 +151,7 @@ pub(super) fn rows(facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2] {
     if !keys::help_available(keymap) {
         navigation.retain(|(key, _)| key != "?");
     }
-    [fit(actions, width), fit(navigation, width)]
+    [fit(seg, actions, width), fit(seg, navigation, width)]
 }
 
 /// The footer's inputs, owned: the widget is built again when the scroll
@@ -194,7 +192,7 @@ pub(super) fn footer(footer: Footer) -> AnyWidget {
             .is_ok_and(|position| position.max_scroll_extent() > 0);
         let (model, keymap) = (model.clone(), keymap.clone());
         let (key, hint) = (key.clone(), hint.clone());
-        LayoutBuilder::new(move |_, constraints| {
+        LayoutBuilder::new(move |cx, constraints| {
             let facts = Facts {
                 model: &model,
                 strings: &strings,
@@ -205,7 +203,7 @@ pub(super) fn footer(footer: Footer) -> AnyWidget {
                 scrollable,
                 row_details,
             };
-            let [first, second] = rows(&facts, constraints.max_width);
+            let [first, second] = rows(segmenter_of(cx), &facts, constraints.max_width);
             let row = |parts: Vec<Part>| -> AnyWidget {
                 SizedBox::new(
                     None,
@@ -232,4 +230,34 @@ pub(super) fn footer(footer: Footer) -> AnyWidget {
         .into()
     })
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use rtwk_core::unicode::{TextMode, TextSegmenter};
+
+    use super::fit;
+
+    fn parts() -> Vec<(String, String)> {
+        vec![
+            ("a".into(), "\u{ff76}\u{ff9e}".into()),
+            ("b".into(), String::new()),
+        ]
+    }
+
+    /// `a ｶﾞ` is 3 cells where the terminal clusters the sound mark with its
+    /// letter (`Graphemes`), 4 where it counts code points (`Legacy`): in a
+    /// room of 3 the first part fits only in the first, and `b` is taken
+    /// alone in the second.
+    #[test]
+    fn the_parts_that_fit_follow_the_terminals_text_mode() {
+        let keys = |mode| {
+            fit(TextSegmenter::new(mode, 1), parts(), 3)
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys(TextMode::Graphemes), ["a"]);
+        assert_eq!(keys(TextMode::Legacy), ["b"]);
+    }
 }
