@@ -275,10 +275,6 @@ fn owned_live_history_keeps_all_sources_in_each_presentation() {
 // ORACLE chatwidget/rendering_tests.rs:232 external_writer_view_shows_notice_instead_of_composer kind=snap owner=chat-live snap=external_writer_view_shows_notice_instead_of_composer
 #[test]
 fn external_writer_view_shows_notice_instead_of_composer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no external-writer notice on the chat screen: the seed exists (Screen::build(..).foreign_writer(thread), a refused resume), the read-only chat draws the composer where the oracle draws the notice",
-    );
     let (w, h) = oracle_size("external_writer_view_shows_notice_instead_of_composer", 60);
     let s = Screen::build(Owner::ChatLive)
         .size(w, h)
@@ -292,29 +288,31 @@ fn external_writer_view_shows_notice_instead_of_composer() {
 // ORACLE chatwidget/rendering_tests.rs:268 external_writer_fork_progress_restores_the_previous_view kind=snap owner=chat-live snap=fork_pending
 #[test]
 fn external_writer_fork_progress_restores_the_previous_view() {
-    kit::pending(
-        Owner::ChatLive,
-        "no fork-in-progress frame on the chat screen: the seed is Screen::build(..).foreign_writer(thread) then the fork action; the chat draws no pending-fork frame and no restore",
-    );
-    let (w, h) = oracle_size("fork_pending", 60);
-    let s = Screen::build(Owner::ChatLive)
-        .size(w, h)
+    // the frame the oracle renders is the bottom pane alone (three rows); the
+    // notice (six rows) needs the room above it
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 8)
         .foreign_writer("thread-foreign")
         .live()
         .open();
     let previous = s.shot();
     // oracle: the fork-pending frame at 60 columns; once the fork ends, the previous frame is back.
-    s.assert_snap("fork_pending");
-    s.assert_same_rows(&previous);
+    s.keys("f");
+    s.assert_snap_region("fork_pending", 4, 0);
+    // the server refuses the fork: the notice is back as it was
+    let mut refused = Screen::build(Owner::ChatLive)
+        .size(60, 8)
+        .foreign_writer("thread-foreign")
+        .fork_refused()
+        .live()
+        .open();
+    refused.keys("f");
+    refused.assert_same_rows(&previous);
 }
 
 // ORACLE chatwidget/rendering_tests.rs:297 external_writer_notice_uses_current_transcript_shortcut kind=ui owner=chat-live
 #[test]
 fn external_writer_notice_uses_current_transcript_shortcut() {
-    kit::pending(
-        Owner::ChatLive,
-        "no external-writer notice on the chat screen: the seed exists (.foreign_writer(thread) with .keymap(..)); the notice and its transcript key label are not drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .foreign_writer("thread-foreign")
@@ -411,16 +409,17 @@ fn removing_active_cell_invalidates_layout_before_reusing_its_identity() {
 // ORACLE chatwidget/rendering_tests.rs:547 external_writer_notice_offers_command_center kind=snap owner=chat-live
 #[test]
 fn external_writer_notice_offers_command_center() {
-    kit::pending(
-        Owner::ChatLive,
-        "no external-writer notice on the chat screen: the command-center popup under it has no feed step, so the notice and its popup are not drawn",
-    );
     for width in [60u16, 100u16] {
         let name = format!("external_writer_command_center_{width}");
         let (w, h) = oracle_size(&name, width);
-        let s = Screen::build(Owner::ChatLive).size(w, h).live().open();
+        // the notice's top padding row stands above the snapshot's first row
+        let s = Screen::build(Owner::ChatLive)
+            .size(w, h + 1)
+            .foreign_writer("thread-foreign")
+            .live()
+            .open();
         // oracle: the bottom popup of the external-writer notice at this width.
-        s.assert_snap(&name);
+        s.assert_snap_region(&name, 1, 0);
     }
 }
 
