@@ -11,6 +11,7 @@ pub mod facts;
 mod notices;
 mod select;
 mod session;
+pub use session::export::TranscriptText;
 pub mod worktree;
 
 use session::{
@@ -553,6 +554,8 @@ pub struct CodexApp {
     pending_notices: Vec<threads::Notice>,
     /// The Daybreak facts (`AppEv::Daybreak`).
     daybreak: threads::daybreak::Access,
+    /// What renders a conversation as the Markdown of `/export` (the cells' text is the UI's).
+    transcript_text: Option<TranscriptText>,
 }
 
 /// When the process's first thread starts.
@@ -613,7 +616,14 @@ impl CodexApp {
             effects: effects::Effects::default(),
             pending_notices: Vec::new(),
             daybreak: threads::daybreak::Access::default(),
+            transcript_text: None,
         }
+    }
+
+    /// The renderer `/export` writes the conversation with (`TranscriptText`).
+    pub fn with_transcript_text(mut self, text: TranscriptText) -> Self {
+        self.transcript_text = Some(text);
+        self
     }
 
     pub fn with_first_thread(mut self, when: FirstThread) -> Self {
@@ -1297,6 +1307,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } => {
+            session::export::settled(app, request, &done, fx);
             if !session::rename::suggested(app, request, &done)
                 && !select::reviewed(app, request, &done, fx)
             {
@@ -1997,7 +2008,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 ScreenIntent::Dialogs(intent),
                 fx,
             );
-            session::rename::submitted(app, fx);
+            session::prompt_submitted(app, fx);
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
     }

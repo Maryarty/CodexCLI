@@ -2,11 +2,13 @@
 
 use std::rc::Rc;
 
+pub(super) mod export;
 pub(super) mod rename;
 
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
+use crate::screens::select::export::Destination;
 use crate::screens::select::{Confirm, Menu, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
@@ -271,6 +273,9 @@ pub(super) fn session_intent(
                 super::submit(app, &thread, UserMessage::text(prompt), fx);
             }
         }
+        // `AppEvent::ExportTranscript` with a path: the conversation is written there. The bare
+        // command opens the destination picker, which is the view's list (`select::export`).
+        S::Export { path: Some(path) } => export::run(app, Destination::File(path), fx),
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
@@ -278,7 +283,7 @@ pub(super) fn session_intent(
         | S::Goal { .. }
         | S::Side { .. }
         | S::Copy
-        | S::Export { .. }
+        | S::Export { path: None }
         | S::Tui
         | S::Mcp { .. }
         | S::Apps
@@ -508,6 +513,21 @@ pub(super) fn removed(
     }
     app.threads.forget(thread);
     true
+}
+
+/// A prompt the user submitted: the app carries out what its kind asks for.
+pub(super) fn prompt_submitted(app: &mut CodexApp, fx: &mut AppFx) {
+    use crate::screens::dialogs::PromptKind;
+    if app.screens.dialogs.submitted.is_none() {
+        return;
+    }
+    let Some(submitted) = Rc::make_mut(&mut app.screens).dialogs.submitted.take() else {
+        return;
+    };
+    match submitted.kind {
+        PromptKind::Rename { thread } => rename::submitted(app, thread, &submitted.text, fx),
+        PromptKind::ExportFile => export::submitted(app, submitted.text, fx),
+    }
 }
 
 /// `config.cwd`: the directory of the thread, else the one the host read for

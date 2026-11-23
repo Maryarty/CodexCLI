@@ -493,8 +493,11 @@ impl Strings {
 
     /// The words of a note of the transcript (a command line's answer).
     pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
+        use codex_tui_core::app::effects::CopyStatus;
         use codex_tui_core::screens::agents::Action;
-        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, Stub};
+        use codex_tui_core::threads::{
+            CdRefusal, CopyLabel, ExportNote, NoteKey, RemoveNote, Stub,
+        };
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
@@ -527,6 +530,30 @@ impl Strings {
             NoteKey::Remove(Action::Archive, RemoveNote::Failed) => self.archive_failed.to_string(),
             NoteKey::Remove(Action::Delete, RemoveNote::Failed) => self.delete_failed.to_string(),
             NoteKey::Select(note) => self.picker_note(note),
+            // The words of the export notes are the view task's (chunk-commands-export); the
+            // oracle's English stands until its catalog entries exist.
+            NoteKey::Export(ExportNote::Saved(path)) => format!("Saved conversation to {path}"),
+            NoteKey::Export(ExportNote::Failed(error)) => format!("Export failed: {error}"),
+            NoteKey::Export(ExportNote::NoConversation) => {
+                "Export failed: No active conversation to export.".to_owned()
+            }
+            NoteKey::Export(ExportNote::NoContent) => {
+                "Export failed: No conversation content to export.".to_owned()
+            }
+            NoteKey::Copy { label, result } => {
+                let label = match label {
+                    CopyLabel::Conversation => "conversation",
+                };
+                match result {
+                    Ok(CopyStatus::Confirmed) => format!("Copied {label} to clipboard"),
+                    Ok(CopyStatus::Unconfirmed) => {
+                        "Copy unconfirmed; /export saves chat".to_owned()
+                    }
+                    Ok(CopyStatus::Pending(_)) => format!("Copying {label}…"),
+                    Ok(CopyStatus::Busy) => "Copy already in progress".to_owned(),
+                    Err(error) => format!("Copy failed: {error}"),
+                }
+            }
         }
     }
 

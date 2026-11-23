@@ -13,7 +13,7 @@ use crate::ids::ThreadId;
 use crate::screens::ScreenThreadIntent;
 use crate::screens::chat;
 use crate::screens::dialogs::prompt::{self, normalize_thread_name};
-use crate::screens::dialogs::{Open, Prompt, PromptKind};
+use crate::screens::dialogs::{Open, Prompt};
 use crate::threads::{Note, ThreadEv};
 
 /// `ensure_thread_rename_allowed`: a side conversation cannot be renamed.
@@ -62,16 +62,9 @@ pub(in crate::app) fn suggested(app: &mut CodexApp, request: u64, done: &Done) -
     true
 }
 
-/// The prompt the user submitted: the thread is renamed, an empty name is the error line.
-pub(in crate::app) fn submitted(app: &mut CodexApp, fx: &mut AppFx) {
-    if app.screens.dialogs.submitted.is_none() {
-        return;
-    }
-    let Some(submitted) = Rc::make_mut(&mut app.screens).dialogs.submitted.take() else {
-        return;
-    };
-    let PromptKind::Rename { thread } = submitted.kind;
-    match normalize_thread_name(&submitted.text) {
+/// The name the user submitted: the thread is renamed, an empty name is the error line.
+pub(in crate::app) fn submitted(app: &mut CodexApp, thread: ThreadId, text: &str, fx: &mut AppFx) {
+    match normalize_thread_name(text) {
         None => session_note(app, Some(thread), Note::from(Notice::ThreadNameEmpty), fx),
         Some(_) if blocked(app) => {
             session_note(app, Some(thread), Note::from(Notice::SideRename), fx)

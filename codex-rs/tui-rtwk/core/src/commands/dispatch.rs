@@ -412,7 +412,7 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
                 Outcome::Notice(Notice::ModelStartup)
             }
         }
-        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps => {
+        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps | Export => {
             open(Target::Select, command, "")
         }
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
@@ -450,7 +450,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Goal => session(command, SessionIntent::Goal { args: None }),
         Side | Btw => session(command, SessionIntent::Side { prompt: None }),
         Copy => session(command, SessionIntent::Copy),
-        Export => session(command, SessionIntent::Export { path: None }),
         Raw => session(command, SessionIntent::Raw { on: None }),
         // `slash_dispatch.rs:557-559`: a bare `/cd` is `/cd ~`.
         Cd => session(

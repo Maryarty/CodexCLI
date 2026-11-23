@@ -15,6 +15,10 @@ pub const REQUEST_BIT: u64 = 1 << 60;
 pub enum PromptKind {
     /// `/rename`: a name for `thread`.
     Rename { thread: ThreadId },
+    /// `/export`, "Save to file": the filename the transcript is written to (oracle
+    /// `show_transcript_export_file_prompt`). The conversation is the one in use when it is
+    /// submitted.
+    ExportFile,
 }
 
 /// The generated suggestion of a prompt (`with_text_suggestion`, `apply_text_suggestion`).
@@ -58,6 +62,22 @@ impl Prompt {
             },
             edited: false,
             request,
+        }
+    }
+
+    /// The export prompt, prefilled with the filename for the conversation in use
+    /// (`codex-session-{thread}.md`, `codex-session.md` before a thread exists).
+    pub(crate) fn export_file(thread: Option<&ThreadId>) -> Self {
+        Prompt {
+            kind: PromptKind::ExportFile,
+            // A filename, not prose: the oracle's own (`codex-session-{thread}.md`).
+            initial: thread.map_or_else(
+                || "codex-session.md".to_owned(),
+                |thread| ["codex-session-", thread.as_str(), ".md"].concat(),
+            ),
+            suggestion: Suggestion::Idle,
+            edited: false,
+            request: None,
         }
     }
 

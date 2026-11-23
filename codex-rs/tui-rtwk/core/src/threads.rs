@@ -38,7 +38,7 @@ pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
-pub use note::{CdRefusal, Note, NoteKey, RemoveNote, Stub, Tone};
+pub use note::{CdRefusal, CopyLabel, ExportNote, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use user_prompt::{Shown, UserPrompt};
 
 use std::collections::BTreeMap;

@@ -14,6 +14,7 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod apps;
+pub mod export;
 pub mod layout;
 pub mod list;
 pub mod models;
