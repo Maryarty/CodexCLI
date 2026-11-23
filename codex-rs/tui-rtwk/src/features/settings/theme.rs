@@ -36,9 +36,9 @@ use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk::{Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
+use crate::widgets::picker::list::{SIDE_GAP, Side, SideWidth};
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::screens::select::list::{SIDE_GAP, Side, SideWidth};
 use codex_tui_core::features::settings::{Edit, Intent, Offer, ThemePicker, Which};
 
 use super::keys::{Keys, ListKey, list_key};

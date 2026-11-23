@@ -5,451 +5,484 @@
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
 mod app_link;
+mod confirm;
 mod dialog;
+mod generic;
 mod lists;
 pub(crate) mod prompt;
 mod review;
+mod review_sheet;
+mod worktree;
+
+use std::rc::Rc;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
-use rtwk::layout::Alignment;
 use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
+
+use codex_tui_core::screens::select::Opening;
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
+use crate::widgets::picker::list::List;
 
 pub mod strings;
 
-/// What the debug menu lists for this directory: one entry per
-/// parameterisation, on the model a fixture script made.
+pub use generic::{Purpose, pick};
+
+/// A debug entry of a typed menu: its script makes the model the menu reads, the dialog shows it.
+macro_rules! entry {
+    ($name:literal, $description:literal, $file:literal) => {
+        DebugEntry {
+            name: $name,
+            description: $description,
+            script: include_str!(concat!($file, ".jsonl")),
+            open: EntryOpen::Dialog(|_| dialog::MenuDialog.into()),
+        }
+    };
+}
+
+/// A debug entry of a generic list: the script seeds the session, the list is the sheet's own
+/// (`generic::ListSheet`, read from `<file>.list.json`), so nothing of it is in the model.
+macro_rules! list_entry {
+    ($name:literal, $description:literal, $file:literal) => {
+        DebugEntry {
+            name: $name,
+            description: $description,
+            script: include_str!(concat!($file, ".jsonl")),
+            open: EntryOpen::Dialog(|_| fixture_sheet(include_str!(concat!($file, ".list.json")))),
+        }
+    };
+}
+
+/// The sheet of a fixture's list.
+fn fixture_sheet(json: &str) -> AnyWidget {
+    // The fixtures are ours and read by a test that opens every entry.
+    let list: List = serde_json::from_str(json).unwrap_or_default();
+    generic::ListSheet {
+        list: Rc::new(list),
+        purpose: Purpose::Fixture,
+    }
+    .into()
+}
+
+/// What the debug menu lists for this directory: one entry per parameterisation, on the model a
+/// fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 83] = [
-        (
+    vec![
+        entry!(
             "model_picker",
             "three models, the first in use",
-            include_str!("fixtures/model_picker.jsonl"),
+            "fixtures/model_picker"
         ),
-        (
+        entry!(
             "models_quick",
             "the quick /model menu: an auto mode and All models",
-            include_str!("fixtures/models_quick.jsonl"),
+            "fixtures/models_quick"
         ),
-        (
+        entry!(
             "model_reasoning",
             "the reasoning menu of one model, More reasoning… last",
-            include_str!("fixtures/model_reasoning.jsonl"),
+            "fixtures/model_reasoning"
         ),
-        (
+        entry!(
             "model_advanced",
             "the advanced reasoning menu: Max and Ultra",
-            include_str!("fixtures/model_advanced.jsonl"),
+            "fixtures/model_advanced"
         ),
-        (
+        entry!(
             "model_plan_scope",
             "where a reasoning change in Plan mode applies",
-            include_str!("fixtures/model_plan_scope.jsonl"),
+            "fixtures/model_plan_scope"
         ),
-        (
+        entry!(
             "model_loading",
             "the /model menu while the catalog loads",
-            include_str!("fixtures/model_loading.jsonl"),
+            "fixtures/model_loading"
         ),
-        (
+        entry!(
             "permissions_menu",
             "the /permissions menu",
-            include_str!("fixtures/permissions_menu.jsonl"),
+            "fixtures/permissions_menu"
         ),
-        (
+        entry!(
             "profile_permissions",
             "the /permissions menu on a catalog: the built-in modes, :workspace in use",
-            include_str!("fixtures/profile_permissions.jsonl"),
+            "fixtures/profile_permissions"
         ),
-        (
+        entry!(
             "profile_permissions_disallowed_full_access",
             "the /permissions menu with Full Access disabled by requirements",
-            include_str!("fixtures/profile_permissions_disallowed_full_access.jsonl"),
+            "fixtures/profile_permissions_disallowed_full_access"
         ),
-        (
+        entry!(
             "profile_permissions_custom",
             "the /permissions menu with the server's custom profiles",
-            include_str!("fixtures/profile_permissions_custom.jsonl"),
+            "fixtures/profile_permissions_custom"
         ),
-        (
+        entry!(
             "permission_discovery_loading",
             "the /permissions menu while the catalog is read",
-            include_str!("fixtures/permission_discovery_loading.jsonl"),
+            "fixtures/permission_discovery_loading"
         ),
-        (
+        entry!(
             "permission_discovery_remote",
             "the /permissions menu on a remote server's catalog",
-            include_str!("fixtures/permission_discovery_remote.jsonl"),
+            "fixtures/permission_discovery_remote"
         ),
-        (
+        entry!(
             "permission_discovery_empty",
             "the /permissions menu of an empty catalog",
-            include_str!("fixtures/permission_discovery_empty.jsonl"),
+            "fixtures/permission_discovery_empty"
         ),
-        (
+        entry!(
             "permission_discovery_failure",
             "the /permissions menu after a failed read, with Retry",
-            include_str!("fixtures/permission_discovery_failure.jsonl"),
+            "fixtures/permission_discovery_failure"
         ),
-        (
+        entry!(
             "permissions_unnamed_server_profile",
             "the /permissions menu with Approve for me in use",
-            include_str!("fixtures/permissions_unnamed_server_profile.jsonl"),
+            "fixtures/permissions_unnamed_server_profile"
         ),
-        (
+        entry!(
             "permissions_constrained",
             "the /permissions preset menu with Full Access forbidden by the config",
-            include_str!("fixtures/permissions_constrained.jsonl"),
+            "fixtures/permissions_constrained"
         ),
-        (
+        entry!(
             "permissions_cyber_full_access",
             "the full-access confirmation of a cyber model",
-            include_str!("fixtures/permissions_cyber_full_access.jsonl"),
+            "fixtures/permissions_cyber_full_access"
         ),
-        (
+        list_entry!(
             "secondary_action",
             "one row with a secondary action (key s)",
-            include_str!("fixtures/secondary_action.jsonl"),
+            "fixtures/secondary_action"
         ),
-        (
+        list_entry!(
             "secondary_action_disabled",
             "the same row, disabled",
-            include_str!("fixtures/secondary_action_disabled.jsonl"),
+            "fixtures/secondary_action_disabled"
         ),
-        (
+        list_entry!(
             "secondary_action_searchable",
             "the same row under a search line",
-            include_str!("fixtures/secondary_action_searchable.jsonl"),
+            "fixtures/secondary_action_searchable"
         ),
-        (
+        list_entry!(
             "approval_modes",
             "the approval-mode list under its title",
-            include_str!("fixtures/approval_modes.jsonl"),
+            "fixtures/approval_modes"
         ),
-        (
+        list_entry!(
             "approval_modes_subtitle",
             "approval modes under a title and a subtitle",
-            include_str!("fixtures/approval_modes_subtitle.jsonl"),
+            "fixtures/approval_modes_subtitle"
         ),
-        (
+        list_entry!(
             "footer_note",
             "one approval row with a footer note that wraps",
-            include_str!("fixtures/footer_note.jsonl"),
+            "fixtures/footer_note"
         ),
-        (
+        list_entry!(
             "searchable_approval",
             "a searchable one-row list",
-            include_str!("fixtures/searchable_approval.jsonl"),
+            "fixtures/searchable_approval"
         ),
-        (
+        list_entry!(
             "empty_searchable",
             "a searchable list with no items",
-            include_str!("fixtures/empty_searchable.jsonl"),
+            "fixtures/empty_searchable"
         ),
-        (
+        list_entry!(
             "branch_search",
             "two branches under a search line",
-            include_str!("fixtures/branch_search.jsonl"),
+            "fixtures/branch_search"
         ),
-        (
+        list_entry!(
             "single_main_searchable",
             "a searchable one-item list",
-            include_str!("fixtures/single_main_searchable.jsonl"),
+            "fixtures/single_main_searchable"
         ),
-        (
+        list_entry!(
             "two_tabs_beta",
             "two tabs opening on Beta, with a search line",
-            include_str!("fixtures/two_tabs_beta.jsonl"),
+            "fixtures/two_tabs_beta"
         ),
-        (
+        list_entry!(
             "two_tabs_current",
             "two tabs whose second item is the current one",
-            include_str!("fixtures/two_tabs_current.jsonl"),
+            "fixtures/two_tabs_current"
         ),
-        (
+        list_entry!(
             "plugin_toggle",
             "a searchable row with a toggle",
-            include_str!("fixtures/plugin_toggle.jsonl"),
+            "fixtures/plugin_toggle"
         ),
-        (
+        list_entry!(
             "multi_select",
             "three checkbox rows, Enter confirms",
-            include_str!("fixtures/multi_select.jsonl"),
+            "fixtures/multi_select"
         ),
-        (
+        list_entry!(
             "single_line_long",
             "one single-line row longer than the width",
-            include_str!("fixtures/single_line_long.jsonl"),
+            "fixtures/single_line_long"
         ),
-        (
+        list_entry!(
             "auto_columns",
             "two single-line rows, label column as wide as needed",
-            include_str!("fixtures/auto_columns.jsonl"),
+            "fixtures/auto_columns"
         ),
-        (
+        list_entry!(
             "name_column_18",
             "the same rows with a name column of 18 cells",
-            include_str!("fixtures/name_column_18.jsonl"),
+            "fixtures/name_column_18"
         ),
-        (
+        list_entry!(
             "read_only_searchable",
             "a searchable one-item list",
-            include_str!("fixtures/read_only_searchable.jsonl"),
+            "fixtures/read_only_searchable"
         ),
-        (
+        list_entry!(
             "disabled_current",
             "disabled rows, one of them the current one",
-            include_str!("fixtures/disabled_current.jsonl"),
+            "fixtures/disabled_current"
         ),
-        (
+        list_entry!(
             "twelve_trailing_disabled",
             "twelve items, the last four disabled",
-            include_str!("fixtures/twelve_trailing_disabled.jsonl"),
+            "fixtures/twelve_trailing_disabled"
         ),
-        (
+        list_entry!(
             "approval_long_command",
             "two options, the second a long command",
-            include_str!("fixtures/approval_long_command.jsonl"),
+            "fixtures/approval_long_command"
         ),
-        (
+        list_entry!(
             "three_models_effort",
             "the three models under Select Model and Effort",
-            include_str!("fixtures/three_models_effort.jsonl"),
+            "fixtures/three_models_effort"
         ),
-        (
+        list_entry!(
             "three_long_descriptions",
             "three rows with a ten-x description",
-            include_str!("fixtures/three_long_descriptions.jsonl"),
+            "fixtures/three_long_descriptions"
         ),
-        (
+        list_entry!(
             "halfwidth_marks",
             "two rows with halfwidth sound marks",
-            include_str!("fixtures/halfwidth_marks.jsonl"),
+            "fixtures/halfwidth_marks"
         ),
-        (
+        list_entry!(
             "stacked_side_content",
             "preview too wide to sit beside: the stacked one",
-            include_str!("fixtures/stacked_side_content.jsonl"),
+            "fixtures/stacked_side_content"
         ),
-        (
+        list_entry!(
             "side_content",
             "one item with a preview beside the rows",
-            include_str!("fixtures/side_content.jsonl"),
+            "fixtures/side_content"
         ),
-        (
+        list_entry!(
             "side_content_blue",
             "one item with a preview on a blue background beside the rows",
-            include_str!("fixtures/side_content_blue.jsonl"),
+            "fixtures/side_content_blue"
         ),
-        (
+        list_entry!(
             "skills_menu",
             "the skills menu: list skills or enable and disable them",
-            include_str!("fixtures/skills_menu.jsonl"),
+            "fixtures/skills_menu"
         ),
-        (
+        list_entry!(
             "copy_picker",
             "the copy picker: the whole status or one of its fields",
-            include_str!("fixtures/copy_picker.jsonl"),
+            "fixtures/copy_picker"
         ),
-        (
+        list_entry!(
             "apps_loading",
             "the apps list while it loads: one disabled row",
-            include_str!("fixtures/apps_loading.jsonl"),
+            "fixtures/apps_loading"
         ),
-        (
+        entry!(
             "app_link_installed",
             "the link dialog of an installed app: its page, the switch and Back",
-            include_str!("fixtures/app_link_installed.jsonl"),
+            "fixtures/app_link_installed"
         ),
-        (
+        entry!(
             "app_link_install",
             "the link dialog of an app that is not installed: install, then the confirmation",
-            include_str!("fixtures/app_link_install.jsonl"),
+            "fixtures/app_link_install"
         ),
-        (
+        list_entry!(
             "worktrees_conversation",
             "where the conversation goes",
-            include_str!("fixtures/worktrees_conversation.jsonl"),
+            "fixtures/worktrees_conversation"
         ),
-        (
+        list_entry!(
             "worktrees_fork",
             "where the forked conversation runs",
-            include_str!("fixtures/worktrees_fork.jsonl"),
+            "fixtures/worktrees_fork"
         ),
-        (
+        list_entry!(
             "worktrees_new",
             "where the new conversation runs",
-            include_str!("fixtures/worktrees_new.jsonl"),
+            "fixtures/worktrees_new"
         ),
-        (
+        list_entry!(
             "col_width_auto_visible",
             "nine rows, label column from the rows in view",
-            include_str!("fixtures/col_width_auto_visible.jsonl"),
+            "fixtures/col_width_auto_visible"
         ),
-        (
+        list_entry!(
             "col_width_auto_all_rows",
             "nine rows, the label column from all rows",
-            include_str!("fixtures/col_width_auto_all_rows.jsonl"),
+            "fixtures/col_width_auto_all_rows"
         ),
-        (
+        list_entry!(
             "twelve_items",
             "twelve plain items",
-            include_str!("fixtures/twelve_items.jsonl"),
+            "fixtures/twelve_items"
         ),
-        (
+        list_entry!(
             "first_second_searchable",
             "two items under a search line",
-            include_str!("fixtures/first_second_searchable.jsonl"),
+            "fixtures/first_second_searchable"
         ),
-        (
+        list_entry!(
             "filled_tabs_seven",
             "seven tabs, the first active",
-            include_str!("fixtures/filled_tabs_seven.jsonl"),
+            "fixtures/filled_tabs_seven"
         ),
-        (
+        list_entry!(
             "filled_tabs_unicode",
             "three tabs, the second with wide letters",
-            include_str!("fixtures/filled_tabs_unicode.jsonl"),
+            "fixtures/filled_tabs_unicode"
         ),
-        (
-            "filled_tab_all",
-            "one tab",
-            include_str!("fixtures/filled_tab_all.jsonl"),
-        ),
-        (
+        list_entry!("filled_tab_all", "one tab", "fixtures/filled_tab_all"),
+        list_entry!(
             "multi_orderable",
             "a multi-select with a fixed row, a rule and two orderable rows",
-            include_str!("fixtures/multi_orderable.jsonl"),
+            "fixtures/multi_orderable"
         ),
-        (
+        list_entry!(
             "multi_orderable_two",
             "two orderable multi-select rows",
-            include_str!("fixtures/multi_orderable_two.jsonl"),
+            "fixtures/multi_orderable_two"
         ),
-        (
+        list_entry!(
             "section_break",
             "a multi-select whose first row has a rule under it",
-            include_str!("fixtures/section_break.jsonl"),
+            "fixtures/section_break"
         ),
-        (
+        list_entry!(
             "multi_alpha_jupiter",
             "a searchable multi-select of alpha and jupiter",
-            include_str!("fixtures/multi_alpha_jupiter.jsonl"),
+            "fixtures/multi_alpha_jupiter"
         ),
-        (
+        list_entry!(
             "multi_appearance",
             "twelve fields with a rule, ordering and a preview line",
-            include_str!("fixtures/multi_appearance.jsonl"),
+            "fixtures/multi_appearance"
         ),
-        (
+        list_entry!(
             "multi_fields_twelve",
             "twelve orderable fields",
-            include_str!("fixtures/multi_fields_twelve.jsonl"),
+            "fixtures/multi_fields_twelve"
         ),
-        (
+        list_entry!(
             "browser_keymap",
             "the keymap browser: five tabs of thirty actions, search",
-            include_str!("fixtures/browser_keymap.jsonl"),
+            "fixtures/browser_keymap"
         ),
-        (
+        list_entry!(
             "browser_single_line",
             "the browser, single-line rows",
-            include_str!("fixtures/browser_single_line.jsonl"),
+            "fixtures/browser_single_line"
         ),
-        (
+        list_entry!(
             "browser_wrapped",
             "the browser, wrapped rows",
-            include_str!("fixtures/browser_wrapped.jsonl"),
+            "fixtures/browser_wrapped"
         ),
-        (
+        list_entry!(
             "description_hide_when_narrow",
             "two rows whose description column hides when narrow",
-            include_str!("fixtures/description_hide_when_narrow.jsonl"),
+            "fixtures/description_hide_when_narrow"
         ),
-        (
+        list_entry!(
             "description_hide_numbered",
             "the same two rows, the blocked one numbered by hand as the oracle's raw rows are",
-            include_str!("fixtures/description_hide_numbered.jsonl"),
+            "fixtures/description_hide_numbered"
         ),
-        (
+        list_entry!(
             "shared_menu",
             "the shared menu: a title, a subtitle, three rows",
-            include_str!("fixtures/shared_menu.jsonl"),
+            "fixtures/shared_menu"
         ),
-        (
+        list_entry!(
             "multi_twelve",
             "twelve multi-select rows",
-            include_str!("fixtures/multi_twelve.jsonl"),
+            "fixtures/multi_twelve"
         ),
-        (
+        list_entry!(
             "accept_alternative",
             "a searchable row, accept bound to a printable key",
-            include_str!("fixtures/accept_alternative.jsonl"),
+            "fixtures/accept_alternative"
         ),
-        (
+        list_entry!(
             "toggle_then_next",
             "a toggle row and the row after it, searchable",
-            include_str!("fixtures/toggle_then_next.jsonl"),
+            "fixtures/toggle_then_next"
         ),
-        (
+        list_entry!(
             "animations_checkbox",
             "one checkbox row",
-            include_str!("fixtures/animations_checkbox.jsonl"),
+            "fixtures/animations_checkbox"
         ),
-        (
+        list_entry!(
             "first_second_searchable",
             "two rows under a search line",
-            include_str!("fixtures/first_second_searchable.jsonl"),
+            "fixtures/first_second_searchable"
         ),
-        (
+        list_entry!(
             "first_second_searchable_second",
             "two rows under a search line, the second highlighted",
-            include_str!("fixtures/first_second_searchable_second.jsonl"),
+            "fixtures/first_second_searchable_second"
         ),
-        (
+        list_entry!(
             "twelve_items",
             "twelve rows, no title",
-            include_str!("fixtures/twelve_items.jsonl"),
+            "fixtures/twelve_items"
         ),
-        (
+        list_entry!(
             "hint_default",
             "one row, the standard footer",
-            include_str!("fixtures/hint_default.jsonl"),
+            "fixtures/hint_default"
         ),
-        (
+        list_entry!(
             "hint_picker",
             "one row, the standard footer, shared picker preset",
-            include_str!("fixtures/hint_picker.jsonl"),
+            "fixtures/hint_picker"
         ),
-        (
+        list_entry!(
             "semantic_spans",
             "a row with underlined, success and dim runs",
-            include_str!("fixtures/semantic_spans.jsonl"),
+            "fixtures/semantic_spans"
         ),
-        (
+        list_entry!(
             "selected_row",
             "one highlighted row in the accent style",
-            include_str!("fixtures/selected_row.jsonl"),
+            "fixtures/selected_row"
         ),
-        (
+        list_entry!(
             "hard_breaks",
             "a two-line name, a two-line description",
-            include_str!("fixtures/hard_breaks.jsonl"),
+            "fixtures/hard_breaks"
         ),
-    ];
-    entries
-        .into_iter()
-        .map(|(name, description, script)| DebugEntry {
-            name,
-            description,
-            script,
-            open: EntryOpen::Dialog(|_| dialog::MenuDialog.into()),
-        })
-        .collect()
+    ]
 }
 
 /// Opens the dialog from the widget that asks (`show_dialog`); it reads the
@@ -468,20 +501,17 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     )
 }
 
-/// Opens the same dialog as a confirmation floats: centered on the screen, not
-/// at its bottom (the oracle's `ViewPresentation::Centered`, the shared dialog
-/// geometry of `SelectionViewParams::confirmation()`). The menu it shows is a
-/// `Menu::Confirm`; the dialog lays itself out to the width the oracle gives it.
-pub fn open_centered<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    show_dialog(
-        cx,
-        move |_| dialog::MenuDialog.into(),
-        DialogOptions {
-            use_root_navigator: false,
-            alignment: Alignment::CENTER,
-            ..crate::sheets::sheet_options()
-        },
-    )
+/// The sheet a show of the model opens (the presenter's door: `app::presenters`) and the options
+/// it is shown with.
+pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
+    match opening {
+        Opening::Confirm(confirm) => (
+            confirm::ConfirmSheet { confirm: *confirm }.into(),
+            confirm::options(),
+        ),
+        Opening::Review => (review_sheet::sheet(), review_sheet::options()),
+        Opening::Worktree(menu) => (worktree::sheet(menu.clone()), worktree::options()),
+    }
 }
 
 /// Opens the first parameterisation (debug menu, no seeded model).

@@ -1,4 +1,3 @@
 # One single-line row longer than the width
 # Oracle data: bottom_pane/list_selection_view.rs:2635
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Debug", "single_line": true, "items": [{"name": "A very long plugin name", "description": "A very long description that would normally wrap onto another line."}], "kind": "list"}}

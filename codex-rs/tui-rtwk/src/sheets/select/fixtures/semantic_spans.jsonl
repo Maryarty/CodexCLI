@@ -1,4 +1,3 @@
 # A row whose runs keep their roles under the cursor (oracle selection_popup_common.rs:986):
 # L underlined, `Ready` the success colour in italic, the description dim.
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"items": [{"name": "provider", "description": "secondary details", "prefix_spans": [{"text": "L", "role": "key"}, {"text": "M "}, {"text": "Ready ", "role": "success"}]}], "kind": "list"}}

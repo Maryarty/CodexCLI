@@ -1,4 +1,3 @@
 # one item with a wide preview `W` and a stacked preview `N`, too narrow to sit beside
 # Oracle data: bottom_pane/list_selection_view.rs:3375
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"kind": "list", "title": "Debug", "items": [{"name": "Item 1"}], "side": {"lines": ["W"], "stacked": ["N"], "width": "half", "min_width": 60}}}

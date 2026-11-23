@@ -1,3 +1,2 @@
 # One row under a title, the standard footer (oracle picker_hint_tests.rs, default).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Choose an action", "standard_hint": true, "items": [{"name": "Continue"}], "kind": "list"}}

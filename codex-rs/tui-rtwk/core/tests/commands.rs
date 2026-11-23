@@ -2223,7 +2223,7 @@ mod removal {
     use codex_tui_core::ids::ThreadId;
     use codex_tui_core::rpc::Reply;
     use codex_tui_core::screens::agents::Action;
-    use codex_tui_core::screens::select::{Confirm, Intent as Select, Menu};
+    use codex_tui_core::screens::select::{Confirm, Intent as Select, Opening};
     use codex_tui_core::screens::{
         ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, agents, chat,
     };
@@ -2240,11 +2240,25 @@ mod removal {
         )
     }
 
-    /// The confirmation opens and `row` is picked.
+    /// The confirmation is asked for and `row` is picked: Yes is a verb of the sheet, No closes
+    /// it and says nothing (`ConfirmSheet`).
     fn pick(app: &mut CodexApp, confirm: Confirm, row: usize) -> AppFx {
-        select(app, Select::Open(Menu::Confirm(confirm)));
-        let id = if row == 1 { Confirm::YES } else { Confirm::NO };
-        select(app, Select::Choose(id.to_string()))
+        let asked = select(app, Select::Confirm(confirm));
+        if row == 1 {
+            select(app, Select::Confirmed(confirm))
+        } else {
+            asked
+        }
+    }
+
+    /// The sheet the model asked for last, if it is still waiting to be shown.
+    fn asked(app: &CodexApp) -> Option<Opening> {
+        app.screens()
+            .select
+            .shows
+            .pending()
+            .last()
+            .map(|show| show.opening.clone())
     }
 
     fn removals(fx: &AppFx) -> Vec<agents::Command> {
@@ -2317,26 +2331,23 @@ mod removal {
         let mut app = ready();
         typed(&mut app, Some(T), SlashCommand::Archive);
         assert_eq!(
-            app.screens().select.menu().cloned(),
-            Some(Menu::Confirm(Confirm::Archive { running: false }))
+            asked(&app),
+            Some(Opening::Confirm(Confirm::Archive { running: false }))
         );
         turn_started(&mut app);
         typed(&mut app, Some(T), SlashCommand::Archive);
         assert_eq!(
-            app.screens().select.menu().cloned(),
-            Some(Menu::Confirm(Confirm::Archive { running: true }))
+            asked(&app),
+            Some(Opening::Confirm(Confirm::Archive { running: true }))
         );
         typed(&mut app, Some(T), SlashCommand::Delete);
-        assert_eq!(
-            app.screens().select.menu().cloned(),
-            Some(Menu::Confirm(Confirm::Delete))
-        );
+        assert_eq!(asked(&app), Some(Opening::Confirm(Confirm::Delete)));
         // before any thread: the question still opens, the refusal is Yes's
         let mut app = CodexApp::new();
         typed(&mut app, None, SlashCommand::Archive);
         assert_eq!(
-            app.screens().select.menu().cloned(),
-            Some(Menu::Confirm(Confirm::Archive { running: false }))
+            asked(&app),
+            Some(Opening::Confirm(Confirm::Archive { running: false }))
         );
     }
 

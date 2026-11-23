@@ -32,9 +32,9 @@ use rtwk::style::Style;
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use crate::widgets::picker::list::normalize_paste;
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::screens::select::list::normalize_paste;
 use codex_tui_core::features::settings::{
     Offer, Setup, SetupItem, SetupKind, USE_THEME_COLORS, Which,
 };

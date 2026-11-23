@@ -19,11 +19,11 @@ use rtwk::{
     AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, StatelessWidget, impl_widget,
 };
 
+use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::keymap::actions::{LIST_ACCEPT, LIST_CANCEL};
 use codex_tui_core::screens::cells::{ClockFormat, ViewerClock};
-use codex_tui_core::screens::select::list::{Columns, Item, List};
 use codex_tui_core::screens::status::reset_time;
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::ThreadModel;

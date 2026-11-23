@@ -1,4 +1,3 @@
 # Two tabs whose second item is the current one
 # Oracle data: bottom_pane/list_selection_view.rs:2450
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"initial_tab": "beta", "tabs": [{"id": "alpha", "label": "Alpha", "items": [{"name": "Alpha First"}, {"name": "Alpha Current", "current": true}]}, {"id": "beta", "label": "Beta", "items": [{"name": "Beta First"}, {"name": "Beta Current", "current": true}]}], "kind": "list"}}

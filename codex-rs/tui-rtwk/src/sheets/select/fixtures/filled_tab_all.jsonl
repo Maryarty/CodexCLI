@@ -1,4 +1,3 @@
 # One tab
 # Oracle data: bottom_pane/selection_tabs_tests.rs:69
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"tabs": [{"id": "t0", "label": "All", "items": [{"name": "Item 0"}]}], "kind": "list"}}

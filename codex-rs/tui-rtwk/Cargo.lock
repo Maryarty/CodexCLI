@@ -3954,6 +3954,7 @@ dependencies = [
  "rtwk-test",
  "rtwk-tokio",
  "semver",
+ "serde",
  "serde_json",
  "shlex",
  "similar",

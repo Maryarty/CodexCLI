@@ -19,7 +19,7 @@ use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, Toggle, UserM
 use crate::app::view::Hs;
 use crate::features;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::open::{note_opened, open, open_confirmation};
+use crate::pages::session::open::{note_opened, open};
 
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
@@ -283,11 +283,34 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                         intent,
                     },
                 );
-                open_confirmation(cx);
+                // The select sheet shows the question once the model has asked for it (the presenter).
+                note_opened(Target::Select);
+                return;
+            }
+            // `/auto-review` lists the thread's denials in a sheet of its own, or says there is
+            // none (`open_auto_review_denials_popup`).
+            if opened.command == SlashCommand::AutoReview {
+                let denials = &thread.screen_slots().approvals.recent_denials;
+                if denials.is_empty() {
+                    let what = codex_tui_core::app::AutoReview::NoDenials;
+                    let thread = thread.id().clone();
+                    cx.emit(
+                        &hs.intent,
+                        codex_tui_core::app::Intent::AutoReview { thread, what },
+                    );
+                } else {
+                    drop(crate::sheets::approvals::open_auto_review(
+                        cx,
+                        thread.id().clone(),
+                        denials,
+                    ));
+                }
+                note_opened(Target::Select);
                 return;
             }
             // `/model`, `/permissions` and `/apps` fill the selection dialog
             // from the thread's facts, and the app asks the server for the rest.
+            let mut shown_by_presenter = false;
             if let Some(intent) = select_intent(
                 opened.command,
                 &states.chat.status,
@@ -295,10 +318,17 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 reserve_only(&session, &states, &thread),
                 review_cwd(&states, &thread),
             ) {
+                // `/review` is a sheet of its own: the model asks for it and the presenter shows it.
+                shown_by_presenter = matches!(
+                    intent,
+                    codex_tui_core::screens::select::Intent::OpenReview { .. }
+                );
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
+            } else if shown_by_presenter {
+                note_opened(opened.target);
             } else {
                 open(cx, opened.target);
             }

@@ -84,8 +84,6 @@ pub struct Item {
     /// The footer while this row is highlighted.
     pub footer_hint: Option<String>,
     pub secondary: Option<Secondary>,
-    /// An accept does not close the list.
-    pub keep_open: bool,
     /// A multi-select row the ordering keys may move (`MultiSelectItem::orderable`).
     pub orderable: bool,
     /// A rule is drawn under the row, unless it is the last one shown.
@@ -345,16 +343,25 @@ impl List {
 
     fn each(&self) -> impl Iterator<Item = (String, &Item)> {
         let tabs = self.tabs.iter().enumerate().flat_map(|(t, tab)| {
-            tab.items.iter().enumerate().map(move |(i, item)| (Some(t), i, item))
+            tab.items
+                .iter()
+                .enumerate()
+                .map(move |(i, item)| (Some(t), i, item))
         });
-        let flat = self.items.iter().enumerate().map(|(i, item)| (None, i, item));
+        let flat = self
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (None, i, item));
         flat.chain(tabs)
             .map(|(t, i, item)| (self.id_of(t, i), item))
     }
 
     /// The item with this id.
     pub fn find(&self, id: &str) -> Option<&Item> {
-        self.each().find(|(found, _)| found == id).map(|(_, item)| item)
+        self.each()
+            .find(|(found, _)| found == id)
+            .map(|(_, item)| item)
     }
 
     /// The ids of the items whose toggle is on, in the order of the list
@@ -411,9 +418,15 @@ impl List {
             self.items.get_mut(target)
         } else {
             target -= flat;
-            self.tabs.iter_mut().flat_map(|tab| tab.items.iter_mut()).nth(target)
+            self.tabs
+                .iter_mut()
+                .flat_map(|tab| tab.items.iter_mut())
+                .nth(target)
         };
-        if let Some(Item { toggle: Some(on), .. }) = item {
+        if let Some(Item {
+            toggle: Some(on), ..
+        }) = item
+        {
             *on = !*on;
         }
     }
@@ -463,7 +476,12 @@ impl Browse<'_> {
     /// that was highlighted if it is still there and enabled, else the
     /// initial one, else the current row (of a list with no search), else the
     /// first enabled row.
-    pub fn settle(&self, visible: &[usize], previous: Option<usize>, initial: Option<usize>) -> Option<usize> {
+    pub fn settle(
+        &self,
+        visible: &[usize],
+        previous: Option<usize>,
+        initial: Option<usize>,
+    ) -> Option<usize> {
         let items = self.items();
         let enabled_at = |index: usize| items.get(index).is_some_and(|item| !item.is_disabled());
         let wanted = previous
@@ -471,7 +489,11 @@ impl Browse<'_> {
             .or_else(|| initial.filter(|index| enabled_at(*index)))
             .or_else(|| {
                 (!self.list.searchable)
-                    .then(|| items.iter().position(|item| item.current && !item.is_disabled()))
+                    .then(|| {
+                        items
+                            .iter()
+                            .position(|item| item.current && !item.is_disabled())
+                    })
                     .flatten()
             });
         wanted
@@ -505,7 +527,13 @@ impl Browse<'_> {
     }
 
     /// A page on or back, stopping at the ends, then off a disabled row.
-    pub fn page(&self, visible: &[usize], from: Option<usize>, down: bool, window: usize) -> Option<usize> {
+    pub fn page(
+        &self,
+        visible: &[usize],
+        from: Option<usize>,
+        down: bool,
+        window: usize,
+    ) -> Option<usize> {
         let len = visible.len();
         if len == 0 {
             return None;
@@ -539,7 +567,12 @@ impl Browse<'_> {
         let len = visible.len();
         let after = ((pos + 1)..len).find(|p| self.enabled(visible, *p));
         let before = (0..pos).rev().find(|p| self.enabled(visible, *p));
-        if down { after.or(before) } else { before.or(after) }.unwrap_or(pos)
+        if down {
+            after.or(before)
+        } else {
+            before.or(after)
+        }
+        .unwrap_or(pos)
     }
 
     /// The item a typed key picks (index into `items()`): a row's own key or
@@ -578,7 +611,11 @@ impl Browse<'_> {
         let rules = visible
             .iter()
             .take(pos)
-            .filter(|index| items.get(**index).is_some_and(|item| item.section_break_after))
+            .filter(|index| {
+                items
+                    .get(**index)
+                    .is_some_and(|item| item.section_break_after)
+            })
             .count();
         pos + rules
     }
@@ -610,13 +647,13 @@ impl Browse<'_> {
                     item.shortcut
                         .map_or_else(|| " ".to_string(), |key| format!(" {key}. "))
                 } else if disabled {
-                    format!(" {}", " ".repeat(number_width + 2))
+                    format!("{:w$}", "", w = number_width + 3)
                 } else if let Some(label) = item.child_label {
                     format!("    {label}. ")
                 } else {
                     number += 1;
                     if self.list.numbered_rows.is_some_and(|rows| number > rows) {
-                        format!(" {}", " ".repeat(number_width + 2))
+                        format!("{:w$}", "", w = number_width + 3)
                     } else {
                         format!(" {number}. ")
                     }
@@ -663,11 +700,18 @@ mod tests {
     }
 
     fn list(items: Vec<Item>) -> List {
-        List { items, ..List::default() }
+        List {
+            items,
+            ..List::default()
+        }
     }
 
     fn browse<'a>(list: &'a List, query: &'a str) -> Browse<'a> {
-        Browse { list, tab: None, query }
+        Browse {
+            list,
+            tab: None,
+            query,
+        }
     }
 
     #[test]
@@ -693,7 +737,10 @@ mod tests {
         assert_eq!(view.settle(&visible, Some(1), None), Some(1));
         assert_eq!(view.settle(&visible, None, None), Some(2));
         assert_eq!(view.settle(&visible, Some(0), None), Some(2));
-        let mut plain = List { items: vec![item("Off"), item("A")], ..List::default() };
+        let mut plain = List {
+            items: vec![item("Off"), item("A")],
+            ..List::default()
+        };
         plain.items[0].disabled = true;
         let view = browse(&plain, "");
         assert_eq!(view.settle(&view.visible(), None, None), Some(1));
@@ -761,7 +808,11 @@ mod tests {
 
     #[test]
     fn a_preview_sits_beside_the_rows_only_when_both_fit() {
-        let side = |width, min_width| Side { width, min_width, ..Side::default() };
+        let side = |width, min_width| Side {
+            width,
+            min_width,
+            ..Side::default()
+        };
         // `side_layout_width_half_uses_exact_split`: half of what the gap leaves
         assert_eq!(side(SideWidth::Half, 10).beside(120), Some(59));
         // `side_layout_width_half_falls_back_when_list_would_be_too_narrow`

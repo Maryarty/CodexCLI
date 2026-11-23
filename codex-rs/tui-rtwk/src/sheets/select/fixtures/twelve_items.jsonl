@@ -1,3 +1,2 @@
 # Twelve rows, no title (oracle list_selection_view.rs:2969, page and jump keys).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"items": [{"name": "Item 0"}, {"name": "Item 1"}, {"name": "Item 2"}, {"name": "Item 3"}, {"name": "Item 4"}, {"name": "Item 5"}, {"name": "Item 6"}, {"name": "Item 7"}, {"name": "Item 8"}, {"name": "Item 9"}, {"name": "Item 10"}, {"name": "Item 11"}], "kind": "list"}}

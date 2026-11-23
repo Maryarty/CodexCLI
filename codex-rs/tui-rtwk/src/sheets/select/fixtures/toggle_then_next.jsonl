@@ -1,3 +1,2 @@
 # A toggle row and a row after it, searchable (oracle list_selection_view.rs:2550, move_down = tab).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"searchable": true, "items": [{"name": "Plugin", "search_value": "Plugin", "toggle": false}, {"name": "Next", "search_value": "Next"}], "kind": "list"}}

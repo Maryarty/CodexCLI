@@ -1,0 +1,1 @@
+{"initial_tab": "beta", "tabs": [{"id": "alpha", "label": "Alpha", "items": [{"name": "Alpha First"}, {"name": "Alpha Current", "current": true}]}, {"id": "beta", "label": "Beta", "items": [{"name": "Beta First"}, {"name": "Beta Current", "current": true}]}]}

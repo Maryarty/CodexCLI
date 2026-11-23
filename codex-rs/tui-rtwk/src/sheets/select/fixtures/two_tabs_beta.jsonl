@@ -1,4 +1,3 @@
 # Two tabs of one item, opening on Beta, with a search line
 # Oracle data: bottom_pane/list_selection_view.rs:2398
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"searchable": true, "initial_tab": "beta", "tabs": [{"id": "alpha", "label": "Alpha", "items": [{"name": "Alpha Item"}]}, {"id": "beta", "label": "Beta", "items": [{"name": "Beta Item"}]}], "kind": "list"}}

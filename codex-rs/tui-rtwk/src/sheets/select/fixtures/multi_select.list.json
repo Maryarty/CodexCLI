@@ -1,0 +1,1 @@
+{"title": "Choose", "multi": true, "items": [{"id": "a", "name": "Alpha", "toggle": true, "checkbox": true}, {"id": "b", "name": "Beta", "toggle": false, "checkbox": true}, {"id": "c", "name": "Gamma", "toggle": true, "checkbox": true}]}

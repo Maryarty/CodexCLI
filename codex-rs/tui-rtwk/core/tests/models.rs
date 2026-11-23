@@ -321,38 +321,6 @@ fn a_model_with_several_efforts_opens_its_menu_above_the_list_and_esc_comes_back
     assert!(model(&s).picked.is_empty());
 }
 
-/// The parent view of the oracle keeps its highlight while a menu sits above it;
-/// here the menu below is shown again, so the core remembers which row opened
-/// the one above and the page starts there.
-#[test]
-fn esc_comes_back_to_the_row_that_opened_the_menu() {
-    let mut s = sandbox(presets());
-    all_models(&mut s);
-    let at = |s: &Sandbox, id: &str| page_of(s).rows.iter().position(|row| row.id == id);
-    choose(&mut s, "gpt-5.5");
-    intent(&mut s, SelectIntent::Close);
-    assert_eq!(page_of(&s).initial, at(&s, "gpt-5.5"));
-    // the quick menu: an auto mode that advertises more opens its own menu
-    let mut s = sandbox(presets());
-    open(&mut s, Current::new("gpt-5.5"));
-    choose(&mut s, "codex-auto-thorough");
-    assert!(matches!(head(&s), ModelMenu::Reasoning { .. }));
-    intent(&mut s, SelectIntent::Close);
-    assert_eq!(page_of(&s).initial, at(&s, "codex-auto-thorough"));
-}
-
-#[test]
-fn the_row_kept_for_a_menu_goes_with_the_menu() {
-    let mut s = sandbox(presets());
-    all_models(&mut s);
-    choose(&mut s, "gpt-5.5");
-    intent(&mut s, SelectIntent::Close);
-    // closing the list too and opening it again starts where a fresh list does
-    intent(&mut s, SelectIntent::Close);
-    all_models(&mut s);
-    assert_eq!(page_of(&s).initial, None);
-}
-
 #[test]
 fn a_model_with_one_effort_is_picked_without_a_second_menu() {
     let mut s = sandbox(presets());

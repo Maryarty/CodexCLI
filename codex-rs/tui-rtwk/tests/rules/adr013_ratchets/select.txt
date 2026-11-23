@@ -1,15 +1,5 @@
 # ADR-013 ratchets of the select family (format and rules: tests/rules/adr013_ratchets.txt).
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select.rs:Model.kept 1
 ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select.rs:Model.stack 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select/list.rs:Item.keep_open 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/select/list.rs:List.initial_tab 1
 ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Choose 1
 ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Close 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Reorder 1
 ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Secondary 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Toggle 1
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/mod.rs 2
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/pane.rs 2
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/rows.rs 1
-ratchet adr013_widgets_name_no_screen_half src/widgets/picker/side.rs 1
-ratchet adr013_no_whole_state_watch src/sheets/select/dialog.rs 2

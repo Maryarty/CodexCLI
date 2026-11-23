@@ -1,4 +1,3 @@
 # Where the new conversation runs
 # Oracle data: chatwidget/snapshots/codex_tui__chatwidget__tests__worktrees_new_choices.snap
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"title": "Where should the new conversation run?", "footer_hint": "enter select · esc back", "items": [{"name": "Use current Git worktree", "description": "Keep using the current working directory"}, {"name": "Create new Git worktree", "description": "Create a separate checkout of this repository in another directory"}], "kind": "list"}}

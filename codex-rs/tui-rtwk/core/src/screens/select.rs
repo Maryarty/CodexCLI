@@ -4,6 +4,8 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+use std::collections::VecDeque;
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
@@ -15,8 +17,6 @@ use crate::threads::ThreadFx;
 
 pub mod apps;
 pub mod collaboration;
-pub mod layout;
-pub mod list;
 pub mod models;
 pub mod permission_args;
 pub mod permission_shortcuts;
@@ -26,7 +26,6 @@ pub mod quick_dials;
 pub mod reasoning;
 pub mod review;
 pub mod worktree;
-pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
 use models::{Effort, PlanSource, Step};
 pub use permissions::{PermissionsMenu, Profiles};
@@ -66,21 +65,60 @@ pub enum Menu {
     /// `/apps`: the directory of apps, its rows `Model::apps` (loading, the
     /// failure with its Retry row, or the list).
     Apps,
-    /// A confirmation: No (row 0), then Yes (row 1).
-    Confirm(Confirm),
-    /// A menu of `/review` (`review.rs`): the presets, the base branches, the commits and the
-    /// instructions prompt; the lists come from the host.
-    Review(Box<review::Menu>),
-    /// A menu of the worktree pickers (`worktree.rs`): the checkout choice of `/new` and `/fork`,
-    /// `/worktree`, the browser, a worktree's actions and the delete confirmation.
-    Worktree(Box<worktree::Menu>),
     /// A menu of `/presets` (`quick_dials.rs`): the slot picker, the sources among the current
     /// settings, the editor and the confirmation of a change.
     Quick(Box<quick_dials::Menu>),
-    /// The generic form: every option of the oracle's `SelectionViewParams`
-    /// (search, tabs, disabled rows, side preview, footers) as data. A named
-    /// parameterisation is a variant above whose view turns it into a `List`.
-    List(Box<List>),
+}
+
+/// A sheet the screen wants shown, once (ADR-013 Ж): the decision is the domain's (a thread is
+/// asked to be archived: the question comes first), how it looks and where it opens is the
+/// presenter's. The presenter shows it and says so (`Intent::Shown`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Show {
+    /// Numbers the shows in the order they were made; what a presenter says it showed.
+    pub seq: u64,
+    pub opening: Opening,
+}
+
+/// What a show opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Opening {
+    /// A confirmation: No (row 0), then Yes (row 1); the answer Yes is `Intent::Confirmed`.
+    Confirm(Confirm),
+    /// `/review`: the presets, and over them the lists of the host (`review.rs`); the pages and
+    /// what Esc does on each are the sheet's.
+    Review,
+    /// The worktree pickers (`worktree.rs`): the sheet opens on this page, the checkout choice of
+    /// `/new` and `/fork` or `/worktree`'s; the browser, a worktree's actions and the delete
+    /// confirmation follow as the sheet's own pages.
+    Worktree(worktree::Menu),
+}
+
+/// The shows nobody has shown yet.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Shows {
+    queue: VecDeque<Show>,
+    seq: u64,
+}
+
+impl Shows {
+    fn push(&mut self, opening: Opening) {
+        self.seq += 1;
+        self.queue.push_back(Show {
+            seq: self.seq,
+            opening,
+        });
+    }
+
+    /// The show `seq` was shown (or is given up): it is gone from the queue.
+    fn shown(&mut self, seq: u64) {
+        self.queue.retain(|show| show.seq != seq);
+    }
+
+    /// The shows still to show, oldest first.
+    pub fn pending(&self) -> impl Iterator<Item = &Show> {
+        self.queue.iter()
+    }
 }
 
 /// What the user picked.
@@ -99,13 +137,6 @@ pub enum Picked {
     Effort { model: String, effort: Effort, plan: bool },
     /// The answer of a confirmation was Yes (No picks nothing).
     Confirmed(Confirm),
-    /// An item of a generic list, by id.
-    Item(String),
-    /// The secondary action of an item of a generic list, by id.
-    ItemSecondary(String),
-    /// A multi-select list (`List::multi`) was confirmed: the ids of the
-    /// items whose toggle is on, in the order of the list.
-    Items(Vec<String>),
     /// An app of the directory (`Model::apps`), by id: its link dialog opens (`Apps::link`) or
     /// it says it has no link.
     App(String),
@@ -284,6 +315,8 @@ pub struct Model {
     pub review: review::Review,
     /// The scope and the requests of the worktree menus.
     pub worktree: worktree::Worktree,
+    /// The sheets asked for and not shown yet.
+    pub shows: Shows,
     /// The presets saved in the config and the writes asked for them.
     pub quick: quick_dials::Quick,
     /// Picks made; the effect that stores them is the settings slice's.
@@ -293,10 +326,6 @@ pub struct Model {
     /// An inline `/permissions <profile>` pick failed or was given up: what waits in the thread's
     /// queue stays unsent (`retain_input_after_failed_permission_selection`). The app takes it.
     pub hold_queue: bool,
-    /// The id of the row that opened the menu above the one at this depth of
-    /// the stack: Esc shows that menu again with the cursor on it (the
-    /// oracle's parent view keeps its highlight).
-    kept: std::collections::BTreeMap<usize, String>,
     /// How many intents were applied: a sheet opened with the intent that asks for its menu
     /// compares it to tell a menu that has not come yet from one the intent left a note for
     /// (`/model` blocked by a provider switch, or over a catalog with nothing to pick).
@@ -314,33 +343,13 @@ impl Model {
         self.stack.last()
     }
 
-    /// The row the shown menu opens its cursor on: the one that opened the menu above it, shown
-    /// again by Esc (the oracle's parent view keeps its highlight).
-    pub fn cursor_row(&self) -> Option<&str> {
-        self.kept
-            .get(&self.stack.len().checked_sub(1)?)
-            .map(String::as_str)
-    }
-
     /// The rows of the menu shown now, if it is one of the typed families.
     pub fn page(&self) -> Option<Page> {
         match self.menu()? {
-            Menu::Model(menu) => {
-                let mut page = menu.page(&self.catalog);
-                let kept = self.kept.get(&(self.stack.len() - 1));
-                if let Some(at) = kept.and_then(|id| page.rows.iter().position(|row| &row.id == id))
-                {
-                    page.initial = Some(at);
-                }
-                Some(Page::Model(page))
-            }
+            Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Confirm(_)
-            | Menu::List(_)
-            | Menu::Review(_)
-            | Menu::Worktree(_)
-            | Menu::Quick(_) => None,
+            Menu::Quick(_) => None,
         }
     }
 
@@ -400,15 +409,6 @@ impl Model {
                 self.stack.pop();
             }
         }
-    }
-
-    /// What a pick of the row `id` did to the stack; a menu pushed over this
-    /// one remembers the row that opened it.
-    fn step_from(&mut self, id: String, step: Step) {
-        if matches!(step, Step::Push(_)) {
-            self.kept.insert(self.stack.len() - 1, id);
-        }
-        self.step(step);
     }
 
     /// `quick_dials_available`: whether presets can be used here; a note says why not.
@@ -519,18 +519,6 @@ impl Model {
     fn dismiss_stale_models(&mut self) {
         self.catalog.pending = None;
         self.stack.retain(|menu| !matches!(menu, Menu::Model(_)));
-    }
-
-    /// Forgets the rows kept for menus that are gone.
-    fn tidy(&mut self) {
-        let depth = self.stack.len();
-        self.kept.retain(|at, _| *at < depth);
-        if !self.stack.iter().any(|menu| matches!(menu, Menu::Review(_))) {
-            self.review.forget();
-        }
-        if !self.stack.iter().any(|menu| matches!(menu, Menu::Worktree(_))) {
-            self.worktree.forget();
-        }
     }
 
     /// Whether the app directory knows the app `id` as installed (the setup of a plugin's apps
@@ -854,9 +842,11 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// A screen asks for this menu (a generic list: its picks come back as
-    /// `Picked::Item(id)` in `Model::picked`).
+    /// A screen asks for this menu.
     Open(Menu),
+    /// The answer of the plan-implementation question (`chat::plan_mode::Answer`): the question
+    /// is a list of the sheet's own (`sheets/select/generic.rs`), only its answer is the domain's.
+    PlanAnswer(crate::screens::chat::plan_mode::Answer),
     /// `/model`: the quick menu on the catalog held (`Loading models…` while
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
@@ -893,8 +883,13 @@ pub enum Intent {
         cwd: String,
         thread: Option<ThreadId>,
     },
-    /// The text typed at `Custom review instructions`.
-    Instructions(String),
+    /// The review a page of `/review` settled on (a preset, a branch, a commit, the instructions
+    /// typed): the app starts it on the active thread.
+    Review(crate::threads::ReviewTarget),
+    /// A page of `/review` asks for a list of the host (the base branches, the commit log).
+    ReviewList(review::Git),
+    /// What a page of the worktree sheet settled on or asked for (`worktree::Verb`).
+    Worktree(worktree::Verb),
     /// The app directory is read again (`apps.refresh(true)`): a surface that waited for an app
     /// to be installed asks for it.
     RefreshApps,
@@ -910,18 +905,16 @@ pub enum Intent {
     /// switch at once, the app writes the config and, once it is saved, tells the directory
     /// (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
-    /// The item with this id (`List::id_of`, or a row of `Page`) was
-    /// accepted.
+    /// A confirmation is asked for (`/archive`, `/delete`): a sheet shows it.
+    Confirm(Confirm),
+    /// The answer Yes of a confirmation (No is the sheet's own: it closes).
+    Confirmed(Confirm),
+    /// The sheet of show `seq` is shown (the presenter says so).
+    Shown(u64),
+    /// The row with this id of the menu on top was accepted.
     Choose(String),
     /// The secondary action of the item with this id (`s for secondary`).
     Secondary(String),
-    /// The toggle of the item with this id was flipped.
-    Toggle(String),
-    /// The orderable item with this id moves one place (`true`: down).
-    Reorder(String, bool),
-    /// A multi-select list (`List::multi`) was confirmed (Enter): the ids of
-    /// the toggled-on items are picked together and the menu closes.
-    Confirm,
     /// The menu shown was closed without a pick; the one below shows again.
     Close,
     /// `/fast`, `/ultrafast`...: the tier `id` is switched on, or off when it is `current`
@@ -934,7 +927,6 @@ pub enum Intent {
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     apply_ev(model, ev, fx);
-    model.tidy();
 }
 
 fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -942,25 +934,11 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Loaded(presets) => model.accept(presets),
+        // The list stays as a fact under its request (`Worktree::listing`): the loading page
+        // replaces itself with the browser, or closes; a failure is said unless it was given up.
         Ev::Worktrees { request, result } => {
-            if !model.worktree.answered(request) {
-                return;
-            }
-            let loading = matches!(
-                model.stack.last(),
-                Some(Menu::Worktree(menu)) if **menu == worktree::Menu::Loading
-            );
-            if !loading {
-                return;
-            }
-            match result {
-                Ok(entries) => {
-                    model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Browser(entries)))];
-                }
-                Err(error) => {
-                    model.stack.clear();
-                    model.notes.push(Note::WorktreeListFailed(error));
-                }
+            if let Some(error) = model.worktree.answered(request, result) {
+                model.notes.push(Note::WorktreeListFailed(error));
             }
         }
         Ev::WorktreeRemoved { request, result } => {
@@ -992,16 +970,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 model.dismiss_stale_models();
             }
         }
-        Ev::Reviewed { request, listing } => {
-            let over_presets = matches!(
-                model.stack.last(),
-                Some(Menu::Review(menu)) if **menu == review::Menu::Presets
-            );
-            if model.review.answered(request) && over_presets {
-                model.kept.insert(model.stack.len() - 1, listing.kind().row().to_string());
-                model.stack.push(Menu::Review(Box::new(listing.menu())));
-            }
-        }
+        // The list stays as a fact under its request: the sheet over the presets pushes the page
+        // of it (once per request) if it is still open.
+        Ev::Reviewed { request, listing } => model.review.answered(request, listing),
         Ev::Listed(discovery) => model.profiles.found = Some(discovery),
         Ev::Discovered { request, result } => {
             if model.profiles.pending != Some(request) {
@@ -1016,9 +987,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             // `invalidate_permission_discovery`: an inline pick waiting on the old scope is given up.
             model.abandon_inline();
             model.apps.invalidate();
-            model.worktree.forget();
+            model.worktree.rescope();
             model.stack.retain(|menu| match menu {
-                Menu::Apps | Menu::Worktree(_) => false,
+                Menu::Apps => false,
                 Menu::Permissions(menu) => !matches!(
                     **menu,
                     Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. }
@@ -1071,13 +1042,15 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     model.applied += 1;
     apply_choice(model, intent, fx);
-    model.tidy();
 }
 
 fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         Intent::Open(menu) => model.stack = vec![menu],
+        Intent::Confirm(confirm) => model.shows.push(Opening::Confirm(confirm)),
+        Intent::Confirmed(confirm) => model.picked.push(Picked::Confirmed(confirm)),
+        Intent::Shown(seq) => model.shows.shown(seq),
         Intent::OpenModels(current) => {
             if let Some(why) = model.catalog.unavailable() {
                 model.notes.push(Note::ModelPickerUnavailable(why));
@@ -1123,16 +1096,16 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // `/review`: the presets, over the session's working directory.
         Intent::OpenReview { cwd } => {
             model.review.open(cwd);
-            model.stack = vec![Menu::Review(Box::new(review::Menu::Presets))];
+            model.shows.push(Opening::Review);
         }
         // `/new` and `/fork` (`show_session_checkout_picker`): the choice of checkout, or none
         // where there is no local repository to make one in.
         Intent::OpenCheckout { mode, name, available, cwd, thread } => {
             model.worktree.open(cwd, thread);
             if available {
-                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Checkout { mode, name }))];
+                let menu = worktree::Menu::Checkout { mode, name };
+                model.shows.push(Opening::Worktree(menu));
             } else {
-                model.stack.clear();
                 model.picked.push(Picked::Worktree(worktree::Pick::Current { mode, name }));
             }
         }
@@ -1140,21 +1113,19 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenWorktrees { available, cwd, thread } => {
             if available {
                 model.worktree.open(cwd, thread);
-                model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Worktrees))];
+                model.shows.push(Opening::Worktree(worktree::Menu::Worktrees));
             } else {
                 model.notes.push(Note::WorktreesUnavailable);
             }
         }
-        // The text of `Custom review instructions` (an empty one is not an answer).
-        Intent::Instructions(text) => {
-            let text = text.trim();
-            if matches!(model.stack.last(), Some(Menu::Review(menu)) if **menu == review::Menu::Instructions)
-                && !text.is_empty()
-            {
-                model.stack.clear();
-                model.picked.push(Picked::Review(crate::threads::ReviewTarget::Custom {
-                    instructions: text.to_string(),
-                }));
+        // What a page of `/review` settled on (`Picked::Review`), and the list a page asks of the
+        // host (the answer is `Ev::Reviewed`).
+        Intent::Review(target) => model.picked.push(Picked::Review(target)),
+        Intent::ReviewList(git) => model.review.want(git),
+        // What a page of the worktree sheet said (`worktree::Verb`).
+        Intent::Worktree(verb) => {
+            if let Some(pick) = model.worktree.say(verb) {
+                model.picked.push(Picked::Worktree(pick));
             }
         }
         Intent::RefreshApps => {
@@ -1187,52 +1158,20 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
-                model.step_from(id, step);
-            }
-            Some(Menu::List(list)) => {
-                let Some(item) = list.find(&id) else { return };
-                if item.is_disabled() {
-                    return;
-                }
-                let keep = item.keep_open;
-                if item.checkbox && item.toggle.is_some() {
-                    list.flip(&id);
-                    return;
-                }
-                model.picked.push(Picked::Item(id));
-                if !keep {
-                    model.stack.pop();
-                }
+                model.step(step);
             }
             Some(Menu::Permissions(menu)) => {
                 let step = menu.choose(&model.profiles, &id);
                 model.permissions_step(step);
             }
             Some(Menu::Apps) => model.choose_app(&id),
-            Some(Menu::Review(menu)) => {
-                use review::Chosen;
-                match menu.choose(&id) {
-                    Some(Chosen::Ask(git)) => model.review.want(git),
-                    Some(Chosen::Prompt) => {
-                        model.kept.insert(model.stack.len() - 1, id);
-                        model.stack.push(Menu::Review(Box::new(review::Menu::Instructions)));
-                    }
-                    Some(Chosen::Target(target)) => {
-                        model.stack.clear();
-                        model.picked.push(Picked::Review(target));
-                    }
-                    None => {}
-                }
-            }
             Some(Menu::Quick(menu)) => {
                 use quick_dials::Chosen;
                 match menu.choose(&id, &model.quick) {
                     Some(Chosen::Push(next)) => {
-                        model.kept.insert(model.stack.len() - 1, id);
                         model.stack.push(Menu::Quick(Box::new(next)));
                     }
                     Some(Chosen::Confirm { slot, new }) => {
-                        model.kept.insert(model.stack.len() - 1, id);
                         model.quick_confirm(slot, new);
                     }
                     Some(Chosen::Write { slot, dial }) => {
@@ -1242,80 +1181,16 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     None => {}
                 }
             }
-            Some(Menu::Worktree(menu)) => {
-                use worktree::Chosen;
-                match menu.choose(&id) {
-                    Some(Chosen::Pick(worktree::Pick::Remove { root })) => {
-                        model.stack.clear();
-                        if model.worktree.removable(&root) {
-                            model.worktree.want(worktree::Want::Remove { root });
-                        }
-                    }
-                    Some(Chosen::Pick(pick)) => {
-                        model.stack.clear();
-                        model.picked.push(Picked::Worktree(pick));
-                    }
-                    Some(Chosen::Browse) => {
-                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Loading))];
-                        model.worktree.want(worktree::Want::List);
-                    }
-                    Some(Chosen::Actions(entry)) => {
-                        let can_delete = model.worktree.can_delete(&entry);
-                        model.stack = vec![Menu::Worktree(Box::new(worktree::Menu::Actions {
-                            entry,
-                            can_delete,
-                        }))];
-                    }
-                    Some(Chosen::Confirm { root }) => {
-                        if model.worktree.removable(&root) {
-                            model.stack =
-                                vec![Menu::Worktree(Box::new(worktree::Menu::Confirm { root }))];
-                        }
-                    }
-                    Some(Chosen::Close) => model.stack.clear(),
-                    None => {}
-                }
-            }
-            Some(Menu::Confirm(confirm)) => {
-                let confirm = *confirm;
-                if id == Confirm::YES {
-                    model.picked.push(Picked::Confirmed(confirm));
-                }
-                if id == Confirm::YES || id == Confirm::NO {
-                    model.stack.pop();
-                }
-            }
             None => {}
         },
-        Intent::Secondary(id) => match model.stack.last() {
-            Some(Menu::Model(menu)) => {
+        Intent::Secondary(id) => {
+            if let Some(Menu::Model(menu)) = model.stack.last() {
                 let step = menu.choose(&model.catalog, &id, true);
-                model.step_from(id, step);
-            }
-            Some(Menu::List(list)) if list.find(&id).is_some_and(|item| !item.is_disabled()) => {
-                model.picked.push(Picked::ItemSecondary(id));
-                model.stack.pop();
-            }
-            _ => {}
-        },
-        Intent::Toggle(id) => {
-            if let Some(Menu::List(list)) = model.stack.last_mut() {
-                list.flip(&id);
+                model.step(step);
             }
         }
-        Intent::Reorder(id, down) => {
-            if let Some(Menu::List(list)) = model.stack.last_mut() {
-                list.reorder(&id, down);
-            }
-        }
-        Intent::Confirm => {
-            if let Some(Menu::List(list)) = model.stack.last()
-                && list.multi
-            {
-                model.picked.push(Picked::Items(list.checked()));
-                model.stack.pop();
-            }
-        }
+        // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
+        Intent::PlanAnswer(_) => {}
         Intent::Close => {
             model.apps.link = None;
             model.stack.pop();
@@ -1518,8 +1393,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// (`{"kind":"models","current":{"model":..}}`, `all_models`, `loading`,
 /// `reasoning` and `advanced` with a `preset`), `{"kind":"profiles",
 /// "discovery":{..}}` (the permission catalog), `{"kind":"permissions",
-/// "menu":"profiles","current":{..}}`, `{"kind":"list", ..}` (the fields
-/// of `List`) and `{"kind":"app_link","link":{..}}` (the link dialog of an app).
+/// "menu":"profiles","current":{..}}`, `{"kind":"app_link","link":{..}}` (the link dialog of an app).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -1554,7 +1428,6 @@ enum SeedEv {
         #[serde(default)]
         warning: Option<usize>,
     },
-    List(Box<List>),
     /// The link dialog of an app (`/apps`, an app picked).
     AppLink {
         link: apps::Link,
@@ -1611,7 +1484,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             source,
             warning,
         }),
-        SeedEv::List(list) => Ev::Opened(Menu::List(list)),
         SeedEv::AppLink { link } => Ev::AppLinkOpened(link),
         SeedEv::Profiles { discovery } => Ev::Listed(discovery),
         SeedEv::Permissions {

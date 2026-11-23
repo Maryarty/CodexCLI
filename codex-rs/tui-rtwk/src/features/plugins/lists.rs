@@ -20,7 +20,7 @@ use codex_tui_core::ids::Cwd;
 use codex_tui_core::keymap::fixed::{PLUGINS_REMOVE, PLUGINS_TOGGLE, PLUGINS_UPGRADE};
 use codex_tui_core::keymap::{ActionId, Keymap, Stroke};
 use codex_tui_core::rpc::RpcError;
-use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Span, Tab as ListTab};
+use crate::widgets::picker::list::{Columns, Item, List, Role, Span, Tab as ListTab};
 
 use super::strings::{self, Strings};
 use crate::keymap::{stroke_for, stroke_label};

@@ -39,13 +39,6 @@ pub fn note_opened(target: Target) {
     LAST.with(|last| last.set(Some(target)));
 }
 
-/// Opens the select sheet as a confirmation floats (`/archive`, `/delete`):
-/// the target is the same, the presentation is centered on the screen.
-pub fn open_confirmation<S>(cx: &mut Cx<'_, S>) {
-    drop(select::open_centered(cx));
-    LAST.with(|last| last.set(Some(Target::Select)));
-}
-
 /// Opens `target` over the chat of `cx`. Only the pages are routes
 /// (`Opens::Page`: Agents, Resume, Usage, the import step of Startup); a sheet
 /// or dialog is shown over the page that asks, a mode belongs to the session

@@ -1,4 +1,3 @@
 # Three tabs with a wide label, the second active
 # Oracle data: bottom_pane/selection_tabs_tests.rs:60
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"tabs": [{"id": "t0", "label": "All", "items": [{"name": "Item 0"}]}, {"id": "t1", "label": "文件系统 plugins", "items": [{"name": "Item 1"}]}, {"id": "t2", "label": "Debug", "items": [{"name": "Item 2"}]}], "kind": "list", "initial_tab": "t1"}}

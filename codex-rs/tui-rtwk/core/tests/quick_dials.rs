@@ -313,7 +313,6 @@ fn a_source_opens_the_editor_and_the_text_goes_to_a_slot_picker_on_the_first_emp
     // Esc shows the sources again, on the row that opened the editor
     select(&mut app, Select::Close);
     assert!(matches!(menu(&app), Some(Quick::Sources(_))));
-    assert_eq!(app.screens().select.cursor_row(), Some(quick::PERMISSIONS));
     choose(&mut app, quick::PERMISSIONS);
 
     select(&mut app, Select::Draft("/permissions edited".into()));

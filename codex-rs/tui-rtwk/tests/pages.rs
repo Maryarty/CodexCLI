@@ -60,6 +60,8 @@ mod transcript_follow;
 mod transcript_pager;
 #[path = "pages/transcript_sheet.rs"]
 mod transcript_sheet;
+#[path = "pages/worktree.rs"]
+mod worktree;
 
 mod rtwk_g46;
 mod rtwk_g49_g51;

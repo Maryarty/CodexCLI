@@ -3,11 +3,16 @@
 //! (continue this conversation or start a new one in a new checkout, or browse), and the browser
 //! of the repository's worktrees with its actions and the delete confirmation. The menus are
 //! data (rows' ids, names, what a search matches, what is disabled); the words are the view's.
+//! The pages are the sheet's (`Opening::Worktree`, ADR-013 O1): every pick of the oracle
+//! dismisses its view and shows the next one, so a page replaces the page before it and Esc
+//! closes the sheet; the model keeps no stack of them.
 //!
 //! The list and the removal are the host's (`Ask::Worktrees`, `Ask::WorktreeRemove`): the model
 //! names the request an answer must belong to (`Worktree::pending`), the app asks and tells the
-//! answer back. A request is tied to the thread and the working directory it was made in: an
-//! answer for another scope is dropped (`worktree_request_is_current`).
+//! answer back, and the answer stays as a fact the loading page reads (`Worktree::listing`). A
+//! request is tied to the working directory it was made in and to the scope of the menus
+//! (`Worktree::epoch`): an answer the sheet gave up (`Verb::Abandon`) or one for another scope is
+//! dropped (`worktree_request_is_current`).
 
 use std::path::Path;
 
@@ -70,6 +75,12 @@ impl Entry {
             Owner::Archived(thread) | Owner::Resumable(thread) => &thread.title,
             Owner::None | Owner::Unavailable(_) => &self.cwd,
         }
+    }
+
+    /// Whether the worktree may be deleted from a session working in `cwd`: not while the session
+    /// runs inside it (`Switch to another checkout before deleting this one`).
+    pub fn can_delete(&self, cwd: &str) -> bool {
+        !Path::new(cwd).starts_with(&self.root)
     }
 }
 
@@ -163,7 +174,8 @@ impl Menu {
         }
     }
 
-    pub(super) fn choose(&self, id: &str) -> Option<Chosen> {
+    /// What the pick of the row `id` of this page does: the pure half of the sheet's `update`.
+    pub fn choose(&self, id: &str) -> Option<Chosen> {
         match (self, id) {
             (Menu::Checkout { mode, name }, CURRENT) => Some(Chosen::Pick(Pick::Current {
                 mode: *mode,
@@ -207,18 +219,31 @@ impl Menu {
     }
 }
 
-/// What a pick of a row does to the menus.
-pub(super) enum Chosen {
-    /// The menus close and the app acts.
+/// What a pick of a row does to the pages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Chosen {
+    /// The sheet closes and the app acts.
     Pick(Pick),
-    /// The browser opens (loading) and the list is asked for.
+    /// The loading page replaces this one and the list is asked for (`Verb::List`).
     Browse,
     /// The actions of an entry replace the browser.
     Actions(Entry),
     /// The delete confirmation replaces the actions.
     Confirm { root: String },
-    /// The menus close, nothing is done.
+    /// The sheet closes, nothing is done.
     Close,
+}
+
+/// What a page of the sheet says to the model (`Intent::Worktree`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Verb {
+    /// The pages settled on this: the app acts (a removal is first asked of the host).
+    Pick(Pick),
+    /// The browser's list is asked of the host.
+    List,
+    /// The list asked for is not wanted any more (the loading page was left): its answer is
+    /// dropped, and so is its failure.
+    Abandon,
 }
 
 /// What the user settled on; the app acts (`Picked::Worktree`).
@@ -252,14 +277,18 @@ pub struct Wanted {
     pub cwd: String,
 }
 
-/// The state of the worktree menus that outlives a menu: the scope of the requests, and the one
-/// asked for.
+/// The state of the worktree menus that outlives a page: the scope of the requests, the one asked
+/// for and its answer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Worktree {
     cwd: String,
     thread: Option<ThreadId>,
     stamp: u64,
+    /// How many scopes the menus have had: a sheet of an older one closes.
+    epoch: u64,
     pending: Option<u64>,
+    /// The host's last list, or why there is none: a fact the loading page reads.
+    listing: Option<Result<Vec<Entry>, String>>,
     outbox: Vec<(u64, Want)>,
     /// The removals asked for: the request and the root.
     removing: Vec<(u64, String)>,
@@ -270,18 +299,46 @@ impl Worktree {
     pub(super) fn open(&mut self, cwd: String, thread: Option<ThreadId>) {
         self.cwd = cwd;
         self.thread = thread;
+        self.rescope();
+    }
+
+    /// A new scope: what was asked for is not wanted, what was answered is gone, and the sheets of
+    /// the old scope close.
+    pub(super) fn rescope(&mut self) {
+        self.epoch += 1;
         self.pending = None;
+        self.listing = None;
     }
 
-    pub(super) fn can_delete(&self, entry: &Entry) -> bool {
-        !Path::new(&self.cwd).starts_with(&entry.root)
+    /// What a page said: the pick the app acts on, if it is one (`Verb`).
+    pub(super) fn say(&mut self, verb: Verb) -> Option<Pick> {
+        match verb {
+            Verb::Pick(Pick::Remove { root }) => {
+                if self.removable(&root) {
+                    self.want(Want::Remove { root });
+                }
+                None
+            }
+            Verb::Pick(pick) => Some(pick),
+            Verb::List => {
+                self.want(Want::List);
+                None
+            }
+            Verb::Abandon => {
+                self.pending = None;
+                None
+            }
+        }
     }
 
-    pub(super) fn want(&mut self, want: Want) {
+    fn want(&mut self, want: Want) {
         self.stamp += 1;
         let request = REQUEST_BIT | self.stamp;
         match &want {
-            Want::List => self.pending = Some(request),
+            Want::List => {
+                self.pending = Some(request);
+                self.listing = None;
+            }
             Want::Remove { root } => self.removing.push((request, root.clone())),
         }
         self.outbox.push((request, want));
@@ -308,6 +365,16 @@ impl Worktree {
         self.thread.as_ref()
     }
 
+    /// The scope the menus are in: a sheet closes when it is not the one it was opened for.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// The host's answer to the list asked for: the worktrees, or why they could not be listed.
+    pub fn listing(&self) -> Option<&Result<Vec<Entry>, String>> {
+        self.listing.as_ref()
+    }
+
     /// Whether `request` is the list the menus wait for, or a removal asked for.
     pub fn waits_for(&self, request: u64) -> bool {
         self.pending == Some(request) || self.removing.iter().any(|(asked, _)| *asked == request)
@@ -320,19 +387,23 @@ impl Worktree {
     }
 
     /// Whether a worktree at `root` may be removed from this session (`!cwd.starts_with(root)`).
-    pub(super) fn removable(&self, root: &str) -> bool {
+    fn removable(&self, root: &str) -> bool {
         !Path::new(&self.cwd).starts_with(root)
     }
 
-    pub(super) fn answered(&mut self, request: u64) -> bool {
+    /// The host's answer to the list: kept as the fact when it is the one asked for, else dropped.
+    /// A failure is given back, for the history to say.
+    pub(super) fn answered(
+        &mut self,
+        request: u64,
+        result: Result<Vec<Entry>, String>,
+    ) -> Option<String> {
         if self.pending != Some(request) {
-            return false;
+            return None;
         }
         self.pending = None;
-        true
-    }
-
-    pub(super) fn forget(&mut self) {
-        self.pending = None;
+        let failure = result.as_ref().err().cloned();
+        self.listing = Some(result);
+        failure
     }
 }

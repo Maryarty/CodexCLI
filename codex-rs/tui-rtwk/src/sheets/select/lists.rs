@@ -2,8 +2,8 @@
 //! permissions menu are data in the model (`Menu`), their words are here
 //! (ADR-010). A `Menu::List` is already the generic form.
 
+use crate::widgets::picker::list::{Columns, Item, List, Role, Secondary, Span};
 use codex_tui_core::screens::select::apps;
-use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Secondary, Span};
 use codex_tui_core::screens::select::models::{
     self, Apply, Choice, Effort, Heading, Kind, PlanSource,
 };
@@ -21,11 +21,9 @@ const SESSION_KEY: char = 's';
 /// it is a menu of a typed family (`Model::page`).
 pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
     Some(match (menu, page) {
-        (Menu::List(list), _) => (**list).clone(),
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
         (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
         (Menu::Apps, Some(Page::Apps(page))) => apps(page, s),
-        (Menu::Confirm(confirm), _) => confirmation(*confirm, s),
         _ => return None,
     })
 }
@@ -65,7 +63,6 @@ fn apps(page: &apps::Page, s: &Strings) -> List {
                     id: apps::RETRY.to_string(),
                     name: s.apps_retry.to_string(),
                     description: Some(s.apps_retry_description.to_string()),
-                    keep_open: true,
                     ..Item::default()
                 },
             ],
@@ -376,7 +373,7 @@ fn source_phrase(source: &PlanSource, s: &Strings) -> String {
 /// The two rows of a confirmation, No first (`SelectionViewParams::confirmation`:
 /// the panel picker with the standard hint, its columns placed from all rows
 /// and the description hidden when narrow).
-fn confirmation(confirm: Confirm, s: &Strings) -> List {
+pub fn confirmation(confirm: Confirm, s: &Strings) -> List {
     let (title, subtitle, no, yes) = match confirm {
         Confirm::Archive { running } => (
             s.archive_title,

@@ -9,7 +9,7 @@ use rtwk::style::Style;
 use rtwk::text::Text;
 use rtwk::{AnyWidget, LayoutBuilder};
 
-use codex_tui_core::screens::select::list::{SIDE_GAP, Side};
+use super::list::{SIDE_GAP, Side};
 
 use crate::app::theme::Tokens;
 
