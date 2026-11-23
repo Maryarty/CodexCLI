@@ -20,18 +20,14 @@ pub fn proposed_plan(
     surface: Style,
     markdown: &MarkdownTheme,
     tokens: &Tokens,
-    strings: &Strings,
+    strings: &'static Strings,
 ) -> AnyWidget {
     let body: AnyWidget = if text.trim().is_empty() {
         Text::new(strings.empty_plan)
             .style(tokens.dim().attrs(Attrs::DIM | Attrs::ITALIC))
             .into()
     } else {
-        crate::widgets::markdown::themed(
-            super::citation::view(text, false, cwd, strings),
-            markdown.clone(),
-        )
-        .into()
+        super::citation::cited(text, false, cwd, strings, markdown.clone())
     };
     Column::new()
         .main_axis_size(MainAxisSize::Min)

@@ -2061,7 +2061,7 @@ mod notice_cells {
     }
 
     #[test]
-    fn the_first_session_card_is_the_help_under_a_blank_row() {
+    fn the_first_session_card_is_the_help() {
         let t = show(
             Notice::SessionInfo(SessionInfo {
                 help: true,
@@ -2072,7 +2072,7 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "help",
             &rows(&t),
-            1,
+            0,
             &expected(&[
                 "  To get started, describe a task or try one of these commands:",
                 "",
@@ -2083,8 +2083,7 @@ mod notice_cells {
                 "  /review - review any changes and find issues",
             ]),
         );
-        assert_eq!(rows(&t)[0], "");
-        let words = t.cell(10, 3);
+        let words = t.cell(10, 2);
         assert!(words.attrs.intersects(Attrs::DIM), "{words:?}");
     }
 
@@ -2101,7 +2100,7 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "tip",
             &rows(&t),
-            1,
+            0,
             &expected(&["  Tip: Model just became available"]),
         );
         // oracle session_info_preserves_styled_tooltip_links (30 columns)
@@ -2118,7 +2117,7 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "styled tip",
             &rows(&styled),
-            1,
+            0,
             &expected(&[
                 "  Tip: Use /copy or ctrl+y;",
                 "  visit the Codex community",
@@ -2139,10 +2138,10 @@ mod notice_cells {
         oracle_snap::assert_fragment(
             "model changed",
             &rows(&t),
-            1,
+            0,
             &expected(&["model changed:", "requested: gpt-5", "used: gpt-5-mini"]),
         );
-        let title = t.cell(0, 1);
+        let title = t.cell(0, 0);
         assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
     }
 }
@@ -2541,6 +2540,126 @@ mod markdown_inlines {
             rows("https://example.com/?a=1&b=2&nope;"),
             ["https://example.com/?a=1&b=2&nope;"]
         );
+    }
+}
+
+// The user's `tui.rendering` preferences (oracle markdown_render/preferences_tests.rs): a table or
+// list renderer that is off keeps the source text.
+mod rendering_preferences {
+    use codex_tui_core::app::facts::Rendering;
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
+
+    fn rows(source: &str, rendering: Rendering) -> Vec<String> {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 14));
+        t.pump_widget(citation::view_with(
+            source,
+            false,
+            None,
+            &strings::EN,
+            rendering,
+        ));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            // a code block is drawn one column in from the text around it: compared without
+            .map(|line| line.trim().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    fn no_tables() -> Rendering {
+        Rendering {
+            tables: false,
+            ..Rendering::default()
+        }
+    }
+
+    fn no_lists() -> Rendering {
+        Rendering {
+            lists: false,
+            ..Rendering::default()
+        }
+    }
+
+    const TABLE: &str = "| A | B |\n|---|---|\n| **a** | `b` |\n";
+
+    #[test]
+    fn a_table_is_its_source_while_tables_are_off() {
+        assert_eq!(
+            rows(TABLE, no_tables()),
+            ["| A | B |", "|---|---|", "| **a** | `b` |"]
+        );
+        // on, it is laid out as a table
+        let drawn = rows(TABLE, Rendering::default());
+        assert!(!drawn.iter().any(|row| row == "|---|---|"), "{drawn:?}");
+    }
+
+    #[test]
+    fn the_text_around_a_literal_table_keeps_its_place() {
+        let source = format!("Before.\n\n{TABLE}\nAfter.\n");
+        let drawn = rows(&source, no_tables());
+        let at = drawn.iter().position(|row| row == "| A | B |").unwrap();
+        assert_eq!(drawn.first().map(String::as_str), Some("Before."));
+        assert_eq!(drawn[at + 2], "| **a** | `b` |");
+        assert_eq!(drawn.last().map(String::as_str), Some("After."));
+    }
+
+    #[test]
+    fn a_markdown_fence_with_a_table_keeps_its_fence_lines() {
+        let source = "```markdown\n| A | B |\n|---|---|\n| a | b |\n```\n";
+        assert_eq!(
+            rows(source, no_tables()),
+            ["```markdown", "| A | B |", "|---|---|", "| a | b |", "```"]
+        );
+        // on, the table is unwrapped and laid out
+        let drawn = rows(source, Rendering::default());
+        assert!(!drawn.iter().any(|row| row.contains("```")), "{drawn:?}");
+    }
+
+    #[test]
+    fn a_markdown_fence_without_a_table_is_an_ordinary_code_block() {
+        assert_eq!(
+            rows("```markdown\n**Not a table**\n```\n", no_tables()),
+            ["**Not a table**"]
+        );
+    }
+
+    #[test]
+    fn a_fence_inside_a_list_item_is_not_wrapped_twice() {
+        let source = "1.  ```md\n    | A | B |\n    |---|---|\n    | a | b |\n    ```\n";
+        let drawn = rows(source, no_tables()).join("\n");
+        assert_eq!(drawn.matches("```").count(), 2, "{drawn}");
+        assert!(drawn.contains("```md"), "{drawn}");
+        assert!(drawn.contains("| a | b |"), "{drawn}");
+    }
+
+    #[test]
+    fn a_table_in_a_code_fence_is_left_as_it_is() {
+        let source = "```text\n| A | B |\n|---|---|\n```\n";
+        assert_eq!(
+            rows(source, no_tables()),
+            ["| A | B |", "|---|---|"],
+            "a table in a code block is code"
+        );
+    }
+
+    #[test]
+    fn a_task_items_box_is_its_text_while_lists_are_off() {
+        let drawn = rows("- [ ] Pending\n- [x] Done\n- Ordinary\n", no_lists());
+        let text = drawn.join("\n");
+        assert!(text.contains("[ ] Pending"), "{text}");
+        assert!(text.contains("[x] Done"), "{text}");
+        assert!(text.contains("Ordinary"), "{text}");
+        // nested and quoted items too
+        let nested = rows("> - [x] Quoted\n>   - [ ] Child\n", no_lists()).join("\n");
+        assert!(nested.contains("[x] Quoted"), "{nested}");
+        assert!(nested.contains("[ ] Child"), "{nested}");
+        // on, the box takes the bullet's place and no `[ ] ` text follows it
+        let on = rows("- [ ] Pending\n", Rendering::default());
+        assert_ne!(on, rows("- [ ] Pending\n", no_lists()));
     }
 }
 

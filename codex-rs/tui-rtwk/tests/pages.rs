@@ -38,12 +38,16 @@ mod composer_startup;
 mod composer_suggest;
 #[path = "pages/composer_vim.rs"]
 mod composer_vim;
+#[path = "pages/history_pages.rs"]
+mod history_pages;
 #[path = "pages/onboarding_focus.rs"]
 mod onboarding_focus;
 #[path = "pages/resume_focus.rs"]
 mod resume_focus;
 #[path = "pages/review.rs"]
 mod review;
+#[path = "pages/selection_copy.rs"]
+mod selection_copy;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
 #[path = "pages/text_mode.rs"]

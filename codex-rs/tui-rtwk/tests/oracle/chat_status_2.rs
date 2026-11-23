@@ -7,6 +7,24 @@
 use crate::kit;
 use crate::kit::{Owner, Screen};
 
+/// The session of `set_chatgpt_auth`: a ChatGPT login on a provider that needs the OpenAI auth
+/// (the host's account read and its config), the model of the card, and the models the server lists.
+const CHATGPT: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+{"step":"screen","dir":"status","ev":{"kind":"catalog","models":[{"model":"gpt-5.5","display_name":"GPT-5.5","default_effort":"medium"}]}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project","account_usage":true}}}"#;
+
+/// What the server answers `account/rateLimits/read` with: the `codex` bucket, `used` percent used.
+fn limits(used: u8) -> String {
+    format!(
+        r#"{{"step":"respond","method":"account/rateLimits/read","result":{{"rateLimits":{{"limitId":"codex","primary":{{"usedPercent":{used},"windowDurationMins":300,"resetsAt":2000000000}}}},"rateLimitsByLimitId":{{"codex":{{"limitId":"codex","primary":{{"usedPercent":{used},"windowDurationMins":300,"resetsAt":2000000000}}}}}}}}}}"#
+    )
+}
+
+/// How many rows of the screen say `text`.
+fn rows_with(s: &Screen, text: &str) -> usize {
+    s.rows().iter().filter(|row| row.contains(text)).count()
+}
+
 // ---- oracle: chatwidget/tests/status_and_layout.rs (47 screen-level tests here; 40 state tests left to ui-pane)
 // ORACLE chatwidget/tests/status_and_layout.rs:3171 unsupported_code_mode_warning_renders_as_warning_history_cell kind=snap owner=ui-pane
 #[test]
@@ -740,28 +758,37 @@ fn chatwidget_tall() {
 // ORACLE chatwidget/tests/status_command_tests.rs:9 status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth kind=ui owner=ui-pane
 #[test]
 fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: ChatGPT auth (set_chatgpt_auth)
+    s.feed(CHATGPT).feed(&limits(92));
     s.type_text("/status");
     s.keys("enter");
+    // the card is in the transcript at once, no dialog, and says nothing of a transient refresh
+    s.assert_contains("OpenAI Codex");
+    s.assert_contains("Model:");
     s.assert_absent("refreshing limits");
+    // the account's limits are asked once for it, and the card shows what came back
+    assert_eq!(s.requests_of("account/rateLimits/read"), 1);
+    s.wait_for("8% left");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:35 status_command_refresh_updates_cached_limits_for_future_status_outputs kind=ui owner=ui-pane
 #[test]
 fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
-    );
-    let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: ChatGPT auth; /status, then /copy of the whole status, then /status again after a limit refresh
+    // tall enough for both cards: the first card's `8% left` stays on the screen
+    let mut s = Screen::build(Owner::UiPane)
+        .size(crate::common::WIDTH, 60)
+        .live()
+        .open();
+    s.feed(CHATGPT).feed(&limits(92));
     s.type_text("/status");
     s.keys("enter");
+    s.wait_for("8% left");
+    assert_eq!(rows_with(&s, "8% left"), 1);
+    // the refresh updated the cache: the next card shows the limits as they are now
+    s.feed(&limits(50));
+    s.type_text("/status");
+    s.keys("enter");
+    s.wait_for("50% left");
     s.assert_contains("8% left");
 }
 
@@ -777,12 +804,9 @@ fn status_command_renders_immediately_without_rate_limit_refresh() {
 // ORACLE chatwidget/tests/status_command_tests.rs:92 status_command_uses_catalog_default_reasoning_when_config_empty kind=ui owner=ui-pane
 #[test]
 fn status_command_uses_catalog_default_reasoning_when_config_empty() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: the config has no reasoning; the catalog default applies
+    // the thread names no effort and the config sets none: the catalog's default applies
+    s.feed(CHATGPT);
     s.type_text("/status");
     s.keys("enter");
     s.assert_contains("GPT-5.5 (reasoning medium, summaries auto)");
@@ -791,32 +815,50 @@ fn status_command_uses_catalog_default_reasoning_when_config_empty() {
 // ORACLE chatwidget/tests/status_command_tests.rs:111 status_command_renders_native_and_foreign_instruction_sources kind=ui owner=ui-pane
 #[test]
 fn status_command_renders_native_and_foreign_instruction_sources() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
-    );
-    let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: a native AGENTS.md and a foreign instruction source in the project
+    // the server's `thread/start` names a native AGENTS.md of the project and a foreign path
+    let start = serde_json::json!({
+        "thread": {
+            "id": "thread-1", "environments": null, "extra": null, "sessionId": "thread-1",
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+            "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": "/tmp/project",
+            "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+            "agentRole": null, "gitInfo": null, "name": null, "daybreakEnabled": null,
+            "turns": []
+        },
+        "model": "gpt-5.5", "modelProvider": "openai", "serviceTier": null,
+        "cwd": "/tmp/project",
+        "instructionSources": ["/tmp/project/AGENTS.md", "C:\\remote\\AGENTS.md"],
+        "approvalPolicy": "on-request", "approvalsReviewer": "user",
+        "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null
+    });
+    let mut s = Screen::build(Owner::UiPane)
+        .thread_start(start)
+        .live()
+        .open();
     s.type_text("/status");
     s.keys("enter");
+    s.assert_contains(r"AGENTS.md, C:\remote\AGENTS.md");
     s.assert_absent("Agents.md  <none>");
-    // the card lists AGENTS.md with the foreign source's display path
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:148 status_command_overlapping_refreshes_update_matching_cells_only kind=ui owner=ui-pane
 #[test]
 fn status_command_overlapping_refreshes_update_matching_cells_only() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: ChatGPT auth; two /status commands whose refreshes overlap
+    s.feed(CHATGPT).feed(&limits(92));
     s.type_text("/status");
     s.keys("enter");
     s.type_text("/status");
     s.keys("enter");
+    // each card has its own refresh; no card is left waiting for a reply that went to the other
     s.assert_absent("refreshing limits");
+    assert_eq!(s.requests_of("account/rateLimits/read"), 2);
+    s.wait_for("8% left");
+    assert_eq!(rows_with(&s, "8% left"), 2);
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:214 status_command_renders_immediately_and_updates_first_card_without_status_line kind=snap owner=ui-pane snap=status_command_estimated_thread_usage

@@ -18,6 +18,7 @@ use rtwk::style::{Style, Theme};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
@@ -38,7 +39,7 @@ use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::status_line::{Notice, status_spans, with_warning_notice};
-use crate::widgets::thread_ui::{Modes, ThreadUi};
+use crate::widgets::thread_ui::{Modes, TextSelection, ThreadUi};
 
 use super::actions::*;
 use super::activity::{Run, StatusSlot};
@@ -51,6 +52,8 @@ use super::live::{put_back, seed_history};
 
 use super::status_surfaces::{StatusContext, TitleInputs};
 use super::transcript;
+use super::transcript::copy::CopyJob;
+use super::transcript::selection::Key as SelectionKey;
 use super::transcript_pane::Pane;
 
 /// The window height under which the chat draws nothing.
@@ -85,6 +88,9 @@ pub struct ChatState {
     /// How many removals (the app counts them) the chat has answered with
     /// the command center.
     removed: Option<u32>,
+    /// A text prompt of the model (`/rename`, the file name of `/export`) is open and this page
+    /// opened its dialog.
+    prompt_shown: bool,
     /// The read-only thread this page asked to fork and heard no answer of
     /// (the oracle's `fork_in_progress`): its notice gives way to "Forking
     /// conversation…" and the keys wait. A failed fork ends it.
@@ -122,6 +128,9 @@ pub struct ChatState {
     /// The modes of its transcript: browsing the prompts takes keys before
     /// the field does.
     modes: Rc<RefCell<Modes>>,
+    /// What the reader selected in its transcript: the copy keys and Esc are its while
+    /// something is selected.
+    selection: Rc<RefCell<TextSelection>>,
 }
 
 /// What keeps the banner's keys from the banner (`handle_inline_banner_key`).
@@ -165,6 +174,8 @@ pub enum ChatMsg {
     Page(i8),
     /// A key of the mode that browses the prompts.
     Browse(Browse),
+    /// A key that is the transcript selection's (copy, copy and follow, clear).
+    Selection(SelectionKey),
     /// A suggestion was put in: a command is run, the others are text.
     Picked(Rc<str>),
     Escape,
@@ -187,6 +198,7 @@ impl StatefulWidget for Chat {
             edited: None,
             plan: PlanSeen::default(),
             removed: None,
+            prompt_shown: false,
             forking: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
@@ -200,6 +212,7 @@ impl StatefulWidget for Chat {
             composer: Rc::new(RefCell::new(self.ui.composer.clone())),
             draft: Rc::new(RefCell::new(self.ui.draft.clone())),
             modes: Rc::new(RefCell::new(self.ui.modes.clone())),
+            selection: Rc::new(RefCell::new(self.ui.selection.clone())),
         }
     }
 }
@@ -244,6 +257,7 @@ impl State for ChatState {
         let composer = self.composer.clone();
         let draft = self.draft.clone();
         let modes = self.modes.clone();
+        let selection = self.selection.clone();
         let (leader, control) = (self.leader.clone(), self.control.clone());
         let (banner, blocked) = (self.banner.clone(), self.banner_blocked.clone());
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
@@ -257,6 +271,14 @@ impl State for ChatState {
                     }
                     None => send(ChatMsg::Browse(Browse::Leave)),
                 }
+            }
+            // the copy keys and Esc are the selection's while something is selected
+            // (`handle_selection_key`): they come before the field's
+            if selection.borrow().controller().has_selection()
+                && let Some(step) = transcript::selection::key(&key)
+            {
+                send(ChatMsg::Selection(step));
+                return KeyEventResult::Handled;
             }
             // `change_host` is the leader chord `Ctrl+X b`, live while the
             // backend control shows (`visible_new_backend_control`), and it
@@ -330,6 +352,7 @@ impl State for ChatState {
             *self.composer.borrow_mut() = w.ui.composer.clone();
             *self.draft.borrow_mut() = w.ui.draft.clone();
             *self.modes.borrow_mut() = w.ui.modes.clone();
+            *self.selection.borrow_mut() = w.ui.selection.clone();
             self.sync_draft(w);
             // the thread under the page changed: what it had open closes
             old.ui.modes.close();
@@ -433,6 +456,20 @@ impl State for ChatState {
             }
             Some(_) => {}
         }
+        // A text prompt the model opened (a command's, or the pick of a menu) is shown over the
+        // chat once the chat is in front; the dialog closes itself when the model drops it.
+        let prompting = select::<ScreenStates, bool, _>(cx, |states| {
+            matches!(
+                states.dialogs.open,
+                Some(codex_tui_core::screens::dialogs::Open::Prompt(_))
+            )
+        });
+        if !prompting {
+            self.prompt_shown = false;
+        } else if !self.prompt_shown && Route::is_current_of(cx) {
+            self.prompt_shown = true;
+            open(cx, Target::Dialogs);
+        }
         let states = watch::<ScreenStates, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
         let thread = read::<ThreadModel, _>(cx);
@@ -515,6 +552,24 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Page(pages) => w.ui.follow.page(i64::from(pages)),
+            ChatMsg::Selection(key) => {
+                let selection = w.ui.selection.controller();
+                if key == SelectionKey::Clear {
+                    selection.clear();
+                } else {
+                    let text = selection.text();
+                    if !text.is_empty() {
+                        let job = CopyJob::selected(text, true, &read::<TuiSettings, _>(cx));
+                        let job = if key == SelectionKey::CopyAndFollow {
+                            job.following()
+                        } else {
+                            job
+                        };
+                        cx.emit(&hs.copy, job);
+                    }
+                }
+                return Rebuild::No;
+            }
             ChatMsg::Browse(step) => {
                 let thread = read::<ThreadModel, _>(cx);
                 let targets = Targets::of(thread.transcript(), thread.can_load_history());
@@ -819,9 +874,11 @@ impl State for ChatState {
         // modes tick when either moves (Flutter's `ListenableBuilder`).
         let reader = {
             let (follow, modes) = (w.ui.follow.clone(), w.ui.modes.clone());
+            let selection = w.ui.selection.clone();
             ListenableBuilder::new(w.ui.modes.listenable(), move |_, _| {
                 Pane {
                     follow: follow.clone(),
+                    selection: selection.clone(),
                     detailed: modes.detailed(),
                     mark: modes.selected(),
                 }
@@ -915,6 +972,7 @@ impl State for ChatState {
                     transcript::follow::footer(
                         cx,
                         w.ui.follow.clone(),
+                        w.ui.selection.clone(),
                         self.draft_empty && !w.ui.modes.primed(),
                         footer,
                     )

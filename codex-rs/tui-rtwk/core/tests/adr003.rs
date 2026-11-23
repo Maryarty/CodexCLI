@@ -429,6 +429,44 @@ fn reconnect_reattaches_the_active_thread_and_ignores_the_lost_rpc() {
     assert!(open(&mut app, A).commands().is_empty(), "writer reattached");
 }
 
+/// ADR-013 full §5.3 (b), F6: a new connection (`attach`) fails every app-scoped request still in
+/// flight of the backend it replaces (`CodexApp::attach_backend`). The answer of the old connection
+/// carries the old epoch and never comes, so a request left in `outgoing` would keep its operation
+/// `Loading` for good, and the one-resume-in-flight rule of `OpenThread` would wait for it
+/// forever.
+#[test]
+fn adr003_reconnect_fails_inflight_ops() {
+    let mut app = app_with_a_and_b();
+    // opening B asks the server to resume it: a request in flight
+    let before = app.in_flight();
+    let fx = open(&mut app, B);
+    let lost = resume_ticket(&fx, B).expect("B is resumed");
+    assert!(app.in_flight() > before, "the resume is in flight");
+    assert!(
+        open(&mut app, B).commands().is_empty(),
+        "a second open waits for the one in flight"
+    );
+
+    // the connection is replaced; the old one's answer never comes
+    app.attach();
+    assert_eq!(
+        app.in_flight(),
+        0,
+        "the lost connection's request is failed, not left loading"
+    );
+
+    // so opening B asks again, once, and that answer is the one that counts
+    let again = open(&mut app, B);
+    let resume = resume_ticket(&again, B).expect("B is resumed on the new connection");
+    assert_ne!(resume, lost);
+    assert!(
+        open(&mut app, B).commands().is_empty(),
+        "one resume in flight again"
+    );
+    answer_resume(&mut app, resume, B);
+    assert_eq!(app.session().active, Some(ThreadId::new(B)));
+}
+
 #[test]
 fn chat_plan_is_scoped_to_the_running_turn_and_resume_installs_metadata() {
     let mut app = app_with_a_and_b();

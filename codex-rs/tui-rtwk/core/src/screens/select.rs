@@ -312,9 +312,18 @@ pub struct Model {
     /// the stack: Esc shows that menu again with the cursor on it (the
     /// oracle's parent view keeps its highlight).
     kept: std::collections::BTreeMap<usize, String>,
+    /// How many intents were applied: a sheet opened with the intent that asks for its menu
+    /// compares it to tell a menu that has not come yet from one the intent left a note for
+    /// (`/model` blocked by a provider switch, or over a catalog with nothing to pick).
+    applied: u64,
 }
 
 impl Model {
+    /// How many intents the model has applied.
+    pub fn applied(&self) -> u64 {
+        self.applied
+    }
+
     /// The menu shown now.
     pub fn menu(&self) -> Option<&Menu> {
         self.stack.last()
@@ -1111,6 +1120,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
+    model.applied += 1;
     apply_choice(model, intent, fx);
     model.tidy();
 }
@@ -1507,6 +1517,17 @@ pub enum Ctx {
     },
     /// An answer of the plugin browser: the request it belongs to.
     Plugins { request: u64 },
+    /// `model/list` for an automatic model switch of a usage banner that finds no catalog
+    /// (`app/banners.rs`).
+    Fallback { backend: crate::ids::BackendId },
+    /// The settings update of such a switch: the model and effort it asked for, and why.
+    Switch {
+        backend: crate::ids::BackendId,
+        thread: crate::ids::ThreadId,
+        model: String,
+        effort: Effort,
+        reason: super::chat::SwitchReason,
+    },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).
@@ -1576,7 +1597,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 }
 
 /// The seed form of this screen's events: `{"kind":"catalog","presets":[..]}`
-/// (the catalog the app started with), the menus of the `/model` family
+/// (the catalog the app started with), `{"kind":"provider","state":"changed"}` (the default
+/// provider was written), the menus of the `/model` family
 /// (`{"kind":"models","current":{"model":..}}`, `all_models`, `loading`,
 /// `reasoning` and `advanced` with a `preset`), `{"kind":"profiles",
 /// "discovery":{..}}` (the permission catalog), `{"kind":"permissions",
@@ -1587,6 +1609,10 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 enum SeedEv {
     Catalog {
         presets: Vec<Preset>,
+    },
+    /// The state of the default provider's write (`Ev::Provider`).
+    Provider {
+        state: Provider,
     },
     Loading {
         current: Current,
@@ -1652,6 +1678,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let model = |menu| Ev::Opened(Menu::Model(Box::new(menu)));
     Ok(match seed {
         SeedEv::Catalog { presets } => Ev::Loaded(presets),
+        SeedEv::Provider { state } => Ev::Provider(state),
         SeedEv::Loading { current } => model(ModelMenu::Loading(current)),
         SeedEv::Models { current } => model(ModelMenu::Models(current)),
         SeedEv::AllModels { current } => model(ModelMenu::AllModels(current)),

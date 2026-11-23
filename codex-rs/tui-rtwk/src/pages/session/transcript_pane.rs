@@ -6,7 +6,6 @@ use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
 
-use rtwk::gestures::SelectionArea;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
@@ -22,11 +21,12 @@ use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
-use crate::widgets::thread_ui::Follow;
+use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::cells::strings as cells_strings;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
+use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
     Anchor, FoldRow, Kind, Plan, PromptFold, Row, Unfolded, Words, arrow, prompt_label,
@@ -38,6 +38,8 @@ use super::transcript::turn_details::{
 #[derive(Clone, PartialEq)]
 pub(super) struct Pane {
     pub follow: Follow,
+    /// What the reader has selected in the list: the one controller of the thread's `ThreadUi`.
+    pub selection: TextSelection,
     pub detailed: bool,
     pub mark: Option<usize>,
 }
@@ -49,10 +51,12 @@ pub(super) struct ViewportState {
     opened: u64,
     /// The prompt the list was last scrolled to show.
     shown: RefCell<Option<ItemKey>>,
-    /// The last visible row the reader's thread had (a fingerprint of it, not
-    /// a copy: the thread model is the one place the row lives), to see it
-    /// change.
-    tail: Option<(ThreadId, usize, u64)>,
+    /// The first row the list showed, to see rows come in above it.
+    first: RefCell<Option<(ThreadId, ItemKey)>>,
+    /// The last visible row the reader's thread had (its key and a fingerprint of it, not a copy:
+    /// the thread model is the one place the row lives), to see it change: a row after it, or
+    /// the row itself grown; rows above it (an older page) are none of the reader's news.
+    tail: Option<(ThreadId, ItemKey, u64)>,
 }
 
 struct RowLayout {
@@ -181,6 +185,59 @@ impl ViewportState {
     }
 }
 
+impl ViewportState {
+    /// Rows came in above the first row the reader had (an older page joined) while the list
+    /// stood at its first line: the list keeps a row in place only where it is scrolled from its
+    /// start, so the row the reader was at is brought back to the top (the oracle's
+    /// `prepend_snapshot_history` keeps the anchor; Flutter's reverse list does it by its origin).
+    fn keep_first(
+        &self,
+        thread: &ThreadModel,
+        rows: &[Row],
+        lead: usize,
+        reverse: bool,
+        widget: &Pane,
+    ) {
+        let transcript = thread.transcript();
+        let first = rows
+            .first()
+            .and_then(|row| transcript.get(row.range.start))
+            .map(|(key, _)| (thread.id().clone(), key.clone()));
+        let before = self.first.replace(first.clone());
+        let (Some(before), Some(now)) = (before, first) else {
+            return;
+        };
+        if reverse || before.0 != now.0 || before.1 == now.1 || !widget.follow.away() {
+            return;
+        }
+        let at_start = widget
+            .follow
+            .scroll()
+            .as_scroll_controller()
+            .try_position()
+            .is_ok_and(|position| position.pixels() <= 0);
+        let moved = rows.iter().position(|row| {
+            transcript
+                .get(row.range.start)
+                .is_some_and(|(key, _)| *key == before.1)
+        });
+        if let (true, Some(row)) = (at_start, moved) {
+            // the cell has a blank row above it now that something comes before it (`cell`'s
+            // `below`), which the reader never saw: the list starts under it
+            let index = rows[row].range.start;
+            let joins = matches!(
+                index
+                    .checked_sub(1)
+                    .and_then(|before| transcript.get(before)),
+                Some((_, Item::User(_)))
+            ) && transcript.timing_after(index.saturating_sub(1)).is_none();
+            let user = matches!(transcript.get(index), Some((_, Item::User(_))));
+            let blank = usize::from(!(user && joins));
+            widget.follow.scroll().jump_to_index_rows(row + lead, blank);
+        }
+    }
+}
+
 /// The write to a background terminal shows only in the detailed
 /// transcript (oracle `UnifiedExecInteractionCell` has no display lines).
 fn is_terminal_interaction(item: &Item) -> bool {
@@ -211,6 +268,7 @@ impl StatefulWidget for Pane {
             open: Unfolded::default(),
             opened: 0,
             shown: RefCell::default(),
+            first: RefCell::default(),
             tail: None,
         }
     }
@@ -232,7 +290,7 @@ impl State for ViewportState {
             .rows
             .last()
             .and_then(|row| transcript.get(row.range.end - 1))
-            .map(|(_, item)| (thread.id().clone(), shown.rows.len(), fingerprint(item)));
+            .map(|(key, item)| (thread.id().clone(), key.clone(), fingerprint(item)));
         if let (Some(before), Some(now)) = (&self.tail, &tail)
             && before.0 == now.0
             && before != now
@@ -297,12 +355,42 @@ impl State for ViewportState {
             .and_then(|nth| nth_user(thread.transcript(), nth))
             .map(|(key, _)| key.clone());
         self.show(&marked, &thread, &rows, header.is_some(), reverse, widget);
+        self.keep_first(
+            &thread,
+            &rows,
+            usize::from(header.is_some()),
+            reverse,
+            widget,
+        );
         let cells = cells_strings::of(cx);
         let folds = transcript_strings::of(cx);
         let toggled = cx.map(Msg::Toggle);
         let open = self.open.clone();
         let control = tokens.dim().attrs(Attrs::DIM);
         let cwd = cwd.map(str::to_owned);
+        // where a row went when rows came in above it (an older page joined): the list keeps the
+        // row the reader is at on its line (Flutter's `findChildIndexCallback`)
+        let finder = {
+            let (thread, rows) = (thread.clone(), rows.clone());
+            let lead = usize::from(header.is_some());
+            move |key: &Key| -> Option<usize> {
+                let logical = if lead == 1 && *key == Key::value("session header") {
+                    0
+                } else {
+                    rows.iter().position(|row| {
+                        thread
+                            .transcript()
+                            .get(row.range.start)
+                            .is_some_and(|(item, _)| *key == Key::value(item.clone()))
+                    })? + lead
+                };
+                Some(if reverse {
+                    count - 1 - logical
+                } else {
+                    logical
+                })
+            }
+        };
         let list = ListView::builder(count, move |index| {
             let index = if reverse { count - 1 - index } else { index };
             if index == 0
@@ -419,13 +507,14 @@ impl State for ViewportState {
             let row: AnyWidget = column.into();
             row.with_key(Key::value(key.clone()))
         })
+        .find_index(finder)
         .controller(widget.follow.scroll())
         .stick_to_bottom(!reverse)
         .reverse(reverse);
         let send = cx.local_sender();
         let follow = widget.follow.clone();
-        SelectionArea::new(
-            NotificationListener::<ScrollNotification>::new(list).on_notification(move |scroll| {
+        let list: AnyWidget = NotificationListener::<ScrollNotification>::new(list)
+            .on_notification(move |scroll| {
                 let metrics = scroll.metrics;
                 let distance = if reverse {
                     metrics.max_scroll_extent.saturating_sub(metrics.pixels)
@@ -440,8 +529,13 @@ impl State for ViewportState {
                     follow.clear_unseen();
                 }
                 false
-            }),
-        )
+            })
+            .into();
+        SelectionHost {
+            child: list,
+            selection: widget.selection.clone(),
+            follow: widget.follow.clone(),
+        }
         .into()
     }
 }

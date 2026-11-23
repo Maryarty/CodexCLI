@@ -22,6 +22,7 @@ pub mod theme;
 pub mod view;
 
 use crate::l10n::Lang;
+use crate::pages::session::transcript::copy::CopyLog;
 use crate::services::shell;
 use crate::sheets::presenter;
 use crate::sheets::presenter::Presenter;
@@ -51,6 +52,9 @@ pub struct UiState {
     pub presenter: Presenter,
     /// How many backend switches the composers followed.
     pub switches_seen: u32,
+    /// The copies the reader asked of the transcript and what came of them (the gap above the
+    /// composer words it): the UI's follower of the answers core keeps.
+    pub copies: CopyLog,
     pub(super) desktop_notice: Option<Rc<DesktopNotice>>,
 }
 
@@ -81,6 +85,7 @@ impl UiApp {
                 awaits_facts: false,
                 presenter: Presenter::new(),
                 switches_seen: 0,
+                copies: CopyLog::default(),
                 desktop_notice: None,
             },
             link: shell::Link::new(backend),
@@ -167,6 +172,7 @@ impl UiApp {
 
     /// Makes the controllers of the active thread if it has none.
     pub(crate) fn follow_core(&mut self) {
+        self.ui.copies.take_in(self.core.latest_effect());
         if let Some(active) = self.core.session().active.clone() {
             self.ui.thread_ui.ensure(&active);
             // An empty conversation moved to another backend: its draft goes

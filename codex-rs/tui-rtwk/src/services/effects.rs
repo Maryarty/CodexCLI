@@ -179,9 +179,12 @@ impl Services {
                 let opened = open_url::open_desktop_thread(thread.to_string()).await;
                 (Done::Desktop(opened), None)
             }
+            // A title needs an ephemeral thread and a structured turn on the app-server
+            // (`generate_thread_title`); until that is built the answer is the oracle's for a
+            // server-owned session: no suggestion, and the prompt keeps the name it has.
+            Ask::SuggestTitle { .. } => (Done::Title(None), None),
             // The git lists of `/review` are the host's (it carries `codex-git-utils`).
-            Ask::SuggestTitle { .. }
-            | Ask::ConfigWrite { .. }
+            Ask::ConfigWrite { .. }
             | Ask::GitBranches { .. }
             | Ask::GitLog { .. }
             | Ask::Worktrees { .. }
@@ -571,14 +574,17 @@ mod tests {
     #[tokio::test]
     async fn the_asks_of_the_app_server_are_not_answered_here() {
         let rig = rig(false, false);
-        for ask in [
-            Ask::SuggestTitle {
-                thread: ThreadId::new("thread-1"),
-            },
-            Ask::ConfigWrite { edits: Vec::new() },
-        ] {
-            assert!(rig.services.effect(1, ask, &NoExec).await.is_none());
-        }
+        let ask = Ask::ConfigWrite { edits: Vec::new() };
+        assert!(rig.services.effect(1, ask, &NoExec).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_title_is_not_generated_yet_and_the_answer_says_so() {
+        let rig = rig(false, false);
+        let ask = Ask::SuggestTitle {
+            thread: ThreadId::new("thread-1"),
+        };
+        assert!(matches!(done(&rig, ask).await, Done::Title(None)));
     }
 
     #[tokio::test]

@@ -1,0 +1,36 @@
+# ADR-013 ratchets (tests/rules/adr013.rs; docs/rtwk-port/architecture.md "ADR-013", full text
+# docs/rtwk-port/research/arch-boundary/full/architecture.md §13, §14 "Отступление").
+#
+# Today's violations of the boundary rules, by key and count, one file per migration family in
+# tests/rules/adr013_ratchets/<family>.txt (so families migrating in parallel edit disjoint files);
+# the rules read this file and every .txt there as one. A rule fails when a count rises (a
+# new violation: new code cannot add to this list) and when it falls (the saving is written down
+# here, so it cannot come back); a line at 0 is deleted. The numbers only go down, as
+# hub_budget.txt's do. A family leaves its lines when its migration step lands (full §15):
+#   step 2  select::Menu families (models, permissions, review, worktree, apps, quick dials,
+#           collaboration, export), the picker's list vocabulary (`select/list.rs`, `layout.rs`)
+#           moves to widgets/picker, `stack`/`kept` to a SheetStack, `Picked` to verbs;
+#   step 3  settings, dialogs, resume (`density`, `expanded`, `Cursor/Room/End`), pets, agents;
+#           /goal, /export, /rename put their menus and prompts in the UI half;
+#   Feature's Menu/Pick/Prompt and FeatureView's hooks go with the pilot's `Feature` without UI forms.
+# A rule with no line here holds today in full: the rules about `Interest`, `Directive`,
+# `SurfaceWish`, `Sheet` and `thread_scope` bite the day their mechanism lands.
+#
+#   ratchet <rule> <key> <count>      today's count of the key (a file, or file:Type.field)
+#   exempt  <rule> <key> <why...>     a named exception, not counted
+
+# adr013_domain_types_hold_no_draw_state: a field of a type the domain reaches that is a view's (cursor, selected, scroll, tab, page, stack, kept, expanded, density, menu, shown, open). The `select/list.rs` ones are the picker's props (`keep_open`, `initial_tab`) that move out with the list vocabulary.
+
+# adr013_core_intents_name_no_gesture: a variant of an `*Intent` enum named for a gesture, not a verb.
+
+# adr013_feature_trait_has_no_view_types: the view forms of ADR-012 in its first shape (full §2.2 "Уходят").
+
+# adr013_widgets_name_no_screen_half: a widget naming `screens::`/`features::` (counted per place). The picker's are `select::list`/`layout` (step 2); the composer draft's are logic that moves to core::kit (vim, history, paste burst, mention codec: O3); markdown's and thread_ui's name cell and backtrack types.
+
+# adr013_no_ticket_in_ui: a `Ticket` in the UI. The banner's is the id of the banner entity and is exempt (full §13).
+
+# adr013_directives_read_in_one_place: the thread's pending restore read by the session page (a `Directive<Restore>` listener later).
+
+# adr013_no_whole_state_watch: `watch::<ScreenStates>` / `watch::<FeatureStates>`; each becomes a `select` of the slice drawn.
+
+# adr006_keycode_only_in_keymap: `KeyCode::` outside src/keymap/ and the primitives of src/widgets/ (counted per place).

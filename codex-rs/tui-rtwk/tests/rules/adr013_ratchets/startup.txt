@@ -1,0 +1,17 @@
+# ADR-013 ratchets of the startup family (format and rules: tests/rules/adr013_ratchets.txt).
+ratchet adr013_domain_types_hold_no_draw_state core/src/screens/onboarding/provider/gateway.rs:Form.selected 1
+ratchet adr013_domain_types_hold_no_draw_state core/src/screens/onboarding/provider/gateway.rs:Picker.page 1
+ratchet adr013_domain_types_hold_no_draw_state core/src/screens/onboarding/provider/gateway.rs:Picker.selected 1
+ratchet adr013_domain_types_hold_no_draw_state core/src/screens/startup.rs:Model.open 1
+ratchet adr013_core_intents_name_no_gesture core/src/screens/import/mod.rs:Intent::Toggle 1
+ratchet adr013_core_intents_name_no_gesture core/src/screens/onboarding/auth.rs:Intent::Choose 1
+ratchet adr013_core_intents_name_no_gesture core/src/screens/onboarding/provider/bedrock.rs:Intent::Choose 1
+ratchet adr013_core_intents_name_no_gesture core/src/screens/onboarding/provider/gateway.rs:Intent::Activate 1
+ratchet adr013_no_whole_state_watch src/app/start_page.rs 1
+ratchet adr013_no_whole_state_watch src/pages/startup/import/mod.rs 2
+ratchet adr013_no_whole_state_watch src/pages/startup/onboarding/mod.rs 3
+ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/mod.rs 4
+ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/provider/bedrock.rs 10
+ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/provider/gateway.rs 20
+ratchet adr006_keycode_only_in_keymap src/pages/startup/onboarding/signin/provider/gov_cloud.rs 5
+ratchet adr006_keycode_only_in_keymap src/pages/startup/prompts/keys.rs 1

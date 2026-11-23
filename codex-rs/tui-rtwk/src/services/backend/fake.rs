@@ -453,6 +453,24 @@ async fn run_as(
         match command {
             Command::StartThread { .. }
                 if shared.lock().is_ok_and(|guard| guard.hold_thread_start) => {}
+            // A responder that answers `thread/start` is the server: the reply is the production
+            // decode of what it says (the instruction sources come with it).
+            Command::StartThread { .. } if scripts_thread_start(&shared, &command, &ids) => {
+                let facts = facts.unwrap_or(Facts {
+                    cloud: false,
+                    worktrees: false,
+                });
+                let responder = shared.lock().ok().and_then(|guard| guard.responder.clone());
+                let Some(responder) = responder else { continue };
+                let (ingress, ids, log) = (ingress.clone(), ids.clone(), shared.clone());
+                tokio::spawn(async move {
+                    let send = request_sender(log, responder);
+                    if let Some((ticket, reply)) = answer(command, facts, ids, None, send).await {
+                        let _ =
+                            ingress.send(Ingress::of(backend, epoch, AppEv::Reply(ticket, reply)));
+                    }
+                });
+            }
             Command::StartThread { ticket, .. } => emit(AppEv::Reply(
                 ticket,
                 // A further backend's thread has an id of its own.
@@ -588,6 +606,18 @@ async fn run_as(
             }
         }
     }
+}
+
+/// The responder answers `thread/start` (asked without logging it).
+fn scripts_thread_start(shared: &Arc<Mutex<Shared>>, command: &Command, ids: &Ids) -> bool {
+    let responder = shared.lock().ok().and_then(|guard| guard.responder.clone());
+    let Some(responder) = responder else {
+        return false;
+    };
+    let Some(request) = codex_tui_core::protocol::client_request(command, ids.next(), None) else {
+        return false;
+    };
+    responder(&serde_json::to_value(&request).unwrap_or_default()).is_some()
 }
 
 /// The client of the fake: it logs the request and answers it as the

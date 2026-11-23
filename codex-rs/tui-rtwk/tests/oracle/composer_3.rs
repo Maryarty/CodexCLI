@@ -23,11 +23,10 @@ fn times(key: &str, n: usize) -> String {
 // ORACLE bottom_pane/chat_composer.rs:10375 file_completion_preserves_large_paste_placeholder_elements kind=ui owner=chat-live
 #[test]
 fn file_completion_preserves_large_paste_placeholder_elements() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file-search result on the chat composer (Tab completes '@ma' to 'src/main.rs'), so the completion that keeps the placeholder is not drawn",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_3/file_ma_main.jsonl"))
+        .open();
     // oracle: a paste over the 1000-char threshold, ' @ma', then the file result 'src/main.rs' for 'ma' and Tab
     s.paste(&"x".repeat(1005));
     s.type_text(" @ma");
@@ -58,11 +57,10 @@ fn adjacent_image_completion_inserts_leading_separator() {
 // ORACLE bottom_pane/chat_composer.rs:10560 file_completion_for_sigil_path_does_not_reopen_popup kind=ui owner=chat-live
 #[test]
 fn file_completion_for_sigil_path_does_not_reopen_popup() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file-search result on the chat composer: Tab completes '@ma' to '@scope/main.rs' in a two-line draft, the popup does not reopen, and Enter submits both lines",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_3/file_ma_sigil.jsonl"))
+        .open();
     // oracle: draft '@ma' + newline + 'next', cursor after '@ma', file result '@scope/main.rs' for 'ma', Tab
     s.paste("@ma\nnext");
     s.keys(&times("left", 5));
@@ -637,28 +635,21 @@ fn slash_popup_not_activated_for_slash_space_text_history_like_input() {
 // ORACLE bottom_pane/chat_composer.rs:12269 bare_slash_command_can_be_recalled_after_recording_pending_history kind=ui owner=chat-live
 #[test]
 fn bare_slash_command_can_be_recalled_after_recording_pending_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash-command history on the chat composer: '/diff' submitted, then Up recalls '/diff'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: '/diff' submitted as the Diff command, its history recorded
     s.type_text("/diff").keys("enter");
-    s.keys("up");
+    // the diff overlay (a popup until the pager is built) is closed first: Up is the composer's
+    s.keys("esc up");
     s.assert_row(prompt(&s), "› /diff");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:12294 popup_selected_slash_command_records_canonical_command_history kind=ui owner=chat-live
 #[test]
 fn popup_selected_slash_command_records_canonical_command_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash-command popup and no slash-command history on the chat composer: '/di' with Enter selects '/diff', and Up recalls '/diff'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: '/di' with the popup open: Enter selects the Diff command
     s.type_text("/di").keys("enter");
-    s.keys("up");
+    s.keys("esc up");
     s.assert_row(prompt(&s), "› /diff");
 }
 

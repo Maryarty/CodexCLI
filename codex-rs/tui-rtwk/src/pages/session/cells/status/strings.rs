@@ -122,6 +122,7 @@ pub struct Strings {
     pub policy_never: &'static str,
     pub policy_on_failure: &'static str,
     pub policy_untrusted: &'static str,
+    pub policy_granular: &'static str,
     pub policy_on_request: &'static str,
     pub space: &'static str,
     /// Between a label and its value when a row flows as a paragraph.
@@ -241,6 +242,7 @@ pub const EN: Strings = Strings {
     policy_never: "never",
     policy_on_failure: "on-failure",
     policy_untrusted: "untrusted",
+    policy_granular: "granular",
     policy_on_request: "on-request",
     space: " ",
     gap: "  ",
@@ -371,6 +373,13 @@ impl Strings {
     /// `(resets 3:14 AM)`: the time in the user's clock, with its day when it
     /// is not the day the limits were read.
     pub fn reset(&self, at: &ResetTime, hour24: bool) -> String {
+        let when = self.when(at, hour24);
+        Fmt::new(self.reset_at, [Arg::Text(&when)], &self.num).to_string()
+    }
+
+    /// `3:14 AM` or `3:14 AM on 5 Mar`: the time in the user's clock, with its day when it is
+    /// not the day the limits were read (`format_reset_timestamp`); a banner's `{time}`.
+    pub fn when(&self, at: &ResetTime, hour24: bool) -> String {
         let minute = format!("{:02}", at.minute);
         let time = if hour24 {
             let hour = format!("{:02}", at.hour);
@@ -397,7 +406,7 @@ impl Strings {
             )
             .to_string()
         };
-        let when = match at.date {
+        match at.date {
             Some(date) => {
                 let month = self
                     .months
@@ -416,8 +425,7 @@ impl Strings {
                 .to_string()
             }
             None => time,
-        };
-        Fmt::new(self.reset_at, [Arg::Text(&when)], &self.num).to_string()
+        }
     }
 
     pub fn plan(&self, plan: PlanLabel) -> &'static str {
@@ -458,6 +466,7 @@ impl Strings {
             ApprovalLabel::Policy(Approval::Never) => self.policy_never,
             ApprovalLabel::Policy(Approval::OnFailure) => self.policy_on_failure,
             ApprovalLabel::Policy(Approval::UnlessTrusted) => self.policy_untrusted,
+            ApprovalLabel::Policy(Approval::Granular) => self.policy_granular,
             ApprovalLabel::Policy(Approval::OnRequest) => self.policy_on_request,
         }
     }

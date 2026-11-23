@@ -8,6 +8,8 @@
 
 use rtwk::l10n::DependCx;
 
+use codex_tui_core::app::effects::CopyStatus;
+
 use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
@@ -35,6 +37,9 @@ pub struct Strings {
     /// that opens the shortcuts and its action (`render_transcript_footer`).
     pub shortcuts_key: &'static str,
     pub shortcuts_action: &'static str,
+    /// The footer's hint while text is selected (`footer.rs` `selection_hint`): the widest
+    /// first, each as pairs of keys and what they do; the last that fits the row.
+    pub selection_hints: [&'static [(&'static str, &'static str)]; 4],
     /// The static pager's chrome (`pager_overlay.rs`): the header's slashes
     /// and the title's lead, the filler row, the rule and the percent.
     pub pager_slashes: &'static str,
@@ -69,6 +74,23 @@ pub struct Strings {
     pub status_select_key: &'static str,
     pub status_select_action: &'static str,
     pub history_partial: &'static str,
+    /// While an older page is on its way: the arrow, the text, its short spellings, the news
+    /// after it, and the failure of a page with the keys that ask again
+    /// (`status_line_with_navigation`, `footer`).
+    pub loading_arrow: &'static str,
+    pub history_loading: &'static str,
+    pub loading_short: &'static str,
+    pub loading_short_joined: &'static str,
+    pub loading_ellipsis: &'static str,
+    pub loading_ellipsis_joined: &'static str,
+    pub loading_news: &'static str,
+    pub history_retry: &'static str,
+    pub history_retry_end: &'static str,
+    pub retry_short: &'static str,
+    pub retry_selected: &'static str,
+    pub begin_keys: &'static str,
+    pub retry_keys: &'static str,
+    pub retry_action: &'static str,
     pub key_find: &'static str,
     pub key_esc: &'static str,
     pub key_right: &'static str,
@@ -154,6 +176,16 @@ pub const EN: Strings = Strings {
     footer_joiner: " · ",
     shortcuts_key: "?",
     shortcuts_action: " shortcuts",
+    selection_hints: [
+        &[
+            ("⌃c", " copy"),
+            ("enter", " copy & follow"),
+            ("esc", " clear"),
+        ],
+        &[("enter", " copy & follow"), ("esc", " clear")],
+        &[("enter", " copy+↓"), ("esc", "")],
+        &[("esc", " clear")],
+    ],
     // a run longer than any row, clipped by the row (`"/ ".repeat(width / 2)`)
     pager_slashes: "/ / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / ",
     pager_title_lead: "/ ",
@@ -180,6 +212,20 @@ pub const EN: Strings = Strings {
     status_select_key: "⌃space",
     status_select_action: " select",
     history_partial: "Earlier messages available.  ",
+    loading_arrow: "↑ ",
+    history_loading: "Loading earlier messages…",
+    loading_short: "Loading…",
+    loading_short_joined: "Loading… · ",
+    loading_ellipsis: "…",
+    loading_ellipsis_joined: "… ",
+    loading_news: " · New activity",
+    history_retry: "Retry history: ",
+    history_retry_end: ".  ",
+    retry_short: "Retry: ",
+    retry_selected: " · Retry: ",
+    begin_keys: "⌥</⌃home",
+    retry_keys: "⌃home",
+    retry_action: " retry",
     key_find: "f3",
     key_esc: "esc",
     key_right: "→",
@@ -243,4 +289,37 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
 /// menu's rows).
 pub fn title(lang: Lang) -> &'static str {
     TABLES.pick(lang).title
+}
+
+/// The three spellings of how the copy of `characters` characters went, longest first, the
+/// composer gap shows the longest that fits (oracle `composer_gap.rs` `CopyFeedback::line`; the
+/// oracle's English until the catalog has the entries: a typed const table, ADR-010).
+pub fn copy_feedback(result: Result<CopyStatus, ()>, characters: usize) -> [String; 3] {
+    match result {
+        Ok(CopyStatus::Confirmed) => [
+            format!("Copied {characters} chars to host clipboard"),
+            format!("Copied {characters} chars"),
+            "Copied".into(),
+        ],
+        Ok(CopyStatus::Pending(_)) => [
+            format!("Copying {characters} chars…"),
+            "Copying…".into(),
+            "Copying…".into(),
+        ],
+        Ok(CopyStatus::Busy) => [
+            "Copy already in progress".into(),
+            "Copy in progress".into(),
+            "Copy busy".into(),
+        ],
+        Ok(CopyStatus::Unconfirmed) => [
+            "Copy sent to terminal · paste to verify".into(),
+            "Copy sent · verify paste".into(),
+            "Copy unconfirmed".into(),
+        ],
+        Err(()) => [
+            "Copy failed · try again".into(),
+            "Copy failed".into(),
+            "Copy failed".into(),
+        ],
+    }
 }

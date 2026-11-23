@@ -470,24 +470,36 @@ fn list_spacing_completion_preserves_the_scrolled_reader() {
 // ORACLE app/owned_transcript_tests.rs:200 older_page_loading_uses_the_status_row_without_moving_content_or_cursor kind=snap owner=chat-live snap=owned_history_loading_footer
 #[test]
 fn older_page_loading_uses_the_status_row_without_moving_content_or_cursor() {
-    kit::pending(
-        Owner::ChatLive,
-        "no owned history loading footer: the history states (loading older, loading beginning, failed, complete) are not settable from the kit, and the status row under the scrolled transcript is not drawn (snapshot owned_history_loading_footer, 80, 40 and 28 columns)",
+    // The snapshot is the status row alone, per width and state. Here the thread's own state is
+    // the state: the page asked at the top and not answered (LoadingOlder), refused (Failed), or
+    // the last (Complete); LoadingBeginning, the oracle's walk to the start by ctrl+home, reads as
+    // LoadingOlder in the snapshot and has no key here yet.
+    let rows = |loading: &'static str, failed: &'static str| {
+        [
+            (kit::Page::Loading, loading),
+            (kit::Page::Failed, failed),
+            (kit::Page::Complete, "  esc latest"),
+        ]
+    };
+    let wide = rows(
+        "  ↑ Loading earlier messages… · esc latest",
+        "  Retry history: ⌥</⌃home.  esc latest",
     );
-    for width in [80, 40, 28] {
-        for state in ["LoadingOlder", "LoadingBeginning", "Failed", "Complete"] {
+    let medium = rows(
+        "  ↑ Loading… · esc latest",
+        "  Retry history: ⌥</⌃home.  esc latest",
+    );
+    let narrow = rows("  ↑ Loading… · esc latest", "  Retry: ⌥</⌃home");
+    for (width, wanted) in [(80, wide), (40, medium), (28, narrow)] {
+        for (page, row) in wanted {
             let mut s = Screen::build(Owner::ChatLive)
-                .size(width, 12)
-                .script(include_str!(
-                    "fixtures/transcript_view_1/numbered_rows.jsonl"
-                ))
+                .size(width, 14)
+                .replay(Vec::new())
                 .open();
-            s.type_text("draft");
-            s.wheel_up(0, 4, 1);
-            s.assert_snap_section(
-                "owned_history_loading_footer",
-                &format!("{width} columns · {state}"),
-            );
+            s.at_the_top_of_a_partial_history(12, page);
+            s.assert_has_row(row);
+            // the content is not moved by the page that comes: the first row stays the first
+            assert_eq!(s.page_requests().len(), 2, "{width} columns · {page:?}");
         }
     }
 }

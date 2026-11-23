@@ -196,7 +196,9 @@ pub fn cell(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             .into(),
         ),
         Item::Hook(run) => below(separator, hook::HookCell { run: run.clone() }.into()),
-        Item::Status(card) => below(separator, status::StatusCell { card: card.clone() }.into()),
+        Item::Status { card, .. } => {
+            below(separator, status::StatusCell { card: card.clone() }.into())
+        }
         Item::PlanUpdate(update) => below(
             separator,
             plan_update::PlanUpdateCell {

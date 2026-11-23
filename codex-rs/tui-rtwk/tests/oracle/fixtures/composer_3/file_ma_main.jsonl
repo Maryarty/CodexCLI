@@ -1,0 +1,4 @@
+# The file result of `file_completion_preserves_large_paste_placeholder_elements`
+# (chat_composer.rs:10375): `src/main.rs` for the query `ma`.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"file_matches":{"query":"ma","matches":[{"path":"src/main.rs","score":100}]}}}

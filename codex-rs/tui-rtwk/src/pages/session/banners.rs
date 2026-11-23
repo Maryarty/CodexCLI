@@ -22,7 +22,9 @@ use rtwk::{
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::ids::{BackendId, Ticket};
 use codex_tui_core::keymap::actions::{LIST_ACCEPT, LIST_CANCEL};
+use codex_tui_core::screens::cells::ClockFormat;
 use codex_tui_core::screens::select::list::{Columns, Item, List};
+use codex_tui_core::screens::status::reset_time;
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::ThreadModel;
 
@@ -30,6 +32,7 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::keymap::{keymap, label};
 use crate::l10n::strings as l10n;
+use crate::pages::session::cells::status::strings as status_strings;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::measure;
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
@@ -163,6 +166,7 @@ impl State for BackendBannersState {
         let words = chat_strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
         let states = watch::<ScreenStates, _>(cx);
+        let reset_words = status_strings::of(cx);
         let (id, model) = select::<ThreadModel, _, _>(cx, |thread| {
             (
                 thread.id().clone(),
@@ -186,11 +190,15 @@ impl State for BackendBannersState {
             let banner = &occurrence.banner;
             let (title, description) = if banner.reserve_pending(active_model) {
                 (
-                    strings.chat.usage_limit_title,
-                    strings.chat.usage_limit_detail,
+                    strings.chat.usage_limit_title.to_owned(),
+                    strings.chat.usage_limit_detail.to_owned(),
                 )
             } else {
-                (banner.title(), banner.description())
+                let when = reset_when(banner, &states, reset_words);
+                (
+                    with_time(banner.title(), when.as_deref()),
+                    with_time(banner.description(), when.as_deref()),
+                )
             };
             let labels: Vec<String> = banner
                 .ctas()
@@ -205,7 +213,7 @@ impl State for BackendBannersState {
                 dismissible: occurrence.is_dismissible(),
             };
             let hint = words.banner_hint(BannerHint::of(!labels.is_empty(), keys.dismissible));
-            let header = header(title.to_owned(), description.to_owned(), &tokens);
+            let header = header(title, description, &tokens);
             let block = if labels.is_empty() {
                 // information only: a blank row above and below, the hint two rows under
                 let mut block = Column::new()
@@ -268,6 +276,35 @@ impl State for BackendBannersState {
             column = column.child(Text::new(notice.clone()).style(tokens.dim()));
         }
         column.into()
+    }
+}
+
+/// The banner's `{time}`: when the limit resets, in the viewer's clock and zone, with its day
+/// when that is not the day of the read (oracle `actionable_banner`, `format_reset_timestamp`).
+/// The zone is the host's (`status.utc_offset_secs`) unless the viewer's clock fixes one; a
+/// clock the host has not read yet (`now` 0) counts the reset as today.
+fn reset_when(
+    banner: &chat::Banner,
+    states: &ScreenStates,
+    words: &status_strings::Strings,
+) -> Option<String> {
+    let at = banner.reset_at()?;
+    let clock = states.cells.clock;
+    let offset = clock.utc_offset.unwrap_or(states.status.utc_offset_secs);
+    let read_at = if states.status.now > 0 {
+        states.status.now
+    } else {
+        at
+    };
+    let hour24 = clock.format == ClockFormat::TwentyFourHour;
+    Some(words.when(&reset_time(at, read_at, offset), hour24))
+}
+
+/// `text` with its `{time}` read as `when`; a banner without a reset time keeps it as written.
+fn with_time(text: &str, when: Option<&str>) -> String {
+    match when {
+        Some(when) => text.replace("{time}", when),
+        None => text.to_owned(),
     }
 }
 

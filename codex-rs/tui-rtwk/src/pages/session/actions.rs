@@ -242,6 +242,23 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 }
             }
         }
+        // A bare `/rename`: the feature opens its prompt in the model, the page shows it
+        // (`session_page`'s prompt watcher).
+        Outcome::Open(Open {
+            command: SlashCommand::Rename,
+            ..
+        }) => {
+            record(cx);
+            clear_sent(&w.ui);
+            screen(
+                cx,
+                chat::Intent::Session {
+                    thread: session.active.clone(),
+                    command: SlashCommand::Rename,
+                    intent: SessionIntent::Rename { name: None },
+                },
+            );
+        }
         Outcome::Open(opened) => {
             record(cx);
             clear_sent(&w.ui);

@@ -16,17 +16,20 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use rtwk::provider::Provider;
+use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
-    Definitions, MarkdownStream, MarkdownView, MdBlock, MdCodeBlock, MdInline, MdList, MdListItem,
-    MdTable,
+    Definitions, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock, MdCodeBlock, MdInline,
+    MdList, MdListItem, MdTable,
 };
 
+use codex_tui_core::app::facts::{Rendering, TuiSettings};
 use codex_tui_core::threads::citations::{Directive, directives, label};
 use codex_tui_core::threads::{inline_vis, stream_preview};
 
 use crate::widgets::markdown::prepared;
 
-use super::markdown::lift_markdown_fences;
+use super::markdown::{plain_lists, preferred};
 use super::strings::Strings;
 
 /// Private-use characters around a directive's number: letters to the
@@ -38,17 +41,110 @@ const CLOSE: char = '\u{E001}';
 /// streams: inline visualizations read as their note, table-holding Markdown
 /// fences lifted, directives read against the session `cwd`.
 pub fn view(source: &str, live: bool, cwd: Option<&str>, strings: &Strings) -> MarkdownView {
+    view_with(source, live, cwd, strings, Rendering::default())
+}
+
+/// The Markdown of a message in `theme`, drawn under the user's `tui.rendering` preferences:
+/// the widget reads them where it is built, so a change of the setting redraws it.
+///
+/// Flutter: a `Consumer<RenderingPrefs>` around the `MarkdownBody`.
+pub fn cited(
+    source: &str,
+    live: bool,
+    cwd: Option<&str>,
+    strings: &'static Strings,
+    theme: MarkdownTheme,
+) -> AnyWidget {
+    Cited {
+        source: source.to_owned(),
+        live,
+        cwd: cwd.map(str::to_owned),
+        strings,
+        theme,
+    }
+    .into()
+}
+
+#[derive(Clone)]
+struct Cited {
+    source: String,
+    live: bool,
+    cwd: Option<String>,
+    strings: &'static Strings,
+    theme: MarkdownTheme,
+}
+
+// a strings table is a `'static` constant: the same table is the same address
+impl PartialEq for Cited {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+            && self.live == other.live
+            && self.cwd == other.cwd
+            && std::ptr::eq(self.strings, other.strings)
+            && self.theme == other.theme
+    }
+}
+
+struct CitedState;
+
+impl StatefulWidget for Cited {
+    type State = CitedState;
+
+    fn create_state(&self) -> CitedState {
+        CitedState
+    }
+}
+
+impl_widget!(stateful eq Cited);
+
+impl State for CitedState {
+    type Widget = Cited;
+    type Msg = ();
+
+    fn build(&self, widget: &Cited, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        // a tree with no app above it (a widget on its own) has the config's defaults
+        let rendering = Provider::<TuiSettings>::maybe_of(cx, true)
+            .map_or_else(Rendering::default, |settings| settings.rendering);
+        crate::widgets::markdown::themed(
+            view_with(
+                &widget.source,
+                widget.live,
+                widget.cwd.as_deref(),
+                widget.strings,
+                rendering,
+            ),
+            widget.theme.clone(),
+        )
+        .into()
+    }
+}
+
+/// `view` under the user's `tui.rendering` preferences: a disabled table or list renderer keeps
+/// its source text (mermaid and math have no renderer here, so their sources show either way).
+pub fn view_with(
+    source: &str,
+    live: bool,
+    cwd: Option<&str>,
+    strings: &Strings,
+    rendering: Rendering,
+) -> MarkdownView {
     let source = if live {
         stream_preview::visible(source)
     } else {
         source
     };
     let source = inline_vis::rewrite(source, strings.visualization_unavailable);
-    let lifted = lift_markdown_fences(&source);
+    let lifted = preferred(&source, rendering);
     let found = directives(&lifted);
     // The marker characters are the app's: text that holds them is shown as it is.
     if found.is_empty() || lifted.contains([OPEN, CLOSE]) {
-        return crate::widgets::markdown::view_in(lifted.as_ref(), cwd);
+        if rendering.lists {
+            return crate::widgets::markdown::view_in(lifted.as_ref(), cwd);
+        }
+        let mut stream = MarkdownStream::new(&lifted);
+        let blocks = plain_lists(stream.blocks());
+        let definitions = stream.definitions().clone();
+        return MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions);
     }
     let found: Vec<Directive> = found
         .into_iter()
@@ -73,6 +169,11 @@ pub fn view(source: &str, live: bool, cwd: Option<&str>, strings: &Strings) -> M
         .iter()
         .map(|block| Arc::new(directives.block(block)))
         .collect();
+    let blocks = if rendering.lists {
+        blocks
+    } else {
+        plain_lists(&blocks)
+    };
     let definitions: Definitions = stream
         .definitions()
         .iter()

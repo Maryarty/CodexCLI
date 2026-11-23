@@ -6,9 +6,11 @@
 //! effects as data (`AppFx`); the shell runs them (R1). Nothing here touches
 //! the network, the clock or the file system (R12).
 
+mod banners;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
+mod mentions;
 mod notices;
 mod select;
 mod session;
@@ -16,7 +18,9 @@ mod transcript_text;
 pub use transcript_text::TranscriptText;
 pub mod worktree;
 
-use session::{active_backend, confirmed, refresh_rates, removed, session_intent, session_note};
+use session::{
+    active_backend, card_limits, confirmed, refresh_rates, removed, session_intent, session_note,
+};
 
 use crate::threads::ThreadAsk;
 use std::collections::{BTreeMap, VecDeque};
@@ -92,6 +96,8 @@ pub struct SessionSlice {
     /// (`return_to_agents_after_removal`).
     pub removed: u32,
     pub rate_limits: BTreeMap<BackendId, status::RateLimits>,
+    /// Every bucket the full reads of each backend left, and its reset credits.
+    pub rate_snapshots: BTreeMap<BackendId, status::RateLimitStore>,
     pub connections: BTreeMap<BackendId, ConnectionState>,
     pub backend_notices: BTreeMap<BackendId, String>,
     pub backend_banners: BTreeMap<BackendId, chat::BannerOccurrence>,
@@ -474,17 +480,17 @@ impl AppFx {
 enum AppCtx {
     /// The first thread of a connection, or one a cycle started on `backend`
     /// (`None`: the first).
-    StartThread {
-        switch: Option<BackendId>,
-    },
+    StartThread { switch: Option<BackendId> },
     /// An RPC of an app-scoped screen (the agents command center).
     Agents(agents::Ctx),
     /// An RPC of the resume picker (its pages, previews, archive).
     Resume(resume::Ctx),
     /// `model/list` and the permission profiles for the pickers of S14.
     Select(crate::screens::select::Ctx),
+    /// A read of the account's limits and why it was asked.
     RateLimits {
         backend: BackendId,
+        origin: status::RateLimitOrigin,
     },
     /// The e-mail to the workspace owner a banner action asked for; the notice goes to the
     /// thread that was open (`add_credits_nudge_email_in_flight`).
@@ -579,6 +585,8 @@ pub struct CodexApp {
     /// The server's collaboration-mode presets (`collaborationMode/list`, read at connect):
     /// empty until the server has answered, and when it did not.
     modes: Vec<crate::screens::select::collaboration::Mask>,
+    /// Where each thread returns to when Luna Reserve ends (`ReserveReturnModel`).
+    reserve_returns: BTreeMap<ThreadId, banners::ReserveReturn>,
 }
 
 /// When the process's first thread starts.
@@ -619,6 +627,7 @@ impl CodexApp {
                 switched_from: None,
                 removed: 0,
                 rate_limits: BTreeMap::new(),
+                rate_snapshots: BTreeMap::new(),
                 connections: BTreeMap::new(),
                 backend_notices: BTreeMap::new(),
                 backend_banners: BTreeMap::new(),
@@ -642,6 +651,7 @@ impl CodexApp {
             daybreak: threads::daybreak::Access::default(),
             transcript_text: None,
             modes: Vec::new(),
+            reserve_returns: BTreeMap::new(),
         }
     }
 
@@ -899,7 +909,39 @@ impl CodexApp {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         self.drop_requests_of(backend);
+        self.fail_in_flight(backend);
         epoch
+    }
+
+    /// The app-scoped requests the replaced connection of `backend` still owed an answer for: its
+    /// answer carries the old epoch and never comes, so each is failed here (`Failed`, "connection
+    /// lost") and its operation leaves `Loading` (the one-resume-in-flight rule of `OpenThread`
+    /// would wait for it forever). What the failures would ask next is not sent: the commands of a
+    /// lost connection are not run, and the tickets they minted are spent with them.
+    fn fail_in_flight(&mut self, backend: BackendId) {
+        let lost: Vec<Ticket> = self
+            .outgoing
+            .tickets()
+            .filter(|ticket| {
+                self.outgoing
+                    .get(*ticket)
+                    .is_some_and(|ctx| sent_to(self, ctx) == backend)
+            })
+            .collect();
+        let before: Vec<Ticket> = self.outgoing.tickets().collect();
+        let mut fx = AppFx::default();
+        for ticket in lost {
+            apply_reply(self, ticket, Reply::failed(CONNECTION_LOST), &mut fx);
+        }
+        let asked: Vec<Ticket> = self
+            .outgoing
+            .tickets()
+            .filter(|ticket| !before.contains(ticket))
+            .collect();
+        for ticket in asked {
+            self.outgoing
+                .resolve(ticket, Reply::failed(CONNECTION_LOST));
+        }
     }
 
     fn request_epoch(&self, backend: BackendId) -> ConnEpoch {
@@ -961,6 +1003,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     apply_event(app, origin, ev, fx);
+    mentions::sync(app, fx);
     drain_popover_asks(app, fx);
     if lists && !app.outgoing.any(is_attach) {
         app.attaching_events.clear();
@@ -1011,7 +1054,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
     match ev {
         AppEv::Connected if origin != BackendId::default() => {
             if app.screens.chat.status.account_usage {
-                refresh_rates(app, origin, fx);
+                refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
             }
         }
         AppEv::Connected => {
@@ -1066,10 +1109,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Backend(BackendEv::Notification(notification)) => {
             match &*notification {
                 ServerNotification::AccountRateLimitsUpdated(note) => {
-                    // The notification is newer than any in-flight read.
-                    app.outgoing.retain(
-                        |ctx| !matches!(ctx, AppCtx::RateLimits { backend } if *backend == origin),
-                    );
+                    // The notification is newer than a refresh nobody waits for; a
+                    // read a card or a menu waits for still answers it.
+                    app.outgoing.retain(|ctx| {
+                        !matches!(ctx, AppCtx::RateLimits { backend, origin: read }
+                            if *backend == origin && read.folds_into_a_read_in_flight())
+                    });
                     install_rates(app, origin, note.rate_limits.clone().into());
                     // never reuse the permission from before a new hard stop
                     // (`invalidate_ordinary_usage_recovery`)
@@ -1085,7 +1130,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             || note.rate_limits.spend_control_reached == Some(true)
                             || app.session.backend_banners.contains_key(&origin))
                     {
-                        refresh_rates(app, origin, fx);
+                        refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                     }
                     return;
                 }
@@ -1107,7 +1152,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 // The identity boundary (`update_account_state`): what was asked of, and shown
                 // for, the previous account is not the new one's.
-                ServerNotification::AccountUpdated(_) => {
+                ServerNotification::AccountUpdated(note) => {
                     // the apps directory and the permission catalog of the old account go
                     // (`invalidate_connector_scope`, `invalidate_permission_discovery`)
                     select::event(app, screens::select::Ev::ScopeChanged, fx);
@@ -1115,9 +1160,29 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .backend_banners
                         .remove(&origin);
                     Rc::make_mut(&mut app.session).reserve.remove(&origin);
-                    app.outgoing.retain(
-                        |ctx| !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin),
-                    );
+                    if let Some(store) = Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .get_mut(&origin)
+                    {
+                        store.clear();
+                    }
+                    app.outgoing.retain(|ctx| {
+                        !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin)
+                            && !matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                    });
+                    if active_backend(app) == origin {
+                        status::apply(
+                            &mut Rc::make_mut(&mut app.screens).status,
+                            status::Ev::Account(status::account_from_auth_mode(
+                                note.auth_mode,
+                                note.plan_type,
+                            )),
+                            fx,
+                        );
+                    }
+                    // The answers the cards waited for are gone: they end
+                    // empty (oracle `update_account_state`).
+                    finish_status_cells(app, origin, None, fx);
                 }
                 // With no thread open there is no transcript to show a thread-less
                 // warning or deprecation notice in: the banner line keeps it. With a
@@ -1369,7 +1434,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
-                    refresh_rates(app, active_backend(app), fx);
+                    refresh_rates(
+                        app,
+                        active_backend(app),
+                        status::RateLimitOrigin::Startup,
+                        fx,
+                    );
                 }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
@@ -1387,7 +1457,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 // A card a script seeds is an entry of the shown thread, as `/status` makes it.
                 ScreenEv::Status(status::Ev::Card(card)) => {
                     if let Some(thread) = app.session.active.clone() {
-                        let item = threads::Item::Status(std::sync::Arc::new((**card).clone()));
+                        let item = threads::Item::Status {
+                            card: std::sync::Arc::new((**card).clone()),
+                            request: None,
+                        };
                         apply_thread(app, &thread, ThreadEv::Appended { turn: None, item }, fx);
                     }
                 }
@@ -1444,7 +1517,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             | AppCtx::OpenThread { backend, .. }
                             | AppCtx::NewConversation { backend, .. }
                             | AppCtx::Nudge { backend, .. }
-                            | AppCtx::RateLimits { backend } => *backend != origin,
+                            | AppCtx::RateLimits { backend, .. } => *backend != origin,
                             AppCtx::SessionRead => origin != BackendId::default(),
                             AppCtx::Resume(ctx) if ctx.backend() == origin => {
                                 lost.borrow_mut().push(ctx.clone());
@@ -1494,7 +1567,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 _ => {}
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
+            let startup = matches!(ev, ScreenEv::Cells(screens::cells::Ev::Startup(_)));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            if startup {
+                // The facts came after the first conversation attached: it opens with its card now.
+                notices::startup(app, fx);
+            }
             if reconnected && origin == BackendId::default() {
                 // The new server is told the startup facts again.
                 crate::screens::onboarding::connected(
@@ -1506,7 +1584,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             release_held_start(app, fx);
             if reconnected {
                 if app.screens.chat.status.account_usage {
-                    refresh_rates(app, origin, fx);
+                    refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                 }
                 if let Some(id) = app.session.active.clone()
                     && app.screens.agents.owner_of(id.as_str()) == origin
@@ -1658,8 +1736,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
         match ctx {
             AppCtx::StartThread { switch } => {
                 match (switch, answer) {
-                    (Some(backend), Answer::ThreadStarted { thread }) => {
-                        switch_to(app, backend, thread, fx);
+                    (Some(backend), Answer::ThreadStarted { thread, sources }) => {
+                        switch_to(app, backend, thread, sources, fx);
                     }
                     (Some(_), Answer::Failed(error)) => {
                         // The oracle shows the error and stays where it was.
@@ -1674,18 +1752,31 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
-            AppCtx::RateLimits { backend } => {
+            AppCtx::RateLimits { backend, origin } => {
                 if let Answer::RateLimits {
                     limits,
                     banner,
                     reserve,
+                    read,
                 } = answer
                 {
                     Rc::make_mut(&mut app.session)
                         .reserve
                         .insert(backend, reserve);
                     install_rates(app, backend, limits);
+                    let now = app.screens.status.now;
+                    Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .entry(backend)
+                        .or_default()
+                        .install(*read, now);
                     install_banner(app, backend, banner.map(|banner| *banner));
+                    banners::fallback(app, backend, fx);
+                }
+                // The card that asked ends with what the app holds now: the new
+                // read, or the cache when the read failed.
+                if let status::RateLimitOrigin::Status(request) = origin {
+                    finish_status_cells(app, backend, Some(request), fx);
                 }
             }
             AppCtx::Nudge { nudge, thread, .. } => {
@@ -1729,15 +1820,15 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 draft,
             } => {
                 let result = match answer {
-                    Answer::ThreadStarted { thread } => Ok((thread, None)),
+                    Answer::ThreadStarted { thread, sources } => Ok((thread, None, sources)),
                     Answer::Screen(ScreenReply::Agents(
                         agents::Reply::Forked(thread) | agents::Reply::Started(thread),
-                    )) => Ok((ThreadId::new(&thread.id), Some(thread))),
+                    )) => Ok((ThreadId::new(&thread.id), Some(thread), Vec::new())),
                     Answer::Failed(error) => Err(error),
                     _ => Err(RpcError::Mismatch),
                 };
                 match result {
-                    Ok((thread, details)) => {
+                    Ok((thread, details, sources)) => {
                         attach_thread_with_metadata(
                             app,
                             &thread,
@@ -1746,6 +1837,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             details.as_deref(),
                             fx,
                         );
+                        note_instruction_sources(app, &thread, sources, fx);
                         if let Some(intent) = then {
                             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
                         }
@@ -1923,7 +2015,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Screen(ScreenIntent::Usage(crate::screens::usage::Intent::RefreshRateLimits)) => {
-            refresh_rates(app, active_backend(app), fx)
+            refresh_rates(
+                app,
+                active_backend(app),
+                status::RateLimitOrigin::UsageMenu,
+                fx,
+            )
         }
         Intent::Interrupt(thread) => apply_thread(app, &thread, ThreadEv::Interrupt, fx),
         Intent::ThreadScreen { thread, intent } => {
@@ -2062,6 +2159,42 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
     }
 }
 
+/// The `/status` cells of `backend`'s threads that still wait end with the
+/// limits the app holds: those of `request` only, or all of them (`None`).
+fn finish_status_cells(
+    app: &mut CodexApp,
+    backend: BackendId,
+    request: Option<u64>,
+    fx: &mut AppFx,
+) {
+    let limits = card_limits(app, backend, false);
+    let waiting: Vec<(ThreadId, u64)> = app
+        .threads
+        .iter()
+        .filter(|(id, _)| app.screens.agents.owner_of(id.as_str()) == backend)
+        .flat_map(|(id, model)| {
+            model
+                .transcript()
+                .waiting_status()
+                .into_iter()
+                .filter(move |waiting| request.is_none_or(|request| request == *waiting))
+                .map(move |waiting| (id.clone(), waiting))
+        })
+        .collect();
+    for (thread, request) in waiting {
+        let limits = limits.clone();
+        apply_thread(
+            app,
+            &thread,
+            ThreadEv::Screen(ScreenThreadEv::from(status::ThreadEv::Refreshed {
+                request,
+                limits,
+            })),
+            fx,
+        );
+    }
+}
+
 fn install_rates(app: &mut CodexApp, backend: BackendId, limits: status::RateLimits) {
     Rc::make_mut(&mut app.session)
         .rate_limits
@@ -2083,6 +2216,21 @@ fn install_banner(app: &mut CodexApp, backend: BackendId, banner: Option<chat::B
             backend,
             chat::BannerOccurrence::new(banner, app.mint.next()),
         );
+    }
+}
+
+/// A change of the banner occurrence `backend` shows (`app/banners.rs`); none shown, none made.
+fn with_banner(
+    app: &mut CodexApp,
+    backend: BackendId,
+    change: impl FnOnce(&mut chat::BannerOccurrence),
+) {
+    if app.session.backend_banners.contains_key(&backend)
+        && let Some(occurrence) = Rc::make_mut(&mut app.session)
+            .backend_banners
+            .get_mut(&backend)
+    {
+        change(occurrence);
     }
 }
 
@@ -2488,8 +2636,9 @@ fn run_shell(app: &mut CodexApp, thread: &ThreadId, command: String, fx: &mut Ap
 /// The first thread's answer.
 fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
     match answer {
-        Answer::ThreadStarted { thread } => {
+        Answer::ThreadStarted { thread, sources } => {
             attach_thread(app, &thread, BackendId::default(), Origin::Started, fx);
+            note_instruction_sources(app, &thread, sources, fx);
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
             session.status = Session::Ready;
@@ -2498,6 +2647,21 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
         _ => {}
     }
+}
+
+/// The instruction files a thread's start named are the thread's (`/status`
+/// lists them); an empty list says nothing.
+fn note_instruction_sources(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    sources: Vec<status::AgentsSource>,
+    fx: &mut AppFx,
+) {
+    if sources.is_empty() {
+        return;
+    }
+    let ev = ScreenThreadEv::from(status::ThreadEv::InstructionSources(sources));
+    apply_thread(app, thread, ThreadEv::Screen(ev), fx);
 }
 
 /// What was asked before the first thread existed goes out on it.
@@ -2554,8 +2718,15 @@ fn session_opened(
 /// An empty conversation moved to `backend` (oracle:
 /// `start_new_session_on_other_backend`): the new thread is the chat's, its
 /// backend the displayed one; the composer's draft goes with it.
-fn switch_to(app: &mut CodexApp, backend: BackendId, thread: ThreadId, fx: &mut AppFx) {
+fn switch_to(
+    app: &mut CodexApp,
+    backend: BackendId,
+    thread: ThreadId,
+    sources: Vec<status::AgentsSource>,
+    fx: &mut AppFx,
+) {
     attach_thread(app, &thread, backend, Origin::Started, fx);
+    note_instruction_sources(app, &thread, sources, fx);
     let session = Rc::make_mut(&mut app.session);
     session.switched_from = session.active.replace(thread.clone());
     session.switches += 1;
@@ -2597,6 +2768,31 @@ fn detach_threads(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
         .collect();
     for id in held {
         apply_thread(app, &id, ThreadEv::ConnectionLost, fx);
+    }
+}
+
+/// What a request that lost its connection fails with: the client's own words for a closed
+/// channel (the ticket's answer is a failure like any the server gives).
+const CONNECTION_LOST: &str = "the connection to the app server was closed";
+
+/// The backend an in-flight request was sent to: the one its context names, else the displayed
+/// one (what a command without a backend goes to).
+fn sent_to(app: &CodexApp, ctx: &AppCtx) -> BackendId {
+    match ctx {
+        AppCtx::StartThread { switch } => switch.unwrap_or_default(),
+        AppCtx::RateLimits { backend, .. }
+        | AppCtx::Nudge { backend, .. }
+        | AppCtx::NewConversation { backend, .. }
+        | AppCtx::OpenThread { backend, .. }
+        | AppCtx::Worktree { backend, .. }
+        | AppCtx::Select(
+            crate::screens::select::Ctx::Fallback { backend }
+            | crate::screens::select::Ctx::Switch { backend, .. },
+        ) => *backend,
+        AppCtx::Removal { thread, .. } | AppCtx::OpenSession { thread, .. } => {
+            app.screens.agents.owner_of(thread.as_str())
+        }
+        _ => active_backend(app),
     }
 }
 
@@ -2663,6 +2859,7 @@ fn attach_thread_with_metadata(
             app.attaching_events.push_back((source, id, ev));
         }
     }
+    notices::session_card(app, thread, fx);
     notices::flush(app, thread, fx);
 }
 

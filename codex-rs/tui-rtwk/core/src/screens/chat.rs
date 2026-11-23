@@ -12,7 +12,10 @@ pub mod plan_mode;
 use std::rc::Rc;
 
 pub use facts::{Ev as FactEv, Facts, Footer, Probe};
-pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve};
+pub use banner::{
+    AutomaticSwitch, Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve,
+    SwitchReason,
+};
 pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;
@@ -111,10 +114,14 @@ pub struct StatusFacts {
     /// `tui.effects.starfield`: the composer sparkle (oracle `settings.effects.starfield`).
     pub starfield_effect: bool,
     pub account_usage: bool,
+    /// What a `/status` card reads of the loaded config.
+    pub card: super::status::CardFacts,
     pub empty_state: bool,
     pub notification_policy: NotificationPolicy,
     /// What the config says of `/permissions` (guardian, requirements, limits).
     pub permissions: super::select::permissions::Facts,
+    /// `multi_agent_v2.max_concurrent_threads_per_session`: an Ultra pick warns from 8 on.
+    pub agent_threads: Option<usize>,
 }
 
 impl Default for StatusFacts {
@@ -146,9 +153,11 @@ impl Default for StatusFacts {
             shimmer_effect: true,
             starfield_effect: true,
             account_usage: false,
+            card: super::status::CardFacts::default(),
             empty_state: false,
             notification_policy: NotificationPolicy::default(),
             permissions: Default::default(),
+            agent_threads: None,
         }
     }
 }
@@ -363,6 +372,8 @@ pub struct ThreadPart {
     /// Set until the thread is attached again.
     pub provider_error: Option<codex_app_server_protocol::ModelProviderError>,
     pub name: Option<String>,
+    /// The thread this one was forked from (`/status` shows it).
+    pub forked_from: Option<String>,
     pub cwd: Option<String>,
     /// The file the thread's history is written to (`/rollout`), once the
     /// server has named it.
@@ -649,6 +660,7 @@ pub enum ThreadIntent {
 pub enum ThreadEv {
     Metadata {
         name: Option<String>,
+        forked_from: Option<String>,
         cwd: String,
         path: Option<String>,
         parent_owned: bool,
@@ -742,6 +754,7 @@ pub fn is_sparkle_model(model: &str) -> bool {
 pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
     ThreadEv::Metadata {
         name: thread.name.clone(),
+        forked_from: thread.forked_from_id.clone(),
         cwd: thread.cwd.display().to_string(),
         path: thread.path.as_ref().map(|path| path.display().to_string()),
         parent_owned: blocks_direct_input(thread),
@@ -895,8 +908,9 @@ pub fn apply_thread_intent(
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak, resumed, fresh } => {
+        ThreadEv::Metadata { name, forked_from, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak, resumed, fresh } => {
             part.name = name;
+            part.forked_from = forked_from;
             part.daybreak = daybreak;
             part.cwd = Some(cwd);
             part.path = path;
