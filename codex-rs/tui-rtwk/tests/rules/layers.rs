@@ -418,8 +418,9 @@ fn codex_app_holds_its_threads_privately() {
     }
 }
 
-/// The thread RPCs of the thread's life: resume, fork, start, read, turns, subscribe and the
-/// turn calls (ADR-003). Built in core/src/threads.rs and
+/// The thread RPCs of the thread's life: resume, fork, start, read, turns, subscribe, the
+/// turn calls and the review start, which starts a turn and switches review mode (ADR-003).
+/// Built in core/src/threads.rs and
 /// core/src/protocol/mod.rs only, whoever asks: a feature slice cannot make them either.
 const LIFECYCLE_RPCS: &[&str] = &[
     "ClientRequest::ThreadResume",
@@ -431,6 +432,7 @@ const LIFECYCLE_RPCS: &[&str] = &[
     "ClientRequest::TurnStart",
     "ClientRequest::TurnInterrupt",
     "ClientRequest::TurnSteer",
+    "ClientRequest::ReviewStart",
     "ThreadResumeParams",
     "ThreadForkParams",
     "ThreadStartParams",
@@ -438,6 +440,7 @@ const LIFECYCLE_RPCS: &[&str] = &[
     "TurnInterruptParams",
     "TurnStartParams",
     "TurnSteerParams",
+    "ReviewStartParams",
 ];
 
 /// Thread RPCs that are a feature's, not the lifecycle's (`/compact`, `/rename`, `!cmd`,
@@ -500,6 +503,15 @@ fn the_thread_rpc_scan_lets_a_slice_build_its_own_and_not_the_lifecycle() {
     );
     assert_eq!(
         thread_rpcs_outside(&slice("let p = ThreadResumeParams {")).len(),
+        1
+    );
+    // `review/start` starts a turn and switches review mode: a lifecycle RPC, not a slice's
+    assert_eq!(
+        thread_rpcs_outside(&slice("ClientRequest::ReviewStart {")).len(),
+        1
+    );
+    assert_eq!(
+        thread_rpcs_outside(&slice("let p = ReviewStartParams {")).len(),
         1
     );
     let elsewhere = vec![(
@@ -708,12 +720,29 @@ fn names_feature_path(line: &str, feature: &str) -> bool {
 /// nothing else of the feature.
 const SLASH_ROUTERS: &[&str] = &["core/src/app/session.rs"];
 
+/// The file that sends a fact the host read, unasked, to a feature (`AppEv::Feature`): the one
+/// place besides a feature's own files that may name `features::<f>::Fact` (the payload type
+/// it builds `FeatureFact::from(..)` of), and nothing else of the feature.
+const FACT_SENDERS: &[&str] = &["host/src/in_process.rs"];
+
+/// The framework's own tests: the outbox (`Out`) and the app's `Effects` are typed by the real
+/// list's roots, while the probes' list is a second one, so the test of a door builds a ctx of
+/// a real feature. The only files besides a feature's own that name one, and they are test
+/// files (`#[cfg(test)]`).
+const ROOT_TESTS: &[&str] = &[
+    "core/src/features/framework.rs",
+    "core/src/app/features/tests.rs",
+];
+
 /// The lines of `files` that name a listed feature by path outside its own files and the two
 /// lists (`core/src/features/mod.rs`, `src/features/mod.rs`).
 fn features_named_outside_the_list(files: &[(String, String)], features: &[String]) -> Vec<String> {
     let mut found = Vec::new();
     for (name, text) in files {
-        if name == "core/src/features/mod.rs" || name == "src/features/mod.rs" {
+        if name == "core/src/features/mod.rs"
+            || name == "src/features/mod.rs"
+            || ROOT_TESTS.contains(&name.as_str())
+        {
             continue;
         }
         for feature in features {
@@ -721,12 +750,15 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
                 continue;
             }
             let intent = format!("features::{feature}::Intent");
+            let fact = format!("features::{feature}::Fact");
             for (index, line) in code_lines(text) {
-                let line_left = if SLASH_ROUTERS.contains(&name.as_str()) {
-                    line.replace(&intent, "")
-                } else {
-                    line.to_string()
-                };
+                let mut line_left = line.to_string();
+                if SLASH_ROUTERS.contains(&name.as_str()) {
+                    line_left = line_left.replace(&intent, "");
+                }
+                if FACT_SENDERS.contains(&name.as_str()) {
+                    line_left = line_left.replace(&fact, "");
+                }
                 if names_feature_path(&line_left, feature) {
                     found.push(format!("{name}:{}: {}", index + 1, line.trim()));
                 }
@@ -739,7 +771,7 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
 /// A feature is reached through the list: the generated `FeatureIntent`, `FeatureMenu`...
 /// carry one variant per feature and the dispatch is generated, so no hub, screen, view or
 /// shell file names `features::<f>` (its types, its functions). The feature's own two folders
-/// do; the slash router may build its intent.
+/// do; the slash router may build its intent and the host's sender its fact.
 #[test]
 fn features_are_named_only_through_the_list() {
     let mod_rs = read("core/src/features/mod.rs");
@@ -833,6 +865,49 @@ fn the_feature_naming_scan_bites() {
         ),
         0
     );
+    // the tests of the framework's roots build a ctx of a real feature; the app's code does not
+    assert_eq!(
+        found("core/src/app/features/tests.rs", "features::goal::Ctx {"),
+        0
+    );
+    assert_eq!(
+        found(
+            "core/src/features/framework.rs",
+            "crate::features::goal::Ctx {"
+        ),
+        0
+    );
+    assert_eq!(
+        found("core/src/app/features.rs", "features::goal::Ctx {"),
+        1
+    );
+    // the host's fact sender builds the feature's `Fact` and names nothing else; no other file may
+    assert_eq!(
+        found(
+            "host/src/in_process.rs",
+            "FeatureFact::from(features::goal::Fact::Seen)"
+        ),
+        0
+    );
+    assert_eq!(
+        found("host/src/in_process.rs", "features::goal::Model::new()"),
+        1
+    );
+    assert_eq!(
+        found("host/src/in_process.rs", "features::goal::Intent::Open"),
+        1
+    );
+    assert_eq!(
+        found(
+            "core/src/app.rs",
+            "FeatureFact::from(features::goal::Fact::Seen)"
+        ),
+        1
+    );
+    assert_eq!(
+        found("core/src/app/session.rs", "features::goal::Fact::Seen"),
+        1
+    );
     // the slash router builds an intent and names nothing else
     assert_eq!(
         found("core/src/app/session.rs", "features::goal::Intent::Open"),
@@ -888,6 +963,9 @@ const OUTBOX_ONLY: &[&str] = &[
     "ThreadSet",
     "apply_app",
     "apply_ev",
+    // the host's answers (`AppEv::Effect`) and asks (`Command::Effect`, `Intent::Effect`) are the
+    // app's: a feature asks through `AppCx::effect` and is answered in `Feature::effect_done`
+    "AppEv",
 ];
 
 fn slice_outside_the_outbox(files: &[(String, String)]) -> Vec<String> {
@@ -896,7 +974,13 @@ fn slice_outside_the_outbox(files: &[(String, String)]) -> Vec<String> {
     });
     found.extend(scan(
         files,
-        &["threads::apply(", "app::Command", "rpc::Reply"],
+        &[
+            "threads::apply(",
+            "app::Command",
+            "rpc::Reply",
+            "Intent::Effect",
+            "Command::Effect",
+        ],
         |name| !name.starts_with("core/src/features/") || is_framework_file(name),
     ));
     found
@@ -921,6 +1005,9 @@ fn the_outbox_scan_bites_and_spares_the_framework() {
         "fn go(set: &mut ThreadSet) {}",
         "threads::apply(model, ev, fx);",
         "use crate::app::Command;",
+        "fn go(ev: AppEv) {}",
+        "let ask = Intent::Effect { request, ask };",
+        "Command::Effect { request, ask } => {}",
     ] {
         assert_eq!(
             slice_outside_the_outbox(&file("core/src/features/goal/mod.rs", text)).len(),

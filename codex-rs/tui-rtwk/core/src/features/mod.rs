@@ -15,7 +15,11 @@
 //! and never a variant per feature (rule `hub_enums_only_shrink`).
 //!
 //! The order of the list is the order of every hook that runs over all features
-//! (`on_resumed`, `on_turn_end`, `on_interrupted`).
+//! (`on_resumed`, `on_turn_end`, `on_interrupted`, `on_settled`).
+//!
+//! A feature reaches the server through `wire` (an RPC) and the host through `AppCx::effect`
+//! (an `effects::Ask`: write a file, suggest a title, copy; the host's list of capabilities,
+//! never a feature's), whose answer comes back to `effect_done`.
 //!
 //! The recipe (files, the one list line, hooks, tests) is the end of ADR-012 in
 //! `docs/rtwk-port/architecture.md`.
@@ -23,6 +27,7 @@
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
+use crate::app::effects::Done;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::{Tone, TurnEnd};
@@ -120,8 +125,10 @@ pub trait Feature: 'static {
     /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
     /// `intent`, `answered`, `picked`, `prompt_submitted` and `on_resumed`.
     type State: Clone + std::fmt::Debug + Default + PartialEq + Eq;
-    /// The feature's per-thread state: a field of `ThreadModel`, changed only under the
-    /// thread's writer (`thread_intent`, `thread_answered`, the hooks).
+    /// The feature's per-thread state: a field of `ThreadModel`, changed by `thread_intent`
+    /// only under the thread's writer, and by what happened to the thread (`thread_answered`,
+    /// the hooks) always: a part that waits for a reply never stays stuck because the thread
+    /// lost its writer. The effects of `ThreadCx` are the writer's (`ThreadCx::request`).
     type ThreadPart: Clone + std::fmt::Debug + Default + PartialEq + Eq;
     /// What the user or a view asks of the feature (`Intent::Feature`).
     type Intent: Clone + std::fmt::Debug + PartialEq + Eq;
@@ -143,6 +150,9 @@ pub trait Feature: 'static {
     /// A line the feature says in the transcript (`NoteKey::Feature`); its words are
     /// `src/features/<f>/strings.rs`.
     type Note: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// What the host tells the feature unasked (`AppEv::Feature`): a config feed, the presets
+    /// the config holds. The host builds it with the feature's own type and `From`.
+    type Fact: Clone + std::fmt::Debug + PartialEq + Eq;
 
     /// An intent of the feature.
     fn intent(state: &mut Self::State, intent: Self::Intent, cx: &mut AppCx<'_>) {
@@ -157,6 +167,13 @@ pub trait Feature: 'static {
         cx: &mut AppCx<'_>,
     ) {
         let _ = (state, ctx, result, cx);
+    }
+
+    /// The host's answer to an ask the feature made through `AppCx::effect`, with the `ctx` it
+    /// gave. A copy answers twice (`Done::Copy(Ok(CopyStatus::Pending(_)))`, then how it
+    /// ended): `Done::is_final` says which one this is.
+    fn effect_done(state: &mut Self::State, ctx: Self::Ctx, done: Done, cx: &mut AppCx<'_>) {
+        let _ = (state, ctx, done, cx);
     }
 
     /// The row `row` of the feature's `menu` chosen.
@@ -186,13 +203,19 @@ pub trait Feature: 'static {
         Tone::Info
     }
 
+    /// A fact the host sent unasked (`AppEv::Feature`): the feature keeps it, and changes what
+    /// its open menu shows by it (`FeatureView::menu_list` reads the state).
+    fn on_fact(state: &mut Self::State, fact: Self::Fact, cx: &mut AppCx<'_>) {
+        let _ = (state, fact, cx);
+    }
+
     /// A resumed thread has been applied and is the one in use (the oracle's
     /// `maybe_prompt_resume_paused_goal_after_resume` is one).
     fn on_resumed(state: &mut Self::State, thread: &ThreadId, cx: &mut AppCx<'_>) {
         let _ = (state, thread, cx);
     }
 
-    /// An intent for this thread's part, applied under the thread's writer.
+    /// An intent for this thread's part: an ask, applied only under the thread's writer.
     fn thread_intent(
         part: &mut Self::ThreadPart,
         intent: Self::ThreadIntent,
@@ -201,7 +224,8 @@ pub trait Feature: 'static {
         let _ = (part, intent, cx);
     }
 
-    /// The answer of an RPC the feature asked through `ThreadCx::request`.
+    /// The answer of an RPC the feature asked through `ThreadCx::request`: delivered whether or
+    /// not this process still writes the thread (the effects are shut then, not the news).
     fn thread_answered(
         part: &mut Self::ThreadPart,
         ctx: Self::Ctx,
@@ -330,6 +354,12 @@ macro_rules! feature_dirs {
             $($variant(<$name::$variant as Feature>::Note),)*
         }
 
+        /// The facts the host sends unasked to every feature: `AppEv::Feature`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureFact {
+            $($variant(<$name::$variant as Feature>::Fact),)*
+        }
+
         $(
         impl From<<$name::$variant as Feature>::Intent> for FeatureIntent {
             fn from(intent: <$name::$variant as Feature>::Intent) -> Self { Self::$variant(intent) }
@@ -357,6 +387,9 @@ macro_rules! feature_dirs {
         }
         impl From<<$name::$variant as Feature>::Note> for FeatureNote {
             fn from(note: <$name::$variant as Feature>::Note) -> Self { Self::$variant(note) }
+        }
+        impl From<<$name::$variant as Feature>::Fact> for FeatureFact {
+            fn from(fact: <$name::$variant as Feature>::Fact) -> Self { Self::$variant(fact) }
         }
         )*
 
@@ -392,6 +425,21 @@ macro_rules! feature_dirs {
                         _ => Err(RpcError::Mismatch),
                     });
                     <$name::$variant as Feature>::answered(&mut states.$name, ctx, result, cx)
+                })*
+            }
+        }
+
+        /// The host's answer to an ask a feature made (`AppCx::effect`).
+        #[allow(unused_variables)]
+        pub fn effect_done(
+            states: &mut FeatureStates,
+            ctx: FeatureCtx,
+            done: Done,
+            cx: &mut AppCx<'_>,
+        ) {
+            match ctx {
+                $(FeatureCtx::$variant(ctx) => {
+                    <$name::$variant as Feature>::effect_done(&mut states.$name, ctx, done, cx)
                 })*
             }
         }
@@ -440,6 +488,16 @@ macro_rules! feature_dirs {
             }
         }
 
+        /// A fact the host sent unasked, to the feature it is for.
+        #[allow(unused_variables)]
+        pub fn on_fact(states: &mut FeatureStates, fact: FeatureFact, cx: &mut AppCx<'_>) {
+            match fact {
+                $(FeatureFact::$variant(fact) => {
+                    <$name::$variant as Feature>::on_fact(&mut states.$name, fact, cx)
+                })*
+            }
+        }
+
         /// The thread `thread` was resumed and is in use: every feature's hook, in list order.
         #[allow(unused_variables)]
         pub fn on_resumed(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
@@ -454,9 +512,13 @@ macro_rules! feature_dirs {
             cx: &mut ThreadCx<'_, '_>,
         ) {
             match intent {
+                // an ask of one feature: only where this process writes the thread
                 $(FeatureThreadIntent::$variant(intent) => {
-                    <$name::$variant as Feature>::thread_intent(&mut parts.$name, intent, cx)
+                    if cx.view.has_writer() {
+                        <$name::$variant as Feature>::thread_intent(&mut parts.$name, intent, cx)
+                    }
                 })*
+                // a fact: what waited for it goes on, as far as its effects are open
                 FeatureThreadIntent::Settled => {
                     $(<$name::$variant as Feature>::on_settled(&mut parts.$name, cx);)*
                 }

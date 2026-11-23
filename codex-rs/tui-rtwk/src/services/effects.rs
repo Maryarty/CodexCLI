@@ -14,6 +14,7 @@ use std::time::Duration;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::effects::CopyDestination;
 use codex_tui_core::app::effects::CopyFormat;
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::effects::Done;
@@ -27,6 +28,7 @@ use super::clipboard::Status;
 use super::clipboard::environment;
 use super::clipboard::read::TextReader;
 use super::clipboard::read::paste_image;
+use super::clipboard::render_markdown;
 use super::file_search::InProcessSearch;
 use super::history;
 use super::history::HistoryFile;
@@ -138,10 +140,15 @@ impl Services {
 
     async fn done(&self, ask: Ask, exec: &dyn WorkspaceExec) -> Option<(Done, Option<String>)> {
         Some(match ask {
-            Ask::Copy { text, format } => {
+            Ask::Copy {
+                text,
+                format,
+                destination,
+            } => {
+                let format = format_of(&text, &format);
                 let done = self
                     .clipboard
-                    .copy(Arc::from(text), format_of(&format), Destination::Clipboard)
+                    .copy(Arc::from(text), format, destination_of(destination))
                     .await;
                 let status = done.result.map(status_of);
                 return Some((Done::Copy(status), done.terminal));
@@ -218,13 +225,21 @@ fn popover_ev(ev: popovers::Ev) -> AppEv {
     AppEv::Screen(ScreenEv::Popovers(ev))
 }
 
-/// The HTML flavour of a Markdown copy comes from the owner of the copy source (`markdown_copy`,
-/// not carried here: gap), so every copy is offered as plain text.
-fn format_of(format: &CopyFormat) -> Format {
+/// A Markdown copy is offered with its HTML too, rendered once here (oracle `clipboard_html`):
+/// of the text itself, or of the semantic Markdown a literal selection came from.
+fn format_of(text: &str, format: &CopyFormat) -> Format {
     match format {
-        CopyFormat::PlainText | CopyFormat::Markdown | CopyFormat::MarkdownSelection(_) => {
-            Format::Plain
-        }
+        CopyFormat::PlainText => Format::Plain,
+        CopyFormat::Markdown => Format::Html(Arc::from(render_markdown(text))),
+        CopyFormat::MarkdownSelection(source) => Format::Html(Arc::from(render_markdown(source))),
+    }
+}
+
+fn destination_of(destination: CopyDestination) -> Destination {
+    match destination {
+        CopyDestination::Clipboard => Destination::Clipboard,
+        CopyDestination::Primary => Destination::Primary,
+        CopyDestination::ClipboardAndPrimary(plain) => Destination::ClipboardAndPrimary(plain),
     }
 }
 
@@ -256,18 +271,22 @@ mod tests {
 
     type Boxed<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
 
-    /// A clipboard whose native route writes into `written`, or refuses.
+    /// A clipboard whose native route writes into `written` (with the HTML flavour it was
+    /// offered in `html`), whose PRIMARY route writes into `primary`, or which refuses.
     struct Native {
         written: Arc<Mutex<Vec<String>>>,
+        html: Arc<Mutex<Vec<Option<String>>>>,
+        primary: Arc<Mutex<Vec<String>>>,
         refuse: bool,
     }
 
     impl Routes for Native {
-        fn native(&mut self, text: &str, _html: Option<&str>) -> Result<Option<Lease>, String> {
+        fn native(&mut self, text: &str, html: Option<&str>) -> Result<Option<Lease>, String> {
             if self.refuse {
                 return Err("clipboard unavailable".to_owned());
             }
             self.written.lock().unwrap().push(text.to_owned());
+            self.html.lock().unwrap().push(html.map(str::to_owned));
             Ok(Some(Lease::new(())))
         }
 
@@ -281,10 +300,12 @@ mod tests {
 
         fn primary(
             &mut self,
-            _text: &str,
-            _begin_delivery: &dyn Fn() -> Result<(), String>,
+            text: &str,
+            begin_delivery: &dyn Fn() -> Result<(), String>,
         ) -> Result<Outcome, String> {
-            Err("no PRIMARY".to_owned())
+            begin_delivery()?;
+            self.primary.lock().unwrap().push(text.to_owned());
+            Ok(Outcome::Copied(Some(Lease::new(()))))
         }
     }
 
@@ -340,6 +361,8 @@ mod tests {
     struct Rig {
         services: Services,
         written: Arc<Mutex<Vec<String>>>,
+        html: Arc<Mutex<Vec<Option<String>>>>,
+        primary: Arc<Mutex<Vec<String>>>,
         file: Arc<File>,
         opened: Arc<Mutex<Vec<String>>>,
         _home: tempfile::TempDir,
@@ -347,6 +370,8 @@ mod tests {
 
     fn rig(refuse_native: bool, browser_fails: bool) -> Rig {
         let written = Arc::new(Mutex::new(Vec::new()));
+        let html = Arc::new(Mutex::new(Vec::new()));
+        let primary = Arc::new(Mutex::new(Vec::new()));
         let opened = Arc::new(Mutex::new(Vec::new()));
         let file = Arc::new(File::default());
         let home = tempfile::tempdir().unwrap();
@@ -362,6 +387,8 @@ mod tests {
         let clipboard = Clipboard::new(
             Native {
                 written: Arc::clone(&written),
+                html: Arc::clone(&html),
+                primary: Arc::clone(&primary),
                 refuse: refuse_native,
             },
             Environment::default(),
@@ -375,6 +402,8 @@ mod tests {
         Rig {
             services,
             written,
+            html,
+            primary,
             file,
             opened,
             _home: home,
@@ -401,9 +430,69 @@ mod tests {
         let ask = Ask::Copy {
             text: "hello".into(),
             format: CopyFormat::Markdown,
+            destination: CopyDestination::Clipboard,
         };
         assert_eq!(done(&rig, ask).await, Done::Copy(Ok(CopyStatus::Confirmed)));
         assert_eq!(*rig.written.lock().unwrap(), vec!["hello".to_owned()]);
+    }
+
+    // Oracle `clipboard_copy.rs` `local_copy_offers_html_only_for_markdown`: the HTML flavour is
+    // offered for a Markdown copy (of the text) and a Markdown selection (of its semantic source),
+    // never for plain text.
+    #[tokio::test]
+    async fn html_is_offered_only_for_markdown() {
+        let rig = rig(false, false);
+        for (text, format) in [
+            ("**hello**", CopyFormat::Markdown),
+            ("**hello**", CopyFormat::PlainText),
+            (
+                "hello /repo/my_notes!.txt",
+                CopyFormat::MarkdownSelection(r"**hello** /repo/my\_notes\!.txt".into()),
+            ),
+        ] {
+            let ask = Ask::Copy {
+                text: text.into(),
+                format,
+                destination: CopyDestination::Clipboard,
+            };
+            assert_eq!(done(&rig, ask).await, Done::Copy(Ok(CopyStatus::Confirmed)));
+        }
+        assert_eq!(
+            *rig.html.lock().unwrap(),
+            vec![
+                Some("<p><strong>hello</strong></p>\n".to_owned()),
+                None,
+                Some("<p><strong>hello</strong> /repo/my_notes!.txt</p>\n".to_owned()),
+            ]
+        );
+    }
+
+    // Oracle `selection_clipboard.rs`: a selection publishes PRIMARY alone, or with the clipboard
+    // (PRIMARY then holds the plain text the asker named).
+    #[tokio::test]
+    async fn a_selection_publishes_primary_alone_or_with_the_clipboard() {
+        let rig = rig(false, false);
+        let ask = |destination| Ask::Copy {
+            text: "**hi**".into(),
+            format: CopyFormat::PlainText,
+            destination,
+        };
+        // The oracle answers a PRIMARY-only publication as a request, nothing confirms it.
+        assert_eq!(
+            done(&rig, ask(CopyDestination::Primary)).await,
+            Done::Copy(Ok(CopyStatus::Unconfirmed))
+        );
+        assert_eq!(*rig.primary.lock().unwrap(), vec!["**hi**".to_owned()]);
+        assert!(rig.written.lock().unwrap().is_empty(), "PRIMARY only");
+        assert_eq!(
+            done(&rig, ask(CopyDestination::ClipboardAndPrimary("hi".into()))).await,
+            Done::Copy(Ok(CopyStatus::Confirmed))
+        );
+        assert_eq!(
+            *rig.primary.lock().unwrap(),
+            vec!["**hi**".to_owned(), "hi".to_owned()]
+        );
+        assert_eq!(*rig.written.lock().unwrap(), vec!["**hi**".to_owned()]);
     }
 
     // Oracle `clipboard_copy.rs`: a native clipboard that fails falls back to the terminal's
@@ -414,6 +503,7 @@ mod tests {
         let ask = Ask::Copy {
             text: "hello".into(),
             format: CopyFormat::PlainText,
+            destination: CopyDestination::Clipboard,
         };
         let ran = rig
             .services
@@ -436,6 +526,7 @@ mod tests {
         let ask = Ask::Copy {
             text: String::new(),
             format: CopyFormat::PlainText,
+            destination: CopyDestination::Clipboard,
         };
         let Done::Copy(Err(text)) = done(&rig, ask).await else {
             panic!("not a failed copy");

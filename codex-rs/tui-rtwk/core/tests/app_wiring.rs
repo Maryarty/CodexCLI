@@ -7,7 +7,7 @@
 
 use codex_app_server_protocol::{ServerRequest, UserVerificationProof};
 use codex_tui_core::app::effects::{
-    Ask, Attempt, ConfigEdit, CopyFormat, CopyStatus, Done, Verified,
+    Ask, Attempt, ConfigEdit, CopyDestination, CopyFormat, CopyStatus, Done, Verified,
 };
 use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::RequestKey;
@@ -379,6 +379,7 @@ mod effects {
         let ask = Ask::Copy {
             text: "hello".into(),
             format: CopyFormat::Markdown,
+            destination: CopyDestination::Clipboard,
         };
         let fx = intent(
             &mut app,

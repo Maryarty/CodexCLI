@@ -46,12 +46,14 @@ reads whether the thread is busy. A feature without RPCs keeps `wire` / `decode`
 |---|---|---|
 | `Intent::Goal`-style slash dispatch in `core/src/app/session.rs` `S::Goal { args }` | `type Intent = goal::Intent` (`Command { source, args }`); the router builds it: `super::features::intent(app, goal::Intent::Command { .. }.into(), fx)` | the oracle's `SessionIntent` variant (the slash list stays the oracle's) |
 | `select::Command::Goal(..)` / `Ctx::Goal` / `Reply::Goal*` and `ThreadAsk::Goal*` | `type Command = goal::Ask`, `type Ctx = goal::Ctx`, `type Reply = goal::Reply`; `wire` builds the `ClientRequest`, `decode` reads the result | `Command::Feature`, `AppCtx::Feature`, `Answer::Feature` (one each, generic) |
-| `Menu::Goal(..)`, its `choose` arm, its `page()` arm | `type Menu = goal::Menu`, `choose(menu, row) -> Choice::{Stay, Dismiss, Pick, Replace}`; the rows are `FeatureView::menu_list` in `src/features/goal/strings.rs` | `Menu::Feature` |
+| `Menu::Goal(..)`, its `choose` arm, its `page()` arm | `type Menu = goal::Menu`, `choose(menu, row) -> Choice::{Stay, Dismiss, Pick, Replace}`; the rows are `FeatureView::menu_list(menu, state, words)` in `src/features/goal/strings.rs`: **from the feature's state**, read at every build, so a menu whose rows change while it is open (install progress, a stale answer, an editor) is the same menu with other rows, never a reopen (a reopen replaces the stack: the cursor and the tab are lost). What a typed family had as `Model::page()` built from the select model is a read of `state` here | `Menu::Feature` |
+| a fact the host sends unasked: `AppEv::Presets(..)`, `AppEv::PluginConfig(..)`, and the arm in `apply_app` that hands it to a screen's model (`select::event(.., Ev::Dials / Ev::Plugins(Config))`) | `type Fact = presets::Fact` (the payload, the feature's own type); `fn on_fact(state, fact, cx)` keeps it in the feature's `State`; the host sends `AppEv::Feature(FeatureFact::from(fact))` (`host/src/in_process.rs` builds it with the feature's type and `From`: the one file besides the feature's own and the list that may name `features::<f>::Fact`, `FACT_SENDERS` in `tests/rules/layers.rs`); the open menu reads it through `menu_list` | `AppEv::Feature` (one, generic) |
 | `Picked::Goal(..)` and the arm in `core/src/app/select.rs` | `type Pick = goal::Pick`; `fn picked(state, pick, cx)` acts | `Picked::Feature` |
 | `PromptKind::GoalEdit` + `Prompt::goal_edit` + the arm in `session.rs` | `type Prompt = goal::Prompt` (`Edit { .. }`); `cx.prompt(prompt, initial)` opens, `fn prompt_submitted` takes the text; the dialog's title and placeholder are `FeatureView::prompt_words` in `src/features/goal/strings.rs` | `PromptKind::Feature` |
 | `NoteKey::Goal(..)` + the tone arm in `threads/note.rs` + `goal_note` in `pages/session/strings.rs` | `type Note = goal::Note`; `fn note_tone(note) -> Tone`; the words are `src/features/goal/strings.rs::note` (`FeatureView::note_words`) | `NoteKey::Feature` |
 | a call in `core/src/app.rs` after a resume (`session::goal::after_resume`) | `fn on_resumed(state, thread, cx)` | `features::resumed` (already there) |
 | a step of the hub that waited for the feature's answer | the feature's `answered(state, ctx, result, cx)`; an answer for a thread that is no longer the one in use is dropped there | the generic `features::answer` |
+| a host ask: `Intent::Effect { request, ask }` or `fx.commands.push(effects::command(request, Ask::X))`, and the arm that words `Done::X` (`session::export::settled`, `Done::Export` / `Done::Copy`) | `cx.effect(Ask::X { .. }, ctx)` with the feature's own `Ctx` (what the ask was for); `fn effect_done(state, ctx, done, cx)` words the answer (`cx.note(..)`). A copy answers twice: `Done::Copy(Ok(Pending(_)))`, then how it ended (`done.is_final()` tells which). The request number is the app's (`FEATURE_REQUEST_BIT \| n`), never a stamp the feature chooses | `effects::Ask` / `Done` (the host's list of capabilities: copy, write a file, suggest a title; a new capability is a new variant there, counted in the budget) and the one `AppEv::Effect` arm that routes a feature's request |
 
 Every type in the right column is the feature's own (two features sharing `String` as a note
 fail to compile: the root enums' `From` impls would overlap). The part of the table a feature
@@ -85,6 +87,16 @@ ever tightened.
   transcript of the thread (or the chat before any thread).
 - A change of a thread's feature part from the app's side is `cx.thread(&id, intent)`: a
   queued `ThreadEv::FeatureIntent`, applied by `threads::apply` under the thread's writer.
+- **The host door.** A feature reaches the server through `wire` (an RPC about a thread or the
+  app, `cx.ask` / `ThreadCx::request`) and the host through `cx.effect(ask, ctx)` (`AppCx` only: a
+  host effect is the app's, not a thread's). `app/features.rs` carries `Out::Effect`: the app
+  mints the request number (`Effects::ask_for_feature`), keeps `ctx` against it and pushes the
+  same `Command::Effect { request, ask }` a screen's `Intent::Effect` makes, so the host and
+  `backend_of` see no difference; the answer (`AppEv::Effect`) is dispatched to the feature's
+  `effect_done` and kept for no screen; the last answer ends the ask, a late one is dropped.
+  What a feature reads to build the ask (the text to export, the thread's directory) comes
+  from `AppView` / `ThreadView` methods the feature adds, each a decision. A slice never names
+  `AppEv`, `Intent::Effect` or `Command::Effect` (`feature_slices_ask_only_through_the_outbox`).
 - **A feature that reacts to another feature's end** (the goal was set, so the queue goes
   on) never names the other. `cx.settled(&thread)` says "what held this thread's input back
   is over"; every feature's `on_settled(part, cx)` runs, in list order (the queue resumes).
@@ -110,6 +122,12 @@ Menu::Feature(FeatureMenu::Goal(goal::Menu::Replace { .. }))
 PromptKind::Feature(FeaturePrompt::Goal(goal::Prompt::Edit { .. }))
 ```
 
+A host ask is tested the same way: the helper that matched `Command::Effect { ask: Ask::X, .. }`
+with the UI's own request number takes the request from the command and answers it with
+`AppEv::Effect { request, done }`, as before; the note it ends in is `NoteKey::Feature(..)`.
+The framework's own test of the door is `core/src/app/features/tests.rs` and
+`framework.rs` (`a_host_answer_reaches_the_feature_that_asked`).
+
 A wire test that lived in `core/tests/app_wiring.rs` for the feature's RPCs moves into the
 feature's file (the `ClientRequest` it builds is the slice's `wire`). Other test files that
 filtered the feature's asks (`core/tests/agents.rs`) match `AppCommand::Feature { command:
@@ -130,8 +148,9 @@ FeatureCommand::Goal(_), .. }`.
 6. (F2) The tickets of a step are the model's only after the whole `apply`: `ThreadView::busy`
    counts a turn start said before the hooks (`ThreadFx::start_said`); `ThreadView` no longer
    exposes `core` / `slots` (the raw `core.busy()` is stale mid-step).
-7. (R1) `ThreadCx::new` is none unless this process writes the thread; `threads::with_features`
-   runs a hook only then (intents, replies, turn end, interrupt).
+7. (R1, changed by K1) `ThreadCx::new` was none unless this process writes the thread. It is now
+   always one, and only the effects are the writer's (`ThreadCx::request` is `None` without it,
+   `thread_intent` is not delivered): see item 14.
 8. (R3) `FeatureView::prompt_words` (title, placeholder) for the prompt dialog; the codemod's
    view skeleton has it.
 9. (R4/R5) `Out`, the non-feature variants of `FeatureThreadIntent` and the `Feature` trait's
@@ -139,11 +158,64 @@ FeatureCommand::Goal(_), .. }`.
    for one producer and one consumer (ADR-012 "What is not a slice").
 10. The queue is not a slice (option B of the early review): thread lifecycle state stays in
    `core/src/threads/`; its five intents moved out of `threads::apply_ev` into
-   `threads::queue::{takes, apply}`.
+   `threads::queue::apply` (it gives back, as `Err`, an intent that is not the queue's).
 
-## 8. Done when
+11. (R2) `AppCx::effect(ask, ctx)` and `Feature::effect_done(state, ctx, done, cx)` (step 5,
+   "The host door"): a host effect such as `/export` is `effects::Ask` / `Done`, no
+   `ClientRequest`. The hub keeps `Ask` / `Done` as the host's capabilities; the filler moves
+   the call site and the arm that words the answer. `slice-codemod.py hub` lists the `Ask::X` /
+   `Done::X` sites of the feature, and the variants in `effects.rs` it marks as staying. The
+   hook was added for an app lifecycle fact (the host answered), raising `Out` to 7 and the
+   `Feature` trait to 15 in `hub_budget.txt` (ADR-012).
+
+12. (M1) `Feature::on_fact(state, fact, cx)` and `type Fact`, through `feature_list!`
+    (`FeatureFact`, `AppEv::Feature`): the door for what the host sends unasked. Probe test:
+    `framework.rs` `a_host_fact_reaches_its_feature_and_only_its_feature`. Raised `AppEv` to 18 and
+    `Feature` to 16 in `hub_budget.txt`; `AppEv::Presets` and `AppEv::PluginConfig` go down when
+    /presets and /plugins move (the codemod's `hub` lists them).
+13. (M2) A live menu: `FeatureView::menu_list(menu, &State, words)`. The app provides
+    `FeatureStates` to the views (`src/app/view.rs`, `src/app/debug/seeded.rs`), the select dialog
+    watches it, and the picker keeps its cursor, tab and query across a change of the state
+    (its key is the menu's depth). Test: `tests/pages/feature_menu_live.rs` (the menu of the real
+    list that exists, `/goal`'s `Replace goal?`, rebuilt by a step of a feature keeps its cursor);
+    the first slice whose rows come from its state adds the row-level test beside it.
+14. (K1) A reply or a lifecycle fact reaches a feature's part even when the thread lost its
+    writer (a provider refusal, a lost connection, a foreign writer); only the effects are shut.
+    A feature that waits for a reply (a spinner, a pending flag) is never stuck. Test:
+    `framework.rs` `a_thread_this_process_does_not_write_hears_the_news_and_has_no_effects`.
+15. (K2) `ThreadFx::start_turn` returns `Result<Ticket, UserMessage>`: a second start in one
+    step is refused and the message comes back (`a_second_turn_start_in_one_step_is_refused`).
+    The thread's own callers keep the message (the queue, `rejected_steers`).
+16. (K3) `ClientRequest::ReviewStart` / `ReviewStartParams` are lifecycle RPCs
+    (`LIFECYCLE_RPCS`): a slice cannot build `review/start`.
+
+## 8. A feature that is half a slice: the menu half and the thread half
+
+Some features write `ThreadModel` fields or sit in `threads::apply_ev` (`/review`,
+`/permissions <profile>`, collaboration modes). **Stop and split before moving**: the menu half
+moves, the thread half stays in `core/src/threads/` as thread lifecycle state (ADR-012 "What
+is not a slice", "A feature that is half a slice"). Never invent a `ThreadCx` write to a
+`ThreadCore` field to make the thread half fit; if the slice needs the thread to do something,
+it says it (`cx.thread(&id, intent)`, a `ThreadIntent` the thread half applies) or the app
+asks the thread as it did.
+
+Sort every line `slice-codemod.py hub <f>` prints into one of the two halves:
+
+| half | what goes in it | /review | /permissions args | collaboration modes |
+|---|---|---|---|---|
+| slice | the menu and its rows, its picks, what a pick says in the transcript, the prompt, the host facts and effects it reads | `Menu::Review` (presets, branches, commits, instructions), `Ask::GitBranches` / `GitLog`, `Picked::Review(ReviewTarget)` | the profile menu and the arg parsing | the collaboration menu and its pick |
+| thread (stays) | a field of `ThreadModel` / `ThreadCore` or `slots.chat`, a turn start, a lifecycle RPC, an interlock with the queue, the steers or `provider_error` | `ThreadAsk::Review` (`review/start`: starts a turn and switches review mode, a lifecycle RPC), `review_mode()`, the review turn's transcript handling | `HoldQueue` / `queue_held` (the queue's) | `SetMask`, `CycleMode`, `switch_mode`, `ThreadFx::modes` (turn settings) |
+
+The seam: a pick is the slice's `Pick`; `picked(state, pick, cx)` ends in one thing the thread
+half already has as an event (`cx.thread(..)` with a `ThreadIntent` the thread half applies, or
+the app's existing `Command` for it). **Provider error is not a slice at all**: `provider_error`
+is in `has_writer` and `send_next`, so it is thread state; leave it out of a migration list.
+Budget lines: only the menu half's variants go down in `hub_budget.txt`; the thread half's
+`ThreadAsk` / `ThreadIntent` arms stay counted.
+
+## 9. Done when
 
 `hub` lists no line of the feature outside `core/src/features/<f>`, `src/features/<f>` and
-the one list line; the oracle shard of the feature and the rules are green; `hub_budget.txt`
+the one list line (the `Ask` / `Done` variants it marks as host capabilities stay); the oracle shard of the feature and the rules are green; `hub_budget.txt`
 is lower by what moved; `slice-codemod.py hub <f>` prints only the oracle's `SessionIntent`
-and `SlashCommand` rows.
+and `SlashCommand` rows and the host capabilities it marks.

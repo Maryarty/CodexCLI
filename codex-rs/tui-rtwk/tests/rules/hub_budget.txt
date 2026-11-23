@@ -20,7 +20,7 @@ enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4
 enum core/src/app.rs Intent 15
-enum core/src/app.rs AppEv 17
+enum core/src/app.rs AppEv 18
 enum core/src/app.rs Command 20
 enum core/src/app.rs AppCtx 13
 enum core/src/threads/note.rs NoteKey 18
@@ -32,13 +32,13 @@ enum core/src/app/effects.rs Done 11
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that
 # are no feature's. A new one is a decision with an ADR-012 paragraph (a hook is added only for
 # a thread or app lifecycle fact, never for one producer and one consumer), and raises its line.
-enum core/src/features/cx.rs Out 6
+enum core/src/features/cx.rs Out 7
 enum core/src/features/mod.rs FeatureThreadIntent 1
-methods core/src/features/mod.rs Feature 14
+methods core/src/features/mod.rs Feature 16
 # threads::apply_ev still matches the chat screen's thread intents by name (the draft, the mask,
 # ...): the count goes to 0 as they move behind `chat::apply_thread_intent` or into feature
-# slices. The queue's five went to `threads/queue.rs` (`takes` / `apply`): the queue is the
-# thread's own lifecycle state, not a slice (ADR-012). A feature's thread intent is never named
-# there.
+# slices. The queue's five went to `threads/queue.rs` (`apply`, which gives back what is not the
+# queue's): the queue is the thread's own lifecycle state, not a slice (ADR-012). A feature's
+# thread intent is never named there.
 arms core/src/threads.rs apply_ev ScreenThreadIntent:: 9
 arms core/src/threads.rs apply_ev FeatureThreadIntent:: 0

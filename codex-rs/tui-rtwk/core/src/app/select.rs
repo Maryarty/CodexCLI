@@ -292,6 +292,7 @@ fn worktree_pick(app: &mut CodexApp, pick: select::worktree::Pick, fx: &mut AppF
                 super::effects::Ask::Copy {
                     text,
                     format: super::effects::CopyFormat::PlainText,
+                    destination: super::effects::CopyDestination::Clipboard,
                 },
             ));
         }

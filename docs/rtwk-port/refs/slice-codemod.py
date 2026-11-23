@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 -I
+#!/usr/bin/env -S python3 -I
 """The mechanical half of moving a feature into a slice (ADR-012; the steps are
 docs/rtwk-port/refs/feature-slices.md). Run from anywhere; it works on codex-rs/tui-rtwk.
 
@@ -24,6 +24,10 @@ CORE = ROOT / "core" / "src"
 VIEW = ROOT / "src"
 LIST = CORE / "features" / "mod.rs"
 BUDGET = ROOT / "tests" / "rules" / "hub_budget.txt"
+# The host's list of capabilities (`effects::Ask` / `Done`): a feature asks one through
+# `AppCx::effect` and is answered in `Feature::effect_done`; the variant itself stays here.
+HOST_CAPABILITIES = "core/src/app/effects.rs"
+STAYS = "   [host capability: stays in effects.rs, the feature asks it through cx.effect]"
 
 CORE_MOD = '''//! {title} as a feature slice (ADR-012; oracle: TODO the oracle file and function).
 
@@ -50,6 +54,7 @@ impl Feature for {marker} {{
     type Pick = Never<Self>;
     type Prompt = Never<Self>;
     type Note = Never<Self>;
+    type Fact = Never<Self>;
 
     fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {{
         command.absurd()
@@ -219,6 +224,9 @@ def hub(f, word):
             continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
             if pattern.search(line) and not line.lstrip().startswith("//"):
+                if rel == HOST_CAPABILITIES:
+                    print(f"{rel}:{number}: {line.strip()}{STAYS}")
+                    continue
                 print(f"{rel}:{number}: {line.strip()}")
                 seen += 1
     # a feature leaves no variant of its own behind in the other core files either
@@ -229,6 +237,11 @@ def hub(f, word):
         for number, line in enumerate(path.read_text().splitlines(), 1):
             if re.search(rf"\b(Menu|Picked|NoteKey|PromptKind|Command|Ctx|Reply|ThreadAsk|Intent)::\w*{word}", line, re.I):
                 print(f"{rel}:{number}: {line.strip()}")
+                seen += 1
+            elif re.search(rf"\b(Ask|Done)::\w*{word}", line, re.I) and not line.lstrip().startswith("//"):
+                # the host's capability: the call site becomes `cx.effect(Ask::X, ctx)` and an
+                # arm of `effect_done`; the variants stay in effects.rs
+                print(f"{rel}:{number}: {line.strip()}   [host ask/answer: cx.effect / effect_done]")
                 seen += 1
     print(f"{seen} lines name {word!r}: each is a hub variant or arm to move (recipe step 5)")
 

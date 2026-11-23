@@ -5,7 +5,7 @@
 //! writes at once, the Markdown is what the UI's renderer made of the thread, and the host's
 //! answers are the notes of the conversation. The words are the view's: these tests read data.
 
-use codex_tui_core::app::effects::{Ask, CopyFormat, CopyStatus, Done};
+use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, TranscriptText, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::ids::{ThreadId, Ticket};
@@ -141,6 +141,7 @@ fn the_clipboard_row_copies_the_markdown_as_plain_text() {
         Ask::Copy {
             text: MARKDOWN.to_owned(),
             format: CopyFormat::PlainText,
+            destination: CopyDestination::Clipboard,
         }
     );
     assert!(app.screens().dialogs.open.is_none());

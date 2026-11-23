@@ -7,6 +7,7 @@
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
 };
+use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
 use crate::ids::{ThreadId, Ticket};
 use crate::screens::ScreenStates;
@@ -130,6 +131,9 @@ pub enum Out {
         command: FeatureCommand,
         ctx: FeatureCtx,
     },
+    /// An ask of the host (write a file, suggest a title, copy): its answer comes back to
+    /// `Feature::effect_done` with `ctx`.
+    Effect { ask: Ask, ctx: FeatureCtx },
     /// A menu of the generic selection dialog, replacing the stack.
     Menu(FeatureMenu),
     /// A text prompt, prefilled with `initial`.
@@ -186,6 +190,15 @@ impl<'a> AppCx<'a> {
         });
     }
 
+    /// Asks the host for `ask`, one of its capabilities (`effects::Ask`: write a file, suggest a
+    /// title, copy); the answer comes back to the feature's `effect_done` with `ctx`.
+    pub fn effect(&mut self, ask: Ask, ctx: impl Into<FeatureCtx>) {
+        self.out.push(Out::Effect {
+            ask,
+            ctx: ctx.into(),
+        });
+    }
+
     /// Opens `menu` in the generic selection dialog.
     pub fn open(&mut self, menu: impl Into<FeatureMenu>) {
         self.out.push(Out::Menu(menu.into()));
@@ -233,9 +246,12 @@ impl<'a> AppCx<'a> {
 /// The context of a thread-scoped step of a feature: the thread as a view, and the thread's
 /// effects (its RPCs, its tickets).
 ///
-/// There is one only for a thread this process writes (ADR-003, `new`): a feature's part and
-/// the thread's effects are changed under the writer, so a step over a detached thread, one
-/// another process writes, or one the server refused for its provider cannot be made.
+/// There is one for every step, and the effects are the writer's (ADR-003): a thread this
+/// process does not write (detached, another process writes it, or the server refused it for
+/// its provider) still tells its features what happened (a reply, a turn that ended), so a
+/// part that waits for it (a spinner, a pending flag) does not stay stuck, but the effect door
+/// is shut there: `request` says `None`. A feature that must not even change its part there
+/// asks `view.has_writer()`.
 pub struct ThreadCx<'a, 'b> {
     pub view: ThreadView<'a>,
     /// Private: a feature has the effects this type names (`request`, and what a feature
@@ -245,24 +261,24 @@ pub struct ThreadCx<'a, 'b> {
 }
 
 impl<'a, 'b> ThreadCx<'a, 'b> {
-    /// The context of a step over `view`, or none where this process is not the thread's
-    /// writer. A turn start the thread said before this step (its own `send_next`) already
-    /// counts: the features' hooks run after the thread's own work.
-    pub(crate) fn new(mut view: ThreadView<'a>, fx: &'a mut ThreadFx<'b>) -> Option<Self> {
-        if !view.has_writer() {
-            return None;
-        }
+    /// The context of a step over `view`. A turn start the thread said before this step (its
+    /// own `send_next`) already counts: the features' hooks run after the thread's own work.
+    pub(crate) fn new(mut view: ThreadView<'a>, fx: &'a mut ThreadFx<'b>) -> Self {
         view.start_said = fx.start_said();
-        Some(Self { view, fx })
+        Self { view, fx }
     }
 
     /// An RPC of the feature on this thread: `ctx` comes back with the answer to the
-    /// feature's `thread_answered`.
+    /// feature's `thread_answered`. None where this process does not write the thread: nothing
+    /// was asked, no answer will come.
     pub fn request(
         &mut self,
         ctx: impl Into<FeatureCtx>,
         command: impl Into<FeatureCommand>,
-    ) -> Ticket {
-        self.fx.request_feature(ctx, command)
+    ) -> Option<Ticket> {
+        if !self.view.has_writer() {
+            return None;
+        }
+        Some(self.fx.request_feature(ctx, command))
     }
 }

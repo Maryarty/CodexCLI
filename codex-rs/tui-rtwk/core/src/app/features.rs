@@ -6,9 +6,10 @@
 
 use std::rc::Rc;
 
+use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread, session_note};
 use crate::features::{
-    self, AppCx, AppView, FeatureCtx, FeatureIntent, FeaturePick, FeaturePrompt,
+    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeaturePick, FeaturePrompt,
     FeatureThreadIntent,
 };
 use crate::features::{FeatureStates, Out};
@@ -58,6 +59,10 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
                 command,
             });
         }
+        Out::Effect { ask, ctx } => {
+            let request = app.effects.ask_for_feature(ctx);
+            fx.commands.push(effects::command(request, ask));
+        }
         Out::Menu(menu) => select::apply(
             &mut Rc::make_mut(&mut app.screens).select,
             select::Ev::Opened(Menu::Feature(menu)),
@@ -106,6 +111,23 @@ pub(super) fn answer(app: &mut CodexApp, ctx: FeatureCtx, answer: Answer, fx: &m
     });
 }
 
+/// The host's answer to an ask a feature made (`AppCx::effect`), under the request number the
+/// app gave it: it reaches the feature that asked and is kept for no screen. A number no
+/// feature waits for any more (its last answer came) is dropped.
+pub(super) fn effect_done(app: &mut CodexApp, request: u64, done: Done, fx: &mut AppFx) {
+    let Some(ctx) = app.effects.feature_answered(request, &done) else {
+        return;
+    };
+    run(app, fx, |states, cx| {
+        features::effect_done(states, ctx, done, cx)
+    });
+}
+
+/// A fact the host sent unasked, for the feature it names.
+pub(super) fn fact(app: &mut CodexApp, fact: FeatureFact, fx: &mut AppFx) {
+    run(app, fx, |states, cx| features::on_fact(states, fact, cx));
+}
+
 /// What a feature's menu settled on.
 pub(super) fn picked(app: &mut CodexApp, pick: FeaturePick, fx: &mut AppFx) {
     run(app, fx, |states, cx| features::picked(states, pick, cx));
@@ -129,3 +151,6 @@ pub(super) fn resumed(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
         features::on_resumed(states, thread, cx)
     });
 }
+
+#[cfg(test)]
+mod tests;

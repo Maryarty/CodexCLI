@@ -735,7 +735,7 @@ names `CodexApp` or `ThreadModel`. Its per-thread part is a field of `ThreadMode
 (`ThreadModel { core, slots, features }`), written only by `threads::apply` under the
 thread's writer (ADR-003 unchanged). Its RPCs go out through `AppCx::ask` and
 `ThreadCx::request` (the one door `ThreadFx::request_feature`). The thread lifecycle RPCs
-(resume, fork, start, read, turns, subscribe, the turn calls) stay in `ThreadAsk`, built in
+(resume, fork, start, read, turns, subscribe, the turn calls, `review/start`) stay in `ThreadAsk`, built in
 `threads.rs` and `protocol/mod.rs` only. The generic menu, prompt and notes carry
 `FeatureMenu` / `FeaturePrompt` / `FeatureNote`, never a per-feature variant of their own.
 
@@ -747,7 +747,8 @@ It is a pipeline of about twenty sites interlocked with `recovered`, the steers,
 and the interrupt, the same kind of thing as `turn/start` itself, and a slice for it would need a
 hook on every feature per interlock (`hold_submit`, `on_start_refused`, ...) and a write into
 `ThreadCore` that `ThreadCx`'s shared view forbids. The queue's five intents left `apply_ev` for
-`threads::queue::{takes, apply}` (the views' door stays `chat::ThreadIntent`); `AppCx::settled`
+`threads::queue::apply` (the views' door stays `chat::ThreadIntent`; `apply` gives back, as
+`Err`, an intent that is not the queue's, so none is dropped there); `AppCx::settled`
 is the generic "input released" event, and the app turns it into the queue's resume
 (`app/features.rs`, `Out::Settled`) beside every feature's `on_settled`. A feature that must
 start a turn or give a message back asks through a `ThreadCx` effect, each one a decision.
@@ -756,6 +757,18 @@ thread resumed, the input released), never for one producer and one consumer; th
 trait's methods, of `Out` and of the generated root's non-feature variants is a ratchet
 (`tests/rules/hub_budget.txt`, `the_feature_trait_has_the_hooks_the_budget_says`), raised only
 with a paragraph here.
+
+**A feature that is half a slice (framework-2, 2026-11-23).** A flow that writes `ThreadModel`
+fields or sits in `threads::apply_ev` is split: the menu half is a slice (the menu, its rows, its
+picks, the words), the thread half stays in `core/src/threads/` as thread lifecycle state. The
+slice asks the thread through the generic door (`cx.thread(&id, intent)`) or the app reaches the
+thread through `ThreadAsk` as before; it never writes the field. `/review` is the example
+(`Menu::Review` and its picks move, `ThreadAsk::Review` and `review/start` stay: a lifecycle
+RPC, `LIFECYCLE_RPCS`), likewise `/permissions` args (the menu moves, `HoldQueue` is the queue's)
+and collaboration modes (the menu moves, `SetMask`, `CycleMode`, `switch_mode` and
+`ThreadFx::modes` are turn settings); provider error is thread state, not a slice at all
+(`provider_error` is in `has_writer` and `send_next`). The template step is section 8 of
+[refs/feature-slices.md](refs/feature-slices.md).
 
 **The counterpart.** In Flutter this is feature-first folders (`features/goal/` with its data,
 domain and presentation, not `models/`, `screens/`, `blocs/` across the app). The generated
@@ -768,16 +781,17 @@ subscriptions` with default no-ops.
 
 **Shape.**
 - `trait Feature` (marker type per feature): associated types `State`, `ThreadPart`, `Intent`,
-  `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Menu`, `Pick`, `Prompt`, `Note`; steps `intent`,
-  `answered`, `choose`, `picked`, `prompt_submitted`, `note_tone`, `on_resumed`, `thread_intent`,
-  `thread_answered`, `on_turn_end`, `on_interrupted`, `on_settled`, `wire`, `decode`; every step has a
-  default that does nothing but `wire` / `decode`. A component a feature does not have is
+  `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Menu`, `Pick`, `Prompt`, `Note`, `Fact`; steps
+  `intent`, `answered`, `effect_done`, `choose`, `picked`, `prompt_submitted`, `note_tone`,
+  `on_fact`, `on_resumed`,
+  `thread_intent`, `thread_answered`, `on_turn_end`, `on_interrupted`, `on_settled`, `wire`,
+  `decode`; every step has a default that does nothing but `wire` / `decode`. A component a feature does not have is
   `Never<Self>`; the feature's own types are its own (no two features share a type, so the
   root enums' `From` impls are unique).
 - The hub carries one generic variant per component: `Intent::Feature`,
   `ThreadEv::FeatureIntent`, `Command::Feature`, `AppCtx::Feature`, `ThreadCtx::Feature`,
   `Answer::Feature`, `Menu::Feature`, `Picked::Feature`, `PromptKind::Feature`,
-  `NoteKey::Feature`. The UI routes `FeatureNote` to `src/features/<f>/strings.rs` and
+  `NoteKey::Feature`, `AppEv::Feature` (a fact the host sends unasked). The UI routes `FeatureNote` to `src/features/<f>/strings.rs` and
   `FeatureMenu` to the feature's `FeatureView::menu_list`: the opener owns the continuation,
   as Flutter's `showDialog<T>` does.
 - **Hook order is the order of `feature_list!`.** Every hook that runs over all features
@@ -788,10 +802,46 @@ subscriptions` with default no-ops.
   (`ThreadView::busy`), the ticket being the model's only after the whole `apply`.
   `core/src/features/framework.rs` tests it with two probe features registered in a list of
   their own.
-- **A thread step has a context only where this process is the writer** (ADR-003):
-  `ThreadCx::new` is none for a detached thread, one another process writes, or one the server
-  refused for its provider, so no hook runs there and no effect can be said. `ThreadView`'s
-  `core` and `slots` are private: the thread is read through the methods a feature needs.
+- **The host door** (early review R2). A feature asks the host for one of its capabilities
+  with `AppCx::effect(ask, ctx)`; `effects::Ask` / `Done` stay the hub's list of what the host
+  can do (copy, write a file, suggest a title, read the clipboard...), never a feature's: a new
+  capability is a variant there, counted in the budget. The app chooses the request number
+  (`FEATURE_REQUEST_BIT | n`, so it never meets a screen's stamp), keeps the feature's `ctx`
+  against it and sends the same `Command::Effect` a screen's `Intent::Effect` makes, so the
+  host does not know who asked; the answer goes to `Feature::effect_done` and is kept for no
+  screen; a copy answers twice (`Pending`, then how it ended: `Done::is_final`), the last
+  answer ends the ask. Only `AppCx` has it: a host effect is the app's, not a thread's. The
+  hook is an app lifecycle fact (the host answered), which is why it is a method of `Feature`
+  and not one producer's nudge; it raised `Out` and the trait by one each in the budget.
+- **Facts the host sends unasked** (framework-2, M1). The host tells a feature what it read (the
+  config feed of the plugins, the presets): `AppEv::Feature(FeatureFact)`, built with the
+  feature's own `Fact` type and `From` (`FeatureFact::from(presets::Fact::Slots(..))`; the
+  sender, `host/src/in_process.rs`, is the one file besides a feature's own that may name
+  `features::<f>::Fact`, `FACT_SENDERS` in the rules), reaches
+  `Feature::on_fact(state, fact, cx)`; the feature keeps it in its state and its open menu shows
+  it (below). One generic hub variant (`AppEv` 17 -> 18, budgeted) takes the place of a variant
+  per feature (`AppEv::Presets`, `AppEv::PluginConfig` shrink when those features move), and the
+  hook is an app lifecycle fact (the host spoke), which is why it is a method of `Feature`
+  (`Feature` 15 -> 16).
+- **A live menu** (framework-2, M2). A feature's `Menu` says which page is open; its rows are
+  `FeatureView::menu_list(menu, &State, words)`, read from the feature's state at every build.
+  The app provides `FeatureStates` to the views as it provides `ScreenStates`
+  (`CodexApp::features()`), the select dialog watches it, and a change of the state (a fact, a
+  reply, a pick) rebuilds the rows under the same picker: the picker's key is the menu's depth,
+  so the cursor, tab and query stay. A feature never reopens a menu to refresh it (that
+  replaces the stack and loses the cursor).
+- **A thread step has a context for every thread, and its effects are the writer's**
+  (ADR-003, framework-2 K1): `ThreadCx::new` always gives one, so a reply and a lifecycle fact
+  (`thread_answered`, `on_turn_end`, `on_interrupted`, `on_settled`) reach the feature's part
+  whether or not this process still writes the thread (a spinner or a pending flag does not stay
+  stuck because a provider refusal took the writer); `ThreadCx::request` is `None` without the
+  writer, and a feature's ask (`thread_intent`) is not delivered there.
+- **One turn start per step** (framework-2 K2): `ThreadFx::start_turn` returns
+  `Err(message)` when a start was already said in the step (`start_said`), giving the message
+  back, so two features' hooks cannot double-start. Whether the model is busy is the caller's
+  to ask (it holds the model; for a feature `ThreadView::busy`).
+- `ThreadView`'s `core` and `slots` are private: the thread is read through the methods a
+  feature needs.
 
 **Enforced** (`tests/rules/layers.rs`, each with a test that bites on a synthetic source):
 `hub_enums_only_shrink` (ratchet of the hub enums' variants, `tests/rules/hub_budget.txt`),
@@ -803,8 +853,8 @@ that are no feature's: a ratchet raised only with a paragraph here),
 `features_are_named_only_through_the_list` (no `features::<f>` outside the feature's two
 folders, the two lists and the slash router that builds an intent), `features_hold_no_app`
 (no `CodexApp` or `ThreadModel` in `core/src/features`), `feature_slices_ask_only_through_the_outbox`
-(a slice names none of `AppFx`, `ThreadFx`, `ThreadAsk`, `ThreadSet`, `apply_app`; `ThreadCx`
-keeps its `fx` private), `thread_rpcs_only_in_threads` (the lifecycle list everywhere; the
+(a slice names none of `AppFx`, `ThreadFx`, `ThreadAsk`, `ThreadSet`, `apply_app`, `AppEv`,
+`Intent::Effect`, `Command::Effect`; `ThreadCx` keeps its `fx` private), `thread_rpcs_only_in_threads` (the lifecycle list everywhere; the
 feature RPCs `compact`, `rename`, `shell`, `revert` also inside a slice), and the existing
 layer rules, which cover `core/src/features` (core pure) and `src/features` (a view folder:
 no protocol, no model code, a known top-level folder).
@@ -821,8 +871,9 @@ thread must be listed with `Command::Screen` where the host routes by thread
 effect for it, in `cx.rs` (an outbox the thread carries out, one decision each; the queue does
 not need one: it is not a slice); the words of a note see the session strings only
 (`FeatureView::note_words`), a feature that needs another table adds its own; a host effect
-(`/export`'s file write is `effects::Ask::Export`, no `ClientRequest`) has no door yet, the
-framework task that adds `AppCx::effect` comes before the migration.
+(`/export`'s file write is `effects::Ask::Export`, no `ClientRequest`) has a door since the
+early review's R2: `AppCx::effect(ask, ctx)` and `Feature::effect_done(state, ctx, done, cx)`,
+below.
 
 ### Recipe: a feature as a slice
 
@@ -853,7 +904,8 @@ feature. A variant added to `Menu`, `NoteKey`, `PromptKind`, `ThreadEv`, `Comman
 `Intent` (from the slash router or a view), `ThreadIntent` (to this thread's part, applied by
 `threads::apply`), `Command` / `Reply` / `Ctx` (your RPCs as data, and what one was for),
 `Menu` / `Pick` (the generic select dialog and what it settled), `Prompt`, `Note` (a
-transcript line; its words are `src/features/<f>/strings.rs`).
+transcript line; its words are `src/features/<f>/strings.rs`), `Fact` (what the host sends
+unasked, `AppEv::Feature`).
 - Every component type is the feature's own, so the root enums' `From` impls do not overlap
   (two features sharing `String` as a note would not compile). A component you do not have is
   `Never<Self>`; the two states are `()`. Every step but `wire` / `decode` has a default that
@@ -867,8 +919,8 @@ transcript line; its words are `src/features/<f>/strings.rs`).
   `has_writer()`.
 - On a thread (`ThreadCx`, in `thread_intent`, `thread_answered`, `on_turn_end`,
   `on_interrupted`): `cx.view` is the thread read-only, `&mut` is your `ThreadPart` only,
-  `cx.request(ctx, command)` is the RPC; the step exists only for a thread this process
-  writes. More effects (start a turn, give a message back) are methods you add to `ThreadCx`
+  `cx.request(ctx, command)` is the RPC (`None` where this process does not write the thread;
+  replies and lifecycle facts reach you there too, an ask does not). More effects (start a turn, give a message back) are methods you add to `ThreadCx`
   in `cx.rs`, each one a decision (a start must refuse while `cx.view.busy()`: the thread
   arbitrates starts, so no hook order can double-start).
 - A menu: `choose(menu, row) -> Choice::{Stay, Dismiss, Pick(p), Replace(m)}` says what a row
@@ -878,7 +930,8 @@ transcript line; its words are `src/features/<f>/strings.rs`).
   (`core/src/app/session.rs`, the one file besides your own that may name
   `features::<f>::Intent`) turns it into `Intent::Feature(<f>::Intent::..)`.
 
-**Hooks.** `on_resumed(state, thread, cx)` (a resumed thread is applied and in use),
+**Hooks.** `on_fact(state, fact, cx)` (the host sent a fact unasked: keep it, the open menu reads
+it), `on_resumed(state, thread, cx)` (a resumed thread is applied and in use),
 `on_turn_end(part, end, cx)` (completed, failed or interrupted; `busy()` is as the hub left
 it), `on_interrupted(part, cx)` (right after the `on_turn_end` of an interrupt),
 `on_settled(part, cx)` (what held the thread's input back is over: another feature said
@@ -892,7 +945,7 @@ because the goal-to-queue nudge was a `QueueResume` that named both). A new hook
 lifecycle fact only (see "What is not a slice").
 
 **The view half.** `impl FeatureView for Goal { fn note_words(note, &SessionStrings) -> String;
-fn menu_list(menu, &SelectStrings) -> List; fn prompt_words(prompt, &DialogStrings) ->
+fn menu_list(menu, &State, &SelectStrings) -> List; fn prompt_words(prompt, &DialogStrings) ->
 PromptWords; }` in `src/features/<f>/mod.rs` (the prompt dialog words a `PromptKind::Feature`
 through `features::prompt_words`: its title and placeholder). Views only: no
 protocol, no model code, no `apply` (`views_never_name_protocol_shell_tokio_or_io`,
