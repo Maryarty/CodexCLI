@@ -884,7 +884,7 @@ async fn local_roots(
 }
 
 /// `updates_cache.rs::version_filepath`.
-fn version_file(config: &Config) -> PathBuf {
+pub(crate) fn version_file(config: &Config) -> PathBuf {
     config.codex_home.join("version.json").into_path_buf()
 }
 

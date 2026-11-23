@@ -10,16 +10,22 @@ use rtwk::focus::{FocusNode, KeyEventResult};
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::read;
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
 use crate::pages::session::footer::{Flash, Footer, Line, Timed};
+use crate::pages::session::popovers::mention;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::{Composer, search};
+
+/// The footer's row (`FooterMode::Passive`), kept clear of the popup.
+const FOOTER_ROWS: i32 = 1;
+/// The rows the oracle's composer layout keeps for the draft (`Min(3)`).
+const DRAFT_ROWS: i32 = 3;
 
 /// The composer of `ui` over its footer, filling the screen.
 #[derive(Clone)]
@@ -163,20 +169,31 @@ impl State for AloneState {
             .into()
         };
         let running = read::<ThreadModel, _>(cx).is_running();
-        let mut body = Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .main_axis_size(MainAxisSize::Max);
-        if self.shortcuts {
-            body = body.child(shortcut_panel(cx, running).0);
-        }
-        body.child(Expanded::new(
-            1,
-            BoxWidget::new()
-                .style(tokens.prompt_surface(cx, false))
-                .padding(EdgeInsets::only(0, 1, 1, 1))
-                .child(composer),
-        ))
-        .child(footer)
+        let shortcuts = self.shortcuts.then(|| shortcut_panel(cx, running).0);
+        let surface = tokens.prompt_surface(cx, false);
+        let ui = w.ui.clone();
+        // The `@`/`$` popup stands above the draft and takes the rows the
+        // draft's three rows (`Min(3)`) and the footer leave, up to its own
+        // height; the draft takes the rest of the screen.
+        LayoutBuilder::new(move |_, constraints| {
+            let room = constraints.max_height - FOOTER_ROWS - DRAFT_ROWS;
+            let mut body = Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .main_axis_size(MainAxisSize::Max);
+            if let Some(panel) = shortcuts.clone() {
+                body = body.child(panel);
+            }
+            body.child(mention::capped(ui.clone(), room))
+                .child(Expanded::new(
+                    1,
+                    BoxWidget::new()
+                        .style(surface.clone())
+                        .padding(EdgeInsets::only(0, 1, 1, 1))
+                        .child(composer.clone()),
+                ))
+                .child(footer.clone())
+                .into()
+        })
         .into()
     }
 }

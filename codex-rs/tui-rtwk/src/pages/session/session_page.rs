@@ -33,6 +33,7 @@ use crate::pages::session::composer::{Composer, clear_sent, submission};
 use crate::pages::session::footer::{Footer, Line, Sparkle, StatusRows};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
+use crate::pages::session::popovers::mention;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
@@ -368,7 +369,12 @@ impl State for ChatState {
             let model = read::<ThreadModel, _>(cx);
             if let Some(restore) = model.restore() {
                 let table = crate::pages::session::composer::strings::of(cx);
-                let draft = w.ui.draft.submission(&w.ui.composer, |n| table.image(n));
+                let states = read::<ScreenStates, _>(cx);
+                let draft = w.ui.draft.submission_with(
+                    &w.ui.composer,
+                    |n| table.image(n),
+                    states.popovers.sources().mentions,
+                );
                 put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
                 self.sync_draft(w);
             }
@@ -1005,12 +1011,23 @@ impl State for ChatState {
         let mut body = if thread.read_only() || provider.is_some() {
             body.child(composer)
         } else {
-            // the row the reader's control takes (`composer_gap`)
-            body.child(transcript::follow::gap(
-                cx,
-                w.ui.follow.clone(),
-                status_above,
-            ))
+            // the row the reader's control takes (`composer_gap`); a popup
+            // above the draft takes the rows before it does
+            body.child({
+                let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above);
+                let mentions = w.ui.draft.mentions();
+                ListenableBuilder::new(mentions.listenable(), move |_, _| {
+                    if mentions.is_open() {
+                        SizedBox::shrink().into()
+                    } else {
+                        gap.clone()
+                    }
+                })
+            })
+            // the `@`/`$` popup stands right above the draft and takes the
+            // rows the draft leaves, 17 at most (`ActivePopup::MentionV2`
+            // above the composer: the draft first, then what remains)
+            .child(mention::slot(w.ui.clone()))
             .child(
                 // keyed: the blank rows and the status come and go above it
                 // and the footer's type changes below, and an unkeyed child

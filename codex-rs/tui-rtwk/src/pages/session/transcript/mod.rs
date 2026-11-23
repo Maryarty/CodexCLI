@@ -16,6 +16,7 @@ pub mod follow;
 pub mod pager;
 pub mod sheet;
 pub mod strings;
+pub mod turn_details;
 
 use crate::app::debug::EntryOpen;
 

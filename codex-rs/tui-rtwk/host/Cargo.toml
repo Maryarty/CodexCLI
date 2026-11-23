@@ -30,6 +30,7 @@ codex-http-client = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/
 codex-install-context = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/install-context" }
 codex-login = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/login" }
 codex-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/protocol" }
+codex-terminal-detection = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/terminal-detection" }
 codex-utils-absolute-path = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/absolute-path" }
 codex-utils-path-uri = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/path-uri" }
 codex-utils-cli = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/cli" }

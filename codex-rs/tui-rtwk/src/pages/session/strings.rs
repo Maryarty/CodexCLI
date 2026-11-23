@@ -197,6 +197,7 @@ pub struct Strings {
     pub note_worktree_list_failed: Msg<1>,
     pub note_worktree_removed: Msg<1>,
     pub note_worktree_remove_failed: Msg<2>,
+    pub note_app_switch_failed: Msg<2>,
     pub note_model_provider_saving: &'static str,
     pub note_model_changed: Msg<1>,
     pub note_session_only: &'static str,
@@ -371,6 +372,7 @@ pub const EN: Strings = Strings {
     note_worktree_list_failed: msg!("Cannot list managed worktrees: {0}"),
     note_worktree_removed: msg!("Removed worktree at {0}. Thread history was kept."),
     note_worktree_remove_failed: msg!("Could not remove worktree at {0}: {1}"),
+    note_app_switch_failed: msg!("Failed to update app config for {0}: {1}"),
     note_model_list_stale: "The model list may be out of date. Restart the app server and TUI to refresh /model.",
     note_model_provider_saving: "Saving the default provider. Try /model after the save finishes.",
     note_model_changed: msg!("Model changed to {0}"),
@@ -811,15 +813,19 @@ impl Strings {
                 };
                 text(message, &name)
             }
-            Note::SaveFailed { setting, error } => text(
-                match setting {
-                    Setting::Model => self.note_save_model_failed,
-                    Setting::PlanEffort => self.note_save_plan_failed,
-                    Setting::Permissions => self.note_save_profile_failed,
-                    Setting::ServiceTier => self.note_save_tier_failed,
-                },
-                error,
-            ),
+            Note::SaveFailed { setting, error } => match setting {
+                Setting::Model => text(self.note_save_model_failed, error),
+                Setting::PlanEffort => text(self.note_save_plan_failed, error),
+                Setting::Permissions => text(self.note_save_profile_failed, error),
+                Setting::ServiceTier => text(self.note_save_tier_failed, error),
+                // `SetAppEnabled` refused: the link dialog's switch was not saved.
+                Setting::App(id) => Fmt::new(
+                    self.note_app_switch_failed,
+                    [Arg::Text(id), Arg::Text(error)],
+                    &self.num,
+                )
+                .to_string(),
+            },
             Note::Overridden(setting) => text(
                 self.note_overridden,
                 match setting {
@@ -827,6 +833,7 @@ impl Strings {
                     Setting::PlanEffort => self.note_setting_plan,
                     Setting::Permissions => self.note_setting_permissions,
                     Setting::ServiceTier => self.note_setting_tier,
+                    Setting::App(id) => id,
                 },
             ),
             Note::AppsDisabled => format!(

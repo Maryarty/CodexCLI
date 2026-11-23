@@ -47,7 +47,7 @@ fn times(key: &str, n: usize) -> String {
 fn task_mention_popup_and_selected_composer_snapshots() {
     kit::pending(
         Owner::ChatLive,
-        "mount: no `MentionPopup` in the composer-alone harness or the page, so `@` draws no rows (the Tasks come in as the `tasks` seed and Enter binds the first); G68: the rows float in a different layout from the oracle's; G-new-1: the text area paints a bound mention in no accent (the oracle's cell (2, 1) is cyan)",
+        "G-new-1: the text area paints a bound mention in no accent (the oracle's cell (2, 1) is cyan); the popup and the selected composer snapshots above it match",
     );
     let open = || {
         Screen::build(Owner::ChatLive)
@@ -86,10 +86,6 @@ fn task_mention_titles_are_normalized_and_bounded_before_insertion() {
 // ORACLE bottom_pane/chat_composer.rs:7930 reopening_identical_unified_mention_restarts_file_search kind=ui owner=chat-live
 #[test]
 fn reopening_identical_unified_mention_restarts_file_search() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file-search state on the chat composer: the '@' popup lists the popovers candidates only, so a query 'foo' opens no popup and the file search restart is not drawn",
-    );
     let mut s = ready(100, 24);
     // the draft `@foo @foo` with the cursor at `@f` (offset 2 of 9)
     s.type_text("@foo @foo").keys(&times("left", 7));
@@ -103,13 +99,9 @@ fn reopening_identical_unified_mention_restarts_file_search() {
 // ORACLE bottom_pane/chat_composer.rs:7979 mention_popup_type_prefixes_snapshot kind=snap owner=chat-live snap=mention_popup_type_prefixes
 #[test]
 fn mention_popup_type_prefixes_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "G68: the popup rows float in a different layout from the oracle's: a `▎` bar and a right-aligned detail, not aligned name/description columns with a `›` marker, no `enter insert · esc close` line, no `100% context left` footer",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(72, 8)
-        .script(include_str!("fixtures/composer_2/mention_types.jsonl"))
+        .size(72, 9)
+        .entry("popovers", "alone_mention_types")
         .open();
     s.type_text("$goog");
     s.assert_snap("mention_popup_type_prefixes");

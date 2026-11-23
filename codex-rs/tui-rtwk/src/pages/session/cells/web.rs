@@ -63,6 +63,17 @@ fn words(activity: &WebActivity, strings: &Strings) -> (&'static str, &'static s
     (header, separator, detail)
 }
 
+/// What the row says without its bullet (oracle `WebSearchCell::summary`): a turn's group of
+/// calls names its last call so.
+pub fn summary(activity: &WebActivity, strings: &Strings) -> String {
+    let (header, separator, detail) = words(activity, strings);
+    let mut text = header.to_owned();
+    if !detail.is_empty() {
+        text.extend([separator, &detail]);
+    }
+    text
+}
+
 /// The texts of the row: the bullet is the row's first span in the chat, a gutter of its own in
 /// the detailed transcript.
 pub fn texts(activity: &WebActivity, strings: &Strings, detailed: bool) -> Vec<Part> {

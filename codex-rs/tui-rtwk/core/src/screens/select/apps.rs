@@ -39,7 +39,41 @@ pub struct App {
     pub enabled: bool,
 }
 
+/// The page of an app the link dialog shows (`AppLinkViewParams`): copied when the app is picked,
+/// as the oracle's view keeps its own; the switch of the dialog changes this copy at once
+/// (`toggle_enabled`), the directory follows the saved write.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Link {
+    pub id: String,
+    /// The app's name (the dialog's title).
+    pub name: String,
+    pub description: Option<String>,
+    /// The page the dialog opens in the browser.
+    pub url: String,
+    pub installed: bool,
+    pub enabled: bool,
+}
+
+/// The link dialog's action that opens the page of the app in the browser
+/// (`Manage on ChatGPT`, `Install on ChatGPT`): `Intent::Choose` of this id, done by the app.
+pub const LINK_OPEN: &str = "link.open";
+/// `I already Installed it`: `Intent::Choose` of this id reads the directory again and closes the
+/// dialog.
+pub const LINK_INSTALLED: &str = "link.installed";
+
 impl App {
+    /// The link dialog of the app, when it has a page (`install_url`).
+    pub fn link(&self) -> Option<Link> {
+        Some(Link {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            description: self.about().map(str::to_owned),
+            url: self.install_url.clone()?,
+            installed: self.installed,
+            enabled: self.enabled,
+        })
+    }
+
     pub fn of(info: AppInfo) -> Self {
         Self {
             id: info.id,
@@ -84,6 +118,8 @@ pub struct Apps {
     pub cache: Cache,
     /// The `app/list` request out; its answer must carry its number.
     pub pending: Option<Request>,
+    /// The link dialog shown over the directory: the page of the app picked from it.
+    pub link: Option<Link>,
     /// A forced refresh was asked while one ran: it follows.
     refetch_after: bool,
     /// A notification's directory that arrived while one ran: the final
