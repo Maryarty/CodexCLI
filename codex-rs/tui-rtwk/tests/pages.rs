@@ -26,6 +26,8 @@ mod composer_images;
 mod composer_mentions;
 #[path = "pages/composer_mouse.rs"]
 mod composer_mouse;
+#[path = "pages/composer_plain.rs"]
+mod composer_plain;
 #[path = "pages/composer_startup.rs"]
 mod composer_startup;
 #[path = "pages/composer_suggest.rs"]

@@ -26,6 +26,9 @@ pub struct Strings {
     /// Shell mode's prompt and footer label (`chat_composer.rs`
     /// `shell_mode_footer_line`).
     pub shell_prompt: &'static str,
+    /// The footer's flash of a plain-text composer that refused an over-long
+    /// message (`chat_composer.rs`, `show_footer_flash`): the limit.
+    pub message_too_long: Msg<1>,
     pub shell_mode: &'static str,
     /// The footer while reverse history search is open
     /// (`history_search.rs`, `history_search_footer_line`): the label, the
@@ -55,6 +58,16 @@ impl Strings {
         .to_string()
     }
 
+    /// The flash of a message over `limit` characters.
+    pub fn too_long(&self, limit: usize) -> String {
+        Fmt::new(
+            self.message_too_long,
+            [Arg::Text(&limit.to_string())],
+            &self.num,
+        )
+        .to_string()
+    }
+
     /// The placeholder of the `n`-th attached image.
     pub fn image(&self, n: usize) -> String {
         Fmt::new(self.image_label, [Arg::Text(&n.to_string())], &self.num).to_string()
@@ -67,6 +80,7 @@ pub const EN: Strings = Strings {
     pasted_content: msg!("[Pasted Content {0} chars]"),
     image_label: msg!("[Image #{0}]"),
     shell_prompt: "!",
+    message_too_long: msg!("Message too long; limit {0} characters"),
     shell_mode: "Shell mode",
     search_label: "reverse-i-search: ",
     search_gap: "  ",

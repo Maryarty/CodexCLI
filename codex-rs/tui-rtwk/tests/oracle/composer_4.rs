@@ -34,6 +34,15 @@ fn alone(w: u16, h: u16, running: bool) -> Screen {
         .open()
 }
 
+/// The plain-text composer of the question sheets (`ChatComposerConfig::plain_text`) with its
+/// footer, as the oracle's composer harness draws it: the debug entry `composer/plain`.
+fn plain(w: u16, h: u16) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(w, h)
+        .entry("composer", "plain")
+        .open()
+}
+
 /// A chat screen with a turn running (Tab queues the draft), the composer live.
 fn chat_running(w: u16, h: u16) -> Screen {
     Screen::build(Owner::ChatLive)
@@ -196,11 +205,7 @@ fn blockquote_paste_replacing_selected_prefix_stays_literal() {
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:124 blockquote_paste_embedded_answer_starts_next_block kind=ui owner=chat-live
 #[test]
 fn blockquote_paste_embedded_answer_starts_next_block() {
-    kit::pending(
-        Owner::ChatLive,
-        "no embedded (plain-text) composer on the chat screen (no seed): a `> ` paste is quoted here, and the answer composer is not reachable",
-    );
-    let mut s = chat(100, 24);
+    let mut s = plain(100, 24);
     s.type_text("> ");
     s.paste("first\nsecond");
     s.type_text("Next block");
@@ -210,11 +215,7 @@ fn blockquote_paste_embedded_answer_starts_next_block() {
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:134 blockquote_paste_embedded_answer_rendered kind=snap owner=chat-live snap=blockquote_paste_embedded_answer
 #[test]
 fn blockquote_paste_embedded_answer_rendered() {
-    kit::pending(
-        Owner::ChatLive,
-        "no embedded (plain-text) composer on the chat screen (no seed); the oracle's snapshot is the composer alone at 60 columns",
-    );
-    let mut s = chat(60, 9);
+    let mut s = plain(60, 9);
     s.type_text("> ");
     s.paste("first line\n\nlast line");
     s.type_text("Next block");
@@ -225,16 +226,16 @@ fn blockquote_paste_embedded_answer_rendered() {
 // ORACLE bottom_pane/chat_composer/embedded_input_tests.rs:8 plain_text_composer_keeps_command_prefixes_literal kind=ui owner=chat-live
 #[test]
 fn plain_text_composer_keeps_command_prefixes_literal() {
-    kit::pending(
-        Owner::ChatLive,
-        "no plain-text (embedded) composer on the chat screen: `!`, `/` and `?` typed before a paste are not kept literal through Tab",
-    );
-    let mut s = chat(100, 24);
-    for prefix in ["!", "/", "?", "?"] {
+    // the oracle submits each draft (Tab) and starts the next on an empty composer; the harness
+    // keeps what is submitted, so each prefix gets its own composer (`?` once: the oracle's
+    // Shift+`?` is the same character here). Tab as a submit is `composer_key`'s unit test.
+    for prefix in ["!", "/", "?"] {
+        let mut s = plain(100, 24);
         s.type_text(prefix);
         s.paste("keep this literal");
         s.keys("tab");
-        s.assert_contains(&format!("{prefix}keep this literal"));
+        // no shell prompt, no command popup, no shortcut overlay: the draft is text
+        s.assert_row(prompt(&s), &format!("› {prefix}keep this literal"));
     }
 }
 
@@ -268,17 +269,16 @@ fn paste_enter_retains_a_one_character_first_line() {
 // ORACLE bottom_pane/chat_composer/embedded_input_tests.rs:54 embedded_composer_shows_validation_error_without_losing_draft kind=snap owner=chat-live
 #[test]
 fn embedded_composer_shows_validation_error_without_losing_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "the `Message too long` footer flash belongs to the plain-text embedded composer (ChatComposerConfig::plain_text, inside a question sheet), which has no entry here; the chat composer refuses an over-long draft with a notice (composer_2 oversized_submit_reports_error_and_restores_draft)",
-    );
-    let mut s = chat(80, 24);
+    let mut s = plain(80, 24);
     let text = "x".repeat(1_048_577);
     s.paste(&text);
     s.keys("enter");
-    s.assert_contains("Message too long; limit 1048576 characters");
-    // the draft stays in the composer
-    s.assert_row_starts_with(prompt(&s), "› xxxxxxxx");
+    // the footer's flash says it, the draft stays in the composer (a large paste is its placeholder)
+    s.assert_row(
+        s.rows().len() - 1,
+        "  Message too long; limit 1048576 characters",
+    );
+    s.assert_row(prompt(&s), "› [Pasted Content 1048577 chars]");
 }
 
 // ---- oracle: bottom_pane/chat_composer/mouse_tests.rs (7 screen-level tests here; 0 state tests left to chat-live)
