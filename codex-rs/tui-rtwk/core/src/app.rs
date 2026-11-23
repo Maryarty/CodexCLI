@@ -15,9 +15,7 @@ mod session;
 pub use session::export::TranscriptText;
 pub mod worktree;
 
-use session::{
-    active_backend, confirmed, refresh_rates, removed, session_intent, session_note,
-};
+use session::{active_backend, confirmed, refresh_rates, removed, session_intent, session_note};
 
 use crate::threads::ThreadAsk;
 use std::collections::{BTreeMap, VecDeque};

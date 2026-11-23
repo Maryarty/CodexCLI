@@ -387,10 +387,13 @@ impl Transcript {
     /// The card of the newest `/status` entry (oracle `last_status_copy_targets`: the copy
     /// picker offers the last one).
     pub fn last_status(&self) -> Option<&Arc<screens::status::StatusCard>> {
-        self.order.iter().rev().find_map(|key| match self.item(key) {
-            Some(Item::Status(card)) => Some(card),
-            _ => None,
-        })
+        self.order
+            .iter()
+            .rev()
+            .find_map(|key| match self.item(key) {
+                Some(Item::Status(card)) => Some(card),
+                _ => None,
+            })
     }
 
     fn item(&self, key: &ItemKey) -> Option<&Item> {

@@ -21,8 +21,14 @@ fn chat_with_status() -> Harness {
 fn slash_status_puts_the_card_into_the_transcript_and_opens_no_dialog() {
     let h = chat_with_status();
     let screen = h.t.screen();
-    assert!(screen.contains("• Hello"), "the transcript above it:\n{screen}");
-    assert!(screen.contains("/status"), "the command that made it:\n{screen}");
+    assert!(
+        screen.contains("• Hello"),
+        "the transcript above it:\n{screen}"
+    );
+    assert!(
+        screen.contains("/status"),
+        "the command that made it:\n{screen}"
+    );
     assert!(screen.contains("Model:"), "{screen}");
     assert!(screen.contains("Directory:"), "{screen}");
     // The chat is still the chat: the composer takes the next line.

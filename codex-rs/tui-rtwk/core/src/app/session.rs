@@ -15,8 +15,7 @@ use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
 };
 use crate::threads::{
-    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, ThreadModel,
-    UserMessage,
+    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, ThreadModel, UserMessage,
 };
 
 /// The Desktop app's link to a thread (`desktop_thread_deeplink`), the thread's
@@ -106,21 +105,30 @@ fn status_card(app: &CodexApp, thread: &ThreadModel, backend: BackendId) -> stat
         .into_iter()
         .collect();
     status::StatusCard {
-        version: facts.version.clone().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
+        version: facts
+            .version
+            .clone()
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
         remote: None,
         model: chat
             .model
             .clone()
             .or_else(|| facts.model.clone())
             .unwrap_or_else(|| "loading".to_string()),
-        reasoning: chat.effort.clone().or_else(|| facts.effort.clone()).map(|effort| {
-            status::Reasoning {
+        reasoning: chat
+            .effort
+            .clone()
+            .or_else(|| facts.effort.clone())
+            .map(|effort| status::Reasoning {
                 effort,
                 summary: Some("auto".to_string()),
-            }
-        }),
+            }),
         provider: chat.provider.clone().or_else(|| facts.provider.clone()),
-        directory: chat.cwd.clone().or_else(|| facts.cwd.clone()).unwrap_or_default(),
+        directory: chat
+            .cwd
+            .clone()
+            .or_else(|| facts.cwd.clone())
+            .unwrap_or_default(),
         home: facts.home_directory.clone(),
         permissions: status::Permissions {
             profile: facts.permission_profile.clone(),
