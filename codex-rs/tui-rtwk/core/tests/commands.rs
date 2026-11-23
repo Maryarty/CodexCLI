@@ -1151,14 +1151,14 @@ fn every_screen_opening_command_names_its_target() {
         }
     }
     // `Target::Pager` has no screen directory: the pager is the expanded mode of the
-    // session transcript (chat-live), so the target opens nothing for now.
+    // session transcript (chat-live), so the target opens nothing for now. `Target::Settings`
+    // has none either since settings became a feature slice (`features/settings`, ADR-012).
     for target in [
         Target::Resume,
         Target::Agents,
         Target::Import,
         Target::Usage,
         Target::Select,
-        Target::Settings,
         Target::Dialogs,
         Target::Pets,
         Target::Voice,
