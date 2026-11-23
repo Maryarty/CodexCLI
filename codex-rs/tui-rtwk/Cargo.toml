@@ -100,6 +100,8 @@ libc = "0.2"
 # The HTML flavour of a Markdown copy (services/clipboard/html): the oracle's own features.
 pulldown-cmark = { version = "0.10", default-features = false, features = ["html"] }
 semver = "1.0"
+# The generic picker list reads its debug fixtures (widgets/picker/list.rs).
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shlex = "1.3"
 # `/export` writes through a temporary file (services/transcript_file).
