@@ -11,7 +11,11 @@
 # enum <file> <Name> <variants>
 # arms <file> <fn> <pattern> <occurrences of the pattern in the function's code>
 # methods <file> <Trait> <methods of the trait>
-enum core/src/commands/dispatch.rs SessionIntent 43
+# SessionIntent 43 -> 44: `/status` left `Target` (a screen's directory, which it
+# is not any more: the card is a cell of the thread's transcript, ADR-003) for the oracle's
+# slash list, which stays `SessionIntent`'s; `Target::Status` went (that enum has no budget).
+# The slash list has no generic `Feature` variant yet: a Need of the ADR-012 owner.
+enum core/src/commands/dispatch.rs SessionIntent 44
 enum core/src/screens/select.rs Note 38
 enum core/src/screens/select.rs Picked 14
 enum core/src/screens/select.rs Menu 10

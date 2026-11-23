@@ -22,6 +22,22 @@ fn row_starting(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+/// The rows of the oracle snapshot `name` equal ours from screen row `row`, trailing blanks
+/// cut. The snapshot's cell styles are checked by the test where they say something: the
+/// presenter writes a blank cell without its bold or dim (invisible on a blank), so the
+/// screen emulation gives a blank the style of the cell before it.
+fn assert_rows_at(s: &Screen, name: &str, row: usize) {
+    assert!(
+        row < s.rows().len(),
+        "{name}: the popup is not on the screen"
+    );
+    let ours = s.rows();
+    for (at, want) in kit::snap_rows(name, "").iter().enumerate() {
+        let got = ours.get(row + at).map_or("", |r| r.trim_end());
+        assert_eq!(got, want.trim_end(), "{name}: row {at}");
+    }
+}
+
 /// `key` pressed `n` times, as one key string.
 fn times(key: &str, n: usize) -> String {
     vec![key; n].join(" ")
@@ -618,12 +634,9 @@ fn skill_completion_keeps_space_before_a_punctuation_paste_burst() {
 // ORACLE bottom_pane/chat_composer/skill_completion_tests.rs:124 default_unified_mention_popup_snapshot kind=snap owner=chat-nav-pane snap=default_unified_mention_popup
 #[test]
 fn default_unified_mention_popup_snapshot() {
-    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)
-        .script(include_str!(
-            "fixtures/composer_popups/skills_default.jsonl"
-        ))
+        .entry("popovers", "alone_skills_default")
         .open();
     s.type_text("@sa");
     s.assert_snap("codex_tui__bottom_pane__chat_composer__tests__default_unified_mention_popup");
@@ -725,10 +738,6 @@ fn changing_filter_resets_selection_after_scrolling() {
 // ORACLE bottom_pane/file_search_popup.rs:209 long_paths_keep_distinguishing_filenames_and_original_selection kind=snap owner=chat-nav-pane snap=long_paths_keep_distinguishing_filenames_and_original_selection
 #[test]
 fn long_paths_keep_distinguishing_filenames_and_original_selection() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the popovers/composer_popups entry's @ popup shows no rows once the mentions view is mounted (chunk-composer step 8b: key hook, wiring and mount still to do); the test passed on the old popup",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .entry("popovers", "composer_popups")
@@ -769,10 +778,6 @@ fn live_picker_frame_snapshots() {
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:76 selection_covers_the_row_and_empty_filter_clears_previous_results kind=snap owner=chat-nav-pane snap=empty_filter
 #[test]
 fn selection_covers_the_row_and_empty_filter_clears_previous_results() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the loading state of an empty filter has no seed (the snapshot holds the selected row style: it is compared with the rows)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!(
@@ -780,7 +785,10 @@ fn selection_covers_the_row_and_empty_filter_clears_previous_results() {
         ))
         .open();
     s.type_text("@");
-    s.type_text("zzzz");
+    // the filesystem tab with a new query: the earlier results are gone, the
+    // list says it is loading
+    s.keys("right");
+    s.type_text("new-query");
     s.assert_snap_region(
         "codex_tui__bottom_pane__mentions_v2__render__tests__empty_filter",
         row_starting(&s, "  Mentions"),
@@ -791,24 +799,23 @@ fn selection_covers_the_row_and_empty_filter_clears_previous_results() {
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:135 filesystem_columns_use_terminal_cell_widths kind=ui owner=chat-nav-pane
 #[test]
 fn filesystem_columns_use_terminal_cell_widths() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the file rows of the mention seed with a wide-glyph name need their own fixture",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(60, 24)
         .script(include_str!(
-            "fixtures/composer_popups/mentions_plugins.jsonl"
+            "fixtures/composer_popups/mentions_files.jsonl"
         ))
         .open();
     s.type_text("@src/");
     s.assert_contains("src/");
     // The parent path of each file row starts at column 12, whatever the name's glyph widths.
+    let mut seen = 0;
     for (y, row) in s.rows().iter().enumerate() {
-        if row.contains("src/") && !row.contains('@') {
+        if row.trim_end().ends_with("File") {
             s.assert_text_at(12, y, "src/");
+            seen += 1;
         }
     }
+    assert_eq!(seen, 2, "both file rows");
 }
 
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:166 long_mentions_leave_room_for_distinguishing_parent_paths kind=snap owner=chat-nav-pane snap=bounded_filesystem_columns_narrow snap=bounded_filesystem_columns_wide
@@ -834,37 +841,45 @@ fn long_mentions_leave_room_for_distinguishing_parent_paths() {
 // ORACLE bottom_pane/skill_popup.rs:350 scrolling_mentions_shifts_rendered_window_snapshot kind=snap owner=chat-nav-pane snap=skill_popup_scrolled
 #[test]
 fn scrolling_mentions_shifts_rendered_window_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the scroll needs ten skills, which no fixture seeds",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
-        .entry("popovers", "composer_popups")
+        .entry("popovers", "alone_mentions_ten")
         .open();
     s.type_text("$");
-    s.keys(&times("down", 9));
-    s.assert_snap_region(
+    // the oracle's popup starts with no selection, so its nine moves end on the
+    // ninth row; ours starts on the first row
+    s.keys(&times("down", 8));
+    let top = row_starting(&s, "↑");
+    assert_rows_at(
+        &s,
         "codex_tui__bottom_pane__skill_popup__tests__skill_popup_scrolled",
-        row_starting(&s, "↑"),
-        0,
+        top,
     );
+    // the cursor row is bold and reversed, the tag and the description dim
+    s.assert_style(0, top + 8, "bold reversed");
+    s.assert_style(14, top + 8, "reversed !bold");
+    s.assert_style(14, top + 1, "dim");
+    s.assert_style(36, top + 8, "bold reversed");
 }
 
 // ORACLE bottom_pane/skill_popup.rs:361 category_tags_distinguish_mentions_when_descriptions_hide kind=snap owner=chat-nav-pane snap=skill_popup_category_tags
 #[test]
 fn category_tags_distinguish_mentions_when_descriptions_hide() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the mention seed has no category tag ([App] / [Skill]); the snapshot joins four renders at two widths and two names",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(72, 24)
-        .entry("popovers", "composer_popups")
-        .open();
-    s.type_text("$Shared");
-    s.assert_contains("[App]");
-    s.assert_contains("[Skill]");
+    for (name, width) in [("Shared", 32), ("Shared", 72)] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(width, 24)
+            .entry("popovers", "composer_popups")
+            .open();
+        s.type_text(&format!("${name}"));
+        s.assert_contains("[App]");
+        s.assert_contains("[Skill]");
+        // the description hides where the row is narrow, the tags stay
+        if width == 72 {
+            s.assert_contains("Secondary details");
+        } else {
+            s.assert_absent("Secondary details");
+        }
+    }
 }
 
 // ORACLE bottom_pane/skill_popup.rs:387 lowercase_expansion_preserves_match_ranking_and_highlighting kind=snap owner=chat-nav-pane snap=skill_popup_lowercase_expansion
@@ -872,16 +887,16 @@ fn category_tags_distinguish_mentions_when_descriptions_hide() {
 fn lowercase_expansion_preserves_match_ranking_and_highlighting() {
     kit::pending(
         Owner::ChatNavPane,
-        "the i-dot name expansions need a fixture of their own",
+        "the query U+0307 x is not a mention name: typed after `$` the composer closes the popup (the combining dot joins the `$`), so the oracle's `SkillPopup::set_query` state has no screen",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
-        .size(48, 24)
+        .size(80, 24)
         .entry("popovers", "composer_popups")
         .open();
     s.type_text("$\u{307}x");
     s.assert_snap_region(
         "codex_tui__bottom_pane__skill_popup__tests__skill_popup_lowercase_expansion",
-        0,
+        row_starting(&s, "› "),
         0,
     );
 }

@@ -83,14 +83,20 @@ fn with_banner(presentation: &str) -> Harness {
     h
 }
 
-/// The cell of the first row that shows `needle`.
-fn cell_of(h: &Harness, needle: &str) -> (u16, u16) {
+/// The cell of the first row that shows `needle`, if the screen shows it.
+fn find_cell(h: &Harness, needle: &str) -> Option<(u16, u16)> {
     for (y, line) in h.t.lines().iter().enumerate() {
         if let Some(byte) = line.find(needle) {
-            return (line[..byte].chars().count() as u16, y as u16);
+            return Some((line[..byte].chars().count() as u16, y as u16));
         }
     }
-    panic!("`{needle}` is not on the screen:\n{}", h.t.screen());
+    None
+}
+
+/// The cell of the first row that shows `needle`.
+fn cell_of(h: &Harness, needle: &str) -> (u16, u16) {
+    find_cell(h, needle)
+        .unwrap_or_else(|| panic!("`{needle}` is not on the screen:\n{}", h.t.screen()))
 }
 
 fn opened_urls(h: &Harness) -> Vec<String> {
@@ -421,9 +427,12 @@ fn answered() -> Harness {
     h
 }
 
-/// The first cell of `needle` is drawn reversed (the marked prompt).
+/// The first cell of `needle` is drawn reversed (the marked prompt); a prompt
+/// the screen does not show (the mention popup grows over its rows) is not.
 fn reversed(h: &Harness, needle: &str) -> bool {
-    let (x, y) = cell_of(h, needle);
+    let Some((x, y)) = find_cell(h, needle) else {
+        return false;
+    };
     h.t.cell(usize::from(x), usize::from(y))
         .attrs
         .intersects(Attrs::REVERSE)

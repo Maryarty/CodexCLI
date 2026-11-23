@@ -307,7 +307,7 @@ fn status_snapshot_wraps_in_narrow_terminal() {
 fn status_snapshot_wraps_halfwidth_kana_in_narrow_terminal() {
     kit::pending(
         Owner::DialogsPane,
-        "G44: a half-width kana and its sound mark is one cell in rtwk, two in the oracle (the wrap and the label column differ); no entry for status/halfwidth_kana_narrow either: its plan is free text (the oracle names `ｶﾞﾊﾟ plan`), the app-server bootstrap gives a plan enum",
+        "G44: a half-width kana and its sound mark is one cell in rtwk, two in the oracle (the Model, Account, Thread name rows wrap elsewhere); the plan of the oracle's account is the free text `ｶﾞﾊﾟ plan`, ours is the protocol's plan enum (the entry holds Unknown)",
     );
     Screen::build(Owner::DialogsPane)
         .size(42, 24)

@@ -78,88 +78,51 @@ pub struct Context {
     pub percent_left: i64,
 }
 
-/// One rate-limit window; its reset in the user's local time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
-pub struct Limit {
-    pub window_minutes: i64,
-    pub used_percent: i64,
-    pub reset: Option<Reset>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
-pub struct Reset {
-    pub hour: u8,
-    pub minute: u8,
-}
-
-/// What `/status` shows: the raw values at the moment it ran; every shown
-/// string is derived by the view.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
-pub struct Card {
-    pub version: String,
-    pub model: String,
-    pub reasoning_effort: Option<String>,
-    pub reasoning_summary: Option<String>,
-    pub directory: String,
-    pub profile: Profile,
-    pub approval: Approval,
-    #[serde(default)]
-    pub auto_review: bool,
-    /// The instruction files in use (`Agents.md`), none when empty.
-    #[serde(default)]
-    pub agents: Vec<String>,
-    pub tokens: Tokens,
-    pub context: Option<Context>,
-    #[serde(default)]
-    pub limits: Vec<Limit>,
-}
-
-/// The app-scoped model state of this screen, changed only by `apply`.
+/// The app-scoped model state of this screen, changed only by `apply`: the
+/// clock a card is made at. The cards themselves are items of a thread's
+/// transcript (`Item::Status`, ADR-003); nothing of a card is kept here.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// The card of the last `/status`.
-    pub card: Option<Card>,
-    /// The card of a `/status` cell a script seeded: the facts of the oracle's
-    /// cell, shown by `StatusCell`. Only a seed writes it; the live app moves
-    /// the card into the thread's transcript (`Item::Status`) and drops this
-    /// and `card` with the departure (tm debt task status-card-adr003).
-    pub cell: Option<StatusCard>,
+    /// The clock the shell moves on, unix seconds (the model never reads it):
+    /// when a card is made and the limits it shows were captured.
+    pub now: i64,
+    /// The local time zone's offset from UTC, seconds east.
+    pub utc_offset_secs: i32,
 }
 
-/// The events of this screen (backend results, tickets); a variant of the
-/// root `ScreenEv`.
+/// The events of this screen; a variant of the root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-// The dialog's `Card` goes with the dialog (tm status-card-adr003).
-#[allow(clippy::large_enum_variant)]
 pub enum Ev {
-    /// `/status` ran: the card to show.
-    Shown(Card),
-    /// A `/status` cell was seeded (a script's `status_card`).
-    CellShown(Box<StatusCard>),
+    /// A card a script seeds (`{"kind":"status_card", ..}`): the app puts it
+    /// into the shown thread's transcript as `/status` does.
+    Card(Box<StatusCard>),
+    /// The clock moved on (the shell's ambient loop).
+    Clock { now: i64, utc_offset_secs: i32 },
 }
 
-/// The intents of this screen; a variant of the root `ScreenIntent`.
+/// The intents of this screen; a variant of the root `ScreenIntent`. `/status`
+/// is a session command (`SessionIntent::Status`): the card is the thread's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {
-    Open,
-    /// The card was closed.
-    Close,
-}
+pub enum Intent {}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Shown(card) => model.card = Some(card),
-        Ev::CellShown(card) => model.cell = Some(*card),
+        // The thread's: the app routes it (`app::apply_event`).
+        Ev::Card(_) => {}
+        Ev::Clock {
+            now,
+            utc_offset_secs,
+        } => {
+            model.now = now;
+            model.utc_offset_secs = utc_offset_secs;
+        }
     }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = fx;
-    match intent {
-        Intent::Open => {}
-        Intent::Close => model.card = None,
-    }
+    let _ = (model, fx);
+    match intent {}
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -227,18 +190,6 @@ impl From<codex_app_server_protocol::RateLimitSnapshot> for RateLimits {
     }
 }
 
-impl RateLimits {
-    pub fn card_limits(&self) -> Vec<Limit> {
-        self.primary.iter().chain(&self.secondary).filter_map(|rate| {
-            Some(Limit {
-                window_minutes: rate.window_minutes?,
-                used_percent: i64::from(rate.used_percent),
-                reset: None,
-            })
-        }).collect()
-    }
-}
-
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -282,13 +233,10 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// The seed forms: `{"kind":"card", ..the fields of `Card`..}` (the dialog's
-/// card) and `{"kind":"status_card", ..the fields of `StatusCard`..}` (the
-/// cell's).
+/// The seed forms: `{"kind":"status_card", ..the fields of `StatusCard`..}`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
-    Card(Box<Card>),
     StatusCard(Box<StatusCard>),
 }
 
@@ -297,7 +245,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
-        SeedEv::Card(card) => Ev::Shown(*card),
-        SeedEv::StatusCard(card) => Ev::CellShown(card),
+        SeedEv::StatusCard(card) => Ev::Card(card),
     })
 }
