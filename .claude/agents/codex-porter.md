@@ -36,26 +36,24 @@ read-only) as `codex-rs/tui-rtwk`. Your prompt names the task and your worktree.
   your checkpoint as a Need.
 - Commit on your worktree branch, staging by path, messages `<alias>: …`.
 
-## Checks per step
-From `codex-rs/tui-rtwk`, through `~/.cache/rtwk/acargo`:
-- `acargo check --tests --quiet`;
-- one test root: `acargo nextest run --test screens --status-level fail
-  --final-status-level fail --hide-progress-bar -E 'test(<page>)'`
-  (roots: `screens`, `shell`, `rules`, `pages`, `oracle`; core: `-p codex-tui-core`);
-- your oracle shard: `python3 -I tests/oracle/tools/summary.py --run <shard>`;
-- before each commit: `acargo nextest run --test rules …` and
-  `acargo clippy -q --all-targets -- -D warnings`;
-- `shards.py --check` when a shard file changed.
-Then commit and `task_checkpoint` "partial ready: <tip>". The landing runs the
-full gate on it.
+## Checks (the person, 2026-11-23: porters do NOT run tests; the batch does)
+Write the whole task first (no cargo while writing; WIP commits are fine). Repeated
+edits: a rerunnable script first (`.tm/fleet-brief.md` "Scripts first"). Then, from
+`codex-rs/tui-rtwk`, through `~/.cache/rtwk/acargo`:
+- `acargo check --workspace --tests --quiet` until clean;
+- ONE `acargo nextest run -p codex-tui-rtwk --test rules --cargo-quiet --status-level fail
+  --final-status-level fail --hide-progress-bar` (the architecture rules);
+- `acargo fmt`.
+Nothing else: no other nextest root, no oracle shard (`summary.py --run`), no clippy,
+no pty run, no land-check — the orchestrator merges the hand-ins and a Haiku waiter
+runs land-check, the key tests and scenarios on the batch; a red comes back to you by
+message. A hook refuses any other nextest. Only when you cannot judge behaviour without
+a run: prefix the one call with `PORTER_RUN_OK=1` and say why in the deliverable.
 
 ## Before task_done
-Merge `claude/tui-rtwk` into your branch, then run once:
-`~/.cache/rtwk/bgrun.sh run gate -- ~/.cache/codexcli/land-check.sh <worktree> $(git rev-parse HEAD)`,
-and drive your page in the real binary beside the oracle
-(`tools/rtwk-port/mock-model/check.py --bin rtwk --bin oracle --only <scenario>`,
-`RTWK_BIN=<worktree>/codex-rs/tui-rtwk/target/debug/codex-rtwk`); put the
-differing rows in the pack.
+Merge `claude/tui-rtwk` into your branch, re-run `check` + the rules call, commit.
+In the deliverable name your key tests and pty scenario for the batch:
+`key: <root>::<test>, ...; pty: <scenario>`.
 
 ## Tools
 - Long commands: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>` (starts and waits
