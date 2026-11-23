@@ -15,13 +15,17 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::select::plugins as plugin_model;
 use codex_tui_core::screens::select::review::Menu as ReviewMenu;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
 
 use super::lists;
+use super::plugins;
+use super::prompt;
 use super::review;
 use super::strings;
 use crate::app::view::Hs;
+use crate::keymap::keymap;
 use crate::widgets::picker::{Event, Picker};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,7 +62,9 @@ pub struct MenuDialogState {
 pub enum Msg {
     Picked(Event),
     /// What the `/review` instructions prompt answered.
-    Typed(review::Answer),
+    Typed(prompt::Answer),
+    /// What the marketplace source prompt of `/plugins` answered.
+    Source(prompt::Answer),
 }
 
 impl StatefulWidget for MenuDialog {
@@ -93,11 +99,16 @@ impl State for MenuDialogState {
         let hs = read::<Hs, _>(cx);
         let event = match msg {
             Msg::Picked(event) => event,
-            Msg::Typed(review::Answer::Submit(text)) => {
+            Msg::Typed(prompt::Answer::Submit(text)) => {
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::Instructions(text)));
                 return Rebuild::Yes;
             }
-            Msg::Typed(review::Answer::Back) => Event::Cancel,
+            Msg::Typed(prompt::Answer::Back) | Msg::Source(prompt::Answer::Back) => Event::Cancel,
+            Msg::Source(prompt::Answer::Submit(text)) => {
+                let intent = plugin_model::Intent::Source(text);
+                cx.emit(&hs.screen, ScreenIntent::Select(Intent::Plugins(intent)));
+                return Rebuild::Yes;
+            }
         };
         let intent = match event {
             Event::Choose(id) => Intent::Choose(id),
@@ -105,6 +116,11 @@ impl State for MenuDialogState {
             Event::Toggle(id) => Intent::Toggle(id),
             Event::Reorder(id, down) => Intent::Reorder(id, down),
             Event::Confirm => Intent::Confirm,
+            // Only the plugin browser asks for these (`Picker::extras`).
+            Event::Tab(id) => Intent::Plugins(plugin_model::Intent::Tab(id)),
+            Event::Hot(plugins::REMOVE_KEY) => Intent::Plugins(plugin_model::Intent::Remove),
+            Event::Hot(plugins::UPGRADE_KEY) => Intent::Plugins(plugin_model::Intent::Upgrade),
+            Event::Hot(_) => return Rebuild::No,
             // Esc leaves the menu on top; one below it (the quick menu under
             // the reasoning menu) comes back, and the dialog closes when the
             // model has none left.
@@ -120,15 +136,18 @@ impl State for MenuDialogState {
     }
 
     fn build(&self, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let Some(head) = head(&watch::<ScreenStates, _>(cx)) else {
+        let states = watch::<ScreenStates, _>(cx);
+        let Some(head) = head(&states) else {
             return AnyWidget::default();
         };
+        // The plugin browser reads its own part of the model.
+        if matches!(head.menu, Menu::Plugins) {
+            return Self::plugins(&states, head.depth, cx);
+        }
         // The instructions of `/review` are a text prompt, not a list.
         if matches!(&head.menu, Menu::Review(menu) if **menu == ReviewMenu::Instructions) {
-            let prompt: AnyWidget = review::Instructions {
-                on_answer: cx.map(Msg::Typed),
-            }
-            .into();
+            let prompt: AnyWidget =
+                review::instructions(cx.map(Msg::Typed), review::strings::of(cx)).into();
             return prompt.with_key(u32::try_from(head.depth).unwrap_or(0));
         }
         let list = match &head.menu {
@@ -140,10 +159,7 @@ impl State for MenuDialogState {
         let Some(list) = list else {
             return AnyWidget::default();
         };
-        let picker = Picker {
-            list: Rc::new(list),
-            on_event: cx.map(Msg::Picked),
-        };
+        let picker = Picker::new(Rc::new(list), cx.map(Msg::Picked));
         let picker: AnyWidget = match head.menu {
             // A confirmation floats: 72 cells wide at most and two cells in
             // from the screen (`dialog_area` of the oracle's view stack).
@@ -155,5 +171,38 @@ impl State for MenuDialogState {
             _ => picker.into(),
         };
         picker.with_key(u32::try_from(head.depth).unwrap_or(0))
+    }
+}
+
+impl MenuDialogState {
+    /// `/plugins`: the page the plugin model is at. A refresh of the same page keeps its picker
+    /// (cursor, query, tab); another page is a new one.
+    fn plugins(states: &ScreenStates, depth: usize, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let select = &states.select;
+        let words = plugins::strings::of(cx);
+        let keys = keymap(cx);
+        let auth = select.plugin_auth();
+        let Some(page) = plugins::page(&select.plugins, auth.as_ref(), &keys, words) else {
+            return AnyWidget::default();
+        };
+        let key = u32::try_from(depth)
+            .unwrap_or(0)
+            .saturating_mul(32)
+            .saturating_add(plugins::shape(select.plugins.menu()));
+        let on_event = cx.map(Msg::Picked);
+        let widget: AnyWidget = match page {
+            plugins::Page::Add => plugins::add_prompt(cx.map(Msg::Source), words).into(),
+            plugins::Page::Browser(list, extras) => {
+                Picker::new(Rc::new(list), on_event).extras(extras).into()
+            }
+            plugins::Page::List(list) => Picker::new(Rc::new(list), on_event).into(),
+            // A confirmation floats like the others.
+            plugins::Page::Confirm(list) => Padding::new(
+                EdgeInsets::symmetric(2, 0),
+                Dialog::bare(Picker::new(Rc::new(list), on_event)).max_width(72),
+            )
+            .into(),
+        };
+        widget.with_key(key)
     }
 }

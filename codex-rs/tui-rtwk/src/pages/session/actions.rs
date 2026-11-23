@@ -8,7 +8,7 @@ use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{
-    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
+    DispatchCx, Notice, Open, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
     parent_owned_takes,
 };
 use codex_tui_core::screens::composer::{self, ShellLine};
@@ -199,7 +199,20 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         return;
     }
-    let outcome = dispatch_with_tiers(line, &facts, &tiers);
+    let outcome = match dispatch_with_tiers(line, &facts, &tiers) {
+        // `/plugins` is the selection sheet's browser; the dispatch still gives it as a session
+        // command (core: `commands/dispatch.rs` `Plugins`, a Need), the sheet opens it as it does
+        // `/apps`.
+        Outcome::Session {
+            command: SlashCommand::Plugins,
+            ..
+        } => Outcome::Open(Open {
+            target: Target::Select,
+            command: SlashCommand::Plugins,
+            args: String::new(),
+        }),
+        outcome => outcome,
+    };
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -389,6 +402,7 @@ fn select_intent(
         )),
         SlashCommand::Apps => Some(Intent::OpenApps { enabled: apps }),
         SlashCommand::Review => Some(Intent::OpenReview { cwd }),
+        SlashCommand::Plugins => Some(Intent::OpenPlugins { cwd }),
         _ => None,
     }
 }

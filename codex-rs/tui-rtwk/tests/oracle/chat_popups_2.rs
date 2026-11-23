@@ -4,6 +4,9 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use serde_json::json;
+
+use crate::chat_popups_3::{plugin, seed, select_tab};
 use crate::kit::{self, Owner, Screen};
 
 /// The first row that contains `text`; past the screen when none does (the kit then names the row it looked for).
@@ -29,7 +32,6 @@ const NO_HISTORY: &str = "the /permissions selection history cells (`Permissions
 const NO_AUTO_REVIEW: &str = "the Approve for me row, its feature gate and its (current) marker are built (core `select::permissions`, `Current.guardian`/`reviewer`, entry `permissions_unnamed_server_profile`) but `/permissions` does not open the menu: the opener (src/pages/session) reads the thread's policy and the feature gate (parity/popups.md, Needs)";
 const NO_QUEUE: &str =
     "the queued-input recovery after a cancelled /permissions picker is not built";
-const NO_PLUGINS: &str = "the plugins popup (marketplace tabs, plugin rows, detail and install action) is not built: the port has no plugins screen";
 
 // ---- oracle: chatwidget/tests/permissions.rs (42 screen-level tests here; 11 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/permissions.rs:41 permission_discovery_uses_server_catalog_for_remote_custom_selection kind=snap owner=dialogs-pane snap=permission_discovery_loading snap=permission_discovery_remote
@@ -606,39 +608,129 @@ fn windows_sandbox_unelevated_policy_hides_admin_setup() {
 // ORACLE chatwidget/tests/plugin_catalog_tests.rs:5 plugins_popup_uses_product_labels_for_remote_and_personal_tabs kind=snap owner=dialogs-pane
 #[test]
 fn plugins_popup_uses_product_labels_for_remote_and_personal_tabs() {
-    kit::pending(Owner::DialogsPane, NO_PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(120, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let remote =
+        |name: &str, raw: &str, id: &str, plugin_name: &str, display: &str, description: &str| {
+            seed::remote_marketplace(
+                name,
+                raw,
+                vec![seed::remote_summary(
+                    id,
+                    plugin_name,
+                    Some(display),
+                    Some(description),
+                    false,
+                )],
+            )
+        };
+    let shelf = seed::shelf(vec![seed::marketplace(
+        "codex-curated",
+        Some(seed::personal_path()),
+        Some("Personal"),
+        vec![plugin(
+            "plugin-local-docs",
+            "local-docs",
+            "Local Docs",
+            "Local editable docs.",
+            false,
+        )],
+    )]);
+    seed::with(&shelf, |held| {
+        held.remote = vec![
+            remote(
+                "workspace-directory",
+                "Raw Workspace Directory",
+                "plugins~Plugin_buildkite",
+                "buildkite",
+                "Buildkite",
+                "Workspace CI.",
+            ),
+            remote(
+                "workspace-shared-with-me-private",
+                "Raw Shared Private",
+                "plugins~Plugin_docs",
+                "docs",
+                "Docs",
+                "Shared docs.",
+            ),
+            remote(
+                "workspace-shared-with-me-unlisted",
+                "Raw Shared Link",
+                "plugins~Plugin_link",
+                "link",
+                "Link Share",
+                "Shared by link.",
+            ),
+        ];
+    });
+    let mut s = seed::open(120, 24, seed::config(), &shelf);
+    s.wait_for("Buildkite");
     // Each marketplace tab shows its product label and not the raw marketplace label.
-    for (product_label, plugin_name, raw_label) in [
+    let rows: Vec<String> = [
         ("Workspace.", "Buildkite", "Raw Workspace Directory."),
         ("Shared with me.", "Docs", "Raw Shared Private."),
         ("Shared with me (link).", "Link Share", "Raw Shared Link."),
         ("Local.", "Local Docs", "Personal."),
-    ] {
+    ]
+    .into_iter()
+    .map(|(product_label, plugin_name, raw_label)| {
+        select_tab(&mut s, product_label);
         s.assert_contains(product_label);
         s.assert_contains(plugin_name);
         s.assert_absent(raw_label);
-        s.keys("tab");
-    }
+        let row = s
+            .rows()
+            .into_iter()
+            .find(|row| row.contains(plugin_name))
+            .expect("the plugin's row");
+        row.split_whitespace().collect::<Vec<_>>().join(" ")
+    })
+    .collect();
+    assert_eq!(
+        rows,
+        [
+            "› [-] Buildkite Available Press Enter to install or view plugin details",
+            "› [-] Docs Available Press Enter to install or view plugin details",
+            "› [-] Link Share Available Press Enter to install or view plugin details",
+            "› [-] Local Docs Available Press Enter to install or view plugin details",
+        ]
+    );
 }
 
 // ORACLE chatwidget/tests/plugin_catalog_tests.rs:117 plugins_popup_preserves_workspace_tab_across_load_and_detail_navigation kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_preserves_workspace_tab_across_load_and_detail_navigation() {
-    kit::pending(Owner::DialogsPane, NO_PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let buildkite = seed::remote_summary(
+        "plugins~Plugin_buildkite",
+        "buildkite",
+        Some("Buildkite"),
+        Some("Buildkite pipelines."),
+        false,
+    );
+    let shelf = seed::shelf(vec![seed::curated(Vec::new())]);
+    seed::with(&shelf, |held| {
+        held.held.insert(seed::SECTIONS);
+        held.remote = vec![seed::remote_marketplace(
+            "workspace-directory",
+            "Raw Workspace Directory",
+            vec![buildkite.clone()],
+        )];
+        held.details.insert(
+            "*".to_string(),
+            seed::remote_detail(
+                "workspace-directory",
+                buildkite,
+                Some("Buildkite pipelines."),
+            ),
+        );
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
+    select_tab(&mut s, "Loading Workspace plugins.");
     s.assert_contains("Loading Workspace plugins.");
-    s.wait_for("Buildkite");
-    s.assert_absent("Loading Workspace plugins.");
+    // The sections arrive: the Workspace tab stays the active one.
+    seed::serve_sections(&mut s, &shelf);
     s.assert_contains("Workspace.");
+    s.assert_contains("Buildkite");
+    s.assert_absent("Loading Workspace plugins.");
     // Detail, then Back to plugins: the Workspace tab is still the active one.
     s.keys("enter");
     s.keys("esc");
@@ -649,29 +741,73 @@ fn plugins_popup_preserves_workspace_tab_across_load_and_detail_navigation() {
 // ORACLE chatwidget/tests/plugin_catalog_tests.rs:176 plugins_popup_remote_local_dedupe_prefers_installed_remote_after_mapped_shares kind=ui owner=dialogs-pane
 #[test]
 fn plugins_popup_remote_local_dedupe_prefers_installed_remote_after_mapped_shares() {
-    kit::pending(Owner::DialogsPane, NO_PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
-    // The marketplace list itself is state the oracle asserts; the drawn header and row are the visible part.
-    s.assert_contains("Installed 1 of 1 available plugins.");
-    s.assert_contains("Installed");
-    s.assert_absent("Local curated docs plugin.");
+    let remote_id = "plugins~Plugin_docs";
+    let local = seed::set(
+        plugin(
+            "plugin-docs",
+            "docs",
+            "Docs",
+            "Local curated docs plugin.",
+            false,
+        ),
+        &[("remotePluginId", json!(remote_id))],
+    );
+    let shelf = seed::shelf(vec![seed::curated(vec![local])]);
+    seed::with(&shelf, |held| {
+        held.remote = vec![seed::remote_marketplace(
+            "workspace-shared-with-me-private",
+            "Shared with me",
+            vec![seed::remote_summary(
+                remote_id,
+                "docs",
+                Some("Docs"),
+                Some("Remote installed docs plugin."),
+                true,
+            )],
+        )];
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
+    // The remote copy is the installed one: it wins over the local row that is no mapped share.
+    s.wait_for("Installed 1 of 1 available plugins.");
+    let row = s
+        .rows()
+        .into_iter()
+        .find(|row| row.contains("Docs"))
+        .expect("the all-plugins row");
+    assert!(row.contains("Installed"), "{row}");
+    assert!(!row.contains("Local curated docs plugin."), "{row}");
 }
 
 // ORACLE chatwidget/tests/plugin_catalog_tests.rs:244 plugin_detail_not_installable_plugin_disables_install_action kind=ui owner=dialogs-pane
 #[test]
 fn plugin_detail_not_installable_plugin_disables_install_action() {
-    kit::pending(Owner::DialogsPane, NO_PLUGINS);
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 24)
-        .live()
-        .open();
-    s.type_text("/plugins").keys("enter");
+    let internal = seed::summary(
+        "plugin-internal",
+        "internal",
+        Some("Internal"),
+        Some("Internal only."),
+        false,
+        true,
+        "NOT_AVAILABLE",
+    );
+    let shelf = seed::shelf(vec![seed::curated(vec![internal.clone()])]);
+    seed::with(&shelf, |held| {
+        held.details.insert(
+            "internal".to_string(),
+            seed::detail(internal, Some("Internal only."), &[], &[], &[], &[]),
+        );
+    });
+    let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("enter");
-    s.assert_contains("This plugin is not installable from this marketplace");
+    let text = s.text();
+    let install_row = text
+        .lines()
+        .find(|line| line.contains("Install plugin"))
+        .expect("the install row");
+    assert!(
+        install_row.contains("This plugin is not installable from this marketplace"),
+        "{install_row}"
+    );
     let before = s.shot();
     // Down skips the disabled install row: the popup is drawn the same.
     s.keys("down");
