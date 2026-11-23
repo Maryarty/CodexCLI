@@ -1,0 +1,5 @@
+# `plugin_mention_uses_display_name_for_opaque_id` (chat_composer/snapshot_tests.rs:21): the plugin
+# `Postman` of the opaque config name `app-6a6b12e06c5c8191ac5d5252fa5f92c8@test`; its mention reads the display name.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"plugin","name":"Postman","description":"Plugin used to test mentions.","insert":"Postman","path":"plugin://app-6a6b12e06c5c8191ac5d5252fa5f92c8@test"}]}}

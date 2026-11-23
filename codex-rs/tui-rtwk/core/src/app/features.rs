@@ -9,7 +9,7 @@ use std::rc::Rc;
 use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread, session_note};
 use crate::features::{
-    self, AppCx, AppView, FeatureCtx, FeatureIntent, FeaturePick, FeaturePrompt,
+    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeaturePick, FeaturePrompt,
     FeatureThreadIntent,
 };
 use crate::features::{FeatureStates, Out};
@@ -121,6 +121,11 @@ pub(super) fn effect_done(app: &mut CodexApp, request: u64, done: Done, fx: &mut
     run(app, fx, |states, cx| {
         features::effect_done(states, ctx, done, cx)
     });
+}
+
+/// A fact the host sent unasked, for the feature it names.
+pub(super) fn fact(app: &mut CodexApp, fact: FeatureFact, fx: &mut AppFx) {
+    run(app, fx, |states, cx| features::on_fact(states, fact, cx));
 }
 
 /// What a feature's menu settled on.

@@ -222,7 +222,11 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 // the draft's images go with its text; a line that is not
                 // the draft (a popup's pick) goes as text
                 let table = crate::pages::session::composer::strings::of(cx);
-                let draft = w.ui.draft.submission(&w.ui.composer, |n| table.image(n));
+                let draft = w.ui.draft.submission_with(
+                    &w.ui.composer,
+                    |n| table.image(n),
+                    states.popovers.sources().mentions,
+                );
                 let message = if draft.text.trim() == line.trim() {
                     draft
                 } else {
@@ -241,12 +245,9 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::Open(opened) => {
             record(cx);
             clear_sent(&w.ui);
-            if matches!(opened.target, Target::Status | Target::Usage) {
-                let intent = if opened.target == Target::Status {
-                    ScreenIntent::Status(codex_tui_core::screens::status::Intent::Open)
-                } else {
-                    ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits)
-                };
+            if opened.target == Target::Usage {
+                let intent =
+                    ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits);
                 cx.emit(&hs.screen, intent);
             }
             // The settings dialogs are built by the model from its facts

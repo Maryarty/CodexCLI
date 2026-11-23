@@ -126,6 +126,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         .with(Provider::value_shared(app.core.active_thread()))
         .with(Provider::value_shared(app.core.requests().clone()))
         .with(Provider::value_shared(app.core.screens().clone()))
+        .with(Provider::value_shared(app.core.features().clone()))
         .with(
             Provider::value_shared(app.core.keymap().clone())
                 .update_should_notify(|old, new| old != new),

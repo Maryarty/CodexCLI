@@ -185,6 +185,7 @@ impl Feature for Goal {
     type Pick = Pick;
     type Prompt = Prompt;
     type Note = Note;
+    type Fact = Never<Self>;
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
         match intent {

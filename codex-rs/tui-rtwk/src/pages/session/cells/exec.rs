@@ -165,11 +165,12 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
     } else {
         None
     };
+    // Oracle `compact_command_lines`: a non-zero exit draws a plain bold bullet (no red).
     let mark = match status {
         ToolStatus::Running => tokens.accent(),
         ToolStatus::Completed if !actions.is_empty() => tokens.dim().attrs(Attrs::DIM),
         ToolStatus::Completed => tokens.success(),
-        ToolStatus::Failed | ToolStatus::Declined => tokens.error(),
+        ToolStatus::Failed | ToolStatus::Declined => tokens.bold(),
     }
     .attrs(Attrs::BOLD);
     Parts::Rows(Rows {

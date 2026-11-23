@@ -1,3 +1,0 @@
-# default_unified_mention_popup: four skills and the plugin (chat_composer tests).
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"sample-tools:search","description":"","insert":"sample-tools:search"},{"kind":"skill","name":"sample:summarize","description":"","insert":"sample-summarize"},{"kind":"skill","name":"sample:notes","description":"","insert":"sample-notes"},{"kind":"skill","name":"sample:other","description":"","insert":"sample-other"},{"kind":"plugin","name":"Sample Plugin","description":"Plugin with skills and an MCP server","insert":"sample"}]}}

@@ -15,9 +15,7 @@ mod session;
 pub use session::export::TranscriptText;
 pub mod worktree;
 
-use session::{
-    active_backend, confirmed, open_status, refresh_rates, removed, session_intent, session_note,
-};
+use session::{active_backend, confirmed, refresh_rates, removed, session_intent, session_note};
 
 use crate::threads::ThreadAsk;
 use std::collections::{BTreeMap, VecDeque};
@@ -283,6 +281,9 @@ pub enum AppEv {
     /// What the config says of the plugins (the features, the home directory, the marketplaces
     /// the user configured): sent with `Presets`.
     PluginConfig(crate::screens::select::plugins::Config),
+    /// A fact the host sends unasked to a feature slice (ADR-012: `Feature::on_fact`); the
+    /// host builds it with the feature's own `Fact` type and `From`.
+    Feature(crate::features::FeatureFact),
     /// An error the host words for the shown conversation: the browser did not open a page
     /// (`Command::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
     /// no image to paste (`Failed to paste image: {err}`). The conversation keeps it as an error
@@ -840,8 +841,9 @@ impl CodexApp {
         }
     }
 
-    /// The app-scoped state of the feature slices.
-    pub fn features(&self) -> &crate::features::FeatureStates {
+    /// The app-scoped state of the feature slices: provided to the views (a live menu of a
+    /// feature reads its rows from its state), changed only by the features' own steps.
+    pub fn features(&self) -> &Rc<crate::features::FeatureStates> {
         &self.features
     }
 
@@ -1346,6 +1348,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             use crate::screens::select::{Ev, plugins};
             select::event(app, Ev::Plugins(plugins::Ev::Config(config)), fx);
         }
+        AppEv::Feature(fact) => features::fact(app, fact, fx),
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } if effects::is_feature_request(request) => {
             features::effect_done(app, request, done, fx);
@@ -1380,6 +1383,13 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         error.clone(),
                     )));
                     apply_thread(app, &ThreadId::new(thread), ev, fx);
+                }
+                // A card a script seeds is an entry of the shown thread, as `/status` makes it.
+                ScreenEv::Status(status::Ev::Card(card)) => {
+                    if let Some(thread) = app.session.active.clone() {
+                        let item = threads::Item::Status(std::sync::Arc::new((**card).clone()));
+                        apply_thread(app, &thread, ThreadEv::Appended { turn: None, item }, fx);
+                    }
                 }
                 ScreenEv::Chat(chat::Ev::Pending { thread, pending }) => {
                     apply_thread(
@@ -1922,7 +1932,6 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::Screen(ScreenIntent::Usage(crate::screens::usage::Intent::RefreshRateLimits)) => {
             refresh_rates(app, active_backend(app), fx)
         }
-        Intent::Screen(ScreenIntent::Status(status::Intent::Open)) => open_status(app, fx),
         Intent::Interrupt(thread) => apply_thread(app, &thread, ThreadEv::Interrupt, fx),
         Intent::ThreadScreen { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
@@ -2061,12 +2070,6 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
 }
 
 fn install_rates(app: &mut CodexApp, backend: BackendId, limits: status::RateLimits) {
-    if backend == active_backend(app)
-        && app.screens.status.card.is_some()
-        && let Some(card) = &mut Rc::make_mut(&mut app.screens).status.card
-    {
-        card.limits = limits.card_limits();
-    }
     Rc::make_mut(&mut app.session)
         .rate_limits
         .insert(backend, limits);

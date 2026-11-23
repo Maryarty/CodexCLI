@@ -328,7 +328,7 @@ fn cpp_module_extensions_use_cpp_highlighting() {
 #[test]
 fn wrap_styled_spans_single_line() {
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 6)
+        .size(80, 16)
         .script(include_str!(
             "fixtures/cells_1/wrap_styled_spans_single_line.jsonl"
         ))
@@ -657,10 +657,11 @@ fn computer_activity_prioritizes_errors_and_images_without_reordering() {
 // ORACLE history_cell/computer_activity_tests.rs:146 computer_activity_completed_and_transport_errors_keep_full_details kind=snap owner=chat-live snap=computer_activity_failed_result snap=computer_activity_success
 #[test]
 fn computer_activity_completed_and_transport_errors_keep_full_details() {
-    let mut s = Screen::build(Owner::ChatLive).size(80, 12).script(include_str!("fixtures/cells_1/computer_activity_completed_and_transport_errors_keep_full_details.jsonl")).open();
+    // Tall enough that the bottom pane of a running turn leaves the whole cell on the screen.
+    let mut s = Screen::build(Owner::ChatLive).size(80, 22).script(include_str!("fixtures/cells_1/computer_activity_completed_and_transport_errors_keep_full_details.jsonl")).open();
     s.assert_snap_region("computer_activity_success", cell_row(&s), 0);
     s.feed(include_str!("fixtures/cells_1/computer_activity_completed_and_transport_errors_keep_full_details_failure.jsonl"));
-    s.resize(90, 12);
+    s.resize(90, 22);
     s.assert_snap_region("computer_activity_failed_result", cell_row(&s), 0);
 }
 
