@@ -77,8 +77,7 @@ pub struct AppLinkState {
     /// the saved write.
     enabled: bool,
     options: Options,
-    /// The dialog's keys: it takes the focus where the list it replaced (the directory's) left
-    /// none.
+    /// The dialog's keys: its route takes the focus when it is pushed (or shown alone).
     node: FocusNode,
 }
 

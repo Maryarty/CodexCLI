@@ -14,6 +14,8 @@ mod kit;
 mod agents_focus;
 #[path = "pages/agents_mouse.rs"]
 mod agents_mouse;
+#[path = "pages/apps.rs"]
+mod apps;
 #[path = "pages/chat_provider_error.rs"]
 mod chat_provider_error;
 #[path = "pages/chat_status.rs"]

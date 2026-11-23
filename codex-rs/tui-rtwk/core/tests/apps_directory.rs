@@ -85,5 +85,9 @@ fn an_account_change_forgets_the_directory_and_ends_the_apps_sheet() {
     let select = &sandbox.app().screens().select;
     assert_eq!(select.apps.cache, Cache::Uninitialized);
     assert_eq!(select.apps.pending, None);
-    assert_eq!(select.apps.scope(), 1, "the sheet over the directory is of another scope now");
+    assert_eq!(
+        select.apps.scope(),
+        1,
+        "the sheet over the directory is of another scope now"
+    );
 }

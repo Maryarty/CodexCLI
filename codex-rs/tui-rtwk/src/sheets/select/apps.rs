@@ -65,11 +65,7 @@ fn bottom(page: impl Into<AnyWidget>) -> AnyWidget {
 }
 
 fn route(link: Link) -> PageRoute<()> {
-    PageRoute::new(move |_| {
-        bottom(AppLinkView {
-            link: link.clone(),
-        })
-    })
+    PageRoute::new(move |_| bottom(AppLinkView { link: link.clone() }))
 }
 
 /// The home page: the directory of apps the model holds.

@@ -620,7 +620,10 @@ fn apps_open_loading_then_show_the_directory() {
     assert_eq!(thread.as_deref(), Some("thread-1"));
     assert_eq!(shows(&app), vec![select::Opening::Apps]);
     assert_eq!(apps_cache(&app), Cache::Loading);
-    assert_eq!(app.screens().select.apps.page(), select::apps::Page::Loading);
+    assert_eq!(
+        app.screens().select.apps.page(),
+        select::apps::Page::Loading
+    );
     answer(
         &mut app,
         ticket,
