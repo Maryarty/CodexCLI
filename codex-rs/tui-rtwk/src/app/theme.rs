@@ -16,6 +16,7 @@ use rtwk_core::style::Color;
 use rtwk_rich::markdown::MarkdownTheme;
 use rtwk_rich::style::{Style as MarkdownStyle, Theme as RichTheme};
 
+pub(crate) mod effort;
 mod syntax;
 
 pub use syntax::SyntaxPalette;

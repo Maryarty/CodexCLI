@@ -39,7 +39,12 @@ const GOAL_REASON: &str = "the goal indicator (`Pursuing goal (40K / 50K)`): no 
 const QUEUE_REASON: &str = "the status under hints, a flash and a hint override (`persistent_status_and_messages`, five states at 64 columns): no Plan-mode indicator (no collaboration fact in StatusFacts, chunk-live's), no footer flash (`Copied selection`) and no hint override (`Ctrl+X waiting for chord`); no queued messages are in this test, the queue preview is chunk-status's and is done";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
 const WARN_REASON: &str = "the warning notice (`⚠ N warnings · /warnings to view`) is not built in the composer footer: no seed sets a warning count";
-const EFFORT_REASON: &str = "the reasoning-effort footer (the `U L T R A` ignition, the status row, the Ultra prompt accent) is not built: no seed sets a reasoning effort";
+const FLASH_REASON: &str = "no footer flash (`show_flash`, `saved` for a second over the footer row) and no Plan-mode indicator (MODE_REASON): the effort animation lives in the status row above the footer, which it never touches, but the flash it is asserted beside does not exist";
+
+/// The chat screen's status facts (`ScreenEv::Chat(Ev::Status)`), as the host sends them.
+fn facts(json: &str) -> String {
+    format!(r#"{{"step":"screen","dir":"chat","ev":{{"status":{json}}}}}"#)
+}
 
 // ---- oracle: bottom_pane/chat_composer/footer_state_tests.rs (3 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE bottom_pane/chat_composer/footer_state_tests.rs:62 retained_command_suggestions_yield_paint_and_cursor_to_find kind=snap owner=ui-pane snap=find_hides_retained_command_suggestions
@@ -521,11 +526,15 @@ fn native_wrap_tracks_agent_label_and_content_changes_at_the_same_width() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:571 native_effort_transition_restores_wrapping_after_its_final_frame kind=ui owner=ui-pane
 #[test]
 fn native_effort_transition_restores_wrapping_after_its_final_frame() {
-    kit::pending(Owner::UiPane, EFFORT_REASON);
     // the status `build ready tests passed deploy queued` at 14 columns is one row during the
     // effort animation; after its final frame (10 s) it wraps again and `tests` shows
     let mut s = Screen::build(Owner::UiPane).size(14, 20).live().open();
+    s.feed(&facts(r#"{"effort":"high","items":["thread-name"]}"#));
+    s.feed(r#"{"step":"notify","message":{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"build ready tests passed deploy queued"}}}"#);
+    s.assert_contains("tests passed");
+    s.feed(&facts(r#"{"effort":"ultra","items":["thread-name"]}"#));
     s.assert_contains("build ready");
+    s.assert_absent("deploy");
     s.wait(10_000);
     s.assert_contains("tests");
 }
@@ -856,7 +865,7 @@ fn warnings_yield_to_queue_controls_and_complete_navigation_hints() {
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:123 effort_transition_never_replaces_a_footer_flash kind=ui owner=ui-pane
 #[test]
 fn effort_transition_never_replaces_a_footer_flash() {
-    kit::pending(Owner::UiPane, EFFORT_REASON);
+    kit::pending(Owner::UiPane, FLASH_REASON);
     // the flash `saved` (1 s) on the footer row at 60x6 is kept through the effort transitions
     // High then Ultra; the footer never shows `U L T R A` (the test sets them; no key does)
     let s = Screen::build(Owner::UiPane).size(60, 6).live().open();
@@ -867,18 +876,30 @@ fn effort_transition_never_replaces_a_footer_flash() {
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:154 effort_transition_keeps_the_full_footer_row kind=snap owner=ui-pane snap=codex_tui__bottom_pane__chat_composer__effort_tests__effort_transition_keeps_the_full_footer_row
 #[test]
 fn effort_transition_keeps_the_full_footer_row() {
-    kit::pending(Owner::UiPane, EFFORT_REASON);
+    kit::pending(Owner::UiPane, FLASH_REASON);
     // the two bottom rows at 36 columns: `gpt-5.4 ultra · feature-branch` and the Plan-mode row
-    // (the test sets the effort and the indicator; no key does)
-    let s = Screen::build(Owner::UiPane).size(36, 6).live().open();
+    // (the test sets the effort and the indicator; the mode through the thread's settings)
+    let mut s = Screen::build(Owner::UiPane).size(36, 6).live().open();
+    s.feed(&facts(
+        r#"{"model":"gpt-5.4","effort":"high","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
+    ));
+    s.feed(&facts(
+        r#"{"model":"gpt-5.4","effort":"ultra","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
+    ));
     s.assert_snap_region("effort_transition_keeps_the_full_footer_row", 4, 0);
 }
 
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:188 ultra_accent_upgrades_prompt_glyph kind=snap owner=ui-pane snap=ultra_accent_upgrades_prompt_glyph
 #[test]
 fn ultra_accent_upgrades_prompt_glyph() {
-    kit::pending(Owner::UiPane, EFFORT_REASON);
-    // the prompt glyph `›` takes the Ultra accent at 60 columns (the test sets Ultra; no key does)
-    let s = Screen::build(Owner::UiPane).size(60, 24).live().open();
-    s.assert_snap("ultra_accent_upgrades_prompt_glyph");
+    // the prompt glyph `›` takes the Ultra accent at 60 columns (the animation has played out)
+    let mut s = Screen::build(Owner::UiPane).size(60, 24).live().open();
+    s.feed(&facts(r#"{"effort":"ultra"}"#));
+    s.wait(3_000);
+    // the snapshot is the composer in a 9-row frame (blank, prompt, blanks, footer): its prompt
+    // row, glyph and accent; its footer row differs by the known gaps (the agents hint, the
+    // context meter before any usage)
+    s.assert_contains("» Ask Codex to do anything");
+    // the Ultra accent (no terminal colours known: the accent itself), bold
+    s.assert_text_style("»", "fg=Rgb(186,130,255) bold");
 }
