@@ -9,7 +9,6 @@
 
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::overlay::close_dialog;
-use rtwk::prelude::KeyCode;
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
@@ -109,6 +108,10 @@ impl State for ConfirmDialogState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FailureDialog;
 
+/// Esc, Enter or `1`: the refusal is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dismiss;
+
 pub struct FailureDialogState {
     shown: bool,
 }
@@ -125,7 +128,7 @@ impl_widget!(stateful eq FailureDialog);
 
 impl State for FailureDialogState {
     type Widget = FailureDialog;
-    type Msg = KeyPress;
+    type Msg = Dismiss;
 
     fn did_change_dependencies(&mut self, _: &FailureDialog, cx: &mut Cx<'_, Self>) {
         let failing = select::<ScreenStates, bool, _>(cx, |states| states.agents.failure.is_some());
@@ -135,16 +138,12 @@ impl State for FailureDialogState {
         self.shown = failing;
     }
 
-    fn update(&mut self, key: KeyPress, _: &FailureDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
-        if matches!(key.code, KeyCode::Escape | KeyCode::Enter)
-            || key.as_text().is_some_and(|text| text == "1")
-        {
-            let hs = read::<Hs, _>(cx);
-            cx.emit(
-                &hs.screen,
-                ScreenIntent::Agents(AgentsIntent::DismissFailure),
-            );
-        }
+    fn update(&mut self, _: Dismiss, _: &FailureDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
+        let hs = read::<Hs, _>(cx);
+        cx.emit(
+            &hs.screen,
+            ScreenIntent::Agents(AgentsIntent::DismissFailure),
+        );
         Rebuild::No
     }
 
@@ -157,7 +156,9 @@ impl State for FailureDialogState {
         };
         Focus::new(view::failure_dialog(&look, strings, failure))
             .autofocus()
-            .on_key(cx.keys(Some))
+            .bind(KeyPress::ESC, cx.send(Dismiss))
+            .bind(KeyPress::ENTER, cx.send(Dismiss))
+            .bind('1', cx.send(Dismiss))
             .into()
     }
 }

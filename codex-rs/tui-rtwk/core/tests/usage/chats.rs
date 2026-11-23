@@ -110,7 +110,7 @@ fn consumer_rows_keep_the_missing_ones_last_and_offer_known_metrics() {
     // The rows without usage open nothing; the one with usage does.
     let pos = ChatPos {
         cursor: 1,
-        detail: None,
+        ..ChatPos::default()
     };
     assert!(!model.chat_has_details(&pos));
     assert!(model.chat_has_details(&ChatPos::default()));
@@ -223,9 +223,10 @@ fn an_open_chat_ranks_its_groups_and_hides_the_zero_ones() {
             group("Zero", 0), group("Small", 215_610_920), group("Top", 19_134_430_635), group("Refund", -4)]}},
         {"title":"Gone"},
     ]))));
-    let pos = ChatPos {
+    let mut pos = ChatPos {
         cursor: 0,
         detail: Some(0),
+        zero_groups: false,
     };
     let models = |lines: &[ChatLine]| {
         lines
@@ -243,7 +244,7 @@ fn an_open_chat_ranks_its_groups_and_hides_the_zero_ones() {
         shown: false
     }));
     assert!(lines.contains(&ChatLine::Missing(1)));
-    step(&mut model, Intent::ZeroCreditGroups);
+    pos.zero_groups = true;
     let lines = model.chat_view(&pos);
     assert_eq!(models(&lines), ["Top", "Small", "Zero", "Refund"]);
     assert!(lines.contains(&ChatLine::Zeros {
@@ -253,7 +254,7 @@ fn an_open_chat_ranks_its_groups_and_hides_the_zero_ones() {
     // No row opens an estimate that is not there.
     assert!(!model.chat_has_details(&ChatPos {
         cursor: 1,
-        detail: None
+        ..ChatPos::default()
     }));
 }
 

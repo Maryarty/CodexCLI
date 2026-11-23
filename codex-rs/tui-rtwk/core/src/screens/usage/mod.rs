@@ -55,8 +55,8 @@ pub struct Model {
     /// The number of the open session: a refresh or a new open starts the
     /// next one, and the host rebuilds its account session when it changes.
     pub session: u32,
-    /// The page is open (reports load only then; a close cancels).
-    pub open: bool,
+    /// A session is live (reports load only then; leaving the page cancels).
+    pub live: bool,
     next_stamp: u32,
     pub account: Load<PlanType>,
     /// The signed-in account's label beside the heading (the e-mail).
@@ -78,7 +78,6 @@ pub struct Model {
     pub token_models: Vec<String>,
     pub credit_groups: Vec<usize>,
     pub attributed_usage: bool,
-    pub show_zero_credit_groups: bool,
     pub chat_metric: usize,
     pub histories: [Load<Rc<History>>; Section::COUNT],
     /// The Plan section's allowance history (oracle: `plan::State::report`).
@@ -99,7 +98,7 @@ impl Default for Model {
         groups[Section::Activity as usize] = 2;
         Self {
             session: 0,
-            open: false,
+            live: false,
             next_stamp: 0,
             account: Load::Unavailable,
             account_label: None,
@@ -114,7 +113,6 @@ impl Default for Model {
             token_models: Vec::new(),
             credit_groups: vec![0],
             attributed_usage: true,
-            show_zero_credit_groups: false,
             chat_metric: 0,
             histories: std::array::from_fn(|_| Load::Unavailable),
             plan: Load::Unavailable,
@@ -311,8 +309,8 @@ pub enum Intent {
     Open { view: Option<TokenActivityView> },
     /// `R`: every report again (oracle: `refresh`).
     Refresh,
-    /// The page closed: pending loads are dropped (oracle: `cancel_loads`).
-    Close,
+    /// The page was left: pending loads are dropped (oracle: `cancel_loads`).
+    Leave,
     /// A tab (digits, Tab, a click).
     Select(Section),
     /// `r`: 7 or 30 days for the selected section's range group.
@@ -321,8 +319,6 @@ pub enum Intent {
     Group,
     /// `m`: the next model of the token report.
     Model,
-    /// `a`: zero-credit groups in the expanded details.
-    ZeroCreditGroups,
     /// `s`: the next chat sort metric of the `count` the page offers.
     TaskMetric,
 }
@@ -345,7 +341,7 @@ impl Model {
     /// account (oracle: `refresh`). `view` picks the Overview's chart.
     fn open_session(&mut self, view: Option<TokenActivityView>) -> Vec<Ask> {
         self.session += 1;
-        self.open = true;
+        self.live = true;
         self.histories = std::array::from_fn(|_| Load::Unavailable);
         self.profile = Load::Unavailable;
         self.plan = Load::Unavailable;
@@ -480,7 +476,7 @@ impl Model {
     }
 
     fn seed(&mut self, seed: Seed) {
-        self.open = true;
+        self.live = true;
         self.reports_started = true;
         if let Some(account) = seed.account {
             self.settle_account(account);
@@ -533,8 +529,8 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
         Intent::RefreshRateLimits => Vec::new(),
         Intent::Open { view } => model.open_session(view),
         Intent::Refresh => model.open_session(None),
-        Intent::Close => {
-            model.open = false;
+        Intent::Leave => {
+            model.live = false;
             model.histories = std::array::from_fn(|_| Load::Unavailable);
             model.profile = Load::Unavailable;
             model.plan = Load::Unavailable;
@@ -593,10 +589,6 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             };
             model.load_report(Section::Usage).into_iter().collect()
         }
-        Intent::ZeroCreditGroups => {
-            model.show_zero_credit_groups = !model.show_zero_credit_groups;
-            Vec::new()
-        }
         Intent::TaskMetric => {
             if model.control_available(Control::TaskMetric, false) {
                 let metrics = model.task_metrics();
@@ -619,7 +611,7 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
             model.seed(*seed);
             Vec::new()
         }
-        Ev::Invalidated { session } if session == model.session && model.open => {
+        Ev::Invalidated { session } if session == model.session && model.live => {
             model.open_session(None)
         }
         Ev::Invalidated { .. } => Vec::new(),

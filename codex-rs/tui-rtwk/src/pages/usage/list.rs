@@ -42,7 +42,7 @@ impl ScreenState {
     /// Closes the page (oracle: `is_done`).
     fn close(cx: &mut Cx<'_, Self>) {
         let hs = read::<Hs, _>(cx);
-        cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
+        cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Leave));
         Navigator::maybe_pop(cx);
     }
 
