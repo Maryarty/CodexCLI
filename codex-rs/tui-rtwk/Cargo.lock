@@ -3667,6 +3667,7 @@ dependencies = [
  "codex-install-context",
  "codex-login",
  "codex-protocol",
+ "codex-terminal-detection",
  "codex-tui-core",
  "codex-tui-rtwk",
  "codex-utils-absolute-path",

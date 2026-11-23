@@ -27,6 +27,8 @@
 //!   notices the host announces to the first conversation (`AppEv::Announce`): the
 //!   update banner (the running version is the source build's `0.0.0`) and the
 //!   other-version notice of the connected service.
+//! - `daybreak(models)`: what the host knows of the account's cyber access (an eligible
+//!   account and the catalog's `(model, standard, daybreak)` programs) that words a refusal.
 //!
 //! Files of the session: `kit::image_file(name)` writes a tiny PNG, `Open::cwd`
 //! (markdown seeds) names the session's directory.
@@ -38,6 +40,7 @@ use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev as AgentsEv, Page};
 use codex_tui_core::screens::settings::{Ev as SettingsEv, Facts};
 use codex_tui_core::threads::Notice;
+use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_rtwk::services::startup::UpdateAction;
 use rtwk_core::style::ColorMode;
 use rtwk_core::unicode::TextMode;
@@ -87,6 +90,8 @@ pub(super) struct Env {
     replay: Option<Vec<serde_json::Value>>,
     /// What the host announces to the first conversation.
     announced: Vec<Notice>,
+    /// What the host knows of the account's cyber access.
+    daybreak: Option<Access>,
 }
 
 impl Env {
@@ -123,6 +128,7 @@ impl Env {
             || self.foreign_writer.is_some()
             || self.replay.is_some()
             || !self.announced.is_empty()
+            || self.daybreak.is_some()
     }
 
     /// Delivers what is an app event rather than a terminal's property, once
@@ -135,6 +141,10 @@ impl Env {
             };
             h.connect();
             h.inject([AppEv::Screen(ScreenEv::Settings(SettingsEv::Facts(facts)))]);
+        }
+        if let Some(access) = &self.daybreak {
+            h.connect();
+            h.inject([AppEv::Daybreak(access.clone())]);
         }
         if !self.announced.is_empty() {
             h.connect();
@@ -287,6 +297,22 @@ impl Open {
         self.env.announced.push(Notice::ServerVersion {
             message: message.to_owned(),
             offer_update,
+        });
+        self
+    }
+
+    /// The host reads an eligible account whose catalog lists, per `(model, standard,
+    /// daybreak)`, the cyber access programs of each model.
+    pub fn daybreak(mut self, models: &[(&str, bool, bool)]) -> Open {
+        self.env.daybreak = Some(Access {
+            eligible: true,
+            models: models
+                .iter()
+                .map(|&(model, standard, daybreak)| ModelAccess {
+                    model: model.to_owned(),
+                    programs: Some(Programs { standard, daybreak }),
+                })
+                .collect(),
         });
         self
     }

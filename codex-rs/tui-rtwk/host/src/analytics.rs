@@ -10,7 +10,7 @@
 
 mod chats;
 mod client;
-mod clock;
+pub(crate) mod clock;
 mod convert;
 #[cfg(test)]
 mod tests;

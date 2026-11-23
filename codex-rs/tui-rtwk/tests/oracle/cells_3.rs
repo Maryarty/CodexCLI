@@ -24,6 +24,37 @@ fn warning_row(s: &Screen) -> usize {
         .unwrap_or_else(|| panic!("no notice row:\n{}", s.text()))
 }
 
+/// The row of a refusal notice (`ⓘ ...`): the oracle's snapshot is the bare cell, the chat draws
+/// a bottom pane under the transcript.
+fn info_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.starts_with("ⓘ "))
+        .unwrap_or_else(|| panic!("no notice row:\n{}", s.text()))
+}
+
+/// The server's error info of a refused cybersecurity request, and the message of a
+/// biology-policy refusal (`codexErrorInfo` null: the text says it).
+const CYBER: (&str, &str) = ("server fallback message", "\"cyberPolicy\"");
+const BIOLOGY: (&str, &str) = (
+    "This content was flagged for possible biological risk.",
+    "null",
+);
+
+/// `error` of `turn` (the thread `thread-1` of the live seed): a refused request.
+fn refusal(turn: &str, (message, info): (&str, &str)) -> String {
+    format!(
+        r#"{{"step":"notify","message":{{"method":"error","params":{{"threadId":"thread-1","turnId":"{turn}","willRetry":false,"error":{{"message":"{message}","codexErrorInfo":{info},"additionalDetails":null,"misalignment":null}}}}}}}}"#
+    )
+}
+
+/// `thread/started` of `thread-1` again: the server's thread now runs `model`, Daybreak on or off.
+fn thread_started(model: &str, daybreak: bool) -> String {
+    format!(
+        r#"{{"step":"notify","message":{{"method":"thread/started","params":{{"thread":{{"id":"thread-1","environments":null,"extra":null,"sessionId":"thread-1","forkedFromId":null,"attachedToThreadId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"legacy","modelProvider":"openai","model":"{model}","reasoningEffort":null,"createdAt":0,"updatedAt":0,"recencyAt":0,"status":{{"type":"idle"}},"path":null,"cwd":"/tmp/project","cliVersion":"0.0.0","originator":null,"source":"cli","canAcceptDirectInput":true,"threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"daybreakEnabled":{daybreak},"turns":[]}}}}}}}}"#
+    )
+}
+
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE history_cell/tests.rs:40 connected_server_version_notice_snapshot kind=snap owner=chat-live snap=connected_server_version_notice_snapshot
 #[test]
@@ -489,45 +520,52 @@ fn ps_output_multiline_long_command_snapshot() {
 // ORACLE history_cell/tests.rs:928 cyber_policy_error_event_snapshot kind=snap owner=chat-live snap=cyber_policy_error_event_snapshot
 #[test]
 fn cyber_policy_error_event_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
-    s.assert_snap_region("cyber_policy_error_event_snapshot", 0, 0);
+    // No fact of the account: the refusal words as `Apply`.
+    let mut s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
+    s.feed(&refusal("turn-1", CYBER));
+    s.assert_snap_region("cyber_policy_error_event_snapshot", info_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:935 cyber_policy_error_event_astra_snapshot kind=snap owner=chat-live snap=cyber_policy_error_event_astra_snapshot
 #[test]
 fn cyber_policy_error_event_astra_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
-    s.assert_snap_region("cyber_policy_error_event_astra_snapshot", 0, 0);
+    // An eligible account on the Astra model, whose catalog lists no Daybreak program.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .live()
+        .daybreak(&[("gpt-6-astra", true, false)])
+        .open();
+    s.feed(&thread_started("gpt-6-astra", false));
+    s.feed(&refusal("turn-1", CYBER));
+    s.assert_snap_region("cyber_policy_error_event_astra_snapshot", info_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:942 cyber_policy_error_event_available_snapshot kind=snap owner=chat-live snap=cyber_policy_error_event_available_snapshot
 #[test]
 fn cyber_policy_error_event_available_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
+    // Daybreak is off, then on: two refusals, each worded by the setting of its moment.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .daybreak(&[("gpt-5.6-sol", true, true)])
+        .open();
+    s.feed(&thread_started("gpt-5.6-sol", false));
+    s.feed(&refusal("turn-1", CYBER));
+    s.feed(&thread_started("gpt-5.6-sol", true));
+    s.feed(&refusal("turn-2", CYBER));
+    s.assert_snap_region(
+        "cyber_policy_error_event_available_snapshot",
+        info_row(&s),
+        0,
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.assert_snap_region("cyber_policy_error_event_available_snapshot", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:957 safety_access_block_event_snapshot kind=snap owner=chat-live snap=safety_access_block_event_snapshot
 #[test]
 fn safety_access_block_event_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: a `Fault` arm of core threads.rs appends Notice::SafetyAccessBlock for a biology-policy error, and the kit cannot seed that error",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
-    s.assert_snap_region("safety_access_block_event_snapshot", 0, 0);
+    let mut s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
+    s.feed(&refusal("turn-1", BIOLOGY));
+    s.assert_snap_region("safety_access_block_event_snapshot", info_row(&s), 0);
     // The oracle's second check (raw_lines()[1] equals display row 1 without its indent)
     // is the raw rendering of the same cell; it is compared once the cell is on S11.
 }
@@ -537,10 +575,11 @@ fn safety_access_block_event_snapshot() {
 fn cyber_policy_error_event_narrow_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error; G49 breaks the narrow rows at a slash",
+        "G49 (TextWrap::Word does not break after `/`): the cell is drawn and its prose rows equal; the two links wrap at the width (`https://help.openai.com/en/artic` / `les/20001326`) where the oracle breaks after `https://`, `en/` and `enterprise-`",
     );
-    let s = Screen::build(Owner::ChatLive).size(36, 12).live().open();
-    s.assert_snap_region("cyber_policy_error_event_narrow_snapshot", 0, 0);
+    let mut s = Screen::build(Owner::ChatLive).size(36, 20).live().open();
+    s.feed(&refusal("turn-1", CYBER));
+    s.assert_snap_region("cyber_policy_error_event_narrow_snapshot", info_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:973 ps_output_long_command_snapshot kind=snap owner=chat-live snap=ps_output_long_command_snapshot

@@ -398,6 +398,10 @@ async fn run(
     {
         emit(&ingress, epoch, AppEv::Announce(notice));
     }
+    // The terminal's way of writing a link and the machine's clock, for the transcript's cells.
+    for ev in crate::viewer::events() {
+        emit(&ingress, epoch, ev);
+    }
     let daemon = matches!(mode, Mode::Daemon | Mode::Remote { daemon: true, .. });
     let mut version_shown = None;
     if show_version && let Some(client) = held.get() {
@@ -411,6 +415,13 @@ async fn run(
     // As the oracle's bootstrap: the account is read, so the center knows
     // the plan and whether usage can be fetched.
     inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
+    // And what words a refused cybersecurity request: the account's access and the catalog.
+    let cyber = crate::facts::CyberPolicy::of(&config);
+    inflight.push(Box::pin(crate::facts::daybreak(
+        cyber,
+        ids.clone(),
+        sender(handle.clone()),
+    )));
     // The history search's debounce: the oracle waits 180 ms and a newer
     // search drops the pending one.
     let mut latest = Latest::default();
@@ -534,6 +545,11 @@ async fn run(
             emit_version(&ingress, epoch, client, daemon, &mut version_shown);
         }
         inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
+        inflight.push(Box::pin(crate::facts::daybreak(
+            cyber,
+            ids.clone(),
+            sender(handle.clone()),
+        )));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
 }
