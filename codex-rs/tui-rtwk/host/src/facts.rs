@@ -159,7 +159,7 @@ fn card(config: &Config) -> CardFacts {
         profile: config
             .permissions
             .active_permission_profile()
-            .map(|active| active.id.to_string()),
+            .map(|active| active.id),
         sandbox,
         network: summary.ends_with("(network access enabled)"),
         disabled: profile == codex_protocol::models::PermissionProfile::Disabled,
