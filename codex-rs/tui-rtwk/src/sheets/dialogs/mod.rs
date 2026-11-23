@@ -7,6 +7,7 @@
 
 mod dialog;
 mod feedback;
+mod prompt;
 mod shortcuts;
 mod warnings;
 
