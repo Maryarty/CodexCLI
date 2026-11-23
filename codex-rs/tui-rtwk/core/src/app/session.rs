@@ -346,9 +346,8 @@ fn plan(
         return;
     }
     if let Some(mask) = plan_mask(&app.modes) {
-        let set = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(
-            mask,
-        )));
+        let set =
+            ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(mask)));
         apply_thread(app, &thread, set, fx);
     }
     if let Some(prompt) = prompt {

@@ -618,7 +618,7 @@ fn a_switch_writes_the_config_and_coalesces() {
     assert_eq!(tabs(&app)[0].rows[0].toggle, Toggle::Switch(false));
     // Flipped twice while the write runs: nothing is sent until it is back.
     assert!(sent(&select(&mut app, Select::Toggle(alpha.clone()))).is_empty());
-    assert!(sent(&select(&mut app, Select::Toggle(alpha.clone()))).is_empty());
+    assert!(sent(&select(&mut app, Select::Toggle(alpha))).is_empty());
     let fx = answer(
         &mut app,
         &first,
@@ -641,7 +641,7 @@ fn a_queued_switch_is_written_after_the_first() {
         .clone();
     let first = one(&select(&mut app, Select::Toggle(alpha.clone())));
     // Back on, queued behind the write that turns it off.
-    select(&mut app, Select::Toggle(alpha.clone()));
+    select(&mut app, Select::Toggle(alpha));
     let fx = answer(
         &mut app,
         &first,

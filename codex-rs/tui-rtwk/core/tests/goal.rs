@@ -104,10 +104,7 @@ fn answer(app: &mut CodexApp, ticket: Ticket, reply: select::Reply) -> AppFx {
 }
 
 fn fail(app: &mut CodexApp, ticket: Ticket, message: &str) -> AppFx {
-    run(
-        app,
-        AppEv::Reply(ticket, Reply::failed(message)),
-    )
+    run(app, AppEv::Reply(ticket, Reply::failed(message)))
 }
 
 /// The goal notes of the thread's transcript, with their tone.

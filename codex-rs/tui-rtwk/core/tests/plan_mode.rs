@@ -60,7 +60,11 @@ fn catalog_ticket(fx: &AppFx) -> Option<codex_tui_core::ids::Ticket> {
     })
 }
 
-fn answer_catalog(app: &mut CodexApp, ticket: codex_tui_core::ids::Ticket, masks: Vec<collaboration::Mask>) {
+fn answer_catalog(
+    app: &mut CodexApp,
+    ticket: codex_tui_core::ids::Ticket,
+    masks: Vec<collaboration::Mask>,
+) {
     run(
         app,
         AppEv::Reply(
@@ -433,7 +437,10 @@ fn restored(app: &CodexApp) -> Vec<String> {
 fn the_catalog_is_read_at_connect_and_a_failed_read_leaves_it_empty() {
     let mut app = CodexApp::new();
     let fx = run(&mut app, AppEv::Connected);
-    assert!(app.collaboration_modes().is_empty(), "nothing before the answer");
+    assert!(
+        app.collaboration_modes().is_empty(),
+        "nothing before the answer"
+    );
     let ticket = catalog_ticket(&fx).expect("asked at connect");
     answer_catalog(&mut app, ticket, presets());
     let kinds: Vec<_> = app
@@ -452,7 +459,10 @@ fn the_catalog_is_read_at_connect_and_a_failed_read_leaves_it_empty() {
     let mut failed = CodexApp::new();
     let fx = run(&mut failed, AppEv::Connected);
     let ticket = catalog_ticket(&fx).expect("asked at connect");
-    run(&mut failed, AppEv::Reply(ticket, Reply::failed("unknown method")));
+    run(
+        &mut failed,
+        AppEv::Reply(ticket, Reply::failed("unknown method")),
+    );
     assert!(failed.collaboration_modes().is_empty());
 }
 
@@ -530,7 +540,10 @@ fn the_mask_lies_over_the_base_settings() {
     assert_eq!(plan.mode, ModeKind::Plan);
     assert_eq!(plan.settings.model, "gpt-5.2");
     assert_eq!(
-        plan.settings.reasoning_effort.as_ref().map(|effort| effort.as_str()),
+        plan.settings
+            .reasoning_effort
+            .as_ref()
+            .map(|effort| effort.as_str()),
         Some("medium")
     );
     assert_eq!(plan.settings.developer_instructions, None);

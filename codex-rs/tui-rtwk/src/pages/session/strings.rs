@@ -1027,9 +1027,7 @@ fn mode_note(note: &codex_tui_core::threads::ModeNote) -> String {
 fn goal_note(note: &codex_tui_core::threads::GoalNote) -> String {
     use codex_tui_core::format::{format_goal_elapsed_seconds, format_tokens_compact};
     use codex_tui_core::screens::select::goal::Hint;
-    use codex_tui_core::threads::{
-        Goal, GoalAction, GoalFailure, GoalHint, GoalNote, GoalStatus,
-    };
+    use codex_tui_core::threads::{Goal, GoalAction, GoalFailure, GoalHint, GoalNote, GoalStatus};
     const USAGE: &str = "Usage: /goal [<objective>|clear|edit|pause|resume]";
     fn label(status: GoalStatus) -> &'static str {
         match status {

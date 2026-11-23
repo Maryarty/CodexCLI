@@ -48,7 +48,9 @@ pub(in crate::app) fn command(
     fx: &mut AppFx,
 ) {
     let thread = source.filter(|id| app.threads.get(id).is_some());
-    let args = args.map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
+    let args = args
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty());
     let Some(args) = args else {
         return match thread {
             Some(thread) => ask(app, &thread, Ask::Get, Flow::Show, fx),
@@ -133,7 +135,12 @@ fn failed(
     fx: &mut AppFx,
 ) {
     let failure = GoalFailure::of(error);
-    said(app, Some(thread.clone()), GoalNote::Failed { action, failure }, fx);
+    said(
+        app,
+        Some(thread.clone()),
+        GoalNote::Failed { action, failure },
+        fx,
+    );
 }
 
 /// The answer of an ask of the flow `flow` on `thread`.

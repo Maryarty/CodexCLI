@@ -2536,7 +2536,9 @@ fn an_answered_resume_asks_for_the_history() {
             !matches!(
                 command,
                 AppCommand::Screen {
-                    command: ScreenCommand::Select(codex_tui_core::screens::select::Command::Goal { .. }),
+                    command: ScreenCommand::Select(
+                        codex_tui_core::screens::select::Command::Goal { .. }
+                    ),
                     ..
                 }
             )

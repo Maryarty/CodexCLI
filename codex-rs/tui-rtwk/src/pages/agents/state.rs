@@ -21,9 +21,9 @@ impl ScreenState {
     fn lens(&self) -> Lens {
         Lens {
             filter: self.tabs.index(),
-            searching: self.mode == Mode::Search,
+            searching: self.mode == CenterMode::Search,
             renaming: match &self.mode {
-                Mode::Rename(target) => Some(target.clone()),
+                CenterMode::Rename(target) => Some(target.clone()),
                 _ => None,
             },
         }
@@ -33,14 +33,14 @@ impl ScreenState {
     fn ui(&self) -> view::Ui {
         view::Ui {
             filter: self.tabs.index(),
-            help: self.mode == Mode::Help,
-            searching: self.mode == Mode::Search,
-            renaming: matches!(self.mode, Mode::Rename(_)),
+            help: self.mode == CenterMode::Help,
+            searching: self.mode == CenterMode::Search,
+            renaming: matches!(self.mode, CenterMode::Rename(_)),
         }
     }
 
     fn editing_now(&self) -> bool {
-        matches!(self.mode, Mode::Search | Mode::Rename(_))
+        matches!(self.mode, CenterMode::Search | CenterMode::Rename(_))
     }
 
     fn send(cx: &mut Cx<'_, Self>, intent: AgentsIntent) {
@@ -70,16 +70,16 @@ impl ScreenState {
     }
 
     /// The editing line changes mode; its text is reset for the new one.
-    fn set_mode(&mut self, mode: Mode, center: &Center) {
+    fn set_mode(&mut self, mode: CenterMode, center: &Center) {
         if mode == self.mode {
             return;
         }
         match &mode {
-            Mode::Search => {
+            CenterMode::Search => {
                 self.browse = self.selection.cursor();
                 self.edit.reset("");
             }
-            Mode::Rename(target) => {
+            CenterMode::Rename(target) => {
                 let name = center
                     .rows
                     .iter()
@@ -88,8 +88,8 @@ impl ScreenState {
                     .unwrap_or_default();
                 self.edit.reset(&name);
             }
-            Mode::Browse | Mode::Help => {
-                if self.mode == Mode::Search
+            CenterMode::Browse | CenterMode::Help => {
+                if self.mode == CenterMode::Search
                     && let Some(key) = self.browse.take()
                 {
                     self.put_cursor(key);
@@ -102,16 +102,16 @@ impl ScreenState {
     /// Enter on a row: the task opens (a search closes), "Show more" asks for
     /// the next rows or matches.
     fn accept(&mut self, model: &Model, sel: Sel, center: &Center, cx: &mut Cx<'_, Self>) {
-        let searching = self.mode == Mode::Search;
+        let searching = self.mode == CenterMode::Search;
         match sel {
             Sel::ShowMore if searching => Self::send(cx, AgentsIntent::MoreMatches(self.lens())),
             Sel::ShowMore => Self::send(cx, AgentsIntent::ShowMore),
-            Sel::Task(_) if matches!(self.mode, Mode::Rename(_)) => {}
+            Sel::Task(_) if matches!(self.mode, CenterMode::Rename(_)) => {}
             Sel::Task(id) if !model.held() && model.failure.is_none() && model.has_task(&id) => {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.open_thread, codex_tui_core::ids::ThreadId::new(id));
                 if searching {
-                    self.set_mode(Mode::Browse, center);
+                    self.set_mode(CenterMode::Browse, center);
                     Self::send(cx, AgentsIntent::ClearSearch);
                 }
             }
@@ -121,10 +121,10 @@ impl ScreenState {
 
     /// Esc or ctrl+c on an open line: a search is cleared, the line closes.
     fn cancel_editing(&mut self, _model: &Model, center: &Center, cx: &mut Cx<'_, Self>) {
-        if self.mode == Mode::Search {
+        if self.mode == CenterMode::Search {
             Self::send(cx, AgentsIntent::ClearSearch);
         }
-        self.set_mode(Mode::Browse, center);
+        self.set_mode(CenterMode::Browse, center);
     }
 
     /// Opens the confirmation of a removal (a dialog of rtwk's overlay).
@@ -352,8 +352,8 @@ impl ScreenState {
                             cx.emit(&hs.quit, ());
                         }
                     }
-                    Act::Escape if self.mode == Mode::Help => {
-                        self.mode = Mode::Browse;
+                    Act::Escape if self.mode == CenterMode::Help => {
+                        self.mode = CenterMode::Browse;
                         return Rebuild::Yes;
                     }
                     Act::Escape if editing => {
@@ -419,35 +419,35 @@ impl ScreenState {
                         return Rebuild::Yes;
                     }
                     Act::Help => {
-                        self.mode = if self.mode == Mode::Help {
-                            Mode::Browse
+                        self.mode = if self.mode == CenterMode::Help {
+                            CenterMode::Browse
                         } else {
-                            Mode::Help
+                            CenterMode::Help
                         };
                         return Rebuild::Yes;
                     }
                     // The search key toggles the line (oracle: `search.is_pressed`
                     // calls `on_ctrl_c` while searching).
                     Act::Search => {
-                        if self.mode == Mode::Search {
+                        if self.mode == CenterMode::Search {
                             self.cancel_editing(model, &center, cx);
                             return Rebuild::Yes;
                         }
-                        if !matches!(self.mode, Mode::Rename(_)) {
-                            self.set_mode(Mode::Search, &center);
+                        if !matches!(self.mode, CenterMode::Rename(_)) {
+                            self.set_mode(CenterMode::Search, &center);
                             return Rebuild::Yes;
                         }
                     }
                     // A line already renaming keeps its target (oracle:
                     // `rename_target.is_none()`).
                     Act::Rename => {
-                        if !matches!(self.mode, Mode::Rename(_))
+                        if !matches!(self.mode, CenterMode::Rename(_))
                             && let Some(id) = task()
                             && !model.held()
                             && model.has_task(&id)
                         {
                             Self::send(cx, AgentsIntent::ClearSearch);
-                            self.set_mode(Mode::Rename(id), &center);
+                            self.set_mode(CenterMode::Rename(id), &center);
                             return Rebuild::Yes;
                         }
                     }
@@ -517,7 +517,8 @@ impl ScreenState {
                         self.accept(model, sel, &center, cx);
                         return Rebuild::Yes;
                     }
-                } else if key.clone().into_sel().is_some() && !matches!(self.mode, Mode::Rename(_))
+                } else if key.clone().into_sel().is_some()
+                    && !matches!(self.mode, CenterMode::Rename(_))
                 {
                     self.put_cursor(key);
                     return Rebuild::Yes;
@@ -537,17 +538,17 @@ impl ScreenState {
                 return Rebuild::Yes;
             }
             Msg::Search(text) => {
-                if self.mode == Mode::Search {
+                if self.mode == CenterMode::Search {
                     let lens = self.lens();
                     Self::send(cx, AgentsIntent::SetSearch { text, lens });
                 }
             }
             Msg::Submit(text) => {
-                if let Mode::Rename(thread) = self.mode.clone() {
+                if let CenterMode::Rename(thread) = self.mode.clone() {
                     // An empty name keeps the line open.
                     if !text.trim().is_empty() {
                         Self::send(cx, AgentsIntent::Rename { thread, name: text });
-                        self.set_mode(Mode::Browse, &center);
+                        self.set_mode(CenterMode::Browse, &center);
                         return Rebuild::Yes;
                     }
                 } else if let Some(sel) = at {
