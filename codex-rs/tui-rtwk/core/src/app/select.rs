@@ -15,10 +15,8 @@ use crate::screens::{ScreenCommand, ScreenReply};
 
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx) {
-    if let select::Intent::SetApp { id, enabled } = &intent {
-        let (id, enabled) = (id.clone(), *enabled);
-        // The dialog shows the switch at once; the directory follows the saved write.
-        select::apply_intent(&mut Rc::make_mut(&mut app.screens).select, intent, fx);
+    // The dialog of the app shows its switch at once; the directory follows the saved write.
+    if let select::Intent::SetApp { id, enabled } = intent {
         ask(
             app,
             select::Command::SetApp {
@@ -35,11 +33,14 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         return;
     }
     // `AppEvent::OpenUrlInBrowser`: the page of the app the link dialog shows.
-    if let select::Intent::Choose(id) = &intent
-        && id == apps::LINK_OPEN
-    {
-        if let Some(link) = &app.screens.select.apps.link {
-            let url = link.url.clone();
+    if let select::Intent::OpenAppPage(id) = &intent {
+        if let Some(url) = app
+            .screens
+            .select
+            .apps
+            .app(id)
+            .and_then(|found| found.install_url.clone())
+        {
             fx.commands.push(Command::OpenUrl { url });
         }
         return;

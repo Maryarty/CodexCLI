@@ -1,4 +1,3 @@
 # The link dialog of an installed app: its page, the switch and Back
 # Oracle: bottom_pane/app_link_view.rs (`link_content_lines`, `action_labels`)
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "select", "ev": {"kind": "app_link", "link": {"id": "notion", "name": "Notion", "description": "Workspace docs", "url": "https://example.test/notion", "installed": true, "enabled": true}}}

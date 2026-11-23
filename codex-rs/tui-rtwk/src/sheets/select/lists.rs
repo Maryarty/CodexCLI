@@ -3,7 +3,6 @@
 //! (ADR-010). A `Menu::List` is already the generic form.
 
 use crate::widgets::picker::list::{Columns, Item, List, Role, Secondary, Span};
-use codex_tui_core::screens::select::apps;
 use codex_tui_core::screens::select::models::{
     self, Apply, Choice, Effort, Heading, Kind, PlanSource,
 };
@@ -23,96 +22,8 @@ pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
     Some(match (menu, page) {
         (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
         (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
-        (Menu::Apps, Some(Page::Apps(page))) => apps(page, s),
         _ => return None,
     })
-}
-
-/// The `/apps` directory (`connectors_popup_params`, the loading and error
-/// popups of `chatwidget/connectors.rs`).
-fn apps(page: &apps::Page, s: &Strings) -> List {
-    let titled = |subtitle: &str, items: Vec<Item>| List {
-        title: Some(s.apps_title.to_string()),
-        subtitle: Some(subtitle.to_string()),
-        standard_hint: true,
-        items,
-        ..List::default()
-    };
-    match page {
-        apps::Page::Loading => titled(
-            s.apps_loading_subtitle,
-            vec![Item {
-                id: "loading".to_string(),
-                name: s.apps_loading.to_string(),
-                description: Some(s.apps_loading_description.to_string()),
-                disabled: true,
-                ..Item::default()
-            }],
-        ),
-        apps::Page::Failed => titled(
-            s.apps_failed_subtitle,
-            vec![
-                Item {
-                    id: "unavailable".to_string(),
-                    name: s.apps_unavailable.to_string(),
-                    description: Some(s.apps_unavailable_description.to_string()),
-                    disabled: true,
-                    ..Item::default()
-                },
-                Item {
-                    id: apps::RETRY.to_string(),
-                    name: s.apps_retry.to_string(),
-                    description: Some(s.apps_retry_description.to_string()),
-                    ..Item::default()
-                },
-            ],
-        ),
-        apps::Page::Apps {
-            installed,
-            total,
-            rows,
-        } => {
-            let dim = |text: String| {
-                vec![Span {
-                    text,
-                    role: Role::Dim,
-                }]
-            };
-            List {
-                title: Some(s.apps_title.to_string()),
-                header: vec![
-                    dim(s.apps_mention_hint.to_string()),
-                    dim(s.apps_counts(*installed, *total)),
-                ],
-                standard_hint: true,
-                items: rows.iter().map(|app| app_item(app, s)).collect(),
-                searchable: true,
-                search_placeholder: Some(s.apps_search.to_string()),
-                columns: Columns::AutoAllRows,
-                ..List::default()
-            }
-        }
-    }
-}
-
-fn app_item(app: &apps::App, s: &Strings) -> Item {
-    let status = app.status();
-    let selected = match (app.install_url.is_some(), app.installed) {
-        (false, _) => s.app_status_line(s.apps_no_link, status),
-        (true, true) => s.app_status_line(s.apps_open_installed, status),
-        (true, false) => s.app_status_line(s.apps_open_install, status),
-    };
-    Item {
-        id: app.id.clone(),
-        name: app.name.clone(),
-        description: Some(match app.about() {
-            Some(about) => s.app_brief(status, about),
-            None => s.app_status(status).to_string(),
-        }),
-        selected_description: Some(selected),
-        search_value: Some(format!("{} {}", app.name, app.id)),
-        ..Item::default()
-    }
 }
 
 /// A menu of the `/permissions` family (`permissions_menu.rs`,

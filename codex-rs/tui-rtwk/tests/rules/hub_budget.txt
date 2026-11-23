@@ -17,7 +17,7 @@
 # The slash list has no generic `Feature` variant yet: a Need of the ADR-012 owner.
 enum core/src/commands/dispatch.rs SessionIntent 43
 enum core/src/screens/select.rs Note 37
-enum core/src/screens/select.rs Picked 9
+enum core/src/screens/select.rs Picked 8
 # ADR-013 (select, the page stack leaves core family by family): `Menu::Confirm` and `Menu::Review`
 # are sheets of their own (`Show`/`Opening`: the one-shot the presenter shows; the pages of
 # `/review` are the routes of a nested navigator). `Intent` 21 -> 25: `Confirm` (the question asked
@@ -25,8 +25,12 @@ enum core/src/screens/select.rs Picked 9
 # settled on) and `ReviewList` (a list asked of the host) are added, `Instructions` goes. The
 # gesture intents (`Choose`, `Secondary`, `Close`) and `Open` leave with the last family, and the
 # line goes below 21 then.
-enum core/src/screens/select.rs Menu 5
-enum core/src/screens/select.rs Intent 25
+# `/apps` (adr013-select-apps) is a sheet of its own too (`Opening::Apps`; the directory and the
+# link dialog are the routes of a nested navigator, `Menu::Apps` and `Picked::App` go): `Intent`
+# +2 for the verbs the sheet says that are facts for the app, `OpenAppPage` (the page of an app is
+# opened in the browser) and `AppUnlinked` (an app with no page was picked: a note).
+enum core/src/screens/select.rs Menu 4
+enum core/src/screens/select.rs Intent 27
 enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4

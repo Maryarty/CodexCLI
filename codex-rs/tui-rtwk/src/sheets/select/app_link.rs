@@ -4,8 +4,9 @@
 //! `Back`; opening the page of an app that is not installed goes on to the confirmation screen
 //! (`Finish App Setup`: the URL, and `I already Installed it`, which reads the directory again).
 //! In Flutter it is the `AlertDialog` of a `Navigator` route whose `State` keeps which of the two
-//! screens is shown and the cursor of its actions; what an action does to the app is the model's
-//! (ADR-003: the dialog sends `Intent`s, the link it shows is the model's copy).
+//! screens is shown, the cursor of its actions and its own copy of the switch (the oracle's view
+//! keeps its own too: `toggle_enabled`); what an action asks of the app is a verb to the model
+//! (ADR-013: `OpenAppPage`, `SetApp`, `RefreshApps`), and the dialog closes the sheet itself.
 
 use std::rc::Rc;
 
@@ -13,18 +14,21 @@ use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyPress};
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, SizedBox,
 };
-use rtwk::overlay::Dialog;
+use rtwk::overlay::{Dialog, close_dialog};
+use rtwk::provider::read;
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextWrap};
-use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::keymap::actions::{
     LIST_ACCEPT, LIST_CANCEL, LIST_MOVE_DOWN, LIST_MOVE_LEFT, LIST_MOVE_RIGHT, LIST_MOVE_UP,
 };
+use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::select::Intent;
-use codex_tui_core::screens::select::apps::{LINK_INSTALLED, LINK_OPEN, Link};
+use codex_tui_core::screens::select::apps::Link;
 
 use crate::app::theme::Tokens;
+use crate::app::view::Hs;
 use crate::keymap::{bindings, first_of_each, keymap, label};
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
@@ -32,9 +36,8 @@ pub mod strings;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppLinkView {
-    /// The model's copy of the app's page (the switch changes it at once).
+    /// The app's page the dialog was opened for.
     pub link: Link,
-    pub on_intent: Handler<Intent>,
 }
 
 /// Which screen of the dialog is shown.
@@ -70,6 +73,9 @@ fn actions(screen: Screen, installed: bool) -> &'static [Action] {
 
 pub struct AppLinkState {
     screen: Screen,
+    /// The dialog's copy of the app's switch: it shows the change at once, the directory follows
+    /// the saved write.
+    enabled: bool,
     options: Options,
     /// The dialog's keys: it takes the focus where the list it replaced (the directory's) left
     /// none.
@@ -94,6 +100,7 @@ impl StatefulWidget for AppLinkView {
     fn create_state(&self) -> AppLinkState {
         AppLinkState {
             screen: Screen::Link,
+            enabled: self.link.enabled,
             options: Options::new(),
             node: FocusNode::new(),
         }
@@ -101,6 +108,12 @@ impl StatefulWidget for AppLinkView {
 }
 
 impl_widget!(stateful eq AppLinkView);
+
+/// Says a verb to the model.
+fn say(cx: &mut Cx<'_, AppLinkState>, intent: Intent) {
+    let hs = read::<Hs, _>(cx);
+    cx.emit(&hs.screen, ScreenIntent::Select(intent));
+}
 
 impl State for AppLinkState {
     type Widget = AppLinkView;
@@ -121,7 +134,7 @@ impl State for AppLinkState {
                 return Rebuild::No;
             }
             Msg::Cancel => {
-                cx.emit(&w.on_intent, Intent::Close);
+                close_dialog::<_, ()>(cx, None);
                 return Rebuild::No;
             }
             Msg::Enter => self.options.cursor(),
@@ -138,7 +151,7 @@ impl State for AppLinkState {
         };
         match action {
             Action::Open => {
-                cx.emit(&w.on_intent, Intent::Choose(LINK_OPEN.to_string()));
+                say(cx, Intent::OpenAppPage(w.link.id.clone()));
                 // An installed app's page is its management page: the dialog stays.
                 if w.link.installed {
                     return Rebuild::No;
@@ -148,21 +161,25 @@ impl State for AppLinkState {
                 Rebuild::Yes
             }
             Action::Switch => {
-                cx.emit(
-                    &w.on_intent,
+                self.enabled = !self.enabled;
+                say(
+                    cx,
                     Intent::SetApp {
                         id: w.link.id.clone(),
-                        enabled: !w.link.enabled,
+                        enabled: self.enabled,
                     },
                 );
-                Rebuild::No
+                Rebuild::Yes
             }
             Action::Close => {
-                cx.emit(&w.on_intent, Intent::Close);
+                close_dialog::<_, ()>(cx, None);
                 Rebuild::No
             }
+            // `complete_external_flow_and_close`: the page was visited, the directory is read
+            // again and the dialog closes.
             Action::Done => {
-                cx.emit(&w.on_intent, Intent::Choose(LINK_INSTALLED.to_string()));
+                say(cx, Intent::RefreshApps);
+                close_dialog::<_, ()>(cx, None);
                 Rebuild::No
             }
             Action::Back => {
@@ -256,7 +273,7 @@ impl State for AppLinkState {
                 label: vec![Span::new(match action {
                     Action::Open if link.installed => words.manage,
                     Action::Open => words.install,
-                    Action::Switch if link.enabled => words.disable,
+                    Action::Switch if self.enabled => words.disable,
                     Action::Switch => words.enable,
                     Action::Close | Action::Back => words.back,
                     Action::Done => words.installed_it,

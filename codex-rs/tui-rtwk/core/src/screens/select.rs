@@ -62,9 +62,6 @@ pub enum Menu {
     /// A menu of the `/permissions` family (`permissions.rs`): the presets,
     /// the server's profiles, the full-access confirmation.
     Permissions(Box<PermissionsMenu>),
-    /// `/apps`: the directory of apps, its rows `Model::apps` (loading, the
-    /// failure with its Retry row, or the list).
-    Apps,
     /// A menu of the worktree pickers (`worktree.rs`): the checkout choice of `/new` and `/fork`,
     /// `/worktree`, the browser, a worktree's actions and the delete confirmation.
     Worktree(Box<worktree::Menu>),
@@ -91,6 +88,10 @@ pub enum Opening {
     /// `/review`: the presets, and over them the lists of the host (`review.rs`); the pages and
     /// what Esc does on each are the sheet's.
     Review,
+    /// `/apps`: the directory of apps (`Model::apps`: loading, the failure with its Retry row, or
+    /// the list) and the link dialog of the app picked from it; the sheet reads the directory as
+    /// a fact and its pages are its own.
+    Apps,
 }
 
 /// The shows nobody has shown yet.
@@ -136,9 +137,6 @@ pub enum Picked {
     Effort { model: String, effort: Effort, plan: bool },
     /// The answer of a confirmation was Yes (No picks nothing).
     Confirmed(Confirm),
-    /// An app of the directory (`Model::apps`), by id: its link dialog opens (`Apps::link`) or
-    /// it says it has no link.
-    App(String),
     /// A review target the `/review` menus settled on (the instructions typed, a branch, a
     /// commit, or the uncommitted changes): the app starts the review on the active thread.
     Review(crate::threads::ReviewTarget),
@@ -154,7 +152,6 @@ pub enum Picked {
 pub enum Page {
     Model(models::Page),
     Permissions(permissions::Page),
-    Apps(apps::Page),
 }
 
 /// What the picker says in the history (`add_info_message`/`add_error_message`):
@@ -347,14 +344,12 @@ impl Model {
         match self.menu()? {
             Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
-            Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::Worktree(_)
-            | Menu::Quick(_) => None,
+            Menu::Worktree(_) | Menu::Quick(_) => None,
         }
     }
 
     /// `/apps` (`add_connectors_output`): the directory is asked for again,
-    /// and what it held before decides what the user sees.
+    /// and what it held before decides what the user sees: the sheet, or a note.
     fn open_apps(&mut self, enabled: bool) {
         if !enabled {
             self.notes.push(Note::AppsDisabled);
@@ -365,49 +360,16 @@ impl Model {
         match held {
             apps::Cache::Ready(apps) if apps.is_empty() => self.notes.push(Note::NoApps),
             apps::Cache::Failed(error) => self.notes.push(Note::AppsFailed(error)),
-            _ => {
-                self.apps.link = None;
-                self.stack = vec![Menu::Apps];
-            }
+            _ => self.shows.push(Opening::Apps),
         }
     }
 
-    /// A row of the apps menu: `Retry` reloads, an app opens its link dialog (or says it has
-    /// no link); with the dialog open, its actions (`apps::LINK_OPEN`, `apps::LINK_INSTALLED`).
-    fn choose_app(&mut self, id: &str) {
-        if self.apps.link.is_some() {
-            // `complete_external_flow_and_close`: the page was visited, the directory is read
-            // again and the dialog closes. Opening the page is the app's
-            // (`AppEvent::OpenUrlInBrowser`): the dialog stays.
-            if id == apps::LINK_INSTALLED {
-                self.apps.link = None;
-                self.stack.pop();
-                self.apps.refresh(true);
-            }
-            return;
-        }
-        if id == apps::RETRY {
-            if matches!(self.apps.cache, apps::Cache::Failed(_)) {
-                self.apps.refresh(true);
-            }
-            return;
-        }
-        let Some(app) = self
-            .apps
-            .ready()
-            .and_then(|apps| apps.iter().find(|app| app.id == id))
-        else {
-            return;
-        };
-        let status = app.status();
-        let link = app.link();
-        self.picked.push(Picked::App(id.to_string()));
-        match link {
-            Some(link) => self.apps.link = Some(link),
-            None => {
-                self.notes.push(Note::AppLinkUnavailable(status));
-                self.stack.pop();
-            }
+    /// An app of the directory was picked and has no page to open (`App::link` is none): the
+    /// note says why. The sheet opens the link dialog of an app that has one.
+    fn app_unlinked(&mut self, id: &str) {
+        if let Some(app) = self.apps.app(id) {
+            let status = app.status();
+            self.notes.push(Note::AppLinkUnavailable(status));
         }
     }
 
@@ -842,8 +804,6 @@ pub enum Ev {
     AppsNotified(Vec<apps::App>),
     /// An app was switched on or off (`update_connector_enabled`).
     AppSwitched { id: String, enabled: bool },
-    /// The link dialog of an app is shown over the directory (a seed of the debug entries).
-    AppLinkOpened(apps::Link),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -910,6 +870,11 @@ pub enum Intent {
     /// switch at once, the app writes the config and, once it is saved, tells the directory
     /// (`Ev::AppSwitched`).
     SetApp { id: String, enabled: bool },
+    /// The link dialog of the app `id` opens its page in the browser (`AppEvent::OpenUrlInBrowser`):
+    /// the app does it.
+    OpenAppPage(String),
+    /// The app `id` was picked from the directory and has no page to open: the note says why.
+    AppUnlinked(String),
     /// A confirmation is asked for (`/archive`, `/delete`): a sheet shows it.
     Confirm(Confirm),
     /// The answer Yes of a confirmation (No is the sheet's own: it closes).
@@ -1009,7 +974,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.apps.invalidate();
             model.worktree.forget();
             model.stack.retain(|menu| match menu {
-                Menu::Apps | Menu::Worktree(_) => false,
+                Menu::Worktree(_) => false,
                 Menu::Permissions(menu) => !matches!(
                     **menu,
                     Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. }
@@ -1024,10 +989,6 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.apps.notified(apps);
         }
         Ev::AppSwitched { id, enabled } => model.apps.switched(&id, enabled),
-        Ev::AppLinkOpened(link) => {
-            model.apps.link = Some(link);
-            model.stack = vec![Menu::Apps];
-        }
         Ev::Fetched { request, result } => {
             // Another request, or none: the answer is not for the pickers.
             if model.catalog.pending != Some(request) {
@@ -1162,14 +1123,12 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 Target::Slot(slot) => model.quick_confirm(slot, Some(dial)),
             }
         }
-        // The app writes the config (`app/select.rs`); the directory follows the saved write.
-        Intent::SetApp { id, enabled } => {
-            if let Some(link) = &mut model.apps.link
-                && link.id == id
-            {
-                link.enabled = enabled;
-            }
-        }
+        // The app writes the config (`app/select.rs`); the directory follows the saved write. The
+        // dialog of the app shows its switch at once, the screen keeps no copy of it.
+        Intent::SetApp { .. } => {}
+        // The page of the app is opened by the app (`app/select.rs`); the screen keeps no record.
+        Intent::OpenAppPage(_) => {}
+        Intent::AppUnlinked(id) => model.app_unlinked(&id),
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
@@ -1179,7 +1138,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 let step = menu.choose(&model.profiles, &id);
                 model.permissions_step(step);
             }
-            Some(Menu::Apps) => model.choose_app(&id),
             Some(Menu::Quick(menu)) => {
                 use quick_dials::Chosen;
                 match menu.choose(&id, &model.quick) {
@@ -1241,7 +1199,6 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
         Intent::PlanAnswer(_) => {}
         Intent::Close => {
-            model.apps.link = None;
             model.stack.pop();
             model.inline_unattended();
         }
@@ -1442,7 +1399,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// (`{"kind":"models","current":{"model":..}}`, `all_models`, `loading`,
 /// `reasoning` and `advanced` with a `preset`), `{"kind":"profiles",
 /// "discovery":{..}}` (the permission catalog), `{"kind":"permissions",
-/// "menu":"profiles","current":{..}}`, `{"kind":"app_link","link":{..}}` (the link dialog of an app).
+/// "menu":"profiles","current":{..}}`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -1476,10 +1433,6 @@ enum SeedEv {
         source: PlanSource,
         #[serde(default)]
         warning: Option<usize>,
-    },
-    /// The link dialog of an app (`/apps`, an app picked).
-    AppLink {
-        link: apps::Link,
     },
     /// The profiles the app holds (a startup read of the catalog).
     Profiles {
@@ -1533,7 +1486,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             source,
             warning,
         }),
-        SeedEv::AppLink { link } => Ev::AppLinkOpened(link),
         SeedEv::Profiles { discovery } => Ev::Listed(discovery),
         SeedEv::Permissions {
             menu,

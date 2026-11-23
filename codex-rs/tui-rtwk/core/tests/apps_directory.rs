@@ -2,12 +2,12 @@
 
 //! The apps directory notification and the scope boundary (core-pass for chunk-popups-apps-rest):
 //! `app/list/updated` with a thread on display reads the directory again and drops the apps a
-//! user cannot call from the mentions; an account change or another displayed thread dismisses
-//! `/apps` and forgets the directory (oracle `refresh_connector_directory_after_notification`,
+//! user cannot call from the mentions; an account change or another displayed thread forgets the
+//! directory and ends the sheet that shows it (the scope the sheet opened under is another one:
+//! `Apps::scope`; oracle `refresh_connector_directory_after_notification`,
 //! `invalidate_connector_scope`, `connectors_for_mentions`).
 
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::screens::select::Menu;
 use codex_tui_core::screens::select::apps::Cache;
 use serde_json::json;
 
@@ -74,7 +74,7 @@ fn a_directory_notification_reads_the_directory_again() {
 }
 
 #[test]
-fn an_account_change_forgets_the_directory_and_dismisses_apps() {
+fn an_account_change_forgets_the_directory_and_ends_the_apps_sheet() {
     let script = [
         SESSION.to_string(),
         listed(&[("notion", true)]),
@@ -85,5 +85,5 @@ fn an_account_change_forgets_the_directory_and_dismisses_apps() {
     let select = &sandbox.app().screens().select;
     assert_eq!(select.apps.cache, Cache::Uninitialized);
     assert_eq!(select.apps.pending, None);
-    assert_ne!(select.menu(), Some(&Menu::Apps));
+    assert_eq!(select.apps.scope(), 1, "the sheet over the directory is of another scope now");
 }

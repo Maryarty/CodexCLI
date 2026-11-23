@@ -321,10 +321,12 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 reserve_only(&session, &states, &thread),
                 review_cwd(&states, &thread),
             ) {
-                // `/review` is a sheet of its own: the model asks for it and the presenter shows it.
+                // `/review` and `/apps` are sheets of their own: the model asks for them and the
+                // presenter shows them.
                 shown_by_presenter = matches!(
                     intent,
                     codex_tui_core::screens::select::Intent::OpenReview { .. }
+                        | codex_tui_core::screens::select::Intent::OpenApps { .. }
                 );
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }

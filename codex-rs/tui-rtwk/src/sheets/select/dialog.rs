@@ -15,11 +15,9 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::select::apps::Link;
 use codex_tui_core::screens::select::models::Heading;
 use codex_tui_core::screens::select::{Intent, Menu, Page};
 
-use super::app_link::AppLinkView;
 use super::lists;
 use super::strings;
 use crate::app::view::Hs;
@@ -64,8 +62,6 @@ pub struct MenuDialogState {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Picked(Event),
-    /// What the app link dialog asks of the app it shows.
-    Link(Intent),
 }
 
 impl StatefulWidget for MenuDialog {
@@ -126,13 +122,7 @@ impl State for MenuDialogState {
 
     fn update(&mut self, msg: Msg, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
-        let event = match msg {
-            Msg::Picked(event) => event,
-            Msg::Link(intent) => {
-                cx.emit(&hs.screen, ScreenIntent::Select(intent));
-                return Rebuild::Yes;
-            }
-        };
+        let Msg::Picked(event) = msg;
         let intent = match event {
             Event::Choose(id) => {
                 self.chosen = Some(id.clone());
@@ -162,9 +152,7 @@ impl State for MenuDialogState {
     }
 
     fn build(&self, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let (head, link) = select::<ScreenStates, (Option<Head>, Option<Link>), _>(cx, |states| {
-            (head(states), states.select.apps.link.clone())
-        });
+        let head = select::<ScreenStates, Option<Head>, _>(cx, head);
         let Some(head) = head else {
             return AnyWidget::default();
         };
@@ -174,17 +162,6 @@ impl State for MenuDialogState {
             .checked_sub(1)
             .and_then(|at| self.kept.get(&at))
             .map(String::as_str);
-        // The page of an app picked from `/apps`: a dialog of its own, not a list.
-        if matches!(head.menu, Menu::Apps)
-            && let Some(link) = link
-        {
-            let dialog: AnyWidget = AppLinkView {
-                link,
-                on_intent: cx.map(Msg::Link),
-            }
-            .into();
-            return dialog.with_key(u32::try_from(head.depth).unwrap_or(0));
-        }
         let list = match &head.menu {
             menu => {
                 let mut page = head.page.clone();
