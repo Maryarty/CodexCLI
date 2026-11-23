@@ -669,7 +669,7 @@ impl SectionError {
 /// How the remote sections stand (`plugin_remote_sections_loading`, `..._loaded`,
 /// `plugin_remote_section_errors`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Remote {
+pub struct Sections {
     pub loading: bool,
     pub loaded: bool,
     pub errors: Vec<SectionError>,
@@ -677,7 +677,7 @@ pub struct Remote {
     pub vertical: bool,
 }
 
-impl Remote {
+impl Sections {
     fn error(&self, part: Part) -> Option<&SectionError> {
         self.errors.iter().find(|error| error.part == part)
     }
@@ -974,7 +974,7 @@ impl Catalog {
 
     /// `plugins_popup_params`: the tabs, in the oracle's order. `fresh` is the tab of a
     /// marketplace just added.
-    pub fn tabs(&self, config: &Config, remote: &Remote, fresh: Option<&str>) -> Vec<Tab> {
+    pub fn tabs(&self, config: &Config, remote: &Sections, fresh: Option<&str>) -> Vec<Tab> {
         let copies = local_copies(&self.marketplaces);
         let all = entries(&self.marketplaces);
         let counts = |list: &[Entry]| {
@@ -1108,7 +1108,7 @@ impl Catalog {
     }
 
     /// `RemoteMarketplaceSection::fallback_tab`.
-    fn placeholder(&self, section: Section, remote: &Remote) -> Option<(u8, Tab)> {
+    fn placeholder(&self, section: Section, remote: &Sections) -> Option<(u8, Tab)> {
         if self.marketplaces.iter().any(|m| section.holds(&m.name)) {
             return None;
         }

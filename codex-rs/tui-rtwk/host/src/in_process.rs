@@ -383,7 +383,10 @@ async fn run(
     emit(
         &ingress,
         epoch,
-        AppEv::PluginConfig(crate::effects::plugin_config(&config)),
+        AppEv::Feature(
+            codex_tui_core::features::plugins::Fact::Config(crate::effects::plugin_config(&config))
+                .into(),
+        ),
     );
     if !warnings.is_empty() {
         emit(

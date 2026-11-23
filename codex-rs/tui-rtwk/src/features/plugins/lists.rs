@@ -1,28 +1,28 @@
-//! `/plugins` in the selection sheet (oracle `chatwidget/plugin_catalog.rs`, `chatwidget/plugins.rs`):
-//! the browser with its marketplace tabs, the detail of a plugin, the loading, failure and
-//! confirmation pages around it and the prompt of a marketplace source. The model (core's
-//! `plugins::Plugins`) says which page is shown and what is on it; the words are
-//! `plugins/strings.rs`. Every page is the shared picker's list: the browser is its tabbed form with
-//! the opener's extras (a toggle key, Ctrl-R and Ctrl-U on a marketplace tab, a note per tab, a
-//! result area that keeps its height). In Flutter the browser is a `TabBarView` of `ListView`s in
-//! a `showModalBottomSheet`, the other pages are the sheet's `Navigator` routes.
+//! The pages of `/plugins` (oracle `chatwidget/plugin_catalog.rs`, `chatwidget/plugins.rs`): the
+//! browser with its marketplace tabs, the detail of a plugin, the loading, failure and
+//! confirmation pages around it and the prompt of a marketplace source. Each function takes what
+//! its page shows (the feature's `State`, a name, an error) and gives the shared picker's list;
+//! the routes of the sheet (`pages.rs`) say which page is on top. The words are
+//! `strings.rs`. The browser is the picker's tabbed form with the opener's extras (a toggle key,
+//! Ctrl-R and Ctrl-U on a marketplace tab, a note per tab, a result area that keeps its height).
+//! In Flutter the browser is a `TabBarView` of `ListView`s in a `showModalBottomSheet`, the other
+//! pages are the sheet's `Navigator` routes.
 
 use rtwk::Handler;
 
+use codex_tui_core::features::plugins::catalog::{
+    Auth as AuthPolicy, Catalog, Note, Placeholder, Source,
+};
+use codex_tui_core::features::plugins::{
+    self, Action, AuthApp, Detail, Kind, Product, Row, State, Tab, Toggle,
+};
 use codex_tui_core::keymap::{Key, Keymap, Mods, Stroke};
 use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Span, Tab as ListTab};
-use codex_tui_core::screens::select::plugins::catalog::{
-    Auth as AuthPolicy, Catalog, Note, Placeholder, Source, tab_matching,
-};
-use codex_tui_core::screens::select::plugins::{
-    self, Action, AuthStep, Detail, Kind, Menu, Plugins, Product, Row, Tab, Toggle,
-};
 
-pub mod strings;
-
-use self::strings::Strings;
-use super::prompt::{Answer, Prompt};
+use super::strings::Strings;
 use crate::keymap::stroke_label;
+use crate::sheets::select::prompt::Prompt;
+use crate::sheets::select::prompt::Answer;
 use crate::widgets::picker::{Extras, Hot, TabNote, list_key_free};
 
 /// The name of the hot key that removes the marketplace of the tab (Ctrl-R).
@@ -30,152 +30,135 @@ pub const REMOVE_KEY: &str = "remove";
 /// The name of the hot key that upgrades it (Ctrl-U).
 pub const UPGRADE_KEY: &str = "upgrade";
 
+/// The ids of the rows the pages pick.
+pub const BACK: &str = "plugins.back";
+pub const INSTALL: &str = "plugins.install";
+pub const UNINSTALL: &str = "plugins.uninstall";
+pub const REMOVE: &str = "plugins.remove";
+pub const RETRY: &str = "plugins.retry";
+/// The row of the Add tab that opens the prompt of a marketplace source.
+pub const ADD_ROW: &str = "plugins.add";
+/// The rows of the setup of the apps: open the page, the next app, give up.
+pub const OPEN: &str = "plugins.app.open";
+pub const NEXT: &str = "plugins.app.next";
+pub const SKIP: &str = "plugins.app.skip";
+
 /// The width of the browser's name column is at most this many cells (`plugins_popup_params`).
 const NAME_COLUMN_LIMIT: usize = 36;
 /// The mark, the toggle and the cursor before a row's name (`PLUGIN_ROW_PREFIX_WIDTH`).
 const ROW_PREFIX_WIDTH: usize = 6;
 
-/// What the plugin menu on top is shown as.
-pub enum Page {
-    /// The tabs of the catalog and what the opener adds to the picker.
-    Browser(List, Extras),
-    /// Any other page: a list of rows.
-    List(List),
-    /// A question over the chat: two rows, centred.
-    Confirm(List),
-    /// The prompt of the marketplace source.
-    Add,
+/// The step of the setup the user is at (`plugin_install_auth_popup_params`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthStep {
+    pub plugin: String,
+    pub app: AuthApp,
+    /// This app's place, from 1, among `total`.
+    pub current: usize,
+    pub total: usize,
+    pub installed: bool,
 }
 
-/// A number that tells the pages apart: a refresh of the same page keeps its picker (and its
-/// cursor, its query and its tab), another page is a new one.
-pub fn shape(menu: &Menu) -> u32 {
-    match menu {
-        Menu::Loading => 0,
-        Menu::Failed(_) => 1,
-        Menu::List => 2,
-        Menu::AddPrompt => 3,
-        Menu::AddLoading => 4,
-        Menu::AddFailed => 5,
-        Menu::RemoveConfirm { .. } => 6,
-        Menu::RemoveLoading { .. } => 7,
-        Menu::RemoveFailed { .. } => 8,
-        Menu::UpgradeLoading { .. } => 9,
-        Menu::DetailLoading { .. } => 10,
-        Menu::Detail(_) => 11,
-        Menu::DetailFailed { .. } => 12,
-        Menu::InstallLoading { .. } => 13,
-        Menu::UninstallLoading { .. } => 14,
-        Menu::Auth => 15,
-    }
+/// The page that stands in while the list is read.
+pub fn loading_list(s: &Strings) -> List {
+    loading(
+        s.loading_head.to_string(),
+        Some(s.loading_note),
+        s.loading_row,
+        s.loading_row_description,
+        s,
+    )
 }
 
-/// The page of the menu the model holds; none for the setup of apps when no step is on.
-pub fn page(
-    plugins: &Plugins,
-    auth: Option<&AuthStep>,
-    keys: &Keymap,
-    s: &Strings,
-) -> Option<Page> {
-    Some(match plugins.menu() {
-        Menu::Loading => Page::List(loading(
-            s.loading_head.to_string(),
-            Some(s.loading_note),
-            s.loading_row,
-            s.loading_row_description,
-            s,
-        )),
-        Menu::Failed(error) => Page::List(plain(
-            s.failed_subtitle,
-            vec![disabled(s.failed_row, error)],
-            s,
-        )),
-        Menu::List => match browser(plugins, keys, s) {
-            Some((list, extras)) => Page::Browser(list, extras),
-            None => Page::List(loading(
-                s.loading_head.to_string(),
-                Some(s.loading_note),
-                s.loading_row,
-                s.loading_row_description,
-                s,
-            )),
-        },
-        Menu::AddPrompt => Page::Add,
-        Menu::AddLoading => Page::List(loading(
-            s.add_loading.to_string(),
-            None,
-            s.add_loading,
-            s.add_loading_description,
-            s,
-        )),
-        Menu::AddFailed => {
-            let mut items = vec![
-                disabled(s.add_failed_row, s.add_failed_description),
-                row(plugins::RETRY, s.retry, s.retry_add_description),
-            ];
-            items.extend(back(plugins, s));
-            Page::List(closing(s.add_failed_subtitle, items, s))
-        }
-        Menu::RemoveConfirm { label, .. } => Page::Confirm(confirmation(label, s)),
-        Menu::RemoveLoading { label } => Page::List(plain(
-            &s.with(s.remove_loading_subtitle, label),
-            vec![disabled(s.remove_loading_row, s.remove_loading_description)],
-            s,
-        )),
-        Menu::RemoveFailed { .. } => {
-            let mut items = vec![
-                disabled(s.remove_failed_row, s.remove_failed_description),
-                row(plugins::RETRY, s.retry, s.retry_remove_description),
-            ];
-            items.extend(back(plugins, s));
-            Page::List(closing(s.remove_failed_subtitle, items, s))
-        }
-        Menu::UpgradeLoading { name } => {
-            let text = match name {
-                Some(name) => s.with(s.upgrade_loading_one, name),
-                None => s.upgrade_loading_all.to_string(),
-            };
-            Page::List(loading(
-                text.clone(),
-                None,
-                &text,
-                s.upgrade_loading_description,
-                s,
-            ))
-        }
-        Menu::DetailLoading { name } => Page::List(loading(
-            s.with(s.detail_loading, name),
-            None,
-            s.detail_loading_row,
-            s.detail_loading_description,
-            s,
-        )),
-        Menu::Detail(detail) => Page::List(detail_page(detail, s)),
-        Menu::DetailFailed { error, back } => {
-            let mut items = vec![disabled(s.detail_failed_row, error)];
-            if *back {
-                items.push(row(plugins::BACK, s.back, s.back_description));
-            }
-            Page::List(closing(s.detail_failed_subtitle, items, s))
-        }
-        Menu::InstallLoading { name } => Page::List(plain(
-            &s.with(s.install_loading_subtitle, name),
-            vec![disabled(
-                s.install_loading_row,
-                s.install_loading_description,
-            )],
-            s,
-        )),
-        Menu::UninstallLoading { name } => Page::List(plain(
-            &s.with(s.uninstall_loading_subtitle, name),
-            vec![disabled(
-                s.uninstall_loading_row,
-                s.uninstall_loading_description,
-            )],
-            s,
-        )),
-        Menu::Auth => Page::List(auth_page(auth?, s)),
-    })
+/// The list could not be read: the error on a row that is only said.
+pub fn failed_list(error: &str, s: &Strings) -> List {
+    plain(s.failed_subtitle, vec![disabled(s.failed_row, error)], s)
+}
+
+/// The marketplace source asked for, then waited on.
+pub fn add_loading(s: &Strings) -> List {
+    loading(
+        s.add_loading.to_string(),
+        None,
+        s.add_loading,
+        s.add_loading_description,
+        s,
+    )
+}
+
+pub fn add_failed(s: &Strings) -> List {
+    let items = vec![
+        disabled(s.add_failed_row, s.add_failed_description),
+        row(RETRY, s.retry, s.retry_add_description),
+        row(BACK, s.back, s.back_description),
+    ];
+    closing(s.add_failed_subtitle, items, s)
+}
+
+pub fn remove_loading(label: &str, s: &Strings) -> List {
+    plain(
+        &s.with(s.remove_loading_subtitle, label),
+        vec![disabled(s.remove_loading_row, s.remove_loading_description)],
+        s,
+    )
+}
+
+pub fn remove_failed(s: &Strings) -> List {
+    let items = vec![
+        disabled(s.remove_failed_row, s.remove_failed_description),
+        row(RETRY, s.retry, s.retry_remove_description),
+        row(BACK, s.back, s.back_description),
+    ];
+    closing(s.remove_failed_subtitle, items, s)
+}
+
+pub fn upgrade_loading(name: Option<&str>, s: &Strings) -> List {
+    let text = match name {
+        Some(name) => s.with(s.upgrade_loading_one, name),
+        None => s.upgrade_loading_all.to_string(),
+    };
+    loading(text.clone(), None, &text, s.upgrade_loading_description, s)
+}
+
+pub fn detail_loading(name: &str, s: &Strings) -> List {
+    loading(
+        s.with(s.detail_loading, name),
+        None,
+        s.detail_loading_row,
+        s.detail_loading_description,
+        s,
+    )
+}
+
+/// The read or the change of a plugin failed.
+pub fn detail_failed(error: &str, s: &Strings) -> List {
+    let items = vec![
+        disabled(s.detail_failed_row, error),
+        row(BACK, s.back, s.back_description),
+    ];
+    closing(s.detail_failed_subtitle, items, s)
+}
+
+pub fn install_loading(name: &str, s: &Strings) -> List {
+    plain(
+        &s.with(s.install_loading_subtitle, name),
+        vec![disabled(
+            s.install_loading_row,
+            s.install_loading_description,
+        )],
+        s,
+    )
+}
+
+pub fn uninstall_loading(name: &str, s: &Strings) -> List {
+    plain(
+        &s.with(s.uninstall_loading_subtitle, name),
+        vec![disabled(
+            s.uninstall_loading_row,
+            s.uninstall_loading_description,
+        )],
+        s,
+    )
 }
 
 /// The prompt of the marketplace source (`open_marketplace_add_prompt`).
@@ -230,13 +213,6 @@ fn row(id: &str, name: &str, description: &str) -> Item {
     }
 }
 
-/// `Back to plugins` when the list can be shown again.
-fn back(plugins: &Plugins, s: &Strings) -> Option<Item> {
-    plugins
-        .catalog()
-        .map(|_| row(plugins::BACK, s.back, s.back_description))
-}
-
 /// A page the loading of something stands in for (`DelayedLoadingHeader`): the words of the load
 /// under the title, one row that waits.
 fn loading(
@@ -276,8 +252,8 @@ fn closing(subtitle: &str, items: Vec<Item>, s: &Strings) -> List {
 }
 
 /// `marketplace_remove_confirmation_popup_params`.
-fn confirmation(label: &str, s: &Strings) -> List {
-    let mut remove = row(plugins::REMOVE, s.remove_row, s.remove_row_description);
+pub fn confirmation(label: &str, s: &Strings) -> List {
+    let mut remove = row(REMOVE, s.remove_row, s.remove_row_description);
     remove.selected_description = Some(s.remove_row_description.to_string());
     List {
         header: vec![
@@ -287,7 +263,7 @@ fn confirmation(label: &str, s: &Strings) -> List {
         footer_hint: Some(s.hint_select_close.to_string()),
         items: vec![
             remove,
-            row(plugins::BACK, s.back, s.remove_keep_description),
+            row(BACK, s.back, s.remove_keep_description),
         ],
         ..base(s)
     }
@@ -405,10 +381,18 @@ fn upgrade_stroke() -> Stroke {
     Stroke::new(Key::Char('u'), Mods::CTRL)
 }
 
-/// The tabs of the catalog (`plugins_popup_params`); none while the model has no list.
-fn browser(plugins: &Plugins, keys: &Keymap, s: &Strings) -> Option<(List, Extras)> {
-    let catalog = plugins.catalog()?;
-    let tabs = plugins.tabs();
+/// The tabs of the catalog of `cwd` (`plugins_popup_params`), the browser opening at `tab` (the
+/// one the user was at; `fresh` is the marketplace just added); none while there is no list.
+pub fn browser(
+    state: &State,
+    cwd: &str,
+    tab: &str,
+    fresh: Option<&str>,
+    keys: &Keymap,
+    s: &Strings,
+) -> Option<(List, Extras)> {
+    let catalog = state.catalog(cwd)?.value()?;
+    let tabs = state.tabs(cwd, fresh);
     let all = tabs.first()?;
     let toggle = Stroke::new(Key::Tab, Mods::NONE);
     let toggle_free = list_key_free(keys, &toggle);
@@ -463,9 +447,7 @@ fn browser(plugins: &Plugins, keys: &Keymap, s: &Strings) -> Option<(List, Extra
         tabs: shown,
         // The tab the user is at, or the one that took its place (a loading section that has
         // loaded: `plugin_tab_id_matching_saved_id`).
-        initial_tab: Some(
-            tab_matching(plugins.tab(), &tabs).unwrap_or_else(|| plugins.tab().to_string()),
-        ),
+        initial_tab: Some(state.tab_now(cwd, tab).unwrap_or_else(|| tab.to_string())),
         searchable: true,
         search_placeholder: Some(s.search.to_string()),
         single_line: true,
@@ -540,7 +522,7 @@ fn items_of(tab: &Tab, catalog: &Catalog, toggle_free: bool, s: &Strings) -> Vec
             });
         }
         Kind::Add => items.push(Item {
-            id: plugins::ADD_ROW.to_string(),
+            id: ADD_ROW.to_string(),
             name: s.add_row.to_string(),
             description: Some(s.add_row_description.to_string()),
             selected_description: Some(s.add_row_selected.to_string()),
@@ -632,7 +614,7 @@ fn plugin_item(
 // ------------------------------------------------------------------------- the detail
 
 /// `plugin_detail_popup_params`.
-fn detail_page(detail: &Detail, s: &Strings) -> List {
+pub fn detail_page(detail: &Detail, s: &Strings) -> List {
     let plugin = &detail.plugin;
     let market = market_label(detail.product, &detail.marketplace, s);
     let mut header = vec![vec![Span {
@@ -665,14 +647,14 @@ fn detail_page(detail: &Detail, s: &Strings) -> List {
         header.push(dim(description.clone()));
     }
 
-    let mut items = vec![row(plugins::BACK, s.back, s.back_description)];
+    let mut items = vec![row(BACK, s.back, s.back_description)];
     items.push(match detail.action() {
         Action::InstalledByAdmin => disabled(s.admin_installed, s.admin_installed_description),
-        Action::Uninstall { .. } => row(plugins::UNINSTALL, s.uninstall, s.uninstall_description),
+        Action::Uninstall { .. } => row(UNINSTALL, s.uninstall, s.uninstall_description),
         Action::UninstallUnavailable => disabled(s.uninstall, s.uninstall_missing),
         Action::DisabledByAdmin => disabled(s.install, s.install_disabled),
         Action::NotInstallable => disabled(s.install, s.install_not_available),
-        Action::Install(_) => row(plugins::INSTALL, s.install, s.install_description),
+        Action::Install(_) => row(INSTALL, s.install, s.install_description),
         Action::InstallUnavailable => disabled(s.install, s.install_no_location),
     });
     items.push(disabled(s.meta_source, &source_summary(detail, s)));
@@ -810,7 +792,7 @@ fn share_summary(share: &plugins::catalog::Share, s: &Strings) -> String {
 // ---------------------------------------------------------------------------- the setup
 
 /// `plugin_install_auth_popup_params`: one app the installed plugin needs signed in.
-fn auth_page(step: &AuthStep, s: &Strings) -> List {
+pub fn auth_page(step: &AuthStep, s: &Strings) -> List {
     let header = vec![
         vec![Span {
             text: s.with(s.auth_installed, &step.plugin),
@@ -833,7 +815,7 @@ fn auth_page(step: &AuthStep, s: &Strings) -> List {
     let mut items = Vec::new();
     if step.app.url.is_some() {
         let mut open = row(
-            plugins::OPEN,
+            OPEN,
             if step.installed {
                 s.auth_manage
             } else {
@@ -847,9 +829,9 @@ fn auth_page(step: &AuthStep, s: &Strings) -> List {
         items.push(disabled(s.auth_no_link, s.auth_no_link_description));
     }
     let mut next = if step.installed {
-        row(plugins::NEXT, s.auth_continue, s.auth_continue_description)
+        row(NEXT, s.auth_continue, s.auth_continue_description)
     } else {
-        row(plugins::NEXT, s.auth_done, s.auth_done_description)
+        row(NEXT, s.auth_done, s.auth_done_description)
     };
     next.selected_description = Some(
         if step.installed {
@@ -860,7 +842,7 @@ fn auth_page(step: &AuthStep, s: &Strings) -> List {
         .to_string(),
     );
     items.push(next);
-    let mut skip = row(plugins::SKIP, s.auth_skip, s.auth_skip_description);
+    let mut skip = row(SKIP, s.auth_skip, s.auth_skip_description);
     skip.selected_description = Some(s.auth_skip_selected.to_string());
     items.push(skip);
     List {

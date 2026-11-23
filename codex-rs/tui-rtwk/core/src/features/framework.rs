@@ -83,6 +83,8 @@ macro_rules! probe {
                 type Prompt = Prompt;
                 type Note = Note;
                 type Fact = Fact;
+                type Wish = Wish;
+                type Interest = Interest;
 
                 fn intent(state: &mut u32, intent: Intent, _cx: &mut AppCx<'_>) {
                     *state += intent.0;
@@ -172,6 +174,10 @@ macro_rules! probe {
         pub struct Note(pub &'static str);
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub struct Fact(pub u32);
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct Wish(pub &'static str);
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct Interest(pub u32);
     };
     // and of one that has none
     (@components $marker:ident, bare) => {
@@ -180,6 +186,8 @@ macro_rules! probe {
         pub type Prompt = Never<$marker>;
         pub type Note = Never<$marker>;
         pub type Fact = Never<$marker>;
+        pub type Wish = Never<$marker>;
+        pub type Interest = Never<$marker>;
     };
     (@steps full) => {
         fn choose(menu: &Menu, row: &str) -> Choice<Menu, Pick> {
@@ -206,6 +214,10 @@ macro_rules! probe {
         fn on_fact(state: &mut u32, fact: Fact, _cx: &mut AppCx<'_>) {
             *state += fact.0;
         }
+
+        fn on_interest(state: &mut u32, interest: &Interest, open: bool, _cx: &mut AppCx<'_>) {
+            *state += if open { interest.0 } else { 100 * interest.0 };
+        }
     };
     (@steps bare) => {};
 }
@@ -223,11 +235,11 @@ mod probe_list {
 }
 
 use probe_list::{
-    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureMenu, FeatureNote, FeaturePick,
-    FeaturePrompt, FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha,
-    answered, apply_intent, apply_thread_intent, apply_thread_reply, beta, choose, decode,
-    effect_done, names, note_tone, on_fact, on_interrupted, on_resumed, on_turn_end, picked,
-    prompt_submitted, wire,
+    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureMenu,
+    FeatureNote, FeaturePick, FeaturePrompt, FeatureReply, FeatureStates, FeatureThreadIntent,
+    FeatureThreadParts, alpha, answered, apply_intent, apply_thread_intent, apply_thread_reply,
+    beta, choose, decode, effect_done, names, note_tone, on_fact, on_interest, on_interrupted,
+    on_resumed, on_turn_end, picked, prompt_submitted, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -271,6 +283,18 @@ fn a_list_names_its_features_in_order_and_the_real_one_names_each_once() {
     sorted.dedup();
     assert_eq!(sorted.len(), real.len(), "{real:?}");
     assert_eq!(names(), ["alpha", "beta"]);
+}
+
+/// An interest goes to its feature as the feature's own type; a feature without interests has
+/// none to receive (`Never<Self>`), so the beta probe's state stays what it was.
+#[test]
+fn an_interest_reaches_its_feature_opened_and_closed() {
+    let mut states = FeatureStates::default();
+    app_step(|cx| {
+        on_interest(&mut states, &FeatureInterest::from(alpha::Interest(2)), true, cx);
+        on_interest(&mut states, &FeatureInterest::from(alpha::Interest(1)), false, cx);
+    });
+    assert_eq!((*states.alpha, *states.beta), (2 + 100, 0));
 }
 
 #[test]

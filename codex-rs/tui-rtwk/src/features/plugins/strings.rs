@@ -10,12 +10,16 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
-use codex_tui_core::screens::select::plugins::catalog::{Cause, DetailStatus, Discoverability};
-use codex_tui_core::screens::select::plugins::catalog::{Next, Part, Section};
-use codex_tui_core::screens::select::plugins::{Product, Status};
+use codex_tui_core::features::plugins::catalog::{Cause, DetailStatus, Discoverability};
+use codex_tui_core::features::plugins::catalog::{Next, Part, Section};
+use codex_tui_core::features::plugins::{PluginStatus as Status, Product, Say};
+
 
 use crate::l10n::Tables;
 use crate::l10n::lang;
+
+/// What stands between a note's message and its hint.
+const INLINE_GAP: &str = " ";
 
 /// The words of the plugin browser, its pages and its prompt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -587,3 +591,98 @@ static TABLES: Tables<Strings> = Tables::english(&EN);
 pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
 }
+
+/// The words of what the plugin browser said in the history (`Say`); the oracle's English stands
+/// until the catalog has them.
+pub fn note(say: &Say) -> String {
+    let noun = |count: usize| {
+        if count == 1 {
+            "marketplace"
+        } else {
+            "marketplaces"
+        }
+    };
+    let both = |message: String, hint: String| format!("{message}{INLINE_GAP}{hint}");
+    match say {
+        Say::Disabled => both(
+            "Plugins are disabled.".to_string(),
+            "Enable the plugins feature to use /plugins.".to_string(),
+        ),
+        Say::Installed { name, apps } if apps.is_empty() => both(
+            format!("Installed {name} plugin."),
+            "No additional app authentication is required.".to_string(),
+        ),
+        Say::Installed { name, apps } => both(
+            format!("Installed {name} plugin."),
+            format!(
+                "{} app(s) still need authentication: {}",
+                apps.len(),
+                apps.join(", ")
+            ),
+        ),
+        Say::Uninstalled { name } => both(
+            format!("Uninstalled {name} plugin."),
+            "Bundled apps remain installed.".to_string(),
+        ),
+        Say::Skipped { name } => both(
+            format!("Skipped remaining app setup for {name} plugin."),
+            "The plugin may not be usable until required apps are installed.".to_string(),
+        ),
+        Say::Completed { name } => both(
+            format!("Completed app setup flow for {name} plugin."),
+            "You can now continue managing plugins from /plugins.".to_string(),
+        ),
+        Say::EnableFailed { id, error } => {
+            format!("Failed to update plugin config for {id}: {error}")
+        }
+        Say::MarketAdded {
+            name,
+            root,
+            already,
+        } => both(
+            if *already {
+                format!("Marketplace {name} is already added.")
+            } else {
+                format!("Added marketplace {name}.")
+            },
+            format!("Marketplace root: {root}"),
+        ),
+        Say::MarketRemoved { label, name, root } => both(
+            format!("Removed marketplace {label}."),
+            match root {
+                Some(root) => format!("Marketplace root: {root}"),
+                None => format!("Removed marketplace config for {name}."),
+            },
+        ),
+        Say::NothingToUpgrade => both(
+            "No configured Git marketplaces to upgrade.".to_string(),
+            "Only configured Git marketplaces can be upgraded.".to_string(),
+        ),
+        Say::UpToDate { selected } => both(
+            match selected.as_slice() {
+                [one] => format!("Marketplace {one} is already up to date."),
+                many => format!(
+                    "Checked {} marketplaces; all are already up to date.",
+                    many.len()
+                ),
+            },
+            format!("Checked: {}", selected.join(", ")),
+        ),
+        Say::Upgraded { roots } => both(
+            format!("Upgraded {} {}.", roots.len(), noun(roots.len())),
+            format!("Updated roots: {}", roots.join(", ")),
+        ),
+        Say::UpgradeFailed(errors) => format!(
+            "Failed to upgrade {} {}: {}",
+            errors.len(),
+            noun(errors.len()),
+            errors
+                .iter()
+                .map(|(name, message)| format!("{name}: {message}"))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ),
+        Say::UpgradeError(error) => error.clone(),
+    }
+}
+

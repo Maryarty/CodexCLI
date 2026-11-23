@@ -33,6 +33,12 @@ pub fn reset_last_opened() {
     LAST.with(|last| last.set(None));
 }
 
+/// Records that a sheet of `target` was opened by something other than `open` (a feature's own
+/// sheet): the identity a test reads.
+pub fn note_opened(target: Target) {
+    LAST.with(|last| last.set(Some(target)));
+}
+
 /// Opens the select sheet as a confirmation floats (`/archive`, `/delete`):
 /// the target is the same, the presentation is centered on the screen.
 pub fn open_confirmation<S>(cx: &mut Cx<'_, S>) {

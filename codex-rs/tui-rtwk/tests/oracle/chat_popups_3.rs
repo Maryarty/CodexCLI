@@ -4,7 +4,7 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::screens::select::plugins::{Location, Target, Want};
+use codex_tui_core::features::plugins::{Location, Target, Want};
 use serde_json::json;
 
 use crate::kit::{self, Owner, Screen};
@@ -58,7 +58,7 @@ fn debug_market() -> serde_json::Value {
 }
 
 /// The config of a user whose `names` are git marketplaces.
-fn config_with(names: &[&str]) -> codex_tui_core::screens::select::plugins::Config {
+fn config_with(names: &[&str]) -> codex_tui_core::features::plugins::Config {
     let mut config = seed::config();
     config.configured = names.iter().map(|name| seed::git(name)).collect();
     config

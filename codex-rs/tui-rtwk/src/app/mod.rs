@@ -15,6 +15,7 @@ use rtwk::app::AppCx;
 use std::rc::Rc;
 
 pub mod debug;
+pub mod presenters;
 pub mod run;
 pub mod start_page;
 mod terminal_effects;
@@ -50,6 +51,8 @@ pub struct UiState {
     /// The request presenter's model (ADR-002): the kept handle of the
     /// navigator's home and which request is open.
     pub presenter: Presenter,
+    /// The presenters of the features' wishes (ADR-013 Ж).
+    pub presenters: presenters::Presenters,
     /// How many backend switches the composers followed.
     pub switches_seen: u32,
     /// The copies the reader asked of the transcript and what came of them (the gap above the
@@ -84,6 +87,7 @@ impl UiApp {
                 start_resume: false,
                 awaits_facts: false,
                 presenter: Presenter::new(),
+                presenters: presenters::Presenters::default(),
                 switches_seen: 0,
                 copies: CopyLog::default(),
                 desktop_notice: None,
@@ -161,6 +165,7 @@ impl UiApp {
         self.follow_core();
         self.ui.presenter.event();
         presenter::present(self, cx);
+        presenters::present(self, cx);
         // The connection did not start: the app ends, and the host reports
         // why (the oracle's `run_main_inner` returns the error).
         let ends = fx.ends_app();

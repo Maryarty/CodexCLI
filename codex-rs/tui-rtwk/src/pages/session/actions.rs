@@ -19,7 +19,8 @@ use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::open::{open, open_confirmation};
+use crate::features::plugins;
+use crate::pages::session::open::{note_opened, open, open_confirmation};
 
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
@@ -199,20 +200,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         return;
     }
-    let outcome = match dispatch_with_tiers(line, &facts, &tiers) {
-        // `/plugins` is the selection sheet's browser; the dispatch still gives it as a session
-        // command (core: `commands/dispatch.rs` `Plugins`, a Need), the sheet opens it as it does
-        // `/apps`.
-        Outcome::Session {
-            command: SlashCommand::Plugins,
-            ..
-        } => Outcome::Open(Open {
-            target: Target::Select,
-            command: SlashCommand::Plugins,
-            args: String::new(),
-        }),
-        outcome => outcome,
-    };
+    let outcome = dispatch_with_tiers(line, &facts, &tiers);
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -317,6 +305,22 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             } else {
                 open(cx, opened.target);
             }
+        }
+        // `/plugins` is a feature's sheet (`features/plugins`): the feature is told which
+        // directory, the sheet shows what it holds.
+        Outcome::Session {
+            command: SlashCommand::Plugins,
+            ..
+        } => {
+            record(cx);
+            clear_sent(&w.ui);
+            plugins::open(
+                cx,
+                plugins::Args {
+                    cwd: review_cwd(&states, &thread),
+                },
+            );
+            note_opened(Target::Select);
         }
         Outcome::Session { command, intent } => {
             record(cx);
@@ -441,7 +445,6 @@ fn select_intent(
         )),
         SlashCommand::Apps => Some(Intent::OpenApps { enabled: apps }),
         SlashCommand::Review => Some(Intent::OpenReview { cwd }),
-        SlashCommand::Plugins => Some(Intent::OpenPlugins { cwd }),
         _ => None,
     }
 }

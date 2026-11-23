@@ -10,9 +10,17 @@
 //! (from the feature's state, which the app provides to the views like the screens'),
 //! the prompt dialog words a `PromptKind::Feature` through `prompt_words`.
 
+use rtwk::Cx;
+use rtwk::provider::read;
+
+use codex_tui_core::app::Intent;
 use codex_tui_core::feature_list;
-use codex_tui_core::features::{Feature, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates};
+use codex_tui_core::features::{
+    Feature, FeatureIntent, FeatureMenu, FeatureNote, FeaturePrompt, FeatureStates,
+};
 use codex_tui_core::screens::select::list::List;
+
+use crate::app::view::Hs;
 
 use crate::pages::session::strings::Strings as SessionStrings;
 use crate::sheets::dialogs::strings::Strings as DialogStrings;
@@ -40,6 +48,14 @@ pub trait FeatureView: Feature {
 
     /// The title and placeholder of one of the feature's text prompts.
     fn prompt_words(prompt: &Self::Prompt, words: &DialogStrings) -> PromptWords;
+}
+
+/// A verb of a feature, from the widget that has the user's decision: the app applies it
+/// (`Intent::Feature`). The arguments are ids (a directory, a plugin's row), never what was
+/// pressed.
+pub fn verb<S: 'static>(cx: &mut Cx<'_, S>, intent: impl Into<FeatureIntent>) {
+    let hs = read::<Hs, _>(cx);
+    cx.emit(&hs.intent, Intent::Feature(intent.into()));
 }
 
 macro_rules! view_mods {

@@ -6,6 +6,7 @@
 
 use super::{
     FeatureCommand, FeatureCtx, FeatureMenu, FeatureNote, FeaturePrompt, FeatureThreadIntent,
+    FeatureWish,
 };
 use crate::app::TranscriptText;
 use crate::app::effects::Ask;
@@ -189,6 +190,11 @@ pub enum Out {
     },
     /// What held `thread`'s input back is over: every feature's `on_settled`.
     Settled { thread: ThreadId },
+    /// A one-shot for the surface (ADR-013 Ж): it is queued under `scope` (the directory the
+    /// feature's data is for) and shown once by the surface's presenter.
+    Wish { scope: String, wish: FeatureWish },
+    /// A page opened in the user's browser (`Command::OpenUrl`).
+    OpenUrl { url: String },
 }
 
 /// The context of an app-scoped step of a feature: the app as a view, and the outbox.
@@ -295,6 +301,21 @@ impl<'a> AppCx<'a> {
         self.out.push(Out::Settled {
             thread: thread.clone(),
         });
+    }
+
+    /// Asks the surface to show `wish` once, for `scope`: the presenter of the surface opens
+    /// the page or routes to it where the feature is already shown, and says it did
+    /// (`Intent::WishShown`); nothing in the feature learns how.
+    pub fn wish(&mut self, scope: impl Into<String>, wish: impl Into<FeatureWish>) {
+        self.out.push(Out::Wish {
+            scope: scope.into(),
+            wish: wish.into(),
+        });
+    }
+
+    /// Opens `url` in the user's browser (oracle `AppEvent::OpenUrlInBrowser`).
+    pub fn open_url(&mut self, url: impl Into<String>) {
+        self.out.push(Out::OpenUrl { url: url.into() });
     }
 
     /// What was asked, in order.

@@ -164,9 +164,9 @@ pub(crate) fn presets(config: &Config) -> Vec<Slot> {
 /// What `/plugins` reads of the config: the features it depends on, the home directory the
 /// personal marketplace is under, and the marketplaces the user configured (the ones a tab can
 /// remove; the git ones it can upgrade).
-pub(crate) fn plugin_config(config: &Config) -> codex_tui_core::screens::select::plugins::Config {
+pub(crate) fn plugin_config(config: &Config) -> codex_tui_core::features::plugins::Config {
     use codex_features::Feature;
-    use codex_tui_core::screens::select::plugins::{Config as Plugins, Configured};
+    use codex_tui_core::features::plugins::{Config as Plugins, Configured};
     let stack = &config.config_layer_stack;
     let user = stack.effective_user_config();
     let git = |name: &str| {

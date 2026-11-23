@@ -19,6 +19,7 @@ use codex_tui_core::threads::UserMessage;
 
 use crate::app::UiApp;
 use crate::app::debug::menu::DebugMenu;
+use crate::features::plugins::sheet::Door;
 use crate::app::start_page::{Start, StartPage, StartupGate};
 use crate::pages;
 use crate::pages::session::transcript::copy::CopyJob;
@@ -34,6 +35,9 @@ pub struct Hs {
     pub dismiss_banner: Handler<(BackendId, Ticket)>,
     /// A row of a backend banner was chosen (a number key, a tap).
     pub pick_banner: Handler<(BackendId, Ticket, usize)>,
+    /// Any intent of the app: a verb of a feature (`features::verb`), an interest
+    /// (`widgets::interest`), a presented wish (`app::presenters`).
+    pub intent: Handler<Intent>,
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
     /// An intent of a screen slot of one thread (the queue, Esc with
@@ -75,6 +79,9 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
                 }));
             },
         ),
+        intent: cx.on_with(|app: &mut UiApp, intent: Intent, _cx| {
+            app.send(AppEv::Intent(intent));
+        }),
         screen: cx.on_with(|app: &mut UiApp, intent: ScreenIntent, _cx| {
             app.send(AppEv::Intent(Intent::Screen(intent)));
         }),
@@ -145,6 +152,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         .with(Provider::value(app.core.tui()).update_should_notify(|old, new| old != new))
         .with(Provider::value(app.ui.copies.shown()).update_should_notify(|old, new| old != new))
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
+        .with(Door::provider(app.ui.presenters.plugins.door()))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))
         .into();
     super::terminal_effects::TerminalEffects {
