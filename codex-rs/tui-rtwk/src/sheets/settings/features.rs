@@ -5,10 +5,11 @@
 //! is a bottom sheet whose content is a `Column(min)` over a `ListView` with
 //! `shrinkWrap` and a `ListController`; the cursor is a
 //! `SelectionController` keyed by the feature, the keys come from the
-//! `FocusNode.onKeyEvent` of a `Focus`. What is checked, what a write
-//! sends and what its answer did are the model's (`Intent::Toggle`,
-//! `Intent::Save`, `Ev::FeaturesSaved`, ADR-003); the sheet keeps the
-//! controllers only. The mouse (ADR-011): a tap moves the cursor to a row,
+//! `FocusNode.onKeyEvent` of a `Focus`. What is checked before Save is the
+//! sheet's draft (`FeaturesDraft`, the keys flipped); what a write sends
+//! (`Edit::FeaturesSave`) and what its answer did (`Ev::FeaturesSaved`) are
+//! the model's (ADR-013), read back as the dialog's `saving`, `status` and
+//! `confirmed`. The mouse (ADR-011): a tap moves the cursor to a row,
 //! a tap on the row the cursor is on flips it; the wheel is the `ListView`'s.
 
 use std::rc::Rc;
@@ -21,21 +22,20 @@ use rtwk::layout::{
     Row, SizedBox,
 };
 use rtwk::overlay::{Dialog, close_dialog};
-use rtwk::prelude::{KeyCode, Mods};
-use rtwk::provider::{read, select};
+use rtwk::provider::select;
 use rtwk::scroll::{ListController, ListView};
 use rtwk::style::Style;
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::settings::{Experimental, FeaturesStatus, Intent, Open};
+use codex_tui_core::screens::settings::{Experimental, FeaturesStatus, Offer, Which};
 
-use super::setup::{letter_of, move_of};
+use super::draft::{FeaturesDraft, Saving};
+use super::keys::{Keys, ListKey, is_interrupt, is_space, list_key};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
-use crate::app::view::Hs;
 use crate::widgets::session_list::{Move, page_rows, target};
 
 /// The sheet of the experimental features.
@@ -44,7 +44,8 @@ pub struct FeaturesSheet;
 
 /// Widget state: the controllers (R14).
 pub struct FeaturesState {
-    shown: bool,
+    keys: Keys,
+    draft: Option<FeaturesDraft>,
     node: FocusNode,
     cursor: SelectionController<String>,
     list: ListController,
@@ -67,19 +68,19 @@ pub enum Msg {
     Row(usize),
 }
 
-fn act_of(key: &KeyPress) -> Option<Act> {
-    if let Some(mv) = move_of(key) {
-        return Some(Act::Move(mv));
+fn act_of(keys: &Keymap, key: &KeyPress) -> Option<Act> {
+    if is_space(key) {
+        return Some(Act::Toggle);
     }
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    match (key.code, letter_of(key), ctrl, alt) {
-        (KeyCode::Char, Some(' '), false, false) if key.mods.is_empty() => Some(Act::Toggle),
-        (KeyCode::Enter, _, false, false) => Some(Act::Save),
-        (KeyCode::Escape, _, false, false) => Some(Act::Close),
-        // Ctrl+C is the view's cancel too (`on_ctrl_c`).
-        (KeyCode::Char, Some('c'), true, false) => Some(Act::Close),
-        _ => None,
+    // Ctrl+C is the view's cancel too (`on_ctrl_c`).
+    if is_interrupt(key) {
+        return Some(Act::Close);
+    }
+    match list_key(keys, key, false)? {
+        ListKey::Move(mv) => Some(Act::Move(mv)),
+        ListKey::Accept => Some(Act::Save),
+        ListKey::Cancel => Some(Act::Close),
+        ListKey::Left | ListKey::Right => None,
     }
 }
 
@@ -88,7 +89,8 @@ impl StatefulWidget for FeaturesSheet {
 
     fn create_state(&self) -> FeaturesState {
         FeaturesState {
-            shown: false,
+            keys: Keys::new(),
+            draft: None,
             node: FocusNode::new(),
             cursor: SelectionController::new(),
             list: ListController::new(),
@@ -98,11 +100,13 @@ impl StatefulWidget for FeaturesSheet {
 
 impl_widget!(stateful eq FeaturesSheet);
 
-/// The dialog the model holds open.
-fn open_dialog(cx: &mut Cx<'_, FeaturesState>) -> Option<Experimental> {
-    select::<ScreenStates, Option<Experimental>, _>(cx, |states| match &states.settings.open {
-        Some(Open::Experimental(dialog)) => Some(dialog.clone()),
-        _ => None,
+/// The catalogue the model offers.
+fn offered(cx: &mut Cx<'_, FeaturesState>) -> Option<Experimental> {
+    select::<ScreenStates, Option<Experimental>, _>(cx, |states| {
+        match states.settings.offers.get(&Which::Experimental) {
+            Some(Offer::Experimental(dialog)) => Some(dialog.clone()),
+            _ => None,
+        }
     })
 }
 
@@ -120,9 +124,20 @@ impl FeaturesState {
         self.list.ensure_index_visible(at);
     }
 
-    fn act(&self, act: Act, dialog: &Experimental, cx: &mut Cx<'_, Self>) {
-        let hs = read::<Hs, _>(cx);
-        let at = self.at(dialog);
+    /// The dialog as the user left it.
+    fn effective(&self, offered: &Experimental) -> Experimental {
+        match &self.draft {
+            Some(draft) => draft.view(offered),
+            None => offered.clone(),
+        }
+    }
+
+    fn act(&mut self, act: Act, offered: &Experimental, cx: &mut Cx<'_, Self>) {
+        let dialog = self.effective(offered);
+        let at = self.at(&dialog);
+        let draft = self
+            .draft
+            .get_or_insert_with(|| FeaturesDraft::new(offered));
         match act {
             Act::Move(mv) => {
                 if let Some(to) = target(
@@ -132,17 +147,24 @@ impl FeaturesState {
                     mv,
                     page_rows(&self.list),
                 ) {
-                    self.put(dialog, to);
+                    self.put(&dialog, to);
                 }
             }
             Act::Toggle => {
                 if let Some(at) = at {
-                    let key = dialog.features[at].key.clone();
-                    cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Toggle(key)));
+                    draft.toggle(offered, &dialog.features[at].key);
                 }
             }
-            Act::Save => cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Save)),
-            Act::Close => cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Close)),
+            Act::Save => match draft.save(offered) {
+                Saving::Close => close_dialog::<_, ()>(cx, None),
+                Saving::Write(edit) => super::request(cx, edit),
+            },
+            Act::Close => {
+                if let Some(edit) = draft.close(offered) {
+                    super::request(cx, edit);
+                }
+                close_dialog::<_, ()>(cx, None);
+            }
         }
     }
 }
@@ -153,14 +175,16 @@ impl State for FeaturesState {
 
     fn init_state(&mut self, _: &FeaturesSheet, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
-        self.node
-            .set_on_key_event(Some(Rc::new(move |_, key| match act_of(&key) {
+        let keys = self.keys.clone();
+        self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            match act_of(&keys.get(), &key) {
                 Some(act) => {
                     send(Msg::Act(act));
                     KeyEventResult::Handled
                 }
                 None => KeyEventResult::Ignored,
-            })));
+            }
+        })));
     }
 
     fn dispose(&mut self) {
@@ -169,30 +193,36 @@ impl State for FeaturesState {
     }
 
     fn did_change_dependencies(&mut self, _: &FeaturesSheet, cx: &mut Cx<'_, Self>) {
-        let dialog = open_dialog(cx);
-        if dialog.is_none() && self.shown {
+        self.keys.refresh(cx);
+        let Some(offered) = offered(cx) else {
+            return;
+        };
+        let draft = self
+            .draft
+            .get_or_insert_with(|| FeaturesDraft::new(&offered));
+        // The server confirmed the write: with nothing to say about it the dialog is done.
+        if draft.sync(&offered) && offered.status == FeaturesStatus::Quiet {
             close_dialog::<_, ()>(cx, None);
+            return;
         }
-        self.shown = dialog.is_some();
         // The cursor takes the first row when there is one and it has none
         // (`initialize_selection`; the catalogue may arrive after the open).
-        if let Some(dialog) = &dialog
-            && self.at(dialog).is_none()
-            && !dialog.features.is_empty()
-        {
-            self.put(dialog, 0);
+        let dialog = self.effective(&offered);
+        if self.at(&dialog).is_none() && !dialog.features.is_empty() {
+            self.put(&dialog, 0);
         }
     }
 
     fn update(&mut self, msg: Msg, _: &FeaturesSheet, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Some(dialog) = open_dialog(cx) else {
+        let Some(offered) = offered(cx) else {
             return Rebuild::No;
         };
+        let dialog = self.effective(&offered);
         match msg {
-            Msg::Act(act) => self.act(act, &dialog, cx),
+            Msg::Act(act) => self.act(act, &offered, cx),
             Msg::Row(row) => {
                 if self.at(&dialog) == Some(row) {
-                    self.act(Act::Toggle, &dialog, cx);
+                    self.act(Act::Toggle, &offered, cx);
                 } else if row < dialog.features.len() {
                     self.put(&dialog, row);
                 }
@@ -205,9 +235,10 @@ impl State for FeaturesState {
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
         let seg = segmenter_of(cx);
-        let Some(dialog) = open_dialog(cx) else {
+        let Some(offered) = offered(cx) else {
             return Dialog::bare(Text::new(String::new())).into();
         };
+        let dialog = self.effective(&offered);
         let status = match &dialog.status {
             FeaturesStatus::Quiet => None,
             FeaturesStatus::Loading => Some(s.features_loading),

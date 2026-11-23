@@ -3,14 +3,14 @@
 //! are in `tests/oracle/small_dialogs_2.rs`; here are the behaviours the
 //! snapshots do not show (keys, the filter, the preview, the mouse).
 //! Oracle: `bottom_pane/{multi_select_picker,status_line_setup,title_setup}.rs`.
-//! The state tests of the other dialogs (config, theme, keymap) are in
-//! `core/tests/settings.rs`.
+//! The domain tests of the catalogues are in `core/tests/settings.rs`, those of the drafts
+//! (the checks, the order, the flips) in `src/sheets/settings/draft.rs`.
 
 use rtwk_core::input::{Mods, MouseKind};
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::settings::{Edit, Ev as SettingsEv, Facts, MemoryFacts, Open};
+use codex_tui_core::screens::settings::{Edit, Ev as SettingsEv, Facts, MemoryFacts, Offer, Which};
 use codex_tui_rtwk::app::UiApp;
 
 use crate::common::{HEIGHT, Harness, WIDTH, ms, start_driven, start_sized};
@@ -180,10 +180,10 @@ fn a_click_moves_the_cursor_and_a_second_click_toggles() {
 
 // ---- the theme picker (`ThemeSheet`): oracle `theme_picker.rs`,
 // `bottom_pane/list_selection_view.rs` ----
-// What the intents do to the model (the theme previewed on every move, kept
-// by Enter, restored by Esc) is `core/tests/settings.rs`: a debug entry's
-// model lives in its seeded scope, so these tests see the intents only as
-// the sheet closing.
+// What the model keeps (the theme previewed on every move, kept by Enter,
+// restored by Esc) is read below through `/theme`: a debug entry's model lives
+// in its seeded scope, so these tests see its intents only as the sheet
+// closing.
 
 #[test]
 fn the_theme_picker_in_a_narrow_terminal_stacks_the_preview_below_the_rows() {
@@ -232,10 +232,10 @@ fn the_theme_picker_in_a_wide_terminal_puts_the_preview_beside_the_rows() {
         sample_x > list_x + 40,
         "the preview is on the right\n{screen}"
     );
-    // centred in the sheet's height as the oracle's `centered_offset` has it:
-    // the sheet is 13 rows (a blank row to the second mark), the sample 8,
-    // five free: a frame row, then (5 - 2) / 2 more
-    assert_eq!(sample_y, title_y + 1, "centred\n{screen}");
+    // centred in the content area below the panel's padding row, as the oracle's
+    // `centered_offset` has it: the sheet is 12 rows (title to the second mark), the
+    // sample 8, four free: a frame row, then (4 - 2) / 2 more
+    assert_eq!(sample_y, title_y + 2, "centred\n{screen}");
     // all eight lines of the wide sample, one row each (a long line is cut,
     // not wrapped), numbers 31..36
     assert!(screen.contains("  31  fn summarize"), "{screen}");
@@ -762,13 +762,17 @@ fn syntax_theme(h: &Harness) -> Option<String> {
 fn slash_theme_opens_the_picker_over_the_bundled_themes() {
     let h = theme_command();
     let screen = h.t.screen();
-    assert!(screen.contains("› 1337"), "{screen}");
-    assert!(screen.contains("ansi"), "{screen}");
+    // The config names no theme: the cursor starts on the terminal's default theme, which the
+    // row says is in force (`build_theme_picker_params`: `effective_name`).
+    assert!(screen.contains("› catppuccin-mocha (current)"), "{screen}");
+    assert!(screen.contains("base16-ocean-light"), "{screen}");
     let themes =
-        h.t.read_app(|app: &UiApp| match &app.core.screens().settings.open {
-            Some(Open::Theme(picker)) => picker.themes.len(),
-            _ => 0,
-        });
+        h.t.read_app(
+            |app: &UiApp| match app.core.screens().settings.offers.get(&Which::Theme) {
+                Some(Offer::Theme(picker)) => picker.themes.len(),
+                _ => 0,
+            },
+        );
     assert_eq!(themes, 32);
 }
 
@@ -777,12 +781,12 @@ fn the_cursor_previews_in_the_model_and_esc_restores_the_theme_in_force() {
     let mut h = theme_command();
     assert_eq!(syntax_theme(&h), None);
     h.press("down");
-    h.wait_until("the model previews ansi", |h| {
-        syntax_theme(h).as_deref() == Some("ansi")
+    h.wait_until("the model previews coldark-cold", |h| {
+        syntax_theme(h).as_deref() == Some("coldark-cold")
     });
     h.press("down");
-    h.wait_until("the model previews base16", |h| {
-        syntax_theme(h).as_deref() == Some("base16")
+    h.wait_until("the model previews coldark-dark", |h| {
+        syntax_theme(h).as_deref() == Some("coldark-dark")
     });
     h.press("esc");
     h.wait_until("Esc restores the theme in force", |h| {
@@ -798,13 +802,13 @@ fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
     h.press("down");
     h.press("enter");
     h.wait_until("the picked theme is in force and recorded", |h| {
-        syntax_theme(h).as_deref() == Some("base16")
+        syntax_theme(h).as_deref() == Some("coldark-dark")
             && h.t
                 .read_app(|app: &UiApp| !app.core.screens().settings.edits.is_empty())
     });
     let edits =
         h.t.read_app(|app: &UiApp| app.core.screens().settings.edits.clone());
-    assert_eq!(edits, vec![Edit::ThemeSelected("base16".to_string())]);
+    assert_eq!(edits, vec![Edit::ThemeSelected("coldark-dark".to_string())]);
     assert!(!h.t.screen().contains("Select Syntax Theme"));
 }
 

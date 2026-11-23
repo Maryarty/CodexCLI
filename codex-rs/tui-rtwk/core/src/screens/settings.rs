@@ -17,11 +17,13 @@ pub const NAME: &str = "settings";
 pub const ID: &str = "S15";
 pub const KIND: Kind = Kind::Sheet;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub mod hooks;
+pub mod items;
+pub mod persist;
 
-use hooks::{Hook, HookEvent, HookIssue, Hooks};
+use hooks::{Hook, HookIssue, Hooks};
 
 /// The groups of the configuration panel (`config_panel/mod.rs`:
 /// `ConfigSection`), in the oracle's order.
@@ -297,12 +299,11 @@ impl Setup {
             .enumerate()
             .filter_map(|(index, item)| {
                 let item_match = if skills {
-                    crate::commands::fuzzy_match(item.name(), query)
-                        .or_else(|| {
-                            (item.name() != item.id)
-                                .then(|| crate::commands::fuzzy_match(&item.id, query))
-                                .flatten()
-                        })
+                    crate::commands::fuzzy_match(item.name(), query).or_else(|| {
+                        (item.name() != item.id)
+                            .then(|| crate::commands::fuzzy_match(&item.id, query))
+                            .flatten()
+                    })
                 } else {
                     crate::commands::fuzzy_match(&item.id, query)
                 };
@@ -346,9 +347,7 @@ impl Setup {
             })
             .filter(|value| !value.is_empty());
         match self.kind {
-            SetupKind::StatusLine | SetupKind::Skills => {
-                values.collect::<Vec<_>>().join(" · ")
-            }
+            SetupKind::StatusLine | SetupKind::Skills => values.collect::<Vec<_>>().join(" · "),
             SetupKind::Title => {
                 let activity = self
                     .items
@@ -455,13 +454,12 @@ pub enum FeaturesStatus {
     Message(String),
 }
 
-/// `ExperimentalFeaturesView`: the features, what each was when the dialog
-/// last agreed with the config, and where discovery and the write stand.
+/// `ExperimentalFeaturesView`: the features as the config reads them, and where discovery and
+/// the write stand. What the user flipped before saving is the sheet's draft (the keys), read
+/// through `enabled` and `updates`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Experimental {
     pub features: Vec<Feature>,
-    /// What each feature was at the last agreement (`initial_enabled`).
-    pub initial: Vec<bool>,
     /// The keys a write was sent for and did not confirm: Enter sends them
     /// again (`unconfirmed`).
     pub unconfirmed: Vec<String>,
@@ -470,6 +468,9 @@ pub struct Experimental {
     pub loading: bool,
     /// A write is on its way (`write_rx.is_some()`).
     pub saving: bool,
+    /// How many writes the server confirmed: a draft that saw fewer starts again from the
+    /// features as they now are.
+    pub confirmed: u32,
     /// Which open of the dialog the answers belong to; an answer of
     /// another one is stale and dropped.
     pub generation: u64,
@@ -478,7 +479,6 @@ pub struct Experimental {
 impl Experimental {
     pub fn new(features: Vec<Feature>, loading: bool, generation: u64) -> Self {
         Self {
-            initial: features.iter().map(|feature| feature.enabled).collect(),
             features,
             unconfirmed: Vec::new(),
             status: if loading {
@@ -488,20 +488,25 @@ impl Experimental {
             },
             loading,
             saving: false,
+            confirmed: 0,
             generation,
         }
     }
 
+    /// The value of a feature with the keys the user flipped since the config was read.
+    pub fn enabled(&self, feature: &Feature, flipped: &BTreeSet<String>) -> bool {
+        feature.enabled != flipped.contains(&feature.key)
+    }
+
     /// `save_changes`: what a write would send, in the dialog's order.
-    fn updates(&self) -> Vec<(String, bool)> {
+    pub fn updates(&self, flipped: &BTreeSet<String>) -> Vec<(String, bool)> {
         self.features
             .iter()
-            .zip(&self.initial)
-            .filter(|(feature, initial)| {
+            .filter(|feature| {
                 feature.writable
-                    && (feature.enabled != **initial || self.unconfirmed.contains(&feature.key))
+                    && (flipped.contains(&feature.key) || self.unconfirmed.contains(&feature.key))
             })
-            .map(|(feature, _)| (feature.key.clone(), feature.enabled))
+            .map(|feature| (feature.key.clone(), self.enabled(feature, flipped)))
             .collect()
     }
 }
@@ -514,22 +519,33 @@ pub struct Written {
     pub warning: Option<String>,
 }
 
-/// `MemoriesSettingsView`: the two switches and whether the reset
-/// confirmation is up (`reset_confirmation`). The cursor of either list is
-/// the view's controller.
+/// `MemoriesSettingsView`: the two switches as the config has them. The reset confirmation,
+/// the cursor of either list and the switches as flipped before Save are the sheet's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Memories {
     pub use_memories: bool,
     pub generate_memories: bool,
-    pub confirming: bool,
 }
 
-/// The ids of the two switches of the memories dialog (`Intent::Toggle`).
-pub const MEMORIES_USE: &str = "use";
-pub const MEMORIES_GENERATE: &str = "generate";
+/// Which settings dialog a catalogue is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Which {
+    Config,
+    Theme,
+    StatusLine,
+    Title,
+    Skills,
+    Keymap,
+    Experimental,
+    Memories,
+    Hooks,
+}
 
+/// What a dialog is offered: the catalogue it lists, as the server and the host gave it (a
+/// fact). What is open, the cursor, the checks before Save and the order of a setup are the
+/// sheet's own draft (`src/sheets/settings/draft.rs`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Open {
+pub enum Offer {
     Config(ConfigPanel),
     Theme(ThemePicker),
     Setup(Setup),
@@ -539,47 +555,23 @@ pub enum Open {
     Hooks(Hooks),
 }
 
-/// What a settings dialog asked the app to do (the oracle's `AppEvent`s).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Edit {
-    /// A toggle row was flipped (`PersistConfig`).
-    Toggled(SettingId, bool),
-    TestNotification,
-    /// Enter on a row that opens an editor of its own.
-    Editor(SettingId),
-    /// `SyntaxThemeSelected`.
-    ThemeSelected(String),
-    /// A skill was switched (`AppEvent::SetSkillEnabled`): its id, its value.
-    SkillToggled(String, bool),
-    /// The skills toggle was closed (`AppEvent::ManageSkillsClosed`: the
-    /// skills are read again).
-    SkillsClosed,
-    /// `StatusLineSetup` / `TerminalTitleSetup`: the enabled items in order.
-    SetupSaved {
-        kind: SetupKind,
-        items: Vec<String>,
-        use_theme_colors: bool,
-    },
-    SetupCancelled(SetupKind),
-    /// `AppEvent::SaveExperimentalFeatures`: the keys and values to write.
-    FeaturesSave(Vec<(String, bool)>),
-    /// An action was picked in the keymap picker.
-    KeymapPicked(String),
-    /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
-    MemoriesSaved {
-        use_memories: bool,
-        generate_memories: bool,
-    },
-    /// Enter on "Reset all memories" in its confirmation (`ResetMemories`).
-    MemoriesReset,
-    /// A hook was switched (`AppEvent::SetHookEnabled`): its key, its value.
-    HookEnabled { key: String, enabled: bool },
-    /// A hook was trusted (`AppEvent::TrustHook`): its key and the hash
-    /// vouched for.
-    HookTrusted { key: String, current_hash: String },
-    /// Every hook waiting for a review was trusted (`AppEvent::TrustHooks`):
-    /// the keys and hashes.
-    HooksTrusted(Vec<(String, String)>),
+impl Offer {
+    /// The dialog the catalogue is for.
+    pub fn which(&self) -> Which {
+        match self {
+            Offer::Config(_) => Which::Config,
+            Offer::Theme(_) => Which::Theme,
+            Offer::Setup(setup) => match setup.kind {
+                SetupKind::StatusLine => Which::StatusLine,
+                SetupKind::Title => Which::Title,
+                SetupKind::Skills => Which::Skills,
+            },
+            Offer::Keymap(_) => Which::Keymap,
+            Offer::Experimental(_) => Which::Experimental,
+            Offer::Memories(_) => Which::Memories,
+            Offer::Hooks(_) => Which::Hooks,
+        }
+    }
 }
 
 /// What the dialogs open from, read of the config and the disk by the host
@@ -650,6 +642,10 @@ pub enum Dialog {
     Theme,
     /// `/memories`.
     Memories,
+    /// `/statusline`: the app builds it from the chat's status facts (`app/settings.rs`).
+    StatusLine,
+    /// `/title`: likewise.
+    Title,
 }
 
 impl Facts {
@@ -674,23 +670,101 @@ impl Facts {
     }
 }
 
-/// The app-scoped model state of this screen, changed only by `apply`.
+/// What a settings dialog asked the app to do (the oracle's `AppEvent`s): a request record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Edit {
+    /// A toggle row was flipped (`PersistConfig`).
+    Toggled(SettingId, bool),
+    TestNotification,
+    /// Enter on a row that opens an editor of its own.
+    Editor(SettingId),
+    /// `SyntaxThemeSelected`.
+    ThemeSelected(String),
+    /// A skill was switched (`AppEvent::SetSkillEnabled`): its id, its value.
+    SkillToggled(String, bool),
+    /// The skills toggle was closed (`AppEvent::ManageSkillsClosed`: the
+    /// skills are read again).
+    SkillsClosed,
+    /// `StatusLineSetup` / `TerminalTitleSetup`: the enabled items in order.
+    SetupSaved {
+        kind: SetupKind,
+        items: Vec<String>,
+        use_theme_colors: bool,
+    },
+    SetupCancelled(SetupKind),
+    /// `AppEvent::SaveExperimentalFeatures`: the keys and values to write.
+    FeaturesSave(Vec<(String, bool)>),
+    /// An action was picked in the keymap picker.
+    KeymapPicked(String),
+    /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
+    MemoriesSaved {
+        use_memories: bool,
+        generate_memories: bool,
+    },
+    /// Enter on "Reset all memories" in its confirmation (`ResetMemories`).
+    MemoriesReset,
+    /// A hook was switched (`AppEvent::SetHookEnabled`): its key, its value.
+    HookEnabled {
+        key: String,
+        enabled: bool,
+    },
+    /// A hook was trusted (`AppEvent::TrustHook`): its key and the hash
+    /// vouched for.
+    HookTrusted {
+        key: String,
+        current_hash: String,
+    },
+    /// Every hook waiting for a review was trusted (`AppEvent::TrustHooks`):
+    /// the keys and hashes.
+    HooksTrusted(Vec<(String, String)>),
+}
+
+/// The app-scoped model state of this screen, changed only by `apply`. The dialogs are the
+/// sheets' (`src/sheets/settings/`): what is open, the cursor, what is checked, moved or typed
+/// before it is saved are their drafts. The model keeps what the session reads or writes out
+/// (ADR-013): the facts the dialogs open from, the catalogues they are offered, the highlight
+/// theme in force, the requests the dialogs left.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     pub facts: Facts,
-    pub open: Option<Open>,
+    /// What the dialogs are offered, by dialog (the server's and the host's catalogues).
+    pub offers: BTreeMap<Which, Offer>,
+    /// The dialog a slash command (or a seed) asked for, until the surface took it
+    /// (`Intent::Taken`): a one-shot signal to the surface, not what is open.
+    pub requested: Option<Which>,
     /// The syntax theme in force (the oracle: `highlight::current_syntax_theme`):
     /// the picker previews by changing it.
     pub syntax_theme: Option<String>,
+    /// The requests the dialogs left, in order; the app takes each once (`take_edits`).
     pub edits: Vec<Edit>,
+    /// How many of `edits` the app has taken.
+    pub sent: usize,
+}
+
+impl Model {
+    /// The edits recorded since the last call, in order: the app writes them
+    /// (`persist::write_of`) and carries what else they change.
+    pub fn take_edits(&mut self) -> Vec<Edit> {
+        let fresh = self.edits.get(self.sent..).unwrap_or_default().to_vec();
+        self.sent = self.edits.len();
+        fresh
+    }
+
+    /// The catalogue of the experimental features, as the server gave it.
+    fn experimental_mut(&mut self) -> Option<&mut Experimental> {
+        match self.offers.get_mut(&Which::Experimental) {
+            Some(Offer::Experimental(dialog)) => Some(dialog),
+            _ => None,
+        }
+    }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    /// A settings dialog was opened.
-    Opened(Open),
+    /// A dialog is offered a catalogue, and asked for.
+    Offered(Offer),
     /// The config's values and the disk's files the dialogs open from.
     Facts(Facts),
     /// The server's catalogue of the experimental features arrived; none:
@@ -700,6 +774,10 @@ pub enum Ev {
         generation: u64,
         features: Option<Vec<Feature>>,
     },
+    /// The config file has what a dialog saved: the session follows (`persist::Subject`).
+    Saved(persist::Subject),
+    /// The write of a dialog was refused: the session stays as it was.
+    SaveFailed(persist::Subject),
     /// The write of the experimental features was answered.
     FeaturesSaved {
         generation: u64,
@@ -707,70 +785,56 @@ pub enum Ev {
     },
 }
 
-/// The intents of this screen; a variant of the root `ScreenIntent`. The
-/// cursor, the group tab and the search text are the view's controllers; an
-/// intent names what it acts on by id.
+/// The intents of this screen; a variant of the root `ScreenIntent`: verbs of the domain. The
+/// cursor, the group tab, the search text, the checks and their order are the sheets' own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// Enter on a row of the panel: flips a toggle, opens the editor of the
-    /// row, sends the test notification.
-    Activate(SettingId),
-    /// The cursor of the theme picker is on this theme: it is shown.
-    Preview(String),
-    /// Enter in the theme picker.
-    Pick(String),
-    /// Space in a setup: flips the item.
-    Toggle(String),
-    /// Left / Right in a setup: moves the item one step among the orderable
-    /// ones.
-    Move { id: String, delta: i32 },
-    /// Enter in a setup.
-    Save,
-    /// Enter in the keymap picker.
-    KeymapPick(String),
-    /// Enter on "Reset all memories": the confirmation opens.
-    ConfirmReset,
-    /// Enter on "Reset all memories" in the confirmation.
-    Reset,
-    /// Enter on an event of the hooks browser: its hooks open.
-    HookOpen(HookEvent),
-    /// Space or Enter on a hook: switches it.
-    HookToggle(String),
-    /// `t` on a hook: trusts it.
-    HookTrust(String),
-    /// `t` on the events page: trusts every hook waiting for a review.
-    HookTrustAll,
-    /// Ctrl+C in the hooks browser: it closes from either page (`on_ctrl_c`).
-    HookClose,
-    /// Esc (the memories confirmation goes back to the switches; the hooks
-    /// of an event, to the events).
-    Close,
-    /// A slash command opens a dialog, built from the facts.
+    /// A slash command asks for a dialog, built from the facts.
     Open(Dialog),
+    /// The surface took the dialog that was asked for.
+    Taken,
+    /// The syntax theme in force (the picker's preview, and the restore on cancel: none is the
+    /// config's own).
+    SyntaxTheme(Option<String>),
+    /// What a dialog asks the app to do.
+    Request(Edit),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Opened(open) => {
-            if let Open::Theme(picker) = &open {
+        Ev::Offered(offer) => {
+            if let Offer::Theme(picker) = &offer {
                 model.syntax_theme = picker.original.clone();
             }
-            model.open = Some(open);
+            let which = offer.which();
+            model.offers.insert(which, offer);
+            model.requested = Some(which);
         }
         Ev::Facts(facts) => {
             // The syntax theme in force follows the config, but not while a
             // picker previews another one.
-            if !matches!(model.open, Some(Open::Theme(_))) {
+            if model.syntax_theme == model.facts.syntax_theme {
                 model.syntax_theme = facts.syntax_theme.clone();
             }
             model.facts = facts;
         }
+        Ev::Saved(subject) => match subject {
+            persist::Subject::Theme(name) => model.facts.syntax_theme = Some(name),
+            persist::Subject::Memories(memories) => model.facts.memories = Some(memories),
+            // The chat's status facts hold these (the app updates them).
+            persist::Subject::StatusLine { .. } | persist::Subject::Title(_) => {}
+        },
+        // `restore_runtime_theme_from_config`: the theme in force is the config's again.
+        Ev::SaveFailed(persist::Subject::Theme(_)) => {
+            model.syntax_theme = model.facts.syntax_theme.clone();
+        }
+        Ev::SaveFailed(_) => {}
         Ev::FeaturesDiscovered {
             generation,
             features,
         } => {
-            let Some(Open::Experimental(dialog)) = &mut model.open else {
+            let Some(dialog) = model.experimental_mut() else {
                 return;
             };
             if dialog.generation != generation || !dialog.loading {
@@ -779,10 +843,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             dialog.loading = false;
             match features {
                 Some(features) => {
-                    for feature in features {
-                        dialog.initial.push(feature.enabled);
-                        dialog.features.push(feature);
-                    }
+                    dialog.features.extend(features);
                     dialog.status = if dialog.features.is_empty() {
                         FeaturesStatus::NoExperiments
                     } else {
@@ -793,7 +854,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
         }
         Ev::FeaturesSaved { generation, result } => {
-            let Some(Open::Experimental(dialog)) = &mut model.open else {
+            let Some(dialog) = model.experimental_mut() else {
                 return;
             };
             if dialog.generation != generation || !dialog.saving {
@@ -810,14 +871,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                         }
                     }
                     dialog.unconfirmed.clear();
-                    dialog.initial = dialog.features.iter().map(|f| f.enabled).collect();
+                    dialog.confirmed += 1;
                     dialog.status = match written.warning {
                         Some(warning) => FeaturesStatus::Message(warning),
                         None => FeaturesStatus::Quiet,
                     };
-                    if dialog.status == FeaturesStatus::Quiet {
-                        model.open = None;
-                    }
                 }
                 Err(error) => dialog.status = FeaturesStatus::Message(error),
             }
@@ -827,197 +885,49 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
-    if let Intent::Open(dialog) = intent {
-        match dialog {
+    match intent {
+        Intent::Open(dialog) => match dialog {
             Dialog::Theme => {
                 let picker = model.facts.theme_picker();
                 model.syntax_theme = picker.original.clone();
-                model.open = Some(Open::Theme(picker));
+                model.offers.insert(Which::Theme, Offer::Theme(picker));
+                model.requested = Some(Which::Theme);
             }
             Dialog::Memories => {
                 if let Some(facts) = model.facts.memories {
-                    model.open = Some(Open::Memories(Memories {
-                        use_memories: facts.use_memories,
-                        generate_memories: facts.generate_memories,
-                        confirming: false,
-                    }));
+                    model.offers.insert(
+                        Which::Memories,
+                        Offer::Memories(Memories {
+                            use_memories: facts.use_memories,
+                            generate_memories: facts.generate_memories,
+                        }),
+                    );
+                    model.requested = Some(Which::Memories);
                 }
             }
+            // Built by the app, which holds the status facts, and offered as `Ev::Offered`.
+            Dialog::StatusLine | Dialog::Title => {}
+        },
+        Intent::Taken => model.requested = None,
+        Intent::SyntaxTheme(theme) => {
+            model.syntax_theme = theme.or_else(|| model.facts.syntax_theme.clone());
         }
-        return;
-    }
-    let Some(open) = &mut model.open else {
-        return;
-    };
-    match (open, intent) {
-        (Open::Config(panel), Intent::Activate(id)) => {
-            let Some(row) = panel.rows.iter_mut().find(|row| row.id == id) else {
-                return;
-            };
-            match &mut row.value {
-                Value::Toggle(enabled) => {
-                    *enabled = !*enabled;
-                    model.edits.push(Edit::Toggled(id, *enabled));
+        Intent::Request(edit) => {
+            match &edit {
+                Edit::ThemeSelected(theme) => model.syntax_theme = Some(theme.clone()),
+                // A write is on its way: a failed answer can follow a committed write, so
+                // these keys stay dirty and putting a value back still sends a correction.
+                Edit::FeaturesSave(updates) => {
+                    if let Some(dialog) = model.experimental_mut() {
+                        dialog.saving = true;
+                        dialog.unconfirmed = updates.iter().map(|(key, _)| key.clone()).collect();
+                        dialog.status = FeaturesStatus::Saving;
+                    }
                 }
-                Value::Choice(_) | Value::Configure => model.edits.push(Edit::Editor(id)),
-                Value::Test => model.edits.push(Edit::TestNotification),
-                Value::Unavailable => {}
-            }
-        }
-        (Open::Theme(picker), Intent::Preview(theme)) => {
-            if picker.themes.contains(&theme) {
-                model.syntax_theme = Some(theme);
-            }
-        }
-        (Open::Theme(picker), Intent::Pick(theme)) => {
-            if picker.themes.contains(&theme) {
-                model.syntax_theme = Some(theme.clone());
-                model.edits.push(Edit::ThemeSelected(theme));
-                model.open = None;
-            }
-        }
-        (Open::Experimental(dialog), Intent::Toggle(key)) => {
-            if dialog.saving {
-                return;
-            }
-            if let Some(feature) = dialog
-                .features
-                .iter_mut()
-                .find(|feature| feature.key == key && feature.writable)
-            {
-                feature.enabled = !feature.enabled;
-            }
-        }
-        // Enter: a write for what changed, or the close when nothing did;
-        // while a write is on its way it closes (`save_changes`).
-        (Open::Experimental(dialog), Intent::Save) => {
-            let updates = dialog.updates();
-            if dialog.saving || updates.is_empty() {
-                model.open = None;
-                return;
-            }
-            dialog.saving = true;
-            // A failed answer can follow a committed write: these keys stay
-            // dirty so that putting a value back still sends a correction.
-            dialog.unconfirmed = updates.iter().map(|(key, _)| key.clone()).collect();
-            dialog.status = FeaturesStatus::Saving;
-            model.edits.push(Edit::FeaturesSave(updates));
-        }
-        // Esc saves what changed and closes (`on_ctrl_c`); after a write
-        // that did not confirm it only closes, so that it always can.
-        (Open::Experimental(dialog), Intent::Close) => {
-            if dialog.unconfirmed.is_empty() {
-                let updates = dialog.updates();
-                if !dialog.saving && !updates.is_empty() {
-                    model.edits.push(Edit::FeaturesSave(updates));
-                }
-            }
-            model.open = None;
-        }
-        (Open::Setup(setup), Intent::Toggle(id)) => {
-            if let Some(item) = setup.items.iter_mut().find(|item| item.id == id) {
-                item.enabled = !item.enabled;
-                if setup.kind == SetupKind::Skills {
-                    model.edits.push(Edit::SkillToggled(id, item.enabled));
-                }
-            }
-        }
-        (Open::Setup(setup), Intent::Move { id, delta }) => {
-            let Some(at) = setup.position(&id) else {
-                return;
-            };
-            let to = match at.checked_add_signed(delta.signum() as isize) {
-                Some(to) if to < setup.items.len() => to,
-                _ => return,
-            };
-            // A row that is not orderable neither moves nor is crossed.
-            if setup.items[at].orderable && setup.items[to].orderable {
-                setup.items.swap(at, to);
-            }
-        }
-        (Open::Setup(setup), Intent::Save) if setup.kind != SetupKind::Skills => {
-            let items = setup
-                .items
-                .iter()
-                .filter(|item| item.enabled && item.id != USE_THEME_COLORS)
-                .map(|item| item.id.clone())
-                .collect();
-            let use_theme_colors = setup
-                .items
-                .iter()
-                .any(|item| item.id == USE_THEME_COLORS && item.enabled);
-            model.edits.push(Edit::SetupSaved {
-                kind: setup.kind,
-                items,
-                use_theme_colors,
-            });
-            model.open = None;
-        }
-        (Open::Memories(dialog), Intent::Toggle(id)) if !dialog.confirming => {
-            match id.as_str() {
-                MEMORIES_USE => dialog.use_memories = !dialog.use_memories,
-                MEMORIES_GENERATE => dialog.generate_memories = !dialog.generate_memories,
                 _ => {}
             }
+            model.edits.push(edit);
         }
-        (Open::Memories(dialog), Intent::Save) if !dialog.confirming => {
-            model.edits.push(Edit::MemoriesSaved {
-                use_memories: dialog.use_memories,
-                generate_memories: dialog.generate_memories,
-            });
-            model.open = None;
-        }
-        (Open::Memories(dialog), Intent::ConfirmReset) => dialog.confirming = true,
-        (Open::Memories(dialog), Intent::Reset) if dialog.confirming => {
-            model.edits.push(Edit::MemoriesReset);
-            model.open = None;
-        }
-        // Esc, or "Go back": the confirmation goes back to the switches.
-        (Open::Memories(dialog), Intent::Close) if dialog.confirming => dialog.confirming = false,
-        (Open::Hooks(browser), Intent::HookOpen(event)) if browser.page.is_none() => {
-            browser.page = Some(event);
-        }
-        (Open::Hooks(browser), Intent::HookToggle(key)) => {
-            if let Some(enabled) = browser.toggle(&key) {
-                model.edits.push(Edit::HookEnabled { key, enabled });
-            }
-        }
-        (Open::Hooks(browser), Intent::HookTrust(key)) => {
-            if let Some(current_hash) = browser.trust(&key) {
-                model.edits.push(Edit::HookTrusted { key, current_hash });
-            }
-        }
-        (Open::Hooks(browser), Intent::HookTrustAll) => {
-            let updates = browser.trust_all();
-            if !updates.is_empty() {
-                model.edits.push(Edit::HooksTrusted(updates));
-            }
-        }
-        (Open::Hooks(_), Intent::HookClose) => model.open = None,
-        // Esc: the hooks of an event go back to the events.
-        (Open::Hooks(browser), Intent::Close) if browser.page.is_some() => browser.page = None,
-        (Open::Keymap(picker), Intent::KeymapPick(name)) => {
-            if picker
-                .tabs
-                .iter()
-                .any(|tab| tab.items.iter().any(|item| item.name == name))
-            {
-                model.edits.push(Edit::KeymapPicked(name));
-            }
-        }
-        (Open::Theme(picker), Intent::Close) => {
-            model.syntax_theme = picker.original.clone();
-            model.open = None;
-        }
-        (Open::Setup(setup), Intent::Close) => {
-            model.edits.push(match setup.kind {
-                SetupKind::Skills => Edit::SkillsClosed,
-                kind => Edit::SetupCancelled(kind),
-            });
-            model.open = None;
-        }
-        (_, Intent::Close) => model.open = None,
-        _ => {}
     }
 }
 
@@ -1033,15 +943,27 @@ pub enum ThreadEv {}
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    /// `config/batchWrite`: what a dialog saved (`persist::write_of`).
+    Write {
+        edits: Vec<crate::app::effects::ConfigEdit>,
+    },
+}
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    /// The write is in the file; `overridden`: a layer above the user's config overrides it.
+    Written { overridden: bool },
+}
 
-/// What an outgoing RPC of this screen was for, kept with its ticket.
+/// What an outgoing RPC of this screen was for, kept with its ticket. The app owns the
+/// answers: no thread asks for them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
+pub enum Ctx {
+    /// A write of the config file, and the dialog it came from.
+    Write(persist::Write),
+}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = (part, fx);
@@ -1054,20 +976,25 @@ pub fn apply_reply(
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    // The replies are the app's.
+    let _ = (part, result, fx, ctx);
 }
 
 /// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    let _ = thread;
+    match command {
+        Command::Write { edits } => persist::write_request(edits, id),
+    }
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    match command {
+        Command::Write { .. } => persist::written(result)
+            .map(|overridden| Reply::Written { overridden })
+            .map_err(RpcError::Malformed),
+    }
 }
 
 /// One item of a setup's catalogue (`StatusLineItem` / `TerminalTitleItem`
@@ -1141,8 +1068,6 @@ enum SeedEv {
     Memories {
         use_memories: bool,
         generate_memories: bool,
-        #[serde(default)]
-        confirming: bool,
     },
     Hooks {
         hooks: Vec<Hook>,
@@ -1226,7 +1151,7 @@ fn setup(
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
-    Ok(Ev::Opened(match seed {
+    Ok(Ev::Offered(match seed {
         SeedEv::FeaturesDiscovered {
             generation,
             features,
@@ -1246,15 +1171,13 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             hooks,
             warnings,
             errors,
-        } => Open::Hooks(Hooks::new(hooks, warnings, errors)),
+        } => Offer::Hooks(Hooks::new(hooks, warnings, errors)),
         SeedEv::Memories {
             use_memories,
             generate_memories,
-            confirming,
-        } => Open::Memories(Memories {
+        } => Offer::Memories(Memories {
             use_memories,
             generate_memories,
-            confirming,
         }),
         SeedEv::Experimental {
             features,
@@ -1267,25 +1190,25 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             if let Some(error) = failed {
                 dialog.status = FeaturesStatus::Message(error);
             }
-            // A write that failed: the baseline is the config's, which the
-            // flips differ from.
+            // A write that failed: the features show what the user flipped them to, the config
+            // has the opposite (the sheet's draft starts with these keys flipped).
             if !unconfirmed.is_empty() {
-                for (feature, initial) in dialog.features.iter().zip(&mut dialog.initial) {
+                for feature in &mut dialog.features {
                     if unconfirmed.contains(&feature.key) {
-                        *initial = !feature.enabled;
+                        feature.enabled = !feature.enabled;
                     }
                 }
                 dialog.unconfirmed = unconfirmed;
             }
-            Open::Experimental(dialog)
+            Offer::Experimental(dialog)
         }
-        SeedEv::ConfigPanel { rows } => Open::Config(ConfigPanel::new(rows)),
+        SeedEv::ConfigPanel { rows } => Offer::Config(ConfigPanel::new(rows)),
         SeedEv::ThemePicker {
             themes,
             custom,
             current,
             themes_dir,
-        } => Open::Theme(ThemePicker {
+        } => Offer::Theme(ThemePicker {
             themes,
             custom,
             original: current,
@@ -1296,7 +1219,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             selected,
             catalogue,
             values,
-        } => Open::Setup(setup(
+        } => Offer::Setup(setup(
             SetupKind::StatusLine,
             Some(use_theme_colors),
             &selected,
@@ -1307,14 +1230,8 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             selected,
             catalogue,
             values,
-        } => Open::Setup(setup(
-            SetupKind::Title,
-            None,
-            &selected,
-            catalogue,
-            values,
-        )),
-        SeedEv::Skills { items } => Open::Setup(Setup {
+        } => Offer::Setup(setup(SetupKind::Title, None, &selected, catalogue, values)),
+        SeedEv::Skills { items } => Offer::Setup(Setup {
             kind: SetupKind::Skills,
             items: items
                 .into_iter()
@@ -1334,8 +1251,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             if tabs.is_empty() {
                 return Err(crate::screens::SeedError::Bad("no tabs".into()));
             }
-            Open::Keymap(KeymapPicker { tabs })
+            Offer::Keymap(KeymapPicker { tabs })
         }
     }))
 }
-
