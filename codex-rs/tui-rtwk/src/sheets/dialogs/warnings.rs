@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::layout::{
     BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Flexible,
     MainAxisSize, SizedBox, UNBOUNDED,
@@ -16,11 +16,13 @@ use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::dialogs::{Decision, Warning};
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;
 use crate::app::theme::Tokens;
+use crate::keymap::bind_fixed;
 
 /// `WARNING_PANEL_CONTENT_ROWS` less the header and its blank row.
 const BODY_ROWS: i32 = 8;
@@ -177,12 +179,14 @@ pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogSt
                 .padding(EdgeInsets::only(2, 0, 0, 0))
                 .child(hint),
         );
-    Focus::new(Dialog::bare(column))
-        .can_request_focus(false)
-        .bind(KeyPress::ESC, cx.send(Msg::Close))
-        .bind('k', cx.send(Msg::Turn(Turn::KeepAndNext)))
-        .bind(KeyPress::LEFT, cx.send(Msg::Turn(Turn::Previous)))
-        .bind(KeyPress::RIGHT, cx.send(Msg::Turn(Turn::Next)))
+    let focus = Focus::new(Dialog::bare(column)).can_request_focus(false);
+    let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
+    let focus = bind_fixed(
+        focus.bind('k', cx.send(Msg::Turn(Turn::KeepAndNext))),
+        fixed::TURN_PREVIOUS,
+        cx.send(Msg::Turn(Turn::Previous)),
+    );
+    bind_fixed(focus, fixed::TURN_NEXT, cx.send(Msg::Turn(Turn::Next)))
 }
 
 #[cfg(test)]

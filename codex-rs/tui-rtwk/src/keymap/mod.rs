@@ -269,6 +269,53 @@ pub fn pressed_fixed(id: ActionId, key: &KeyPress) -> bool {
     fixed::bindings_of(id).is_some_and(|keys| keys.iter().any(|binding| holds(binding, key)))
 }
 
+/// The presses of every key of a hardwired action, in the table's order (a prompt that gives each
+/// key of a set its own answer: the number keys, the `y` beside `1`).
+pub fn fixed_presses(id: ActionId) -> Vec<KeyPress> {
+    fixed::bindings_of(id)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|binding| press_of(&Stroke::new(binding.key, binding.mods.pressed())))
+        .collect()
+}
+
+/// `focus` with each key of a hardwired action bound to the handler `make` builds for it (the
+/// number keys: each its own row).
+pub fn bind_fixed_with(
+    focus: Focus,
+    id: ActionId,
+    mut make: impl FnMut(usize, &KeyPress) -> Handler<()>,
+) -> Focus {
+    fixed_presses(id)
+        .into_iter()
+        .enumerate()
+        .fold(focus, |focus, (at, key)| {
+            let handler = make(at, &key);
+            focus.bind(key, handler)
+        })
+}
+
+/// The press of a hardwired action's `n`th key (a test's key).
+#[cfg(test)]
+pub fn nth(id: ActionId, n: usize) -> KeyPress {
+    fixed_presses(id)
+        .into_iter()
+        .nth(n)
+        .expect("the action has the key")
+}
+
+/// The press of a hardwired action's first key (a test's key).
+#[cfg(test)]
+pub fn of(id: ActionId) -> KeyPress {
+    nth(id, 0)
+}
+
+/// Whether a raw key event (a repeat or a release, which the focus path does not tell from a
+/// press) is one of a hardwired action's keys.
+pub fn event_is_fixed(id: ActionId, event: &rtwk_core::input::KeyEvent) -> bool {
+    KeyPress::from_event(event).is_some_and(|key| pressed_fixed(id, &key))
+}
+
 /// The press of a hardwired action's first key (`Edit::canonical`: the key the field's own
 /// editing answers to for an action).
 pub fn press_for(id: ActionId) -> Option<KeyPress> {

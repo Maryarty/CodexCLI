@@ -194,10 +194,49 @@ pub const CONFIRM_PREVIOUS: ActionId = list("confirm_previous");
 pub const CONFIRM_NEXT: ActionId = list("confirm_next");
 /// The import's source prompt (`handle_key`): j/k and the arrows walk the sources, Enter takes
 /// one, Esc, Ctrl+C and Ctrl+D leave.
-pub const IMPORT_PREVIOUS: ActionId = list("import_previous");
-pub const IMPORT_NEXT: ActionId = list("import_next");
+pub const PICK_PREVIOUS: ActionId = list("pick_previous");
+pub const PICK_NEXT: ActionId = list("pick_next");
 pub const IMPORT_ACCEPT: ActionId = list("import_accept");
 pub const IMPORT_CANCEL: ActionId = list("import_cancel");
+
+/// The startup prompts, the sign-in wizards and the trust and update prompts (each the oracle's own
+/// `handle_key`): the list's two moves (Up and `k`, Down and `j`), Ctrl+C and Ctrl+D leaving, the
+/// number keys (in order, `1` to `9`), a `y` and an `n` beside `1` and `2`, a lone `q`.
+pub const PICK_QUIT: ActionId = list("pick_quit");
+pub const PICK_NUMBERS: ActionId = list("pick_numbers");
+pub const PICK_YES: ActionId = list("pick_yes");
+pub const PICK_NO: ActionId = list("pick_no");
+pub const PICK_LEAVE: ActionId = list("pick_leave");
+/// The unarchive confirmation (capitals too) and the open-source-model prompt (`1`/`l`, `2`/`o`,
+/// and Left/Up/Ctrl+H/`k` against Right/Down/Ctrl+L/`j`; Ctrl+C alone cancels).
+pub const UNARCHIVE_YES: ActionId = list("unarchive_yes");
+pub const UNARCHIVE_NO: ActionId = list("unarchive_no");
+pub const OSS_PREVIOUS: ActionId = list("oss_previous");
+pub const OSS_NEXT: ActionId = list("oss_next");
+pub const OSS_LMSTUDIO: ActionId = list("oss_lmstudio");
+pub const OSS_OLLAMA: ActionId = list("oss_ollama");
+pub const OSS_CANCEL: ActionId = list("oss_cancel");
+/// A sign-in wizard's form: Up and Shift+Tab, Down and Tab move between the fields; the gateway's
+/// model list also walks with Ctrl+K/P and Ctrl+J/N, jumps to its ends, pages with PageUp/Ctrl+B
+/// and PageDown/Ctrl+F, takes a row on Enter or `1`; Ctrl+Space completes a variable.
+pub const FORM_PREVIOUS: ActionId = list("form_previous");
+pub const FORM_NEXT: ActionId = list("form_next");
+pub const GATEWAY_PREVIOUS: ActionId = list("gateway_previous");
+pub const GATEWAY_NEXT: ActionId = list("gateway_next");
+pub const GATEWAY_TOP: ActionId = list("gateway_top");
+pub const GATEWAY_BOTTOM: ActionId = list("gateway_bottom");
+pub const GATEWAY_PAGE_UP: ActionId = list("gateway_page_up");
+pub const GATEWAY_PAGE_DOWN: ActionId = list("gateway_page_down");
+pub const GATEWAY_CHOOSE: ActionId = list("gateway_choose");
+pub const GATEWAY_COMPLETE: ActionId = list("gateway_complete");
+/// `c` copies the sign-in link; Ctrl+. and Ctrl+Shift+. replay the welcome logo's animation.
+pub const COPY_LINK: ActionId = list("copy_link");
+pub const REPLAY_LOGO: ActionId = list("replay_logo");
+/// The usage page's Tab goes to the next tab (Shift+Tab is `USAGE_PREVIOUS_TAB`).
+pub const USAGE_NEXT_TAB: ActionId = list("usage_next_tab");
+/// Left and Right turn the warnings dialog's page.
+pub const TURN_PREVIOUS: ActionId = list("turn_previous");
+pub const TURN_NEXT: ActionId = list("turn_next");
 
 /// The bytes a terminal without the kitty protocol sends for Ctrl+/ (`0x1f`, read as Ctrl+_, and
 /// Ctrl+7 shares it): the side conversation's key where `toggle_side_conversation` is Ctrl+/.
@@ -418,11 +457,11 @@ pub const TABLE: &[Fixed] = &[
         bindings: &[any(Key::Down)],
     },
     Fixed {
-        id: IMPORT_PREVIOUS,
+        id: PICK_PREVIOUS,
         bindings: &[any(Key::Up), exact(Key::Char('k'), Mods::NONE)],
     },
     Fixed {
-        id: IMPORT_NEXT,
+        id: PICK_NEXT,
         bindings: &[any(Key::Down), exact(Key::Char('j'), Mods::NONE)],
     },
     Fixed {
@@ -436,6 +475,175 @@ pub const TABLE: &[Fixed] = &[
             exact(Key::Char('c'), CTRL),
             exact(Key::Char('d'), CTRL),
         ],
+    },
+    Fixed {
+        id: PICK_QUIT,
+        bindings: &[exact(Key::Char('c'), CTRL), exact(Key::Char('d'), CTRL)],
+    },
+    Fixed {
+        id: PICK_NUMBERS,
+        bindings: &[
+            exact(Key::Char('1'), Mods::NONE),
+            exact(Key::Char('2'), Mods::NONE),
+            exact(Key::Char('3'), Mods::NONE),
+            exact(Key::Char('4'), Mods::NONE),
+            exact(Key::Char('5'), Mods::NONE),
+            exact(Key::Char('6'), Mods::NONE),
+            exact(Key::Char('7'), Mods::NONE),
+            exact(Key::Char('8'), Mods::NONE),
+            exact(Key::Char('9'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: PICK_YES,
+        bindings: &[
+            exact(Key::Char('1'), Mods::NONE),
+            exact(Key::Char('y'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: PICK_NO,
+        bindings: &[
+            exact(Key::Char('2'), Mods::NONE),
+            exact(Key::Char('n'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: PICK_LEAVE,
+        bindings: &[exact(Key::Char('q'), Mods::NONE)],
+    },
+    Fixed {
+        id: UNARCHIVE_YES,
+        bindings: &[
+            exact(Key::Char('1'), Mods::NONE),
+            exact(Key::Char('y'), Mods::NONE),
+            exact(Key::Char('Y'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: UNARCHIVE_NO,
+        bindings: &[
+            exact(Key::Char('2'), Mods::NONE),
+            exact(Key::Char('n'), Mods::NONE),
+            exact(Key::Char('N'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: OSS_PREVIOUS,
+        bindings: &[
+            any(Key::Left),
+            any(Key::Up),
+            exact(Key::Backspace, CTRL),
+            exact(Key::Char('k'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: OSS_NEXT,
+        bindings: &[
+            any(Key::Right),
+            any(Key::Down),
+            exact(Key::Char('l'), CTRL),
+            exact(Key::Char('j'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: OSS_LMSTUDIO,
+        bindings: &[
+            exact(Key::Char('1'), Mods::NONE),
+            exact(Key::Char('l'), Mods::NONE),
+            exact(Key::Char('L'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: OSS_OLLAMA,
+        bindings: &[
+            exact(Key::Char('2'), Mods::NONE),
+            exact(Key::Char('o'), Mods::NONE),
+            exact(Key::Char('O'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: OSS_CANCEL,
+        bindings: &[exact(Key::Char('c'), CTRL)],
+    },
+    Fixed {
+        id: FORM_PREVIOUS,
+        bindings: &[any(Key::Up), exact(Key::Tab, Mods::SHIFT)],
+    },
+    Fixed {
+        id: FORM_NEXT,
+        bindings: &[any(Key::Down), exact(Key::Tab, Mods::NONE)],
+    },
+    Fixed {
+        id: GATEWAY_PREVIOUS,
+        bindings: &[
+            any(Key::Up),
+            exact(Key::Char('k'), Mods::NONE),
+            exact(Key::Char('k'), CTRL),
+            exact(Key::Char('p'), CTRL),
+        ],
+    },
+    Fixed {
+        id: GATEWAY_NEXT,
+        bindings: &[
+            any(Key::Down),
+            exact(Key::Char('j'), Mods::NONE),
+            exact(Key::Char('j'), CTRL),
+            exact(Key::Char('n'), CTRL),
+        ],
+    },
+    Fixed {
+        id: GATEWAY_TOP,
+        bindings: &[exact(Key::Home, Mods::NONE)],
+    },
+    Fixed {
+        id: GATEWAY_BOTTOM,
+        bindings: &[exact(Key::End, Mods::NONE)],
+    },
+    Fixed {
+        id: GATEWAY_PAGE_UP,
+        bindings: &[exact(Key::PageUp, Mods::NONE), exact(Key::Char('b'), CTRL)],
+    },
+    Fixed {
+        id: GATEWAY_PAGE_DOWN,
+        bindings: &[
+            exact(Key::PageDown, Mods::NONE),
+            exact(Key::Char('f'), CTRL),
+        ],
+    },
+    Fixed {
+        id: GATEWAY_CHOOSE,
+        bindings: &[
+            exact(Key::Enter, Mods::NONE),
+            exact(Key::Char('1'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: GATEWAY_COMPLETE,
+        bindings: &[exact(Key::Char(' '), CTRL)],
+    },
+    Fixed {
+        id: COPY_LINK,
+        bindings: &[exact(Key::Char('c'), Mods::NONE)],
+    },
+    Fixed {
+        id: REPLAY_LOGO,
+        bindings: &[
+            exact(Key::Char('.'), CTRL),
+            exact(Key::Char('.'), CTRL.with(Mods::SHIFT)),
+        ],
+    },
+    Fixed {
+        id: USAGE_NEXT_TAB,
+        bindings: &[exact(Key::Tab, Mods::NONE)],
+    },
+    Fixed {
+        id: TURN_PREVIOUS,
+        bindings: &[any(Key::Left)],
+    },
+    Fixed {
+        id: TURN_NEXT,
+        bindings: &[any(Key::Right)],
     },
     Fixed {
         id: FIELD_LEFT,

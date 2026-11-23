@@ -4,7 +4,7 @@
 
 use crate::widgets::measure::Measure;
 use rtwk::LayoutBuilder;
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::layout::{
     Axis, Column, CrossAxisAlignment, Expanded, Flexible, Grid, GridPlacement, GridTrack,
     MainAxisSize, Row, SizedBox,
@@ -19,7 +19,8 @@ use std::rc::Rc;
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::{Keys, Strings};
 use crate::app::theme::Tokens;
-use crate::keymap::{label, stroke_for, stroke_label};
+use crate::keymap::{bind_fixed, label, stroke_for, stroke_label};
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::keymap::{Keymap, Stroke};
 
 /// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`: `ShortcutView`):
@@ -58,11 +59,14 @@ pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialog
         .child(Text::line(s.keymap_customize).style(tokens.dim()))
         .child(Text::new(String::new()))
         .child(Text::line(s.shortcuts_close).style(tokens.dim()));
-    Focus::new(Dialog::new(column).title(title).max_width(None))
-        .can_request_focus(false)
-        .bind(KeyPress::ESC, cx.send(Msg::Close))
-        .bind('?', cx.send(Msg::Close))
-        .bind(KeyPress::TAB, cx.send(Msg::Toggle))
+    let focus =
+        Focus::new(Dialog::new(column).title(title).max_width(None)).can_request_focus(false);
+    let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
+    bind_fixed(
+        focus.bind('?', cx.send(Msg::Close)),
+        fixed::TAB,
+        cx.send(Msg::Toggle),
+    )
 }
 
 /// The overlay as the oracle's bottom pane draws it (`lines`, `render`): the

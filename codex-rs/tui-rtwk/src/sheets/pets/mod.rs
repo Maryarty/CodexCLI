@@ -10,7 +10,7 @@ use std::rc::Rc;
 use rtwk::NotificationListener;
 use rtwk::controls::SelectionController;
 use rtwk::editing::{TextEditingController, TextField};
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
@@ -22,6 +22,7 @@ use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::pets::{DISABLED, ID, Intent, NAME, Picker, Preview};
@@ -31,6 +32,7 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 
 pub mod strings;
 
@@ -387,12 +389,10 @@ impl State for ScreenState {
             .child(body)
             .child(more)
             .child(Text::line(format!("{}{}", s.indent, s.hint)).style(tokens.dim()));
-        Focus::new(Dialog::bare(column))
-            .can_request_focus(false)
-            .bind(KeyPress::ESC, cx.send(Msg::Close))
-            .bind(KeyPress::UP, cx.send(Msg::Move(-1)))
-            .bind(KeyPress::DOWN, cx.send(Msg::Move(1)))
-            .into()
+        let focus = Focus::new(Dialog::bare(column)).can_request_focus(false);
+        let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
+        let focus = bind_fixed(focus, fixed::CONFIRM_PREVIOUS, cx.send(Msg::Move(-1)));
+        bind_fixed(focus, fixed::CONFIRM_NEXT, cx.send(Msg::Move(1))).into()
     }
 }
 

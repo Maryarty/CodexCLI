@@ -34,16 +34,17 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
 use codex_tui_core::screens::onboarding::auth::{self, provider};
 use provider::gateway::{FIELDS, Fields, Form, FormError, Gateway, Stage};
 
-use super::super::keys::{ctrl, pressed};
 use super::super::{Line, Look, Resting, guarded_keys, now, rows_of, width_of};
 use super::{frame, frame_of, sized, strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::pressed_fixed;
 use crate::widgets::key_guard::{GuardKey, KeyGuard};
 use crate::widgets::options::{OptionRow, OptionStyles, Options, RichRow};
 
@@ -248,37 +249,32 @@ impl GatewayState {
                 if guarded(node, key.clone()) == KeyEventResult::Handled {
                     return KeyEventResult::Handled;
                 }
-                let is = |want: KeyPress| pressed(&key, &want);
+                let is = |id| pressed_fixed(id, &key);
                 let msg = if index == LIST {
-                    if is(KeyPress::UP) || is(KeyPress::char('k')) || is(ctrl('k')) || is(ctrl('p'))
-                    {
+                    if is(fixed::GATEWAY_PREVIOUS) {
                         Some(Msg::Up)
-                    } else if is(KeyPress::DOWN)
-                        || is(KeyPress::char('j'))
-                        || is(ctrl('j'))
-                        || is(ctrl('n'))
-                    {
+                    } else if is(fixed::GATEWAY_NEXT) {
                         Some(Msg::Down)
-                    } else if is(KeyPress::HOME) {
+                    } else if is(fixed::GATEWAY_TOP) {
                         Some(Msg::Top)
-                    } else if is(KeyPress::END) {
+                    } else if is(fixed::GATEWAY_BOTTOM) {
                         Some(Msg::Bottom)
-                    } else if is(KeyPress::PAGE_UP) || is(ctrl('b')) {
+                    } else if is(fixed::GATEWAY_PAGE_UP) {
                         Some(Msg::Page(-1))
-                    } else if is(KeyPress::PAGE_DOWN) || is(ctrl('f')) {
+                    } else if is(fixed::GATEWAY_PAGE_DOWN) {
                         Some(Msg::Page(1))
-                    } else if is(KeyPress::ENTER) || is(KeyPress::char('1')) {
+                    } else if is(fixed::GATEWAY_CHOOSE) {
                         Some(Msg::Confirm)
                     } else {
                         None
                     }
-                } else if is(KeyPress::UP) || is(KeyPress::BACKTAB) {
+                } else if is(fixed::FORM_PREVIOUS) {
                     Some(Msg::Mark((index + count - 1) % count))
-                } else if is(KeyPress::DOWN) || is(KeyPress::TAB) {
+                } else if is(fixed::FORM_NEXT) {
                     Some(Msg::Mark((index + 1) % count))
-                } else if is(KeyPress::ENTER) && index == SAVE {
+                } else if is(fixed::ENTER) && index == SAVE {
                     Some(Msg::Save)
-                } else if is(ctrl(' ')) && index == VARIABLE {
+                } else if is(fixed::GATEWAY_COMPLETE) && index == VARIABLE {
                     Some(Msg::Complete)
                 } else {
                     None

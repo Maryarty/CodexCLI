@@ -18,6 +18,7 @@ use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
 use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
 
@@ -29,6 +30,7 @@ use super::strings;
 use super::user_input::UserInputView;
 use crate::app::theme;
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -236,11 +238,14 @@ impl State for RequestDialogState {
             for block in header {
                 pane = pane.child(block.widget);
             }
-            let mut focus = Focus::new(Dialog::bare(
-                BoxWidget::new().style(Style::new()).child(pane),
-            ))
-            .can_request_focus(false)
-            .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Cancel));
+            let mut focus = bind_fixed(
+                Focus::new(Dialog::bare(
+                    BoxWidget::new().style(Style::new()).child(pane),
+                ))
+                .can_request_focus(false),
+                fixed::DISMISS,
+                cx.send(Msg::Cancel),
+            );
             for option in body.options.iter().filter_map(|option| option.key) {
                 focus = focus.bind(option, cx.send(Msg::Cancel));
             }
@@ -284,11 +289,15 @@ impl State for RequestDialogState {
         let mut focus = Focus::new(Dialog::bare(
             BoxWidget::new().style(Style::new()).child(pane.view()),
         ))
-        .can_request_focus(false)
-        .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Cancel))
-        .bind(rtwk::focus::KeyPress::UP, cx.send(Msg::Move(-1)))
-        .bind(rtwk::focus::KeyPress::DOWN, cx.send(Msg::Move(1)))
-        .bind(rtwk::focus::KeyPress::ENTER, cx.send(Msg::Enter));
+        .can_request_focus(false);
+        for (id, msg) in [
+            (fixed::DISMISS, Msg::Cancel),
+            (fixed::CONFIRM_PREVIOUS, Msg::Move(-1)),
+            (fixed::CONFIRM_NEXT, Msg::Move(1)),
+            (fixed::ENTER, Msg::Enter),
+        ] {
+            focus = bind_fixed(focus, id, cx.send(msg));
+        }
         if body.open_thread
             && let Some(open) = s.key_open.chars().next()
         {

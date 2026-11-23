@@ -12,22 +12,23 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible, IntrinsicHeight,
     MainAxisSize, Padding, SizedBox,
 };
-use rtwk::prelude::Mods;
 use rtwk::provider::read;
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::{Intent, TrustAsk, TrustCancel};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 use crate::l10n::strings as shared;
 use crate::pages::agents::path::center_truncate_path;
 use crate::widgets::measure;
@@ -158,24 +159,18 @@ impl State for TrustState {
             choices(&options, &rows, &look),
             error.as_deref(),
         );
-        let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
         let mut focus = Focus::new(panel).autofocus();
-        for (key, msg) in [
-            (KeyPress::UP, Msg::Up),
-            (KeyPress::char('k'), Msg::Up),
-            (KeyPress::DOWN, Msg::Down),
-            (KeyPress::char('j'), Msg::Down),
-            (KeyPress::char('1'), Msg::First),
-            (KeyPress::char('y'), Msg::First),
-            (KeyPress::char('2'), Msg::Cancel),
-            (KeyPress::char('n'), Msg::Cancel),
-            (KeyPress::char('q'), Msg::Cancel),
-            (ctrl('c'), Msg::Cancel),
-            (ctrl('d'), Msg::Cancel),
-            (KeyPress::ESC, Msg::Cancel),
-            (KeyPress::ENTER, Msg::Confirm),
+        for (id, msg) in [
+            (fixed::PICK_PREVIOUS, Msg::Up),
+            (fixed::PICK_NEXT, Msg::Down),
+            (fixed::PICK_YES, Msg::First),
+            (fixed::PICK_NO, Msg::Cancel),
+            (fixed::PICK_LEAVE, Msg::Cancel),
+            (fixed::PICK_QUIT, Msg::Cancel),
+            (fixed::DISMISS, Msg::Cancel),
+            (fixed::ENTER, Msg::Confirm),
         ] {
-            focus = focus.bind(key, cx.send(msg));
+            focus = bind_fixed(focus, id, cx.send(msg));
         }
         focus.into()
     }

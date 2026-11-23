@@ -13,15 +13,15 @@
 //! step (sign-in, provider: the `onboarding` task's) says it is done with
 //! `Intent::SlotDone`.
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::foundation::ValueListenableBuilder;
 use rtwk::layout::{Column, CrossAxisAlignment, FlexFit, Flexible, MainAxisSize, SizedBox};
 use rtwk::navigation::{Navigator, PageRoute, PopInvoked};
-use rtwk::prelude::Mods;
 use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::import::Phase as ImportPhase;
 use codex_tui_core::screens::onboarding::{
     self as core, ID, Intent, Model, NAME, TrustCancel, TrustDecision, UpdateChoice,
@@ -32,6 +32,7 @@ use crate::app::debug::seeded::Seeded;
 use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 
 mod device;
 mod signin;
@@ -464,9 +465,7 @@ impl State for StartupPageState {
         // The logo's replay key (oracle `keys::TOGGLE_ANIMATION`).
         let mut focus = Focus::new(page);
         if welcome_model.animations {
-            for mods in [Mods::CTRL, Mods::CTRL | Mods::SHIFT] {
-                focus = focus.bind(KeyPress::char('.').with_mods(mods), cx.send(Msg::Replay));
-            }
+            focus = bind_fixed(focus, fixed::REPLAY_LOGO, cx.send(Msg::Replay));
         }
         focus.into()
     }
@@ -577,10 +576,12 @@ impl State for SlotState {
     }
 
     fn build(&self, _: &Slot, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        Focus::new(SizedBox::new(None, Some(0), None))
-            .autofocus()
-            .bind(KeyPress::ENTER, cx.send(()))
-            .into()
+        bind_fixed(
+            Focus::new(SizedBox::new(None, Some(0), None)).autofocus(),
+            fixed::ENTER,
+            cx.send(()),
+        )
+        .into()
     }
 }
 
