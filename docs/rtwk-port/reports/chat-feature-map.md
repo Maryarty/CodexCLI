@@ -1,12 +1,12 @@
 # Карта функциональности экрана чата: oracle (codex-rs/tui) против порта (codex-rs/tui-rtwk)
 
-Дата: 2026-11-23. Факт-финдинг, код не менялся. Строки обновлены после батчей 3 (0130f3747) и 4 (51abab645) по пакам parity, без нового прогона шардов.
+Дата: 2026-11-23. Факт-финдинг, код не менялся. Строки обновлены после батчей 3 (0130f3747), 4 (51abab645), 5 (de6ff75d3: картинки и Vim composer) и 6 (60d7f4fa6: семьи ADR-013 resume, dialogs-pets, startup, settings) по пакам parity, сообщениям коммитов и тестам oracle, без нового прогона шардов.
 
-**Итог.** 289 строк-функций: ✅ 123, 🟡 63, ❌ 99 (на 51abab645; на 87ad7733c было 121/62/102), «?» 4 (статус не установлен). Статус сменили четыре строки: история между сессиями ❌→✅, @-упоминания 🟡→✅, копирование выделения и «Shift-клик/правая кнопка» ❌→🟡 (двойной/тройной клик остался ❌: проверки нет); у остальных строк правки только в тексте. Тесты oracle (2607 на 87ad7733c, не пересчитаны): 865 зелёные, 1432 pending, 12 красных, 297 n/a; после 87ad7733c добавились зелёные из паков (chat_status_2 +5, composer +9, history pages +4, chat_commands_2 +5, chat_live_2 +2, markdown +5). Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
+**Итог.** 291 строка-функция: ✅ 123, 🟡 68, ❌ 96, «?» 4 (статус не установлен) — на 60d7f4fa6; на 51abab645 было 289 строк, 123/63/99/4. С 51abab645 статус сменили: /vim ❌→✅; remote-картинки 🟡→✅; Vim-клавиши 🟡→✅; Ctrl+V/Alt+V (строка composer и строка клавиш) ❌→🟡; /memories, «Settings: Theme, Memories», «Memories settings и reset», оверлей шорткатов ✅→🟡 (в бинаре /memories ничего не открывает: лента фактов host не подключена; оверлей «?» из чата достижим только из debug-меню). Добавлены две строки: SelectionList (тап) 🟡 и Resume picker (клавиши oracle) ✅. До этого: история между сессиями ❌→✅, @-упоминания 🟡→✅, копирование выделения и «Shift-клик/правая кнопка» ❌→🟡 (двойной/тройной клик остался ❌: проверки нет); у остальных строк правки только в тексте. Тесты oracle (2607 на 87ad7733c, не пересчитаны, шарды после батчей 5 и 6 здесь не гонялись): 865 зелёные, 1432 pending, 12 красных, 297 n/a; после 87ad7733c добавились зелёные из паков (chat_status_2 +5, composer +9, history pages +4, chat_commands_2 +5, chat_live_2 +2, markdown +5) и из батча 5 (vim-тесты composer_1, composer_3, chat_live_4, chat_commands_1; тесты с remote-картинками в chat_commands_1, composer_2, composer_3, composer_4; счёт не взят). Из pending 166 — «работает, тест не включён» (probe-stale: функция по коду и по проверке есть, тест ждёт включения).
 **Пять самых больших дыр.**
 1. Транскрипт: нет поиска (F3/F4), клавиатурного выделения, copy mode, закреплённой шапки prompt, раскрытия деталей хода. Копирование выделения мышью есть (542959815: отпускание, правая кнопка, Ctrl+C, Enter); нет Shift-клика/расширения с клавиатуры (rtwk-gap: у SelectionAreaController нет чтения start/end), Markdown-копии, X11 primary; клавиши ctrl+home / alt+< для старых страниц истории. transcript_view_4: 0 из 60 зелёные, transcript_view_5: 1 из 59.
-2. Слэш-команды: ≈25 из ≈65 отвечают «NotAvailable» или открывают пустой слот: /side /btw /copy /worktree /mcp /ps /recap /vim /voice /tui /diff /hooks /keymap /config /experimental /skills /title /statusline /logout /ide /daybreak /debug-config /subagents.
-3. Composer: Vim есть, но включить нечем (/vim, toggle без бинда; ветка fleet/block-composer fdadb68ff с /vim и картинками cc0bbabd5 в 51abab645 не влита); нет вставки картинки Ctrl+V, внешнего редактора Ctrl+G, состояний composer, очереди slash/shell-команд; $-приложения появляются только после /apps. История между сессиями и живой @-поиск файлов со skills/plugins готовы (батч 3).
+2. Слэш-команды: ≈24 из ≈65 отвечают «NotAvailable» или открывают пустой слот (/vim с батча 5 работает): /side /btw /copy /worktree /mcp /ps /recap /voice /tui /diff /hooks /keymap /config /experimental /skills /title /statusline /logout /ide /daybreak /debug-config /subagents.
+3. Composer: Vim включается (/vim, F9, `tui.vim_mode_default`; батч 5), remote-картинки идут через submit, историю и восстановление (батч 5); нет внешнего редактора Ctrl+G, состояний composer, очереди slash/shell-команд, мыши в composer; Vim в поле ответа на вопрос и режим Replace/поиск `/` в части тестов composer_4 не показаны; $-приложения появляются только после /apps. История между сессиями и живой @-поиск файлов со skills/plugins готовы (батч 3).
 4. Безопасность и лимиты: safety buffering, guardian, misalignment, лимит-предупреждения, весь reset-flow /usage (chat_live_6: 0 из 25), карточка /status: usage треда и строка сервера.
 5. Ячейки инструментов: группы exploration, unified exec и /ps, инвентарь MCP, решение approval и результат вопроса в транскрипте, compaction, строка «Forked thread» (cells_3/4, chat_approvals_1/2: 3 из 76 зелёные).
 
@@ -14,7 +14,7 @@
 
 - Статус: ✅ работает; 🟡 частично (в «Чего нет» сказано чего); ❌ нет; «?» не удалось установить (причина в строке). «работает, тест не включён» — функция по коду есть, а её тесты в oracle-шардах pending по причине обвязки (probe-stale).
 - Колонка тестов: зелёные/всего (n/a не считаются) среди тестов oracle, чьё имя совпало с шаблоном строки; «не вкл. N» — сколько из них stale. Совпадение по имени приблизительное: для широких строк (markdown, /status, футер) это весь семейный счёт. Прочерк — подходящих тестов не нашлось (у клавиш счёта нет: их проверяют функции выше).
-- Задача — alias в tm (статусы на 51abab645: feature-блоки ПРИОСТАНОВЛЕНЫ на миграцию ADR-013 — tm-контейнер adr013-migrate, решение 2026-11-23 «сначала архитектура»; новых задач из блоков не берут, пока он не закрыт. Сделаны в батчах 3 и 4: chunk-status-card, chunk-composer-live-mentions, chunk-composer-history, chunk-cells-rendering-prefs, chunk-live-banner-fallback, chunk-commands (/rename), chunk-transcript-2 (выделение и копирование) и chunk-transcript-2-history-pages; остальные задачи остались в состоянии до миграции — created, часть held/claimed раньше: chunk-popups-plugins, chunk-status-sparkle, settings). «—» — задачи нет или функция готова.
+- Задача — alias в tm (статусы на 60d7f4fa6: feature-блоки ПРИОСТАНОВЛЕНЫ на миграцию ADR-013 — tm-контейнер adr013-migrate, решение 2026-11-23 «сначала архитектуру»; новых задач из блоков не берут, пока он не закрыт. Миграция ADR-013: семьи resume, dialogs-pets, startup и settings влиты (батч 6); composer и пилот plugins идут; usage-agents и approvals в посадке. Сделаны в батчах 3-5: chunk-status-card, chunk-composer-live-mentions, chunk-composer-history, chunk-cells-rendering-prefs, chunk-live-banner-fallback, chunk-commands (/rename), chunk-transcript-2 (выделение и копирование), chunk-transcript-2-history-pages, а в батче 5 — chunk-composer-images (remote-картинки) и chunk-composer-vim (/vim); остальные задачи остались в состоянии до миграции — created, часть held/claimed раньше: chunk-popups-plugins, chunk-status-sparkle, settings). «—» — задачи нет или функция готова.
 - Источники: slash_command.rs, research/codex-tui-features.csv, `core/src/commands/dispatch.rs`, `core/src/app/session.rs`, `src/pages/session/{actions,open,keys,session_page}.rs`, verdicts oracle-шардов (summary.py + probe), tests/pages и core/tests как свидетельства работы.
 - Известные оговорки: 12 красных тестов — отдельные расхождения, не функции (cells_1: computer_activity, wrap_styled_spans; cells_4: 4 web search; chat_live_4: plan_slash_hidden_shell_paste; composer_1: deleting_prefix_keeps_bang_literal; markdown_streaming_4: recomputing_after_resize; resume_2: page_and_jump_navigation; small_dialogs_2: warning_pages_wrap; transcript_view_2: ordinary_click_opens_links).
 
@@ -114,12 +114,12 @@
 | Семена mention (при Esc/восстановление steer возвращают биндинги) | ✅ | биндинги доходят до отправки и восстанавливаются (mention-seeds, влит) | 0/3 (не вкл. 1) | — |
 | $ skills / плагины / apps в упоминаниях | 🟡 | landed 2054483f3: каталог skills (`skills/list`) и plugins (`plugin/installed`) грузится раз на тред, когда известен cwd; установленные apps берутся из кэша /apps (pty: `$sk` совпадает построчно). Нет: кэш apps загружается только при открытии /apps, поэтому `$`-приложения появляются после /apps, oracle грузит коннекторы при старте (Need владельцу select/apps); предупреждения о ошибках загрузки skill (invalid SKILL.md) не портированы; legacy MentionsV2-off — n/a (решение 2026-11-23) | 10/24 (не вкл. 1) | chunk-composer-live-mentions (сделана; Need select/apps) |
 | Картинки: локальные [Image #N], нумерация, удаление | ✅ | — | 7/9 (не вкл. 1) | — |
-| Картинки из буфера Ctrl+V / Alt+V | ❌ | composer просит у app, app не читает (services/clipboard/read есть) | 0/1 | chunk-composer-images |
-| Remote-картинки (URL): submit и нумерация | 🟡 работает, тест не включён | работает, тест не включён | 2/9 (не вкл. 3) | chunk-composer-images |
+| Картинки из буфера Ctrl+V / Alt+V | 🟡 | поток есть: Ctrl+V/Alt+V → `Intent::PasteImage` → `Ask::ClipboardImage`, ответ в `src/services/effects.rs` (`paste_image`) → `Ev::ImagePasted`; в тестах ответ хоста подаёт kit (`clipboard_image`, батч 5: снята причина pending у теста с картинкой из буфера после удержанного `!`, chat_commands_1). Нет: прогона с настоящим буфером в бинаре; `adjacent_image_completion_inserts_leading_separator` (composer_3) ждёт (sweep) | 0/1 | chunk-composer-images (сделана) |
+| Remote-картинки (URL): submit и нумерация | ✅ | landed cc0bbabd5 (батч 5): `UserMessage.remote_images` идут в turn_input перед локальными, через merge_messages, `Draft::message` и put_back; Enter и Tab на одних remote-картинках отправляют; вызванная из истории запись снова рисует remote-строки; выделение, режущее элемент, расширяется до него; kit-семена `Open::remote_images` и `clipboard_image`. Тесты с этими семенами включены в chat_commands_1, composer_2, composer_3, composer_4. Нет (sweep): тела composer_4 без семян Vim/remote-картинок (удаление выбранной remote-строки как одна правка Vim, часть снимков) | 2/9 (не пересчитано; не вкл. 3 до батча 5) | chunk-composer-images (сделана) |
 | Состояния composer: disabled, shutdown, parent-owned, agents-nav hint | ❌ | нет понятия состояний; read-only есть частично | 2/6 (не вкл. 1) | chunk-composer-states |
 | Bang-shell режим: !команда, Enter в ходе → run_user_shell | ✅ | — | 7/14 | — |
-| Vim: нормальный/вставка/операторы/текст-объекты/поиск (движок) | 🟡 работает, тест не включён | движок и клавиши есть; включить нельзя: /vim NotAvailable, toggle_vim_mode без бинда, vim_mode_default не читается (?) | 8/51 (не вкл. 5) | chunk-composer-vim |
-| Vim: replace/yank/dot-repeat | 🟡 работает, тест не включён | работает, тест не включён (composer_4) | 1/7 (не вкл. 1) | chunk-composer-vim |
+| Vim: нормальный/вставка/операторы/текст-объекты/поиск (движок) | 🟡 работает, тест не включён | landed fdadb68ff (батч 5): `/vim` включает и выключает с заметкой (`NoteKey::Toggled`), F9 (`global.toggle_vim_mode`) тоже, `tui.vim_mode_default` начинает черновик нового треда в Insert (TuiSettings, config host), подпись футера следует режиму (страница перестраивается, когда клавиша меняет режим), `!` в Normal входит в Insert; vim-тесты composer_1, composer_3, chat_live_4, chat_commands_1 включены. Нет (sweep): composer_3 `left_respects_editor_and_vim_history_remaps` (нет keymap-семени), тела composer_4 без Vim-семян (поиск `/`, Ctrl+R на пустой истории, redo, Replace); Vim в поле ответа на вопрос (см. «Вопросы») | 8/51 (не пересчитано; не вкл. 5 до батча 5) | chunk-composer-vim (сделана) |
+| Vim: replace/yank/dot-repeat | 🟡 работает, тест не включён | dot-повтор теперь записывает удержанный или сброшенный paste-burst символ (fdadb68ff); тела composer_4 ждут (Vim Replace, kit не включает Vim в этих телах) | 1/7 (не пересчитано) | chunk-composer-vim (сделана) |
 | Внешний редактор Ctrl+G | ❌ | нет ни обработчика, ни запуска $EDITOR | 0/1 | chunk-composer-states |
 | Мышь в composer (курсор, выделение, вставка правой кнопкой) | ❌ | right_click_paste и мышь не выполняются | 1/4 (не вкл. 2) | chunk-composer-states |
 | Startup draft (черновик из аргументов, file-search startup) | 🟡 работает, тест не включён | работает, тест не включён | 0/13 (не вкл. 5) | chunk-composer-states |
@@ -139,11 +139,11 @@
 | /ide — контекст IDE | ❌ | NotAvailable | 0/4 | chunk-commands |
 | /permissions — approvals/профили | 🟡 | bare ✅ (OpenPermissions), args через PermissionsArgs ✅; подтверждение full-access, Windows, history cell не все | 8/21 | chunk-popups-permission-args |
 | /keymap — редактор клавиш | ❌ | открывается пустой слот; sheet keymap есть в settings/fixtures | 4/12 (не вкл. 1) | settings |
-| /vim — переключить Vim composer | ❌ | NotAvailable | 0/1 | chunk-composer-vim |
+| /vim — переключить Vim composer | ✅ | fdadb68ff (батч 5): включает и выключает черновик, пишет заметку; сброс режима в Insert после submit (composer_1 `vim_mode_resets_to_insert_after_submission` включён); pty-прогона в этом пересмотре нет | 0/1 (не пересчитано) | chunk-composer-vim (сделана) |
 | /setup-default-sandbox (Windows) | ❌ | ElevateSandbox NotAvailable; только Windows | 1/9 | chunk-popups-windows-sandbox |
 | /experimental — feature-флаги | ❌ | пустой слот; sheet settings/features.rs есть | 3/7 (не вкл. 1) | settings |
 | /approve — Auto-review | ❌ | core select::auto_review есть, не открывается; denials popup | 3/6 | chunk-popups-picker-rest |
-| /memories | ✅ | reset-confirmation ✅ | 2/3 | — |
+| /memories | 🟡 | settings на границе ADR-013 (790cc44a6): reset-confirmation ✅ как черновик UI; host/src/settings.rs читает факты config, но не подключён (`mod settings;` в host/src/main.rs, один `emit` в in_process.rs; патч в side-session-notes), поэтому в бинаре /memories ничего не открывает (так было и до задачи) | 2/3 | settings |
 | /skills | ❌ | пустой слот; manage_skills_summary pending | 0/1 | settings |
 | /import — перенос из других агентов | ✅ | route Import; shard import 16/16 | 16/16 | — |
 | /hooks | ❌ | NotAvailable; sheet settings/hooks.rs не подключён; hooks_popup_shows_list_diagnostics | 0/1 | settings |
@@ -180,7 +180,7 @@
 | /debug-config | ❌ | NotAvailable | — | chunk-commands |
 | /title — терминальный title | ❌ | пустой слот; сама строка title работает | 2/9 | settings |
 | /statusline | ❌ | пустой слот; status_line items работают от фактов | 2/33 (не вкл. 1) | settings |
-| /theme | ✅ | settings Theme | 3/8 (не вкл. 1) | — |
+| /theme | ✅ | settings Theme; 790cc44a6 (батч 6): без темы в config пикер открывается на теме терминала по умолчанию (строка «(current)» и курсор), превью по центру под строкой отступа панели — строки пикера равны live oracle (pty settings-theme). Нет: подсказка футера (у нас `Press enter to confirm or esc to go back`, у live oracle `enter select · esc back`; снимки oracle-шардов совпадают со стандартной); лента фактов host не подключена, поэтому темы из config и `{codex_home}/themes` в бинаре нет; клик по барьеру не возвращает тему превью (как было) | 3/8 (не пересчитано) | settings |
 | /pets, /pet | 🟡 работает, тест не включён | sheet pets открывается; ambient-часть и тесты не включены | 2/13 (не вкл. 4) | pets |
 | /mcp | ❌ | NotAvailable; ячейка инвентаря | 0/4 | chunk-cells-mcp-inventory |
 | /apps | ✅ | диалог ссылки приложения, вкл/выкл, сброс при смене аккаунта, обновление каталога (b2eeacb7c); partial-snapshot тесты n/a (нет is_final:false в протоколе) | 9/10 | — |
@@ -219,7 +219,7 @@
 | Copy/export picker (кастомные клавиши, payload) | ❌ | — | 0/1 | chunk-commands-export |
 | Reset-limit picker и подтверждение (usage menu) | ❌ | ≈30 тестов chat_live_6 | 0/11 | chunk-usage-reset |
 | Security setup / security prompts | ❌ | security_setup_* (≥4) | 0/5 | chunk-popups-sweep |
-| Memories settings и reset | ✅ | — | 2/3 | — |
+| Memories settings и reset | 🟡 | экран и reset готовы; в бинаре не открывается без ленты фактов host (см. /memories) | 2/3 | settings |
 | Manage skills summary | ❌ | — | 0/1 | settings |
 | Current settings (model/permissions/status layout) | ❌ | current_settings_offer_* | 0/1 | settings |
 | Sweep: прочие мелкие popup'ы | ? | состав «sweep» не установлен по коду; задача created | — | chunk-popups-sweep |
@@ -237,7 +237,7 @@
 | Auto-review denials popup | ❌ | — | 0/1 | chunk-popups-picker-rest |
 | request_user_input: вопросы с вариантами, цифры/буквы | ✅ | — | 9/16 | — |
 | Вопросы: черновики, навигация, replay черновиков | ❌ | question_drafts_survive_*, turn_end drafts (≈10) | 0/8 | chunk-cells-question-result |
-| Вопросы: поиск по истории, Vim в поле ответа | ❌ | history search, vim editing | 0/2 | chunk-composer-vim |
+| Вопросы: поиск по истории, Vim в поле ответа | ❌ | history search; Vim в поле ответа не подключён (approvals_1, chat_approvals_2 ждут, батч 5 их не трогал) | 0/2 | chunk-composer-vim |
 | Асинхронные вопросы (desktop answer, уведомления) | 🟡 | уведомления n/a; многое n/a — другой клиент | 0/2 | — |
 | Отклонение пустых ответов, явный skip | ❌ | — | 0/1 | chunk-cells-question-result |
 | Разворот вопроса уступает мышь терминалу для ссылок | ❌ | — | 0/1 | chunk-cells-question-result |
@@ -253,7 +253,7 @@
 | Строка статуса: модель, effort, cwd, context %, токены | ✅ | git-ветка, PR со ссылкой, изменения ветки, headline, raw output (ea69879b9); нет: Cwd/Clock-факты и пробы git/headline от host, заголовок треда в строке | 2/33 (не вкл. 1) | chunk-status-card |
 | Настройка статус-строки (/statusline, порядок элементов) | ❌ | — | — | settings |
 | Терминальный заголовок (title) с элементами | 🟡 | рендер ✅; настройка ❌ | 2/9 | settings |
-| Индикаторы режимов: Plan, goal, side, agent, Vim | ✅ | рисуются (ea69879b9); метки side/agent ждут фактов от host | 3/9 (не вкл. 1) | — |
+| Индикаторы режимов: Plan, goal, side, agent, Vim | ✅ | рисуются (ea69879b9); подпись Vim следует режиму (fdadb68ff); метки side/agent ждут фактов от host | 3/9 (не вкл. 1) | — |
 | Индикатор голоса (voice strip), F8 | ❌ | — | 0/5 | chunk-status-voice |
 | Индикатор эффекта effort ignition | ✅ | — | 1/2 | — |
 | Sparkle/«искры» над composer | 🟡 | задача занята | 0/12 (не вкл. 3) | chunk-status-sparkle |
@@ -298,21 +298,23 @@
 | Функция | Статус | Чего нет | Тесты зелёные/всего | Задача |
 |---|---|---|---|---|
 | Предупреждения (/warnings, F2): страницы, wrap | 🟡 | warning_pages_wrap красный | 0/2 | small-dialogs |
-| Шорткаты: оверлей «?» со всеми действиями | ✅ | — | 2/4 | — |
+| Шорткаты: оверлей «?» со всеми действиями | 🟡 | ab78ae687 (батч 6): страница шорткатов — состояние sheet на границе ADR-013, F2 и копирование через keymap; gap: из чата оверлей достижим только из debug-меню | 2/4 | small-dialogs |
 | Rename thread prompt (bare /rename) | ✅ | slice features/rename (a15c35bf8), вид prompt 29abc1aa5; нет предложения имени (Done::Title(None), нужен SuggestTitle) | — | small-dialogs |
 | Confirm: archive/delete треда | ✅ | — | 12/19 | — |
 | Daemon (подключение к daemon) | ❌ | — | 1/2 | small-dialogs |
 | Ссылка на приложение (app link) диалог | ❌ | — | — | small-dialogs |
 | Custom review prompt | ✅ | — | 0/1 | — |
 | Верификация пользователя (user verification) | ❌ | — | 1/3 | small-dialogs |
-| Settings: Theme, Memories (из чата) | ✅ | — | 5/11 (не вкл. 1) | settings |
-| Settings: Config / Statusline / Title / Experimental / Skills / Hooks / Keymap | ❌ | из чата открывается пустой слот | 7/19 (не вкл. 1) | settings |
-| Feedback (диалог) | 🟡 | — | 3/30 (не вкл. 1) | chunk-popups-feedback |
-| Pets (диалог выбора) | 🟡 | — | 2/13 (не вкл. 4) | pets |
+| Settings: Theme, Memories (из чата) | 🟡 | Theme ✅; Memories в бинаре не открывается, пока не подключена лента фактов host (см. /memories); строки Theme и настройки принимают тап (`GestureDetector`, tests/sheets/settings.rs) | 5/11 (не вкл. 1) | settings |
+| Settings: Config / Statusline / Title / Experimental / Skills / Hooks / Keymap | ❌ | из чата открывается пустой слот; после 790cc44a6 у Config и Keymap нет и sheet (старые `Activate`/`KeymapPick` убраны); нужны шаг фикстуры фактов features для Experimental и `core/src/app/settings.rs` (исполнитель `take_edits`, статус-строка и title) | 7/19 (не вкл. 1) | settings |
+| Feedback (диалог) | 🟡 | ab78ae687: шаг feedback — состояние sheet; gap: из чата достижим только из debug-меню; снимки consent/diagnostics ждут | 3/30 (не вкл. 1) | chunk-popups-feedback |
+| Pets (диалог выбора) | 🟡 | ab78ae687: курсор и превью — состояние sheet; глаголы LoadPreview, ReleasePreview; ambient-часть и тесты не включены | 2/13 (не вкл. 4) | pets |
 | Voice (диалог, F8) | ❌ | — | 0/5 | voice |
 | Trust on open (запрос доверия к каталогу) | ? | в startup-шарде 29/32 зелёные; из чата не вызывается | 10/11 | trust-on-open |
 | Model provider switch (блокирует кэш выбора) | ❌ | provider_switch_* | 0/1 | chunk-popups-picker-rest |
 | Debug menu F12 | ✅ | — | 0/2 | — |
+| Список выбора (SelectionList): тап по строке | 🟡 | gap (2f68c2c75): тап по строке только двигает курсор, как у rtwk-виджета; выбор строки — клавишей | — | small-dialogs |
+| Resume picker: клавиши oracle (ctrl-p/n/k/j/h/l/b/f), ctrl+e на пустом id | ✅ | landed 656a4d753 (батч 6, adr013-resume): список и курсор — через keymap (`LIST_*`), плотность и открытая строка — состояние страницы, дозагрузка — один verb `LoadMore`; ctrl+e на пустом id игнорируется как у oracle. Красный resume_2 `page_and_jump_navigation` в этом пересмотре не перепроверялся (шарды не гонялись) | — | — |
 
 ## /usage
 
@@ -352,7 +354,7 @@
 | Ctrl+/ (Ctrl+_, Ctrl+7) — side | ❌ | NotAvailable | — | chunk-commands |
 | Ctrl+O — копировать ответ | ❌ | — | — | chunk-transcript-2-copy-mode |
 | Ctrl+G — внешний редактор | ❌ | — | — | chunk-composer-states |
-| Ctrl+V / Alt+V — вставка картинки | ❌ | — | — | chunk-composer-images |
+| Ctrl+V / Alt+V — вставка картинки | 🟡 | `Ask::ClipboardImage` обслуживается (см. строку composer); с настоящим буфером в бинаре не гонялось | — | chunk-composer-images (сделана) |
 | Ctrl+L — очистить терминал | ❌ | — | — | chunk-commands |
 | Ctrl+Z — suspend | ? | в keymap зарезервирован; обработчик не найден | — | — |
 | Ctrl+X — leader (Ctrl+X b — смена бэкенда) | 🟡 | leader живёт только для баннера | — | chunk-live-banner-fallback |
@@ -360,7 +362,7 @@
 | Left на пустом composer — Agents | ✅ | — | — | — |
 | Enter / Shift+Enter — отправка / перенос | ✅ | — | — | — |
 | PgUp/PgDn, колесо — прокрутка ленты | ✅ | — | — | — |
-| Vim-клавиши (69 действий) — normal/operator/text-object/search | 🟡 | работают при включении, включить нечем | 8/51 (не вкл. 5) | chunk-composer-vim |
+| Vim-клавиши (69 действий) — normal/operator/text-object/search | ✅ | включаются /vim и F9 (батч 5); sweep: см. строки Vim в Composer | 8/51 (не пересчитано) | chunk-composer-vim (сделана) |
 
 ## Строки «работает, тест не включён»
 
@@ -374,7 +376,6 @@
 - Живой ход: Steer: Enter во время хода отправляет уточнение (chunk-commands-submission)
 - Composer: Вставка пути к файлу превращается в элемент/картинку (chunk-composer-images)
 - Composer: Скрытая shell-вставка с /plan (hidden shell paste) (chunk-commands-submission)
-- Composer: Remote-картинки (URL): submit и нумерация (chunk-composer-images)
 - Composer: Vim: нормальный/вставка/операторы/текст-объекты/поиск (движок) (chunk-composer-vim)
 - Composer: Vim: replace/yank/dot-repeat (chunk-composer-vim)
 - Composer: Startup draft (черновик из аргументов, file-search startup) (chunk-composer-states)
