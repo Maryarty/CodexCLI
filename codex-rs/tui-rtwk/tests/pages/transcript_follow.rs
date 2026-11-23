@@ -10,7 +10,9 @@
 
 use crate::kit::{Owner, Screen};
 
-/// One finished turn whose answer is the rows `row 00` .. `row {n-1}`.
+/// One finished turn whose answer is the rows `row 00` .. `row {n-1}`. It is a restored
+/// completion (no `turn/started` first): a live one the server did not time would add the
+/// `Worked for` row from the status timer (oracle `FinalMessageSeparator::from_turn_once`).
 fn rows(n: usize) -> String {
     let text = (0..n)
         .map(|i| format!("row {i:02}"))
@@ -25,12 +27,8 @@ fn rows(n: usize) -> String {
         )
     };
     format!(
-        "{}\n{}\n{}\n",
+        "{}\n{}\n",
         r#"{"step": "seed", "seed": "session", "thread": "thread-1"}"#,
-        format_args!(
-            r#"{{"step": "notify", "message": {{"method": "turn/started", "params": {{"threadId": "thread-1", "turn": {}}}}}}}"#,
-            turn("inProgress", "", "full")
-        ),
         format_args!(
             r#"{{"step": "notify", "message": {{"method": "turn/completed", "params": {{"threadId": "thread-1", "turn": {}}}}}}}"#,
             turn("completed", &item, "summary")

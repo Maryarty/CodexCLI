@@ -21,15 +21,19 @@ fn clock(now: i64) -> String {
 }
 
 fn started() -> String {
-    notify(json!({"method": "turn/started", "params": {"threadId": T, "turn": {
+    notify(
+        json!({"method": "turn/started", "params": {"threadId": T, "turn": {
         "id": "turn-1", "items": [], "itemsView": "full", "status": "inProgress",
-        "error": null}}}))
+        "error": null}}}),
+    )
 }
 
 fn answer() -> String {
-    notify(json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
+    notify(
+        json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
         "completedAtMs": 0, "startedAtMs": 0,
-        "item": {"type": "agentMessage", "id": "a1", "text": "Done.", "phase": null}}}))
+        "item": {"type": "agentMessage", "id": "a1", "text": "Done.", "phase": null}}}),
+    )
 }
 
 fn completed(extra: Value) -> String {
@@ -53,8 +57,14 @@ fn timing(lines: &[String]) -> Option<TurnTiming> {
 
 #[test]
 fn a_live_completion_without_timing_works_for_the_status_timer() {
-    let got = timing(&[clock(1_000), started(), answer(), clock(1_090), completed(json!({}))])
-        .expect("a timing");
+    let got = timing(&[
+        clock(1_000),
+        started(),
+        answer(),
+        clock(1_090),
+        completed(json!({})),
+    ])
+    .expect("a timing");
     assert_eq!(got.duration_ms, Some(90_000));
     assert_eq!(got.completed_at, Some(1_090));
 }
