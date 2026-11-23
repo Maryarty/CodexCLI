@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
+use super::task_link::{format_task_link, parse_task_link};
 use crate::data::task;
 use crate::kit::history::TextElement;
 
@@ -76,7 +77,7 @@ pub fn encode_history_mentions_at_elements(
                     .get_mut(&(sigil, name))
                     .and_then(VecDeque::pop_front)
             {
-                out.push_str(&task::format_task_link(name, path));
+                out.push_str(&format_task_link(name, path));
                 index += 1 + name.len();
                 continue;
             }
@@ -137,7 +138,7 @@ pub fn decode_history_mentions_with_at_mentions(
 
     while index < bytes.len() {
         if at_mentions_enabled
-            && let Some((name, path, end_index)) = task::parse_task_link(text, index)
+            && let Some((name, path, end_index)) = parse_task_link(text, index)
         {
             let start = out.len();
             out.push('@');

@@ -124,10 +124,19 @@ pub const FIELD_KILL_LINE_START: ActionId = editor("field_kill_line_start");
 pub const FIELD_KILL_LINE_END: ActionId = editor("field_kill_line_end");
 pub const FIELD_YANK: ActionId = editor("field_yank");
 
+const fn list(name: &'static str) -> ActionId {
+    ActionId::new(Context::List, name)
+}
+
 const fn chat(name: &'static str) -> ActionId {
     ActionId::new(Context::Chat, name)
 }
 
+/// The /plugins browser's own keys (`handle_plugins_popup_key_event`): Tab flips the row under the
+/// cursor, Ctrl+R removes and Ctrl+U upgrades the marketplace the tab shows.
+pub const PLUGINS_TOGGLE: ActionId = list("plugins_toggle");
+pub const PLUGINS_REMOVE: ActionId = list("plugins_remove");
+pub const PLUGINS_UPGRADE: ActionId = list("plugins_upgrade");
 /// PageUp and PageDown turn the chat's transcript a page wherever the caret is.
 pub const TRANSCRIPT_PAGE_UP: ActionId = chat("transcript_page_up");
 pub const TRANSCRIPT_PAGE_DOWN: ActionId = chat("transcript_page_down");
@@ -327,6 +336,18 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: FIELD_YANK,
         bindings: &[exact(Key::Char('y'), CTRL)],
+    },
+    Fixed {
+        id: PLUGINS_TOGGLE,
+        bindings: &[exact(Key::Tab, Mods::NONE)],
+    },
+    Fixed {
+        id: PLUGINS_REMOVE,
+        bindings: &[exact(Key::Char('r'), CTRL)],
+    },
+    Fixed {
+        id: PLUGINS_UPGRADE,
+        bindings: &[exact(Key::Char('u'), CTRL)],
     },
 ];
 

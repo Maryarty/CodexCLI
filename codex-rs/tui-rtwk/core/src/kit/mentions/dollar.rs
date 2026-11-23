@@ -6,7 +6,7 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
-use crate::commands::fuzzy_match;
+use crate::kit::fuzzy::fuzzy_match;
 use crate::data::mention::uri;
 use crate::data::mention::{Mention, MentionKind};
 

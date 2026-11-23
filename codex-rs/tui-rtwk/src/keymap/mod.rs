@@ -258,6 +258,13 @@ pub fn press_for(id: ActionId) -> Option<KeyPress> {
     press_of(&Stroke::new(first.key, first.mods.pressed()))
 }
 
+/// The stroke of a hardwired action's first key (a picker prop that names a key by stroke: the
+/// /plugins browser's toggle and hot keys); none for an action of the catalogue.
+pub fn stroke_for(id: ActionId) -> Option<Stroke> {
+    let first = fixed::bindings_of(id)?.first()?;
+    Some(Stroke::new(first.key, first.mods.pressed()))
+}
+
 /// The name a hint shows for a stroke, as the oracle's `display_label` prints
 /// it on this platform (`key_hint.rs`: glyphs on macOS, `^` on Linux, words
 /// elsewhere; Backspace is `delete` on macOS, where crossterm names it so):

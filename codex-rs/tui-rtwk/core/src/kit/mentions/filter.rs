@@ -1,8 +1,9 @@
 //! Which rows a query leaves of the catalog and the file matches, in what
 //! order (`mentions_v2/filter.rs`, carried).
 
+use super::row::candidate_row;
 use super::search_mode::SearchMode;
-use crate::commands::fuzzy_match;
+use crate::kit::fuzzy::fuzzy_match;
 use crate::data::files::{FileMatch, MatchType};
 use crate::data::mention::{Candidate, MentionType, Row, Selection};
 
@@ -21,11 +22,11 @@ pub fn filtered_candidates(
             continue;
         }
         if filter.is_empty() {
-            out.push(candidate.to_row(None, 0));
+            out.push(candidate_row(candidate, None, 0));
             continue;
         }
         if let Some((indices, score)) = best_tool_match(candidate, filter) {
-            out.push(candidate.to_row(indices, score));
+            out.push(candidate_row(candidate, indices, score));
         }
     }
 

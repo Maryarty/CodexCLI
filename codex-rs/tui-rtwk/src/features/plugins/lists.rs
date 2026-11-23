@@ -17,12 +17,13 @@ use codex_tui_core::features::plugins::{
     self, Action, AuthApp, Detail, Kind, Product, Row, State, Tab, Toggle,
 };
 use codex_tui_core::ids::Cwd;
-use codex_tui_core::keymap::{Key, Keymap, Mods, Stroke};
+use codex_tui_core::keymap::fixed::{PLUGINS_REMOVE, PLUGINS_TOGGLE, PLUGINS_UPGRADE};
+use codex_tui_core::keymap::{ActionId, Keymap, Stroke};
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::select::list::{Columns, Item, List, Role, Span, Tab as ListTab};
 
 use super::strings::{self, Strings};
-use crate::keymap::stroke_label;
+use crate::keymap::{stroke_for, stroke_label};
 use crate::sheets::select::prompt::Prompt;
 use crate::sheets::select::prompt::Answer;
 use crate::widgets::picker::{Extras, Hot, TabNote, list_key_free};
@@ -379,12 +380,17 @@ fn hint_line(remove: bool, upgrade: bool, toggle_free: bool, s: &Strings) -> Str
     hints.join(s.hint_join)
 }
 
+/// The stroke of a hardwired action of the browser (`keymap::fixed`): the table always holds it.
+fn stroke_of(id: ActionId) -> Stroke {
+    stroke_for(id).unwrap_or_else(|| unreachable!("a fixed action of the browser"))
+}
+
 fn remove_stroke() -> Stroke {
-    Stroke::new(Key::Char('r'), Mods::CTRL)
+    stroke_of(PLUGINS_REMOVE)
 }
 
 fn upgrade_stroke() -> Stroke {
-    Stroke::new(Key::Char('u'), Mods::CTRL)
+    stroke_of(PLUGINS_UPGRADE)
 }
 
 /// The tabs of the catalog of `cwd` (`plugins_popup_params`), the browser opening at `tab` (the
@@ -400,7 +406,7 @@ pub fn browser(
     let catalog = state.catalog(cwd)?.value()?;
     let tabs = state.tabs(cwd, fresh);
     let all = tabs.first()?;
-    let toggle = Stroke::new(Key::Tab, Mods::NONE);
+    let toggle = stroke_of(PLUGINS_TOGGLE);
     let toggle_free = list_key_free(keys, &toggle);
     let name_column_width = all
         .rows

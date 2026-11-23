@@ -7,10 +7,9 @@
 
 pub mod args;
 mod dispatch;
-mod fuzzy;
 
 pub use dispatch::*;
-pub use fuzzy::fuzzy_match;
+pub use crate::kit::fuzzy::fuzzy_match;
 
 impl Notice {
     /// The composer keeps the line that ended in this notice, as the oracle
