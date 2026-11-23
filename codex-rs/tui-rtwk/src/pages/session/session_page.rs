@@ -45,6 +45,7 @@ use super::backtrack::{self, EditWatch};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::browse::{self, Browse};
 use super::live::plan_mode::Seen as PlanSeen;
+use super::live::provider_error;
 use super::live::{put_back, seed_history};
 
 use super::status_surfaces::{StatusContext, TitleInputs};
@@ -147,6 +148,11 @@ pub enum ChatMsg {
     Reasoning(codex_tui_core::screens::select::reasoning::Direction),
     CtrlC,
     RetryWriter,
+    /// The provider-error notice's keys: `c` continues in a new chat, `n` starts
+    /// a fresh one, Esc (and the third hint) opens the chats to resume.
+    ProviderContinue,
+    ProviderNew,
+    ProviderOthers,
     ForkWriter,
     QuitReadOnly,
     CtrlD,
@@ -556,6 +562,48 @@ impl State for ChatState {
                     cx.emit(&hs.open_thread, thread.id().clone());
                 }
             }
+            ChatMsg::ProviderContinue => {
+                // `ContinueProviderChat`: only the locked chat on screen, and only one
+                // that was saved (`rollout_path`)
+                let thread = read::<ThreadModel, _>(cx);
+                let slots = thread.screen_slots();
+                if thread.provider_error().is_some()
+                    && let Some(path) = &slots.chat.path
+                {
+                    let message = chat_strings::of(cx)
+                        .provider_continue_message(slots.chat.name.as_deref(), path);
+                    cx.emit(
+                        &hs.screen,
+                        ScreenIntent::from(chat::Intent::Session {
+                            thread: Some(thread.id().clone()),
+                            command: SlashCommand::New,
+                            intent: codex_tui_core::commands::SessionIntent::ContinueChat {
+                                message,
+                            },
+                        }),
+                    );
+                }
+            }
+            ChatMsg::ProviderNew => {
+                let thread = read::<ThreadModel, _>(cx);
+                if thread.provider_error().is_some() {
+                    cx.emit(
+                        &hs.screen,
+                        ScreenIntent::from(chat::Intent::Session {
+                            thread: Some(thread.id().clone()),
+                            command: SlashCommand::New,
+                            intent: codex_tui_core::commands::SessionIntent::New { name: None },
+                        }),
+                    );
+                }
+            }
+            ChatMsg::ProviderOthers => {
+                if read::<ThreadModel, _>(cx).provider_error().is_some() {
+                    modes.close();
+                    open(cx, Target::Resume);
+                    return Rebuild::Yes;
+                }
+            }
             ChatMsg::ForkWriter => {
                 let thread = read::<ThreadModel, _>(cx);
                 if thread.read_only() {
@@ -655,6 +703,13 @@ impl State for ChatState {
                     return Rebuild::Yes;
                 }
                 let thread = read::<ThreadModel, _>(cx);
+                // the chat is locked for its model provider: Esc opens the chats
+                // to resume, whatever the reader shows (`OpenResumePicker`)
+                if thread.provider_error().is_some() {
+                    modes.close();
+                    open(cx, Target::Resume);
+                    return Rebuild::Yes;
+                }
                 // another process writes the thread: Esc leaves for the
                 // command center, whatever the reader shows
                 // (`ExternalWriter` arm of `handle_tui_event`)
@@ -783,6 +838,12 @@ impl State for ChatState {
         let chat_strings = chat_strings::of(cx);
         let mut hints: Option<Footer> = None;
         let forking = self.forking_of(&thread);
+        // the server refused the chat for its model provider: a notice stands
+        // where the composer was, and the keys are the notice's
+        let provider = thread
+            .provider_error()
+            .and_then(|error| provider_error::Lock::of(&serde_json::to_value(error).ok()?));
+        let can_continue = slots.chat.path.is_some();
         let (composer, footer): (AnyWidget, AnyWidget) = if forking {
             // `bottom_pane_renderable` while `fork_in_progress`
             (
@@ -792,6 +853,11 @@ impl State for ChatState {
                 )
                 .into(),
                 SizedBox::shrink().into(),
+            )
+        } else if let Some(lock) = &provider {
+            (
+                provider_error::notice(cx, chat_strings, &tokens, lock, can_continue, None),
+                provider_error::footer(cx, chat_strings, &tokens, can_continue),
             )
         } else if thread.read_only() {
             (
@@ -918,7 +984,7 @@ impl State for ChatState {
         let body = body.child(BackendBanners {
             gate: self.banner.clone(),
         });
-        let mut body = if thread.read_only() {
+        let mut body = if thread.read_only() || provider.is_some() {
             body.child(composer)
         } else {
             // the row the reader's control takes (`composer_gap`)
@@ -941,7 +1007,7 @@ impl State for ChatState {
                 .with_key(Key::value("composer")),
             )
         };
-        if !line.is_empty() && !thread.read_only() {
+        if !line.is_empty() && !thread.read_only() && provider.is_none() {
             body = body.child(StatusRows {
                 spans: line,
                 composer: w.ui.composer.clone(),
@@ -1027,13 +1093,20 @@ impl State for ChatState {
                 .bind(KeyPress::char('f'), cx.send(ChatMsg::ForkWriter))
                 .bind(KeyPress::char('q'), cx.send(ChatMsg::QuitReadOnly));
         }
+        if provider.is_some() {
+            focus = focus.can_request_focus(true).autofocus();
+            for (key, msg) in provider_error::keys(can_continue) {
+                focus = focus.bind(key, cx.send(msg));
+            }
+        }
         for (action, key) in keys::defaults() {
             focus = focus.bind(key, cx.send(ChatMsg::Action(action)));
         }
         // The footer's entries are these bindings' hints: every key it shows is
         // bound here.
         let pages = strings.pages;
-        let focus = AnyWidget::from(focus).with_key(Key::value(thread.read_only()));
+        let focus =
+            AnyWidget::from(focus).with_key(Key::value((thread.read_only(), provider.is_some())));
         let keymap = crate::keymap::keymap(cx);
         let mut keys = vec![
             ("left".to_string(), cx.send(ChatMsg::Agents)),

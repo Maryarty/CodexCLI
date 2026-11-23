@@ -10,8 +10,12 @@ mod common;
 #[path = "kit/mod.rs"]
 mod kit;
 
+#[path = "pages/agents_focus.rs"]
+mod agents_focus;
 #[path = "pages/agents_mouse.rs"]
 mod agents_mouse;
+#[path = "pages/chat_provider_error.rs"]
+mod chat_provider_error;
 #[path = "pages/chat_status.rs"]
 mod chat_status;
 #[path = "pages/composer_burst.rs"]
@@ -26,12 +30,16 @@ mod composer_images;
 mod composer_mentions;
 #[path = "pages/composer_mouse.rs"]
 mod composer_mouse;
+#[path = "pages/composer_plain.rs"]
+mod composer_plain;
 #[path = "pages/composer_startup.rs"]
 mod composer_startup;
 #[path = "pages/composer_suggest.rs"]
 mod composer_suggest;
 #[path = "pages/composer_vim.rs"]
 mod composer_vim;
+#[path = "pages/resume_focus.rs"]
+mod resume_focus;
 #[path = "pages/review.rs"]
 mod review;
 #[path = "pages/startup_mouse.rs"]

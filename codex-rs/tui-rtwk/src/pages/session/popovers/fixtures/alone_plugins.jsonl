@@ -1,0 +1,6 @@
+# The composer alone with the plugins of the oracle's `@` composer tests (chat_composer.rs:7071-7125,
+# `test_plugin_summary`, config name `<name>@test`). The bound ones (`sample`, `bound`, `bound1`,
+# `bound2`) are there to be picked: the oracle binds them in its seed.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"plugin","name":"sample","description":"Plugin used to test adjacent mention targeting.","insert":"sample","path":"plugin://sample@test"},{"kind":"plugin","name":"other","description":"Plugin used to test adjacent mention targeting.","insert":"other","path":"plugin://other@test"},{"kind":"plugin","name":"left","description":"Plugin used to test bound mention fallback.","insert":"left","path":"plugin://left@test"},{"kind":"plugin","name":"bound","description":"Plugin used to test bound mention fallback.","insert":"bound","path":"plugin://bound@test"},{"kind":"plugin","name":"bound1","description":"Plugin used to test middle mention targeting.","insert":"bound1","path":"plugin://bound1@test"},{"kind":"plugin","name":"bound2","description":"Plugin used to test middle mention targeting.","insert":"bound2","path":"plugin://bound2@test"}]}}

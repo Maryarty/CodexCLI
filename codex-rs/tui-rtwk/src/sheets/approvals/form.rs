@@ -13,11 +13,11 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::binding::AppBinding;
-use rtwk::editing::{TextArea, TextEditingController};
+use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::layout::{
-    BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded,
-    Flexible, MainAxisAlignment, MainAxisSize, Padding, Row, UNBOUNDED,
+    BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Flexible,
+    MainAxisAlignment, MainAxisSize, Padding, UNBOUNDED,
 };
 use rtwk::overlay::Dialog;
 use rtwk::prelude::{KeyCode, Mods};
@@ -35,7 +35,9 @@ use codex_tui_core::screens::composer::{MAX_INPUT_CHARS, too_large};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::pages::session::composer::{Composer, plain};
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::widgets::thread_ui::ThreadUi;
 
 /// The form dialog of the elicitation `key` asks (`prompt` holds a form).
 #[derive(Clone, Debug, PartialEq)]
@@ -60,6 +62,9 @@ impl FormView {
 /// its text, and whether the user committed it.
 struct FieldState {
     options: Options,
+    /// The answer's controllers: the plain-text composer's (`plain::ui`);
+    /// `text` is its text.
+    ui: Rc<ThreadUi>,
     text: TextEditingController,
     node: FocusNode,
     committed: bool,
@@ -70,9 +75,11 @@ impl FieldState {
     fn new(field: &Field) -> FieldState {
         let options = Options::new();
         options.set(field.input.start());
+        let ui = plain::ui();
         FieldState {
             options,
-            text: TextEditingController::new(""),
+            text: ui.composer.clone(),
+            ui,
             node: FocusNode::new(),
             committed: field.input.preselected(),
         }
@@ -419,30 +426,18 @@ impl State for FormViewState {
                 } else {
                     s.optional_answer_placeholder
                 };
-                // The oracle's composer: a blank row, the `›` prompt and the
-                // answer, a blank row.
-                let area = TextArea::new()
-                    .controller(state.text.clone())
+                // The oracle's composer (`ChatComposerConfig::plain_text`): a blank
+                // row, the `›` prompt and the answer, a blank row.
+                let composer = Composer::plain(state.ui.clone(), state.node.clone())
                     .placeholder(placeholder)
-                    .placeholder_style(tokens.dim())
-                    .min_lines(1)
-                    .max_lines(6)
-                    .focus_node(state.node.clone())
-                    .autofocus(true)
+                    .prompt_style(tokens.dim().attrs(Attrs::BOLD))
                     .on_submitted(cx.map(Msg::Submitted))
                     .on_changed(cx.map(|_: Rc<str>| Msg::Edited));
                 Column::new()
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .child(Text::new(String::new()))
-                    .child(
-                        Row::new()
-                            .child(Padding::new(
-                                EdgeInsets::only(0, 0, 1, 0),
-                                Text::new(s.composer_prompt).style(tokens.dim().attrs(Attrs::BOLD)),
-                            ))
-                            .child(Expanded::new(1, area)),
-                    )
+                    .child(composer)
                     .child(Text::new(String::new()))
                     .into()
             }
