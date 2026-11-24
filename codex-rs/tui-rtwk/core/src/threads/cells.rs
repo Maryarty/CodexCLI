@@ -208,6 +208,12 @@ impl HookRun {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
     ContextCompacted,
+    /// The thread is a fork (oracle `emit_forked_thread_event`, `ForkedThreadHistoryCell`):
+    /// the thread it was forked from, and that thread's name when it has one.
+    ForkedThread {
+        from: String,
+        title: Option<String>,
+    },
     EnteredReview(String),
     ExitedReview(String),
     /// Esc or Ctrl+C ended the turn (`new_interruption_notice`).

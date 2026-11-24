@@ -13,11 +13,13 @@ mod import;
 mod in_process;
 mod launch;
 mod providers;
+mod security_setup;
 mod settings;
 mod startup;
 mod target;
 mod update;
 mod viewer;
+mod windows_sandbox;
 mod workspace;
 
 use codex_arg0::Arg0DispatchPaths;

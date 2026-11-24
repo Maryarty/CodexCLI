@@ -63,6 +63,15 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
         Notice::TerminalInteraction { command, stdin } => {
             interaction::texts(command.as_deref(), stdin, strings)
         }
+        Notice::ForkedThread { from, title } => row([
+            strings.bullet,
+            strings.forked_from,
+            &match title {
+                Some(name) => format!("{name} ({from})"),
+                None => from.clone(),
+            },
+        ]
+        .concat()),
         Notice::RecapLoading => row([
             strings.bullet,
             strings.recap_loading.0,
@@ -184,6 +193,23 @@ impl StatelessWidget for NoticeCell {
             }
             Notice::TerminalInteraction { command, stdin } => {
                 interaction::cell(command.as_deref(), stdin, &tokens, strings)
+            }
+            // `emit_forked_thread_event`: the parent's name and id in the accent colour
+            Notice::ForkedThread { from, title } => {
+                let mut row = vec![
+                    Span::styled(strings.bullet, tokens.dim()),
+                    Span::styled(strings.forked_from, Style::new()),
+                ];
+                match title {
+                    Some(name) => row.extend([
+                        Span::styled(name.clone(), tokens.accent()),
+                        Span::styled(strings.forked_id_open, Style::new()),
+                        Span::styled(from.clone(), tokens.accent()),
+                        Span::styled(strings.forked_id_close, Style::new()),
+                    ]),
+                    None => row.push(Span::styled(from.clone(), tokens.accent())),
+                }
+                Text::rich(row).into()
             }
             // static bullet: the oracle's reduced-motion form
             Notice::RecapLoading => Text::rich(vec![

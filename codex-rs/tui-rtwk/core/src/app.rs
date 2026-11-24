@@ -2884,6 +2884,7 @@ fn attach_thread_with_metadata(
             ThreadEv::Screen(ScreenThreadEv::Chat(chat::metadata(details))),
             fx,
         );
+        notices::forked_line(app, thread, details, fx);
     }
     Rc::make_mut(&mut app.screens)
         .agents

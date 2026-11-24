@@ -89,6 +89,39 @@ pub(super) fn session_card(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx
     }
 }
 
+/// The line of a forked thread (oracle `emit_forked_thread_event`, on a normal conversation, not
+/// a side one), once: the thread it came from and that thread's name when we hold it (the oracle
+/// reads it of the server; a parent we do not hold goes by its id).
+pub(super) fn forked_line(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    details: &codex_app_server_protocol::Thread,
+    fx: &mut AppFx,
+) {
+    let Some(from) = details.forked_from_id.clone() else {
+        return;
+    };
+    if crate::screens::chat::blocks_direct_input(details) {
+        return;
+    }
+    let Some(model) = app.threads.get(thread) else {
+        return;
+    };
+    if model
+        .transcript()
+        .iter()
+        .any(|(_, item)| matches!(item, Item::Notice(Notice::ForkedThread { .. })))
+    {
+        return;
+    }
+    let title = app
+        .threads
+        .get(&ThreadId::new(&from))
+        .and_then(|parent| parent.screen_slots().chat.name.clone())
+        .filter(|name| !name.trim().is_empty());
+    append(app, thread, Notice::ForkedThread { from, title }, fx);
+}
+
 fn append(app: &mut CodexApp, thread: &ThreadId, notice: Notice, fx: &mut AppFx) {
     let ev = ThreadEv::Appended {
         turn: None,

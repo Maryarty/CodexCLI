@@ -431,6 +431,13 @@ async fn run(
     inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
     // The status card's own: the account it shows, the catalog it names the model in, the server.
     status_feed(&mut inflight, &ids, &handle);
+    // The security-setup reminder: the server's notice for this account, if it has one.
+    let remote_workspace = matches!(mode, Mode::Remote { daemon: false, .. });
+    if crate::security_setup::eligible(&config, remote_workspace) {
+        inflight.push(security_job(&config, &ids, &handle));
+    }
+    // The Windows sandbox: its configuration, requirements and readiness (Windows only).
+    inflight.push(sandbox_job(&config, remote_workspace, &ids, &handle));
     if let Some(client) = held.get() {
         emit_connection(&ingress, epoch, client, reconnect_endpoint(&mode), daemon);
     }
@@ -462,6 +469,28 @@ async fn run(
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
                 }
                 Some(AppServerEvent::ServerNotification(notification)) => {
+                    // The account was announced again: what the reminder holds is stale until
+                    // the notice is fetched and verified again.
+                    if matches!(
+                        *notification,
+                        codex_app_server_protocol::ServerNotification::AccountUpdated(_)
+                    ) && crate::security_setup::eligible(&config, remote_workspace)
+                    {
+                        emit(
+                            &ingress,
+                            epoch,
+                            AppEv::Feature(
+                                codex_tui_core::features::security_setup::Fact::Invalidated.into(),
+                            ),
+                        );
+                        inflight.push(security_job(&config, &ids, &handle));
+                    }
+                    if let codex_app_server_protocol::ServerNotification::WindowsSandboxSetupCompleted(
+                        done,
+                    ) = &*notification
+                    {
+                        emit(&ingress, epoch, AppEv::Feature(codex_tui_core::features::windows_sandbox::Fact::completed(done).into()));
+                    }
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
                 }
                 Some(AppServerEvent::ServerRequest(request)) => {
@@ -513,6 +542,8 @@ async fn run(
                             handle.clone(),
                             (ingress.clone(), epoch),
                         )
+                    } else if let Some(job) = worktree_job(&command, &config, &ids, &handle) {
+                        job
                     } else {
                         match effects.run(&command, exec) {
                             Some(job) => job,
@@ -616,6 +647,76 @@ fn feedback_fact(
         config.feedback_enabled,
         target == crate::startup::Target::Remote,
         Some(config.codex_home.to_string_lossy().into_owned()),
+    )
+}
+
+/// The Windows sandbox facts, as one job of the pump (nothing off Windows).
+fn sandbox_job(
+    config: &Arc<Config>,
+    remote_workspace: bool,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) -> Boxed<Option<AppEv>> {
+    let (cwd, ids, handle) = (
+        config.cwd.display().to_string(),
+        ids.clone(),
+        handle.clone(),
+    );
+    Box::pin(async move {
+        let (config, requirements, ready) =
+            crate::windows_sandbox::fetch(cwd, &ids, sender(handle)).await?;
+        Some(AppEv::Feature(
+            codex_tui_core::features::windows_sandbox::Fact::environment(
+                &config,
+                requirements,
+                remote_workspace,
+                ready,
+            )
+            .into(),
+        ))
+    })
+}
+
+/// The security-setup notice of the account, as one job of the pump.
+fn security_job(
+    config: &Arc<Config>,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) -> Boxed<Option<AppEv>> {
+    let (config, ids, handle) = (Arc::clone(config), ids.clone(), handle.clone());
+    Box::pin(async move {
+        let notice = crate::security_setup::fetch(&config, &ids, sender(handle)).await?;
+        Some(AppEv::Feature(
+            codex_tui_core::features::security_setup::Fact::loaded(
+                notice.account,
+                notice.user,
+                notice.title,
+                notice.description,
+                notice.label,
+                notice.url,
+            )
+            .into(),
+        ))
+    })
+}
+
+/// The list and the removal of the worktree menus: the pool is this machine's, the owners are
+/// read through the app server (`workspace::job`).
+fn worktree_job(
+    command: &Command,
+    config: &Config,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) -> Option<Boxed<Option<AppEv>>> {
+    let Command::Effect { request, ask, .. } = command else {
+        return None;
+    };
+    crate::workspace::job(
+        *request,
+        ask,
+        config.codex_home.to_path_buf(),
+        ids.clone(),
+        handle.clone(),
     )
 }
 

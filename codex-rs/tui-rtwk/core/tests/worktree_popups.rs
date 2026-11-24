@@ -289,7 +289,9 @@ fn an_abandoned_list_and_a_stale_one_are_dropped_and_a_failure_is_said() {
     );
     assert_eq!(
         notes(&app),
-        [note(Note::WorktreeListFailed("no git".into()))]
+        [note(Note::Worktree(worktree::Line::ListFailed(
+            "no git".into()
+        )))]
     );
     assert_eq!(notes(&app)[0].1, Tone::Error);
 }
@@ -399,9 +401,9 @@ fn a_removal_is_asked_in_the_sessions_directory_and_answered_with_a_note() {
     );
     assert_eq!(
         notes(&app),
-        [note(Note::WorktreeRemoved {
+        [note(Note::Worktree(worktree::Line::Removed {
             root: "/pool/b".into()
-        })]
+        }))]
     );
     // a late second answer is nobody's
     answer(&mut app, removal, Done::WorktreeRemoved(Ok(())));
@@ -416,10 +418,10 @@ fn a_removal_is_asked_in_the_sessions_directory_and_answered_with_a_note() {
     answer(&mut app, failing, Done::WorktreeRemoved(Err("busy".into())));
     assert_eq!(
         notes(&app)[1],
-        note(Note::WorktreeRemoveFailed {
+        note(Note::Worktree(worktree::Line::RemoveFailed {
             root: "/pool/c".into(),
             error: "busy".into()
-        })
+        }))
     );
 }
 
@@ -450,7 +452,10 @@ fn the_worktree_command_shows_the_sheet_where_worktrees_are_on_and_says_so_where
     };
     command(&mut app);
     assert_eq!(shows(&app), []);
-    assert_eq!(notes(&app), [note(Note::WorktreesUnavailable)]);
+    assert_eq!(
+        notes(&app),
+        [note(Note::Worktree(worktree::Line::Unavailable))]
+    );
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(CommandFlags {
@@ -460,4 +465,175 @@ fn the_worktree_command_shows_the_sheet_where_worktrees_are_on_and_says_so_where
     );
     command(&mut app);
     assert_eq!(shows(&app), [Opening::Worktree(worktree::Menu::Worktrees)]);
+}
+
+#[test]
+fn new_and_fork_ask_where_they_run_where_worktrees_are_on() {
+    let command = |app: &mut CodexApp, command: SlashCommand, intent: SessionIntent| {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: None,
+                command,
+                intent,
+            }))),
+        )
+    };
+    let mut app = CodexApp::new();
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(CommandFlags {
+            worktrees_enabled: true,
+            ..CommandFlags::default()
+        }))),
+    );
+    command(
+        &mut app,
+        SlashCommand::New,
+        SessionIntent::New {
+            name: Some("topic".into()),
+        },
+    );
+    command(
+        &mut app,
+        SlashCommand::Fork,
+        SessionIntent::Fork { name: None },
+    );
+    assert_eq!(
+        shows(&app),
+        [
+            Opening::Worktree(worktree::Menu::Checkout {
+                mode: Conversation::New,
+                name: Some("topic".into()),
+            }),
+            Opening::Worktree(worktree::Menu::Checkout {
+                mode: Conversation::Fork,
+                name: None,
+            }),
+        ]
+    );
+}
+
+#[test]
+fn a_worktree_for_a_conversation_is_refused_with_no_idle_thread_to_start_it_from() {
+    let mut app = CodexApp::new();
+    let fx = say(
+        &mut app,
+        Verb::Pick(Pick::Start {
+            mode: Conversation::Fork,
+            name: None,
+        }),
+    );
+    assert!(
+        !fx.commands()
+            .iter()
+            .any(|c| matches!(c, Command::CreateWorktree { .. })),
+        "{:?}",
+        fx.commands()
+    );
+    assert_eq!(
+        notes(&app),
+        [note(Note::Worktree(worktree::Line::Refused(
+            worktree::Refusal::NotIdle
+        )))]
+    );
+}
+
+/// The line of a forked thread (oracle `emit_forked_thread_event`).
+mod forked {
+    use codex_app_server_protocol::Thread;
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Intent, apply_app};
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::agents::{Ev, Page, Reply as AgentsReply};
+    use codex_tui_core::screens::{ScreenEv, ScreenReply};
+    use codex_tui_core::threads::{Item, Notice};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    const A: &str = "thread-1";
+    const B: &str = "00000000-0000-0000-0000-000000000002";
+
+    fn thread(id: &str, forked_from: Option<&str>, direct: bool) -> Thread {
+        serde_json::from_value(json!({
+            "id": id, "environments": null, "extra": null, "sessionId": id,
+            "forkedFromId": forked_from, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": id, "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+            "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000,
+            "status": {"type": "idle"}, "path": null,
+            "cwd": "/tmp/project", "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": direct, "threadSource": null,
+            "agentNickname": null, "agentRole": null, "gitInfo": null, "name": id,
+            "daybreakEnabled": null, "turns": []
+        }))
+        .expect("a thread")
+    }
+
+    fn send(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    /// B, resumed with `details`: the notices of its transcript.
+    fn resumed(details: Thread) -> Vec<Notice> {
+        let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+        let mut app = build(&format!("{script}\n")).expect("plays").app;
+        send(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(Ev::Listed(Page {
+                threads: vec![thread(A, None, true), thread(B, None, true)],
+                unread: Vec::new(),
+                next_cursor: None,
+                append: false,
+                pins: None,
+            }))),
+        );
+        let fx = send(
+            &mut app,
+            AppEv::Intent(Intent::OpenThread(ThreadId::new(B))),
+        );
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                codex_tui_core::app::Command::Screen { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a resume");
+        send(
+            &mut app,
+            AppEv::Reply(
+                ticket,
+                Reply::screen(ScreenReply::Agents(AgentsReply::Resumed(Box::new(details)))),
+            ),
+        );
+        app.thread(&ThreadId::new(B))
+            .expect("thread B")
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Notice(notice) => Some(notice.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_thread_forked_from_another_says_so_once() {
+        let notices = resumed(thread(B, Some(A), true));
+        let [Notice::ForkedThread { from, .. }] = notices.as_slice() else {
+            panic!("expected one forked line, got {notices:?}");
+        };
+        assert_eq!(from, A);
+    }
+
+    #[test]
+    fn a_thread_that_is_no_fork_or_takes_no_direct_input_says_nothing() {
+        assert_eq!(resumed(thread(B, None, true)), []);
+        assert_eq!(resumed(thread(B, Some(A), false)), []);
+    }
 }

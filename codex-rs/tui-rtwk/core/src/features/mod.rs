@@ -55,7 +55,9 @@ pub mod mcp_inventory;
 pub mod plugins;
 pub mod processes;
 pub mod rename;
+pub mod security_setup;
 pub mod settings;
+pub mod windows_sandbox;
 
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
@@ -278,6 +280,8 @@ macro_rules! feature_list {
             mcp_inventory => McpInventory;
             diff => Diff;
             daemon => Daemon;
+            security_setup => SecuritySetup;
+            windows_sandbox => WindowsSandbox;
         }
     };
 }

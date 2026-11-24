@@ -742,7 +742,7 @@ pub(crate) fn plan_progress(turn: &TurnId, update: &crate::threads::PlanUpdate) 
 
 /// `thread_blocks_direct_input`: the server's word when it gives one, else a
 /// spawned sub-agent's thread.
-fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) -> bool {
+pub(crate) fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) -> bool {
     use codex_app_server_protocol::SessionSource;
     use codex_protocol::protocol::SubAgentSource;
     thread.can_accept_direct_input.map_or_else(
