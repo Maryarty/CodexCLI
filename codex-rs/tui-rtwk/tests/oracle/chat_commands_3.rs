@@ -4,9 +4,6 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::app::Command;
-use codex_tui_core::screens::{ScreenCommand, agents};
-
 use crate::kit::{self, Owner, Screen};
 
 /// A running turn (the oracle's `handle_turn_started`).
@@ -16,8 +13,6 @@ const SIDE: &str = include_str!("fixtures/chat_commands_3/side.jsonl");
 /// A fresh thread on `gpt-6-astra` with animations and the starfield effect on (the oracle's
 /// `mark_fresh_task_for_sparkle`).
 const ASTRA: &str = include_str!("fixtures/chat_commands_3/astra.jsonl");
-/// The glyphs of the sparkle's dots.
-const SPARKLE_DOTS: &str = "⠁⠂⠄⠈⠐⠠⡀⢀";
 /// A thread whose rollout file is `/tmp/codex-test-rollout.jsonl` (`current_rollout_path`).
 const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 
@@ -224,19 +219,7 @@ fn slash_stop_submits_background_terminal_cleanup() {
     s.keys("esc enter");
     s.assert_contains("Stopping all background terminals.");
     // The oracle's CleanBackgroundTerminals op is the thread's `thread/backgroundTerminals/clean` request.
-    assert!(
-        s.commands().iter().any(|command| matches!(
-            command,
-            codex_tui_core::app::Command::Screen {
-                command: codex_tui_core::screens::ScreenCommand::Chat(
-                    codex_tui_core::screens::chat::Command::CleanTerminals
-                ),
-                ..
-            }
-        )),
-        "the cleanup went out: {:?}",
-        s.commands()
-    );
+    s.assert_clean_terminals_sent();
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2858 slash_new_with_name_requests_named_session kind=ui owner=chat-nav-pane
@@ -286,39 +269,7 @@ fn slash_clear_is_disabled_while_task_running() {
     s.keys("esc enter");
     s.assert_contains("'/clear' is disabled while a task is in progress.");
     // The oracle asserts exactly one InsertHistoryCell and no follow-up event: the single cell is the drawn line.
-    assert_eq!(
-        s.text()
-            .matches("'/clear' is disabled while a task is in progress.")
-            .count(),
-        1
-    );
-}
-
-/// The oracle's `AppEvent::ArchiveCurrentThread`: the port asks the agents backend to archive the thread.
-fn archives(s: &Screen) -> usize {
-    removals(s, |command| {
-        matches!(command, agents::Command::Archive { .. })
-    })
-}
-
-/// The oracle's `AppEvent::DeleteCurrentThread`: the port asks the agents backend to delete the thread.
-fn deletes(s: &Screen) -> usize {
-    removals(s, |command| {
-        matches!(command, agents::Command::Delete { .. })
-    })
-}
-
-fn removals(s: &Screen, which: fn(&agents::Command) -> bool) -> usize {
-    s.commands()
-        .iter()
-        .filter(|command| match command {
-            Command::Screen {
-                command: ScreenCommand::Agents(command),
-                ..
-            } => which(command),
-            _ => false,
-        })
-        .count()
+    s.assert_text_count("'/clear' is disabled while a task is in progress.", 1);
 }
 
 /// The oracle's snapshots of the confirmations (`slash_archive_confirmation_popup`,
@@ -384,7 +335,7 @@ fn slash_archive_cancellation_keeps_task_running() {
     // The popup is dismissed and the task still runs, with no archive asked.
     s.assert_absent("Archive this session?");
     s.assert_contains("esc to interrupt");
-    assert_eq!(archives(&s), 0);
+    s.assert_archives(0);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2963 slash_memory_maintenance_reports_stubbed_feature kind=ui owner=chat-nav-pane
@@ -434,11 +385,11 @@ fn slash_archive_confirmation_requests_current_thread_archive() {
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/archive");
     s.keys("enter");
-    assert_eq!(archives(&s), 0);
+    s.assert_archives(0);
     dialog(&s, ARCHIVE_ROWS);
     s.keys("down");
     s.keys("enter");
-    assert_eq!(archives(&s), 1);
+    s.assert_archives(1);
     // Running: the same popup with the running text, from a running task seed.
     let mut r = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
@@ -446,11 +397,11 @@ fn slash_archive_confirmation_requests_current_thread_archive() {
         .open();
     r.type_text("/archive");
     r.keys("enter");
-    assert_eq!(archives(&r), 0);
+    r.assert_archives(0);
     dialog(&r, ARCHIVE_RUNNING_ROWS);
     r.keys("down");
     r.keys("enter");
-    assert_eq!(archives(&r), 1);
+    r.assert_archives(1);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3121 slash_delete_confirmation_requests_current_thread_delete kind=snap owner=chat-nav-pane snap=slash_delete_confirmation_command_center
@@ -459,11 +410,11 @@ fn slash_delete_confirmation_requests_current_thread_delete() {
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/delete");
     s.keys("enter");
-    assert_eq!(deletes(&s), 0);
+    s.assert_deletes(0);
     dialog(&s, DELETE_ROWS);
     s.keys("down");
     s.keys("enter");
-    assert_eq!(deletes(&s), 1);
+    s.assert_deletes(1);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3134 slash_resume_with_arg_requests_named_session_while_mcp_startup_is_running kind=ui owner=chat-nav-pane
@@ -762,17 +713,12 @@ fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering(
         .script(ASTRA)
         .terminal_colors(0xe6_d8_ff, 0x24_1b_35)
         .open();
-    let shown = |s: &Screen| s.text().chars().any(|c| SPARKLE_DOTS.contains(c));
-    assert!(
-        shown(&s),
-        "the dots show on a fresh Astra thread:\n{}",
-        s.text()
-    );
+    s.assert_dots(true);
     s.type_text("describe");
     s.keys("enter");
-    assert!(!shown(&s), "the submit consumed the sparkle:\n{}", s.text());
+    s.assert_dots(false);
     s.wait(1_000);
-    assert!(!shown(&s), "and it does not come back:\n{}", s.text());
+    s.assert_dots(false);
 }
 
 // ---- oracle: chatwidget/tests/startup_submission_tests.rs (9 screen-level tests here; 2 state tests left to chat-nav-pane)

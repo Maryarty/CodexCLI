@@ -18,6 +18,7 @@ mod oracle_snap;
 
 mod compare;
 mod env;
+mod expect;
 mod grid;
 mod input;
 mod labels;
@@ -26,16 +27,23 @@ mod probe;
 mod replies;
 mod seed;
 mod settings;
+mod sparkle;
 mod verdict;
 
 #[allow(unused_imports)]
 pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
 #[allow(unused_imports)]
-pub use env::{ColorDepth, REPLAYED, replay_turn};
+pub use env::{ColorDepth, Install, REPLAYED, replay_turn};
+#[allow(unused_imports)]
+pub use expect::{Ask, Turn, assert_rows_are};
 #[allow(unused_imports)]
 pub use grid::{Grid, check_style, color_name, modifier_name};
 #[allow(unused_imports)]
 pub use input::event_bytes_of;
+#[allow(unused_imports)]
+pub use settings::Renderers;
+#[allow(unused_imports)]
+pub use sparkle::{Dots, split_frames};
 
 #[allow(unused_imports)]
 pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_labels};

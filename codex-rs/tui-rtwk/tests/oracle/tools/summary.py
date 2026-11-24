@@ -28,6 +28,9 @@ Verdicts (tests/kit/verdict.rs):
   todo      failed with `TODO[port]`                (a stub nobody ported yet)
   red       any other failure: the screen differs from the oracle, or the test is wrong
   stale     passed while a kit::pending marker was probing
+
+The guards (tests/oracle/guards.rs) count like any shard: a guard that fails is red, under the
+shard `guards`, with the first line of its failure.
 """
 import collections
 import glob
@@ -58,7 +61,7 @@ def verdicts(path):
     for case in root.iter('testcase'):
         name = case.get('name', '')
         shard, _, test = name.partition('::')
-        if not test or shard == 'guards':
+        if not test:
             continue
         failure = case.find('failure')
         if failure is None:

@@ -102,11 +102,11 @@ fn pager_bindings_use_rendered_page_height_and_keep_control_f_navigation() {
         .entry("transcript", "sheet_basic")
         .open();
     s.keys("home pagedown");
-    let initial = s.text();
+    let initial = s.shot();
     s.keys("ctrl+f");
-    assert_ne!(s.text(), initial, "Ctrl+F moves a page");
+    s.assert_rows_differ(&initial);
     s.keys("pageup");
-    assert_eq!(s.text(), initial);
+    s.assert_same_rows(&initial);
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:248 focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns kind=snap owner=chat-live

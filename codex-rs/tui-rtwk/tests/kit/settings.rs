@@ -6,6 +6,26 @@ use codex_tui_core::app::facts::{Rendering, TuiSettings};
 
 use super::Screen;
 
+/// The `tui.rendering` switches a test names: each Markdown renderer on (the default) or off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Renderers {
+    pub mermaid: bool,
+    pub math: bool,
+    pub tables: bool,
+    pub lists: bool,
+}
+
+impl Default for Renderers {
+    fn default() -> Self {
+        Self {
+            mermaid: true,
+            math: true,
+            tables: true,
+            lists: true,
+        }
+    }
+}
+
 impl Screen {
     /// `tui.collapse_turn_details`: the tool calls of a finished turn fold into one row each
     /// run, and the messages before the answer behind the prompt.
@@ -19,9 +39,14 @@ impl Screen {
 
     /// `tui.rendering`: the Markdown renderers that are on (a table, list, mermaid or math
     /// renderer that is off keeps the source text).
-    pub fn rendering(&mut self, rendering: Rendering) -> &mut Screen {
+    pub fn rendering(&mut self, rendering: Renderers) -> &mut Screen {
         self.h.inject([AppEv::Tui(TuiSettings {
-            rendering,
+            rendering: Rendering {
+                mermaid: rendering.mermaid,
+                math: rendering.math,
+                tables: rendering.tables,
+                lists: rendering.lists,
+            },
             ..TuiSettings::default()
         })]);
         self

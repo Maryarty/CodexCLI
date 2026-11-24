@@ -22,22 +22,6 @@ fn row_starting(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-/// The rows of the oracle snapshot `name` equal ours from screen row `row`, trailing blanks
-/// cut. The snapshot's cell styles are checked by the test where they say something: the
-/// presenter writes a blank cell without its bold or dim (invisible on a blank), so the
-/// screen emulation gives a blank the style of the cell before it.
-fn assert_rows_at(s: &Screen, name: &str, row: usize) {
-    assert!(
-        row < s.rows().len(),
-        "{name}: the popup is not on the screen"
-    );
-    let ours = s.rows();
-    for (at, want) in kit::snap_rows(name, "").iter().enumerate() {
-        let got = ours.get(row + at).map_or("", |r| r.trim_end());
-        assert_eq!(got, want.trim_end(), "{name}: row {at}");
-    }
-}
-
 /// `key` pressed `n` times, as one key string.
 fn times(key: &str, n: usize) -> String {
     vec![key; n].join(" ")
@@ -808,14 +792,7 @@ fn filesystem_columns_use_terminal_cell_widths() {
     s.type_text("@src/");
     s.assert_contains("src/");
     // The parent path of each file row starts at column 12, whatever the name's glyph widths.
-    let mut seen = 0;
-    for (y, row) in s.rows().iter().enumerate() {
-        if row.trim_end().ends_with("File") {
-            s.assert_text_at(12, y, "src/");
-            seen += 1;
-        }
-    }
-    assert_eq!(seen, 2, "both file rows");
+    s.assert_rows_ending_have_text_at("File", 12, "src/", 2);
 }
 
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:166 long_mentions_leave_room_for_distinguishing_parent_paths kind=snap owner=chat-nav-pane snap=bounded_filesystem_columns_narrow snap=bounded_filesystem_columns_wide
@@ -850,8 +827,7 @@ fn scrolling_mentions_shifts_rendered_window_snapshot() {
     // ninth row; ours starts on the first row
     s.keys(&times("down", 8));
     let top = row_starting(&s, "↑");
-    assert_rows_at(
-        &s,
+    s.assert_snap_rows_at(
         "codex_tui__bottom_pane__skill_popup__tests__skill_popup_scrolled",
         top,
     );

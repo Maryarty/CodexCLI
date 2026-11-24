@@ -6,17 +6,6 @@
 
 use crate::kit::{self, Owner, Screen};
 
-/// The screen's text without its white space, and a text the same way: the oracle's assertions
-/// read a cell's text whole, the warnings panel wraps it (also after a hyphen).
-fn squash(text: &str) -> String {
-    text.split_whitespace().collect()
-}
-
-/// Whether the screen reads `text`, however the panel wrapped it.
-fn reads(s: &Screen, text: &str) -> bool {
-    squash(&s.text()).contains(&squash(text))
-}
-
 /// The row a text is drawn on: the oracle's snapshot is one cell's rows, the port draws the cell
 /// in the full screen, so the region starts where the cell does.
 fn row_of(s: &Screen, text: &str) -> usize {
@@ -839,19 +828,8 @@ fn live_app_server_warning_notification_renders_message() {
     ));
     // oracle: the warning is a hidden cell the footer counts; F2 opens it in the warnings panel.
     s.keys("f2");
-    assert!(
-        reads(&s, "Exceeded skills context budget of 2%."),
-        "{}",
-        s.text()
-    );
-    assert!(
-        reads(
-            &s,
-            "All skill descriptions were removed and 2 additional skills were not included in the model-visible skills list."
-        ),
-        "{}",
-        s.text()
-    );
+    s.assert_reads("Exceeded skills context budget of 2%.");
+    s.assert_reads("All skill descriptions were removed and 2 additional skills were not included in the model-visible skills list.");
     s.keys("esc");
     s.feed(&notify(
         "modelProvider/authRecoveryStarted",
@@ -877,11 +855,7 @@ fn live_app_server_guardian_warning_notification_renders_message() {
         r#"{"threadId":"thread-1","message":"Automatic approval review denied the requested action."}"#,
     ));
     s.keys("f2");
-    assert!(
-        reads(&s, "Automatic approval review denied the requested action."),
-        "{}",
-        s.text()
-    );
+    s.assert_reads("Automatic approval review denied the requested action.");
 }
 
 // ORACLE chatwidget/tests/app_server.rs:1144 live_app_server_strict_review_required_notification_renders_message kind=snap owner=chat-live snap=strict_review_required
@@ -957,7 +931,7 @@ fn startup_config_warning_is_not_repeated_by_thread() {
     ));
     // oracle: without a local daemon the panel shows the warning once, under its label; the second warning is one step right.
     s.keys("f2");
-    assert!(reads(&s, message), "{}", s.text());
+    s.assert_reads(message);
     // The snapshot's two frames hang on the daemon state, which is not fed; the first frame's
     // title and text (Missed: the panel's layout, as in sqlite_log_write_warning).
     s.assert_contains("Warnings · 1 of 2 · Startup");
@@ -1279,7 +1253,7 @@ fn live_app_server_model_verification_renders_warning() {
         "Trusted Access for Cyber",
         "https://chatgpt.com/cyber",
     ] {
-        assert!(reads(&s, part), "{}", s.text());
+        s.assert_reads(part);
     }
 }
 
@@ -1350,13 +1324,6 @@ fn sqlite_log_write_warning_is_visible_in_warnings() {
     // its own width over the chat, so its rows wrap differently: the title, the text and the keys
     // are compared, not the rows (Missed: the layout of the panel, small_dialogs' sheet).
     s.assert_contains("Warnings · 1 of 1 · Warning");
-    assert!(
-        reads(
-            &s,
-            "Codex couldn't save diagnostic logs to its local database. Use /feedback with logs included before closing Codex, or run `codex doctor` for diagnostics."
-        ),
-        "{}",
-        s.text()
-    );
+    s.assert_reads("Codex couldn't save diagnostic logs to its local database. Use /feedback with logs included before closing Codex, or run `codex doctor` for diagnostics.");
     s.assert_contains("k keep & next · esc dismiss & close · ⌃o copy · ←/→ warning");
 }

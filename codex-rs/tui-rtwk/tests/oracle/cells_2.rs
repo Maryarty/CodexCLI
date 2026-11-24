@@ -780,7 +780,7 @@ fn wheel_at_hidden_session_header_keeps_the_loaded_message_anchor() {
         s.wheel_up(0, 0, 10);
     }
     // the session header is hidden while older pages exist
-    assert!(!s.text().contains("OpenAI Codex"), "{}", s.text());
+    s.assert_absent("OpenAI Codex");
     let before = s.shot();
     let older: Vec<_> = (0..3)
         .rev()
@@ -788,10 +788,10 @@ fn wheel_at_hidden_session_header_keeps_the_loaded_message_anchor() {
         .collect();
     // One wheel gesture must not keep requesting older pages, and the loaded page leaves the
     // rows where they were.
-    assert_eq!(s.page_requests().len(), 2);
+    s.assert_page_requests(2);
     s.history_page(older, None);
     s.assert_same_rows_in(&before, 0..8);
-    assert_eq!(s.page_requests().len(), 2);
+    s.assert_page_requests(2);
     for _ in 0..4 {
         s.wheel_up(0, 0, 10);
     }
@@ -816,16 +816,12 @@ fn session_information_waits_for_older_pages_and_reappears_after_completion() {
         .open();
     s.wait_for("Ask Codex to do anything");
     s.history_page(rows(2), Some("cursor-1"));
-    assert!(!s.text().contains("OpenAI Codex"), "{}", s.text());
+    s.assert_absent("OpenAI Codex");
     // the wheel at the top asks for the next page: loading, the header is still not there
     s.wheel_up(0, 0, 10);
-    assert_eq!(s.page_requests().len(), 2);
-    assert!(!s.text().contains("OpenAI Codex"), "{}", s.text());
+    s.assert_page_requests(2);
+    s.assert_absent("OpenAI Codex");
     s.history_page(rows(2), None);
     s.wheel_up(0, 0, 10);
-    let first = s.rows().into_iter().find(|row| !row.is_empty());
-    assert_eq!(
-        first.as_deref().map(str::trim),
-        Some(">_ OpenAI Codex (v0.170.0)")
-    );
+    s.assert_first_row(">_ OpenAI Codex (v0.170.0)");
 }

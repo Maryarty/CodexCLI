@@ -459,12 +459,7 @@ fn reasoning_summary_block_hides_empty_html_comment_parts() {
     s.assert_absent("<!--");
     // The block draws nothing (no bullet row of its own, no blank row above it): the Working row
     // is the only bullet of the screen.
-    let bullets = s
-        .rows()
-        .iter()
-        .filter(|row| row.trim_start().starts_with('•'))
-        .count();
-    assert_eq!(bullets, 1, "{}", s.text());
+    s.assert_rows_starting("•", 1);
 }
 
 // ORACLE history_cell/tests.rs:2901 reasoning_summary_block_preserves_bold_content_after_empty_html_comment_part kind=ui owner=chat-live

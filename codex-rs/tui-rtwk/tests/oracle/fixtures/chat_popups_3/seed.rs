@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use codex_tui_core::app::{AppEv, Command};
-use codex_tui_core::features::plugins::{Config, Configured, Fact, Part, Want};
+use codex_tui_core::features::plugins::{Config, Configured, Fact, Location, Part, Target, Want};
 use codex_tui_core::features::{FeatureCommand, FeatureFact};
 use codex_tui_core::rpc::ServerError;
 use serde_json::{Value, json};
@@ -131,6 +131,134 @@ pub fn asked(s: &Screen) -> Vec<(Command, Want)> {
             _ => None,
         })
         .collect()
+}
+
+/// A kind of ask of the plugin backend (`last_of`).
+#[derive(Clone, Copy)]
+pub enum Kind {
+    Add,
+    Remove,
+    Enable,
+}
+
+impl Kind {
+    fn is(self, want: &Want) -> bool {
+        match self {
+            Kind::Add => matches!(want, Want::Add { .. }),
+            Kind::Remove => matches!(want, Want::Remove { .. }),
+            Kind::Enable => matches!(want, Want::Enable { .. }),
+        }
+    }
+}
+
+/// The last request of the app of this kind.
+pub fn last_of(s: &Screen, kind: Kind) -> Command {
+    last(s, |want| kind.is(want))
+}
+
+fn remote(marketplace: &str, plugin: &str) -> Target {
+    Target {
+        location: Location::Remote {
+            marketplace: marketplace.to_string(),
+        },
+        plugin: plugin.to_string(),
+    }
+}
+
+/// The marketplaces the app asked to add, in order, are `sources`.
+pub fn assert_added(s: &Screen, sources: &[&str]) {
+    let got: Vec<Want> = wants(s).into_iter().filter(|w| Kind::Add.is(w)).collect();
+    let want: Vec<Want> = sources
+        .iter()
+        .map(|source| Want::Add {
+            source: (*source).to_string(),
+        })
+        .collect();
+    assert_eq!(got, want);
+}
+
+/// The marketplaces the app asked to upgrade, in order, are `names` (`None`: all of them).
+pub fn assert_upgraded(s: &Screen, names: &[Option<&str>]) {
+    let got: Vec<Want> = wants(s)
+        .into_iter()
+        .filter(|w| matches!(w, Want::Upgrade { .. }))
+        .collect();
+    let want: Vec<Want> = names
+        .iter()
+        .map(|name| Want::Upgrade {
+            name: name.map(str::to_string),
+        })
+        .collect();
+    assert_eq!(got, want);
+}
+
+/// The marketplaces the app asked to remove, in order, are `names`.
+pub fn assert_removed(s: &Screen, names: &[&str]) {
+    let got: Vec<Want> = wants(s)
+        .into_iter()
+        .filter(|w| Kind::Remove.is(w))
+        .collect();
+    let want: Vec<Want> = names
+        .iter()
+        .map(|name| Want::Remove {
+            name: (*name).to_string(),
+        })
+        .collect();
+    assert_eq!(got, want);
+}
+
+/// The plugin switches the app asked for, in order, are `(id, enabled)`.
+pub fn assert_enables(s: &Screen, asks: &[(&str, bool)]) {
+    let got: Vec<Want> = wants(s)
+        .into_iter()
+        .filter(|w| Kind::Enable.is(w))
+        .collect();
+    let want: Vec<Want> = asks
+        .iter()
+        .map(|(id, enabled)| Want::Enable {
+            id: (*id).to_string(),
+            enabled: *enabled,
+        })
+        .collect();
+    assert_eq!(got, want);
+}
+
+/// No plugin switch was asked.
+pub fn assert_no_enable(s: &Screen) {
+    assert!(
+        !wants(s).iter().any(|w| Kind::Enable.is(w)),
+        "{:?}",
+        wants(s)
+    );
+}
+
+/// No plugin install was asked.
+pub fn assert_no_install(s: &Screen) {
+    assert!(
+        !wants(s).iter().any(|w| matches!(w, Want::Install(_))),
+        "{:?}",
+        wants(s)
+    );
+}
+
+/// The detail of `plugin` of the remote `marketplace` was asked `times` times.
+pub fn assert_read_remote(s: &Screen, marketplace: &str, plugin: &str, times: usize) {
+    let target = Want::Read(remote(marketplace, plugin));
+    let got = wants(s).into_iter().filter(|w| *w == target).count();
+    assert_eq!(got, times, "{:?}", wants(s));
+}
+
+/// The install of `plugin` of the remote `marketplace` was asked.
+pub fn assert_install_remote(s: &Screen, marketplace: &str, plugin: &str) {
+    let target = Want::Install(remote(marketplace, plugin));
+    assert!(wants(s).contains(&target), "{:?}", wants(s));
+}
+
+/// The config of a user whose `names` are git marketplaces.
+pub fn config_with(names: &[&str]) -> Config {
+    let mut config = config();
+    config.configured = names.iter().map(|name| git(name)).collect();
+    config
 }
 
 /// The wants alone.
