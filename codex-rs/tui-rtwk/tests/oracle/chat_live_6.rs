@@ -6,6 +6,74 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// A ChatGPT account (the usage menu's `Redeem reset` row is for one), and the status facts that
+/// make the app read the account's limits at startup.
+const CHATGPT: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+"#;
+const STARTUP_CHECK: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}
+"#;
+
+/// The step that makes the fake backend answer the account's limits read with `credits` (the
+/// `rateLimitResetCredits` of the answer) from now on.
+fn limits_answer(credits: &serde_json::Value) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "respond", "method": "account/rateLimits/read", "result": {"rateLimits": {}, "rateLimitResetCredits": credits}})
+    )
+}
+
+/// A live chat of a ChatGPT account whose startup check found `credits` (none: the read is out).
+fn usage_chat(width: u16, credits: Option<&serde_json::Value>) -> Screen {
+    usage_chat_in(width, "twenty_four_hour", credits)
+}
+
+/// `usage_chat` with the viewer's clock in UTC, 12- or 24-hour (the oracle takes the machine's
+/// zone for its credits' dates; the kit's clock is UTC, so the dates do not depend on it).
+fn usage_chat_in(width: u16, clock: &str, credits: Option<&serde_json::Value>) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive).size(width, 24).live().open();
+    let answer = credits.map(limits_answer).unwrap_or_default();
+    let clock = serde_json::json!({"step": "screen", "dir": "cells", "ev": {"kind": "clock", "format": clock, "utc_offset": 0}});
+    s.feed(&format!("{clock}\n{CHATGPT}{answer}{STARTUP_CHECK}"));
+    s
+}
+
+/// 2026-06-18 09:39 UTC, the first expiry of the oracle's credits (`expiry_timestamp(18, 9, 39)`).
+const FIRST_EXPIRY: i64 = 1_781_775_540;
+const DAY: i64 = 86_400;
+
+/// One available credit of the account's limits (the oracle's `reset_credit`).
+fn credit(id: &str, expires_at: Option<i64>, title: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "id": id, "resetType": "codexRateLimits", "status": "available", "grantedAt": 0,
+        "expiresAt": expires_at, "title": title, "description": null,
+    })
+}
+
+/// `rateLimitResetCredits` with the credits' details.
+fn detailed(count: i64, credits: Vec<serde_json::Value>) -> serde_json::Value {
+    serde_json::json!({"availableCount": count, "credits": credits})
+}
+
+/// What the backend answers a redemption with, from now on.
+fn consume_answer(outcome: &str) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "respond", "method": "account/rateLimitResetCredit/consume", "result": {"outcome": outcome}})
+    )
+}
+
+/// `/usage`, Down, Enter: the menu's `Redeem reset` row, which opens the credits (and waits for
+/// the list: Enter on the loading page does nothing).
+fn open_resets(s: &mut Screen) {
+    s.type_text("/usage").keys("enter down enter");
+    s.wait_for("available.");
+}
+
+/// `{"availableCount": n}`: the count without the credits' details.
+fn count(n: i64) -> serde_json::Value {
+    serde_json::json!({"availableCount": n})
+}
+
 // ---- oracle: chatwidget/tests/usage.rs (26 screen-level tests here; 8 state tests left to chat-live)
 // ORACLE chatwidget/tests/usage.rs:17 usage_menu_opens_analytics kind=ui owner=chat-live
 #[test]
@@ -19,15 +87,11 @@ fn usage_menu_opens_analytics() {
 // ORACLE chatwidget/tests/usage.rs:115 usage_command_opens_menu_when_reset_is_available_snapshot kind=snap owner=chat-live snap=usage_command_menu snap=usage_command_menu_narrow
 #[test]
 fn usage_command_opens_menu_when_reset_is_available_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: the startup reset check with 2 reset credits is not seeded, and /usage draws no menu with a Redeem reset row",
-    );
     // The bottom popup is bottom-anchored: its 8 rows end on row 23 of a 24-row screen.
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = usage_chat(80, Some(&count(2)));
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu", 16, 0);
-    let mut s = Screen::build(Owner::ChatLive).size(40, 24).live().open();
+    let mut s = usage_chat(40, Some(&count(2)));
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu_narrow", 16, 0);
     // The oracle's last check, Enter emits AppEvent::OpenAnalytics, is not drawn: not asserted.
@@ -36,11 +100,7 @@ fn usage_command_opens_menu_when_reset_is_available_snapshot() {
 // ORACLE chatwidget/tests/usage.rs:140 usage_command_disables_reset_after_cached_zero_snapshot kind=snap owner=chat-live snap=usage_command_menu_without_resets
 #[test]
 fn usage_command_disables_reset_after_cached_zero_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: the startup reset check with 0 reset credits is not seeded, so the Redeem reset row is not drawn as None available",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = usage_chat(80, Some(&count(0)));
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu_without_resets", 16, 0);
     // The oracle's RefreshRateLimits event and the OpenAnalytics event are not drawn: not asserted.
@@ -58,11 +118,12 @@ fn usage_menu_refresh_enables_newly_available_reset() {
 // ORACLE chatwidget/tests/usage.rs:196 usage_menu_refresh_failure_preserves_disabled_known_zero kind=ui owner=chat-live
 #[test]
 fn usage_menu_refresh_failure_preserves_disabled_known_zero() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no startup reset check seeded with 0 credits and no usage-menu refresh that can fail (backend unavailable) as a script step",
+    let mut s = usage_chat(80, Some(&count(0)));
+    // The menu reads the limits again for a count known to be zero; the backend is unavailable.
+    s.feed(
+        r#"{"step":"respond","method":"account/rateLimits/read","error":{"message":"backend unavailable"}}
+"#,
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("/usage").keys("enter");
     s.assert_contains("None available");
     // The oracle's OpenAnalytics event after Enter is not drawn: not asserted.
@@ -71,15 +132,13 @@ fn usage_menu_refresh_failure_preserves_disabled_known_zero() {
 // ORACLE chatwidget/tests/usage.rs:258 usage_command_can_check_reset_availability_before_startup_refresh_finishes_snapshot kind=snap owner=chat-live snap=usage_command_menu_before_reset_refresh
 #[test]
 fn usage_command_can_check_reset_availability_before_startup_refresh_finishes_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: /usage while the startup reset check is still in flight draws no menu, no Check availability row",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // The startup check is still out: the count is not known yet.
+    let mut s = usage_chat(80, None);
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu_before_reset_refresh", 16, 0);
-    // Down then Enter: the oracle emits AppEvent::OpenRateLimitResetCredits (not drawn, not asserted).
+    // Down then Enter opens the reset flow (the oracle emits AppEvent::OpenRateLimitResetCredits).
     s.keys("down enter");
+    s.assert_contains("Checking your available resets...");
 }
 
 // ORACLE chatwidget/tests/usage.rs:275 usage_command_can_check_reset_availability_for_workspace_accounts kind=ui owner=chat-live
@@ -137,26 +196,30 @@ fn rate_limit_reset_popup_states_snapshot() {
 // ORACLE chatwidget/tests/usage.rs:417 rate_limit_reset_picker_wraps_expiry_details_snapshot kind=snap owner=chat-live snap=rate_limit_reset_picker_narrow
 #[test]
 fn rate_limit_reset_picker_wraps_expiry_details_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset credits with expiries (12-hour clock) seeded for the reset picker at 44 columns",
+    let credits = detailed(
+        2,
+        vec![
+            credit("credit-2", None, None),
+            credit("credit-1", Some(FIRST_EXPIRY), None),
+        ],
     );
+    let mut s = usage_chat_in(44, "twelve_hour", Some(&credits));
+    open_resets(&mut s);
     // The picker is bottom-anchored: its 10 rows end on row 23 of a 24-row screen.
-    let mut s = Screen::build(Owner::ChatLive).size(44, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
     s.assert_snap_region("rate_limit_reset_picker_narrow", 14, 0);
 }
 
 // ORACLE chatwidget/tests/usage.rs:441 rate_limit_reset_confirmation_uses_backend_copy_snapshot kind=snap owner=chat-live snap=rate_limit_reset_confirmation
 #[test]
 fn rate_limit_reset_confirmation_uses_backend_copy_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset credit with a backend title and description seeded, so the confirmation with Expires 09:39 on 18 Jun 2026 is not drawn",
+    let mut weekly = credit(
+        "weekly-credit",
+        Some(FIRST_EXPIRY),
+        Some("Full reset (Weekly + 5 hr)"),
     );
-    // The confirmation is bottom-anchored: its 9 rows end on row 23 of a 24-row screen.
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    weekly["description"] = serde_json::json!("Reset your weekly and 5-hour usage limits.");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![weekly])));
+    open_resets(&mut s);
     s.keys("enter");
     // The oracle's OpenRateLimitResetConfirmation event carries the same fields: not asserted here.
     s.assert_snap_region("rate_limit_reset_confirmation", 15, 0);
@@ -165,16 +228,11 @@ fn rate_limit_reset_confirmation_uses_backend_copy_snapshot() {
 // ORACLE chatwidget/tests/usage.rs:501 rate_limit_reset_confirmation_no_and_escape_return_to_picker kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_confirmation_no_and_escape_return_to_picker() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with one credit, so there is no picker to return to from the confirmation",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
     let picker = s.shot();
+    // Enter opens the confirmation, whose default row is `No, go back`.
     s.keys("enter enter");
-    // The oracle's second Enter opens the confirmation, and the event is not asserted.
-    s.keys("enter");
     s.assert_same_rows(&picker);
     s.keys("enter");
     s.keys("esc");
@@ -187,27 +245,34 @@ fn rate_limit_reset_confirmation_no_and_escape_return_to_picker() {
 // ORACLE chatwidget/tests/usage.rs:530 reset_picker_allows_only_one_pending_confirmation kind=ui owner=chat-live
 #[test]
 fn reset_picker_allows_only_one_pending_confirmation() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with two titled credits (First reset, Second reset)",
+    let credits = detailed(
+        2,
+        vec![
+            credit("credit-1", Some(FIRST_EXPIRY), Some("First reset")),
+            credit("credit-2", None, Some("Second reset")),
+        ],
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    s.keys("enter down enter");
-    // The first confirmation is open; the oracle asserts no consume event yet (not drawn).
-    s.keys("enter enter");
+    let mut s = usage_chat(80, Some(&credits));
+    open_resets(&mut s);
+    // One confirmation is open at a time (the oracle's gate): `No, go back` returns to the
+    // picker, whose next row opens the second.
+    s.keys("enter");
+    s.assert_contains("Use this reset?");
+    s.keys("enter");
+    s.assert_absent("Use this reset?");
+    s.keys("down enter");
     s.assert_contains("Second reset · Does not expire");
 }
 
 // ORACLE chatwidget/tests/usage.rs:561 rate_limit_reset_picker_starts_with_soonest_expiries_and_keeps_all_rows_reachable kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_picker_starts_with_soonest_expiries_and_keeps_all_rows_reachable() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with nine credits (one per day from 18 Jun 2026 09:39)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let credits = (0..9)
+        .rev()
+        .map(|i| credit(&format!("credit-{i}"), Some(FIRST_EXPIRY + i * DAY), None))
+        .collect();
+    let mut s = usage_chat(80, Some(&detailed(9, credits)));
+    open_resets(&mut s);
     s.assert_contains("Expires 09:39 on 18 Jun 2026");
     s.assert_absent("Full reset (");
     // Eight Downs reach the ninth credit; Enter opens its confirmation.
@@ -218,17 +283,14 @@ fn rate_limit_reset_picker_starts_with_soonest_expiries_and_keeps_all_rows_reach
 // ORACLE chatwidget/tests/usage.rs:610 rate_limit_reset_confirmation_can_use_reset kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_confirmation_can_use_reset() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with one credit, and the redemption (consume) answer that closes the popup is a seed step the script does not have",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    s.feed(&consume_answer("nothingToReset"));
+    open_resets(&mut s);
     s.keys("enter");
     s.assert_contains("Use this reset?");
-    // Up then Enter confirms the reset: the oracle emits ConsumeRateLimitResetCredit (not drawn).
+    // Up then Enter confirms the reset: the backend says there is nothing to reset.
     s.keys("up enter");
-    // The consume outcome is NothingToReset (seed step); Esc closes the popup.
+    s.wait_for("Your usage does not need a reset right now.");
     s.keys("esc");
     s.assert_absent("Use this reset?");
     s.assert_absent("Usage limit resets");
@@ -246,14 +308,19 @@ fn rate_limit_reset_retry_reuses_idempotency_key() {
 // ORACLE chatwidget/tests/usage.rs:690 no_credit_outcome_disables_reset_entry_in_usage_menu kind=ui owner=chat-live
 #[test]
 fn no_credit_outcome_disables_reset_entry_in_usage_menu() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption that answers NoCredit (seed step), no stale selected credit to consume, no That reset is no longer available. notice",
+    let mut s = usage_chat(
+        80,
+        Some(&detailed(1, vec![credit("stale-credit", None, None)])),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    s.assert_contains("That reset is no longer available.");
-    // The oracle's later events (RefreshRateLimits, OpenAnalytics, OpenRateLimitResetCredits) are not drawn: not asserted.
+    s.feed(&consume_answer("noCredit"));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("That reset is no longer available.");
+    // The count is dropped: the entry asks to check again.
+    s.keys("esc");
+    s.type_text("/usage").keys("enter");
+    s.assert_contains("Check availability");
+    s.assert_absent("1 available");
 }
 
 // ORACLE chatwidget/tests/usage.rs:738 rate_limit_reset_redemption_cannot_be_dismissed_while_in_flight kind=ui owner=chat-live
@@ -278,12 +345,11 @@ fn rate_limit_reset_redemption_cannot_be_dismissed_while_in_flight() {
 // ORACLE chatwidget/tests/usage.rs:765 rate_limit_reset_redemption_allows_ctrl_c_to_quit_while_in_flight kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_redemption_allows_ctrl_c_to_quit_while_in_flight() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption in flight (Using a reset...) to stay on screen while Ctrl+C quits",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    // The backend does not answer the redemption: `Using a reset...` stays on screen.
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("Using a reset...");
     s.keys("ctrl+c");
     // The oracle's AppEvent::Exit(ShutdownFirst) is not drawn: not asserted.
     s.assert_contains("Using a reset...");
@@ -292,25 +358,37 @@ fn rate_limit_reset_redemption_allows_ctrl_c_to_quit_while_in_flight() {
 // ORACLE chatwidget/tests/usage.rs:776 already_redeemed_is_an_idempotent_success kind=ui owner=chat-live
 #[test]
 fn already_redeemed_is_an_idempotent_success() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption answering AlreadyRedeemed and no post-consume refresh with 0 resets (seed steps)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    // AlreadyRedeemed and the refresh with 0 resets arrive (seed steps).
-    s.assert_contains("Usage reset. You have 0 usage limit resets left.");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    s.feed(&consume_answer("alreadyRedeemed"));
+    open_resets(&mut s);
+    // The post-consume refresh finds 0 resets left.
+    s.feed(&limits_answer(&count(0)));
+    s.keys("enter up enter");
+    s.wait_for("Usage reset. You have 0 usage limit resets left.");
 }
 
 // ORACLE chatwidget/tests/usage.rs:798 failed_post_consume_refresh_does_not_keep_stale_reset_count kind=ui owner=chat-live
 #[test]
 fn failed_post_consume_refresh_does_not_keep_stale_reset_count() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no startup check with 2 credits, no Reset outcome followed by a failed refresh (seed steps)",
+    let mut s = usage_chat(
+        80,
+        Some(&detailed(
+            2,
+            vec![
+                credit("credit-1", None, None),
+                credit("credit-2", None, None),
+            ],
+        )),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // The redemption answers Reset and the post-consume refresh fails (seed steps).
+    s.feed(&consume_answer("reset"));
+    open_resets(&mut s);
+    // The post-consume refresh fails.
+    s.feed(
+        r#"{"step":"respond","method":"account/rateLimits/read","error":{"message":"backend unavailable"}}
+"#,
+    );
+    s.keys("enter up enter");
+    s.wait_for("Usage reset.");
     s.keys("esc");
     s.type_text("/usage").keys("enter");
     s.assert_contains("Check availability");

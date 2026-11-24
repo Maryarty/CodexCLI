@@ -408,7 +408,7 @@ fn session_to_usage_and_back() {
     use codex_tui_rtwk::pages::usage;
     use rtwk_test::find;
 
-    let mut h = open_over_the_session("/usage");
+    let mut h = open_over_the_session("/usage weekly");
     let page = find::by_type::<usage::Screen>();
     h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
@@ -471,7 +471,7 @@ fn usage_footer_keys_are_bound() {
     use codex_tui_rtwk::pages::usage;
     use rtwk_test::find;
 
-    let mut h = open_over_the_session("/usage");
+    let mut h = open_over_the_session("/usage weekly");
     let screen = h.t.screen();
     assert!(screen.contains("esc back"), "{screen}");
     assert!(screen.contains("R retry"), "{screen}");
