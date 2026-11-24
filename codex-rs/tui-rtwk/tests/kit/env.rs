@@ -126,6 +126,8 @@ pub(super) struct Env {
     /// otherwise: the fork stays in progress).
     fork_refused: bool,
     replay: Option<Vec<serde_json::Value>>,
+    /// The resumed thread's own status is `active` (a thread that is really running).
+    replay_active: bool,
     /// What the host announces to the first conversation.
     announced: Vec<Notice>,
     /// What the host knows of the account's cyber access.
@@ -263,9 +265,10 @@ impl Env {
             // the server lists the thread and answers the resume with its
             // recorded turns: the chat replays them as history
             let turns = turns.clone();
+            let active = self.replay_active;
             h.fake.respond(move |request| {
                 (request["method"] == "thread/resume")
-                    .then(|| Ok(resume_response(REPLAYED, &turns)))
+                    .then(|| Ok(resume_response(REPLAYED, &turns, active)))
             });
             h.connect();
             h.quiesce();
@@ -361,6 +364,13 @@ impl Open {
     /// `replay_thread_turns` / `initial_messages`.
     pub fn replay(mut self, turns: Vec<serde_json::Value>) -> Open {
         self.env.replay = Some(turns);
+        self
+    }
+
+    /// The thread [`Open::replay`] resumes is really running: the server's status for it is
+    /// `active` (idle otherwise), so a recorded turn without an end is the running one.
+    pub fn replay_running(mut self) -> Open {
+        self.env.replay_active = true;
         self
     }
 
@@ -463,8 +473,11 @@ pub fn replay_turn(id: &str, items: serde_json::Value) -> serde_json::Value {
 }
 
 /// The server's answer to `thread/resume` for `id`: the thread with `turns`.
-fn resume_response(id: &str, turns: &[serde_json::Value]) -> serde_json::Value {
+fn resume_response(id: &str, turns: &[serde_json::Value], active: bool) -> serde_json::Value {
     let mut thread = serde_json::to_value(listed_thread(id)).expect("a thread");
+    if active {
+        thread["status"] = serde_json::json!({"type": "active", "activeFlags": []});
+    }
     thread["turns"] = serde_json::Value::Array(turns.to_vec());
     serde_json::json!({
         "thread": thread, "model": "gpt-5", "modelProvider": "openai", "serviceTier": null,
