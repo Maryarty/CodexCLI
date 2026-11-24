@@ -35,10 +35,12 @@ pub fn list(rows: &[Row], initial: Option<usize>) -> List {
                         } else {
                             Role::Success
                         },
+                        link: None,
                     },
                     Span {
                         text: " ".to_owned(),
                         role: Role::Plain,
+                        link: None,
                     },
                 ],
                 description: Some(uuid.clone()),

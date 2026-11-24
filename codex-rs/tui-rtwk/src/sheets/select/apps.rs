@@ -188,12 +188,7 @@ fn list(page: &apps::Page, s: &Strings) -> List {
             total,
             rows,
         } => {
-            let dim = |text: String| {
-                vec![Span {
-                    text,
-                    role: Role::Dim,
-                }]
-            };
+            let dim = |text: String| vec![Span::new(text, Role::Dim)];
             List {
                 title: Some(s.apps_title.to_string()),
                 header: vec![

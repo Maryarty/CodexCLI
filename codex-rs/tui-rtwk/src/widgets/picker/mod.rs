@@ -292,7 +292,7 @@ fn paragraphs(
             .iter()
             .map(|runs| {
                 runs.iter()
-                    .map(|span| (span.text.clone(), styles.of(span.role)))
+                    .map(|span| (span.text.clone(), styles.of_span(span)))
                     .collect()
             })
             .collect();
@@ -307,6 +307,28 @@ fn paragraphs(
             };
             vec![(text.clone(), style)]
         })
+        .collect()
+}
+
+/// The footer note as one text: its runs joined, else the plain note.
+fn note_of(list: &List) -> Option<String> {
+    if list.footer_note_spans.is_empty() {
+        return list.footer_note.clone();
+    }
+    Some(
+        list.footer_note_spans
+            .iter()
+            .map(|span| span.text.as_str())
+            .collect(),
+    )
+}
+
+/// The runs of the footer note in their styles (none: the note is plain text).
+fn note_runs(list: &List, tokens: &theme::Tokens) -> Vec<(String, Style)> {
+    let styles = RowStyles::of_theme(tokens);
+    list.footer_note_spans
+        .iter()
+        .map(|span| (span.text.clone(), styles.of_span(span)))
         .collect()
 }
 
@@ -676,7 +698,8 @@ impl State for PickerState {
             below: self.arrow(false, s.more_below, tokens.accent(), listed),
             side: list.side.clone().map(|side| (side, Style::new())),
             preview: list.preview_names().map(|names| names.join(s.preview_join)),
-            note: list.footer_note.clone(),
+            note: note_of(&list),
+            note_runs: note_runs(&list, &tokens),
             hint: hint.map(|hint| (hint, tokens.dim())),
             reserved: w.extras.reserve.then(|| Reserved {
                 rows: list.max_rows(),
@@ -855,7 +878,14 @@ impl PickerState {
             Act::Shortcut(key) => {
                 if let Some(item) = browse.shortcut(key) {
                     self.cursor.set_cursor(Some(item));
-                    self.pick(list, w, cx);
+                    // a sensitive row only takes the cursor: the accept key picks it
+                    let sensitive = list
+                        .items_of(self.tab())
+                        .get(item)
+                        .is_some_and(|row| row.explicit_confirm);
+                    if !sensitive {
+                        self.pick(list, w, cx);
+                    }
                 }
                 return;
             }

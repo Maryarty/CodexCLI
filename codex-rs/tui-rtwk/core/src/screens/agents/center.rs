@@ -38,7 +38,15 @@ impl CenterThreads {
         Self { active, previews, requests }
     }
 
-    pub(super) fn preview(&self, id: &str) -> Option<&ThreadPreview> {
+    /// The thread the session is on (the live one): the page that lists threads marks it and a
+    /// command that acts on the conversation at hand reads which it is.
+    pub fn live(&self) -> Option<&ThreadId> {
+        self.active.as_ref()
+    }
+
+    /// What the app keeps of thread `id` for the rows: the prompt, the streamed reasoning, the
+    /// last message.
+    pub fn preview(&self, id: &str) -> Option<&ThreadPreview> {
         self.previews.get(id)
     }
 

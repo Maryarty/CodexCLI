@@ -1,6 +1,7 @@
 // test root: pages
 //! The doors of the W2 round-1 "needs first" task (doors-r1): one test per door, each the
 //! smallest use a package makes of it. The features that use them have their own tests.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
 
 use rtwk::focus::KeyPress;
 use rtwk_core::input::{KeyEvent, Mods};
@@ -53,5 +54,159 @@ mod presets_chord {
         h.press("q");
         h.wait_idle();
         assert!(!h.t.screen().contains(KEYS), "{}", h.t.screen());
+    }
+}
+
+/// A `Picker` on its own: a host that records the events the list emits.
+mod picker {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+    use rtwk_test::{Options, Tester};
+
+    use codex_tui_rtwk::widgets::picker::list::{Item, List, Role, Span};
+    use codex_tui_rtwk::widgets::picker::{Event, Picker};
+
+    #[derive(Clone)]
+    struct Host {
+        list: Rc<List>,
+        seen: Rc<RefCell<Vec<Event>>>,
+    }
+
+    impl PartialEq for Host {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.list, &other.list)
+        }
+    }
+
+    struct HostState;
+
+    impl StatefulWidget for Host {
+        type State = HostState;
+        fn create_state(&self) -> HostState {
+            HostState
+        }
+    }
+
+    impl_widget!(stateful eq Host);
+
+    impl State for HostState {
+        type Widget = Host;
+        type Msg = Event;
+
+        fn build(&self, w: &Host, cx: &mut Cx<'_, Self>) -> AnyWidget {
+            Picker::new(w.list.clone(), cx.map(|event: Event| event)).into()
+        }
+
+        fn update(&mut self, event: Event, w: &Host, _: &mut Cx<'_, Self>) -> Rebuild {
+            w.seen.borrow_mut().push(event);
+            Rebuild::No
+        }
+    }
+
+    fn mount(list: List, width: u16) -> (Tester, Rc<RefCell<Vec<Event>>>) {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let mut t = Tester::with(Options::new().size(width, 20));
+        t.pump_widget(Host {
+            list: Rc::new(list),
+            seen: seen.clone(),
+        });
+        (t, seen)
+    }
+
+    fn row(name: &str, id: &str) -> Item {
+        Item {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            ..Item::default()
+        }
+    }
+
+    /// A shortcut on a sensitive row (`require_explicit_confirmation`) puts the cursor on it and
+    /// the accept key picks it; a plain row is picked by its shortcut.
+    #[test]
+    fn a_shortcut_on_a_sensitive_row_waits_for_the_accept_key() {
+        let mut sensitive = row("Restart now", "restart");
+        sensitive.explicit_confirm = true;
+        let list = List {
+            title: Some("Restart?".to_owned()),
+            items: vec![row("Later", "later"), sensitive],
+            ..List::default()
+        };
+        let (mut t, seen) = mount(list, 40);
+        t.press("2");
+        t.pump();
+        assert!(seen.borrow().is_empty(), "{:?}", seen.borrow());
+        t.press("enter");
+        t.pump();
+        assert_eq!(*seen.borrow(), [Event::Choose("restart".to_owned())]);
+        seen.borrow_mut().clear();
+        t.press("1");
+        t.pump();
+        assert_eq!(*seen.borrow(), [Event::Choose("later".to_owned())]);
+    }
+
+    const URL: &str = "https://developers.openai.com/codex/windows";
+
+    /// The footer note is styled runs, and a run with a link names the whole destination in
+    /// every cell it wraps over (`windows_sandbox_help_links_keep_complete_wrapped_destinations`).
+    #[test]
+    fn a_linked_run_of_the_footer_note_names_its_destination_on_every_wrapped_cell() {
+        let list = List {
+            items: vec![row("Yes", "yes")],
+            footer_note_spans: vec![
+                Span::new("Learn more: ", Role::Dim),
+                Span::new(URL, Role::Info).linked(URL),
+            ],
+            ..List::default()
+        };
+        let (t, _) = mount(list, 30);
+        let mut spelled = String::new();
+        for y in 0..20 {
+            for x in 0..30 {
+                let cell = t.cell(x, y);
+                if let Some(link) = &cell.link {
+                    assert_eq!(link, URL, "({x}, {y})");
+                    if !cell.tail {
+                        spelled.push_str(&cell.text);
+                    }
+                }
+            }
+        }
+        assert_eq!(spelled, URL, "{}", t.screen());
+        assert!(t.screen().contains("Learn more:"), "{}", t.screen());
+    }
+
+    /// `Role::Good` is the success colour of `Role::Success` without its italic.
+    #[test]
+    fn the_good_role_is_not_italic() {
+        let list = List {
+            items: vec![row("Yes", "yes")],
+            header: vec![vec![
+                Span::new("ok ", Role::Good),
+                Span::new("ready", Role::Success),
+            ]],
+            ..List::default()
+        };
+        let (t, _) = mount(list, 40);
+        let at = |text: &str| {
+            let screen = t.screen();
+            let (y, line) = screen
+                .lines()
+                .enumerate()
+                .find(|(_, line)| line.contains(text))
+                .unwrap_or_else(|| panic!("no {text}\n{screen}"));
+            (
+                line.find(text).map_or(0, |at| line[..at].chars().count()),
+                y,
+            )
+        };
+        let (gx, gy) = at("ok");
+        let (sx, sy) = at("ready");
+        let (good, success) = (t.cell(gx, gy), t.cell(sx, sy));
+        assert_eq!(good.fg, success.fg);
+        assert!(!good.attrs.intersects(rtwk::style::Attrs::ITALIC));
+        assert!(success.attrs.intersects(rtwk::style::Attrs::ITALIC));
     }
 }

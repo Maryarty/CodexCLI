@@ -40,6 +40,7 @@ fn line(text: &str, role: Role) -> Vec<Span> {
     vec![Span {
         text: text.to_owned(),
         role,
+        link: None,
     }]
 }
 

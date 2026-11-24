@@ -44,6 +44,8 @@ pub struct Pane {
     /// The line naming what a multi-select has on, the footer note and hint.
     pub preview: Option<String>,
     pub note: Option<String>,
+    /// The note in runs of their own styles and links (its text is `note`); none: `note` is plain.
+    pub note_runs: Vec<(String, Style)>,
     pub hint: Option<(String, Style)>,
     /// What the pane keeps for the tallest tab (`reserve_result_rows`).
     pub reserved: Option<Reserved>,
@@ -218,6 +220,7 @@ impl Pane {
         let mut left = footer;
         let mut foot = |pane: Column,
                         text: &String,
+                        runs: &[(String, Style)],
                         rows: u16,
                         style: &Style,
                         wrap: TextWrap,
@@ -227,10 +230,18 @@ impl Pane {
             if shown == 0 {
                 return pane;
             }
-            let text = Text::new(text.clone())
-                .style(style.clone())
-                .wrap(wrap)
-                .max_lines(usize::from(shown));
+            let text = if runs.is_empty() {
+                Text::new(text.clone())
+            } else {
+                Text::rich(
+                    runs.iter()
+                        .map(|(text, style)| Span::styled(text.clone(), style.clone()))
+                        .collect::<Vec<_>>(),
+                )
+            }
+            .style(style.clone())
+            .wrap(wrap)
+            .max_lines(usize::from(shown));
             if inset_left {
                 pane.child(Padding::new(EdgeInsets::only(2, 0, 0, 0), text))
             } else {
@@ -238,13 +249,15 @@ impl Pane {
             }
         };
         if let Some(text) = &self.note {
-            pane = foot(pane, text, note, &Style::new(), TextWrap::Word, false);
+            let runs = &self.note_runs;
+            pane = foot(pane, text, runs, note, &Style::new(), TextWrap::Word, false);
         }
         if let Some(text) = &self.preview {
-            pane = foot(pane, text, preview, &Style::new(), TextWrap::None, false);
+            let style = Style::new();
+            pane = foot(pane, text, &[], preview, &style, TextWrap::None, false);
         }
         if let Some((text, style)) = &self.hint {
-            pane = foot(pane, text, hint, style, TextWrap::Word, true);
+            pane = foot(pane, text, &[], hint, style, TextWrap::Word, true);
             if self.reserved.is_some() && left > 0 {
                 pane = pane.child(gap(left));
             }

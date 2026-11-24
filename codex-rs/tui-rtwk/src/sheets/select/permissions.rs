@@ -286,10 +286,7 @@ fn list(page: &Page, sandbox: Sandbox, s: &Strings) -> List {
 /// one paragraph with the caution in red; a cyber model's has blank rows
 /// between its sentences and its first sentence in red.
 fn full_access_header(cyber: Option<&Recommend>, s: &Strings) -> Vec<Vec<Span>> {
-    let run = |text: &str, role| Span {
-        text: text.to_string(),
-        role,
-    };
+    let run = |text: &str, role| Span::new(text, role);
     match cyber {
         None => vec![vec![
             run(s.full_warning, Role::Plain),

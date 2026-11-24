@@ -23,7 +23,7 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, Handler};
 
-use super::list::{Role, Row};
+use super::list::{Role, Row, Span as Run};
 
 use crate::widgets::measure::{self, Measure};
 
@@ -41,6 +41,7 @@ pub struct RowStyles {
     /// it, so a selected row's bold and accent stay under them).
     pub key: Style,
     pub success: Style,
+    pub good: Style,
     pub warning: Style,
     pub info: Style,
     pub danger: Style,
@@ -57,9 +58,19 @@ impl RowStyles {
             disabled: tokens.dim(),
             key: Style::new().attrs(Attrs::UNDERLINE),
             success: tokens.success().attrs(Attrs::ITALIC),
+            good: tokens.success(),
             warning: tokens.warning().attrs(Attrs::ITALIC),
             info: tokens.info(),
             danger: tokens.error(),
+        }
+    }
+
+    /// The style of a run: its role's, a link over it.
+    pub fn of_span(&self, span: &Run) -> Style {
+        let style = self.of(span.role);
+        match &span.link {
+            Some(destination) => style.link(destination.as_str()),
+            None => style,
         }
     }
 
@@ -69,6 +80,7 @@ impl RowStyles {
             Role::Plain => Style::new(),
             Role::Key => self.key.clone(),
             Role::Success => self.success.clone(),
+            Role::Good => self.good.clone(),
             Role::Warning => self.warning.clone(),
             Role::Dim => self.description.clone(),
             Role::Strong => Style::new().attrs(Attrs::BOLD),
@@ -390,7 +402,7 @@ impl Rows {
         head.extend(
             row.prefix_spans
                 .iter()
-                .map(|span| Span::styled(span.text.clone(), styles.of(span.role))),
+                .map(|span| Span::styled(span.text.clone(), styles.of_span(span))),
         );
         let described = label_width.is_some() && self.words.description(row, cursor).is_some();
         let label: AnyWidget = if self.single_line {

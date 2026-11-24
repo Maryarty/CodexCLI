@@ -54,6 +54,7 @@ fn paragraph(text: &str, role: Role) -> Vec<Span> {
     vec![Span {
         text: text.to_owned(),
         role,
+        link: None,
     }]
 }
 
@@ -105,6 +106,7 @@ fn row(prompt: Prompt, choice: Choice, index: usize) -> Item {
             prefix_spans: vec![Span {
                 text: format!("{number}. "),
                 role: Role::Plain,
+                link: None,
             }],
             ..item
         },

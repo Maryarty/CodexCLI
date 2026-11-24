@@ -186,6 +186,7 @@ fn dim(text: impl Into<String>) -> Vec<Span> {
     vec![Span {
         text: text.into(),
         role: Role::Dim,
+        link: None,
     }]
 }
 
@@ -611,6 +612,7 @@ fn plugin_item(
             .map(|text| Span {
                 text: text.to_string(),
                 role: Role::Plain,
+                link: None,
             })
             .into_iter()
             .collect(),
@@ -636,11 +638,13 @@ pub fn detail_page(detail: &Detail, s: &Strings) -> List {
             ],
         ),
         role: Role::Strong,
+        link: None,
     }]];
     if detail.disclosure() {
         let run = |text: &str, role: Role| Span {
             text: text.to_string(),
             role,
+            link: None,
         };
         header.push(vec![
             run(s.disclosure_start, Role::Plain),
@@ -806,6 +810,7 @@ pub fn auth_page(step: &AuthStep, s: &Strings) -> List {
         vec![Span {
             text: s.with(s.auth_installed, &step.plugin),
             role: Role::Strong,
+            link: None,
         }],
         dim(s.fmt(
             s.auth_step,

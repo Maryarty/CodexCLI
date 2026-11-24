@@ -44,6 +44,7 @@ fn span(text: impl Into<String>, role: Role) -> Span {
     Span {
         text: text.into(),
         role,
+        link: None,
     }
 }
 

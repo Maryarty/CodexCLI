@@ -76,6 +76,7 @@ pub fn list(menu: &Menu, quick: &Quick, s: &Strings) -> Option<List> {
                     prefix_spans: vec![Span {
                         text: "1. ".to_string(),
                         role: Role::Plain,
+                        link: None,
                     }],
                     ..Item::default()
                 }],
@@ -97,6 +98,7 @@ fn slot(row: &SlotRow, s: &Strings) -> Item {
             vec![Span {
                 text: s.empty_slot.to_string(),
                 role: Role::Dim,
+                link: None,
             }]
         } else {
             Vec::new()
@@ -129,7 +131,13 @@ fn confirmation(
         (_, _, Some(new)) => new.input.trim().to_string(),
         _ => String::new(),
     };
-    let run = |text: String, role| vec![Span { text, role }];
+    let run = |text: String, role| {
+        vec![Span {
+            text,
+            role,
+            link: None,
+        }]
+    };
     std::iter::once(run(s.confirm_title(action, slot), Role::Strong))
         .chain(what.lines().map(|line| run(line.to_string(), Role::Dim)))
         .collect()

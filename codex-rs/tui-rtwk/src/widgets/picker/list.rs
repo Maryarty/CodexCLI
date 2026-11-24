@@ -37,6 +37,8 @@ pub enum Role {
     Key,
     /// A state that is fine (`Ready`): the success colour, italic.
     Success,
+    /// A result that went well (`"✔".green()`): the success colour, not italic.
+    Good,
     /// A state that needs a look: the warning colour, italic.
     Warning,
     /// Secondary text: dim.
@@ -55,6 +57,26 @@ pub enum Role {
 pub struct Span {
     pub text: String,
     pub role: Role,
+    /// The run is a hyperlink to this destination (OSC 8 where the terminal takes it): every
+    /// cell of the run, wrapped over rows or not, names the whole destination.
+    pub link: Option<String>,
+}
+
+impl Span {
+    /// A run of `text` in `role`, no link.
+    pub fn new(text: impl Into<String>, role: Role) -> Span {
+        Span {
+            text: text.into(),
+            role,
+            link: None,
+        }
+    }
+
+    /// The run as a link to `destination`.
+    pub fn linked(mut self, destination: impl Into<String>) -> Span {
+        self.link = Some(destination.into());
+        self
+    }
 }
 
 /// One row (`SelectionItem`). A row is disabled when `disabled` is set or a
@@ -86,6 +108,9 @@ pub struct Item {
     pub secondary: Option<Secondary>,
     /// A multi-select row the ordering keys may move (`MultiSelectItem::orderable`).
     pub orderable: bool,
+    /// A sensitive row (`require_explicit_confirmation`): its shortcut key only puts the cursor
+    /// on it, and the accept key picks it.
+    pub explicit_confirm: bool,
     /// A rule is drawn under the row, unless it is the last one shown.
     pub section_break_after: bool,
     /// Runs drawn after the row's number and before its name, each in its
@@ -196,6 +221,9 @@ pub struct List {
     /// subtitle; an empty paragraph is a blank row. Replaces `subtitle`.
     pub header: Vec<Vec<Span>>,
     pub footer_note: Option<String>,
+    /// The footer note as runs, each in its role and with its link (`footer_note` is a styled
+    /// `Line` in the oracle); when there are runs they are the note, `footer_note` is not read.
+    pub footer_note_spans: Vec<Span>,
     pub footer_hint: Option<String>,
     /// The footer says what the list's accept and cancel keys are, as the
     /// keymap names them (`picker_hint_line_for_keymap`: `enter select · esc
@@ -245,6 +273,7 @@ impl Default for List {
             subtitle_role: Role::Plain,
             header: Vec::new(),
             footer_note: None,
+            footer_note_spans: Vec::new(),
             footer_hint: None,
             standard_hint: false,
             items: Vec::new(),
