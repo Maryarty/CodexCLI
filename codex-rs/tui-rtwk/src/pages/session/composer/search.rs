@@ -3,7 +3,7 @@
 //! stands in the draft's place (`ComposerDraft::search_*`) and the footer
 //! row is the query. Oracle: `bottom_pane/chat_composer/history_search.rs`.
 
-use rtwk::editing::TextEditingController;
+use rtwk::editing::{StoredStops, TextEditingController, editing_key};
 use rtwk::focus::KeyPress;
 use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::style::{Attrs, Span};
@@ -64,12 +64,14 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
         draft.search_accept(c);
     } else if pressed(&data.keymap, SEARCH_ERASE, key) {
         draft.search_edit(c, store, &mut asks, |query| {
-            query.pop();
+            edited(query, |q| {
+                editing_key(q, KeyPress::BACKSPACE, &|t| q.insert(t), &StoredStops, false, None);
+            });
         });
     } else if pressed(&data.keymap, SEARCH_CLEAR, key) {
-        draft.search_edit(c, store, &mut asks, String::clear);
+        draft.search_edit(c, store, &mut asks, |query| edited(query, TextEditingController::clear));
     } else if let Some(text) = key.as_text() {
-        draft.search_edit(c, store, &mut asks, |query| query.push_str(text));
+        draft.search_edit(c, store, &mut asks, |query| edited(query, |q| q.insert(text)));
     } else if pressed(&data.keymap, DEBUG_KEY, key) {
         // the port's own hidden debug key is not the oracle's to swallow
         return false;
@@ -77,6 +79,15 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     ask(data, asks);
     (data.tell)(ComposerMsg::Searched);
     true
+}
+
+/// The footer query after `edit` did its work to it as a one-line field's text (the caret at its
+/// end: Backspace takes the last character, a typed one or a paste is added there): the query
+/// is a field's text, edited by the field's keys, never by hand.
+fn edited(query: &mut String, edit: impl FnOnce(&TextEditingController)) {
+    let field = TextEditingController::new(query);
+    edit(&field);
+    *query = field.text().to_string();
 }
 
 /// The reads the search needs go to the app.
@@ -93,7 +104,9 @@ pub fn paste(data: &KeyData, c: &TextEditingController, text: &str) {
     let mut asks = Vec::new();
     if !pasted.is_empty() {
         data.draft
-            .search_edit(c, &data.history, &mut asks, |query| query.push_str(&pasted));
+            .search_edit(c, &data.history, &mut asks, |query| {
+                edited(query, |q| q.insert(&pasted));
+            });
     }
     ask(data, asks);
     (data.tell)(ComposerMsg::Searched);

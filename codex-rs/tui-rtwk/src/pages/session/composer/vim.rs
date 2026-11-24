@@ -561,9 +561,19 @@ pub fn insert(
             }
         )
         && c.selection().is_collapsed()
-        && run(data, c, |v, host| v.replace_backspace(host))
     {
-        return Some(true);
+        // Backspace at the start of a shell draft takes the `!` away, after Replace put back what
+        // the hidden `!` had covered (`handle_key_event_without_popup`)
+        let hidden = draft.shell() && c.selection().extent_offset == 0;
+        let restored = run(data, c, |v, host| v.replace_backspace(host));
+        if hidden {
+            draft.set_shell(false);
+            (data.tell)(ComposerMsg::Shell);
+            return Some(true);
+        }
+        if restored {
+            return Some(true);
+        }
     }
     match resolved {
         Resolved::Edit {
@@ -583,10 +593,32 @@ pub fn insert(
         }
         Resolved::None if mode.replace => {
             let ch = typed_char(key)?;
+            // a selected range is replaced by what is typed, as in any mode, and no command
+            // repeats it (`insert_str_at_target`)
+            if !c.selection().is_collapsed() {
+                draft.with_vim(Vim::forget_commands);
+                return None;
+            }
             run(data, c, |v, host| v.type_text(host, &ch.to_string()));
+            absorb_shell_prefix(data, c);
             Some(true)
         }
         _ => None,
+    }
+}
+
+/// A `!` Replace mode typed at the draft's start is shell mode and leaves the text (the prompt
+/// shows it); its recovery step stays, so Backspace brings back the character it covered
+/// (`sync_bash_mode_from_text`, `absorb_prompt_prefix`).
+fn absorb_shell_prefix(data: &KeyData, c: &TextEditingController) {
+    let draft = &data.draft;
+    if draft.shell() || draft.is_plain() || !c.text().starts_with('!') {
+        return;
+    }
+    let caret = c.selection().extent_offset;
+    draft.with_vim(|v| v.absorb_prompt_prefix(caret, 1));
+    if draft.absorb_shell_prefix(c) {
+        (data.tell)(ComposerMsg::Shell);
     }
 }
 

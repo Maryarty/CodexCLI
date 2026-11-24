@@ -166,6 +166,18 @@ impl Vim {
         self.commands.last_change.clear();
     }
 
+    /// The text changed under Replace mode (an external editor's, a draft put in): what it
+    /// overwrote is not the text there now, so Backspace restores nothing (`clear_vim_replace_recovery`).
+    pub fn forget_recovery(&mut self) {
+        self.commands.replace_steps.clear();
+    }
+
+    /// A pointer-selected range was replaced by typing: that edit is not a keyboard-relative
+    /// command, so what `.` repeats, what is recorded and what Replace could restore are gone.
+    pub fn forget_commands(&mut self) {
+        self.commands = Commands::default();
+    }
+
     /// A command, a query or a text object waits for its next key.
     pub fn is_operator_pending(&self) -> bool {
         self.searching.is_some() || self.pending != VimPending::None
@@ -396,6 +408,27 @@ impl Vim {
                 inserted_len: grapheme.len(),
                 original,
             });
+        }
+    }
+
+    /// The `prefix_len` characters Replace typed at the draft's start are about to leave the text
+    /// (a `!` that is the shell prompt): their recovery step stays and restores what they
+    /// covered, with nothing of its own to take out; any other recovery goes with the edit
+    /// (`absorb_prompt_prefix`). `cursor` is the caret after the typed characters.
+    pub fn absorb_prompt_prefix(&mut self, cursor: usize, prefix_len: usize) {
+        if !self.is_replace() {
+            return;
+        }
+        let kept = cursor == prefix_len
+            && self.commands.replace_steps.last_mut().is_some_and(|step| {
+                let own = step.cursor_before == 0 && step.start == 0 && step.inserted_len == prefix_len;
+                if own {
+                    step.inserted_len = 0;
+                }
+                own
+            });
+        if !kept {
+            self.commands.replace_steps.clear();
         }
     }
 

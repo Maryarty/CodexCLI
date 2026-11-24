@@ -218,8 +218,10 @@ fn holds(binding: &FixedBinding, key: &KeyPress) -> bool {
     .into_iter()
     .filter(|(flag, _)| key.mods.contains(*flag))
     .fold(Mods::NONE, |all, (_, mods)| all.with(mods));
+    // a character is the key typed, or the key it is on a US layout (a Cyrillic layout's Ctrl+в
+    // is Ctrl+D: `KeyCombo::accepts_press` reads a press the same way)
     let same_key = match binding.key {
-        Key::Char(c) => key.ch == Some(c),
+        Key::Char(c) => key.ch == Some(c) || key.layout_char() == Some(c),
         other => press_code(other) == Some(key.code),
     };
     same_key && binding.mods.accepts(held)
