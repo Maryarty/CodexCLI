@@ -24,6 +24,8 @@ use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::import::Places;
+use codex_tui_core::screens::usage::reset::Consume;
+use codex_tui_core::screens::usage::{Ask as UsageAsk, AskKind, Ev as UsageEv};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
@@ -514,9 +516,39 @@ async fn run_as(
             // Host-run asks (the clipboard, the diff, the history file, the analytics, the
             // device): recorded; a test answers with `inject` of the matching `AppEv`.
             | Command::Popovers { .. }
-            | Command::Usage { .. }
             | Command::Effect { .. }
             | Command::VerifyUser { .. } => {}
+            // A usage-limit redemption is the account's, not the analytics host's: the responder
+            // answers the `account/rateLimitResetCredit/consume` as the server does (the other
+            // asks of the usage page stay recorded, a test answers them with `inject`).
+            Command::Usage {
+                ask:
+                    UsageAsk {
+                        what: AskKind::Redeem { key, credit_id },
+                        ..
+                    },
+                ..
+            } => {
+                let responder = shared.lock().ok().and_then(|guard| guard.responder.clone());
+                let Some(responder) = responder else { continue };
+                let ingress = ingress.clone();
+                let ids = ids.clone();
+                let log = shared.clone();
+                tokio::spawn(async move {
+                    let send = request_sender(log, responder);
+                    let redeem = Consume::Redeem {
+                        key: key.clone(),
+                        credit_id,
+                    };
+                    let result = match send(redeem.request(ids.next())).await {
+                        Ok(answer) => redeem.reply(answer).map_err(|error| format!("{error:?}")),
+                        Err(error) => Err(error.to_string()),
+                    };
+                    let ev = AppEv::Screen(ScreenEv::Usage(UsageEv::Redeemed { key, result }));
+                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
+                });
+            }
+            Command::Usage { .. } => {}
             // The scripted server has no launch facts: nothing is due.
             Command::Startup { .. } => {}
             // The import flow: answered as the responder scripts the

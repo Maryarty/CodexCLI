@@ -967,9 +967,14 @@ fn usage_views_open_the_requested_summary_mode() {
             open(Target::Usage, SlashCommand::Usage, view)
         );
     }
+    // a bare `/usage` with a login opens the usage menu (`features::usage_menu`)
     assert_eq!(
         dispatch("/usage", &cx()),
-        open(Target::Usage, SlashCommand::Usage, "")
+        open(
+            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Usage).unwrap()),
+            SlashCommand::Usage,
+            ""
+        )
     );
 }
 
@@ -1137,7 +1142,10 @@ fn every_screen_opening_command_names_its_target() {
         ("/experimental", Target::Settings),
         ("/agents", Target::Agents),
         ("/subagents", Target::AgentPicker),
-        ("/usage", Target::Usage),
+        (
+            "/usage",
+            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Usage).unwrap()),
+        ),
         ("/warnings", Target::Dialogs),
         // the feature's own sheet (`features::feedback`), not the small dialogs
         (

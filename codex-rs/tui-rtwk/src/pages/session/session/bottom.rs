@@ -18,6 +18,7 @@ use crate::pages::session::activity::StatusSlot;
 use crate::pages::session::backtrack::EditWatch;
 use crate::pages::session::banners::{BackendBanners, NoticeLine, ReserveSelector, reserve_of};
 use crate::pages::session::footer::{Sparkle, StatusRows};
+use crate::pages::session::live::limits;
 use crate::pages::session::popovers::mention;
 use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
@@ -95,7 +96,14 @@ pub(super) fn body(
         // the row the reader's control takes (`composer_gap`); a popup
         // above the draft takes the rows before it does
         body.child({
-            let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above);
+            // the usage notice takes the row while the reader is at the end (`composer_hint`)
+            let model = thread.screen_slots().chat.model.as_deref().or(frame
+                .drawn
+                .status
+                .model
+                .as_deref());
+            let notice = limits::notice_of(session, frame.drawn.owner, model).map(AnyWidget::from);
+            let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice);
             let mentions = w.ui.draft.mentions();
             ListenableBuilder::new(mentions.listenable(), move |_, _| {
                 if mentions.is_open() {

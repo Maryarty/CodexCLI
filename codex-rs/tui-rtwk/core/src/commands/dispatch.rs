@@ -418,7 +418,10 @@ pub fn dispatch_command(command: SlashCommand, args: &str, cx: &DispatchCx) -> O
 fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
     use SlashCommand::*;
     // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
-    if let Some(feature) = target_of(command) {
+    // (`/usage` without a ChatGPT login is the notice below, not the menu)
+    if let Some(feature) = target_of(command)
+        && (command != Usage || cx.has_backend_auth)
+    {
         return open(Target::Feature(feature), command, "");
     }
     match command {
@@ -444,13 +447,8 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Warnings | Feedback => open(Target::Dialogs, command, ""),
         Pets => open(Target::Pets, command, ""),
         TestApproval => open(Target::Approvals, command, ""),
-        Usage => {
-            if cx.has_backend_auth {
-                open(Target::Usage, command, "")
-            } else {
-                Outcome::Notice(Notice::UsageNeedsLogin)
-            }
-        }
+        // the bare command with a login is the feature's menu (`features::usage_menu`)
+        Usage => Outcome::Notice(Notice::UsageNeedsLogin),
         Voice => session(command, SessionIntent::VoiceControl(VoiceControl::Toggle)),
         Mention => Outcome::Insert("@"),
         Quit | Exit => Outcome::Quit,
