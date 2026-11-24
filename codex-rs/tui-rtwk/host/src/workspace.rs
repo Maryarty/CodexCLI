@@ -16,8 +16,7 @@ use codex_core::config::ConfigOverrides;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_core::config::load_config_toml_with_layer_stack;
-use codex_tui_core::app::AppEv;
-use codex_tui_core::app::effects::{Ask, Done};
+use codex_tui_core::app::effects::Done;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::select::worktree::{Entry, Owner, Thread};
@@ -106,42 +105,26 @@ where
     Ok(entries)
 }
 
-/// The worktree asks of the menus as one job: the list with its owners read through the app
-/// server, or the removal. `None` for any other ask.
-pub(crate) fn job(
-    request: u64,
-    ask: &Ask,
+/// The managed worktrees of the repository `cwd` is in (`Ask::Worktrees`): the owners are read
+/// through the app server of `handle`.
+pub(crate) async fn list(
     codex_home: PathBuf,
-    ids: Ids,
-    handle: AppServerRequestHandle,
-) -> Option<Boxed<Option<AppEv>>> {
-    let done =
-        match ask.clone() {
-            Ask::Worktrees { cwd } => Box::pin(async move {
-                let read = |thread: String| {
-                    let send = crate::in_process::sender(handle.clone());
-                    let id = ids.next();
-                    async move {
-                        send(codex_tui_core::screens::select::worktree::owner_request(
-                            &thread, id,
-                        ))
-                        .await
-                        .map_err(|error| error.message)
-                    }
-                };
-                Done::Worktrees(list_worktrees(codex_home, cwd, read).await)
-            }) as Boxed<Done>,
-            Ask::WorktreeRemove { cwd, root } => Box::pin(async move {
-                Done::WorktreeRemoved(remove_worktree(codex_home, cwd, root).await)
-            }),
-            _ => return None,
-        };
-    Some(Box::pin(async move {
-        Some(AppEv::Effect {
-            request,
-            done: done.await,
-        })
-    }))
+    cwd: String,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) -> Done {
+    let read = |thread: String| {
+        let send = crate::in_process::sender(handle.clone());
+        let id = ids.next();
+        async move {
+            send(codex_tui_core::screens::select::worktree::owner_request(
+                &thread, id,
+            ))
+            .await
+            .map_err(|error| error.message)
+        }
+    };
+    Done::Worktrees(list_worktrees(codex_home, cwd, read).await)
 }
 
 /// The directory of the archived rollouts (`codex_rollout::ARCHIVED_SESSIONS_SUBDIR`).

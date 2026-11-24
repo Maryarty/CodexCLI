@@ -16,6 +16,9 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
+#[macro_use]
+mod capability;
+
 use super::Command;
 use crate::features::FeatureCtx;
 use crate::ids::{RequestKey, ThreadId};
@@ -100,59 +103,104 @@ pub enum DaemonDone {
     Restarted(Result<(), String>),
 }
 
-/// What the host is asked.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ask {
+host_capability_list! {
     /// Put `text` on the clipboard (native first, then the terminal's forwarding), or on
-    /// PRIMARY: `destination` says where.
-    Copy {
+    /// PRIMARY: `destination` says where. Answered by the delivery status, or the host's failure
+    /// text (oracle: `Failed to copy ...: {error}`); a copy reports `Pending` first and how it
+    /// ended after.
+    copy => Copy {
         text: String,
         format: CopyFormat,
         destination: CopyDestination,
-    },
+    } -> new Copy(Result<CopyStatus, String>);
     /// The diff of the working directory `cwd` (`None`: the process's own): the host runs the
     /// `diff::Diff` machine through its workspace executor.
-    GitDiff { cwd: Option<String> },
+    git_diff => GitDiff { cwd: Option<String> }
+        -> new GitDiff(Result<diff::Report, diff::Failure>);
     /// The transcript of `thread`, as the Markdown the asker rendered from the cells' text,
     /// written to `path` (`~/` is the home directory, a relative path is under `cwd`: the
     /// launch directory for a remote workspace, else the thread's; an existing file is never
-    /// overwritten). Oracle `transcript_export.rs`.
-    Export {
+    /// overwritten). Oracle `transcript_export.rs`. Answered by the path written, or the host's
+    /// failure text.
+    export => Export {
         thread: ThreadId,
         path: String,
         cwd: String,
         markdown: String,
-    },
-    /// Edits of the config file.
-    ConfigWrite { edits: Vec<ConfigEdit> },
-    /// The text the system clipboard holds (Ctrl+Shift+V, the right-click paste).
-    ClipboardText,
-    /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`).
-    OpenDesktop { thread: ThreadId },
+    } by thread -> new Export(Result<String, String>);
+    /// Edits of the config file. Answered by nothing, or the host's failure text.
+    config_write => ConfigWrite { edits: Vec<ConfigEdit> } -> new Config(Result<(), String>);
+    /// The text the system clipboard holds (Ctrl+Shift+V, the right-click paste), or why it could
+    /// not be read.
+    clipboard_text => ClipboardText -> new ClipboardText(Result<String, String>);
+    /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`). Answered by nothing,
+    /// or the launch's own failure text.
+    open_desktop => OpenDesktop { thread: ThreadId } -> new Opened(Result<(), String>);
     /// Opens a page in the user's browser (oracle `AppEvent::OpenUrlInBrowser`): a feature's
     /// link (the sign-in page of a plugin's app). Answered by `Done::Opened`.
-    OpenUrl { url: String },
+    open_url => OpenUrl { url: String } -> shared Opened;
     /// The local branches of the repository in `cwd` (the default branch first) and the one
     /// checked out: the `/review` base-branch picker (oracle `local_git_branches`,
-    /// `current_branch_name`). Answered by `Done::GitBranches`; an empty list when it is no
-    /// repository.
-    GitBranches { cwd: Option<String> },
-    /// The last `limit` commits of `cwd`: the `/review` commit picker (oracle `recent_commits`).
-    GitLog { cwd: Option<String>, limit: usize },
-    /// The managed worktrees of the repository `cwd` is in, each with its owner thread
-    /// (oracle `worktree_browser::fetch`). Answered by `Done::Worktrees`.
-    Worktrees { cwd: String },
+    /// `current_branch_name`). The answer has the current branch (none: detached HEAD, or no
+    /// repository) and the branches; an empty list when it is no repository.
+    git_branches => GitBranches { cwd: Option<String> } -> new GitBranches {
+        current: Option<String>,
+        branches: Vec<String>,
+    };
+    /// The last `limit` commits of `cwd`, newest first: the `/review` commit picker (oracle
+    /// `recent_commits`).
+    git_log => GitLog { cwd: Option<String>, limit: usize } -> new GitLog(Vec<Commit>);
+    /// The managed worktrees of the repository `cwd` is in, each with its owner thread (oracle
+    /// `worktree_browser::fetch`), or why they could not be listed.
+    worktrees => Worktrees { cwd: String }
+        -> new Worktrees(Result<Vec<WorktreeEntry>, String>);
     /// The local background server's lifecycle (`codex_app_server_daemon::run`): the probe of
-    /// whether the connected server is a daemon this CLI manages, and the restart. Answered by
-    /// `Done::BackgroundServer`.
-    BackgroundServer(DaemonAsk),
-    /// Removes the worktree at `root` (oracle `worktree_browser::remove`, `cwd` is the session's).
-    WorktreeRemove { cwd: String, root: String },
+    /// whether the connected server is a daemon this CLI manages, and the restart.
+    background_server => BackgroundServer(ask: DaemonAsk) -> new BackgroundServer(DaemonDone);
+    /// Removes the worktree at `root` (oracle `worktree_browser::remove`, `cwd` is the
+    /// session's). Answered by nothing, or why the worktree could not be removed.
+    worktree_remove => WorktreeRemove { cwd: String, root: String }
+        -> new WorktreeRemoved(Result<(), String>);
     /// The external editor (oracle `external_editor::run_editor`): `draft` is written to a
     /// temporary file, `$VISUAL` / `$EDITOR` runs on it with the terminal handed over, and the
     /// file's text comes back. `cwd` is the thread's directory (the sandbox policy is read
-    /// against it). Answered by `Done::Editor`.
-    Editor { draft: String, cwd: String },
+    /// against it). Answered by what the editor left in the file, or why it could not run.
+    editor => Editor { draft: String, cwd: String }
+        -> new Editor(Result<String, EditorFailure>);
+    /// Microphone capture and speaker playback of voice (oracle `voice.rs`, `audio_device.rs`).
+    /// Listed for the voice package; the host answers it with its audio executor.
+    audio => Audio(command: AudioCommand) -> new Audio(Result<(), String>);
+    /// Suspends the process to the shell (Ctrl+Z, oracle `tui/job_control.rs`); the answer comes
+    /// when the shell resumes it.
+    suspend => Suspend -> new Resumed(Result<(), String>);
+    /// A desktop notification of the terminal (OSC 9 or BEL, oracle `tui/notifications.rs`).
+    notify => Notify { message: String } -> new Notified(Result<(), String>);
+    /// The terminal's screen: the alternate screen on or off (the inline mode leaves it for an
+    /// overlay and comes back, oracle `tui.rs` `enter_alt_screen`/`leave_alt_screen`).
+    screen_mode => ScreenMode { alternate: bool } -> new ScreenModeSet(Result<(), String>);
+    /// The terminal's default colors (oracle `terminal_palette.rs`), `None` when it did not say.
+    probe => Probe -> new Probed(Option<TerminalColors>);
+    /// The lock a session holds while it is the one in use (oracle `session_lock`): taken, or
+    /// released. Answered by nothing, or why it could not be taken (another process holds it).
+    session_lock => SessionLock { thread: ThreadId, held: bool } -> new Locked(Result<(), String>);
+}
+
+/// What `Ask::Audio` asks of the audio devices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioCommand {
+    /// Starts capturing the microphone.
+    StartCapture,
+    /// Stops capturing.
+    StopCapture,
+    /// Stops what the speaker plays.
+    StopPlayback,
+}
+
+/// The terminal's default colors, as `[r, g, b]`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TerminalColors {
+    pub foreground: Option<[u8; 3]>,
+    pub background: Option<[u8; 3]>,
 }
 
 impl Ask {
@@ -164,38 +212,6 @@ impl Ask {
             _ => 0,
         }
     }
-}
-
-/// What the host answers, one variant per `Ask`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Done {
-    /// The delivery status, or the host's failure text (oracle: `Failed to copy ...: {error}`).
-    Copy(Result<CopyStatus, String>),
-    GitDiff(Result<diff::Report, diff::Failure>),
-    /// The path written, or the host's failure text.
-    Export(Result<String, String>),
-    /// Nothing, or the host's failure text.
-    Config(Result<(), String>),
-    /// The clipboard's text, or why it could not be read.
-    ClipboardText(Result<String, String>),
-    /// The Desktop app or the browser was asked to open something: nothing, or the launch's own
-    /// failure text.
-    Opened(Result<(), String>),
-    /// The branches, and the current one (none: detached HEAD, or no repository).
-    GitBranches {
-        current: Option<String>,
-        branches: Vec<String>,
-    },
-    /// The commits, newest first.
-    GitLog(Vec<Commit>),
-    /// The worktrees, or why they could not be listed.
-    Worktrees(Result<Vec<WorktreeEntry>, String>),
-    /// Nothing, or why the worktree could not be removed.
-    WorktreeRemoved(Result<(), String>),
-    /// The answer of a daemon ask.
-    BackgroundServer(DaemonDone),
-    /// What the editor left in the file, or why it could not run.
-    Editor(Result<String, EditorFailure>),
 }
 
 /// Why the external editor did not give a text back (oracle `EditorError` and the failures of

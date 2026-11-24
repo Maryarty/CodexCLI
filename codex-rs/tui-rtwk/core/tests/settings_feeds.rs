@@ -539,3 +539,27 @@ fn a_captured_key_that_means_two_things_is_a_conflict_for_the_surface() {
     });
     assert_eq!(conflict.as_deref(), Some("ctrl-t"));
 }
+
+// ---- the public verbs (`AppCx::verb`): `/title` and `/statusline` with items
+
+/// `/title project-name` is the verb `StatusOverride`: the chat screen holds the override, no
+/// wish is queued for the UI to hand on.
+#[test]
+fn title_items_reach_the_chat_screen_as_a_verb() {
+    let mut app = app();
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: Some(codex_tui_core::ids::ThreadId::new("thread-1")),
+            command: codex_tui_core::commands::SlashCommand::Title,
+            intent: SessionIntent::Feature {
+                args: "project-name".to_owned(),
+            },
+        }))),
+    );
+    assert_eq!(
+        app.screens().chat.status_override.terminal_title,
+        Some(vec!["project-name".to_owned()])
+    );
+    assert_eq!(app.wishes().pending().count(), 0);
+}

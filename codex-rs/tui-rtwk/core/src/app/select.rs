@@ -342,7 +342,7 @@ fn settings(
     true
 }
 
-fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
+pub(super) fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
     use select::models::Apply;
     let effects = select::persist::effects(&selection);
     if let Some(threads) = selection.warning {

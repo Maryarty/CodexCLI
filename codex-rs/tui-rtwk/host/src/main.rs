@@ -9,6 +9,7 @@ mod daemon;
 mod debug_config;
 mod effects;
 mod facts;
+mod feeds;
 mod gateway;
 mod import;
 mod in_process;

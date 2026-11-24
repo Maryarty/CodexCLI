@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Refusal};
+use super::{AppCx, PublicVerb, Refusal};
 use crate::app::effects::{Ask, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -89,11 +89,6 @@ pub enum Intent {
 /// presenter shows once).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wish {
-    /// `/title` or `/statusline` items: this session only, nothing is written to the config.
-    Status(crate::screens::chat::StatusOverride),
-    /// `/model <name>`: the model and effort picked for this session. A `--speed` is checked
-    /// by the arguments and not carried (the pick has no tier).
-    Model(crate::screens::select::models::Selection),
     /// The captured key cannot be bound: the keymap with it does not resolve (the conflict
     /// sheet: pick another key, or cancel).
     KeymapConflict {
@@ -610,12 +605,11 @@ impl State {
         cx: &mut AppCx<'_>,
     ) {
         use crate::commands::SlashCommand;
-        let scope = thread.clone().unwrap_or_default();
-        let wish = match command {
+        let verb = match command {
             SlashCommand::Hooks => return self.open(Which::Hooks, cx),
             SlashCommand::Resume => return Self::resume(args.trim(), cx),
-            SlashCommand::Title => args::title(args).map(Wish::Status),
-            SlashCommand::Statusline => args::status_line(args).map(Wish::Status),
+            SlashCommand::Title => args::title(args).map(PublicVerb::StatusOverride),
+            SlashCommand::Statusline => args::status_line(args).map(PublicVerb::StatusOverride),
             SlashCommand::Model => {
                 let screens = cx.view().screens();
                 args::model(
@@ -624,12 +618,12 @@ impl State {
                     &crate::screens::select::models::Current::from_facts(&screens.chat.status),
                     &screens.select.catalog.presets,
                 )
-                .map(|pick| Wish::Model(pick.selection))
+                .map(|pick| PublicVerb::PickModel(pick.selection))
             }
             _ => return,
         };
-        match wish {
-            Ok(wish) => cx.wish(scope, wish),
+        match verb {
+            Ok(verb) => cx.verb(verb),
             Err(refusal) => cx.note(None, Note::Refused(refusal)),
         }
     }

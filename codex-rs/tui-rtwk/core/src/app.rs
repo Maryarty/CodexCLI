@@ -19,6 +19,7 @@ mod select;
 mod session;
 mod structured;
 mod transcript_text;
+mod verbs;
 pub use clock::{Now, Wake};
 pub use transcript_text::TranscriptText;
 
@@ -933,10 +934,10 @@ impl CodexApp {
             Command::RejectRequest { key }
             | Command::ResolveRequest { key, .. }
             | Command::VerifyUser { key, .. } => key.backend,
-            Command::Effect {
-                ask: effects::Ask::Export { thread, .. },
-                ..
-            } => agents.owner_of(thread.as_str()),
+            // An ask about a thread runs on the connection of its owner (`Ask::thread`).
+            Command::Effect { ask, .. } if ask.thread().is_some() => {
+                agents.owner_of(ask.thread().map_or("", |thread| thread.as_str()))
+            }
             Command::StartThread { backend, .. }
             | Command::ReadRateLimits { backend, .. }
             | Command::SendAddCreditsNudge { backend, .. } => *backend,

@@ -18,6 +18,9 @@ use codex_tui_core::app::effects::CopyDestination;
 use codex_tui_core::app::effects::CopyFormat;
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::effects::Done;
+use codex_tui_core::app::effects::HostDoors;
+use codex_tui_core::app::effects::run_ask;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
 
@@ -118,7 +121,14 @@ impl Services {
     /// One ask of `Intent::Effect`, answered under `request`; `None` for the asks of the
     /// app-server (the title, the config).
     pub async fn effect(&self, request: u64, ask: Ask, exec: &dyn WorkspaceExec) -> Option<Ran> {
-        let (done, terminal) = self.done(ask, exec).await?;
+        let (done, terminal) = run_ask(
+            &Doors {
+                services: self,
+                exec,
+            },
+            ask,
+        )
+        .await?;
         Some(Ran {
             ev: AppEv::Effect { request, done },
             terminal,
@@ -136,64 +146,6 @@ impl Services {
                     failure.url, failure.error
                 ),
             })
-    }
-
-    async fn done(&self, ask: Ask, exec: &dyn WorkspaceExec) -> Option<(Done, Option<String>)> {
-        Some(match ask {
-            Ask::Copy {
-                text,
-                format,
-                destination,
-            } => {
-                let format = format_of(&text, &format);
-                let done = self
-                    .clipboard
-                    .copy(Arc::from(text), format, destination_of(destination))
-                    .await;
-                let status = done.result.map(status_of);
-                return Some((Done::Copy(status), done.terminal));
-            }
-            Ask::GitDiff { cwd } => {
-                let cwd = cwd.map_or_else(|| PathBuf::from("."), PathBuf::from);
-                (Done::GitDiff(git_diff(exec, &cwd).await), None)
-            }
-            Ask::Export {
-                path,
-                cwd,
-                markdown,
-                ..
-            } => {
-                let written =
-                    transcript_file::export(PathBuf::from(cwd), PathBuf::from(path), markdown)
-                        .await
-                        .map(|path| path.display().to_string());
-                (Done::Export(written), None)
-            }
-            Ask::ClipboardText => {
-                let text = TextReader::new(&environment())
-                    .read_within(READ_WITHIN)
-                    .await;
-                (Done::ClipboardText(text), None)
-            }
-            Ask::OpenDesktop { thread } => {
-                let opened = open_url::open_desktop_thread(thread.to_string()).await;
-                (Done::Opened(opened), None)
-            }
-            Ask::OpenUrl { url } => {
-                let opened = open_url::open_url(Arc::clone(&self.browser), url)
-                    .await
-                    .map_err(|failure| failure.error);
-                (Done::Opened(opened), None)
-            }
-            // The git lists of `/review` are the host's (it carries `codex-git-utils`).
-            Ask::ConfigWrite { .. }
-            | Ask::GitBranches { .. }
-            | Ask::GitLog { .. }
-            | Ask::Worktrees { .. }
-            | Ask::WorktreeRemove { .. }
-            | Ask::BackgroundServer(_)
-            | Ask::Editor { .. } => return None,
-        })
     }
 
     /// One ask of the composer's popovers (`conversation` is the thread the entry belongs to).
@@ -225,6 +177,72 @@ impl Services {
                 None
             }
         }
+    }
+}
+
+/// The executors of the capabilities the services carry (the clipboard, the git diff, the export
+/// file, the Desktop link and the browser): `Services` with the workspace executor the diff runs
+/// through. The answer is the `Done` and the OSC 52 text a copy asked the terminal to write. The
+/// host chains these with its own (`HostDoors`, `Chain`); every other capability is not here.
+pub struct Doors<'a> {
+    pub services: &'a Services,
+    pub exec: &'a dyn WorkspaceExec,
+}
+
+impl HostDoors for Doors<'_> {
+    type Out = (Done, Option<String>);
+
+    async fn copy(
+        &self,
+        text: String,
+        format: CopyFormat,
+        destination: CopyDestination,
+    ) -> Option<Self::Out> {
+        let format = format_of(&text, &format);
+        let done = self
+            .services
+            .clipboard
+            .copy(Arc::from(text), format, destination_of(destination))
+            .await;
+        let status = done.result.map(status_of);
+        Some((Done::Copy(status), done.terminal))
+    }
+
+    async fn git_diff(&self, cwd: Option<String>) -> Option<Self::Out> {
+        let cwd = cwd.map_or_else(|| PathBuf::from("."), PathBuf::from);
+        Some((Done::GitDiff(git_diff(self.exec, &cwd).await), None))
+    }
+
+    async fn export(
+        &self,
+        _thread: ThreadId,
+        path: String,
+        cwd: String,
+        markdown: String,
+    ) -> Option<Self::Out> {
+        let written = transcript_file::export(PathBuf::from(cwd), PathBuf::from(path), markdown)
+            .await
+            .map(|path| path.display().to_string());
+        Some((Done::Export(written), None))
+    }
+
+    async fn clipboard_text(&self) -> Option<Self::Out> {
+        let text = TextReader::new(&environment())
+            .read_within(READ_WITHIN)
+            .await;
+        Some((Done::ClipboardText(text), None))
+    }
+
+    async fn open_desktop(&self, thread: ThreadId) -> Option<Self::Out> {
+        let opened = open_url::open_desktop_thread(thread.to_string()).await;
+        Some((Done::Opened(opened), None))
+    }
+
+    async fn open_url(&self, url: String) -> Option<Self::Out> {
+        let opened = open_url::open_url(Arc::clone(&self.services.browser), url)
+            .await
+            .map_err(|failure| failure.error);
+        Some((Done::Opened(opened), None))
     }
 }
 

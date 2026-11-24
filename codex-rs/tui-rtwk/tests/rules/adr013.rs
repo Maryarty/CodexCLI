@@ -17,6 +17,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::rc::Rc;
 
 use crate::layers::srcscan::{crate_dir, sources_of};
 
@@ -402,6 +403,83 @@ struct Field {
     name: String,
     /// The identifiers of the field's type: `Option<Vec<Row>>` is `Option`, `Vec`, `Row`.
     ty: Vec<String>,
+    /// The paths the type names, each as its segments: `Option<safety::Ev>` is `[Option]` and
+    /// `[safety, Ev]` (`reachable` resolves a name by its path, a bare one by the file's `use`s).
+    chains: Vec<Vec<String>>,
+}
+
+/// The `a::b::C` paths in the tokens of a type, as their segments.
+fn chains(ty: &[String]) -> Vec<Vec<String>> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < ty.len() {
+        if !is_ident(&ty[i]) {
+            i += 1;
+            continue;
+        }
+        let mut chain = vec![ty[i].clone()];
+        i += 1;
+        while at(ty, i) == ":" && at(ty, i + 1) == ":" && is_ident(at(ty, i + 2)) {
+            chain.push(ty[i + 2].clone());
+            i += 3;
+        }
+        out.push(chain);
+    }
+    out
+}
+
+/// The names a file imports with `use`, each with the path it stands for (`use a::b::{C, d::E as F}`
+/// is `C -> [a, b, C]` and `F -> [a, b, d, E]`).
+fn uses_of(tokens: &[String]) -> HashMap<String, Vec<String>> {
+    fn tree(
+        tokens: &[String],
+        mut i: usize,
+        prefix: &[String],
+        map: &mut HashMap<String, Vec<String>>,
+    ) -> usize {
+        let mut path = prefix.to_vec();
+        loop {
+            match at(tokens, i) {
+                "{" => {
+                    i += 1;
+                    loop {
+                        i = tree(tokens, i, &path, map);
+                        match at(tokens, i) {
+                            "," => i += 1,
+                            _ => break,
+                        }
+                    }
+                    return if at(tokens, i) == "}" { i + 1 } else { i };
+                }
+                "*" => return i + 1,
+                token if is_ident(token) => {
+                    path.push(token.to_owned());
+                    i += 1;
+                    if at(tokens, i) == ":" && at(tokens, i + 1) == ":" {
+                        i += 2;
+                        continue;
+                    }
+                    let name = if at(tokens, i) == "as" {
+                        i += 2;
+                        at(tokens, i - 1).to_owned()
+                    } else {
+                        path.last().cloned().unwrap_or_default()
+                    };
+                    map.insert(name, path);
+                    return i;
+                }
+                _ => return i,
+            }
+        }
+    }
+    let mut map = HashMap::new();
+    for (i, token) in tokens.iter().enumerate() {
+        let item_start = i == 0 || matches!(at(tokens, i - 1), ";" | "}" | "]" | "pub" | ")");
+        if token == "use" && item_start {
+            tree(tokens, i + 1, &[], &mut map);
+        }
+    }
+    map
 }
 
 #[derive(Clone, Debug)]
@@ -417,6 +495,8 @@ struct Def {
     name: String,
     is_enum: bool,
     variants: Vec<Variant>,
+    /// What the file of the definition imports (`uses_of`), to resolve the names its fields use.
+    uses: Rc<HashMap<String, Vec<String>>>,
 }
 
 fn named_fields(body: &[String]) -> Vec<Field> {
@@ -427,6 +507,7 @@ fn named_fields(body: &[String]) -> Vec<Field> {
             (is_ident(at(piece, 0)) && at(piece, 1) == ":").then(|| Field {
                 name: piece[0].clone(),
                 ty: piece[2..].iter().filter(|t| is_ident(t)).cloned().collect(),
+                chains: chains(&piece[2..]),
             })
         })
         .collect()
@@ -441,6 +522,7 @@ fn tuple_fields(body: &[String]) -> Vec<Field> {
         .map(|(n, piece)| Field {
             name: n.to_string(),
             ty: piece.iter().filter(|t| is_ident(t)).cloned().collect(),
+            chains: chains(piece),
         })
         .collect()
 }
@@ -479,6 +561,7 @@ fn defs_of(files: &Files) -> Vec<Def> {
     let mut defs = Vec::new();
     for (file, text) in files {
         let tokens = code_tokens(without_tests(text));
+        let uses = Rc::new(uses_of(&tokens));
         let mut i = 0;
         while i + 2 < tokens.len() {
             let keyword = tokens[i].as_str();
@@ -523,6 +606,7 @@ fn defs_of(files: &Files) -> Vec<Def> {
                     name,
                     is_enum,
                     variants,
+                    uses: Rc::clone(&uses),
                 });
             }
             i += 1;
@@ -610,7 +694,53 @@ fn is_domain_root(def: &Def) -> bool {
             && matches!(def.name.as_str(), "State" | "ThreadPart"))
 }
 
-/// The defs a root reaches through its fields' types, resolved by name (a name two files share
+/// The definitions a path in a field's type of `owner` can mean: the ones of its last segment,
+/// narrowed by the module the path (or the owner's `use` of the name) says (`crate::threads::
+/// safety::Ev` is the `Ev` of a file under `safety`); a path no definition's file fits stays
+/// whole (more than the truth, never less).
+fn resolve(
+    defs: &[Def],
+    by_name: &HashMap<&str, Vec<usize>>,
+    owner: &Def,
+    chain: &[String],
+) -> Vec<usize> {
+    let Some(name) = chain.last() else {
+        return Vec::new();
+    };
+    let candidates = by_name.get(name.as_str()).cloned().unwrap_or_default();
+    let qualifier: Vec<&String> = if chain.len() > 1 {
+        chain[..chain.len() - 1].iter().collect()
+    } else {
+        owner
+            .uses
+            .get(name)
+            .map(|path| path[..path.len() - 1].iter().collect())
+            .unwrap_or_default()
+    };
+    let Some(module) = qualifier
+        .iter()
+        .rev()
+        .find(|segment| !matches!(segment.as_str(), "crate" | "super" | "self"))
+    else {
+        return candidates;
+    };
+    let fits = |j: &usize| {
+        defs[*j]
+            .file
+            .trim_end_matches(".rs")
+            .split('/')
+            .any(|part| part == module.as_str())
+    };
+    let narrowed: Vec<usize> = candidates.iter().copied().filter(fits).collect();
+    if narrowed.is_empty() {
+        candidates
+    } else {
+        narrowed
+    }
+}
+
+/// The defs a root reaches through its fields' types, resolved by path where the type has one and
+/// by the owner's `use`s where it does not (a name two files share that the path cannot tell apart
 /// makes both reachable: more than the truth, never less).
 fn reachable(defs: &[Def]) -> Vec<&Def> {
     let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
@@ -627,8 +757,8 @@ fn reachable(defs: &[Def]) -> Vec<&Def> {
     }
     while let Some(i) = queue.pop() {
         for field in defs[i].variants.iter().flat_map(|v| &v.fields) {
-            for ident in &field.ty {
-                for &j in by_name.get(ident.as_str()).into_iter().flatten() {
+            for chain in &field.chains {
+                for j in resolve(defs, &by_name, &defs[i], chain) {
                     if !seen[j] {
                         seen[j] = true;
                         queue.push(j);
@@ -733,6 +863,51 @@ fn the_draw_state_scan_bites() {
             "core/src/screens/foo.rs:Pane.expanded",
             "core/src/screens/foo.rs:Step::Pick.highlight",
             "core/src/screens/other.rs:Row.selected",
+        ]
+        .map(str::to_owned)
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+    );
+}
+
+/// Two types of one name in two files: the field's path (or its `use`) says which one the domain
+/// reaches, the other stays out of the scan.
+#[test]
+fn the_reachability_resolves_a_name_by_its_path() {
+    let file = |name: &str, text: &str| (name.to_owned(), text.to_owned());
+    let files = vec![
+        file(
+            "core/src/app.rs",
+            "use crate::threads::safety::Ev;\npub struct CodexApp { pub a: Ev, pub b: other::Pane, pub c: crate::feed::Plain }\n",
+        ),
+        file(
+            "core/src/threads/safety.rs",
+            "pub struct Ev { pub cursor: usize }\n",
+        ),
+        file(
+            "core/src/threads/loud.rs",
+            "pub struct Ev { pub scroll_top: usize }\n",
+        ),
+        file(
+            "core/src/other.rs",
+            "pub struct Pane { pub expanded: bool }\n",
+        ),
+        file(
+            "core/src/unlisted/pane.rs",
+            "pub struct Pane { pub highlight: usize }\n",
+        ),
+        file(
+            "core/src/feed.rs",
+            "pub struct Plain { pub name: String }\n",
+        ),
+    ];
+    assert_eq!(
+        draw_fields(&files),
+        [
+            "core/src/other.rs:Pane.expanded",
+            "core/src/threads/safety.rs:Ev.cursor",
         ]
         .map(str::to_owned)
         .into_iter()
