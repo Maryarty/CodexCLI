@@ -13,6 +13,7 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 pub mod citation;
+pub mod compaction;
 pub mod computer_activity;
 pub mod disclosure;
 pub mod dispatch;

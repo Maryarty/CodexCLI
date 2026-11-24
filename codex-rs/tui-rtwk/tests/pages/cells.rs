@@ -3266,7 +3266,8 @@ mod text_contract {
 
     #[test]
     fn notices_are_their_row() {
-        agrees(Item::Notice(Notice::ContextCompacted));
+        agrees(Item::Notice(Notice::ContextCompacted { took: None }));
+        agrees(Item::Notice(Notice::ContextCompacted { took: Some(83) }));
         agrees(Item::Notice(Notice::EnteredReview("the diff".into())));
         agrees(Item::Notice(Notice::ExitedReview("the diff".into())));
         for outcome in [

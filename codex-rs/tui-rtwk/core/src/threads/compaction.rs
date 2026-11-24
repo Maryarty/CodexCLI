@@ -159,11 +159,12 @@ pub(super) fn apply(model: &mut ThreadModel, ev: CompactionEv, fx: &mut ThreadFx
         }
         CompactionEv::Completed { key } => {
             model.core.compaction.finish(&key.item, fx.now());
+            let took = model.core.compaction.took(&key.item);
             super::apply_ev(
                 model,
                 ThreadEv::ItemUpsert {
                     key,
-                    item: Item::Notice(Notice::ContextCompacted),
+                    item: Item::Notice(Notice::ContextCompacted { took }),
                 },
                 fx,
             );
