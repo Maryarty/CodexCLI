@@ -174,6 +174,7 @@ impl Feature for Rename {
     type Fact = Never<Self>;
     type Wish = Wish;
     type Interest = Interest;
+    type Event = Never<Self>;
 
     /// `/rename` and `/rename <name>`.
     fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {

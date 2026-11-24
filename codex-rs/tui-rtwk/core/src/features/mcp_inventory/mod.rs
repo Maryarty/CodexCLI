@@ -202,6 +202,7 @@ impl Feature for McpInventory {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     /// `/mcp verbose`: the inventory with the tools and resources. Any other word is the
     /// dispatcher's (`/mcp login` is not this feature's).

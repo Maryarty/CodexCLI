@@ -97,6 +97,7 @@ impl Feature for Diff {
     type Fact = Never<Self>;
     type Wish = Wish;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         let Intent::Run = intent;

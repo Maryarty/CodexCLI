@@ -11,12 +11,12 @@ mod clock;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
+mod lifecycle;
 mod mentions;
 mod notices;
 mod reset;
 mod select;
 mod session;
-mod side;
 mod transcript_text;
 pub use clock::{Now, Wake};
 pub use transcript_text::TranscriptText;
@@ -180,6 +180,11 @@ pub enum BackendEv {
     Notification(Box<ServerNotification>),
     Request(Box<ServerRequest>),
     Lagged(usize),
+    /// The event stream of `thread` was lost while the connection stands: what the user sends
+    /// there waits in the queue (oracle `thread_stream_disconnected`).
+    StreamLost(ThreadId),
+    /// The event stream of `thread` is back.
+    StreamRestored(ThreadId),
 }
 
 /// What the user asks for. Intents that touch backend-shared or
@@ -268,6 +273,9 @@ pub enum AppEv {
     StartFailed(String),
     /// The backend stopped.
     Disconnected,
+    /// The host is going to quit (`ExitMode::ShutdownFirst`): what a feature holds on the server
+    /// is let go (`Feature::on_connection`).
+    ShuttingDown,
     Backend(BackendEv),
     Reply(Ticket, Reply),
     ServerAnswerFailed {
@@ -539,8 +547,9 @@ enum AppCtx {
         plan: Option<String>,
         /// A text for the new thread's composer (the provider-error notice's continue key).
         draft: Option<String>,
-        /// The thread is a side conversation of this parent (`/side`, `app/side.rs`).
-        side: Option<side::Opening>,
+        /// A feature asked for the thread (`AppCx::spawn`, `app/lifecycle.rs`): it is told when
+        /// the thread is open here, and when it could not be made.
+        spawned: Option<lifecycle::Spawned>,
     },
     /// `thread/archive` or `thread/delete` of the thread the chat shows
     /// (`/archive`, `/delete` after their confirmation).
@@ -552,6 +561,12 @@ enum AppCtx {
         thread: ThreadId,
         backend: BackendId,
         cancelled: bool,
+    },
+    /// `thread/read` of a thread a feature asked to open (`AppCtx::OpenThread` takes over once
+    /// the server has it): the feature is told with `ctx` (`app/lifecycle.rs`).
+    Opening {
+        thread: ThreadId,
+        ctx: crate::features::FeatureCtx,
     },
     Worktree {
         backend: BackendId,
@@ -1121,6 +1136,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if app.screens.chat.status.account_usage {
                 refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
             }
+            features::connection(app, crate::features::Connection::Up, fx);
         }
         AppEv::Connected => {
             if app.first_thread == FirstThread::Never {
@@ -1151,6 +1167,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             // a reconnect: what the surfaces still want is asked again
             features::reconnected(app, fx);
+            features::connection(app, crate::features::Connection::Up, fx);
         }
         AppEv::StartFailed(message) => {
             fx.ends = true;
@@ -1172,6 +1189,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if active_backend(app) == origin {
                 set_status(app, Session::Failed(Failure::Stopped));
             }
+            features::connection(app, crate::features::Connection::Lost, fx);
+        }
+        AppEv::ShuttingDown => {
+            features::connection(app, crate::features::Connection::ShuttingDown, fx);
         }
         AppEv::Backend(BackendEv::Notification(notification)) => {
             match &*notification {
@@ -1313,7 +1334,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     fx,
                 );
             }
-            side::observe(app, &notification, fx);
+            features::observe(app, &notification, fx);
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
             if let ServerNotification::ServerRequestResolved(resolved) = &*notification {
@@ -1411,7 +1432,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::Backend(BackendEv::Request(request)) => {
             let (method, thread) = targets::request_target(&request);
-            side::observe_request(app, &request, thread, fx);
+            features::observe_request(app, &request, fx);
             let key = targets::request_key(origin, app.request_epoch(origin), thread, request.id());
             if !app.requests.contains(&key) {
                 app.effects.verifications.note(key.clone(), &request);
@@ -1478,6 +1499,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 // What was missed cannot settle MCP startup: it settles now.
                 apply_thread(app, &id, ThreadEv::McpLagged, fx);
             }
+        }
+        // The stream of a thread this backend owns: what is sent there waits in the queue until it
+        // is back.
+        AppEv::Backend(BackendEv::StreamLost(thread)) => {
+            stream_changed(app, origin, &thread, ThreadEv::StreamLost, fx);
+        }
+        AppEv::Backend(BackendEv::StreamRestored(thread)) => {
+            stream_changed(app, origin, &thread, ThreadEv::StreamRestored, fx);
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
         AppEv::ServerAnswerFailed { key, message } => {
@@ -1922,7 +1951,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 name,
                 plan,
                 draft,
-                side,
+                spawned,
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread, sources } => Ok((thread, None, sources)),
@@ -1946,15 +1975,17 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         if let Some(name) = name {
                             session::name_started(app, &thread, name, fx);
                         }
-                        // A side conversation is linked to its parent before it is shown, and
-                        // starts empty: the forked history is the model's, not the screen's.
-                        if let Some(opening) = side {
-                            side::linked(app, &thread, opening, fx);
+                        // The feature that asked for the thread is told before it is shown; an
+                        // ephemeral fork starts empty: its history is the model's, not the
+                        // screen's.
+                        let ephemeral = spawned.as_ref().is_some_and(|spawned| spawned.ephemeral);
+                        if let Some(spawned) = spawned {
+                            features::thread_opened(app, spawned.ctx, Ok(thread.clone()), fx);
                         }
                         if app.session.active == source {
                             show_held_thread(app, thread.clone(), fx);
                         }
-                        if !app.features.side.is_side(&thread) {
+                        if !ephemeral {
                             fetch_history(app, &thread, fx);
                         }
                         if let Some(markdown) = plan {
@@ -1979,12 +2010,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         }
                     }
                     Err(error) => {
-                        if let Some(source) = source {
-                            if side.is_some() {
-                                side::start_failed(app, source, error, fx);
-                            } else {
-                                apply_thread(app, &source, ThreadEv::Failure(error.into()), fx);
-                            }
+                        if let Some(spawned) = spawned {
+                            let refusal = crate::features::Refusal::Failed(error);
+                            features::thread_opened(app, spawned.ctx, Err(refusal), fx);
+                        } else if let Some(source) = source {
+                            apply_thread(app, &source, ThreadEv::Failure(error.into()), fx);
                         }
                     }
                 }
@@ -2042,6 +2072,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::OpenSession { action, thread } => {
                 session_opened(app, action, thread, answer, fx);
             }
+            AppCtx::Opening { thread, ctx } => lifecycle::read(app, thread, ctx, answer, fx),
             AppCtx::Feature(ctx) => features::answer(app, ctx, answer, fx),
         }
         return;
@@ -2234,7 +2265,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 request_history(app, &id, Some(cursor.to_owned()), fx);
             }
         }
-        Intent::OpenThread(id) => open_thread(app, &id, fx),
+        Intent::OpenThread(id) => {
+            open_thread(app, &id, fx);
+        }
         Intent::Effect { request, ask } => fx.commands.push(effects::command(request, ask)),
         Intent::CancelRequests => cancel_requests(app, fx),
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
@@ -2560,26 +2593,35 @@ fn resume_answer(app: &mut CodexApp, ctx: resume::Ctx, answer: Answer, fx: &mut 
 }
 
 /// The sole decision to use a held writer, await an existing resume or
-/// ask for an attachment. The loading state is the center's projection.
-fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
+/// ask for an attachment. The loading state is the center's projection. A thread no list holds is
+/// not opened (a feature that has verified one asks `open_verified`, `app/lifecycle.rs`); false
+/// when nothing was done (another open is held, an error stands).
+fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
+    is_listed(app, id) && open_verified(app, id, fx)
+}
+
+/// This process holds the thread or a list (the resume picker, the command center) has its row.
+fn is_listed(app: &CodexApp, id: &ThreadId) -> bool {
+    let model = &app.screens.agents;
+    app.threads.contains(id)
+        || app.screens.resume.row(id).is_some()
+        || model
+            .threads
+            .iter()
+            .chain(&model.search_matches)
+            .any(|row| row.id == id.as_str())
+}
+
+/// `open_thread` for a thread the server is known to have.
+fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
     let model = &app.screens.agents;
     if model.held() || model.failure.is_some() {
-        return;
+        return false;
     }
     let held = app
         .threads
         .get(id)
         .is_some_and(|thread| thread.has_writer());
-    if !app.threads.contains(id)
-        && app.screens.resume.row(id).is_none()
-        && !model
-            .threads
-            .iter()
-            .chain(&model.search_matches)
-            .any(|row| row.id == id.as_str())
-    {
-        return;
-    }
     if let Some(previous) = model.opening.clone().filter(|previous| previous != id) {
         set_open_cancelled(app, &previous, true);
     }
@@ -2587,7 +2629,7 @@ fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
     if held {
         agents::attach_loaded(agents, id.as_str());
         show_held_thread(app, id.clone(), fx);
-        return;
+        return true;
     }
     agents.opening = Some(id.clone());
     if !set_open_cancelled(app, id, false) {
@@ -2609,6 +2651,7 @@ fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
             })),
         });
     }
+    true
 }
 
 fn set_open_cancelled(app: &mut CodexApp, id: &ThreadId, value: bool) -> bool {
@@ -2881,6 +2924,20 @@ impl SessionSlice {
     }
 }
 
+/// The event stream of `thread` was lost or came back: only the backend that owns the thread
+/// speaks of it.
+fn stream_changed(
+    app: &mut CodexApp,
+    origin: BackendId,
+    thread: &ThreadId,
+    ev: ThreadEv,
+    fx: &mut AppFx,
+) {
+    if app.screens.agents.owner_of(thread.as_str()) == origin {
+        apply_thread(app, thread, ev, fx);
+    }
+}
+
 /// Clear the writer and its pending RPCs after the connection is lost.
 fn detach_threads(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
     let held: Vec<_> = app
@@ -2914,9 +2971,9 @@ fn sent_to(app: &CodexApp, ctx: &AppCtx) -> BackendId {
             crate::screens::select::Ctx::Fallback { backend }
             | crate::screens::select::Ctx::Switch { backend, .. },
         ) => *backend,
-        AppCtx::Removal { thread, .. } | AppCtx::OpenSession { thread, .. } => {
-            app.screens.agents.owner_of(thread.as_str())
-        }
+        AppCtx::Removal { thread, .. }
+        | AppCtx::OpenSession { thread, .. }
+        | AppCtx::Opening { thread, .. } => app.screens.agents.owner_of(thread.as_str()),
         _ => active_backend(app),
     }
 }
@@ -3022,9 +3079,9 @@ fn show_held_thread(app: &mut CodexApp, id: ThreadId, fx: &mut AppFx) {
         .as_ref()
         .is_some_and(|shown| *shown != id);
     let session = Rc::make_mut(&mut app.session);
-    session.active = Some(id);
+    session.active = Some(id.clone());
     session.status = Session::Ready;
-    side::sync(app, fx);
+    features::on_shown(app, &id, fx);
     if switched {
         select::event(app, screens::select::Ev::ScopeChanged, fx);
     }
@@ -3080,6 +3137,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
                     &app.tui,
                     &app.screens.status,
                     &app.daybreak,
+                    &app.keymap,
                 )),
         );
     }

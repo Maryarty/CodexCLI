@@ -214,9 +214,6 @@ pub enum SessionIntent {
     Plan {
         prompt: Option<String>,
     },
-    Side {
-        prompt: Option<String>,
-    },
     Raw {
         on: Option<bool>,
     },
@@ -466,7 +463,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Init => session(command, SessionIntent::Init),
         Worktree => session(command, SessionIntent::Worktree),
         Plan => session(command, SessionIntent::Plan { prompt: None }),
-        Side | Btw => session(command, SessionIntent::Side { prompt: None }),
         Raw => session(command, SessionIntent::Raw { on: None }),
         // `slash_dispatch.rs:557-559`: a bare `/cd` is `/cd ~`.
         Cd => session(
@@ -497,7 +493,6 @@ fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Out
         Clear => session(command, SessionIntent::Clear { name: some(args) }),
         Fork => session(command, SessionIntent::Fork { name: some(args) }),
         Plan => session(command, SessionIntent::Plan { prompt: some(args) }),
-        Side | Btw => session(command, SessionIntent::Side { prompt: some(args) }),
         Cd => session(
             command,
             SessionIntent::Cd {

@@ -208,6 +208,7 @@ impl Feature for Recap {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     /// `/recap`: a summary of the conversation in use.
     fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {

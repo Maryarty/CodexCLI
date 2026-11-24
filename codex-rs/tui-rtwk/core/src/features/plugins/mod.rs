@@ -274,6 +274,7 @@ impl Feature for Plugins {
     type Fact = Fact;
     type Wish = Wish;
     type Interest = Interest;
+    type Event = Never<Self>;
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         state.intent(intent, cx);

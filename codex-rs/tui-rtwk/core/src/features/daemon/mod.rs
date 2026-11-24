@@ -67,6 +67,7 @@ impl Feature for Daemon {
     type Fact = Facts;
     type Wish = Wish;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     fn intent(state: &mut State, verb: Verb, cx: &mut AppCx<'_>) {
         match state.verb(verb) {

@@ -497,6 +497,7 @@ impl Feature for WindowsSandbox {
     type Fact = Fact;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {

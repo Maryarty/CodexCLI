@@ -6,6 +6,7 @@
 
 use std::sync::OnceLock;
 
+use super::lifecycle::{Lifecycle, ThreadSpawn};
 use super::surface::Scope;
 use super::{
     FeatureCommand, FeatureCtx, FeatureNote, FeatureThreadIntent, FeatureThreadParts, FeatureWish,
@@ -14,16 +15,18 @@ use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
 use crate::app::{Now, TranscriptText};
 use crate::ids::{ThreadId, Ticket};
+use crate::keymap::{ActionId, Keymap};
 use crate::screens::ScreenStates;
 use crate::screens::ThreadSlots;
+use crate::screens::chat::facts::SideFooter;
 use crate::screens::select::collaboration::Mask;
 use crate::screens::status;
 use crate::threads::daybreak::Access;
-use crate::threads::{ThreadCore, ThreadFx, ThreadSet};
+use crate::threads::{ThreadCore, ThreadFx, ThreadSet, UserMessage};
 
 /// The facts of the app that both kinds of step read (ADR-012, "selectors"): the moment, the
-/// `[tui]` settings, what the status screen holds of the account and the catalog, and what the
-/// host knows of the account's access programs. Typed, read-only handles into the app, `Copy`:
+/// `[tui]` settings, what the status screen holds of the account and the catalog, what the
+/// host knows of the account's access programs and the key bindings. Typed, read-only handles into the app, `Copy`:
 /// a feature's step is handed them whatever its scope (`AppView::facts`, `ThreadCx::facts`),
 /// so a selector a slice writes over them (`fn x(facts: AppFacts<'_>) -> T`) works in both.
 #[derive(Clone, Copy)]
@@ -32,6 +35,7 @@ pub struct AppFacts<'a> {
     tui: &'a TuiSettings,
     status: &'a status::Model,
     access: &'a Access,
+    keys: &'a Keymap,
 }
 
 impl<'a> AppFacts<'a> {
@@ -40,12 +44,14 @@ impl<'a> AppFacts<'a> {
         tui: &'a TuiSettings,
         status: &'a status::Model,
         access: &'a Access,
+        keys: &'a Keymap,
     ) -> Self {
         Self {
             now,
             tui,
             status,
             access,
+            keys,
         }
     }
 
@@ -69,6 +75,12 @@ impl<'a> AppFacts<'a> {
     pub fn access(&self) -> &'a Access {
         self.access
     }
+
+    /// The label of the action's first key binding (`⌃t`, `enter`): what a hint the feature's
+    /// state decides to show names. None where the action is unbound.
+    pub fn key_label(&self, action: ActionId) -> Option<String> {
+        self.keys.label(action)
+    }
 }
 
 impl AppFacts<'static> {
@@ -77,11 +89,13 @@ impl AppFacts<'static> {
         static TUI: OnceLock<TuiSettings> = OnceLock::new();
         static STATUS: OnceLock<status::Model> = OnceLock::new();
         static ACCESS: OnceLock<Access> = OnceLock::new();
+        static KEYS: OnceLock<Keymap> = OnceLock::new();
         AppFacts {
             now: Now::default(),
             tui: TUI.get_or_init(TuiSettings::default),
             status: STATUS.get_or_init(status::Model::default),
             access: ACCESS.get_or_init(Access::default),
+            keys: KEYS.get_or_init(Keymap::defaults),
         }
     }
 }
@@ -99,6 +113,7 @@ pub struct AppView<'a> {
     modes: &'a [Mask],
     transcript: Option<&'a TranscriptText>,
     access: Option<&'a Access>,
+    keys: Option<&'a Keymap>,
     now: Now,
 }
 
@@ -119,6 +134,7 @@ impl<'a> AppView<'a> {
             modes,
             transcript,
             access: None,
+            keys: None,
             now: Now::default(),
         }
     }
@@ -126,6 +142,12 @@ impl<'a> AppView<'a> {
     /// The host's account and catalog facts are read through this view.
     pub(crate) fn with_access(mut self, access: &'a Access) -> Self {
         self.access = Some(access);
+        self
+    }
+
+    /// The key bindings are read through this view (`AppFacts::key_label`).
+    pub(crate) fn with_keys(mut self, keys: &'a Keymap) -> Self {
+        self.keys = Some(keys);
         self
     }
 
@@ -148,6 +170,7 @@ impl<'a> AppView<'a> {
             self.tui,
             &self.screens.status,
             self.access.unwrap_or(unknown.access),
+            self.keys.unwrap_or(unknown.keys),
         )
     }
 
@@ -251,6 +274,12 @@ impl<'a> ThreadView<'a> {
         self.core.attached() && self.slots.chat.provider_error.is_none()
     }
 
+    /// The thread's event stream was lost and has not come back (`ThreadEv::StreamLost`): what
+    /// the user sends waits in the queue (the oracle's `thread_stream_disconnected`).
+    pub fn stream_lost(&self) -> bool {
+        self.core.stream_lost()
+    }
+
     /// The thread's own domain facts (its transcript, its terminals...), read-only: a slice's
     /// selector reads what it needs through this handle.
     pub fn core(&self) -> &'a ThreadCore {
@@ -298,6 +327,22 @@ pub enum Out {
     /// A one-shot for the surface (ADR-013 Ж): it is queued under `scope` (the directory the
     /// feature's data is for) and shown once by the surface's presenter.
     Wish { scope: Scope, wish: FeatureWish },
+    /// What a feature asked of a thread's life (open, spawn, discard, submit, give back, a
+    /// structured question): the app's own steps carry it out (`lifecycle.rs`).
+    Lifecycle(Lifecycle),
+    /// What the chat reads of the thread in use that a feature knows.
+    Chat(ChatFacts),
+}
+
+/// What the chat's footer and its command gate read of the thread in use, said by the feature that
+/// knows it (a side conversation: whether the thread is one, and the footer's label). Each step
+/// says all of it: the app writes both.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatFacts {
+    /// The thread in use is a side conversation: the commands it lacks are gated by it.
+    pub side_conversation: bool,
+    /// The footer's side label (`Ctrl+/ for side`, the parent's name and status).
+    pub side: Option<SideFooter>,
 }
 
 /// The context of an app-scoped step of a feature: the app as a view, and the outbox.
@@ -378,6 +423,55 @@ impl<'a> AppCx<'a> {
         });
     }
 
+    /// Shows `thread`, resuming it when this process does not hold it (`Feature::thread_opened`
+    /// answers with `ctx`: `Err` when the server has no such thread).
+    pub fn open_thread(&mut self, thread: &ThreadId, ctx: impl Into<FeatureCtx>) {
+        self.out.push(Out::Lifecycle(Lifecycle::Open {
+            thread: thread.clone(),
+            ctx: ctx.into(),
+        }));
+    }
+
+    /// Makes a thread (a fork, a fresh start); `Feature::thread_opened` is told with `ctx` once it
+    /// is open here, before it is shown. Refused (an `Err`) while another conversation is being
+    /// made.
+    pub fn spawn_thread(&mut self, spawn: ThreadSpawn, ctx: impl Into<FeatureCtx>) {
+        self.out.push(Out::Lifecycle(Lifecycle::Spawn {
+            spawn,
+            ctx: ctx.into(),
+        }));
+    }
+
+    /// Drops `thread`: its turn is interrupted, the server stops holding it and the app forgets
+    /// it. The thread in use is never dropped.
+    pub fn discard(&mut self, thread: &ThreadId) {
+        self.out.push(Out::Lifecycle(Lifecycle::Discard {
+            thread: thread.clone(),
+        }));
+    }
+
+    /// The user's message in `thread`, through the thread's own input pipeline (a running turn
+    /// is steered, a thread that waits queues it).
+    pub fn submit(&mut self, thread: &ThreadId, message: UserMessage) {
+        self.out.push(Out::Lifecycle(Lifecycle::Submit {
+            thread: thread.clone(),
+            message,
+        }));
+    }
+
+    /// Text that could not go is put back in `thread`'s composer.
+    pub fn give_back(&mut self, thread: &ThreadId, text: String) {
+        self.out.push(Out::Lifecycle(Lifecycle::GiveBack {
+            thread: thread.clone(),
+            text,
+        }));
+    }
+
+    /// Says what the chat reads of the thread in use (a side conversation's flag and footer).
+    pub fn chat_facts(&mut self, facts: ChatFacts) {
+        self.out.push(Out::Chat(facts));
+    }
+
     /// What was asked, in order.
     pub(crate) fn into_out(self) -> Vec<Out> {
         self.out
@@ -425,5 +519,31 @@ impl<'a, 'b> ThreadCx<'a, 'b> {
             return None;
         }
         Some(self.fx.request_feature(ctx, command))
+    }
+
+    /// Starts a turn of this thread with `message` (Retry, Rewrite): the thread must be idle,
+    /// which the feature asks (`view.busy()`); the message comes back when a start was already
+    /// said in this step or this process does not write the thread. The next feature in the
+    /// list sees the thread busy.
+    pub fn start_turn(&mut self, message: UserMessage) -> Result<Ticket, UserMessage> {
+        if !self.view.has_writer() {
+            return Err(message);
+        }
+        let ticket = self.fx.start_turn(message)?;
+        self.view.start_said = true;
+        Ok(ticket)
+    }
+
+    /// Interrupts the thread's running turn (none: nothing runs, or this process does not write
+    /// the thread). True when an interrupt was said.
+    pub fn interrupt(&mut self) -> bool {
+        if !self.view.has_writer() {
+            return false;
+        }
+        let Some(turn) = self.view.core().running_turn().cloned() else {
+            return false;
+        };
+        self.fx.interrupt_turn(turn);
+        true
     }
 }

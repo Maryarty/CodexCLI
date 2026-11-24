@@ -27,6 +27,8 @@
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ServerRequest;
 
 use crate::app::Now;
 use crate::app::effects::Done;
@@ -37,10 +39,12 @@ use crate::screens::SeedError;
 use crate::threads::{Tone, TurnEnd};
 
 mod cx;
+mod lifecycle;
 mod remote;
 mod surface;
 
-pub use cx::{AppCx, AppFacts, AppView, Out, ThreadCx, ThreadView};
+pub use cx::{AppCx, AppFacts, AppView, ChatFacts, Out, ThreadCx, ThreadView};
+pub use lifecycle::{Connection, Lifecycle, Refusal, ThreadSpawn};
 pub use remote::Remote;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
@@ -201,6 +205,9 @@ pub trait Feature: 'static {
     /// that shows the data and dropped when it goes. `on_interest` loads on the first, and a
     /// reconnect asks again for every interest still held.
     type Interest: Clone + std::fmt::Debug + PartialEq + Eq;
+    /// What the feature makes of the server's stream (`project`, `project_request`), delivered to
+    /// `on_event`: data of the feature's own, so the hub names no slice's case of a notification.
+    type Event: Clone + std::fmt::Debug + PartialEq + Eq;
 
     /// An intent of the feature.
     fn intent(state: &mut Self::State, intent: Self::Intent, cx: &mut AppCx<'_>) {
@@ -272,6 +279,48 @@ pub trait Feature: 'static {
     /// goes on.
     fn on_turn_end(part: &mut Self::ThreadPart, end: TurnEnd, cx: &mut ThreadCx<'_, '_>) {
         let _ = (part, end, cx);
+    }
+
+    /// What the feature makes of a server notification, if it is one it follows (ADR-012, "the
+    /// stream"): a pure reading, with no state and no thread, delivered to `on_event` for every
+    /// notification of the stream, whatever thread it names. The notification still goes to the
+    /// threads as before; the event is the feature's own copy of the part it needs.
+    fn project(notification: &ServerNotification) -> Option<Self::Event> {
+        let _ = notification;
+        None
+    }
+
+    /// The same for a server request: observe-only, the request is never answered by the
+    /// feature (the app asks the user as before).
+    fn project_request(request: &ServerRequest) -> Option<Self::Event> {
+        let _ = request;
+        None
+    }
+
+    /// An event of `project` or `project_request`.
+    fn on_event(state: &mut Self::State, event: Self::Event, cx: &mut AppCx<'_>) {
+        let _ = (state, event, cx);
+    }
+
+    /// A thread the feature asked for (`AppCx::spawn`, `AppCx::open_thread`) is open here, or
+    /// could not be made: `Ok` carries its id, before it is shown.
+    fn thread_opened(
+        state: &mut Self::State,
+        ctx: Self::Ctx,
+        result: Result<ThreadId, Refusal>,
+        cx: &mut AppCx<'_>,
+    ) {
+        let _ = (state, ctx, result, cx);
+    }
+
+    /// The thread in use is now `thread` (the app showed it, whether it was held or just opened).
+    fn on_shown(state: &mut Self::State, thread: &ThreadId, cx: &mut AppCx<'_>) {
+        let _ = (state, thread, cx);
+    }
+
+    /// The connection to the server came up, was lost or is being closed by the host.
+    fn on_connection(state: &mut Self::State, connection: Connection, cx: &mut AppCx<'_>) {
+        let _ = (state, connection, cx);
     }
 
     /// The thread's running turn was interrupted (right after its `on_turn_end`).
@@ -434,6 +483,12 @@ macro_rules! feature_dirs {
             $($variant(<$name::$variant as Feature>::Interest),)*
         }
 
+        /// What every feature made of the server's stream: handed to `on_event`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum FeatureEvent {
+            $($variant(<$name::$variant as Feature>::Event),)*
+        }
+
         $(
         impl From<<$name::$variant as Feature>::Wish> for FeatureWish {
             fn from(wish: <$name::$variant as Feature>::Wish) -> Self { Self::$variant(wish) }
@@ -464,6 +519,9 @@ macro_rules! feature_dirs {
         }
         impl From<<$name::$variant as Feature>::Fact> for FeatureFact {
             fn from(fact: <$name::$variant as Feature>::Fact) -> Self { Self::$variant(fact) }
+        }
+        impl From<<$name::$variant as Feature>::Event> for FeatureEvent {
+            fn from(event: <$name::$variant as Feature>::Event) -> Self { Self::$variant(event) }
         }
         )*
 
@@ -605,6 +663,63 @@ macro_rules! feature_dirs {
             }
         }
 
+        /// What the features make of one notification of the server's stream, in list order.
+        #[allow(unused_variables, unused_mut)]
+        pub fn project(notification: &codex_app_server_protocol::ServerNotification) -> Vec<FeatureEvent> {
+            let mut events = Vec::new();
+            $(if let Some(event) = <$name::$variant as Feature>::project(notification) {
+                events.push(FeatureEvent::$variant(event));
+            })*
+            events
+        }
+
+        /// What the features make of one server request, observe-only, in list order.
+        #[allow(unused_variables, unused_mut)]
+        pub fn project_request(request: &codex_app_server_protocol::ServerRequest) -> Vec<FeatureEvent> {
+            let mut events = Vec::new();
+            $(if let Some(event) = <$name::$variant as Feature>::project_request(request) {
+                events.push(FeatureEvent::$variant(event));
+            })*
+            events
+        }
+
+        /// An event of the stream, to the feature that made it.
+        #[allow(unused_variables)]
+        pub fn on_event(states: &mut FeatureStates, event: FeatureEvent, cx: &mut AppCx<'_>) {
+            match event {
+                $(FeatureEvent::$variant(event) => {
+                    <$name::$variant as Feature>::on_event(&mut states.$name, event, cx)
+                })*
+            }
+        }
+
+        /// A thread a feature asked for is open (or could not be made), to the feature that asked.
+        #[allow(unused_variables)]
+        pub fn thread_opened(
+            states: &mut FeatureStates,
+            ctx: FeatureCtx,
+            result: Result<ThreadId, $crate::features::Refusal>,
+            cx: &mut AppCx<'_>,
+        ) {
+            match ctx {
+                $(FeatureCtx::$variant(ctx) => {
+                    <$name::$variant as Feature>::thread_opened(&mut states.$name, ctx, result, cx)
+                })*
+            }
+        }
+
+        /// The thread in use is `thread`: every feature's hook, in list order.
+        #[allow(unused_variables)]
+        pub fn on_shown(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
+            $(<$name::$variant as Feature>::on_shown(&mut states.$name, thread, cx);)*
+        }
+
+        /// The connection changed: every feature's hook, in list order.
+        #[allow(unused_variables)]
+        pub fn on_connection(states: &mut FeatureStates, connection: $crate::features::Connection, cx: &mut AppCx<'_>) {
+            $(<$name::$variant as Feature>::on_connection(&mut states.$name, connection, cx);)*
+        }
+
         /// The thread `thread` was resumed and is in use: every feature's hook, in list order.
         #[allow(unused_variables)]
         pub fn on_resumed(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
@@ -740,6 +855,13 @@ macro_rules! feature_dirs {
 }
 
 feature_list!(feature_dirs);
+
+/// The Daybreak choice of a thread (`/daybreak`'s saved choice, else its metadata's): the one
+/// selector of a slice the app reads (it words a cyber refusal, `app/notices.rs`), through the
+/// list like every feature name (ADR-012, "selectors").
+pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
+    small_cmds::daybreak_of(thread)
+}
 
 #[cfg(test)]
 mod framework;

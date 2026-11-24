@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::AppCx;
+use super::{AppCx, Refusal};
 use crate::app::effects::{Ask, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -94,9 +94,6 @@ pub enum Wish {
     /// `/model <name>`: the model and effort picked for this session. A `--speed` is checked
     /// by the arguments and not carried (the pick has no tier).
     Model(crate::screens::select::models::Selection),
-    /// `/resume <name or id>` found the session: the surface opens it (`OpenThread`, the one
-    /// door of ADR-003).
-    OpenThread(ThreadId),
     /// The captured key cannot be bound: the keymap with it does not resolve (the conflict
     /// sheet: pick another key, or cancel).
     KeymapConflict {
@@ -189,12 +186,12 @@ pub enum Ctx {
     /// A page of the listing `/resume <label>` looks the label up in.
     Resume {
         lookup: resume::Lookup,
-        thread: Option<ThreadId>,
     },
-    /// The read of the session `/resume <id>` names.
-    ResumeId {
+    /// The thread `/resume <id or label>` asked the app to open (`AppCx::open_thread`, the one
+    /// door of ADR-003): the app reads the id it does not know, so a session the server has not
+    /// got is answered here.
+    Opened {
         name: String,
-        thread: Option<ThreadId>,
     },
 }
 
@@ -616,7 +613,7 @@ impl State {
         let scope = thread.clone().unwrap_or_default();
         let wish = match command {
             SlashCommand::Hooks => return self.open(Which::Hooks, cx),
-            SlashCommand::Resume => return Self::resume(args.trim(), thread, cx),
+            SlashCommand::Resume => return Self::resume(args.trim(), cx),
             SlashCommand::Title => args::title(args).map(Wish::Status),
             SlashCommand::Statusline => args::status_line(args).map(Wish::Status),
             SlashCommand::Model => {
@@ -637,29 +634,23 @@ impl State {
         }
     }
 
-    /// `/resume <name or id>`: an id is read, a label is looked for in the listing.
-    fn resume(name: &str, thread: Option<ThreadId>, cx: &mut AppCx<'_>) {
+    /// `/resume <name or id>`: an id is opened (the app reads it first when it does not know it),
+    /// a label is looked for in the listing.
+    fn resume(name: &str, cx: &mut AppCx<'_>) {
         if name.is_empty() {
             return;
         }
         if resume::is_session_id(name) {
-            cx.ask(
-                None,
-                Command::Session {
-                    id: name.to_owned(),
-                },
-                Ctx::ResumeId {
-                    name: name.to_owned(),
-                    thread,
-                },
-            );
+            let opened = Ctx::Opened {
+                name: name.to_owned(),
+            };
+            cx.open_thread(&ThreadId::new(name), opened);
         } else {
             cx.ask(
                 None,
                 Command::Sessions { cursor: None },
                 Ctx::Resume {
                     lookup: resume::Lookup::new(name),
-                    thread,
                 },
             );
         }
@@ -668,7 +659,6 @@ impl State {
     /// A page of the listing arrived: the next one is asked for, or the lookup ends.
     fn resume_page(
         mut lookup: resume::Lookup,
-        thread: Option<ThreadId>,
         result: Result<Reply, RpcError>,
         cx: &mut AppCx<'_>,
     ) {
@@ -686,19 +676,21 @@ impl State {
                 Command::Sessions {
                     cursor: Some(cursor),
                 },
-                Ctx::Resume { lookup, thread },
+                Ctx::Resume { lookup },
             ),
-            resume::Step::Done(verdict) => Self::resumed(&lookup.name, thread, verdict, cx),
+            resume::Step::Done(verdict) => Self::resumed(&lookup.name, verdict, cx),
         }
     }
 
     /// How the lookup ended: the thread to open, or the line saying why not.
-    fn resumed(name: &str, thread: Option<ThreadId>, verdict: resume::Verdict, cx: &mut AppCx<'_>) {
+    fn resumed(name: &str, verdict: resume::Verdict, cx: &mut AppCx<'_>) {
         match verdict {
-            resume::Verdict::Found(id) => cx.wish(
-                thread.unwrap_or_default(),
-                Wish::OpenThread(ThreadId::new(id)),
-            ),
+            resume::Verdict::Found(id) => {
+                let opened = Ctx::Opened {
+                    name: name.to_owned(),
+                };
+                cx.open_thread(&ThreadId::new(id), opened);
+            }
             resume::Verdict::Missing => cx.note(
                 None,
                 Note::NoSavedChat {
@@ -937,6 +929,7 @@ impl super::Feature for Settings {
     type Fact = Fact;
     type Wish = Wish;
     type Interest = super::Never<Self>;
+    type Event = super::Never<Self>;
 
     /// `/hooks`, `/title`, `/statusline`, `/model` and `/resume` with what followed the name: the
     /// arguments are checked here; what they ask is a wish for the page's presenter (the chat's
@@ -1085,16 +1078,23 @@ impl super::Feature for Settings {
                     );
                 }
             }
-            Ctx::Resume { lookup, thread } => State::resume_page(lookup, thread, result, cx),
-            // An id the server does not read is no saved chat (`thread/read` failed: none).
-            Ctx::ResumeId { name, thread } => {
-                let verdict = match result {
-                    Ok(Reply::Session(listed)) => resume::Verdict::Found(listed.id),
-                    _ => resume::Verdict::Missing,
-                };
-                State::resumed(&name, thread, verdict, cx);
-            }
+            Ctx::Resume { lookup } => State::resume_page(lookup, result, cx),
+            Ctx::Opened { .. } => {}
             Ctx::Write(_) | Ctx::FeaturesWrite { .. } | Ctx::KeymapWrite { .. } => {}
+        }
+    }
+
+    /// `/resume <id or label>` asked the app to open a thread: a session the server does not read
+    /// is no saved chat. Another open that holds the app says nothing (the oracle's one resume
+    /// in flight).
+    fn thread_opened(
+        _state: &mut State,
+        ctx: Ctx,
+        result: Result<ThreadId, Refusal>,
+        cx: &mut AppCx<'_>,
+    ) {
+        if let (Ctx::Opened { name }, Err(Refusal::Failed(_))) = (ctx, result) {
+            cx.note(None, Note::NoSavedChat { name });
         }
     }
 

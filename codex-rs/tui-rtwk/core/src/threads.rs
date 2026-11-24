@@ -869,6 +869,12 @@ pub enum ThreadEv {
     /// A startup draft was accepted while an attached thread is pending.
     DeferredSubmit,
     ConnectionLost,
+    /// The thread's event stream was lost while the connection stands (the server's `thread
+    /// stream disconnected`): what the user sends waits in the queue until it is restored
+    /// (oracle `thread_stream_disconnected`, `chatwidget/input_flow.rs`).
+    StreamLost,
+    /// The thread's event stream is back: the queue goes on if no turn runs.
+    StreamRestored,
     /// An app-scoped error for this thread.
     Failure(Failure),
     /// The user sent `message`; `apply` refuses it while a turn runs or starts.
@@ -1140,6 +1146,9 @@ pub struct ThreadCore {
     compaction: compaction::Compaction,
     /// Safety buffering, recourse and the misalignment stop.
     safety: safety::Safety,
+    /// The thread's event stream was lost and has not come back (`ThreadEv::StreamLost`): what
+    /// the user sends waits in the queue (oracle `thread_stream_disconnected`).
+    stream_lost: bool,
     writer: Writer,
 }
 
@@ -1303,6 +1312,7 @@ impl ThreadModel {
                 goal: None,
                 compaction: compaction::Compaction::default(),
                 safety: safety::Safety::default(),
+                stream_lost: false,
                 last_ended: None,
                 finished_turns: Rc::default(),
                 authoritative_turns: Rc::default(),
@@ -1536,6 +1546,19 @@ impl ThreadCore {
     /// A turn runs or its start is in flight.
     pub fn busy(&self) -> bool {
         self.is_running() || self.outgoing.any(is_start_turn)
+    }
+
+    /// The thread's event stream was lost and has not come back.
+    pub fn stream_lost(&self) -> bool {
+        self.stream_lost
+    }
+
+    /// The turn that runs, if one does (`ThreadCx::interrupt`).
+    pub(crate) fn running_turn(&self) -> Option<&TurnId> {
+        match &self.turn {
+            TurnState::Running(running) => Some(&running.turn),
+            _ => None,
+        }
     }
 
     /// This process is the thread's writer.
@@ -2006,6 +2029,11 @@ impl<'a> ThreadFx<'a> {
             misalignment_override: Some(stamp),
         });
         Ok(ticket)
+    }
+
+    /// `turn/interrupt` of the running turn `turn` (`ThreadCx::interrupt`).
+    pub(crate) fn interrupt_turn(&mut self, turn: TurnId) {
+        self.interrupt(turn, false);
     }
 
     fn interrupt(&mut self, turn: TurnId, retried: bool) {
@@ -2483,6 +2511,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.slots.chat.connection_lost();
         }
         ThreadEv::ConnectionLost => {}
+        ThreadEv::StreamLost => model.core.stream_lost = true,
+        ThreadEv::StreamRestored => {
+            model.core.stream_lost = false;
+            if !model.is_running() && !model.outgoing.any(is_start_turn) {
+                send_next(model, fx);
+            }
+        }
         ThreadEv::Reverted => {
             // the edit of a past prompt waits for this (`ThreadReverted`)
             screens::apply_thread_ev(
@@ -2585,6 +2620,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // yet) the message waits in the queue; with none running it starts
             // a turn, after any older queued message.
             let starting = model.outgoing.any(is_start_turn);
+            // The thread's stream is lost: nothing goes out, a steer included, until it is back
+            // (`should_submit_now`).
+            if model.stream_lost {
+                enqueue(model, Queued::Message(message), fx);
+                return;
+            }
             // The plan's text streams: Enter queues the message behind the turn
             // (`is_plan_streaming_in_tui`).
             if model.slots.chat.plan.streaming() && model.is_running() {

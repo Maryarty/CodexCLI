@@ -10,11 +10,13 @@ use super::{AppCtx, AppFx, CodexApp, Command, Now, Wake, apply_thread, session_n
 use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
-use crate::features::{FeatureStates, Out};
+use crate::features::{ChatFacts, Connection, FeatureStates, Out, Refusal};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
+use crate::screens::chat::facts;
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
+use codex_app_server_protocol::{ServerNotification, ServerRequest};
 
 /// The app as a read-only view, for the code of the app that asks what a feature would read.
 pub(super) fn view(app: &CodexApp) -> AppView<'_> {
@@ -27,6 +29,7 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
         app.transcript_text.as_ref(),
     )
     .with_access(&app.daybreak)
+    .with_keys(&app.keymap)
     .at(app.now)
 }
 
@@ -46,6 +49,7 @@ pub(super) fn run(
             app.transcript_text.as_ref(),
         )
         .with_access(&app.daybreak)
+        .with_keys(&app.keymap)
         .at(app.now);
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);
@@ -128,6 +132,8 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
         }
         Out::Wish { scope, wish } => Rc::make_mut(&mut app.wishes).push(scope, wish),
+        Out::Lifecycle(lifecycle) => super::lifecycle::carry(app, lifecycle, fx),
+        Out::Chat(facts) => chat_facts(app, facts, fx),
         Out::Settled { thread } => {
             let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
@@ -143,15 +149,6 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
 
 /// An intent of a feature.
 pub(super) fn intent(app: &mut CodexApp, intent: FeatureIntent, fx: &mut AppFx) {
-    // `/side`'s lifecycle half (the fork, the discard) is the app's, run before the slice is asked
-    // (`app/side.rs`, ADR-012 "half a slice").
-    let intent = match intent {
-        FeatureIntent::Side(side) => match super::side::intent(app, side, fx) {
-            Some(side) => FeatureIntent::Side(side),
-            None => return,
-        },
-        intent => intent,
-    };
     run(app, fx, |states, cx| {
         features::apply_intent(states, intent, cx)
     });
@@ -176,8 +173,6 @@ pub(super) fn answer(app: &mut CodexApp, ctx: FeatureCtx, answer: Answer, fx: &m
     run(app, fx, |states, cx| {
         features::answered(states, ctx, result, cx)
     });
-    // A side conversation's boundary may have gone in: its `/btw` prompt is sent.
-    super::side::released(app, fx);
 }
 
 /// The host's answer to an ask a feature made (`AppCx::effect`), under the request number the
@@ -226,6 +221,61 @@ pub(super) fn reconnected(app: &mut CodexApp, fx: &mut AppFx) {
 /// The surface showed the wish `seq`, or gives it up.
 pub(super) fn wish_shown(app: &mut CodexApp, seq: u64) {
     Rc::make_mut(&mut app.wishes).shown(seq);
+}
+
+/// What the chat reads of the thread in use that a feature knows (`Out::Chat`): the flag that
+/// gates the commands a side conversation lacks and the footer's label; both are written only
+/// when they changed.
+fn chat_facts(app: &mut CodexApp, wanted: ChatFacts, fx: &mut AppFx) {
+    if app.screens.chat.flags.side_conversation_active != wanted.side_conversation {
+        Rc::make_mut(&mut app.screens)
+            .chat
+            .flags
+            .side_conversation_active = wanted.side_conversation;
+    }
+    if app.screens.chat.facts.side != wanted.side {
+        let chat = &mut Rc::make_mut(&mut app.screens).chat;
+        chat::apply(chat, chat::Ev::Facts(facts::Ev::Side(wanted.side)), fx);
+    }
+}
+
+/// A notification of the server's stream: every feature that follows it is told its event
+/// (`Feature::project`, `on_event`), in list order.
+pub(super) fn observe(app: &mut CodexApp, notification: &ServerNotification, fx: &mut AppFx) {
+    for event in features::project(notification) {
+        run(app, fx, |states, cx| features::on_event(states, event, cx));
+    }
+}
+
+/// A server request, observe-only (`Feature::project_request`): the app asks the user as before.
+pub(super) fn observe_request(app: &mut CodexApp, request: &ServerRequest, fx: &mut AppFx) {
+    for event in features::project_request(request) {
+        run(app, fx, |states, cx| features::on_event(states, event, cx));
+    }
+}
+
+/// A thread a feature asked for (`AppCx::spawn`, `open_thread`) is open, or could not be had.
+pub(super) fn thread_opened(
+    app: &mut CodexApp,
+    ctx: FeatureCtx,
+    result: Result<ThreadId, Refusal>,
+    fx: &mut AppFx,
+) {
+    run(app, fx, |states, cx| {
+        features::thread_opened(states, ctx, result, cx)
+    });
+}
+
+/// The thread in use is `thread`: every feature's `on_shown`, in list order.
+pub(super) fn on_shown(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    run(app, fx, |states, cx| features::on_shown(states, thread, cx));
+}
+
+/// The connection came up, was lost or is being closed: every feature's `on_connection`.
+pub(super) fn connection(app: &mut CodexApp, connection: Connection, fx: &mut AppFx) {
+    run(app, fx, |states, cx| {
+        features::on_connection(states, connection, cx)
+    });
 }
 
 /// A fact the host sent unasked, for the feature it names.
