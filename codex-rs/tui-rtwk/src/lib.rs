@@ -10,6 +10,7 @@ pub mod app;
 pub mod features;
 pub mod keymap;
 pub mod l10n;
+pub mod oracle_strings;
 pub mod pages;
 pub mod services;
 pub mod sheets;

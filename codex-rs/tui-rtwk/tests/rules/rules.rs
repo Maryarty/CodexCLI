@@ -773,7 +773,10 @@ fn adr010_no_user_visible_literal_outside_the_string_tables() {
 }
 
 fn in_the_tables(name: &str) -> bool {
-    name == "src/l10n.rs" || name.starts_with("src/l10n/") || name.ends_with("/strings.rs")
+    name == "src/l10n.rs"
+        || name.starts_with("src/l10n/")
+        || name.starts_with("src/oracle_strings/")
+        || name.ends_with("/strings.rs")
 }
 
 /// A `format!` whose literal holds words is user-visible text (or becomes

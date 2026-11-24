@@ -224,13 +224,21 @@ fn screen_dirs_hold_view_files_only() {
 /// The UI crate's top-level folders are Flutter's: `app/` (root, theme,
 /// debug), `pages/` (the `Navigator`'s routes), `sheets/` (dialog and
 /// bottom-sheet bodies), `widgets/` (shared), `services/` (IO, no widget),
-/// `l10n/`, `keymap/`, `features/` (the view half of the core's feature slices, ADR-012:
+/// `l10n/`, `oracle_strings/` (generated literal tables of the oracle, W2 porters consume them), `keymap/`, `features/` (the view half of the core's feature slices, ADR-012:
 /// the words and views of `core/src/features/<f>/`). A core feature module need not mirror
 /// a UI folder (a feature may feed a page, a sheet or a cell).
 #[test]
 fn ui_crate_has_only_the_known_folders() {
     let known = [
-        "app", "features", "keymap", "l10n", "pages", "services", "sheets", "widgets",
+        "app",
+        "features",
+        "keymap",
+        "l10n",
+        "oracle_strings",
+        "pages",
+        "services",
+        "sheets",
+        "widgets",
     ];
     let mut found = Vec::new();
     for (name, _) in sources() {
