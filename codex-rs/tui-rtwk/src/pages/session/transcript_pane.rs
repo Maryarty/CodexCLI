@@ -31,7 +31,7 @@ use super::cells::text::Env;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
 use super::transcript::find::{Finder, RowTexts};
-use super::transcript::item_text::mounted_parts;
+use super::transcript::item_text::{Reading, mounted_parts};
 use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
@@ -253,8 +253,7 @@ impl ViewportState {
         rows: &[Row],
         header: bool,
         reverse: bool,
-        bullet: &str,
-        env: &Env<'_>,
+        reading: &Reading<'_>,
     ) -> Rc<RowTexts> {
         let transcript = thread.transcript();
         let mut texts: Vec<String> = Vec::with_capacity(rows.len() + usize::from(header));
@@ -268,7 +267,7 @@ impl ViewportState {
         for row in rows {
             let parts = transcript
                 .get(row.range.start)
-                .and_then(|(_, item)| mounted_parts(item, env, bullet));
+                .and_then(|(_, item)| mounted_parts(item, reading));
             match parts {
                 Some(parts) => {
                     texts.push(
@@ -547,6 +546,7 @@ impl State for ViewportState {
         let show_raw_reasoning =
             select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
+        let rendering = select::<TuiSettings, _, _>(cx, |settings| settings.rendering);
         let Shown { rows, plan } = self.rows(&thread, detailed, collapse);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
@@ -579,7 +579,15 @@ impl State for ViewportState {
                 detailed,
                 expanded: false,
             };
-            self.row_texts(&thread, &rows, header.is_some(), reverse, &bullet, &env)
+            let reading = Reading {
+                env: &env,
+                bullet: &bullet,
+                cwd,
+                rendering,
+                raw,
+                raw_reasoning: show_raw_reasoning,
+            };
+            self.row_texts(&thread, &rows, header.is_some(), reverse, &reading)
         });
         if let Some(texts) = &texts {
             // the caret goes where an accepted match is, and Find is done (`accept_search_into_select_mode`)
