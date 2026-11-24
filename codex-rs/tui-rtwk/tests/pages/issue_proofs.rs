@@ -281,7 +281,6 @@ fn first_row(screen: &str) -> Option<String> {
 /// comes back. (`/side` is not in the port yet, `'/side' is not available yet.`; the switch of
 /// the active thread is the one `OpenThread` makes, and /side's return is a switch back.)
 #[test]
-#[ignore = "RED #57499: the thread left scrolled up is at its end on return"]
 fn issue_57499_a_thread_left_scrolled_up_is_as_it_was_on_return() {
     let (mut h, scrolled) = scrolled_up();
     open_other(&mut h);
@@ -300,7 +299,6 @@ fn issue_57499_a_thread_left_scrolled_up_is_as_it_was_on_return() {
 /// The other half of #57499: the thread switched to has its own reader, so it opens at its own
 /// end and does not take the offset of the thread that was scrolled.
 #[test]
-#[ignore = "RED #57499: the thread opened after a scrolled one opens scrolled up"]
 fn issue_57499_a_thread_opened_after_another_was_scrolled_starts_at_its_own_end() {
     let (mut h, _) = scrolled_up();
     open_other(&mut h);
