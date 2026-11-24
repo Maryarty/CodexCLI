@@ -500,33 +500,113 @@ fn startup_reset_hint_waits_for_active_output_snapshot() {
 }
 
 // ---- oracle: chatwidget/thread_usage_tests.rs (5 screen-level tests here; 12 state tests left to chat-live)
+/// The account on Business, the status line asking for `items`, and the backend's answer to the
+/// thread usage read: a refusal (`None`) or `credits` and `usd` micros.
+fn billing_feed(items: &str, answer: Option<(u64, u64)>) -> String {
+    let account = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"business"}}}}"#;
+    format!(
+        "{account}\n{}\n{}\n",
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project","account_usage":true,"items":ITEMS}}}"#
+            .replace("ITEMS", items),
+        billing_answer(answer),
+    )
+}
+
+/// The `respond` step of the thread usage read.
+fn billing_answer(answer: Option<(u64, u64)>) -> String {
+    match answer {
+        None => r#"{"step":"respond","method":"account/usage/read","error":{"message":"thread usage temporarily unavailable"}}"#.to_string(),
+        Some((credits, usd)) => format!(
+            r#"{{"step":"respond","method":"account/usage/read","result":{{"summary":{{"lifetimeTokens":null,"peakDailyTokens":null,"longestRunningTurnSec":null,"currentStreakDays":null,"longestStreakDays":null}},"dailyUsageBuckets":null,"threadUsage":{{"threadId":"thread-1","estimatedUsageCreditsMicros":{credits},"estimatedUsageUsdMicros":{usd},"nativeUsageUsdMicros":750000,"groups":[]}}}}}}"#
+        ),
+    }
+}
+
 // ORACLE chatwidget/thread_usage_tests.rs:104 status_history_survives_exhausted_billing_retries kind=ui owner=chat-live
 #[test]
 fn status_history_survives_exhausted_billing_retries() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread billing in the chat: no estimated-thread-cost status line item, no thread usage refresh that fails with retries (seed steps), and no /status Thread usage row",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(90, 60).live().open();
+    let clock = |millis: i64| format!("{{\"step\":\"clock\",\"millis\":{millis}}}\n");
+    let mut now = 1_000_000_000_000_i64;
+    s.feed(&clock(now));
+    s.feed(&billing_feed(r#"["estimated-thread-cost"]"#, None));
     s.type_text("/status").keys("enter");
-    // The billing refreshes fail up to the retry bound, then the retry answers (seed steps).
+    // The refreshes fail up to the retry bound (5 s, 15 s, 60 s apart).
+    for delay in [5_000, 15_000, 60_000] {
+        let before = s.requests_of("account/usage/read");
+        now += delay + 1;
+        s.feed(&clock(now));
+        s.wait(300);
+        s.assert_requests_of("account/usage/read", before + 1);
+    }
+    // No retry is left: the clock moves on and nothing is asked.
+    let spent = s.requests_of("account/usage/read");
+    s.feed(&clock(now + 600_000));
+    s.wait(300);
+    s.assert_requests_of("account/usage/read", spent);
+    // A fresh card asks again; the answer lands in both cards.
+    s.feed(&billing_answer(Some((50_000_000, 2_100_000))));
     s.type_text("/status").keys("enter");
-    s.assert_contains("50 credits · ~$2.10");
+    s.wait_for("50 credits · ~$2.10");
+    s.assert_rows_with("Thread usage:        50 credits · ~$2.10", 2);
 }
 
 // ORACLE chatwidget/thread_usage_tests.rs:169 status_history_updates_again_after_billing_settles kind=ui owner=chat-live
 #[test]
 fn status_history_updates_again_after_billing_settles() {
-    // The oracle loops over three status-line selections (estimated-thread-cost, thread-credits,
-    // estimated-thread-cost) with stale then settled billing; each run ends on the settled card.
-    for _case in 0..3 {
-        kit::pending(
-            Owner::ChatLive,
-            "no thread billing in the chat: no status line item to select (estimated-thread-cost or thread-credits), no settlement refresh with stale then settled billing (seed steps)",
+    // The oracle loops over three status-line selections with a stale figure after a turn and the
+    // settled one 15 s later; the /status card made in between ends on the settled figure.
+    let turn = |status: &str| {
+        let turn = format!(
+            r#"{{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"{status}","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}"#
         );
-        let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+        let method = if status == "inProgress" {
+            "turn/started"
+        } else {
+            "turn/completed"
+        };
+        format!(
+            r#"{{"step":"notify","message":{{"method":"{method}","params":{{"threadId":"thread-1","turn":{turn}}}}}}}
+"#
+        )
+    };
+    for (items, stale, stale_figure) in [
+        (
+            r#"["estimated-thread-cost"]"#,
+            (40_000_000, 1_820_000),
+            "40 credits · ~$1.82",
+        ),
+        (r#"["thread-credits"]"#, (50_000_000, 1_820_000), ""),
+        (r#"["estimated-thread-cost"]"#, (40_000_000, 2_100_000), ""),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive).size(90, 60).live().open();
+        let mut now = 1_000_000_000_000_i64;
+        s.feed(&format!("{{\"step\":\"clock\",\"millis\":{now}}}\n"));
+        s.feed(&billing_feed(items, Some((40_000_000, 1_820_000))));
+        // The turn ends: the refresh after it brings the stale figure; the card is made then.
+        s.feed(&format!("{}\n", billing_answer(Some(stale))));
+        s.feed(&turn("inProgress"));
+        s.feed(&turn("completed"));
+        // The kit answers a request the moment it is made, so a card cannot be made while the
+        // read after the turn is in flight (the oracle's order). A stale figure that is above the
+        // baseline in the one selected item (credits 50 > 40, cost 2.10 > 1.82) settles at the
+        // stale answer, and the card made after it asks for itself: the backend has settled then.
+        let settled = billing_answer(Some((50_000_000, 2_100_000)));
+        if stale_figure.is_empty() {
+            s.feed(&format!("{settled}\n"));
+        }
         s.type_text("/status").keys("enter");
-        s.assert_contains("50 credits · ~$2.10");
+        if !stale_figure.is_empty() {
+            s.wait_for(&format!("Thread usage:        {stale_figure}"));
+            // The settled figure, asked for 15 s after the turn.
+            s.feed(&format!("{settled}\n"));
+            now += 15_001;
+            s.feed(&format!("{{\"step\":\"clock\",\"millis\":{now}}}\n"));
+        }
+        s.wait_for("Thread usage:        50 credits · ~$2.10");
+        if !stale_figure.is_empty() {
+            s.assert_absent(&format!("Thread usage:        {stale_figure}"));
+        }
     }
 }
 
