@@ -10,10 +10,19 @@ use rtwk::Cx;
 use codex_tui_core::features::diff::{Diff, Intent, Sheet};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
-use super::FeatureView;
+use super::{FeatureSheet, FeatureView};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for Diff {
+    fn note_words(
+        note: &<Diff as codex_tui_core::features::Feature>::Note,
+        _words: &SessionStrings,
+    ) -> String {
+        note.absurd()
+    }
+}
+
+impl FeatureSheet for Diff {
     type Args = Args;
 
     fn args(_target: Sheet, _cwd: Cwd, _thread: Option<ThreadId>) -> Args {
@@ -22,13 +31,6 @@ impl FeatureView for Diff {
 
     fn open<S: 'static>(cx: &mut Cx<'_, S>, _args: Args) {
         super::verb(cx, Intent::Run);
-    }
-
-    fn note_words(
-        note: &<Diff as codex_tui_core::features::Feature>::Note,
-        _words: &SessionStrings,
-    ) -> String {
-        note.absurd()
     }
 }
 

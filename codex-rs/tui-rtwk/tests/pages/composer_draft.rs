@@ -1,3 +1,4 @@
+// test root: pages
 //! The composer's draft against the thread: shell mode and the history walk
 //! end where the composer clears (the thread took the submit, a command took
 //! the line, Ctrl+C), not where Enter was pressed, and a paste at the start

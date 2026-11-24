@@ -1,3 +1,4 @@
+// test root: pages
 //! The composer's paste detector on the live chat screen: a terminal without
 //! bracketed paste sends a paste as a stream of keys, and the keys that come
 //! within 8 ms of each other are one paste, not typing (an Enter must not

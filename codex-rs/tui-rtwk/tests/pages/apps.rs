@@ -1,3 +1,4 @@
+// test root: pages
 //! `/apps` in the session page (oracle `chatwidget/connectors.rs`, `bottom_pane/app_link_view.rs`):
 //! the directory of apps over the composer, the link dialog of the app picked from it, and what a
 //! pick of an app without a page says. The directory is read from the app server (`app/list`) and

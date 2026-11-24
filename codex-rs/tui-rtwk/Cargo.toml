@@ -130,6 +130,8 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSEnumerator", "NSString"] }
 
 [dev-dependencies]
+# The module lists of the test roots, written from the test files (test-mods/build.rs).
+tui-test-mods = { path = "test-mods" }
 pretty_assertions = "1.4.1"
 tokio = { version = "1", features = ["macros", "test-util"] }
 rtwk-term = { workspace = true }
@@ -186,13 +188,16 @@ path = "tests/screens.rs"
 # The test targets. Every [[test]] is a binary (a rustc run and a link of the whole
 # dependency set, ~3 s each, relinked after every edit of the library), so files are
 # modules of a few roots instead of a target each (docs/rtwk-port/build-speed.md):
-#   screens  tests/screens.rs        the page, sheet and app tests (a new tests/{pages,sheets,app}
-#                                    file is a `#[path]` module there)
-#   pages    tests/pages.rs          mouse, composer draft, the rtwk gap probes
+#   screens  tests/screens.rs        the page, sheet and app tests (every file of tests/{pages,sheets,app}
+#                                    without the marker `// test root: pages`)
+#   pages    tests/pages.rs          mouse, composer draft, the rtwk gap probes (files with the marker)
 #   shell    tests/shell.rs          the services/shell tests
+#   oracle   tests/oracle.rs         the oracle shards (tests/oracle/*.rs)
 #   rules    tests/rules/main.rs     the static rules (pin, layers, theme, fixtures, carried, ...)
 #   kit_proof, oracle, scenarios     as before
-# tests/rules/registration.rs fails for a test file that no root lists.
+# The modules of screens, pages, oracle and shell are the files: `test-mods` (a dev-dependency, below)
+# writes them from tests/{app,pages,sheets,oracle,services}, so a new test file edits no root
+# (tests/rules/test_roots.rs: no root holds a hand-written `mod` line of a test file).
 
 [[test]]
 name = "pages"

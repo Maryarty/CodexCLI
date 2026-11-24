@@ -197,17 +197,26 @@ fn every_oracle_test_of_a_manifest_has_its_test() {
     assert!(missing.is_empty(), "\n{}", missing.join("\n"));
 }
 
-/// Every shard file is a module of `tests/oracle.rs`.
+/// Every shard file is a module of `tests/oracle.rs`: the root says `oracle!()`, whose list
+/// `build.rs` of `test-mods` writes from the files (`tests/rules/test_roots.rs` checks the scan),
+/// and holds no `mod` line of a shard by hand.
 #[test]
 fn every_shard_is_registered() {
     let root = std::fs::read_to_string(dir().join("../oracle.rs")).expect("oracle.rs");
-    let mut loose = Vec::new();
-    for (name, _) in shards() {
-        if !root.contains(&format!("#[path = \"oracle/{name}.rs\"]")) {
-            loose.push(name);
-        }
-    }
-    assert!(loose.is_empty(), "not in tests/oracle.rs: {loose:?}");
+    assert!(
+        root.lines()
+            .any(|line| line.trim() == "tui_test_mods::oracle!();"),
+        "tests/oracle.rs does not list its shards through `tui_test_mods::oracle!();`"
+    );
+    let by_hand: Vec<String> = shards()
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| root.contains(&format!("mod {name};")))
+        .collect();
+    assert!(
+        by_hand.is_empty(),
+        "shard modules written by hand in tests/oracle.rs: {by_hand:?}"
+    );
 }
 
 /// What a pending reason says is not code: a reason may name `rtwk` or

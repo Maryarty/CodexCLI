@@ -560,7 +560,7 @@ const HUBS: &[(&str, usize)] = &[
     ("src/pages/session/actions.rs", 471),
     ("src/pages/session/cells/dispatch.rs", 93),
     ("src/pages/session/transcript/mod.rs", 108),
-    ("src/pages/session/session_page.rs", 1183),
+    ("src/pages/session/session_page.rs", 431),
 ];
 
 #[test]

@@ -26,20 +26,10 @@ use codex_tui_core::features::{FeatureInterest, FeatureStates, Scope};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
 use self::sheet::PluginsSheet;
-use super::{FeatureView, Shown, verb};
+use super::{FeatureSheet, FeatureView, Shown, verb};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for Plugins {
-    type Args = Args;
-
-    fn args(_target: Sheet, cwd: Cwd, _thread: Option<ThreadId>) -> Args {
-        Args { cwd }
-    }
-
-    fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
-        open(cx, args)
-    }
-
     /// The setup of the apps of an installed plugin: the sheet of its directory shows the page
     /// from the feature's state (`State::setups_in`); the wish only has one opened when none
     /// is open for the directory, which the sheet's interest tells.
@@ -61,6 +51,18 @@ impl FeatureView for Plugins {
 
     fn note_words(note: &Say, _words: &SessionStrings) -> String {
         strings::note(note)
+    }
+}
+
+impl FeatureSheet for Plugins {
+    type Args = Args;
+
+    fn args(_target: Sheet, cwd: Cwd, _thread: Option<ThreadId>) -> Args {
+        Args { cwd }
+    }
+
+    fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
+        open(cx, args)
     }
 }
 

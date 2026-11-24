@@ -1,3 +1,4 @@
+// test root: pages
 //! `/presets` as a sheet of its own (oracle `chatwidget/quick_dials.rs`, `bottom_pane/custom_prompt_view.rs`,
 //! snapshots `saved_quick_dials_*`): the slot pickers, the sources among the current settings, the
 //! editor and the confirmation are the pages of one nested navigator; a pick pushes the next page

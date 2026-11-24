@@ -3,15 +3,16 @@
 //! `strings.rs` and views). The directories are the ones of core's `feature_list!`, whose other
 //! lists this file invokes with its own macros (the `mod` lines are written out for rustfmt: a
 //! feature of the list without its directory does not compile). A feature implements `FeatureView`
-//! for its core marker type: the words of its notes and how its wishes are shown. What a feature
-//! asks of the user is its own sheet, prompt or question (`open(cx, args)`, a wish's `shown`), built
-//! of rtwk widgets over controllers and saying the user's decision as a verb (`verb`): core keeps
-//! no menu, prompt or cursor of it.
+//! for its core marker type: the words of its notes and how its wishes are shown; a feature that a
+//! slash command opens a sheet of (`Feature::OPENS`) implements `FeatureSheet` too, the only one
+//! to have `args` and `open`. What a feature asks of the user is its own sheet, prompt or question
+//! (`FeatureSheet::open`, a wish's `shown`), built of rtwk widgets over controllers and saying the
+//! user's decision as a verb (`verb`): core keeps no menu, prompt or cursor of it.
 //!
 //! The generic places call in: `Strings::note` words a `NoteKey::Feature` through `note_words`,
 //! the transcript draws it as the feature's own `cell` when words are not enough, the presenter
 //! shows a wish through `shown`, the session page opens a feature's own sheet
-//! (`Target::Feature`) through `open`, binds the keys a feature owns (`actions`) and the surfaces
+//! (`Target::Feature`) through `open`, the settings dialogs through `settings::open`, binds the keys a feature owns (`actions`) and the surfaces
 //! that have room for a line of a feature's (`Slot`) ask `slot`.
 
 use std::rc::Rc;
@@ -153,17 +154,6 @@ pub trait FeatureView: Feature {
         Vec::new()
     }
 
-    /// What opens the feature's own sheet: ids the page that opens it holds, never what was
-    /// pressed (`Never<Self>` for a feature that has none).
-    type Args: Clone + std::fmt::Debug + PartialEq + Eq;
-
-    /// The arguments of the sheet a slash command named (`Feature::Target`), for the directory and
-    /// the thread in use; a feature without a target has no command to answer.
-    fn args(target: Self::Target, cwd: Cwd, thread: Option<ThreadId>) -> Self::Args;
-
-    /// Opens the feature's own sheet from the widget that asks.
-    fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Self::Args);
-
     /// The feature's slot in the debug menu (`--debug-screens`): its sheets on made-up data. None
     /// for a feature whose sheets have no fixture states.
     fn debug_dir() -> Option<Dir> {
@@ -171,16 +161,35 @@ pub trait FeatureView: Feature {
     }
 }
 
-impl OpenArgs {
-    /// The arguments of the settings dialog `command` opens (`Target::Settings`).
-    pub fn settings(command: SlashCommand) -> OpenArgs {
-        OpenArgs::Settings(settings::Args::of(command))
-    }
+/// What a feature that a slash command opens a sheet of adds to its view (`Feature::OPENS`, the
+/// generated `FeatureTarget`): the arguments of the sheet and how it opens. Only a slice that
+/// declares `OPENS` implements it and is listed in `sheet_list!` (the rule
+/// `feature_sheet_only_with_opens` keeps the two equal): a slice without a command has no `Args`
+/// and no `open` to stub, and `FeatureTarget` of it is uninhabited, so no arm names it.
+pub trait FeatureSheet: FeatureView {
+    /// What opens the feature's own sheet: ids the page that opens it holds, never what was
+    /// pressed.
+    type Args: Clone + std::fmt::Debug + PartialEq + Eq;
 
+    /// The arguments of the sheet the slash command named (`Feature::Target`), for the directory
+    /// and the thread in use.
+    fn args(target: Self::Target, cwd: Cwd, thread: Option<ThreadId>) -> Self::Args;
+
+    /// Opens the feature's own sheet from the widget that asks.
+    fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Self::Args);
+}
+
+impl OpenArgs {
     /// The arguments of the sheet `target` names, for the directory and the thread in use.
     pub fn of(target: FeatureTarget, cwd: Cwd, thread: Option<ThreadId>) -> OpenArgs {
         target_args(target, cwd, thread)
     }
+}
+
+/// Opens the settings dialog the slash command names (`Target::Settings`). The dialogs are no
+/// `FeatureSheet`: no feature target names them, the command's own target does.
+pub fn open_settings<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand) {
+    settings::open(cx, settings::Args::of(command));
 }
 
 /// A verb of a feature, from the widget that has the user's decision: the app applies it
@@ -211,29 +220,47 @@ macro_rules! view_dispatch {
     };
 }
 
+/// The slices whose command opens a sheet of their own (`Feature::OPENS` is `Some`), one line
+/// each, in the form of core's `feature_list!`. Written by hand: a slice joins it with its
+/// `impl FeatureSheet`, the rule `feature_sheet_only_with_opens` checks it against core.
+macro_rules! sheet_list {
+    ($m:ident) => {
+        $m! {
+            daemon => Daemon;
+            diff => Diff;
+            export => Export;
+            mcp_inventory => McpInventory;
+            plugins => Plugins;
+            processes => Processes;
+            windows_sandbox => WindowsSandbox;
+        }
+    };
+}
+
 macro_rules! view_open {
     ($($name:ident => $variant:ident;)*) => {
-        /// The typed arguments of a feature's own sheet (`Target::Feature`, the settings
-        /// dialogs): one variant per feature, uninhabited for a feature without a sheet.
+        /// The typed arguments of a feature's own sheet (`Target::Feature`): one variant per
+        /// feature that opens one (`sheet_list!`).
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum OpenArgs {
-            $($variant(<codex_tui_core::features::$name::$variant as FeatureView>::Args),)*
+            $($variant(<codex_tui_core::features::$name::$variant as FeatureSheet>::Args),)*
         }
 
         $(
-        impl From<<codex_tui_core::features::$name::$variant as FeatureView>::Args> for OpenArgs {
-            fn from(args: <codex_tui_core::features::$name::$variant as FeatureView>::Args) -> Self {
+        impl From<<codex_tui_core::features::$name::$variant as FeatureSheet>::Args> for OpenArgs {
+            fn from(args: <codex_tui_core::features::$name::$variant as FeatureSheet>::Args) -> Self {
                 Self::$variant(args)
             }
         }
         )*
 
         /// The arguments of the sheet the slash command named, for the directory and thread in use.
+        /// A feature without a sheet names no target (`Never`), so no arm is written for it.
         #[allow(unused_variables)]
         fn target_args(target: FeatureTarget, cwd: Cwd, thread: Option<ThreadId>) -> OpenArgs {
             match target {
                 $(FeatureTarget::$variant(target) => OpenArgs::$variant(
-                    <codex_tui_core::features::$name::$variant as FeatureView>::args(
+                    <codex_tui_core::features::$name::$variant as FeatureSheet>::args(
                         target, cwd, thread,
                     ),
                 ),)*
@@ -244,7 +271,7 @@ macro_rules! view_open {
         pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: OpenArgs) {
             match args {
                 $(OpenArgs::$variant(args) => {
-                    <codex_tui_core::features::$name::$variant as FeatureView>::open(cx, args)
+                    <codex_tui_core::features::$name::$variant as FeatureSheet>::open(cx, args)
                 })*
             }
         }
@@ -331,7 +358,7 @@ pub fn run_action(id: ActionId, keyed: &mut KeyCx<'_>) -> bool {
 feature_list!(view_dispatch);
 feature_list!(view_wishes);
 feature_list!(view_debug);
-feature_list!(view_open);
+sheet_list!(view_open);
 feature_list!(view_cells);
 feature_list!(view_slots);
 feature_list!(view_actions);

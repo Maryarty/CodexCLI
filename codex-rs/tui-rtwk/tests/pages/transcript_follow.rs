@@ -1,3 +1,4 @@
+// test root: pages
 //! Tests of the transcript's reader and its follow control (S10; oracle
 //! `transcript_view/follow_control.rs`, `composer_gap.rs`, `footer.rs`,
 //! `input.rs`, `app/owned_transcript.rs`): the row above the composer, the

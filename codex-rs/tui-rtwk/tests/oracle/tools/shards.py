@@ -7,9 +7,9 @@
 Outputs:
   docs/rtwk-port/test-shards.md        the table of shards and the files left out
   tests/oracle/<shard>.rs              one stub test per screen-level oracle test
-  tests/oracle.rs                      the module list (between the markers)
 A shard file that exists is never overwritten (a porter may have started it);
-the table and the module list are rewritten.
+the table is rewritten. The shard modules are the files of tests/oracle/: the roots' module
+lists are written by build.rs of test-mods, so this script no longer edits tests/oracle.rs.
 
 A test is *screen-level* when it asserts an insta snapshot (kind `snap`) or
 renders / presses keys (kind `ui`); the rest is `logic` (a state test, left to
@@ -354,16 +354,6 @@ def render(shards, core_only, out, out_tests, files, snaps, nsnaps, check):
         md.append('| `%s` | %d | %d | %s |' % (key[0], n, out_tests[key], key[1]))
     md.append('')
     results[os.path.join(REPO, 'docs/rtwk-port/test-shards.md')] = '\n'.join(md) + '\n'
-    root = os.path.join(CRATE, 'tests/oracle.rs')
-    text = open(root).read()
-    marker_a, marker_b = '// ---- shards (generated) ----\n', '// ---- end of shards ----\n'
-    mods = ''.join('#[path = "oracle/%s.rs"]\nmod %s;\n' % (s['id'], s['id']) for s in sorted(shards, key=lambda s: s['id']))
-    if marker_a in text:
-        head = text[:text.index(marker_a)]
-        tail = text[text.index(marker_b) + len(marker_b):]
-    else:
-        head, tail = text.rstrip('\n') + '\n\n', ''
-    results[root] = head + marker_a + mods + marker_b + tail
     stale = []
     for path, content in results.items():
         is_shard = '/tests/oracle/' in path and path.endswith('.rs')

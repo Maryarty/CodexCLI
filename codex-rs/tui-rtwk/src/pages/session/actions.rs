@@ -250,10 +250,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits);
                 cx.emit(&hs.screen, intent);
             }
-            // The settings dialog is opened by the kind the command names (`features::open`):
+            // The settings dialog is opened by the kind the command names (`open_settings`):
             // the feature builds its catalogue from its facts.
             if opened.target == Target::Settings {
-                features::open(cx, features::OpenArgs::settings(opened.command));
+                features::open_settings(cx, opened.command);
             }
             // The confirmation of `/archive` and `/delete` is the model's
             // question (is a turn running?), then the select sheet shows it.

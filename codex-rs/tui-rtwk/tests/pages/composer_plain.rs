@@ -1,3 +1,4 @@
+// test root: pages
 //! The plain-text composer (`Composer::plain`, the answers inside question
 //! sheets, debug entry `composer/plain`): what it does not build (popups,
 //! shell mode, the shortcut overlay), the large paste and the over-long

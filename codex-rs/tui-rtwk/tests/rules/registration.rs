@@ -1,8 +1,9 @@
 //! A test file nobody registered is never built, and its tests never fail: the merged test
-//! binaries (docs/rtwk-port/build-speed.md) list their files by hand, so this keeps the lists
-//! whole. The roots: `core/tests/all.rs`, `tests/rules/main.rs`, `tests/shell.rs` list every
-//! file of their directory; a file of `tests/{app,pages,sheets}` is a module of some other
-//! test source (`tests/screens.rs`, `tests/pages.rs`, or the page file that nests it).
+//! binaries (docs/rtwk-port/build-speed.md) list their files, so this keeps the lists whole. The
+//! roots that list by hand: `core/tests/all.rs` and `tests/rules/main.rs` list every file of their
+//! directory. The roots of the UI crate that test files are modules of (`screens`, `pages`,
+//! `oracle`, `shell`) have no list: `build.rs` of `test-mods` writes it from the files, and
+//! `tests/rules/test_roots.rs` keeps hand-written `mod` lines out of them.
 
 #![allow(clippy::expect_used, clippy::disallowed_methods)]
 
@@ -62,38 +63,6 @@ fn every_test_file_is_registered() {
     let mut missing = Vec::new();
     missing.extend(unlisted("core/tests", "core/tests/all.rs"));
     missing.extend(unlisted("tests/rules", "tests/rules/main.rs"));
-
-    // tests/services/*.rs: a `#[path]` module of tests/shell.rs
-    let shell = read(&crate_dir().join("tests/shell.rs"));
-    for path in rs_files("tests/services") {
-        let name = stem(&path);
-        if !shell.contains(&format!("#[path = \"services/{name}.rs\"]")) {
-            missing.push(format!(
-                "tests/services/{name}.rs is not a #[path] module of tests/shell.rs"
-            ));
-        }
-    }
-
-    // tests/{app,pages,sheets}/*.rs: named as a module by a test source of the crate
-    let sources: Vec<String> = ["tests", "tests/app", "tests/pages", "tests/sheets"]
-        .iter()
-        .flat_map(|dir| rs_files(dir))
-        .map(|path| read(&path))
-        .collect();
-    for dir in ["app", "pages", "sheets"] {
-        for path in rs_files(&format!("tests/{dir}")) {
-            let name = stem(&path);
-            let named = sources.iter().any(|text| {
-                text.contains(&format!("mod {name};"))
-                    || text.contains(&format!("{dir}/{name}.rs\""))
-            });
-            if !named {
-                missing.push(format!(
-                    "tests/{dir}/{name}.rs is no module of any test source"
-                ));
-            }
-        }
-    }
     assert!(
         missing.is_empty(),
         "test files nobody builds (register them, or delete them):\n{}",

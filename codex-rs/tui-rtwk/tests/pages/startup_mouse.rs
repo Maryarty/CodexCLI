@@ -1,3 +1,4 @@
+// test root: pages
 //! Mouse tests of the startup page's screens (ADR-011): a tap on an option
 //! row selects it, a tap on the selected row or a double tap accepts it, the
 //! wheel scrolls the rows, the provider wizard's fields take focus on a

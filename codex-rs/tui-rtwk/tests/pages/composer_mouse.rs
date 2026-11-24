@@ -1,3 +1,4 @@
+// test root: pages
 //! Mouse tests of the composer (ADR-011): a click puts the caret where it
 //! lands in the draft, a drag selects and the next typed text replaces the
 //! selection, a click on a popup row picks it. The oracle's composer has no

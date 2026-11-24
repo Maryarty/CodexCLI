@@ -1,0 +1,18 @@
+# The module lists of the test roots of codex-tui-rtwk (docs/rtwk-port/build-speed.md): a
+# dev-dependency of its own, not a build script of the package, because a build script that
+# watches `tests/` reruns on every edit of a test file and cargo then rebuilds the package's lib
+# and everything above it; here only this tiny crate and the roots that use it are rebuilt.
+[package]
+name = "tui-test-mods"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true

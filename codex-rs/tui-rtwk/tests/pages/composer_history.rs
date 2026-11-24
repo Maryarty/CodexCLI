@@ -1,3 +1,4 @@
+// test root: pages
 //! The composer's history against the history file: Up and Ctrl+R over
 //! persistent entries the host reads on demand (`chat_composer_history.rs`,
 //! `history_search.rs`). The host's answers are injected as the events it

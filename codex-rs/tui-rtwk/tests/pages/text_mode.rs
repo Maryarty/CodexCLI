@@ -1,3 +1,4 @@
+// test root: pages
 //! The widths the app's choices are made from are the terminal's: under
 //! `TextMode::Legacy` a halfwidth katakana and its sound mark (`ｶﾞ`, two code points)
 //! take two cells, under `Graphemes` one (G44). The footer rows, the warning notice and the

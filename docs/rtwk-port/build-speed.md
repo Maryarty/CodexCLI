@@ -52,23 +52,43 @@ What the code showed:
 
 ### How a new test file registers now
 
-A new file is one line in a root, otherwise it is not built (`registration.rs` says so):
+A new file of `tests/{app,pages,sheets,oracle,services}` is a file and nothing else: the roots
+`tests/{screens,pages,oracle,shell}.rs` hold no `mod` line of a test file. The crate
+`test-mods` (a dev-dependency, `codex-rs/tui-rtwk/test-mods/`) has a `build.rs` that scans those
+directories (`test-mods/scan.rs`) and writes one macro per root (`tui_test_mods::pages!();` and so
+on), each declaring its modules by absolute path. `tests/rules/test_roots.rs` keeps hand-written
+`mod` lines out of the roots and checks the scan. Two roots still list by hand
+(`registration.rs` says when a file is missing):
 
 | the file | the line |
 |---|---|
 | `core/tests/<x>.rs` | `mod <x>;` in `core/tests/all.rs` |
-| `tests/rules/<x>.rs` | `mod <x>;` in `tests/rules/main.rs` |
-| `tests/services/shell_<x>.rs` | `#[path = "services/shell_<x>.rs"] mod shell_<x>;` in `tests/shell.rs` |
-| `tests/pages/<x>.rs`, `tests/sheets/<x>.rs`, `tests/app/<x>.rs` | the `#[path]` module line in `tests/screens.rs` (as before) |
-| a probe file at the top of `tests/` (`rtwk_g<N>.rs`) | `mod rtwk_g<N>;` in `tests/pages.rs` |
-| `tests/oracle/<x>.rs` | `tests/oracle.rs` (as before) |
+| `tests/rules/<x>.rs` | `mod <x>;` in `tests/rules/main.rs` (the rules root does not depend on `test-mods`: it would relink on every test edit) |
+
+| the file | its root |
+|---|---|
+| `tests/services/<x>.rs` | `shell` |
+| `tests/oracle/<x>.rs` (`tests/oracle/tools/shards.py` writes the stubs, not a list) | `oracle` |
+| `tests/pages/<x>.rs`, `tests/sheets/<x>.rs`, `tests/app/<x>.rs` | `screens`; `pages` when the first lines hold `// test root: pages` |
+| a file another file of the directory names as `mod <x>;` (a page's own children) | a module of that file, not of a root |
+
+A module is named after the file stem, so a test id does not depend on the directory; two files
+of one stem in one root, or a stem of a support module (`common`, `kit`, `oracle_snap`, `unit`),
+fail the scan. Why a crate of its own and not a `build.rs` of the package: cargo reruns a build
+script that watches a directory on every edit of any file in it, and then rebuilds the package's
+lib and everything above it; in `test-mods` an edit of a test file recompiles only that tiny crate
+and the roots that use it (measured: `touch tests/pages/chat.rs`, `check --lib` is 1.7 s with
+no `Checking`). The price: rustfmt does not follow a module that a macro declares, so
+`acargo fmt` no longer reaches these files. Format them with
+`rustfmt --edition 2024 tests/{app,pages,sheets,oracle,services}/*.rs` from `codex-rs/tui-rtwk`
+(`--check` for the test).
 
 A page file inside the merged binaries reaches the harness as `use crate::common::...` and
 `use crate::kit::...`. A file that declares its own `mod common;` is loaded twice in the one
 crate and clippy's `duplicate_mod` rejects it.
 
 A porter's `[[test]]` entry of its own (composer-2 has a `composer_burst` one) is a rebase
-conflict in `Cargo.toml`: register the new file as a `mod` line in `tests/pages.rs` instead.
+conflict in `Cargo.toml`: put the new file in `tests/pages/` with the first line `// test root: pages` instead.
 A porter's new `core/tests/*.rs` (chat-cells-2) is a `mod` line in `core/tests/all.rs`.
 
 ### The porter's cycle

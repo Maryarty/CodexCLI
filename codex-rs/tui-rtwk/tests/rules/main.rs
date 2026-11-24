@@ -5,10 +5,12 @@
 
 mod adr013;
 mod carried;
+mod feature_sheet;
 mod fixtures;
 mod layers;
 mod pin;
 mod registration;
 mod rules;
+mod test_roots;
 mod theme;
 mod ui_registry;

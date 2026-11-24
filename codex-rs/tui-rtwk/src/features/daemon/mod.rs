@@ -10,10 +10,16 @@ use rtwk::Cx;
 use codex_tui_core::features::daemon::{Daemon, Note, Sheet, Verb};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
-use super::FeatureView;
+use super::{FeatureSheet, FeatureView};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for Daemon {
+    fn note_words(note: &Note, _words: &SessionStrings) -> String {
+        strings::note(note)
+    }
+}
+
+impl FeatureSheet for Daemon {
     type Args = Args;
 
     fn args(_target: Sheet, _cwd: Cwd, _thread: Option<ThreadId>) -> Args {
@@ -26,10 +32,6 @@ impl FeatureView for Daemon {
         // `Wish::Menu` the verb asks for waits for its presenter.
         let action = crate::sheets::select::strings::of(cx).daemon_action;
         drop(crate::widgets::page_keys::not_yet(cx, action));
-    }
-
-    fn note_words(note: &Note, _words: &SessionStrings) -> String {
-        strings::note(note)
     }
 }
 
