@@ -17,7 +17,9 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use codex_tui_core::threads::DelegatedMessage;
 
+use super::dispatch::{CellEnv, Place, below};
 use crate::app::theme::Tokens;
+use codex_tui_core::threads::Item;
 
 /// The bullet and its blank (oracle `initial_indent("• ")`, indent `"  "`).
 const BULLET_COLUMNS: i32 = 2;
@@ -61,4 +63,19 @@ impl StatelessWidget for DelegatedCell {
             ))
             .into()
     }
+}
+
+/// A message another task delegated to this thread.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Delegated(message) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        DelegatedCell {
+            message: message.clone(),
+        }
+        .into(),
+    )
 }

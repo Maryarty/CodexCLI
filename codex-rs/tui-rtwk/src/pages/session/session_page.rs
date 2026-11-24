@@ -25,7 +25,7 @@ use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat};
-use codex_tui_core::threads::{Note, ThreadModel};
+use codex_tui_core::threads::ThreadModel;
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
@@ -37,6 +37,7 @@ use codex_tui_core::keymap::actions::GLOBAL_CHANGE_HOST;
 use codex_tui_core::keymap::{Binding, Keymap, fixed};
 
 use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
+use crate::pages::session::key_actions::Keyed;
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::popovers::mention;
@@ -674,43 +675,7 @@ impl State for ChatState {
             ChatMsg::DebugMenu => {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
-            ChatMsg::Action(action) => match action {
-                Action::OpenTranscript => modes.toggle_detailed(),
-                // the find prompt is the sheet's (steps 4-7 of the transcript);
-                // F3 opens the sheet it will search
-                Action::FindTranscript => modes.open(),
-                Action::ToggleSide => {
-                    let note = Note::from(codex_tui_core::commands::Notice::NotAvailable(
-                        SlashCommand::Side,
-                    ));
-                    let thread = read::<SessionSlice, _>(cx).active.clone();
-                    cx.emit(
-                        &hs.screen,
-                        ScreenIntent::from(chat::Intent::Note { thread, note }),
-                    );
-                }
-                // Alt+R (`apply_raw_output_mode(.., notify: false)`): the mode alone, where
-                // `/raw` says which one it is now
-                Action::ToggleRaw => {
-                    let on = !read::<ScreenStates, _>(cx).chat.raw_output;
-                    cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::RawOutput(on)));
-                }
-                Action::OpenWarnings => open_warnings(cx),
-                // `cycle_collaboration_mode`: the thread's own switch; the model refuses
-                // it while a turn runs
-                Action::CycleMode => {
-                    let thread = read::<ThreadModel, _>(cx);
-                    if !thread.read_only() && !refuses_parent_owned(cx, &hs) {
-                        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::CycleMode);
-                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
-                    }
-                }
-                other => {
-                    if let Some(target) = other.target() {
-                        open(cx, target);
-                    }
-                }
-            },
+            ChatMsg::Action(action) => action.run(cx, &Keyed { hs: &hs, ui: &w.ui }),
             ChatMsg::Escape => {
                 if self.shortcuts {
                     self.shortcuts = false;
@@ -930,7 +895,7 @@ impl State for ChatState {
                     hint_override: None,
                     flash: None,
                     on_queue: Some(cx.send(ChatMsg::QueueDraft)),
-                    on_warnings: Some(cx.send(ChatMsg::Action(Action::OpenWarnings))),
+                    on_warnings: Some(cx.send(ChatMsg::Action(Action::Warnings))),
                     on_close: Some(cx.send(ChatMsg::Shortcuts)),
                 };
                 hints = Some(props.clone());

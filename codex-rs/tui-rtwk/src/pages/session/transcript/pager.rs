@@ -33,7 +33,9 @@ use codex_tui_core::keymap::{Keymap, fixed};
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::transcript::{Intent, PagerAction, PagerDoc};
 
+use super::TranscriptMode;
 use super::strings::{self, Strings};
+use crate::app::debug::{DebugEntry, EntryOpen};
 use crate::app::view::Hs;
 
 /// The static pager over the document of the model.
@@ -300,4 +302,56 @@ fn hints(action: Option<PagerAction>, table: &'static Strings, style: Style) -> 
             SizedBox::new(None, Some(1), None),
         ))
         .into()
+}
+
+/// The pager as a mode of the transcript (`mode_list!`).
+pub struct Mode;
+
+impl TranscriptMode for Mode {
+    const NAME: &'static str = "pager";
+
+    fn debug_entries() -> Vec<DebugEntry> {
+        [
+            (
+                "pager_basic",
+                "the static pager, three short lines",
+                include_str!("fixtures/pager_basic.jsonl"),
+            ),
+            (
+                "pager_wraps_long_lines",
+                "the static pager, one long line wrapped",
+                include_str!("fixtures/pager_wraps_long_lines.jsonl"),
+            ),
+            (
+                "pager_long",
+                "the static pager, forty numbered lines",
+                include_str!("fixtures/pager_long.jsonl"),
+            ),
+            (
+                "pager_colors",
+                "the static pager, the colours of a diff and a blank line",
+                include_str!("fixtures/pager_colors.jsonl"),
+            ),
+            (
+                "pager_action",
+                "the static pager with an action on Enter",
+                include_str!("fixtures/pager_action.jsonl"),
+            ),
+        ]
+        .into_iter()
+        .map(|(name, description, script)| DebugEntry {
+            name,
+            description,
+            script,
+            open: EntryOpen::Route(|_| StaticPager.into()),
+        })
+        .collect()
+    }
+}
+
+/// The pager over the chat (`Target::Pager`): the expanded mode of the session page's transcript
+/// (chat-live); until that lands the popup says so.
+pub fn open<S>(cx: &mut Cx<'_, S>) {
+    let action = crate::l10n::strings::of(cx).pages.action_transcript;
+    drop(crate::widgets::page_keys::not_yet(cx, action));
 }

@@ -9,13 +9,16 @@
 //! no menu, prompt or cursor of it.
 //!
 //! The generic places call in: `Strings::note` words a `NoteKey::Feature` through `note_words`,
-//! the presenter shows a wish through `shown`, and the session page opens a feature's own sheet
-//! (`Target::Feature`) through `open`.
+//! the transcript draws it as the feature's own `cell` when words are not enough, the presenter
+//! shows a wish through `shown`, the session page opens a feature's own sheet
+//! (`Target::Feature`) through `open`, binds the keys a feature owns (`actions`) and the surfaces
+//! that have room for a line of a feature's (`Slot`) ask `slot`.
 
 use std::rc::Rc;
 
 use rtwk::overlay::DialogOptions;
 use rtwk::provider::read;
+use rtwk::style::Span;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::Intent;
@@ -25,6 +28,7 @@ use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureInterest, FeatureNote, FeatureTarget, FeatureWish, Scope,
 };
 use codex_tui_core::ids::{Cwd, ThreadId};
+use codex_tui_core::keymap::ActionId;
 
 use crate::app::debug::Dir;
 use crate::app::view::Hs;
@@ -68,6 +72,60 @@ pub struct Shown {
     pub options: DialogOptions,
 }
 
+/// A surface that has room for a line of a feature's, besides what the surface itself shows
+/// (pillar 25): a feature adds the line from its own file (`FeatureView::slot`) and the surface
+/// asks `slots`, so neither names a feature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+    /// A line of the chat's footer (a state of a feature the user should keep in view).
+    FooterLine,
+    /// A line of the usage notice (the rate-limit and credit hints under the composer).
+    UsageNotice,
+    /// A line of the header of a compaction (what the cell of `ContextCompacted` says first).
+    CompactionHeader,
+}
+
+/// The line a feature adds to a [`Slot`]: styled words, the surface lays them out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SlotLine {
+    pub spans: Vec<Span>,
+}
+
+/// A key a feature owns (`Ctrl+G` of the external editor): the keymap action whose keys do it and
+/// what it says when pressed. The page binds the keys of every feature's actions
+/// (`Action::Feature`) and hands `run` the thread the chat shows and the composer's text; the
+/// action says a verb of its feature (`KeyCx::say`), never acts on the page.
+#[derive(Clone, Copy, Debug)]
+pub struct FeatureAction {
+    pub id: ActionId,
+    /// The other keymap actions whose keys do it too (the hardwired forms of a key).
+    pub also: &'static [ActionId],
+    pub run: fn(&mut KeyCx<'_>),
+}
+
+/// What a key of a feature may read and say: the thread the chat shows and what the composer
+/// would submit now, and the door the verb goes through (`Intent::Feature`).
+pub struct KeyCx<'a> {
+    pub thread: &'a ThreadId,
+    pub draft: &'a str,
+    say: &'a mut dyn FnMut(FeatureIntent),
+}
+
+impl<'a> KeyCx<'a> {
+    pub fn new(
+        thread: &'a ThreadId,
+        draft: &'a str,
+        say: &'a mut dyn FnMut(FeatureIntent),
+    ) -> KeyCx<'a> {
+        KeyCx { thread, draft, say }
+    }
+
+    /// Says a verb of the feature (ids and text it holds, never what was pressed).
+    pub fn say(&mut self, intent: impl Into<FeatureIntent>) {
+        (self.say)(intent.into());
+    }
+}
+
 /// What the view of a feature says: the words of its notes, and how it shows its wishes.
 pub trait FeatureView: Feature {
     /// How one of the feature's wishes is shown; none for a feature that has no wishes.
@@ -77,6 +135,23 @@ pub trait FeatureView: Feature {
 
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
     fn note_words(note: &Self::Note, words: &SessionStrings) -> String;
+
+    /// The cell of one of the feature's notes when its words are not enough (a link, a snapshot
+    /// of rows, a styled block): the transcript draws it in place of the one row of words, which
+    /// stay the text of the raw mode and of a selection. None: the words.
+    fn cell(_note: &Self::Note) -> Option<AnyWidget> {
+        None
+    }
+
+    /// What the feature adds to a surface's slot, read from the app through `cx`. None: nothing.
+    fn slot<S: 'static>(_slot: Slot, _cx: &mut Cx<'_, S>) -> Option<SlotLine> {
+        None
+    }
+
+    /// The keys the feature owns, bound by the chat page.
+    fn actions() -> Vec<FeatureAction> {
+        Vec::new()
+    }
 
     /// What opens the feature's own sheet: ids the page that opens it holds, never what was
     /// pressed (`Never<Self>` for a feature that has none).
@@ -203,7 +278,60 @@ macro_rules! view_wishes {
     };
 }
 
+macro_rules! view_cells {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The cell of a feature's note, when the feature draws one of its own.
+        #[allow(unused_variables)]
+        pub fn cell(note: &FeatureNote) -> Option<AnyWidget> {
+            match *note {
+                $(FeatureNote::$variant(ref note) => {
+                    <codex_tui_core::features::$name::$variant as FeatureView>::cell(note)
+                })*
+            }
+        }
+    };
+}
+
+macro_rules! view_slots {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The lines the features add to `slot`, in list order.
+        #[allow(unused_variables)]
+        pub fn slots<S: 'static>(slot: Slot, cx: &mut Cx<'_, S>) -> Vec<SlotLine> {
+            [$(<codex_tui_core::features::$name::$variant as FeatureView>::slot(slot, cx),)*]
+                .into_iter()
+                .flatten()
+                .collect()
+        }
+    };
+}
+
+macro_rules! view_actions {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The keys the features own, in list order.
+        pub fn actions() -> Vec<FeatureAction> {
+            let mut all = Vec::new();
+            $(all.extend(<codex_tui_core::features::$name::$variant as FeatureView>::actions());)*
+            all
+        }
+    };
+}
+
+/// Runs the feature action whose keymap action is `id` (`Action::Feature`); false when no
+/// feature owns it.
+pub fn run_action(id: ActionId, keyed: &mut KeyCx<'_>) -> bool {
+    match actions().into_iter().find(|action| action.id == id) {
+        Some(action) => {
+            (action.run)(keyed);
+            true
+        }
+        None => false,
+    }
+}
+
 feature_list!(view_dispatch);
 feature_list!(view_wishes);
 feature_list!(view_debug);
 feature_list!(view_open);
+feature_list!(view_cells);
+feature_list!(view_slots);
+feature_list!(view_actions);

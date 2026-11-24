@@ -17,7 +17,9 @@ use codex_tui_core::threads::GeneratedImage;
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 /// The texts of the cell: the heading, the detail, and where the image went.
 pub fn texts(image: &GeneratedImage, strings: &Strings) -> Vec<String> {
@@ -73,4 +75,19 @@ impl StatelessWidget for GeneratedImageCell {
         }
         column.into()
     }
+}
+
+/// A finished image generation.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Generated(image) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        GeneratedImageCell {
+            image: image.clone(),
+        }
+        .into(),
+    )
 }

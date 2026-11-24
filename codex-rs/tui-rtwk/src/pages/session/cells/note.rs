@@ -9,10 +9,11 @@ use rtwk::style::{Span, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
-use codex_tui_core::threads::{Note, Tone};
+use codex_tui_core::threads::{Item, Note, NoteKey, Tone};
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
 use super::text::Part;
 
@@ -71,4 +72,19 @@ pub fn texts(
         ],
         Tone::Error => vec![Part::text(cells.error_line.replace("{}", &message))],
     }
+}
+
+/// What a command line answered with.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Note(note) = item else {
+        return AnyWidget::default();
+    };
+    // a note a feature wrote may draw itself (`FeatureView::cell`); the rest is a line of text
+    if let NoteKey::Feature(own) = &note.key
+        && let Some(cell) = crate::features::cell(own)
+    {
+        return below(place.separator, cell);
+    }
+    below(place.separator, NoteCell { note: note.clone() }.into())
 }

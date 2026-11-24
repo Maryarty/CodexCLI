@@ -10,7 +10,9 @@ use rtwk_rich::markdown::MarkdownTheme;
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 /// `• Proposed Plan`, a blank row, then the plan on the prompt surface with a
 /// blank row above and below and two columns on each side.
@@ -44,4 +46,23 @@ pub fn proposed_plan(
                 .child(body),
         )
         .into()
+}
+
+/// A proposed plan.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Plan { text } = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        proposed_plan(
+            text,
+            env.cwd,
+            env.prompt_surface.clone(),
+            env.markdown,
+            env.tokens,
+            env.cells,
+        ),
+    )
 }

@@ -18,6 +18,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::facts::TuiSettings;
 
+use super::TranscriptMode;
 use super::copy::{CopyJob, Shown};
 use crate::app::view::Hs;
 use crate::widgets::thread_ui::{Follow, TextSelection};
@@ -151,4 +152,11 @@ impl State for HostState {
             .child(area)
             .into()
     }
+}
+
+/// The selection area as a mode of the transcript (`mode_list!`): no fixture states of its own.
+pub struct Mode;
+
+impl TranscriptMode for Mode {
+    const NAME: &'static str = "select";
 }

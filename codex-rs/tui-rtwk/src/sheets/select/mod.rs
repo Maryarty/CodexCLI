@@ -18,8 +18,8 @@ mod worktree;
 
 use std::rc::Rc;
 
-use rtwk::AnyWidget;
 use rtwk::overlay::DialogOptions;
+use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::screens::select::Opening;
 use codex_tui_core::screens::select::apps::Link;
@@ -30,6 +30,13 @@ use crate::app::debug::EntryOpen;
 use crate::widgets::picker::list::List;
 
 pub mod strings;
+
+/// `/presets`: the presets overlay of the oracle (`chunk-popups-picker-rest`) is not built, the
+/// popup says so instead of opening an empty dialog.
+pub fn open_presets<S>(cx: &mut Cx<'_, S>) {
+    let action = strings::of(cx).presets_action;
+    drop(crate::widgets::page_keys::not_yet(cx, action));
+}
 
 pub use generic::{Purpose, pick};
 

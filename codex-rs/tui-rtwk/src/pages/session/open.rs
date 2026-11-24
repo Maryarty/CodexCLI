@@ -8,12 +8,12 @@ use std::cell::Cell;
 use rtwk::Cx;
 use rtwk::navigation::{Navigator, PageRoute};
 
-use codex_tui_core::commands::{Opens, Target};
+use codex_tui_core::commands::Target;
 
-use crate::pages::session::backtrack;
+use crate::pages::session::{backtrack, transcript};
 use crate::pages::startup::import;
 use crate::pages::{agents, resume, usage};
-use crate::sheets::{approvals, dialogs, pets, select, voice};
+use crate::sheets::{approvals, dialogs, pets, voice};
 
 thread_local! {
     /// The target the chat opened last on this thread: the identity a test
@@ -39,52 +39,27 @@ pub fn note_opened(target: Target) {
     LAST.with(|last| last.set(Some(target)));
 }
 
-/// Opens `target` over the chat of `cx`. Only the pages are routes
-/// (`Opens::Page`: Agents, Resume, Usage, the import step of Startup); a sheet
-/// or dialog is shown over the page that asks, a mode belongs to the session
-/// page. The chat stays below, with its transcript and its composer's text;
-/// Esc returns to it.
+/// Opens `target` over the chat of `cx`: the registry of the targets, one line each, an opener
+/// that is the owning slice's (`ui_registry` rules: no arm of this match has a body). Only the
+/// pages are routes (`Opens::Page`: Agents, Resume, Usage, the import step of Startup); a sheet
+/// or dialog is shown over the page that asks, a mode belongs to the session page. The chat
+/// stays below, with its transcript and its composer's text; Esc returns to it. A feature's own
+/// sheet is opened by its UI half with typed arguments (`features::open`), the select and
+/// settings sheets by the presenter for the show the model made.
 pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
-    match target.opens() {
-        Opens::Page => match target {
-            Target::Resume => push(cx, resume::route()),
-            Target::Agents => push(cx, agents::route()),
-            Target::Import => push(cx, import::route()),
-            _ => push(cx, usage::route()),
-        },
-        Opens::Sheet | Opens::Dialog => match target {
-            // The select sheets are shown by the presenter for the show the model made; what
-            // is left of this target is `/daemon`, whose menu is not built (oracle
-            // `daemon_menu.rs`): the popup says so.
-            Target::Select => {
-                let action = select::strings::of(cx).daemon_action;
-                drop(crate::widgets::page_keys::not_yet(cx, action));
-            }
-            // Opened by its own UI half with the dialog's kind (`features::open`).
-            Target::Settings => {}
-            Target::Dialogs => drop(dialogs::open(cx)),
-            // The picker of this session's subagents is not built: the sheet
-            // says so (oracle: `AppEvent::OpenAgentPicker`).
-            Target::AgentPicker => {
-                let action = crate::l10n::strings::of(cx).pages.action_subagents;
-                drop(crate::widgets::page_keys::not_yet(cx, action));
-            }
-            Target::Approvals => drop(approvals::open(cx)),
-            Target::Pets => drop(pets::open(cx)),
-            // Opened by its own UI half with typed arguments (`features::open`).
-            Target::Feature(_) => {}
-            _ => drop(voice::open(cx)),
-        },
-        Opens::Mode => match target {
-            // The pager is the expanded mode of the session page's transcript
-            // (chat-live); until that lands `/diff` and Ctrl+T say so in a popup.
-            Target::Pager => {
-                let action = crate::l10n::strings::of(cx).pages.action_transcript;
-                drop(crate::widgets::page_keys::not_yet(cx, action));
-            }
-            // Backtrack becomes a mode of the expanded transcript with chat-live.
-            _ => push(cx, PageRoute::new(|_| backtrack::part())),
-        },
+    match target {
+        Target::Resume => push(cx, resume::route()),
+        Target::Agents => push(cx, agents::route()),
+        Target::Import => push(cx, import::route()),
+        Target::Usage => push(cx, usage::route()),
+        Target::Dialogs => drop(dialogs::open(cx)),
+        Target::Approvals => drop(approvals::open(cx)),
+        Target::Pets => drop(pets::open(cx)),
+        Target::Voice => drop(voice::open(cx)),
+        Target::AgentPicker => agents::open_picker(cx),
+        Target::Pager => transcript::pager::open(cx),
+        Target::Backtrack => push(cx, PageRoute::new(|_| backtrack::part())),
+        Target::Select | Target::Settings | Target::Feature(_) => {}
     }
     // Recorded once the directory's opener has run: the identity a test
     // reads is what was opened, not what was asked for.

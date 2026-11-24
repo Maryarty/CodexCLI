@@ -13,7 +13,9 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 /// The texts of the cell: the summary row (the mark is part of it), then the details.
 pub fn texts(summary: &str, details: Option<&str>, strings: &Strings) -> Vec<String> {
@@ -52,4 +54,20 @@ impl StatelessWidget for DeprecationCell {
         }
         column.into()
     }
+}
+
+/// A deprecation notice (the detailed transcript's).
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Deprecation { summary, details } = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        DeprecationCell {
+            summary: summary.clone(),
+            details: details.clone(),
+        }
+        .into(),
+    )
 }

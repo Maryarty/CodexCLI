@@ -10,6 +10,7 @@
 //! becomes the feedback. The oracle's rule that a second copy refused as busy leaves the copy
 //! under way showing is kept here (`show_copy_feedback`).
 
+use super::TranscriptMode;
 use std::collections::BTreeMap;
 
 use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
@@ -168,6 +169,13 @@ impl CopyLog {
     pub fn shown(&self) -> Shown {
         Shown(self.feedback.clone())
     }
+}
+
+/// The copy of a block as a mode of the transcript (`mode_list!`): no fixture states of its own.
+pub struct Mode;
+
+impl TranscriptMode for Mode {
+    const NAME: &'static str = "copy";
 }
 
 #[cfg(test)]

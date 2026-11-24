@@ -11,3 +11,4 @@ mod pin;
 mod registration;
 mod rules;
 mod theme;
+mod ui_registry;

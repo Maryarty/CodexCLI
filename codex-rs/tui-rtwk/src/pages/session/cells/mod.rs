@@ -16,6 +16,7 @@ pub mod agent;
 pub mod citation;
 pub mod collab;
 pub mod computer_activity;
+pub mod decision;
 pub mod delegated;
 pub mod deprecation;
 pub mod disclosure;
@@ -50,6 +51,41 @@ pub mod warning;
 pub mod web;
 
 pub use dispatch::{CellEnv, Place, cell};
+
+/// The list of the kinds of transcript item, one line per `Item` pattern, handed to `callback` as
+/// `pattern => file;` entries: `file` is the module `cells/<file>.rs` whose `view(item, env,
+/// place)` builds the cell of the items the pattern matches. The match the callback makes is
+/// exhaustive, so an `Item` no line names does not compile; a cell is one line here (and its
+/// file). What a feature draws for a note of its own is `FeatureView::cell` (reached through
+/// `note`), never a line.
+macro_rules! cell_list {
+    ($callback:ident) => {
+        $callback! {
+            Item::User(_) => user;
+            Item::Agent { .. } => agent;
+            Item::Tool(_) => tool_rows;
+            Item::Reasoning { .. } => reasoning;
+            Item::Patch(_) => patch;
+            Item::Plan { .. } => plan;
+            Item::Web(_) => web;
+            Item::ImageView { .. } => viewed_image;
+            Item::Notice(_) => notice;
+            Item::Note(_) => note;
+            Item::PlanUpdate(_) => plan_update;
+            Item::Hook(_) => hook;
+            Item::Collab(_) => collab;
+            Item::Delegated(_) => delegated;
+            Item::Generated(_) => generated_image;
+            Item::Error { .. } | Item::HighLoad => error;
+            Item::Warning { .. } | Item::LocalWarning(_) | Item::StartupWarning(_) => warning;
+            Item::Deprecation { .. } => deprecation;
+            Item::Decision(_) | Item::Review(_) => decision;
+            Item::Status { .. } => status;
+        }
+    };
+}
+
+use cell_list;
 
 /// What the debug menu lists for this directory: nothing yet. A slice adds
 /// one entry per state worth opening (a screen on made-up data).
