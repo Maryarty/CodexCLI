@@ -6,6 +6,7 @@
 //! (dim, italic) over the `MarkdownView`. The oracle renders this body with
 //! its generic renderer: a `:codex-file-citation` directive stays literal here.
 
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
 use rtwk::style::{Attrs, Style};
 use rtwk::text::DefaultTextStyle;
@@ -35,11 +36,11 @@ impl StatelessWidget for ReasoningCell {
         Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             // Two columns: a text's trailing blank takes no room of its own.
-            .child(SizedBox::new(
+            .child(ExcludeSelection::new(SizedBox::new(
                 Some(BULLET_COLUMNS),
                 None,
                 Some(Text::new(strings.bullet).style(tokens.dim()).into()),
-            ))
+            )))
             .child(Expanded::new(
                 1,
                 DefaultTextStyle::new(

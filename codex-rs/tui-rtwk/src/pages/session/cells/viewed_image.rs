@@ -10,6 +10,7 @@
 //! Flutter: a `StatefulWidget` holding `expanded` (as an `ExpansionTile`), the
 //! control from `disclosure.rs`.
 
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
 use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
@@ -101,11 +102,11 @@ impl State for ViewedImageCellState {
             // path wrapped under two blanks.
             Row::new()
                 .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(SizedBox::new(
+                .child(ExcludeSelection::new(SizedBox::new(
                     Some(2),
                     None,
                     Some(Text::new(strings.bullet).style(tokens.dim()).into()),
-                ))
+                )))
                 .child(Expanded::new(
                     1,
                     Text::rich(vec![

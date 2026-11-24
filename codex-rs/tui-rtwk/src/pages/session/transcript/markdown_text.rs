@@ -2,7 +2,7 @@
 //! over its `MarkdownView` selects, written from the blocks.
 //!
 //! Find, the select mode and copy read the items of the transcript that are
-//! scrolled out of the list (`ItemTexts`); a message's body is a rtwk
+//! scrolled out of the list (`ListView::item_text`); a message's body is a rtwk
 //! `MarkdownView` whose strings are a column of `Text`s the app cannot read
 //! before it is mounted (rtwk-gaps: "text of a Markdown document that is not
 //! mounted"). This is the app's model of that column: a block is its text, a

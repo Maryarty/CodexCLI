@@ -2,6 +2,7 @@
 //! Session notices (oracle thread_transcript/other_items.rs `new_info_event`
 //! and `new_review_status_line`).
 
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::widgets::Text;
@@ -202,7 +203,7 @@ impl StatelessWidget for NoticeCell {
                 let message = rate_limit_warning_words(*remaining_percent, *window, strings);
                 Row::new()
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(SizedBox::new(
+                    .child(ExcludeSelection::new(SizedBox::new(
                         Some(MARK_COLUMNS),
                         None,
                         Some(
@@ -210,7 +211,7 @@ impl StatelessWidget for NoticeCell {
                                 .style(attention.clone())
                                 .into(),
                         ),
-                    ))
+                    )))
                     .child(Expanded::new(1, Text::new(message).style(attention)))
                     .into()
             }
@@ -249,11 +250,11 @@ impl StatelessWidget for NoticeCell {
                 }
                 Row::new()
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(SizedBox::new(
+                    .child(ExcludeSelection::new(SizedBox::new(
                         Some(MARK_COLUMNS),
                         None,
                         Some(Text::new(strings.warning_mark).style(attention).into()),
-                    ))
+                    )))
                     .child(Expanded::new(1, body))
                     .into()
             }

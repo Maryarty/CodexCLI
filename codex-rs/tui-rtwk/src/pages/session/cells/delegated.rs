@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::Attrs;
 use rtwk::widgets::Text;
@@ -42,7 +43,7 @@ impl StatelessWidget for DelegatedCell {
             .replace("{}", &self.message.source);
         Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(SizedBox::new(
+            .child(ExcludeSelection::new(SizedBox::new(
                 Some(BULLET_COLUMNS),
                 None,
                 Some(
@@ -50,7 +51,7 @@ impl StatelessWidget for DelegatedCell {
                         .style(tokens.dim().attrs(Attrs::DIM))
                         .into(),
                 ),
-            ))
+            )))
             .child(Expanded::new(
                 1,
                 Column::new()

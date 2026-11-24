@@ -1,7 +1,7 @@
 # Brief: transcript chunk (owned transcript after tier 1, pager, backtrack; tm `pager`, `backtrack`, "Owned transcript behaviour")
 
 Recon 2026-11-22 (recon-transcript, read-only, no cargo). Paths: `codex-rs/tui-rtwk` (ours), `codex-rs/tui/src` (oracle),
-rtwk pin `~/.cache/codexcli/rtwk-pin-5583` (5583c142; ADR-028 `selection_text` is on it). Tier 1 is the chat-transcript
+rtwk pin `~/.cache/codexcli/rtwk-pin-c953` (c953f062; ADR-029: `selection_text` is the twk shape, ItemTexts removed). Tier 1 is the chat-transcript
 porter's worktree `.claude/worktrees/agent-abe88f2eda1c6d085` at `3aca59434`: follow control, page keys, Esc/Enter back to
 latest, footer hints (`src/pages/session/transcript/{follow,mod,strings}.rs`, `widgets/thread_ui.rs` `Follow`, `tests/pages/transcript_follow.rs`).
 This brief is everything after that, plus the pager and backtrack. It replaces `pager.md`.
@@ -19,7 +19,7 @@ This brief is everything after that, plus the pager and backtrack. It replaces `
     `enlarging_paused_view_hides_back_to_bottom_when_tail_fits`, `decimal_mouse_scroll_speeds_preserve_whole_rows`,
     `mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement`;
   - tv5: `offsets_can_reach_rows_after_u16_limit`, `single_row_scrolling_crosses_an_entry_separator_in_both_directions`;
-  - also `tests/rtwk_g9.rs`: it is green; keep it as the ADR-028 guard.
+  - also `tests/rtwk_g9.rs`: it is green; keep it as the ADR-029 guard.
 - `tests/oracle/pager.rs` has 23 `kit::missing` stubs with no bodies, all owned by ChatLive. Write the bodies from the oracle first (step 1), then set their owner to this chunk.
 - tm housekeeping is the orchestrator's: tasks `pager` and `backtrack` carry stale areas (`src/screens/pager`, `tests/pager.rs`). Set them to the §5 list, or fold both into this job.
 
@@ -150,7 +150,7 @@ The 209 transcript_view tests in this chunk, by group:
   `Following | Reading | Detailed | Browsing{nth} | Find{query} | Select{marks} | Copy{target}`.
   It replaces `detailed_transcript`/`esc_primed`, and the Esc order of `owned_transcript.rs:974-1060` becomes the controller's one `on_escape`.
   The thread state stays in `CodexApp`; the controller holds only view state (offsets, marks, query). No ADR-003 copy.
-- **Selection + copy (ADR-028).**
+- **Selection + copy (ADR-028; superseded at the pin c953f062 by ADR-029, parity/repin-5.md, gap row G-new-sel-lines).** The list below was written for `ItemTexts` / `ListView::selection_text`; on the pin an item is one line of text (`ListView::item_text`, `ItemText`), the item draws its part through `ListView::selection_of`, there are no keys (a selection is kept across a change by `SelectionAreaController::start`/`end` and `select_between`), and a cell of many wrapped rows is not an item of it. `ItemTexts` is still in the tree until rtwk's `sel-028-retire`; do not build on it.
   - `TranscriptTexts: ItemTexts` over the rows the pane builds, with `key(i)` = the item id; `ListView::selection_text(Rc<dyn ItemTexts>)`
     (`rtwk-scroll/src/list_view.rs:503`) inside one `SelectionArea` (`rtwk-widgets/src/gestures/selection.rs:460`).
   - `SelectionArea` gives `copy_on_release`, `on_copy`, `copy_transform` and `trim_trailing_blanks`. The `SelectionAreaController` (:271) gives

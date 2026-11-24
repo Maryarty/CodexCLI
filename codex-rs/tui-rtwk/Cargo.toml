@@ -7,13 +7,13 @@ members = ["host", "core"]
 # workspace does not work: cargo makes path dependencies under the workspace
 # directory members, and rtwk's crates then inherit from this manifest.
 [workspace.dependencies]
-rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5583/crates/rtwk" }
-rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5583/crates/rtwk-core" }
-rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5583/crates/rtwk-render" }
-rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5583/crates/rtwk-rich" }
-rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5583/crates/rtwk-term" }
-rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5583/crates/rtwk-test" }
-rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5583/crates/rtwk-tokio" }
+rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin-c953/crates/rtwk" }
+rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin-c953/crates/rtwk-core" }
+rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-pin-c953/crates/rtwk-render" }
+rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-pin-c953/crates/rtwk-rich" }
+rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin-c953/crates/rtwk-term" }
+rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-pin-c953/crates/rtwk-test" }
+rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-pin-c953/crates/rtwk-tokio" }
 
 [workspace.package]
 version = "0.0.0"

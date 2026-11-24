@@ -1,6 +1,6 @@
-//! The text contract of the cells: what the app keeps of an item for rtwk's
-//! selection over a list (`ItemTexts`, `ListView::selection_text`), find
-//! and copy of items that are not mounted.
+//! The text contract of the cells: what the app keeps of an item for the
+//! selection over the transcript (rtwk's `ListView::item_text` gives each item
+//! one line of it, ADR-029), find and copy of items that are not mounted.
 //!
 //! The text of an item is the strings of the `Text`s its cell builds, in the
 //! order of the tree (what a `SelectionArea` over the mounted cell selects,
@@ -12,9 +12,10 @@
 //! two equal.
 //!
 //! Flutter has no such thing: `SelectableRegion` selects what is built, and
-//! reads nothing of what is scrolled out. rtwk's `ItemTexts` is the app's
-//! model of it, and a model drifts from the widgets, so each cell keeps its
-//! `texts` beside its `build` and the test is the guard.
+//! reads nothing of what is scrolled out. twk's `ListView(itemText:)` is the
+//! app's model of it (one line per item, the rows an item draws are its
+//! own), and a model drifts from the widgets, so each cell keeps its `texts`
+//! beside its `build` and the test is the guard.
 //!
 //! A cell whose text is made by a rtwk widget (Markdown, a diff) has no text
 //! here yet, and says [`Gap`]: the rows of the gap are in the pack.
@@ -45,8 +46,8 @@ pub struct Env<'a> {
 pub struct Part {
     pub text: String,
     /// The text is a gutter (a bullet, the prompt mark, a `└` branch, the
-    /// disclosure control): not part of what a selection copies, once the
-    /// cell's rtwk widget leaves it out ([`GUTTERS_SELECTED`]).
+    /// disclosure control): not part of what a selection copies, the cell's
+    /// widget puts it in an `ExcludeSelection`.
     pub gutter: bool,
 }
 
@@ -71,14 +72,6 @@ impl Part {
         }
     }
 }
-
-/// Whether a `SelectionArea` over the mounted cell selects the gutters. It
-/// does while the rtwk pin has no `ExcludeSelection` (rtwk `d21d7a13`, after
-/// the pin 5583): the cells wrap their gutters in it at the repin, this turns
-/// `false`, and `text_contract` then holds `Texts::joined(false)` to the
-/// selection. What the app keeps as the text of a mounted item is
-/// `joined(GUTTERS_SELECTED)`.
-pub const GUTTERS_SELECTED: bool = true;
 
 /// The texts of one item.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,9 +111,10 @@ impl Texts {
         }
     }
 
-    /// What `ItemTexts::text` answers for the item as it is mounted.
+    /// What a `SelectionArea` over the item as it is mounted selects: the
+    /// gutters are in an `ExcludeSelection` (rtwk `d21d7a13`), so not in it.
     pub fn as_mounted(&self) -> Option<String> {
-        self.joined(GUTTERS_SELECTED)
+        self.joined(false)
     }
 }
 

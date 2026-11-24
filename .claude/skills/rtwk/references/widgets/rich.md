@@ -9,9 +9,9 @@ A Code is the body of the gallery's preview: it names widgets by the last segmen
 
 ## MarkdownView
 
-A Markdown document as widgets, a blank row between the blocks; its links the app's with onLinkTap, a MarkdownController scrolling to a heading.
+A Markdown document as widgets, a blank row between the blocks; its links the app's with on_link_tap, a MarkdownController scrolling to a heading.
 
-- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:438`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are super::markdown_blocks_lines's: see there for how each block looks).
+- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:441`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are super::markdown_blocks_lines's: see there for how each block looks).
 
 ### Code
 
@@ -19,10 +19,9 @@ A Markdown document as widgets, a blank row between the blocks; its links the ap
 use rtwk::animation::SpinnerFrames;
 use rtwk::layout::{CrossAxisAlignment, Expanded, SizedBox};
 use rtwk::scroll::{ScrollController, Scrollbar, SingleChildScrollView};
-use rtwk::style::{Span, Style, Theme};
+use rtwk::style::{Attrs, Span, Style, Theme};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, LayoutBuilder, column, row};
-use rtwk_core::style::Attrs;
 use rtwk_rich::markdown::MarkdownView;
 
 pub(crate) const THINK: i64 = 700;
@@ -149,7 +148,7 @@ pub(crate) fn answer(
 fn preview() -> AnyWidget {
     document(r#"# Release notes
 
-**twk_rich** puts *rich text* in the terminal: Markdown, code and diffs, each a widget.
+**rtwk-rich** puts *rich text* in the terminal: Markdown, code and diffs, each a widget.
 
 Jump to [what is new](#what-is-new) or [still to come](#still-to-come).
 
@@ -157,23 +156,22 @@ Jump to [what is new](#what-is-new) or [still to come](#still-to-come).
 
 - `MarkdownView` streams an answer in
 - `CodeView` highlights ten languages
-  - Dart, Rust, Go and Python
+  - Rust, Go and Python
   - JSON, YAML and Bash
 - `DiffView` marks the words that changed
 
-1. Add the package:
-2. Import `package:twk_rich/twk_rich.dart`
+1. Add the crate:
+2. Import `rtwk_rich::*`
 3. Show a document
 
 ```bash
-dart pub add twk_rich
+cargo add rtwk-rich
 ```
 
-```dart
-final notes = await File('NOTES.md').readAsString();
-runApp(SingleChildScrollView(
-  child: MarkdownView(notes),
-));
+```rust
+let notes = std::fs::read_to_string("NOTES.md")?;
+let view = MarkdownView::new(notes);
+let page = ScrollView::new(view);
 ```
 
 > Every block is a widget: this quote, the lists above and the table below.
@@ -189,7 +187,7 @@ runApp(SingleChildScrollView(
 - [x] tables and task lists
 - [ ] ~~images~~ pictures in cells
 
-Read the [guide](https://dart.dev/tools) for more.
+Read the [guide](https://docs.rs/rtwk-rich) for more.
 
 ---"#, 50)
 }
@@ -209,7 +207,7 @@ Read the [guide](https://dart.dev/tools) for more.
 
 Source code highlighted for its language, with line numbers, its long lines wrapped or cut off at the width; a CodeViewController scrolls it to a line, highlights lines and finds text.
 
-- `rtwk_rich::highlight::CodeView` (struct) in `crates/rtwk-rich/src/highlight/code_view.rs:1024`: `code` in `language`, each token in the style the SyntaxTheme at its place (SyntaxTheme::of) gives its kind: its lines one under another, and with line_numbers each line's number in a gutter before it.
+- `rtwk_rich::highlight::CodeView` (struct) in `crates/rtwk-rich/src/highlight/code_view.rs:1113`: `code` in `language`, each token in the style the SyntaxTheme at its place (SyntaxTheme::of) gives its kind: its lines one under another, and with line_numbers each line's number in a gutter before it.
 
 ### Code
 
@@ -218,12 +216,11 @@ use std::time::Duration;
 
 use rtwk::binding::AppBinding;
 use rtwk::layout::SizedBox;
+use rtwk::render::{TextSegmenter, break_lines};
 use rtwk::scroll::{Scrollbar, SingleChildScrollView};
 use rtwk::style::Theme;
 use rtwk::text::TextWrap;
 use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_core::unicode::TextSegmenter;
-use rtwk_render::objects::text::break_lines;
 use rtwk_rich::highlight::{CodeSign, CodeView, CodeViewController, Language};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -430,30 +427,28 @@ impl_widget!(stateful CodePreview);
 
 fn preview() -> AnyWidget {
     code(
-        r#"import 'package:twk/twk.dart';
+        r#"use std::collections::HashMap;
 
-/// Counts the presses of the space bar.
-final class Counter extends StatefulWidget {
-  const Counter({super.key, this.start = 0});
-
-  final int start;
-
-  @override
-  State<Counter> createState() => _CounterState();
+/// The words of a text by how often they come, the most first.
+fn word_counts(text: &str) -> Vec<(&str, usize)> {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for word in text.split_whitespace() {
+        *counts.entry(word).or_insert(0) += 1;
+    }
+    let mut pairs: Vec<_> = counts.into_iter().collect();
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    pairs
 }
 
-final class _CounterState extends State<Counter> {
-  late var _count = widget.start;
-
-  @override
-  Widget build(BuildContext context) => KeyBindings(
-    {'space': () => setState(() => _count++)},
-    child: Text('Pressed $_count times, ${_count.isEven ? 'even' : 'odd'}'),
-  );
+fn main() {
+    let text = "the cat and the hat and the bat";
+    for (word, n) in word_counts(text).iter().take(3) {
+        println!("{word:>5} {n}");
+    }
 }"#,
-        &rtwk_rich::highlight::DART,
-        &[(14, "~"), (18, "+")],
-        "count",
+        &rtwk_rich::highlight::RUST,
+        &[(10, "~")],
+        "word",
         CodeOptions {
     numbers: true,
     signs: false,
@@ -474,7 +469,7 @@ final class _CounterState extends State<Counter> {
 
 | option | values | starts at |
 | --- | --- | --- |
-| language | Dart, Python, Rust, Go, JavaScript, TypeScript, JSON, YAML, Bash, diff, plain | Dart |
+| language | Python, Rust, Go, JavaScript, TypeScript, JSON, YAML, Bash, diff, plain | Rust |
 | line numbers | false, true | true |
 | changes | false, true | false |
 | wrap | none, word, grapheme | word |
@@ -494,25 +489,24 @@ The styles of the code below it, a style for each kind of token, in place of tho
 ### Code
 
 ```rust
-use rtwk::style::{Style, Theme};
+use rtwk::style::{Attrs, Style, Theme};
 use rtwk::{AnyWidget, BuildCx, StatelessWidget, impl_widget};
-use rtwk_core::style::Attrs;
-use rtwk_rich::highlight::{CodeView, DART, SyntaxTheme, SyntaxThemeScope};
+use rtwk_rich::highlight::{CodeView, RUST, SyntaxTheme, SyntaxThemeScope};
 
-const SOURCE: &str = r"/// Says hello to the user, twice.
-@override
-Widget build(BuildContext context) {
-  final name = 'user', times = 2;
-  return Text('Hello, $name! ' * times);
+const SOURCE: &str = r#"/// Says hello to the user, twice.
+#[must_use]
+fn hello() -> String {
+    let name = "user";
+    format!("Hello, {name}! ").repeat(2)
 }
-";
+"#;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SyntaxPreview(pub(crate) usize);
 
 impl StatelessWidget for SyntaxPreview {
     fn build(&self, cx: &mut BuildCx<'_>) -> AnyWidget {
-        let code = CodeView::new(SOURCE).language(&DART);
+        let code = CodeView::new(SOURCE).language(&RUST);
         let syntax = match self.0 {
             0 => {
                 let theme = Theme::of(cx);
@@ -549,17 +543,18 @@ fn preview() -> AnyWidget {
 
 | option | values | starts at |
 | --- | --- | --- |
-| syntax theme | copyWith, own, none | copyWith |
+| syntax theme | copy_with, own, none | copy_with |
 
 ## DiffView
 
-The changes between two texts, unified or side by side, the words that changed marked and both sides highlighted.
+The changes between two texts, unified or side by side, the words that changed marked and both sides highlighted; its lines are selected and copied without their numbers.
 
-- `rtwk_rich::diff::DiffView` (struct) in `crates/rtwk-rich/src/diff/view.rs:87`: `diff` in a list of rows that scrolls, laid out as layout says.
+- `rtwk_rich::diff::DiffView` (struct) in `crates/rtwk-rich/src/diff/view.rs:98`: `diff` in a list of rows that scrolls, laid out as layout says.
 
 ### Code
 
 ```rust
+use rtwk::gestures::SelectionArea;
 use rtwk::layout::SizedBox;
 use rtwk::scroll::Scrollbar;
 use rtwk::style::Theme;
@@ -574,17 +569,12 @@ pub(crate) fn diff(
     context: usize,
     plain: bool,
 ) -> AnyWidget {
-    let mut diff = DiffView::new(Diff::between(
-        before,
-        after,
-        context,
-        Some("bin/greet.dart"),
-    ))
-    .layout(if side_by_side {
-        DiffLayout::SideBySide
-    } else {
-        DiffLayout::Unified
-    });
+    let mut diff = DiffView::new(Diff::between(before, after, context, Some("src/greet.rs")))
+        .layout(if side_by_side {
+            DiffLayout::SideBySide
+        } else {
+            DiffLayout::Unified
+        });
     if plain {
         diff = diff.language(&PLAIN);
     }
@@ -594,7 +584,8 @@ pub(crate) fn diff(
             Some(room.max_width.min(if side_by_side { 100 } else { 64 })),
             Some(room.max_height.clamp(6, 22)),
             Some(
-                Scrollbar::new(diff.clone())
+                // drag across the lines to select their code
+                Scrollbar::new(SelectionArea::new(diff.clone()))
                     .style(theme.border.clone())
                     .into(),
             ),
@@ -605,48 +596,48 @@ pub(crate) fn diff(
 }
 
 fn preview() -> AnyWidget {
-    diff(r#"import 'dart:io';
+    diff(r#"use std::fs;
 
-/// Greets [name] on the terminal.
-String greet(String name) {
-  return 'Hello, ' + name + '!';
+/// Greets `name` on the terminal.
+fn greet(name: &str) -> String {
+    format!("Hello, {name}!")
 }
 
 /// The names to greet, one a line.
-List<String> readNames(String path) {
-  final file = File(path);
-  final lines = file.readAsLinesSync();
-  return lines.where((l) => l.isNotEmpty).toList();
+fn read_names(path: &str) -> Vec<String> {
+    let text = fs::read_to_string(path).unwrap();
+    let lines = text.lines();
+    lines.filter(|l| !l.is_empty()).map(String::from).collect()
 }
 
-void main(List<String> args) {
-  final names = readNames(args.first);
-  for (final name in names) {
-    print(greet(name));
-  }
-  print('Greeted ${names.length} names.');
-}"#, r#"import 'dart:io';
+fn main() {
+    let names = read_names(&std::env::args().nth(1).unwrap());
+    for name in &names {
+        println!("{}", greet(name));
+    }
+    println!("Greeted {} names.", names.len());
+}"#, r#"use std::fs;
 
-/// Greets [name] on the terminal, in [language].
-String greet(String name, {String language = 'en'}) {
-  return '${hello[language]}, $name!';
+/// Greets `name` on the terminal, in `language`.
+fn greet(name: &str, language: &str) -> String {
+    format!("{}, {name}!", GREETINGS.iter().find(|g| g.0 == language).map_or("Hello", |g| g.1))
 }
 
-const hello = {'en': 'Hello', 'uk': 'Привіт'};
+const GREETINGS: [(&str, &str); 2] = [("en", "Hello"), ("uk", "Привіт")];
 
 /// The names to greet, one a line.
-List<String> readNames(String path) {
-  final file = File(path);
-  final lines = file.readAsLinesSync();
-  return lines.where((l) => l.isNotEmpty).toList();
+fn read_names(path: &str) -> Vec<String> {
+    let text = fs::read_to_string(path).unwrap();
+    let lines = text.lines();
+    lines.filter(|l| !l.is_empty()).map(String::from).collect()
 }
 
-void main(List<String> args) {
-  final names = readNames(args.first);
-  final language = args.length > 1 ? args[1] : 'en';
-  for (final name in names) {
-    print(greet(name, language: language));
-  }
+fn main() {
+    let names = read_names(&std::env::args().nth(1).unwrap());
+    let language = std::env::args().nth(2).unwrap_or_else(|| "en".into());
+    for name in &names {
+        println!("{}", greet(name, &language));
+    }
 }"#, false, 3, false)
 }
 
@@ -656,14 +647,14 @@ void main(List<String> args) {
 
 | option | values | starts at |
 | --- | --- | --- |
-| layout | unified, sideBySide | unified |
+| layout | Unified, SideBySide | Unified |
 | context | 3 lines, 1, 0 | 3 lines |
 | edit live | false, true | false |
 | language | the path's, plain | the path's |
 
 ## JsonView
 
-JSON or a Dart value as a tree that folds, each kind of value in its color: c copies the path of the value selected, y the value, / filters the keys.
+JSON, or a JsonValue built in code, as a tree that folds, each kind of value in its color: c copies the path of the value selected, y the value, / filters the keys.
 
 - `rtwk_rich::json::JsonView` (struct) in `crates/rtwk-rich/src/json/view.rs:351`: A JSON document or value as a tree: each object and array a row that folds, its entries below it, indented and joined to it by guides, and a row that closes it; each value in the style of its kind in theme, keys, strings, numbers, `true`, `false` and `null` and brackets apart.
 
@@ -679,11 +670,11 @@ use rtwk::{
 use rtwk_rich::json::{JsonView, JsonViewController};
 
 const PACKAGE: &str = r#"{
-  "name":"twk", "version":"0.1.0",
-  "description":"Widgets for terminal apps, laid out as Flutter lays them",
+  "name":"rtwk", "version":"0.1.0",
+  "description":"Widgets for terminal apps, built in Rust",
   "private":true, "score":0.97, "homepage":null,
-  "environment":{"sdk":"^3.13.5"},
-  "dependencies":{"args":"^2.7.0","meta":"^1.16.0","path":"^1.9.1"},
+  "toolchain":{"rust":"1.85"},
+  "dependencies":{"clap":"^4.5.0","serde":"^1.0.0","anyhow":"^1.0.0"},
   "scripts":["quick","handover","bench"]
 }"#;
 
@@ -818,10 +809,10 @@ use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::FocusNode;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Border, BorderType, BoxWidget, Flexible, MainAxisSize, SizedBox};
+use rtwk::render::TextSegmenter;
 use rtwk::style::{Style, Theme, ThemeData};
 use rtwk::text::TextAlign;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, column, impl_widget};
-use rtwk_core::unicode::TextSegmenter;
 use rtwk_rich::bigtext::{BigFont, BigText, BigTextLayout};
 
 const FONTS: [&[&BigFont]; 5] = [
@@ -892,7 +883,7 @@ impl State for BigState {
         let theme = Theme::of(cx);
         let text = match widget.text {
             1 => clock_text(widget.time),
-            2 => "twk\ngallery".to_owned(),
+            2 => "rtwk\ngallery".to_owned(),
             _ => self.field.text().to_string(),
         };
         let display = BigText::new(text)
@@ -942,7 +933,7 @@ pub(crate) fn big_height(font: usize, text: usize, width: i32, height: i32) -> i
     let field = if text == 0 { 4 } else { 0 };
     let sample = match text {
         1 => "09:41:00",
-        2 => "twk\ngallery",
+        2 => "rtwk\ngallery",
         _ => "Hello",
     };
     let mut layout = BigTextLayout::new(sample);
@@ -991,8 +982,8 @@ use rtwk::{AnyWidget, LayoutBuilder, row};
 use rtwk_rich::qr::{BLACK, QrCode, QrCodeWidget, QrErrorCorrection, QrSymbol, WHITE};
 
 const PAYLOADS: [&str; 3] = [
-    "https://pub.dev/packages/twk",
-    "WIFI:S:twk;T:WPA;P:secret;;",
+    "https://crates.io/crates/rtwk",
+    "WIFI:S:rtwk;T:WPA;P:secret;;",
     "20261019",
 ];
 static SYMBOLS: [OnceLock<Arc<QrSymbol>>; 12] = [const { OnceLock::new() }; 12];

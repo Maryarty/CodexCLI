@@ -12,6 +12,7 @@
 
 use codex_tui_core::threads::UserPrompt;
 use rtwk::AnyWidget;
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
 };
@@ -130,7 +131,9 @@ pub fn panel(prompt: &UserPrompt, look: &Look<'_>, joins_previous: bool) -> BoxW
                 // narrower than the mark, the mark is cut (oracle: the prefix is drawn whole)
                 .overflow_intended(true)
                 .spacing(1)
-                .child(Text::line(chat.prompt.trim_end()).style(tokens.history_prompt_mark()))
+                .child(ExcludeSelection::new(
+                    Text::line(chat.prompt.trim_end()).style(tokens.history_prompt_mark()),
+                ))
                 // one column of the text stays free (oracle: wrap width is width - 3)
                 .child(Expanded::new(
                     1,

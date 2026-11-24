@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 5583c142; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk c953f062; do not edit. -->
 
 # App and component contexts
 
@@ -6,7 +6,7 @@ The application context types: what a view function, a handler and a `State` can
 
 ## AppView
 
-- `rtwk::app::AppView` (struct, `crates/rtwk/src/app.rs:149`) The root of an application: its state (taken by the element once, when it is mounted), its view and its first change.
+- `rtwk::app::AppView` (struct, `crates/rtwk/src/app.rs:151`) The root of an application: its state (taken by the element once, when it is mounted), its view and its first change.
 
 #### `AppView`: constructors and associated functions
 
@@ -19,16 +19,17 @@ The application context types: what a view function, a handler and a `State` can
 - `pub fn rest_cursor(mut self, on: bool) -> AppView<A>` - Whether the terminal's hidden cursor rests on what has the focus (`Presenter::rests_cursor`: iTerm2's cursor guide keeps still on it, macOS zoom, a screen reader and a braille display follow it); by default it does.
 - `pub fn screen_reader(mut self, on: bool) -> AppView<A>` - Whether the application is read out as lines of text for a screen reader (`AppBinding::screen_reader`); by default whether the environment's `TWK_SCREEN_READER` is 1.
 - `pub fn start_time(mut self, time: LogTime) -> AppView<A>` - What `AppBinding::now` is when the frame loop's clock reads zero: fixed, as a test does, so that what is drawn of the time is the same on every run; by default the system's time.
-- `pub fn on_error(mut self, f: impl FnMut(&RuntimeError) + 'static) -> AppView<A>` - With `f` told of each error the framework reports while `run` runs the application (a `RuntimeError`: its kind, its policy, its message), instead of the frame loop's log.
+- `pub fn on_error(mut self, f: impl FnMut(&RuntimeError) + 'static) -> AppView<A>` - With `f` told of every error `run` finds while it runs the application (twk's `onError`): a `RuntimeError` with its `kind` (the origin of the error), its policy, its message and, where there is one, the `path` of the ...
 - `pub fn clipboard_selection(mut self, selection: ClipboardSelection) -> AppView<A>` - Where the host's OSC 52 puts what the app copies (a `SelectionArea`'s selection, a text field's Ctrl+C, `copy_to_clipboard`): the clipboard, the primary selection, or both; by default the clipboard (`c`), as in twk.
-- `pub fn on_copy(mut self, f: impl FnMut(&str) + 'static) -> AppView<A>` - With `f` told of each text the app copies, as the host writes it to the terminal's clipboard (OSC 52, `clipboard_selection`): where the terminal drops OSC 52 (tmux without `set-clipboard`, a terminal that does not allow ...
+- `pub fn clipboard(mut self, clipboard: Clipboard) -> AppView<A>` - With the app's own clipboard in place of the host's OSC 52 write for every copy it makes (a `SelectionArea`'s selection, a text field's Ctrl+C, `copy_to_clipboard`): `Clipboard::Custom` gets each text once and no OSC 52 ...
+- `pub fn on_copy(mut self, f: impl FnMut(&str) + 'static) -> AppView<A>` - With `f` told of each text the app copies, as the host writes it to the terminal's clipboard (OSC 52, `clipboard_selection`) or hands it to `clipboard`'s function: where the terminal drops OSC 52 (tmux without ...
 - `pub fn on_start(mut self, start: StartFn<A>) -> AppView<A>` - With `start` run as the root is mounted, before the first view.
 - `pub fn with_handle(mut self, handle: AppHandle) -> AppView<A>` - With `handle`, the frame loop's: `AppCx::quit` ends the loop.
 
 
 ## ViewCx
 
-- `rtwk::app::ViewCx` (struct, `crates/rtwk/src/app.rs:680`) What a view is given: where its handlers send (its application's root), and the tracked reads a build may make.
+- `rtwk::app::ViewCx` (struct, `crates/rtwk/src/app.rs:772`) What a view is given: where its handlers send (its application's root), and the tracked reads a build may make.
 
 #### `ViewCx`: methods
 
@@ -49,7 +50,7 @@ The application context types: what a view function, a handler and a `State` can
 
 ## AppCx
 
-- `rtwk::app::AppCx` (struct, `crates/rtwk/src/app.rs:859`) What a handler (or the first change, or a task's completion) may do besides changing the application — the effects an A+Msg `update` has.
+- `rtwk::app::AppCx` (struct, `crates/rtwk/src/app.rs:951`) What a handler (or the first change, or a task's completion) may do besides changing the application — the effects an A+Msg `update` has.
 
 #### `AppCx`: methods
 
@@ -57,7 +58,9 @@ The application context types: what a view function, a handler and a `State` can
 - `pub fn origin(&self) -> Eid` - The element in whose build the handler of this change was bound — what twk's handler has as the `context` it captured: the memo node for a handler of `MemoCx` (or of a `ViewRoot` it gave), the root for one of `ViewCx` ...
 - `pub fn unchanged(&mut self)` - Suppresses the root view rebuild normally requested by this action.
 - `pub fn spawn<R: 'static>(&mut self, future: impl Future<Output = R> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static) -> TaskId` - Runs `future` on the tree's executor; `then` applies its output to the application, with a context of its own, if the root is still mounted then.
-- `pub fn try_spawn<R: 'static, E: fmt::Display + 'static>(&mut self, future: impl Future<Output = Result<R, E>> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static) -> TaskId` - As `spawn`, for a future that may fail: `then` is given what it succeeds with; an error is reported instead — a `RuntimeError` of kind `ErrorKind::Task`, recoverable: to the application's `on_error` under `run` (else ...
+- `pub fn try_spawn<R: 'static, E: fmt::Display + 'static>(&mut self, future: impl Future<Output = Result<R, E>> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static) -> TaskId` - As `spawn`, for a future that may fail: `then` is given what it succeeds with; an error is reported instead — a `RuntimeError` of kind `rtwk_framework::ErrorKind::Task`, recoverable: to the application's `on_error` ...
+- `pub fn suspend<R, Fut>(&mut self, run: impl FnOnce() -> Fut + 'static, then: impl FnOnce(&mut A, Result<R, SuspendError>, &mut AppCx<'_, '_, A>) + 'static) -> TaskId where R: 'static, Fut: Future<Output = R> + 'static,` - Hands the terminal to the program `run` makes (`$EDITOR`, a pager, a shell with inherited stdio) once the frame this change asks for is drawn, and takes it back when the program's future completes; `then` applies what ...
+- `pub fn suspend_blocking<R>(&mut self, run: impl FnOnce() -> R + Send + 'static, then: impl FnOnce(&mut A, Result<R, SuspendError>, &mut AppCx<'_, '_, A>) + 'static) -> TaskId where R: Send + 'static,` - As `suspend` for a program that blocks (`std::process::Command::status`): `run` runs on a thread of its own (`AppBinding::suspend_blocking`) while the loop goes on.
 - `pub fn cancel(&mut self, task: TaskId)` - Cancels `task`: its future is dropped, its `then` never runs.
 - `pub fn focus(&mut self, id: FocusId)` - Moves the focus to the `Focus` named `id`.
 - `pub fn focus_node(&mut self, node: &FocusNode)` - Gives `node` the primary focus.
@@ -75,7 +78,7 @@ The application context types: what a view function, a handler and a `State` can
 - `pub fn channel<T: Send + 'static>(&mut self, f: impl Fn(&mut A, T, &mut AppCx<'_, '_, A>) + 'static) -> rtwk_framework::Sender<T>` - A channel into the application: what any thread sends into the `Sender` is applied by `f`, item by item, at the next flush — every item sent by then, in order, and one view for all of them (ADR-017: work from elsewhere ...
 - `pub fn quit(&mut self)` - Ends the frame loop the application runs in (`run`); nothing otherwise.
 - `pub fn clear_history(&mut self)` - Erases the terminal's screen and scrollback in the inline mode, and the inline region starts again on the screen's first row (rtwk-core's `App::clear_history`; an rtwk extension, twk has none).
-- `pub fn show_dialog<T: 'static>(&mut self, builder: impl Fn(&mut BuildCx<'_>) -> AnyWidget + 'static, options: DialogOptions, closed: impl FnOnce(&mut A, Option<T>, &mut AppCx<'_, '_, A>) + 'static) -> AppDialog<T>` - Shows what `builder` builds as a dialog, as `show_dialog` does — over a barrier, the focus kept in it, Escape and a click on the barrier closing it with none when `options` say it is dismissible — and runs `closed` on ...
+- `pub fn show_dialog<T: 'static>(&mut self, builder: impl Fn(&mut BuildCx<'_>) -> AnyWidget + 'static, options: DialogOptions, closed: impl FnOnce(&mut A, Option<T>, &mut AppCx<'_, '_, A>) + 'static) -> AppDialog<T>` - Shows what `builder` builds as a dialog, as `rtwk_overlay::show_dialog` does — over a barrier, the focus kept in it, Escape and a click on the barrier closing it with none when `options` say it is dismissible — and runs ...
 - `pub fn show_dialog_from<T: 'static>(&mut self, view_root: ViewRoot<A>, builder: impl Fn(&mut BuildCx<'_>) -> AnyWidget + 'static, options: DialogOptions, closed: impl FnOnce(&mut A, Option<T>, &mut AppCx<'_, '_, A>) + 'static) -> AppDialog<T>` - As `show_dialog`, from the origin of `view_root` (`ViewRoot::origin`) rather than this change's: twk's `showDialog(context: stored)` with a context kept from a build.
 - `pub fn root(&self) -> ViewRoot<A>` - The application's root as a `ViewRoot` (`ViewCx::root`): a `Copy` handle a dialog's builder captures to make handlers to the application, and kept subtrees of it.
 
