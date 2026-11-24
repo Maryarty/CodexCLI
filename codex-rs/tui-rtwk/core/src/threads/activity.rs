@@ -23,6 +23,9 @@ pub enum ToolKind {
     Shell {
         command: String,
         actions: Vec<ExplorationAction>,
+        /// The command parsed to more than one action (oracle `parsed.len() > 1`): its one exit
+        /// code is the command's, not an outcome of each action.
+        compound: bool,
         exit_code: Option<i32>,
         duration_ms: Option<u64>,
         user_shell: bool,
@@ -377,6 +380,7 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
                 } else {
                     exploration(command_actions)
                 },
+                compound: command_actions.len() > 1,
                 exit_code: *exit_code,
                 duration_ms: duration_ms.and_then(|millis| u64::try_from(millis).ok()),
                 user_shell: *source == CommandExecutionSource::UserShell,

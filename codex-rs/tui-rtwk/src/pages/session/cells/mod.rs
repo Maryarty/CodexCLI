@@ -18,6 +18,7 @@ pub mod computer_activity;
 pub mod disclosure;
 pub mod dispatch;
 pub mod exec;
+pub mod exploration;
 pub mod interaction;
 pub mod markdown;
 pub mod one_row;

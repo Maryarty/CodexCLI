@@ -12,3 +12,7 @@
   partial (`item/autoApprovalReview/*`, `guardianWarning`, MCP startup) as the denied test's recorded script shapes them.
 - `mcp_fixtures.py`: writes the `respond` scripts of the `/mcp` inventory tests of `cells_1` and `cells_4` (the statuses
   the oracle's test builds by hand, answering the `mcpServerStatus/list` ask).
+- `wire.py <shard>::<test> ...`: gives a stub test's `Screen::build(..)` chain the recorded fixture
+  (`.script(include_str!(..))`).
+- `split.py <shard>::<test> <cut> ...`: cuts a recorded fixture into `<test>_N.jsonl` parts at the steps where the
+  oracle's test looks at the screen (open the first, `feed` the rest).

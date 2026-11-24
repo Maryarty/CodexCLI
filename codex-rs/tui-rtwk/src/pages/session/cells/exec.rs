@@ -10,17 +10,17 @@ use codex_utils_elapsed::format_duration;
 use rtwk::AnyWidget;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
 use rtwk::style::{Attrs, Span};
-use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
-use codex_tui_core::threads::{ExplorationAction, ToolActivity, ToolKind, ToolStatus};
+use codex_tui_core::threads::{ToolActivity, ToolKind, ToolStatus};
 
 use crate::app::theme::Tokens;
 use crate::pages::session::strings::{INLINE_GAP, LINE_BREAK, MORE};
 
 use super::strings::Strings;
-use super::tool_rows::{Env, Parts, Rows, ansi_row, branch_row};
+use super::exploration;
+use super::tool_rows::{Env, Parts, Rows, ansi_row, clipped};
 
 const PREVIEW_LINES: usize = 3;
 const PREVIEW_LINE_BYTES: usize = 16 * 1024;
@@ -49,23 +49,25 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
     let ToolKind::Shell {
         command,
         actions,
-        exit_code,
         user_shell,
         ..
     } = &tool.kind
     else {
         return Parts::Plain(AnyWidget::default(), None);
     };
-    let title = if !actions.is_empty() {
+    let exploring = !actions.is_empty();
+    // Oracle `nonzero_exit`: the call's output says a code other than 0.
+    let failed = exploration::failure(tool);
+    let title = if exploring {
         Cow::Borrowed(if status == ToolStatus::Running {
             strings.exploring
         } else {
             strings.explored
         })
+    } else if let Some(code) = failed {
+        Cow::Owned(strings.label(strings.command_exited, &code.to_string()))
     } else if status == ToolStatus::Running {
         Cow::Borrowed(strings.running_command)
-    } else if let Some(code) = exit_code.filter(|&code| code != 0) {
-        Cow::Owned(strings.label(strings.command_exited, &code.to_string()))
     } else {
         Cow::Borrowed(if *user_shell {
             strings.user_ran_command
@@ -78,7 +80,20 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
     let first = command_lines.next().unwrap_or_default();
     let multiline = command_lines.next().is_some();
     let mut header = vec![Span::styled(title.into_owned(), tokens.bold())];
-    if actions.is_empty() {
+    if exploring {
+        let count = exploration::failures(calls);
+        if count > 0 {
+            let template = if count == 1 {
+                strings.nonzero_exit
+            } else {
+                strings.nonzero_exits
+            };
+            header.push(Span::styled(
+                strings.label(template, &count.to_string()),
+                tokens.bold(),
+            ));
+        }
+    } else {
         header.push(Span::new(INLINE_GAP));
         let lexer = Highlighter::new(language_named("bash"), first);
         header.extend(
@@ -91,10 +106,7 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
             header.push(Span::new(MORE));
         }
     }
-    let header: AnyWidget = Text::rich(header)
-        .max_lines(Some(1))
-        .overflow(TextOverflow::Ellipsis)
-        .into();
+    let header = clipped(header);
     let output = tool
         .output
         .as_deref()
@@ -106,7 +118,7 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
         for call in calls {
             body.push(call_details(call, tokens));
         }
-    } else if actions.is_empty() {
+    } else if !exploring {
         let tail: Vec<_> = output.lines().rev().take(PREVIEW_LINES).collect();
         if tail.len() == PREVIEW_LINES {
             hidden = output.lines().count() - PREVIEW_LINES;
@@ -124,33 +136,12 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
             ));
         }
     } else {
-        for (index, action) in exploration_actions(calls)
-            .iter()
-            .take(PREVIEW_LINES)
-            .enumerate()
-        {
-            let line = match action {
-                ExplorationAction::Read(names) => {
-                    strings.label(strings.explored_read, &names.join(", "))
-                }
-                ExplorationAction::List(path) => strings.label(strings.explored_list, path),
-                ExplorationAction::Search {
-                    query,
-                    path: Some(path),
-                } => strings
-                    .explored_search_in
-                    .replace("{0}", query)
-                    .replace("{1}", path),
-                ExplorationAction::Search { query, path: None } => {
-                    strings.label(strings.explored_search, query)
-                }
-            };
-            body.push(branch_row(
-                index,
-                Text::line(line).overflow(TextOverflow::Ellipsis).into(),
-                tokens.dim().attrs(Attrs::DIM),
-            ));
-        }
+        body.push(exploration::body(
+            exploration::steps(calls, strings),
+            tokens.accent(),
+            tokens.dim().attrs(Attrs::DIM),
+            tokens.error(),
+        ));
     }
     let disclosure = if expanded {
         Some(strings.hide_details.to_owned())
@@ -160,56 +151,26 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
         } else {
             strings.label(strings.hidden_output_lines, &hidden.to_string())
         })
-    } else if multiline || !actions.is_empty() {
+    } else if multiline || exploring {
         Some(strings.show_details.to_owned())
     } else {
         None
     };
-    // Oracle `compact_command_lines`: a non-zero exit draws a plain bold bullet (no red).
+    // Oracle `compact_command_lines`: a non-zero exit draws a plain bold bullet (no red); the
+    // exploration header's is a dim one.
     let mark = match status {
-        ToolStatus::Running => tokens.accent(),
-        ToolStatus::Completed if !actions.is_empty() => tokens.dim().attrs(Attrs::DIM),
-        ToolStatus::Completed => tokens.success(),
+        ToolStatus::Running => tokens.accent().attrs(Attrs::BOLD),
+        _ if exploring => tokens.dim().attrs(Attrs::DIM),
+        _ if failed.is_some() => tokens.bold(),
+        ToolStatus::Completed => tokens.success().attrs(Attrs::BOLD),
         ToolStatus::Failed | ToolStatus::Declined => tokens.bold(),
-    }
-    .attrs(Attrs::BOLD);
+    };
     Parts::Rows(Rows {
         mark,
         header,
         body,
         disclosure,
     })
-}
-
-/// The reads of a run of exploration calls, neighbouring ones merged (oracle
-/// `ExecCell::coalesce`).
-fn exploration_actions(calls: &[&ToolActivity]) -> Vec<ExplorationAction> {
-    let mut merged = Vec::new();
-    let mut previous_reads = false;
-    for call in calls {
-        let ToolKind::Shell {
-            actions, exit_code, ..
-        } = &call.kind
-        else {
-            break;
-        };
-        let mergeable = exit_code.is_none_or(|code| code == 0);
-        if mergeable
-            && previous_reads
-            && let [ExplorationAction::Read(next)] = actions.as_slice()
-            && let Some(ExplorationAction::Read(names)) = merged.last_mut()
-        {
-            for name in next {
-                if !names.contains(name) {
-                    names.push(name.clone());
-                }
-            }
-        } else {
-            merged.extend(actions.iter().cloned());
-        }
-        previous_reads = mergeable && matches!(actions.as_slice(), [ExplorationAction::Read(_)]);
-    }
-    merged
 }
 
 /// The detailed transcript's shell calls: the command after its prompt, the
