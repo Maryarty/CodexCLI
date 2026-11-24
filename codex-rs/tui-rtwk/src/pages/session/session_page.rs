@@ -44,7 +44,7 @@ use crate::pages::session::popovers::mention;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::directives::{Edge, Listener, error_of};
+use crate::widgets::directives::{Edge, Listener};
 use crate::widgets::status_line::{Notice, status_spans, with_warning_notice};
 use crate::widgets::thread_ui::{Modes, TextSelection, ThreadUi};
 
@@ -237,12 +237,11 @@ impl StatefulWidget for Chat {
 
 impl_widget!(stateful eq Chat);
 
-/// A fork in flight: the thread it copies and the error the agents notice showed when it was
-/// asked (another error is its failure).
+/// A fork in flight: the thread it copies (the failure of a fork is the app's `fork_failed`
+/// signal, a directive the listener turns into `Edge::ForkFailed`).
 #[derive(Clone, Debug, PartialEq)]
 struct Forking {
     thread: ThreadId,
-    error: Option<String>,
 }
 
 /// The chords of `change_host` (the leader's prefix and its completion, `Ctrl+X b` by default),
@@ -329,14 +328,8 @@ impl ChatState {
             }
             // The fork ends with an error of the server (the copy opens in another thread, which
             // `did_update_widget` takes as its end too).
-            Edge::Error(error) => {
-                if error.is_some()
-                    && self
-                        .forking
-                        .as_ref()
-                        .is_some_and(|fork| fork.error != error)
-                {
-                    self.forking = None;
+            Edge::ForkFailed => {
+                if self.forking.take().is_some() {
                     return Rebuild::Yes;
                 }
                 Rebuild::No
@@ -641,7 +634,6 @@ impl State for ChatState {
                     cx.emit(&hs.screen, ScreenIntent::from(intent));
                     self.forking = Some(Forking {
                         thread: thread.id().clone(),
-                        error: error_of(&read::<ScreenStates, _>(cx).agents.notice),
                     });
                     return Rebuild::Yes;
                 }

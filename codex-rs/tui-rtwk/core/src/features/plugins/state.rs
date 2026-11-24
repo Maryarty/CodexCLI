@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::catalog::{
-    self, Action, Catalog, Config, Detail, Kind, Part, RowKey, SectionError, Sections, Tab,
-    Target, Toggle,
+    self, Action, Catalog, Config, Detail, Kind, Part, RowKey, SectionError, Sections, Tab, Target,
+    Toggle,
 };
 use super::wire::{AuthApp, Found, Want, Wanted, add_source};
 use super::{Ctx, Intent, Say, SetupEnd, Wish};
@@ -43,10 +43,15 @@ pub enum OpKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Nothing,
-    Added { root: String, already: bool },
+    Added {
+        root: String,
+        already: bool,
+    },
     Removed,
     /// The marketplace's root, when exactly one was upgraded.
-    Upgraded { root: Option<String> },
+    Upgraded {
+        root: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,18 +188,23 @@ impl State {
 
     /// The tab of this catalog a tab id saved before a refresh names now.
     pub fn tab_now(&self, cwd: &Cwd, saved: &str) -> Option<String> {
-        self.lists
-            .get(cwd)?
-            .catalog
-            .value()?
-            .tab_for_saved(saved)
+        self.lists.get(cwd)?.catalog.value()?.tab_for_saved(saved)
     }
 
     /// The marketplace of the tab `tab`, when it is a configured one that can be removed.
     pub fn market(&self, cwd: &Cwd, tab: &str, fresh: Option<&str>) -> Option<Market> {
         let catalog = self.lists.get(cwd)?.catalog.value()?;
-        let tab = self.tabs(cwd, fresh).into_iter().find(|entry| entry.id == tab)?;
-        let Kind::Marketplace { name, remove, upgrade, .. } = tab.kind else {
+        let tab = self
+            .tabs(cwd, fresh)
+            .into_iter()
+            .find(|entry| entry.id == tab)?;
+        let Kind::Marketplace {
+            name,
+            remove,
+            upgrade,
+            ..
+        } = tab.kind
+        else {
             return None;
         };
         if !remove {
@@ -206,13 +216,20 @@ impl State {
             .find(|entry| entry.name == name)?
             .display()
             .to_string();
-        Some(Market { name, label, upgrade })
+        Some(Market {
+            name,
+            label,
+            upgrade,
+        })
     }
 
     /// The name of a marketplace as its tab says it.
     pub fn market_label(&self, cwd: &Cwd, name: &str) -> Option<String> {
         let catalog = self.lists.get(cwd)?.catalog.value()?;
-        let entry = catalog.marketplaces.iter().find(|entry| entry.name == name)?;
+        let entry = catalog
+            .marketplaces
+            .iter()
+            .find(|entry| entry.name == name)?;
         Some(entry.display().to_string())
     }
 
@@ -224,7 +241,9 @@ impl State {
     /// The name a plugin's row says.
     pub fn plugin_name(&self, key: &PluginKey) -> Option<String> {
         let catalog = self.lists.get(&key.cwd)?.catalog.value()?;
-        catalog.row(&key.row).map(|(_, plugin)| plugin.display_name.clone())
+        catalog
+            .row(&key.row)
+            .map(|(_, plugin)| plugin.display_name.clone())
     }
 
     pub fn detail(&self, key: &PluginKey) -> Option<&Remote<Detail>> {
@@ -285,7 +304,13 @@ impl State {
 
     /// A new op under `key`, unless one runs: the second press of a button collapses.
     fn start(&mut self, key: OpKey) -> Option<Gen> {
-        if matches!(self.ops.get(&key), Some(Op { status: Status::Running, .. })) {
+        if matches!(
+            self.ops.get(&key),
+            Some(Op {
+                status: Status::Running,
+                ..
+            })
+        ) {
             return None;
         }
         let at = self.next();
@@ -394,7 +419,13 @@ impl State {
                 remote: Remote::loading(),
             },
         );
-        self.ask(cx, request, Want::Read(target), &cwd, Ctx::Read { key, request });
+        self.ask(
+            cx,
+            request,
+            Want::Read(target),
+            &cwd,
+            Ctx::Read { key, request },
+        );
     }
 
     fn actionable(&self, key: &PluginKey) -> Option<(Action, String)> {
@@ -429,7 +460,13 @@ impl State {
             return;
         };
         let cwd = key.cwd.clone();
-        self.ask(cx, at, Want::Uninstall { id }, &cwd, Ctx::Uninstall { key, at, name });
+        self.ask(
+            cx,
+            at,
+            Want::Uninstall { id },
+            &cwd,
+            Ctx::Uninstall { key, at, name },
+        );
     }
 
     fn add(&mut self, cwd: Cwd, source: &str, cx: &mut AppCx<'_>) {
@@ -440,11 +477,19 @@ impl State {
             return;
         };
         let source = add_source(cwd.as_str(), source);
-        self.ask(cx, at, Want::Add { source }, &cwd.clone(), Ctx::Add { cwd, at });
+        self.ask(
+            cx,
+            at,
+            Want::Add { source },
+            &cwd.clone(),
+            Ctx::Add { cwd, at },
+        );
     }
 
     fn remove(&mut self, cwd: Cwd, name: String, cx: &mut AppCx<'_>) {
-        let label = self.market_label(&cwd, &name).unwrap_or_else(|| name.clone());
+        let label = self
+            .market_label(&cwd, &name)
+            .unwrap_or_else(|| name.clone());
         let key = OpKey::Remove {
             cwd: cwd.clone(),
             name: name.clone(),
@@ -560,11 +605,7 @@ impl State {
     ) {
         match ctx {
             Ctx::List { cwd, request } => self.listed(&cwd, request, result, cx),
-            Ctx::Section {
-                cwd,
-                request,
-                part,
-            } => self.section(&cwd, request, part, result),
+            Ctx::Section { cwd, request, part } => self.section(&cwd, request, part, result),
             Ctx::Read { key, request } => self.read_answered(key, request, result),
             Ctx::Install {
                 key,
@@ -583,7 +624,11 @@ impl State {
                 Err(error) => self.settle(&OpKey::Uninstall(key), at, Status::Failed(error)),
             },
             Ctx::Add { cwd, at } => match result {
-                Ok(Found::Added { name, root, already }) => {
+                Ok(Found::Added {
+                    name,
+                    root,
+                    already,
+                }) => {
                     cx.note(
                         None,
                         Say::MarketAdded {
@@ -610,7 +655,10 @@ impl State {
                     name,
                 };
                 match result {
-                    Ok(Found::Removed { name: removed, root }) => {
+                    Ok(Found::Removed {
+                        name: removed,
+                        root,
+                    }) => {
                         cx.note(
                             None,
                             Say::MarketRemoved {
@@ -632,9 +680,11 @@ impl State {
                     name,
                 };
                 let outcome = match result {
-                    Ok(Found::Upgraded { selected, roots, errors }) => {
-                        self.upgraded(selected, roots, errors, cx)
-                    }
+                    Ok(Found::Upgraded {
+                        selected,
+                        roots,
+                        errors,
+                    }) => self.upgraded(selected, roots, errors, cx),
                     Ok(_) => Outcome::Nothing,
                     Err(error) => {
                         cx.note(None, Say::UpgradeError(error));
@@ -727,7 +777,9 @@ impl State {
         match result {
             Ok(Found::Catalog(found)) => collect.found.push((part, found.marketplaces)),
             Ok(_) => {}
-            Err(error) => collect.errors.push(SectionError::failed(part, said(&error))),
+            Err(error) => collect
+                .errors
+                .push(SectionError::failed(part, said(&error))),
         }
         if !collect.waiting.is_empty() {
             return;
@@ -741,7 +793,13 @@ impl State {
         listing.sections.vertical = false;
         collect.found.sort_by_key(|(part, _)| *part);
         if let Some(catalog) = listing.catalog.value_mut() {
-            catalog.merge(collect.found.into_iter().flat_map(|(_, found)| found).collect());
+            catalog.merge(
+                collect
+                    .found
+                    .into_iter()
+                    .flat_map(|(_, found)| found)
+                    .collect(),
+            );
         }
         listing.sections.errors = collect.errors;
     }
@@ -802,7 +860,8 @@ impl State {
                     self.ask(cx, request, Want::Read(target), &cwd, ctx);
                     self.track(Cue::Read(key), op, at, Outcome::Nothing);
                 } else {
-                    self.setups.insert(key.clone(), Setup { plugin: name, apps });
+                    self.setups
+                        .insert(key.clone(), Setup { plugin: name, apps });
                     cx.wish(cwd, Wish::Auth(key));
                     self.settle(&op, at, Status::Done(Outcome::Nothing));
                 }

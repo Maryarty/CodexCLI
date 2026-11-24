@@ -43,6 +43,15 @@ pub use cx::{AppCx, AppView, Out, ThreadCx, ThreadView};
 pub use remote::Remote;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
+// One line per feature of `feature_list!`, written out so that rustfmt (which follows `mod` lines,
+// not macro expansions) formats the slices too. A feature of the list without its module does not
+// compile: `feature_dirs!` names `$name::$variant`.
+pub mod export;
+pub mod goal;
+pub mod plugins;
+pub mod rename;
+pub mod settings;
+
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
 /// that both have none still have distinct types and the root enums' `From` impls do not
@@ -260,13 +269,6 @@ macro_rules! feature_list {
             plugins => Plugins;
             settings => Settings;
         }
-    };
-}
-
-/// The modules of the features.
-macro_rules! feature_mods {
-    ($($name:ident => $variant:ident;)*) => {
-        $(pub mod $name;)*
     };
 }
 
@@ -590,7 +592,6 @@ macro_rules! feature_dirs {
     };
 }
 
-feature_list!(feature_mods);
 feature_list!(feature_dirs);
 
 #[cfg(test)]

@@ -26,8 +26,7 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::{Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_core::input::{InputEvent, KeyKind};
 
-use super::super::keys::{is_key, pressed};
-
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
 
@@ -35,6 +34,7 @@ use super::super::{Line, Look, column_of, guarded_keys, rows_of, width_of};
 use super::{sized, strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::{event_is_fixed, pressed_fixed};
 use crate::widgets::key_guard::KeyGuard;
 
 /// The guidance; `acknowledge` runs on Enter or a tap on its row.
@@ -89,11 +89,11 @@ impl State for GovCloudState {
                 if guarded(node, key.clone()) == KeyEventResult::Handled {
                     return KeyEventResult::Handled;
                 }
-                let msg = if pressed(&key, &KeyPress::UP) {
+                let msg = if pressed_fixed(fixed::ONBOARD_PREVIOUS, &key) {
                     Msg::Up
-                } else if pressed(&key, &KeyPress::DOWN) {
+                } else if pressed_fixed(fixed::ONBOARD_NEXT, &key) {
                     Msg::Down
-                } else if pressed(&key, &KeyPress::ENTER) {
+                } else if pressed_fixed(fixed::ONBOARD_CONFIRM, &key) {
                     Msg::Acknowledge
                 } else {
                     return KeyEventResult::Ignored;
@@ -204,10 +204,8 @@ impl State for GovCloudState {
             let InputEvent::Key(key) = event else {
                 return false;
             };
-            let held = KeyPress::from_event(key);
-            let arrow = held
-                .as_ref()
-                .is_some_and(|held| is_key(held, &KeyPress::UP) || is_key(held, &KeyPress::DOWN));
+            let arrow = event_is_fixed(fixed::ONBOARD_PREVIOUS, key)
+                || event_is_fixed(fixed::ONBOARD_NEXT, key);
             key.kind == KeyKind::Repeat && !arrow
         })
         .into()

@@ -1,1 +1,0 @@
-# ADR-013 ratchets of the plugins family (format and rules: tests/rules/adr013_ratchets.txt).

@@ -128,11 +128,7 @@ fn no_goal_to_edit(cx: &mut AppCx<'_>, thread: Option<ThreadId>) {
 
 fn failed(cx: &mut AppCx<'_>, thread: &ThreadId, action: Action, error: &RpcError) {
     let failure = Failure::of(error);
-    said(
-        cx,
-        Some(thread.clone()),
-        Note::Failed { action, failure },
-    );
+    said(cx, Some(thread.clone()), Note::Failed { action, failure });
 }
 
 /// A new goal over none (or a finished one): active, no budget.

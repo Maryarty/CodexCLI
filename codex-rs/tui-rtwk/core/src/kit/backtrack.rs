@@ -1,58 +1,10 @@
-//! The Esc Esc machine and the prompts of a transcript it walks (the oracle's `app_backtrack.rs`,
+//! The Esc Esc machine (the oracle's `app_backtrack.rs`,
 //! `browsing.rs`): pure logic without app state (ADR-013 O3). It holds view state only (which prompt is
 //! highlighted), never thread data, so whoever draws it (the UI's mode controller) owns one value of
 //! it; every transition names its inputs and returns what the view must do. The edit's RPC pipeline
 //! (`ThreadPart`, `Command`) is the thread's, in `screens::backtrack`.
 
 use crate::ids::ThreadId;
-use crate::threads::{Item, ItemKey, Transcript, UserPrompt};
-
-// ---------------------------------------------------------------------------
-// The prompts of a transcript
-
-/// A prompt the backtrack can offer: the oracle's `has_visible_content`
-/// (a prompt of control characters only is hidden unless it has elements or
-/// images).
-pub fn is_visible(prompt: &UserPrompt) -> bool {
-    !super::paste::sanitize_paste(&prompt.text).trim().is_empty()
-        || !prompt.elements.is_empty()
-        || !prompt.images.is_empty()
-}
-
-/// Positions (in transcript order) of the prompts the backtrack offers.
-/// A transcript is one thread's session, so it starts at its first item (the
-/// oracle starts after the last `SessionInfoCell` of a shared cell list).
-pub fn user_positions(transcript: &Transcript) -> impl Iterator<Item = usize> + '_ {
-    transcript
-        .iter()
-        .enumerate()
-        .filter_map(|(index, (_, item))| match item {
-            Item::User(prompt) if is_visible(prompt) => Some(index),
-            _ => None,
-        })
-}
-
-pub fn user_count(transcript: &Transcript) -> usize {
-    user_positions(transcript).count()
-}
-
-pub fn has_backtrack_target(transcript: &Transcript) -> bool {
-    user_count(transcript) > 0
-}
-
-/// The transcript position of the `nth` offered prompt.
-pub fn nth_user_position(transcript: &Transcript, nth: usize) -> Option<usize> {
-    user_positions(transcript).nth(nth)
-}
-
-/// The server ids and the prompt of the `nth` offered prompt.
-pub fn nth_user(transcript: &Transcript, nth: usize) -> Option<(&ItemKey, &UserPrompt)> {
-    let (key, item) = transcript.get(nth_user_position(transcript, nth)?)?;
-    match item {
-        Item::User(prompt) => Some((key, prompt)),
-        _ => None,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // The machine
@@ -60,20 +12,13 @@ pub fn nth_user(transcript: &Transcript, nth: usize) -> Option<(&ItemKey, &UserP
 /// What the machine needs to know of the transcript when a key arrives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Targets {
-    /// How many prompts the transcript offers (`user_count`).
+    /// How many prompts the transcript offers (`screens::backtrack::user_count`).
     pub count: usize,
     /// Older history can still be loaded, so a prompt may exist beyond `count`.
     pub older_history: bool,
 }
 
 impl Targets {
-    pub fn of(transcript: &Transcript, older_history: bool) -> Self {
-        Self {
-            count: user_count(transcript),
-            older_history,
-        }
-    }
-
     fn any(self) -> bool {
         self.count > 0 || self.older_history
     }

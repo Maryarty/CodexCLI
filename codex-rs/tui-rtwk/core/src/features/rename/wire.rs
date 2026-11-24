@@ -21,7 +21,11 @@ pub enum Reply {
     Ack,
 }
 
-pub(super) fn request(command: &Command, thread: &ThreadId, request_id: RequestId) -> ClientRequest {
+pub(super) fn request(
+    command: &Command,
+    thread: &ThreadId,
+    request_id: RequestId,
+) -> ClientRequest {
     match command {
         Command::SetName(name) => ClientRequest::ThreadSetName {
             request_id,

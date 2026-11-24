@@ -30,33 +30,32 @@ use rtwk::foundation::ValueNotifier;
 
 use rtwk::binding::{AppBinding, InputListener};
 use rtwk::editing::{TextEditingController, TextField, copy_to_clipboard};
-use rtwk::focus::{Focus, FocusNode, FocusOnKeyEventCallback, KeyEventResult, KeyPress};
+use rtwk::focus::{Focus, FocusNode, FocusOnKeyEventCallback, KeyEventResult};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
     Alignment, Border, BorderTitle, BorderType, BoxWidget, Column, CrossAxisAlignment, FlexFit,
     Flexible, MainAxisSize, OverflowBox, SizedBox,
 };
-use rtwk::prelude::{HitTestBehavior, Mods};
+use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::read;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_core::input::{InputEvent, KeyKind};
 
-use keys::is_key;
-
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
 use codex_tui_core::screens::onboarding::auth::{self, Method, Provider, SignIn};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::{bind_fixed, bind_fixed_with, event_is_fixed, fixed_presses, pressed_fixed};
 use crate::l10n::strings as shared;
 use crate::widgets::key_guard::{GuardKey, KeyGuard};
 use crate::widgets::measure;
 use crate::widgets::options::{Options, Stacked, StackedRow};
 
-pub mod keys;
 pub mod provider;
 pub mod strings;
 use strings::Strings;
@@ -237,7 +236,7 @@ fn now<S: State>(cx: &Cx<'_, S>) -> Duration {
 
 /// What every key press meets first, on a node of the step or of a field in
 /// it: the activation guard (a held Enter acts once), then the quit keys
-/// (`keys::QUIT`: Ctrl+C and Ctrl+D, and a `q` unless `typing` says it is
+/// (`fixed::PICK_QUIT`: Ctrl+C and Ctrl+D, and a `q` unless `typing` says it is
 /// text). The provider wizards' fields use it too.
 pub(crate) fn guarded_keys(
     guard: KeyGuard,
@@ -249,8 +248,8 @@ pub(crate) fn guarded_keys(
         if guard.press(GuardKey::of_press(&key), now()) {
             return KeyEventResult::Handled;
         }
-        let chord = key.mods == Mods::CTRL && matches!(key.ch, Some('c' | 'd'));
-        let q = key.mods == Mods::NONE && key.ch == Some('q');
+        let chord = pressed_fixed(fixed::PICK_QUIT, &key);
+        let q = pressed_fixed(fixed::PICK_LEAVE, &key);
         if chord || (q && !typing()) {
             quit();
             return KeyEventResult::Handled;
@@ -526,7 +525,7 @@ impl State for SignInState {
                 &num,
             ),
             auth::State::Browser { url, .. } => {
-                focus = focus.bind(KeyPress::char('c'), cx.send(Msg::CopyLink));
+                focus = bind_fixed(focus, fixed::COPY_LINK, cx.send(Msg::CopyLink));
                 let lines = browser_lines(strings, &look, url, self.copied);
                 paragraph(lines)
             }
@@ -596,21 +595,29 @@ impl State for SignInState {
             ),
         };
         focus.child = body;
-        for (key, msg) in [
-            (KeyPress::UP, Msg::Up),
-            (KeyPress::char('k'), Msg::Up),
-            (KeyPress::DOWN, Msg::Down),
-            (KeyPress::char('j'), Msg::Down),
-            (KeyPress::char('1'), Msg::Index(0, '1')),
-            (KeyPress::char('y'), Msg::Index(0, 'y')),
-            (KeyPress::char('2'), Msg::Index(1, '2')),
-            (KeyPress::char('n'), Msg::Index(1, 'n')),
-            (KeyPress::char('3'), Msg::Index(2, '3')),
-            (KeyPress::char('4'), Msg::Index(3, '4')),
-            (KeyPress::ENTER, Msg::Confirm),
-            (KeyPress::ESC, Msg::Cancel),
+        for (id, msg) in [
+            (fixed::PICK_PREVIOUS, Msg::Up),
+            (fixed::PICK_NEXT, Msg::Down),
+            (fixed::ENTER, Msg::Confirm),
+            (fixed::DISMISS, Msg::Cancel),
         ] {
-            focus = focus.bind(key, cx.send(msg));
+            focus = bind_fixed(focus, id, cx.send(msg));
+        }
+        // The number keys and the `y`/`n` beside `1` and `2`: each key names its row and the
+        // character it typed.
+        for (id, row) in [(fixed::PICK_YES, 0), (fixed::PICK_NO, 1)] {
+            focus = bind_fixed_with(focus, id, |_, key| {
+                cx.send(Msg::Index(row, key.ch.unwrap_or('1')))
+            });
+        }
+        // Rows three and four have no other key.
+        for (row, key) in fixed_presses(fixed::PICK_NUMBERS)
+            .into_iter()
+            .enumerate()
+            .take(4)
+            .skip(2)
+        {
+            focus = focus.bind(key.clone(), cx.send(Msg::Index(row, key.ch.unwrap_or('1'))));
         }
         // The repeats and releases the focus path cannot tell from presses:
         // a held key moves the highlight and deletes, nothing else
@@ -633,12 +640,11 @@ impl State for SignInState {
                 KeyKind::Repeat => {
                     let now = clock.as_ref().map_or(Duration::ZERO, |clock| clock.now());
                     guard.held(guard_key, now);
-                    let held = KeyPress::from_event(key);
-                    let is = |want: KeyPress| held.as_ref().is_some_and(|held| is_key(held, &want));
-                    let moves = is(KeyPress::UP)
-                        || is(KeyPress::DOWN)
+                    let is = |id| event_is_fixed(id, key);
+                    let moves = is(fixed::CONFIRM_PREVIOUS)
+                        || is(fixed::CONFIRM_NEXT)
                         || (pick && matches!(guard_key, Some(GuardKey::Char('j' | 'k'))));
-                    let edits = entry && (is(KeyPress::BACKSPACE) || is(KeyPress::ESC));
+                    let edits = entry && (is(fixed::FIELD_DELETE_BACKWARD) || is(fixed::DISMISS));
                     !(moves || edits)
                 }
                 _ => false,

@@ -24,12 +24,23 @@ pub enum Want {
     Section(Part),
     Read(Target),
     Install(Target),
-    Uninstall { id: String },
-    Add { source: String },
-    Remove { name: String },
-    Upgrade { name: Option<String> },
+    Uninstall {
+        id: String,
+    },
+    Add {
+        source: String,
+    },
+    Remove {
+        name: String,
+    },
+    Upgrade {
+        name: Option<String>,
+    },
     /// `config/value/write` of `plugins.<id>`.
-    Enable { id: String, enabled: bool },
+    Enable {
+        id: String,
+        enabled: bool,
+    },
 }
 
 /// A request to send: its number is what the answer is told back under.
@@ -50,9 +61,20 @@ pub enum Found {
     Detail(Box<Detail>),
     Installed(Vec<AuthApp>),
     Uninstalled,
-    Added { name: String, root: String, already: bool },
-    Removed { name: String, root: Option<String> },
-    Upgraded { selected: Vec<String>, roots: Vec<String>, errors: Vec<(String, String)> },
+    Added {
+        name: String,
+        root: String,
+        already: bool,
+    },
+    Removed {
+        name: String,
+        root: Option<String>,
+    },
+    Upgraded {
+        selected: Vec<String>,
+        roots: Vec<String>,
+        errors: Vec<(String, String)>,
+    },
     Written,
 }
 
@@ -90,7 +112,8 @@ pub fn add_source(cwd: &str, source: &str) -> String {
 
 /// The wire request of `wanted`.
 pub fn wire_request(wanted: &Wanted, id: RequestId) -> ClientRequest {
-    let path = |path: &str| serde_json::from_value(serde_json::Value::String(path.to_string())).ok();
+    let path =
+        |path: &str| serde_json::from_value(serde_json::Value::String(path.to_string())).ok();
     let list = |kinds: Option<Vec<wire::PluginListMarketplaceKind>>| wire::PluginListParams {
         cwds: Some(wanted.cwd.as_str())
             .filter(|cwd| !cwd.is_empty())
@@ -133,7 +156,9 @@ pub fn wire_request(wanted: &Wanted, id: RequestId) -> ClientRequest {
                 params: wire::PluginInstallParams {
                     marketplace_path,
                     remote_marketplace_name,
-                    install_attempt_id: Some(["plugin-install-", &wanted.request.to_string()].concat()),
+                    install_attempt_id: Some(
+                        ["plugin-install-", &wanted.request.to_string()].concat(),
+                    ),
                     plugin_name: plugin.plugin.clone(),
                 },
             }
@@ -164,7 +189,10 @@ pub fn wire_request(wanted: &Wanted, id: RequestId) -> ClientRequest {
                 marketplace_name: name.clone(),
             },
         },
-        Want::Enable { id: plugin, enabled } => ClientRequest::ConfigValueWrite {
+        Want::Enable {
+            id: plugin,
+            enabled,
+        } => ClientRequest::ConfigValueWrite {
             request_id: id,
             params: wire::ConfigValueWriteParams {
                 key_path: ["plugins.", plugin].concat(),
@@ -187,9 +215,10 @@ pub fn decode(wanted: &Wanted, result: serde_json::Value) -> Result<Found, Strin
         root.as_ref().to_string_lossy().into_owned()
     }
     Ok(match &wanted.want {
-        Want::List | Want::Section(_) => {
-            Found::Catalog(Catalog::of(parse::<wire::PluginListResponse>(result)?, home))
-        }
+        Want::List | Want::Section(_) => Found::Catalog(Catalog::of(
+            parse::<wire::PluginListResponse>(result)?,
+            home,
+        )),
         Want::Read(_) => Found::Detail(Box::new(Detail::of(
             parse::<wire::PluginReadResponse>(result)?.plugin,
             home,

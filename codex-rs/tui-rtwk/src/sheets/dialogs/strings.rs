@@ -21,7 +21,7 @@ use codex_tui_core::keymap::actions::{
     GLOBAL_OPEN_TRANSCRIPT,
 };
 use codex_tui_core::keymap::fixed::{
-    PASTE_IMAGE, QUIT_OR_INTERRUPT, SELECTION_START, SUBAGENT_NEXT, SUBAGENT_PREVIOUS,
+    INTERRUPT_OR_QUIT, PASTE_IMAGE, SELECTION_START, SUBAGENT_NEXT, SUBAGENT_PREVIOUS,
     TRANSCRIPT_LATEST, TRANSCRIPT_LATEST_ALT, TRANSCRIPT_PAGE_DOWN, TRANSCRIPT_PAGE_UP,
     TRANSCRIPT_TOP, TRANSCRIPT_TOP_ALT,
 };
@@ -246,7 +246,7 @@ pub const EN: Strings = Strings {
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Fixed(QUIT_OR_INTERRUPT),
+                    keys: Keys::Fixed(INTERRUPT_OR_QUIT),
                     label: "Quit",
                     running: Some("Interrupt"),
                 },

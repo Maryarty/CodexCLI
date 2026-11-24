@@ -9,11 +9,11 @@
 //! (`Intent::Exit`: the attempt is cancelled on the server, the app ends).
 //! The attempt's end comes from the model, not from here.
 
-use rtwk::focus::{Focus, KeyPress};
-use rtwk::prelude::Mods;
+use rtwk::focus::Focus;
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
 use codex_tui_core::screens::onboarding::auth::DeviceCode;
@@ -22,6 +22,7 @@ use super::signin::provider::strings as provider_strings;
 use super::signin::{Look, device_lines, strings as signin_strings, tapping};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 
 /// The gateway's device code on screen.
 #[derive(Clone, Debug, PartialEq)]
@@ -66,12 +67,9 @@ impl State for GatewayDeviceState {
         );
         // The cancel line is the last one: a tap there cancels, as Esc does.
         let cancel = lines.len().saturating_sub(1);
-        let mut focus = Focus::new(tapping(lines, Some((cancel, cx.map(|_| ())))))
-            .autofocus()
-            .bind(KeyPress::ESC, cx.send(()))
-            .bind(KeyPress::char('q'), cx.send(()));
-        for ch in ['c', 'd'] {
-            focus = focus.bind(KeyPress::char(ch).with_mods(Mods::CTRL), cx.send(()));
+        let mut focus = Focus::new(tapping(lines, Some((cancel, cx.map(|_| ()))))).autofocus();
+        for id in [fixed::DISMISS, fixed::PICK_LEAVE, fixed::PICK_QUIT] {
+            focus = bind_fixed(focus, id, cx.send(()));
         }
         focus.into()
     }

@@ -690,13 +690,15 @@ fn fork_opens_the_copy_of_the_selected_task() {
         outs.iter()
             .map(|out| out.command.clone())
             .collect::<Vec<_>>(),
-        vec![Command::Thread(ThreadAsk::Fork { thread: target })]
+        vec![Command::Thread(ThreadAsk::Fork {
+            thread: target.clone()
+        })]
     );
     let copy = thread(&id(9), None, "Task", idle());
     let _ = apply_answer(
         &mut m,
         &mut ThreadPreviews::default(),
-        Ctx::Fork,
+        Ctx::Fork { thread: target },
         Ok(Reply::Forked(Box::new(copy))),
     );
     assert_eq!(m.resumes, 1);

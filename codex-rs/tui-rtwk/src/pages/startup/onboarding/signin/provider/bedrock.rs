@@ -14,7 +14,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use super::super::keys::pressed;
 use rtwk::AnyWidget;
 use rtwk::binding::AppBinding;
 use rtwk::editing::{TextEditingController, TextField};
@@ -28,6 +27,7 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
 use codex_tui_core::screens::onboarding::auth::{self, provider};
@@ -37,6 +37,7 @@ use super::super::{Line, Look, guarded_keys, rows_of, width_of};
 use super::{sized, strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::keymap::{fixed_presses, pressed_fixed};
 use crate::widgets::key_guard::KeyGuard;
 use crate::widgets::options::Options;
 
@@ -213,23 +214,25 @@ impl BedrockState {
                 if guarded(node, key.clone()) == KeyEventResult::Handled {
                     return KeyEventResult::Handled;
                 }
-                let is = |want: KeyPress| pressed(&key, &want);
+                let is = |id| pressed_fixed(id, &key);
                 let msg = if index == IDLE {
-                    let digit = ('1'..='9').find(|digit| is(KeyPress::char(*digit)));
-                    if is(KeyPress::UP) || is(KeyPress::char('k')) {
+                    let digit = fixed_presses(fixed::PICK_NUMBERS)
+                        .iter()
+                        .position(|digit| digit.ch == key.ch && key.mods == digit.mods);
+                    if is(fixed::ONBOARD_PREVIOUS) {
                         Some(Msg::Up)
-                    } else if is(KeyPress::DOWN) || is(KeyPress::char('j')) {
+                    } else if is(fixed::ONBOARD_NEXT) {
                         Some(Msg::Down)
-                    } else if is(KeyPress::ENTER) {
+                    } else if is(fixed::ONBOARD_CONFIRM) {
                         Some(Msg::Confirm)
                     } else {
-                        digit.map(|digit| Msg::Digit(digit as usize - '1' as usize))
+                        digit.map(Msg::Digit)
                     }
                 } else if index >= KEYS {
                     let field = index - KEYS;
-                    if is(KeyPress::UP) || is(KeyPress::BACKTAB) {
+                    if is(fixed::FORM_PREVIOUS) {
                         Some(Msg::Field((field + 2) % 3))
-                    } else if is(KeyPress::DOWN) || is(KeyPress::TAB) {
+                    } else if is(fixed::FORM_NEXT) {
                         Some(Msg::Field((field + 1) % 3))
                     } else {
                         None

@@ -43,10 +43,62 @@ use crate::threads::LocalImage;
 use crate::threads::UserMessage;
 use crate::threads::UserPrompt;
 
-pub use crate::kit::backtrack::{
-    Backtrack, Chosen as Selection, EscStep, Targets, has_backtrack_target, is_visible, nth_user,
-    nth_user_position, user_count, user_positions,
-};
+pub use crate::kit::backtrack::{Backtrack, Chosen as Selection, EscStep, Targets};
+use crate::threads::Item;
+
+/// A prompt the backtrack can offer: the oracle's `has_visible_content`
+/// (a prompt of control characters only is hidden unless it has elements or
+/// images).
+pub fn is_visible(prompt: &UserPrompt) -> bool {
+    !crate::kit::paste::sanitize_paste(&prompt.text).trim().is_empty()
+        || !prompt.elements.is_empty()
+        || !prompt.images.is_empty()
+}
+
+/// Positions (in transcript order) of the prompts the backtrack offers.
+/// A transcript is one thread's session, so it starts at its first item (the
+/// oracle starts after the last `SessionInfoCell` of a shared cell list).
+pub fn user_positions(transcript: &Transcript) -> impl Iterator<Item = usize> + '_ {
+    transcript
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, item))| match item {
+            Item::User(prompt) if is_visible(prompt) => Some(index),
+            _ => None,
+        })
+}
+
+pub fn user_count(transcript: &Transcript) -> usize {
+    user_positions(transcript).count()
+}
+
+pub fn has_backtrack_target(transcript: &Transcript) -> bool {
+    user_count(transcript) > 0
+}
+
+/// The transcript position of the `nth` offered prompt.
+pub fn nth_user_position(transcript: &Transcript, nth: usize) -> Option<usize> {
+    user_positions(transcript).nth(nth)
+}
+
+/// The server ids and the prompt of the `nth` offered prompt.
+pub fn nth_user(transcript: &Transcript, nth: usize) -> Option<(&ItemKey, &UserPrompt)> {
+    let (key, item) = transcript.get(nth_user_position(transcript, nth)?)?;
+    match item {
+        Item::User(prompt) => Some((key, prompt)),
+        _ => None,
+    }
+}
+
+impl Targets {
+    /// What the machine needs of `transcript` when a key arrives.
+    pub fn of(transcript: &Transcript, older_history: bool) -> Self {
+        Self {
+            count: user_count(transcript),
+            older_history,
+        }
+    }
+}
 
 impl Selection {
     /// The edit of the chosen prompt: its server ids, and the prompt as the transcript

@@ -53,7 +53,13 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
             _ => push(cx, usage::route()),
         },
         Opens::Sheet | Opens::Dialog => match target {
-            Target::Select => drop(select::open(cx)),
+            // The select sheets are shown by the presenter for the show the model made; what
+            // is left of this target is `/daemon`, whose menu is not built (oracle
+            // `daemon_menu.rs`): the popup says so.
+            Target::Select => {
+                let action = select::strings::of(cx).daemon_action;
+                drop(crate::widgets::page_keys::not_yet(cx, action));
+            }
             // Opened by its own UI half with the dialog's kind (`features::open`).
             Target::Settings => {}
             Target::Dialogs => drop(dialogs::open(cx)),

@@ -38,4 +38,3 @@
 # The session family's exceptions (the migration is done; these two stay named):
 exempt adr013_domain_types_hold_no_draw_state core/src/screens/backtrack.rs:Edit.shown the prompt a failed edit gives back to the composer: the payload of a restore directive (Ж), not drawn
 exempt adr013_no_ticket_in_ui src/pages/session/banners.rs the banner is keyed by the request ticket: the ticket is the id of the entity (full §13)
-exempt adr013_kit_names_no_screen core/src/kit/backtrack.rs the Esc Esc machine walks a `Transcript` of `threads::Item`s; those transcript types are not yet `core::data` (a later step moves them, then this line goes)

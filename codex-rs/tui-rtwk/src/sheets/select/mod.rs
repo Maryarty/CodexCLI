@@ -1,13 +1,11 @@
-//! `select`: the view half of S14 (the generic selection dialog), with two
-//! parameterisations: the model picker and the permissions menu. The rows are
-//! the model's (`core::screens::select::Menu`), read through a provider
-//! projection; the dialog returns a pick as an intent (ids, not data).
+//! `select`: the view half of S14 (the selection sheets): one sheet per family (worktree, quick,
+//! apps, models, permissions, review) and the confirmation, each shown for a show of the model
+//! (`shown`), and the generic lists of the debug entries; a pick returns to the model as a verb.
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
 mod app_link;
 mod apps;
 mod confirm;
-mod dialog;
 mod generic;
 mod lists;
 mod models;
@@ -21,8 +19,7 @@ mod worktree;
 use std::rc::Rc;
 
 use rtwk::AnyWidget;
-use rtwk::Cx;
-use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
+use rtwk::overlay::DialogOptions;
 
 use codex_tui_core::screens::select::Opening;
 use codex_tui_core::screens::select::apps::Link;
@@ -527,22 +524,6 @@ fn fixture_entries() -> Vec<DebugEntry> {
             "fixtures/hard_breaks"
         ),
     ]
-}
-
-/// Opens the dialog from the widget that asks (`show_dialog`); it reads the
-/// menu the model holds, and a pick returns to the model as an intent.
-pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    // On the nearest navigator: the dialog is built under the providers of the
-    // screen that asks (a seeded debug entry provides its own model to its
-    // route only; the root navigator is above it).
-    show_dialog(
-        cx,
-        move |_| dialog::MenuDialog.into(),
-        DialogOptions {
-            use_root_navigator: false,
-            ..crate::sheets::sheet_options()
-        },
-    )
 }
 
 /// The sheet a show of the model opens (the presenter's door: `app::presenters`) and the options

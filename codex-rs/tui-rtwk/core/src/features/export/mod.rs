@@ -15,8 +15,8 @@
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
-use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;

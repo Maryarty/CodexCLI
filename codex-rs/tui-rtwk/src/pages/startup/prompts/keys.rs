@@ -8,8 +8,9 @@
 //! answer (ADR-003: the view picks, core decides).
 
 use rtwk::focus::KeyPress;
-use rtwk::prelude::Mods;
 
+use codex_tui_core::keymap::ActionId;
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::startup::{
     Answer, CwdSelection, HooksChoice, MigrationOutcome, Prompt, Reaction, UnarchiveChoice,
 };
@@ -45,25 +46,20 @@ impl Cmd {
     }
 }
 
-fn ctrl(c: char) -> KeyPress {
-    KeyPress::char(c).with_mods(Mods::CTRL)
+/// The keys of a fixed action, each asking `cmd`.
+fn of(id: ActionId, cmd: Cmd) -> impl Iterator<Item = (KeyPress, Cmd)> {
+    crate::keymap::fixed_presses(id)
+        .into_iter()
+        .map(move |key| (key, cmd))
 }
 
-fn ch(c: char) -> KeyPress {
-    KeyPress::char(c)
-}
-
-/// Ctrl-H, which a terminal sends as Ctrl-Backspace.
-fn ctrl_h() -> KeyPress {
-    KeyPress::BACKSPACE.with_mods(Mods::CTRL)
-}
-
+/// The number keys of `range` (1-based), each its own row.
 fn digits(range: std::ops::RangeInclusive<usize>) -> Vec<(KeyPress, Cmd)> {
-    range
-        .filter_map(|n| {
-            let c = char::from_digit(u32::try_from(n).ok()?, 10)?;
-            Some((ch(c), Cmd::Number(n)))
-        })
+    crate::keymap::fixed_presses(fixed::PICK_NUMBERS)
+        .into_iter()
+        .enumerate()
+        .filter(|(at, _)| range.contains(&(at + 1)))
+        .map(|(at, key)| (key, Cmd::Number(at + 1)))
         .collect()
 }
 
@@ -71,99 +67,72 @@ fn digits(range: std::ops::RangeInclusive<usize>) -> Vec<(KeyPress, Cmd)> {
 /// the prompt, so a prompt that stops reading keys, the hooks review while
 /// the trust write runs, simply has none).
 pub fn bindings(prompt: &Prompt) -> Vec<(KeyPress, Cmd)> {
-    let quit = |answer| {
-        vec![
-            (ctrl('c'), Cmd::Answer(answer)),
-            (ctrl('d'), Cmd::Answer(answer)),
-        ]
-    };
+    let quit = |answer| of(fixed::PICK_QUIT, Cmd::Answer(answer));
     let up_down = [
-        (KeyPress::UP, Cmd::Step(-1)),
-        (ch('k'), Cmd::Step(-1)),
-        (KeyPress::DOWN, Cmd::Step(1)),
-        (ch('j'), Cmd::Step(1)),
+        of(fixed::PICK_PREVIOUS, Cmd::Step(-1)),
+        of(fixed::PICK_NEXT, Cmd::Step(1)),
     ];
+    let enter = |cmd| of(fixed::ENTER, cmd);
+    let esc = |cmd| of(fixed::DISMISS, cmd);
     let mut keys = Vec::new();
     match prompt {
         // The guidance's own widget reads its keys.
         Prompt::GovCloud => {}
         Prompt::Cwd(_) => {
             keys.extend(quit(Answer::CwdExit));
-            keys.extend(up_down);
+            keys.extend(up_down.into_iter().flatten());
             keys.extend(digits(1..=4));
-            keys.push((KeyPress::ENTER, Cmd::TakeCursor));
-            keys.push((
-                KeyPress::ESC,
-                Cmd::Answer(Answer::Cwd(CwdSelection::Session)),
-            ));
+            keys.extend(enter(Cmd::TakeCursor));
+            keys.extend(esc(Cmd::Answer(Answer::Cwd(CwdSelection::Session))));
         }
         Prompt::Migration(p) => {
             keys.extend(quit(Answer::Migration(MigrationOutcome::Exit)));
             if p.can_opt_out {
-                keys.extend([
-                    (KeyPress::UP, Cmd::Cursor(0)),
-                    (ch('k'), Cmd::Cursor(0)),
-                    (KeyPress::DOWN, Cmd::Cursor(1)),
-                    (ch('j'), Cmd::Cursor(1)),
-                ]);
+                keys.extend(of(fixed::PICK_PREVIOUS, Cmd::Cursor(0)));
+                keys.extend(of(fixed::PICK_NEXT, Cmd::Cursor(1)));
                 keys.extend(digits(1..=2));
-                keys.push((KeyPress::ENTER, Cmd::TakeCursor));
-                keys.push((KeyPress::ESC, Cmd::TakeCursor));
+                keys.extend(enter(Cmd::TakeCursor));
+                keys.extend(esc(Cmd::TakeCursor));
             } else {
                 let accept = Cmd::Answer(Answer::Migration(MigrationOutcome::Accepted));
-                keys.push((KeyPress::ENTER, accept));
-                keys.push((KeyPress::ESC, accept));
+                keys.extend(enter(accept));
+                keys.extend(esc(accept));
             }
         }
         Prompt::Hooks(_) => {
             if prompt.rows().iter().all(|row| row.disabled) {
                 return keys;
             }
-            keys.extend(up_down);
+            keys.extend(up_down.into_iter().flatten());
             keys.extend(digits(1..=9));
-            keys.push((KeyPress::ENTER, Cmd::TakeCursor));
-            keys.push((KeyPress::ESC, Cmd::Answer(Answer::Hooks(HooksChoice::Skip))));
+            keys.extend(enter(Cmd::TakeCursor));
+            keys.extend(esc(Cmd::Answer(Answer::Hooks(HooksChoice::Skip))));
         }
         Prompt::Unarchive(_) => {
             keys.extend(quit(Answer::Unarchive(UnarchiveChoice::Quit)));
-            keys.extend([
-                (KeyPress::UP, Cmd::Step(1)),
-                (KeyPress::DOWN, Cmd::Step(1)),
-                (ch('k'), Cmd::Step(1)),
-                (ch('j'), Cmd::Step(1)),
-            ]);
-            keys.extend(
-                [('1', 0), ('y', 0), ('Y', 0), ('2', 1), ('n', 1), ('N', 1)]
-                    .map(|(c, row)| (ch(c), Cmd::Take(row))),
-            );
-            keys.push((KeyPress::ESC, Cmd::Take(1)));
-            keys.push((KeyPress::ENTER, Cmd::TakeCursor));
+            // Both rows are one step on in a two-row list: any move flips it.
+            keys.extend(of(fixed::PICK_PREVIOUS, Cmd::Step(1)));
+            keys.extend(of(fixed::PICK_NEXT, Cmd::Step(1)));
+            keys.extend(of(fixed::UNARCHIVE_YES, Cmd::Take(0)));
+            keys.extend(of(fixed::UNARCHIVE_NO, Cmd::Take(1)));
+            keys.extend(esc(Cmd::Take(1)));
+            keys.extend(enter(Cmd::TakeCursor));
         }
         Prompt::Oss(_) => {
-            keys.push((ctrl('c'), Cmd::Answer(Answer::OssCancelled)));
-            keys.extend([
-                (KeyPress::LEFT, Cmd::Step(-1)),
-                (KeyPress::UP, Cmd::Step(-1)),
-                (ctrl_h(), Cmd::Step(-1)),
-                (ch('k'), Cmd::Step(-1)),
-                (KeyPress::RIGHT, Cmd::Step(1)),
-                (KeyPress::DOWN, Cmd::Step(1)),
-                (ctrl('l'), Cmd::Step(1)),
-                (ch('j'), Cmd::Step(1)),
-            ]);
-            keys.push((KeyPress::ENTER, Cmd::TakeCursor));
-            keys.push((KeyPress::ESC, Cmd::Take(0)));
-            keys.extend(
-                [('1', 0), ('l', 0), ('L', 0), ('2', 1), ('o', 1), ('O', 1)]
-                    .map(|(c, row)| (ch(c), Cmd::Take(row))),
-            );
+            keys.extend(of(fixed::OSS_CANCEL, Cmd::Answer(Answer::OssCancelled)));
+            keys.extend(of(fixed::OSS_PREVIOUS, Cmd::Step(-1)));
+            keys.extend(of(fixed::OSS_NEXT, Cmd::Step(1)));
+            keys.extend(enter(Cmd::TakeCursor));
+            keys.extend(esc(Cmd::Take(0)));
+            keys.extend(of(fixed::OSS_LMSTUDIO, Cmd::Take(0)));
+            keys.extend(of(fixed::OSS_OLLAMA, Cmd::Take(1)));
         }
         Prompt::Daemon(_) => {
             keys.extend(quit(Answer::DaemonQuit));
-            keys.extend(up_down);
+            keys.extend(up_down.into_iter().flatten());
             keys.extend(digits(1..=9));
-            keys.push((KeyPress::ENTER, Cmd::TakeCursor));
-            keys.push((KeyPress::ESC, Cmd::Take(2)));
+            keys.extend(enter(Cmd::TakeCursor));
+            keys.extend(esc(Cmd::Take(2)));
         }
     }
     keys
@@ -177,17 +146,27 @@ mod tests {
         Provider, Status, Trust, UnarchivePrompt,
     };
 
+    use crate::keymap::{nth, of as press};
+
     fn up() -> KeyPress {
-        KeyPress::UP
+        press(fixed::PICK_PREVIOUS)
     }
     fn down() -> KeyPress {
-        KeyPress::DOWN
+        press(fixed::PICK_NEXT)
     }
     fn enter() -> KeyPress {
-        KeyPress::ENTER
+        press(fixed::ENTER)
     }
     fn esc() -> KeyPress {
-        KeyPress::ESC
+        press(fixed::DISMISS)
+    }
+    /// A number key (`1` to `9`).
+    fn num(n: usize) -> KeyPress {
+        nth(fixed::PICK_NUMBERS, n - 1)
+    }
+    /// Ctrl+C (`0`) or Ctrl+D (`1`).
+    fn quit_key(n: usize) -> KeyPress {
+        nth(fixed::PICK_QUIT, n)
     }
 
     fn react(prompt: &Prompt, cursor: usize, key: &KeyPress) -> Reaction {
@@ -244,23 +223,23 @@ mod tests {
     #[test]
     fn cwd_prompt_omits_unusable_remembered_current_choice() {
         let prompt = cwd(false);
-        assert_eq!(play(&prompt, &[ch('4')]), (0, None));
+        assert_eq!(play(&prompt, &[num(4)]), (0, None));
         assert_eq!(play(&prompt, &[up()]), (2, None));
     }
 
     #[test]
     fn cwd_prompt_ctrl_c_exits_instead_of_selecting() {
-        assert_eq!(play(&cwd(true), &[ctrl('c')]).1, answer(Answer::CwdExit));
+        assert_eq!(play(&cwd(true), &[quit_key(0)]).1, answer(Answer::CwdExit));
     }
 
     #[test]
     fn cwd_prompt_remembered_choices_select_matching_directory() {
         assert_eq!(
-            play(&cwd(true), &[ch('3')]).1,
+            play(&cwd(true), &[num(3)]).1,
             answer(Answer::Cwd(CwdSelection::SessionAndRemember))
         );
         assert_eq!(
-            play(&cwd(true), &[ch('4')]).1,
+            play(&cwd(true), &[num(4)]).1,
             answer(Answer::Cwd(CwdSelection::CurrentAndRemember))
         );
     }
@@ -307,7 +286,7 @@ mod tests {
             answer(Answer::Migration(MigrationOutcome::Rejected))
         );
         assert_eq!(
-            play(&migration(true), &[ctrl('c')]).1,
+            play(&migration(true), &[quit_key(0)]).1,
             answer(Answer::Migration(MigrationOutcome::Exit))
         );
     }
@@ -315,7 +294,10 @@ mod tests {
     #[test]
     fn a_migration_without_opt_out_reads_only_accept_and_quit() {
         let prompt = migration(false);
-        assert_eq!(play(&prompt, &[down(), ch('2'), ch('j')]), (0, None));
+        assert_eq!(
+            play(&prompt, &[down(), num(2), crate::keymap::typed('j')]),
+            (0, None)
+        );
         assert_eq!(
             play(&prompt, &[enter()]).1,
             answer(Answer::Migration(MigrationOutcome::Accepted))
@@ -335,7 +317,7 @@ mod tests {
         let prompt = hooks_idle();
         let mut cursor = 0;
         for c in "20;rgb:2222/ffff/ffff".chars() {
-            let reaction = react(&prompt, cursor, &ch(c));
+            let reaction = react(&prompt, cursor, &crate::keymap::typed(c));
             assert_ne!(reaction, Reaction::TrustAll);
             if let Reaction::Cursor(row) = reaction {
                 cursor = row;
@@ -348,11 +330,11 @@ mod tests {
     #[test]
     fn non_trust_startup_hook_shortcuts_remain_immediate() {
         assert_eq!(
-            play(&hooks_idle(), &[ch('1')]).1,
+            play(&hooks_idle(), &[num(1)]).1,
             answer(Answer::Hooks(HooksChoice::Review))
         );
         assert_eq!(
-            play(&hooks_idle(), &[ch('3')]).1,
+            play(&hooks_idle(), &[num(3)]).1,
             answer(Answer::Hooks(HooksChoice::Skip))
         );
     }
@@ -366,7 +348,7 @@ mod tests {
         });
         assert!(prompt.rows().iter().all(|row| row.disabled));
         assert!(bindings(&prompt).is_empty());
-        assert_eq!(play(&prompt, &[enter(), ch('1'), esc()]), (0, None));
+        assert_eq!(play(&prompt, &[enter(), num(1), esc()]), (0, None));
     }
 
     #[test]
@@ -376,12 +358,12 @@ mod tests {
             action: Action::Fork,
         });
         let cancel = answer(Answer::Unarchive(UnarchiveChoice::Cancel));
-        for key in [esc(), ch('n'), ch('2')] {
+        for key in [esc(), nth(fixed::PICK_NO, 1), num(2)] {
             assert_eq!(play(&prompt, &[key]).1, cancel);
         }
-        for c in ['c', 'd'] {
+        for n in [0, 1] {
             assert_eq!(
-                play(&prompt, &[ctrl(c)]).1,
+                play(&prompt, &[quit_key(n)]).1,
                 answer(Answer::Unarchive(UnarchiveChoice::Quit))
             );
         }
@@ -401,8 +383,14 @@ mod tests {
 
     #[test]
     fn ctrl_h_l_move_provider_selection() {
-        assert_eq!(play(&oss(), &[ctrl('l')]), (1, None));
-        assert_eq!(play(&oss(), &[ctrl('l'), ctrl_h()]), (0, None));
+        assert_eq!(play(&oss(), &[nth(fixed::OSS_NEXT, 2)]), (1, None));
+        assert_eq!(
+            play(
+                &oss(),
+                &[nth(fixed::OSS_NEXT, 2), nth(fixed::OSS_PREVIOUS, 2)]
+            ),
+            (0, None)
+        );
     }
 
     #[test]
@@ -414,14 +402,14 @@ mod tests {
     #[test]
     fn shortcuts_select_the_provider_even_when_unavailable() {
         for (key, provider) in [
-            (ch('l'), Provider::LmStudio),
-            (ch('O'), Provider::Ollama),
-            (ch('2'), Provider::Ollama),
+            (nth(fixed::OSS_LMSTUDIO, 1), Provider::LmStudio),
+            (nth(fixed::OSS_OLLAMA, 2), Provider::Ollama),
+            (num(2), Provider::Ollama),
             (esc(), Provider::LmStudio),
         ] {
             assert_eq!(play(&oss(), &[key]).1, answer(Answer::Oss(provider)));
         }
-        assert_eq!(play(&oss(), &[ctrl('c')]).1, answer(Answer::OssCancelled));
+        assert_eq!(play(&oss(), &[quit_key(0)]).1, answer(Answer::OssCancelled));
     }
 
     fn daemon(managed: bool, restartable: bool) -> Prompt {
@@ -441,15 +429,15 @@ mod tests {
                 answer(Answer::Daemon(DaemonChoice::Cancel))
             );
             if managed && restartable {
-                assert_eq!(play(&prompt, &[ch('2')]), (1, None));
+                assert_eq!(play(&prompt, &[num(2)]), (1, None));
                 assert_eq!(
-                    play(&prompt, &[ch('2'), enter()]).1,
+                    play(&prompt, &[num(2), enter()]).1,
                     answer(Answer::Daemon(DaemonChoice::Restart))
                 );
             } else {
                 // The disabled row has no number: `2` is Cancel.
                 assert_eq!(
-                    play(&prompt, &[ch('2')]).1,
+                    play(&prompt, &[num(2)]).1,
                     answer(Answer::Daemon(DaemonChoice::Cancel))
                 );
                 assert_eq!(play(&prompt, &[up()]), (0, None));

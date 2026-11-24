@@ -11,7 +11,7 @@
 use std::rc::Rc;
 
 use rtwk::editing::{TextArea, TextEditingController};
-use rtwk::focus::{Focus, FocusNode, KeyPress};
+use rtwk::focus::{Focus, FocusNode};
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
     SizedBox,
@@ -21,7 +21,10 @@ use rtwk::style::Style;
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
+
 use crate::app::theme::Tokens;
+use crate::keymap::bind_fixed;
 use crate::sheets::dialogs::strings;
 
 /// Where the generated suggestion of a prompt stands.
@@ -185,11 +188,10 @@ impl State for TextPromptState {
                 Text::line(s.prompt_hint).style(tokens.dim()),
             ));
         // The text area leaves Esc to the nodes above it.
-        Focus::new(Dialog::bare(
+        let focus = Focus::new(Dialog::bare(
             BoxWidget::new().style(Style::new()).child(column),
         ))
-        .can_request_focus(false)
-        .bind(KeyPress::ESC, cx.send(Msg::Close))
-        .into()
+        .can_request_focus(false);
+        bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close)).into()
     }
 }

@@ -19,7 +19,6 @@ mod list;
 
 use std::rc::Rc;
 
-use rtwk::layout::{Align, Alignment};
 use rtwk::navigation::{Navigator, PageRoute, Route};
 use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
@@ -33,6 +32,7 @@ use super::strings;
 use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
 use crate::widgets::picker::{Event, Picker};
+use crate::widgets::sheet::bottom;
 
 /// The sheet: a navigator whose home is `menu`, each page at the bottom edge of it (where the
 /// oracle's pane is).
@@ -66,10 +66,6 @@ pub fn options() -> DialogOptions {
         use_root_navigator: false,
         ..crate::sheets::sheet_options()
     }
-}
-
-fn bottom(page: impl Into<AnyWidget>) -> AnyWidget {
-    Align::new(Alignment::BOTTOM_CENTER, page).into()
 }
 
 fn route(menu: ModelMenu) -> PageRoute<()> {

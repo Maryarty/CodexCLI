@@ -690,3 +690,20 @@ fn a_plan_that_ends_with_no_sheet_open_asks() {
     h.inject([AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1"))]);
     h.wait_for("the plan question", |s| s.contains(PLAN_TITLE));
 }
+
+/// `/presets` and `/daemon` say their menus are not built instead of opening an empty dialog (the
+/// presets overlay stays with chunk-popups-picker-rest).
+#[test]
+fn presets_and_daemon_say_they_are_not_built() {
+    let mut h = start();
+    h.wait_idle();
+    for (command, words) in [("/presets", "presets menu"), ("/daemon", "daemon menu")] {
+        h.t.type_text(command);
+        h.press("enter");
+        h.wait_for("the popup", |s| s.contains(words));
+        assert!(!h.t.screen().contains("New preset"), "{}", h.t.screen());
+        h.press("esc");
+        h.settle();
+        assert!(!h.t.screen().contains(words), "{}", h.t.screen());
+    }
+}

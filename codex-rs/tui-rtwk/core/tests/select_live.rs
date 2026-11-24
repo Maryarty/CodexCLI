@@ -484,7 +484,6 @@ fn a_default_model_pick_updates_the_thread_saves_it_and_then_says_so() {
     let mut app = threaded();
     // `gpt-sol` has one effort: the pick settles at once.
     let fx = settle(&mut app, "gpt-sol", false);
-    assert!(app.screens().select.stack.is_empty());
     let asks = all(&fx);
     let [
         (_, select::Command::Settings { thread, patch }),
