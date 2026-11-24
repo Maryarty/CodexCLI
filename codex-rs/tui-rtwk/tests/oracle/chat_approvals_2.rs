@@ -96,21 +96,25 @@ fn guardian_approved_exec_is_hidden_from_history() {
 // ORACLE chatwidget/tests/guardian.rs:384 guardian_approved_request_permissions_clears_status_without_history kind=snap owner=dialogs-pane snap=guardian_approved_request_permissions_clears_status_without_history
 #[test]
 fn guardian_approved_request_permissions_clears_status_without_history() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status)",
-    );
-    // oracle: a RequestPermissions review InProgress shows the header and details; Approved clears it without history.
-    let s = Screen::build(Owner::DialogsPane)
+    // oracle: an InProgress request-permissions review is the status (header and the reason as details); Approved clears
+    // it without a history cell and the header is Working again (width 110).
+    let mut s = Screen::build(Owner::DialogsPane)
         .size(110, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_2/guardian_approved_request_permissions_clears_status_without_history_1.jsonl"
+        ))
         .open();
-    // needs feed: guardian assessment InProgress (guardian-request-permissions, reason "Need write access for generated report assets.")
-    s.assert_contains("Reviewing approval request");
-    s.assert_contains("permission request: Need write access for generated report assets.");
-    // needs feed: the Approved assessment (risk low, authorization high)
-    s.assert_contains("Working");
-    s.assert_snap("guardian_approved_request_permissions_clears_status_without_history");
+    s.assert_screen_row_then(
+        "• Reviewing approval request (0s • esc to interrupt)",
+        &["  └ permission request: Need write access for generated report assets."],
+    );
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/guardian_approved_request_permissions_clears_status_without_history_2.jsonl"
+    ));
+    s.assert_absent("Reviewing approval request");
+    s.assert_absent("permission request");
+    s.assert_absent("Request approved");
+    s.assert_contains("Working (0s • esc to interrupt)");
 }
 
 // ORACLE chatwidget/tests/guardian.rs:470 guardian_timed_out_exec_renders_warning_and_timed_out_request kind=snap owner=dialogs-pane snap=guardian_timed_out_exec_renders_warning_and_timed_out_request
@@ -134,8 +138,10 @@ fn guardian_timed_out_exec_renders_warning_and_timed_out_request() {
 fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
     // The oracle's snapshot is the bottom pane with its own status line under the composer; the rows of the
     // denied request and the running header are compared here (the turn is started by hand: `set_task_running`).
+    // The oracle draws the viewport at 140 columns but the history cell at the helper's 80 (`drain_insert_history`):
+    // the cell's wrap is the one of an 80-column screen.
     let s = Screen::build(Owner::DialogsPane)
-        .size(140, 24)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/chat_approvals_2/app_server_guardian_review_denied_renders_denied_request_snapshot.jsonl"
         ))
@@ -154,8 +160,9 @@ fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
 // ORACLE chatwidget/tests/guardian.rs:663 app_server_guardian_review_timed_out_renders_timed_out_request_snapshot kind=snap owner=dialogs-pane snap=app_server_guardian_review_timed_out_renders_timed_out_request
 #[test]
 fn app_server_guardian_review_timed_out_renders_timed_out_request_snapshot() {
+    // The cell wraps at the helper's 80 columns, as in the denied test.
     let s = Screen::build(Owner::DialogsPane)
-        .size(140, 24)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/chat_approvals_2/app_server_guardian_review_timed_out_renders_timed_out_request_snapshot.jsonl"
         ))
@@ -195,6 +202,9 @@ fn guardian_parallel_reviews_render_aggregate_status_snapshot() {
 fn guardian_cleanup_drops_stale_reviews_and_restores_mcp_status() {
     // oracle: alpha MCP starting, a stale review under turn-1, turn-1 interrupted: the header is Booting MCP server: alpha;
     // turn-2 with a current review draws the aggregate (width 72); turn-2 completes: the header is again Booting MCP server: alpha.
+    // The header outside a running turn is state, not screen (a turn-less starting server draws no status row, see
+    // `chat_live_3::mcp_startup_header_booting_snapshot`; core/tests/model.rs holds the header); here the stale review
+    // must not draw and the current one owns the row.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(72, 24)
         .script(include_str!(
@@ -203,7 +213,7 @@ fn guardian_cleanup_drops_stale_reviews_and_restores_mcp_status() {
         .open();
     s.assert_absent("stale-review");
     s.assert_absent("Reviewing approval request");
-    s.assert_contains("Booting MCP server: alpha");
+    s.assert_absent("Working");
     s.feed(include_str!(
         "fixtures/chat_approvals_2/guardian_cleanup_drops_stale_reviews_and_restores_mcp_status_2.jsonl"
     ));
@@ -216,7 +226,7 @@ fn guardian_cleanup_drops_stale_reviews_and_restores_mcp_status() {
         "fixtures/chat_approvals_2/guardian_cleanup_drops_stale_reviews_and_restores_mcp_status_3.jsonl"
     ));
     s.assert_absent("Reviewing approval request");
-    s.assert_contains("Booting MCP server: alpha");
+    s.assert_absent("current-review");
 }
 
 // ---- oracle: chatwidget/tests/question_notifications_tests.rs (4 screen-level tests here; 0 state tests left to dialogs-pane)

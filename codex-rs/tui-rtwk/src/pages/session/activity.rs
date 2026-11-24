@@ -211,7 +211,7 @@ impl StatelessWidget for StatusSlot {
                     details: review
                         .as_ref()
                         .map(|review| {
-                            chat::StatusDetails::new(review.details.clone(), review.max_lines)
+                            chat::StatusDetails::preserved(&review.details, review.max_lines)
                         })
                         .or_else(|| run.chat.details().cloned())
                         .or_else(|| {

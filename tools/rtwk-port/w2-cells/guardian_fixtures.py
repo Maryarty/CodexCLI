@@ -41,7 +41,12 @@ def action(command):
     return {"type": "command", "source": "shell", "command": command, "cwd": "/tmp"}
 
 
+def permissions(reason):
+    return {"type": "requestPermissions", "reason": reason, "permissions": {}}
+
+
 def review(kind, review_id, turn_id, command, status, risk=None, auth=None, rationale=None):
+    """`command` is a shell command, or a ready action object."""
     params = {
         "threadId": "thread-1",
         "turnId": turn_id,
@@ -49,7 +54,7 @@ def review(kind, review_id, turn_id, command, status, risk=None, auth=None, rati
         "reviewId": review_id,
         "targetItemId": review_id + "-target",
         "review": {"status": status, "riskLevel": risk, "userAuthorization": auth, "rationale": rationale},
-        "action": action(command),
+        "action": command if isinstance(command, dict) else action(command),
     }
     if kind == "completed":
         params["completedAtMs"] = 1
@@ -133,5 +138,31 @@ write(
     "guardian_cleanup_drops_stale_reviews_and_restores_mcp_status_3",
     802,
     [turn("turn/completed", "turn-2", "completed")],
+    seed=False,
+)
+REASON = "Need write access for generated report assets."
+write(
+    "guardian_approved_request_permissions_clears_status_without_history_1",
+    384,
+    [
+        turn("turn/started", "turn-1", "inProgress"),
+        review("started", "guardian-request-permissions", "turn-1", permissions(REASON), "inProgress"),
+    ],
+)
+write(
+    "guardian_approved_request_permissions_clears_status_without_history_2",
+    384,
+    [
+        review(
+            "completed",
+            "guardian-request-permissions",
+            "turn-1",
+            permissions(REASON),
+            "approved",
+            "low",
+            "high",
+            "Request is scoped to report output.",
+        ),
+    ],
     seed=False,
 )
