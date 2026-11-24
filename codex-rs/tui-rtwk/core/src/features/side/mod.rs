@@ -191,10 +191,12 @@ pub enum Intent {
         source: Option<ThreadId>,
         prompt: Option<String>,
     },
-    /// Return from `child` and drop it: its turn is interrupted, the server stops holding it and
-    /// the app forgets it (`discard_side_thread`). A verb the view says for `Ctrl+C` over an
-    /// empty composer; the view shows the parent (`OpenThread`) itself.
-    Discard { child: ThreadId },
+    /// Return from `child` to its parent and drop it: the parent is shown, then the side
+    /// conversation's turn is interrupted, the server stops holding it and the app forgets it
+    /// (`select_agent_thread_and_discard_side`, `discard_side_thread`). A verb the view says for
+    /// `Ctrl+C` and `Ctrl+D` over an empty composer in a side conversation. A `child` that is not
+    /// shown (its parent is) is only dropped.
+    Return { child: ThreadId },
 }
 
 /// What the stream says of a parent that has a side conversation (`SideParentStatusChange`): its
@@ -234,6 +236,8 @@ pub enum Ctx {
         parent: ThreadId,
         prompt: Option<String>,
     },
+    /// The parent of `child` is shown again: `child` is dropped once it is.
+    Return { child: ThreadId },
 }
 
 /// What the feature says in the transcript; all of them are errors in the oracle.
@@ -282,6 +286,18 @@ fn restore(cx: &mut AppCx<'_>, thread: &ThreadId, prompt: Option<String>) {
     if let Some(prompt) = prompt {
         cx.give_back(thread, prompt);
     }
+}
+
+/// Drops the side conversation `child` (`discard_side_thread`). Done once its parent is the thread
+/// shown, never while the side conversation still is.
+fn drop_side(state: &mut State, child: &ThreadId, cx: &mut AppCx<'_>) {
+    if cx.view().active() == Some(child) || !state.is_side(child) {
+        return;
+    }
+    state.links.remove(child);
+    state.preparing.remove(child);
+    cx.discard(child);
+    cx.chat_facts(chat_facts(state, cx.view()));
 }
 
 /// `/side` and `/btw` (`handle_start_side`), typed in `source`.
@@ -360,16 +376,17 @@ feature! {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
                     Intent::Start { source, prompt } => start(state, source, prompt, cx),
-                    Intent::Discard { child } => {
-                        // Done once the parent is the thread shown, never while the side conversation
-                        // still is.
-                        if cx.view().active() == Some(&child) || !state.is_side(&child) {
+                    Intent::Return { child } => {
+                        let Some(link) = state.links.get(&child) else {
                             return;
+                        };
+                        if cx.view().active() == Some(&child) {
+                            // The parent first; the side conversation goes once it is shown.
+                            let parent = link.parent.clone();
+                            cx.open_thread(&parent, Ctx::Return { child });
+                        } else {
+                            drop_side(state, &child, cx);
                         }
-                        state.links.remove(&child);
-                        state.preparing.remove(&child);
-                        cx.discard(&child);
-                        cx.chat_facts(chat_facts(state, cx.view()));
                     }
                 }
             }
@@ -452,6 +469,9 @@ feature! {
                         }
                     }
                     (Ctx::Reuse { parent, prompt }, Err(_)) => restore(cx, &parent, prompt),
+                    (Ctx::Return { child }, Ok(_)) => drop_side(state, &child, cx),
+                    // The parent cannot be shown: the side conversation stays as it is.
+                    (Ctx::Return { .. }, Err(_)) => {}
                     (Ctx::Boundary(_), _) => {}
                 }
             }

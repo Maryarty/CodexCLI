@@ -266,27 +266,16 @@ fn side_in_the_parent_shows_its_own_side_conversation_again() {
 }
 
 #[test]
-fn returning_drops_the_side_conversation() {
+fn returning_shows_the_parent_and_drops_the_side_conversation() {
     let (mut app, _) = opened(None);
-    // while it is shown nothing is dropped
+    // the side conversation is shown: the parent is shown first, then it is dropped
     let fx = feature(
         &mut app,
-        SideIntent::Discard {
+        SideIntent::Return {
             child: ThreadId::new(SIDE),
         },
     );
-    assert!(fx.commands().is_empty());
-    assert!(app.features().side.is_side(&ThreadId::new(SIDE)));
-    run(
-        &mut app,
-        AppEv::Intent(Intent::OpenThread(ThreadId::new(MAIN))),
-    );
-    let fx = feature(
-        &mut app,
-        SideIntent::Discard {
-            child: ThreadId::new(SIDE),
-        },
-    );
+    assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
     let unsubscribed = fx.commands().iter().any(|c| {
         matches!(c, Command::Screen { command: ScreenCommand::Agents(agents::Command::Thread(
             ThreadAsk::Unsubscribe { thread })), .. } if thread == SIDE)
@@ -295,6 +284,38 @@ fn returning_drops_the_side_conversation() {
     assert!(!app.features().side.is_side(&ThreadId::new(SIDE)));
     assert!(app.thread(&ThreadId::new(SIDE)).is_none());
     assert_eq!(app.screens().chat.facts.side, None);
+}
+
+#[test]
+fn returning_from_a_conversation_that_is_not_a_side_one_does_nothing() {
+    let (mut app, _) = opened(None);
+    let fx = feature(
+        &mut app,
+        SideIntent::Return {
+            child: ThreadId::new(MAIN),
+        },
+    );
+    assert!(fx.commands().is_empty());
+    assert_eq!(app.session().active, Some(ThreadId::new(SIDE)));
+    assert!(app.features().side.is_side(&ThreadId::new(SIDE)));
+}
+
+#[test]
+fn a_side_conversation_the_parent_hides_is_only_dropped() {
+    let (mut app, _) = opened(None);
+    run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(MAIN))),
+    );
+    let fx = feature(
+        &mut app,
+        SideIntent::Return {
+            child: ThreadId::new(SIDE),
+        },
+    );
+    assert!(!fx.commands().is_empty());
+    assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
+    assert!(!app.features().side.is_side(&ThreadId::new(SIDE)));
 }
 
 #[test]

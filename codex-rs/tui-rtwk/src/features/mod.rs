@@ -112,6 +112,16 @@ impl<'a> KeyCx<'a> {
     }
 }
 
+/// A key the chat page binds itself (interrupt, quit) that a feature may take first: the return
+/// from a side conversation is Ctrl+C or Ctrl+D over an empty composer (`maybe_return_from_side`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageKey {
+    /// Ctrl+C (`INTERRUPT_OR_QUIT`).
+    Interrupt,
+    /// Ctrl+D (`QUIT_ON_EMPTY`).
+    Quit,
+}
+
 /// What the view of a feature says: the words of its notes, and how it shows its wishes.
 pub trait FeatureView: Feature {
     /// How one of the feature's wishes is shown; none for a feature that has no wishes.
@@ -146,6 +156,17 @@ pub trait FeatureView: Feature {
     /// The keys the feature owns, bound by the chat page.
     fn actions() -> Vec<FeatureAction> {
         Vec::new()
+    }
+
+    /// The verb the feature says for a key the page binds itself, pressed in `thread` with `draft`
+    /// in the composer, read from the app through `cx`. None: the page does what the key does.
+    fn key<S: 'static>(
+        _key: PageKey,
+        _thread: &ThreadId,
+        _draft: &str,
+        _cx: &mut Cx<'_, S>,
+    ) -> Option<FeatureIntent> {
+        None
     }
 
     /// The feature's slot in the debug menu (`--debug-screens`): its sheets on made-up data. None
@@ -352,6 +373,29 @@ macro_rules! view_actions {
     };
 }
 
+macro_rules! view_keys {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The verb the first feature (in list order) says for `key`, if any does: the page then
+        /// says it and leaves the key to it.
+        #[allow(unused_variables)]
+        pub fn run_key<S: 'static>(
+            key: PageKey,
+            thread: &ThreadId,
+            draft: &str,
+            cx: &mut Cx<'_, S>,
+        ) -> Option<FeatureIntent> {
+            $(
+            if let Some(intent) =
+                <codex_tui_core::features::$name::$variant as FeatureView>::key(key, thread, draft, cx)
+            {
+                return Some(intent);
+            }
+            )*
+            None
+        }
+    };
+}
+
 /// Runs the feature action whose keymap action is `id` (`Action::Feature`); false when no
 /// feature owns it.
 pub fn run_action(id: ActionId, keyed: &mut KeyCx<'_>) -> bool {
@@ -372,3 +416,4 @@ feature_list!(view_cells);
 feature_list!(view_slots);
 feature_list!(view_handed);
 feature_list!(view_actions);
+feature_list!(view_keys);

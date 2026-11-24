@@ -17,6 +17,7 @@
 //! - `overlay`  the blank sheet of a window too small to draw
 //! - `send`     Enter, Tab's queue, a picked command, the edit-queued key
 //! - `escape`   Esc's ladder
+//! - `leave`    Ctrl+C and Ctrl+D a feature takes first (the return from a side conversation)
 //! - `lock`     the keys of a read-only thread and of a provider-error lock
 //! - `edges`    the model's one-shots
 //!
@@ -41,6 +42,7 @@ use codex_tui_core::threads::ThreadModel;
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::view::Hs;
+use crate::features::PageKey;
 use crate::pages::session::key_actions::Keyed;
 use crate::pages::session::keys::Action;
 use crate::pages::session::open::open;
@@ -63,6 +65,8 @@ mod escape;
 mod frame;
 #[path = "session/input.rs"]
 mod input;
+#[path = "session/leave.rs"]
+mod leave;
 #[path = "session/lock.rs"]
 mod lock;
 #[path = "session/overlay.rs"]
@@ -347,6 +351,8 @@ impl State for ChatState {
                 }
             }
             ChatMsg::QuitReadOnly => cx.emit(&hs.quit, ()),
+            ChatMsg::CtrlC if leave::taken(PageKey::Interrupt, w, cx, &hs) => return Rebuild::No,
+            ChatMsg::CtrlD if leave::taken(PageKey::Quit, w, cx, &hs) => return Rebuild::No,
             ChatMsg::CtrlC => {
                 let thread = read::<ThreadModel, _>(cx);
                 if thread.can_interrupt() {
