@@ -2,6 +2,7 @@
 """Copies the oracle's own recorded fixture of a test into the oracle suite's fixtures.
 
     python3 -I tools/rtwk-port/w2-cells/fixture.py chat_approvals_1::interrupt_preserves_unified_exec_processes [...]
+    python3 -I tools/rtwk-port/w2-cells/fixture.py --turn turn-1 chat_approvals_2::<test> [...]
 
 Reads ~/.cache/codexcli/oracle-gen/fixtures/<shard>/<test>.jsonl (the exact `ServerNotification` values the
 oracle's test fed its widget, recorded by tools/rtwk-port/oracle-seeds) and writes
@@ -19,7 +20,10 @@ OUT = os.path.join(ROOT, 'codex-rs', 'tui-rtwk', 'tests', 'oracle', 'fixtures')
 THREAD = 'thread-1'
 
 
-def copy(name):
+TURN = '{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"%s","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}\n'
+
+
+def copy(name, turn=None):
     shard, test = name.split('::')
     src = os.path.join(GEN, shard, test + '.jsonl')
     if not os.path.exists(src):
@@ -28,6 +32,8 @@ def copy(name):
     for line in open(src, encoding='utf-8'):
         line = re.sub(r'"(threadId|thread_id)"\s*:\s*""', lambda m: '"%s":"%s"' % (m.group(1), THREAD), line)
         out.append(line)
+        if turn and '"seed": "session"' in line.replace('"seed":"session"', '"seed": "session"'):
+            out.append(TURN % turn)
     dst_dir = os.path.join(OUT, shard)
     os.makedirs(dst_dir, exist_ok=True)
     dst = os.path.join(dst_dir, test + '.jsonl')
@@ -38,5 +44,9 @@ def copy(name):
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    for arg in sys.argv[1:]:
-        copy(arg)
+    args = sys.argv[1:]
+    turn = None
+    if args[0] == '--turn':
+        turn, args = args[1], args[2:]
+    for arg in args:
+        copy(arg, turn)

