@@ -129,8 +129,8 @@ pub enum Ask {
     /// The external editor (oracle `external_editor::run_editor`): `draft` is written to a
     /// temporary file, `$VISUAL` / `$EDITOR` runs on it with the terminal handed over, and the
     /// file's text comes back. `cwd` is the thread's directory (the sandbox policy is read
-    /// against it). Answered by `Done::ExternalEditor`.
-    ExternalEditor { draft: String, cwd: String },
+    /// against it). Answered by `Done::Editor`.
+    Editor { draft: String, cwd: String },
 }
 
 impl Ask {
@@ -173,7 +173,7 @@ pub enum Done {
     /// Nothing, or why the worktree could not be removed.
     WorktreeRemoved(Result<(), String>),
     /// What the editor left in the file, or why it could not run.
-    ExternalEditor(Result<String, EditorFailure>),
+    Editor(Result<String, EditorFailure>),
 }
 
 /// Why the external editor did not give a text back (oracle `EditorError` and the failures of

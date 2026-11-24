@@ -84,7 +84,7 @@ fn the_draft_goes_to_the_host_with_the_threads_directory() {
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert!(asks[0].0 & FEATURE_REQUEST_BIT != 0);
-    let Ask::ExternalEditor { draft, .. } = &asks[0].1 else {
+    let Ask::Editor { draft, .. } = &asks[0].1 else {
         panic!("not an editor ask: {:?}", asks[0]);
     };
     assert_eq!(draft, "fix the\nbug");
@@ -122,7 +122,7 @@ fn the_edited_text_is_trimmed_kept_once_and_the_key_is_free_again() {
         &mut app,
         AppEv::Effect {
             request,
-            done: Done::ExternalEditor(Ok("better draft\n\n  ".to_owned())),
+            done: Done::Editor(Ok("better draft\n\n  ".to_owned())),
         },
     );
     let state = &app.features().external_editor;
@@ -152,7 +152,7 @@ fn a_missing_editor_and_a_failed_one_are_lines_of_the_transcript() {
             &mut app,
             AppEv::Effect {
                 request,
-                done: Done::ExternalEditor(Err(failure)),
+                done: Done::Editor(Err(failure)),
             },
         );
     }

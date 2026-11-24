@@ -145,6 +145,8 @@ pub enum Ev {
     AgentLabel(Option<String>),
     /// The empty-prompt `←` opens the agents page (`enable_agents_navigation`).
     AgentsNavigation(bool),
+    /// The app is closing (`ChatWidget::is_shutting_down`): the composer takes nothing more.
+    ShuttingDown(bool),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -170,6 +172,7 @@ pub struct Facts {
     pub side_label: Option<String>,
     pub agent_label: Option<String>,
     pub agents_navigation: bool,
+    pub shutting_down: bool,
     cwd: Option<String>,
     now: u64,
     issued: u64,
@@ -184,6 +187,7 @@ impl Default for Facts {
             agent_label: None,
             // the oracle's chat is built with agents navigation on
             agents_navigation: true,
+            shutting_down: false,
             cwd: None,
             now: 0,
             issued: 0,
@@ -239,6 +243,7 @@ impl Facts {
             Ev::SideLabel(label) => self.side_label = label,
             Ev::AgentLabel(label) => self.agent_label = label,
             Ev::AgentsNavigation(on) => self.agents_navigation = on,
+            Ev::ShuttingDown(on) => self.shutting_down = on,
         }
     }
 

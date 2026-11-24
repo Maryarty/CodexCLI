@@ -1,7 +1,7 @@
 //! The external editor's runner (oracle `external_editor.rs`): the draft is written to a temporary
 //! file in an editor directory the sandbox policy does not let the model write to, `$VISUAL` or
 //! `$EDITOR` runs on it, and the file's text is read back. In Flutter this is the repository
-//! behind `Ask::ExternalEditor`. Handing the terminal over to the editor (leaving the alternate
+//! behind `Ask::Editor`. The host gives it the codex home and the sandbox policy of its config. Handing the terminal over to the editor (leaving the alternate
 //! screen and raw mode, restoring them after) is the owner of the terminal's: `run` is called
 //! inside that handoff.
 
@@ -9,7 +9,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use codex_core::config::Config;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_tui_core::app::effects::EditorFailure;
 use tempfile::Builder;
@@ -30,7 +29,9 @@ impl EditorError {
     fn failure(self) -> EditorFailure {
         match self {
             EditorError::Missing => EditorFailure::Missing,
-            EditorError::ParseFailed => EditorFailure::Failed("failed to parse editor command".into()),
+            EditorError::ParseFailed => {
+                EditorFailure::Failed("failed to parse editor command".into())
+            }
             EditorError::Empty => EditorFailure::Failed("editor command is empty".into()),
         }
     }
@@ -147,13 +148,10 @@ pub(crate) fn editor_directory(
                 };
                 policy.can_write_local_path_with_cwd(directory, cwd)
                     || policy.can_write_local_path_with_cwd(parent, cwd)
-                    || policy
-                        .get_writable_roots_with_cwd(cwd)
-                        .iter()
-                        .any(|root| {
-                            root.is_path_writable(directory)
-                                || root.root.as_path().starts_with(directory)
-                        })
+                    || policy.get_writable_roots_with_cwd(cwd).iter().any(|root| {
+                        root.is_path_writable(directory)
+                            || root.root.as_path().starts_with(directory)
+                    })
             })
         {
             error = "editor directory must not be writable".to_owned();
@@ -216,30 +214,32 @@ pub(crate) async fn run_editor(
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
-/// `Ask::ExternalEditor` answered against the loaded config: the editor of the environment on
-/// `draft`, with the codex home and the sandbox policy the config says.
-pub(crate) async fn ask(config: &Config, draft: String, cwd: String) -> Result<String, EditorFailure> {
+/// `Ask::Editor` answered: the editor of the environment on `draft`, with the codex home and
+/// the sandbox policy the host read from its config; `cwd` is the thread's directory (empty:
+/// `default_cwd`).
+pub async fn ask(
+    codex_home: &Path,
+    policy: &FileSystemSandboxPolicy,
+    default_cwd: &Path,
+    draft: String,
+    cwd: String,
+) -> Result<String, EditorFailure> {
     let editor = resolve_editor_command().map_err(EditorError::failure)?;
     let cwd = if cwd.is_empty() {
-        PathBuf::from(config.cwd.as_path())
+        default_cwd.to_path_buf()
     } else {
         PathBuf::from(cwd)
     };
-    run_editor(
-        &draft,
-        &editor,
-        config.codex_home.as_path(),
-        &config.permissions.file_system_sandbox_policy(),
-        &cwd,
-    )
-    .await
-    .map_err(EditorFailure::Failed)
+    run_editor(&draft, &editor, codex_home, policy, &cwd)
+        .await
+        .map_err(EditorFailure::Failed)
 }
 
 #[cfg(all(test, unix))]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    type Out = Result<(), Box<dyn std::error::Error>>;
 
     #[test]
     fn a_command_line_splits_like_a_shell() {
@@ -258,20 +258,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_editor_runs_on_a_file_that_holds_the_draft() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn the_editor_runs_on_a_file_that_holds_the_draft() -> Out {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir()?;
         let script = dir.path().join("edit.sh");
-        fs::write(&script, "#!/bin/sh\nprintf \"edited\" > \"$1\"\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        fs::write(&script, "#!/bin/sh\nprintf \"edited\" > \"$1\"\n")?;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755))?;
         let editor = vec![script.to_string_lossy().to_string()];
         let policy = FileSystemSandboxPolicy::read_only();
-        let text = run_editor("seed", &editor, dir.path(), &policy, dir.path())
-            .await
-            .unwrap();
+        let text = run_editor("seed", &editor, dir.path(), &policy, dir.path()).await?;
         assert_eq!(text, "edited");
+        Ok(())
     }
 }

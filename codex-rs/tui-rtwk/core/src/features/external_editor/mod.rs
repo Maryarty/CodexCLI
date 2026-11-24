@@ -6,7 +6,7 @@
 //! `Intent::Open` with the text as it stands (the oracle's `composer_text_with_pending`), and core
 //! only keeps what IO needs: whether an editor is running (`State::running`, the oracle's
 //! `ExternalEditorState`: the key does nothing while one is, and the footer says so), the ask of
-//! the host (`Ask::ExternalEditor`: it writes the file, runs the editor and reads the file back;
+//! the host (`Ask::Editor`: it writes the file, runs the editor and reads the file back;
 //! handing the terminal over is the host's) and the two ways it ends. An edited text is the
 //! one-shot `State::edited`, which the thread's composer applies once (`apply_external_edit`) and
 //! acknowledges with `Intent::Applied` (a wish is for a sheet a presenter opens, and this one is
@@ -92,7 +92,11 @@ impl Feature for ExternalEditor {
         let (thread, draft) = match intent {
             Intent::Open { thread, draft } => (thread, draft),
             Intent::Applied { seq } => {
-                if state.edited.as_ref().is_some_and(|edited| edited.seq == seq) {
+                if state
+                    .edited
+                    .as_ref()
+                    .is_some_and(|edited| edited.seq == seq)
+                {
                     state.edited = None;
                 }
                 return;
@@ -100,17 +104,21 @@ impl Feature for ExternalEditor {
         };
         let view = cx.view();
         // `can_launch_external_editor`: a thread another process writes is only watched.
-        if state.running || !view.thread(&thread).is_some_and(|thread| thread.has_writer()) {
+        if state.running
+            || !view
+                .thread(&thread)
+                .is_some_and(|thread| thread.has_writer())
+        {
             return;
         }
         state.running = true;
         let cwd = view.working_directory(Some(&thread));
-        cx.effect(Ask::ExternalEditor { draft, cwd }, Ctx::Draft(thread));
+        cx.effect(Ask::Editor { draft, cwd }, Ctx::Draft(thread));
     }
 
     /// The editor ended: its text goes back to the composer, or the failure is said.
     fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        let Done::ExternalEditor(result) = done else {
+        let Done::Editor(result) = done else {
             return;
         };
         state.running = false;

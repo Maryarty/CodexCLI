@@ -238,7 +238,7 @@ impl Effects {
         // The external editor is the host's own: it reads the config and runs a program.
         if let Command::Effect {
             request,
-            ask: Ask::ExternalEditor { draft, cwd },
+            ask: Ask::Editor { draft, cwd },
             ..
         } = command
         {
@@ -246,14 +246,24 @@ impl Effects {
             let config = self.config.clone();
             return Some(Box::pin(async move {
                 let done = match config {
-                    Some(config) => crate::editor::ask(&config, draft, cwd).await,
+                    Some(config) => {
+                        let policy = config.permissions.file_system_sandbox_policy();
+                        codex_tui_rtwk::services::editor::ask(
+                            config.codex_home.as_path(),
+                            &policy,
+                            config.cwd.as_path(),
+                            draft,
+                            cwd,
+                        )
+                        .await
+                    }
                     None => Err(codex_tui_core::app::effects::EditorFailure::Failed(
                         "no config to read the sandbox policy from".to_owned(),
                     )),
                 };
                 Some(AppEv::Effect {
                     request,
-                    done: Done::ExternalEditor(done),
+                    done: Done::Editor(done),
                 })
             }));
         }

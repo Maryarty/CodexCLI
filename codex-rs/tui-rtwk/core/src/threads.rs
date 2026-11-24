@@ -11,6 +11,7 @@ pub mod calls;
 mod cells;
 pub mod citations;
 mod collab;
+pub mod composer;
 pub mod daybreak;
 pub mod decision;
 pub mod directives;
