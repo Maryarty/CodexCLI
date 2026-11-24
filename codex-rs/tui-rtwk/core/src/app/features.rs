@@ -136,6 +136,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Wish { scope, wish } => Rc::make_mut(&mut app.wishes).push(scope, wish),
         Out::Lifecycle(lifecycle) => super::lifecycle::carry(app, lifecycle, fx),
         Out::Chat(facts) => chat_facts(app, facts, fx),
+        Out::Verb(verb) => super::verbs::carry(app, verb, fx),
         Out::Settled { thread } => {
             let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);

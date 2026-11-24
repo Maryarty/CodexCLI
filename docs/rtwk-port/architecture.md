@@ -1003,6 +1003,42 @@ interlock follows the oracle's `thread_stream_disconnected` (`chatwidget/input_f
 stands `Submit` queues instead of sending or steering and `send_next` does not send;
 `StreamRestored` clears it and the queue goes on if no turn runs.
 
+**The host's doors: `host_capability_list!` (fw-hubs-c, P6).** `AppCx::effect` takes an
+`effects::Ask`, and `Ask` is the one enum of what the host can do for the app. It is written once, as
+a list (`core/src/app/effects.rs`, the macro in `effects/capability.rs`): a line is a capability, with
+the `Ask` variant and its fields, the `Done` variant that answers it (`new Answer(..)`, or `shared`
+for the one two asks answer with), the method name of its executor and, for an ask about a thread,
+`by <field>` (the owner's connection runs it: `Ask::thread`, read by `CodexApp::backend_of`). The
+macro generates `Ask`, `Done`, `Ask::thread`, the trait `HostDoors` (one method per capability whose
+default answers `None`, "not this host's"), `run_ask` (the dispatch) and `Chain` (two sets of
+executors as one: the first that answers wins). The host's executors are therefore `impl HostDoors`
+blocks: the library's services (`services::effects::Doors`: clipboard, diff, export, Desktop link,
+browser) and the host's own (`host/src/effects.rs` `Own`: git lists, background server, editor,
+config file, worktrees; the last two through the `Link` of the connection). The six capabilities the
+W3 packages need, named in port-map `fw-core-hubs`, are lines of the list with no executor yet:
+`audio`, `suspend`, `notify`, `screen_mode`, `probe`, `session_lock`; the package that builds one
+writes the method of its executor and edits no enum. The hub budget counts the list (`list core/src/app/effects.rs
+host_capability_list 19`), which rises only by a decision.
+
+**The host's feeds: `host_feed_list!` (fw-hubs-c, P7).** What the host tells a slice unasked (the
+config's facts at start and after a write, the account's, the notices the server holds) is the slice's
+own host half: `host/src/feeds/<f>.rs` has one function, `feed(event, cx, out)`, and a line in
+`host_feed_list!` (`host/src/feeds.rs`). `in_process.rs` names no slice: it says what happened
+(`feeds::Event::{Startup, Reconnected, ConfigWritten, Notification}`) and delivers what comes back
+(a `Feed::Fact` now, a `Feed::Job`, a read of the server, when its answer is there). The rule
+`host_half_names_one_feature` makes a feed name its own slice and no other, and
+`features_are_named_only_through_the_list` reads every other host file as one that names none (the
+`FACT_SENDERS` exception is gone; `host/src/settings.rs`, which named `features::settings`, is the
+settings feed, and the write of the config file stays in `settings.rs`).
+
+**Public verbs (fw-hubs-c, P9).** What a feature asks of an owner outside it and does not merely want
+shown is `AppCx::verb(PublicVerb)` (`Out::Verb`): a short whitelist (`core/src/features/verb.rs`),
+verbs and never gestures, carried out by the app in the owner's own step (`app/verbs.rs`). Today:
+`StatusOverride` (`/title` and `/statusline` with items: the chat screen's session-only override) and
+`PickModel` (`/model <name>`: the app's model pick, as the sheet's own pick is carried out). A
+`Wish` is for showing something once (`KeymapConflict`); a verb changes something, so the UI no
+longer relays the slice's words to the app. `OpenThread` was already `AppCx::open_thread`.
+
 ### Recipe: a feature as a slice
 
 For a flow that is not a screen: a slash command that opens a menu or a prompt, asks the

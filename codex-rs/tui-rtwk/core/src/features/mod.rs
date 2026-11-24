@@ -42,6 +42,7 @@ mod cx;
 mod lifecycle;
 mod remote;
 mod surface;
+mod verb;
 
 pub use crate::threads::structured::{
     Kind as StructuredKind, StructuredTurn, Why as StructuredFailure,
@@ -49,6 +50,7 @@ pub use crate::threads::structured::{
 pub use cx::{AppCx, AppFacts, AppView, ChatFacts, Out, ThreadCx, ThreadView};
 pub use lifecycle::{Connection, Lifecycle, Refusal, ThreadSpawn};
 pub use remote::Remote;
+pub use verb::PublicVerb;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
 // One line per feature of `feature_list!`, written out so that rustfmt (which follows `mod` lines,

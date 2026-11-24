@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 
 use super::lifecycle::{Lifecycle, ThreadSpawn};
 use super::surface::Scope;
+use super::verb::PublicVerb;
 use super::{
     FeatureCommand, FeatureCtx, FeatureNote, FeatureThreadIntent, FeatureThreadParts, FeatureWish,
 };
@@ -333,6 +334,8 @@ pub enum Out {
     Lifecycle(Lifecycle),
     /// What the chat reads of the thread in use that a feature knows.
     Chat(ChatFacts),
+    /// A verb of the whitelist for the one that owns it (`PublicVerb`): the app routes it.
+    Verb(PublicVerb),
 }
 
 /// What the chat's footer and its command gate read of the thread in use, said by the feature that
@@ -422,6 +425,12 @@ impl<'a> AppCx<'a> {
             scope: scope.into(),
             wish: wish.into(),
         });
+    }
+
+    /// Asks the app for one of its public verbs (`PublicVerb`): the app carries it out in the
+    /// owner's own step, nothing goes through the UI.
+    pub fn verb(&mut self, verb: PublicVerb) {
+        self.out.push(Out::Verb(verb));
     }
 
     /// Shows `thread`, resuming it when this process does not hold it (`Feature::thread_opened`
