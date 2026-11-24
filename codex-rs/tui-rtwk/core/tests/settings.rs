@@ -390,6 +390,7 @@ fn opening_the_theme_picker_builds_it_from_the_facts() {
             custom_themes: vec!["Zebra".into(), "my-night".into(), "nord".into()],
             themes_dir: Some("~/.codex/themes".into()),
             memories: None,
+            ..Facts::default()
         }),
     );
     assert_eq!(model(&rig).syntax_theme.as_deref(), Some("Zebra"));

@@ -8,6 +8,7 @@ use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::catalog;
 use super::hooks::{Hook, HookIssue, Hooks};
+use super::resume::{Listed, display_label};
 use crate::ids::ThreadId;
 
 /// The most pages of the experimental features one listing reads (`MAX_PAGES`).
@@ -28,6 +29,10 @@ pub enum Command {
     Hooks { cwd: String },
     /// `config/batchWrite` of `hooks.state`: the value is merged into what the file has.
     HooksWrite { value: serde_json::Value },
+    /// `thread/list`, one page of the sessions `/resume <name>` looks a label up in.
+    Sessions { cursor: Option<String> },
+    /// `thread/read` (no turns) of the session an id names.
+    Session { id: String },
 }
 
 /// A skill of the listing (`SkillMetadata`).
@@ -51,6 +56,11 @@ pub enum Reply {
     /// A write the server accepted.
     Written,
     Hooks(Hooks),
+    Sessions {
+        rows: Vec<Listed>,
+        next: Option<String>,
+    },
+    Session(Listed),
 }
 
 pub fn request(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
@@ -102,6 +112,41 @@ pub fn request(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReq
                 file_path: None,
                 expected_version: None,
                 reload_user_config: true,
+            },
+        },
+        Command::Sessions { cursor } => ClientRequest::ThreadList {
+            request_id: id,
+            params: wire::ThreadListParams {
+                include_attached_threads: false,
+                current_account_only: false,
+                excluded_thread_ids: None,
+                attached_to_thread_id: None,
+                originators: None,
+                cursor: cursor.clone(),
+                limit: Some(PAGE),
+                // Activity must not move an unread thread ahead of the cursor.
+                sort_key: Some(wire::ThreadSortKey::CreatedAt),
+                sort_direction: None,
+                model_providers: Some(Vec::new()),
+                source_kinds: Some(vec![
+                    wire::ThreadSourceKind::Cli,
+                    wire::ThreadSourceKind::VsCode,
+                ]),
+                archived: Some(false),
+                section_id: None,
+                project_id: None,
+                parent_thread_id: None,
+                ancestor_thread_id: None,
+                cwd: None,
+                use_state_db_only: true,
+                search_term: None,
+            },
+        },
+        Command::Session { id: session } => ClientRequest::ThreadRead {
+            request_id: id,
+            params: wire::ThreadReadParams {
+                thread_id: session.clone(),
+                include_turns: false,
             },
         },
     }
@@ -261,11 +306,29 @@ fn features(response: wire::ExperimentalFeatureListResponse) -> Reply {
     }
 }
 
+fn listed(thread: &wire::Thread) -> Listed {
+    Listed {
+        id: thread.id.clone(),
+        label: display_label(thread.name.as_deref(), &thread.preview),
+    }
+}
+
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, String> {
     Ok(match command {
         Command::Features { .. } => features(parse(result)?),
         Command::Skills { cwd } => Reply::Skills(skills(parse(result)?, cwd)),
         Command::Hooks { cwd } => Reply::Hooks(hooks(parse(result)?, cwd)),
         Command::SkillWrite { .. } | Command::HooksWrite { .. } => Reply::Written,
+        Command::Sessions { .. } => {
+            let page: wire::ThreadListResponse = parse(result)?;
+            Reply::Sessions {
+                rows: page.data.iter().map(listed).collect(),
+                next: page.next_cursor,
+            }
+        }
+        Command::Session { .. } => {
+            let read: wire::ThreadReadResponse = parse(result)?;
+            Reply::Session(listed(&read.thread))
+        }
     })
 }

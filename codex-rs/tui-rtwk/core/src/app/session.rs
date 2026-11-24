@@ -342,12 +342,13 @@ pub(super) fn session_intent(
             let current = Current::from_facts(&app.screens.chat.status);
             super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
         }
-        // `/hooks`, `/title <items>`, `/statusline <items>`, `/model <name> ..`: the settings
+        // `/hooks`, `/title <items>`, `/statusline <items>`, `/model <name> ..`, `/resume <name>`: the settings
         // feature checks the arguments and answers.
         S::Hooks => slash(app, source, command, String::new(), fx),
         S::Title { args } | S::Statusline { args } | S::Model { args } => {
             slash(app, source, command, args.unwrap_or_default(), fx);
         }
+        S::ResumeNamed { name } => slash(app, source, command, name, fx),
         // `/vim`: modal editing of the draft is UI state (the page toggles it and says so).
         S::Vim | S::Tui => {}
         // `/worktree`: the sheet of the worktree pickers (`show_managed_worktree_picker`), over
@@ -378,8 +379,7 @@ pub(super) fn session_intent(
         | S::Ps
         | S::Review { args: None }
         | S::Permissions { args: None }
-        | S::VoiceControl(_)
-        | S::ResumeNamed { .. } => session_note(
+        | S::VoiceControl(_) => session_note(
             app,
             source,
             Note::from(crate::commands::Notice::NotAvailable(command)),

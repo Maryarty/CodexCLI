@@ -12,8 +12,14 @@ use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_core::config::Config;
+use codex_config::types::{
+    CopyOnSelect, NotificationCondition, ResumeCwdMode, RightClickPaste,
+    SessionPickerViewMode,
+};
 use codex_features::Feature;
 use codex_tui_core::app::effects::{ConfigEdit, Done};
+use codex_tui_core::features::settings::keymap;
+use codex_tui_core::features::settings::{Fact, Facts, MemoryFacts, Row, Section, SettingId, Value};
 use codex_tui_core::protocol::config::{config_write, config_written};
 use codex_tui_core::rpc::ServerError;
 use codex_tui_rtwk::services::backend::rpc::Ids;
@@ -47,6 +53,316 @@ pub(crate) fn read(config: &Config, home: Option<&Path>) -> Read {
             config.memories.generate_memories,
         )),
     }
+}
+
+/// What the dialogs of this config read: the facts of `read`, the rows of the configuration panel
+/// and the tabs of the keymap picker (`home` as in `read`). Sent at start and after every write.
+pub(crate) fn fact(config: &Config, home: Option<&Path>) -> Fact {
+    let read = read(config, home);
+    Fact::Facts(Facts {
+        syntax_theme: read.syntax_theme,
+        custom_themes: read.custom_themes,
+        themes_dir: read.themes_dir,
+        memories: read
+            .memories
+            .map(|(use_memories, generate_memories)| MemoryFacts {
+                use_memories,
+                generate_memories,
+            }),
+        config_rows: config_rows(config, &PasteEnvironment::detect()),
+        keymap_tabs: crate::facts::keymap(config)
+            .map(|resolved| keymap::picker(&resolved, keymap::Filter::default()).tabs)
+            .unwrap_or_default(),
+    })
+}
+
+/// What the machine says of right-click paste (`PasteEnvironment`): the terminal the oracle asks
+/// for the primary clipboard and the VS Code detection; here the platform and the session.
+pub(crate) struct PasteEnvironment {
+    platform_default: bool,
+    ssh: bool,
+    wsl: bool,
+    vscode: bool,
+}
+
+impl PasteEnvironment {
+    pub(crate) fn detect() -> Self {
+        Self {
+            platform_default: cfg!(any(target_os = "windows", target_os = "linux")),
+            ssh: std::env::var_os("SSH_TTY").is_some()
+                || std::env::var_os("SSH_CONNECTION").is_some(),
+            wsl: codex_utils_path::is_wsl(),
+            vscode: std::env::var("TERM_PROGRAM")
+                .is_ok_and(|program| program.eq_ignore_ascii_case("vscode")),
+        }
+    }
+
+    /// The effective state of the setting, or why the terminal must handle the paste itself
+    /// (`PasteEnvironment::status`).
+    fn status(&self, mode: RightClickPaste, owned: bool) -> Result<bool, &'static str> {
+        if mode == RightClickPaste::Off {
+            return Ok(false);
+        }
+        if !owned {
+            return Err("Unavailable in inline mode; use your terminal's paste command");
+        }
+        if self.ssh {
+            return Err("Unavailable over SSH; use your terminal's paste command");
+        }
+        if self.vscode {
+            return Err("VS Code handles pasting; use its terminal paste command");
+        }
+        if mode == RightClickPaste::Auto && self.wsl {
+            return Err(
+                "Auto cannot identify this WSL terminal; use On or your terminal's paste command",
+            );
+        }
+        match mode {
+            RightClickPaste::On if cfg!(target_os = "android") => Err("Unavailable on Android"),
+            RightClickPaste::On => Ok(true),
+            RightClickPaste::Auto => Ok(self.platform_default),
+            RightClickPaste::Off => Ok(false),
+        }
+    }
+}
+
+const RIGHT_CLICK_PASTE: &str = "Paste when nothing is selected, with Auto following platform defaults and On also enabling macOS";
+
+fn on_off(on: bool) -> &'static str {
+    if on { "On" } else { "Off" }
+}
+
+/// The rows of the configuration panel (`config_panel::settings`), in the oracle's order, from
+/// the config as it stands.
+pub(crate) fn config_rows(config: &Config, paste: &PasteEnvironment) -> Vec<Row> {
+    let owned = config.tui_fullscreen_transcript
+        && config.tui_alternate_screen != codex_config::types::AltScreenMode::Never;
+    let copy = crate::effects::tui_settings(config).copy_on_select;
+    let notifications = &config.tui_notifications;
+    let enabled = !matches!(
+        notifications.notifications,
+        codex_config::types::Notifications::Enabled(false)
+    );
+    let custom_filters = matches!(
+        notifications.notifications,
+        codex_config::types::Notifications::Custom(_)
+    );
+    let right_click = paste.status(config.tui_right_click_paste, owned);
+    let row = |id, section, label: &str, description: &str, keywords: &str, value| Row {
+        id,
+        section,
+        label: label.to_owned(),
+        description: description.to_owned(),
+        keywords: keywords.to_owned(),
+        value,
+    };
+    let choice = |label: &str| Value::Choice(label.to_owned());
+    use Section::*;
+    use SettingId as Id;
+    let mut rows = vec![
+        row(
+            Id::Theme,
+            Appearance,
+            "Theme",
+            "Choose a syntax color palette with a live preview",
+            "colors dark light palette",
+            choice(config.tui_theme.as_deref().unwrap_or("Automatic")),
+        ),
+        row(
+            Id::Effects,
+            Appearance,
+            "Effects",
+            "Configure animations and composer effects",
+            "animations motion accessibility spinner starfield stars composer stars",
+            Value::Configure,
+        ),
+        row(
+            Id::Tips,
+            Appearance,
+            "Tips",
+            "Show helpful shortcuts and suggestions",
+            "welcome hints tooltips",
+            Value::Toggle(config.show_tooltips),
+        ),
+        row(
+            Id::StatusLineColors,
+            Appearance,
+            "Status line colors",
+            "Use theme colors for the model, branch, and other status line details",
+            "statusline footer colour",
+            Value::Toggle(config.tui_status_line_use_colors),
+        ),
+        row(
+            Id::StatusLineDisplay,
+            Appearance,
+            "Status line display",
+            "Choose and reorder the information below the composer",
+            "statusline footer model branch context",
+            Value::Configure,
+        ),
+        row(
+            Id::TerminalTitleDisplay,
+            Appearance,
+            "Terminal title display",
+            "Choose and reorder the information in your terminal tab or window title",
+            "title tab window name",
+            Value::Configure,
+        ),
+        row(
+            Id::Notifications,
+            Section::Notifications,
+            "Notifications",
+            "Let your terminal notify you when a turn finishes or approval is needed",
+            "alerts bell completion approval",
+            if custom_filters {
+                Value::Unavailable
+            } else {
+                Value::Toggle(enabled)
+            },
+        ),
+        row(
+            Id::NotifyWhen,
+            Section::Notifications,
+            "Notify when",
+            "Notify only while you are away or while this terminal is focused too",
+            "focus alerts background always unfocused",
+            if enabled {
+                choice(match notifications.condition {
+                    NotificationCondition::Unfocused => "Unfocused",
+                    NotificationCondition::Always => "Always",
+                })
+            } else {
+                Value::Unavailable
+            },
+        ),
+        row(
+            Id::TestNotification,
+            Section::Notifications,
+            "Test notification",
+            "Send in 5 seconds so you can switch apps before the notification appears",
+            "alerts bell sound test",
+            Value::Test,
+        ),
+        row(
+            Id::KeyboardShortcuts,
+            Input,
+            "Keyboard shortcuts",
+            "Browse actions and remap their keys",
+            "keymap bindings hotkeys",
+            Value::Configure,
+        ),
+        row(
+            Id::StartInVimMode,
+            Input,
+            "Start in Vim mode",
+            "Start new composers in Vim mode and use /vim for the current composer",
+            "editor modal normal",
+            Value::Toggle(config.tui_vim_mode_default),
+        ),
+        row(
+            Id::PasteDetection,
+            Input,
+            "Paste detection",
+            "Recognize pasted-text bursts and keep multiline input together",
+            "burst clipboard multiline",
+            Value::Toggle(!config.disable_paste_burst),
+        ),
+        row(
+            Id::AutomaticRecaps,
+            Sessions,
+            "Automatic recaps",
+            "Prepare recaps while the terminal is unfocused",
+            "summary background",
+            Value::Toggle(config.tui_auto_recap),
+        ),
+        row(
+            Id::SessionPickerLayout,
+            Sessions,
+            "Session picker layout",
+            "Choose tighter rows or a roomier list when resuming and forking conversations",
+            "dense comfortable spacing resume fork",
+            choice(match config.tui_session_picker_view {
+                SessionPickerViewMode::Comfortable => "Comfortable",
+                SessionPickerViewMode::Dense => "Dense",
+            }),
+        ),
+        row(
+            Id::ResumeDirectory,
+            Sessions,
+            "Resume directory",
+            "Choose which working directory to use when the current directory and saved session differ",
+            "cwd folder path fork ask",
+            choice(match config.tui_resume_cwd {
+                None => "Ask",
+                Some(ResumeCwdMode::Current) => "Current directory",
+                Some(ResumeCwdMode::Session) => "Session directory",
+            }),
+        ),
+        row(
+            Id::ModelProviders,
+            Sessions,
+            "Model providers",
+            "Choose the default provider for new chats on the connected server",
+            "provider gateway endpoint model default",
+            choice("Choose"),
+        ),
+        row(
+            Id::CopyOnSelect,
+            TextSelection,
+            "Copy on select",
+            "Copy transcript, footer, and composer selections on release; Auto follows terminal defaults",
+            "clipboard mouse selection automatic drag",
+            choice(&match config.tui_copy_on_select {
+                CopyOnSelect::Auto => format!("Auto · {}", on_off(copy)),
+                CopyOnSelect::Always => "On".to_owned(),
+                CopyOnSelect::Never => "Off".to_owned(),
+            }),
+        ),
+        row(
+            Id::DeselectAfterCopy,
+            TextSelection,
+            "Deselect after copy",
+            "Remove read-only transcript and footer highlights after automatic copy succeeds",
+            "clipboard deselect clear highlight automatic mouse selection",
+            if copy {
+                Value::Toggle(config.tui_copy_on_select_clear_selection)
+            } else {
+                Value::Unavailable
+            },
+        ),
+        row(
+            Id::RightClickPaste,
+            TextSelection,
+            "Right-click paste",
+            right_click.err().unwrap_or(RIGHT_CLICK_PASTE),
+            "clipboard mouse paste automatic",
+            choice(&{
+                let preference = match config.tui_right_click_paste {
+                    RightClickPaste::Auto => "Auto",
+                    RightClickPaste::On => "On",
+                    RightClickPaste::Off => "Off",
+                };
+                match right_click {
+                    Ok(on) if config.tui_right_click_paste == RightClickPaste::Auto => {
+                        format!("Auto · {}", on_off(on))
+                    }
+                    Ok(_) => preference.to_owned(),
+                    Err(_) => format!("{preference} · Unavailable"),
+                }
+            }),
+        ),
+    ];
+    if owned {
+        rows.push(row(
+            Id::CollapseTurnDetails,
+            Sessions,
+            "Collapse turn details",
+            "Summarize tool calls in the conversation",
+            "collapse_turn_details fullscreen transcript expand history",
+            Value::Toggle(config.tui_collapse_turn_details),
+        ));
+    }
+    rows
 }
 
 /// The stems of the `.tmTheme` files in `dir`, alphabetical (`theme_picker::list`).

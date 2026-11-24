@@ -506,6 +506,20 @@ pub fn note(note: &Note) -> String {
             format!("Saved TUI mode: {mode}. Restart Codex to apply; launch overrides still apply.")
         }
         Note::Refused(refusal) => refusal_words(refusal),
+        Note::NoSavedChat { name } => format!("No saved chat found matching '{name}'."),
+        Note::AmbiguousSession {
+            name,
+            first,
+            second,
+        } => format!(
+            "Multiple sessions match '{name}' (including {first} and {second}); use a session UUID to disambiguate."
+        ),
+        Note::UnverifiedSession { id } => format!(
+            "Cannot verify a unique session label across server pages; matching session UUID: {id}. Use it only if this is the session you want."
+        ),
+        Note::ResumeFailed { error } => {
+            format!("failed to list sessions while resolving session label: {error}")
+        }
     }
 }
 

@@ -20,7 +20,10 @@ pub mod args;
 mod catalog;
 pub mod hooks;
 pub mod items;
+pub mod keymap;
+mod keymap_actions;
 pub mod persist;
+pub mod resume;
 mod seed;
 pub mod wire;
 
@@ -89,6 +92,9 @@ pub enum Wish {
     /// `/model <name>`: the model and effort picked for this session. A `--speed` is checked
     /// by the arguments and not carried (the pick has no tier).
     Model(crate::screens::select::models::Selection),
+    /// `/resume <name or id>` found the session: the surface opens it (`OpenThread`, the one
+    /// door of ADR-003).
+    OpenThread(ThreadId),
 }
 
 /// What the host tells the feature unasked, and what a script seeds.
@@ -130,6 +136,7 @@ impl Fact {
                 use_memories,
                 generate_memories,
             }),
+            ..Facts::default()
         })
     }
 }
@@ -164,6 +171,16 @@ pub enum Ctx {
     HookTrust {
         many: bool,
     },
+    /// A page of the listing `/resume <label>` looks the label up in.
+    Resume {
+        lookup: resume::Lookup,
+        thread: Option<ThreadId>,
+    },
+    /// The read of the session `/resume <id>` names.
+    ResumeId {
+        name: String,
+        thread: Option<ThreadId>,
+    },
 }
 
 /// What a listing of the experimental features is for.
@@ -196,6 +213,20 @@ pub enum Note {
     TuiModeSaved { fullscreen: bool },
     /// The arguments of `/title`, `/statusline` or `/model` do not pass.
     Refused(args::Refusal),
+    /// `No saved chat found matching '{name}'.`
+    NoSavedChat { name: String },
+    /// `Multiple sessions match '{name}' (including {first} and {second}); use a session UUID to
+    /// disambiguate.`
+    AmbiguousSession {
+        name: String,
+        first: String,
+        second: String,
+    },
+    /// `Cannot verify a unique session label across server pages; matching session UUID: {id}.
+    /// Use it only if this is the session you want.`
+    UnverifiedSession { id: String },
+    /// `Failed to list sessions while resolving session label: {error}`.
+    ResumeFailed { error: String },
 }
 
 impl Note {
@@ -254,6 +285,18 @@ impl State {
             self.syntax_theme = facts.syntax_theme.clone();
         }
         self.facts = facts;
+        // A dialog that is offered follows the config (the oracle refreshes the panel after a
+        // save).
+        if self.offers.contains_key(&Which::Config)
+            && let Some(panel) = self.facts.config_panel()
+        {
+            self.offers.insert(Which::Config, Offer::Config(panel));
+        }
+        if self.offers.contains_key(&Which::Keymap)
+            && let Some(picker) = self.facts.keymap_picker()
+        {
+            self.offers.insert(Which::Keymap, Offer::Keymap(picker));
+        }
     }
 
     /// The catalogue of the dialog of kind `which`, built from what the app holds.
@@ -290,8 +333,15 @@ impl State {
                 );
                 return;
             }
-            // The host's catalogues: they arrive as facts.
-            Which::Config | Which::Keymap => return,
+            // The host's catalogues, as the facts have them (none yet: what was offered stays).
+            Which::Config => match self.facts.config_panel() {
+                Some(panel) => Offer::Config(panel),
+                None => return,
+            },
+            Which::Keymap => match self.facts.keymap_picker() {
+                Some(picker) => Offer::Keymap(picker),
+                None => return,
+            },
         };
         self.offer(offer);
     }
@@ -499,6 +549,7 @@ impl State {
         let scope = thread.clone().unwrap_or_default();
         let wish = match command {
             SlashCommand::Hooks => return self.open(Which::Hooks, cx),
+            SlashCommand::Resume => return Self::resume(args.trim(), thread, cx),
             SlashCommand::Title => args::title(args).map(Wish::Status),
             SlashCommand::Statusline => args::status_line(args).map(Wish::Status),
             SlashCommand::Model => {
@@ -516,6 +567,86 @@ impl State {
         match wish {
             Ok(wish) => cx.wish(scope, wish),
             Err(refusal) => cx.note(None, Note::Refused(refusal)),
+        }
+    }
+
+    /// `/resume <name or id>`: an id is read, a label is looked for in the listing.
+    fn resume(name: &str, thread: Option<ThreadId>, cx: &mut AppCx<'_>) {
+        if name.is_empty() {
+            return;
+        }
+        if resume::is_session_id(name) {
+            cx.ask(
+                None,
+                Command::Session {
+                    id: name.to_owned(),
+                },
+                Ctx::ResumeId {
+                    name: name.to_owned(),
+                    thread,
+                },
+            );
+        } else {
+            cx.ask(
+                None,
+                Command::Sessions { cursor: None },
+                Ctx::Resume {
+                    lookup: resume::Lookup::new(name),
+                    thread,
+                },
+            );
+        }
+    }
+
+    /// A page of the listing arrived: the next one is asked for, or the lookup ends.
+    fn resume_page(
+        mut lookup: resume::Lookup,
+        thread: Option<ThreadId>,
+        result: Result<Reply, RpcError>,
+        cx: &mut AppCx<'_>,
+    ) {
+        let step = match result {
+            Ok(Reply::Sessions { rows, next }) => lookup.page(&rows, next),
+            Ok(_) => return,
+            Err(error) => {
+                let error = text(&error);
+                return cx.note(None, Note::ResumeFailed { error });
+            }
+        };
+        match step {
+            resume::Step::Next(cursor) => cx.ask(
+                None,
+                Command::Sessions {
+                    cursor: Some(cursor),
+                },
+                Ctx::Resume { lookup, thread },
+            ),
+            resume::Step::Done(verdict) => Self::resumed(&lookup.name, thread, verdict, cx),
+        }
+    }
+
+    /// How the lookup ended: the thread to open, or the line saying why not.
+    fn resumed(name: &str, thread: Option<ThreadId>, verdict: resume::Verdict, cx: &mut AppCx<'_>) {
+        match verdict {
+            resume::Verdict::Found(id) => cx.wish(
+                thread.unwrap_or_default(),
+                Wish::OpenThread(ThreadId::new(id)),
+            ),
+            resume::Verdict::Missing => cx.note(
+                None,
+                Note::NoSavedChat {
+                    name: name.to_owned(),
+                },
+            ),
+            resume::Verdict::Ambiguous { first, second } => cx.note(
+                None,
+                Note::AmbiguousSession {
+                    name: name.to_owned(),
+                    first,
+                    second,
+                },
+            ),
+            resume::Verdict::Paginated(id) => cx.note(None, Note::UnverifiedSession { id }),
         }
     }
 
@@ -791,6 +922,15 @@ impl super::Feature for Settings {
                         },
                     );
                 }
+            }
+            Ctx::Resume { lookup, thread } => State::resume_page(lookup, thread, result, cx),
+            // An id the server does not read is no saved chat (`thread/read` failed: none).
+            Ctx::ResumeId { name, thread } => {
+                let verdict = match result {
+                    Ok(Reply::Session(listed)) => resume::Verdict::Found(listed.id),
+                    _ => resume::Verdict::Missing,
+                };
+                State::resumed(&name, thread, verdict, cx);
             }
             Ctx::Write(_) | Ctx::FeaturesWrite { .. } => {}
         }
