@@ -429,7 +429,7 @@ fn tier_pick(app: &mut CodexApp, tier: &str, fx: &mut AppFx) {
     );
 }
 
-fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &mut AppFx) {
+pub(super) fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &mut AppFx) {
     let label = match &selection {
         permissions::Selection::Preset { preset, reviewer } => permissions::Label::Mode {
             preset: *preset,

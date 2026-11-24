@@ -6,6 +6,7 @@
 
 use crate::screens::chat::StatusOverride;
 use crate::screens::select::models::Selection;
+use crate::screens::select::permissions;
 
 /// What a feature asks of an owner outside it (`AppCx::verb`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,4 +18,7 @@ pub enum PublicVerb {
     /// pick, as the sheet's own pick is carried out). A `--speed` is checked by the arguments and
     /// not carried (the pick has no tier).
     PickModel(Selection),
+    /// A `/permissions` pick applied once its precondition is met (the Windows sandbox is set
+    /// up): the app's permissions pick, as the sheet's own pick is carried out.
+    PickPermissions(permissions::Selection),
 }

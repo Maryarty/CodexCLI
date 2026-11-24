@@ -15,8 +15,9 @@ use codex_app_server_protocol::{
 };
 use codex_protocol::config_types::WindowsSandboxLevel;
 
-use super::{AppCx, Scope};
+use super::{AppCx, PublicVerb, Scope};
 use crate::screens::SeedError;
+use crate::screens::select::permissions::Selection;
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -264,6 +265,11 @@ pub enum Intent {
     /// The setup is wanted for `mode` (a prompt's row, `Choice::mode`; the permissions page:
     /// `Ask for approval` with no sandbox).
     Begin(Mode),
+    /// `Begin`, for a `/permissions` pick the sandbox was the missing piece of (oracle
+    /// `open_windows_sandbox_enable_prompt(preset)`): when the setup ends well the pick is
+    /// applied (`PublicVerb::PickPermissions`), when it fails or is refused nothing is. The
+    /// fallback prompt after an elevated failure keeps the pick for its own choice.
+    BeginThen { mode: Mode, then: Selection },
 }
 
 /// What an ask was for.
@@ -319,6 +325,8 @@ pub struct State {
     wished: Option<Prompt>,
     /// The last setup ended with this mode.
     last: Option<(Mode, bool)>,
+    /// The permissions pick the setup is for (`Intent::BeginThen`).
+    then: Option<Selection>,
 }
 
 impl State {
@@ -378,6 +386,11 @@ impl State {
         self.last
     }
 
+    /// The permissions pick that is applied when the setup ends well.
+    pub fn then(&self) -> Option<&Selection> {
+        self.then.as_ref()
+    }
+
     /// The setup that runs.
     pub fn pending(&self) -> Option<&Pending> {
         self.pending.as_ref()
@@ -424,7 +437,7 @@ impl State {
         }
     }
 
-    fn begin(&mut self, mode: Mode, cx: &mut AppCx<'_>) {
+    fn begin(&mut self, mode: Mode, then: Option<Selection>, cx: &mut AppCx<'_>) {
         if self.pending.is_some() {
             if !self.started {
                 cx.note(None, Note::StillRunning);
@@ -447,6 +460,9 @@ impl State {
         self.started = true;
         self.due = None;
         self.wished = None;
+        if then.is_some() {
+            self.then = then;
+        }
         cx.ask(None, Wanted::Start { mode, cwd }, Ctx::Start(mode));
     }
 
@@ -465,6 +481,9 @@ impl State {
             self.elevated_ready |= mode == Mode::Elevated;
             self.pending = None;
             self.started = false;
+            if let Some(then) = self.then.take() {
+                cx.verb(PublicVerb::PickPermissions(then));
+            }
         } else if mode == Mode::Elevated {
             // The elevated setup failed: the fallback prompt, the setup stays the pending one's
             // (the choice retries it).
@@ -474,6 +493,7 @@ impl State {
         } else {
             self.pending = None;
             self.started = false;
+            self.then = None;
             cx.note(
                 None,
                 Note::SetupFailed(error.unwrap_or_else(|| "unknown error".to_owned())),
@@ -503,10 +523,11 @@ feature! {
                     // nothing (oracle: "guard anyway").
                     Intent::Elevate => {
                         if state.degraded() {
-                            state.begin(Mode::Elevated, cx);
+                            state.begin(Mode::Elevated, None, cx);
                         }
                     }
-                    Intent::Begin(mode) => state.begin(mode, cx),
+                    Intent::Begin(mode) => state.begin(mode, None, cx),
+                    Intent::BeginThen { mode, then } => state.begin(mode, Some(then), cx),
                     Intent::Shown(prompt) => {
                         if state.due == Some(prompt) {
                             state.due = None;
@@ -525,16 +546,19 @@ feature! {
                     Err(RpcError::Remote(message)) if message.contains("-32601") => {
                         state.pending = None;
                         state.started = false;
+                        state.then = None;
                         cx.note(None, Note::UpdateServer);
                     }
                     Err(_) => {
                         state.pending = None;
                         state.started = false;
+                        state.then = None;
                         cx.note(None, Note::Failed);
                     }
                     Ok(Reply::Started(false)) => {
                         state.pending = None;
                         state.started = false;
+                        state.then = None;
                         cx.note(None, Note::NotStarted);
                     }
                 }
