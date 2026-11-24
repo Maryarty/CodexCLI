@@ -4,7 +4,7 @@
 //! UI for the UI to hand on (the old `Wish::{Status, Model}` relay). A wish is for showing
 //! something once; a verb is for changing something.
 
-use crate::screens::chat::StatusOverride;
+use crate::screens::chat::{Nudge, StatusOverride};
 use crate::screens::select::models::{Effort, Selection};
 use crate::screens::select::permissions;
 
@@ -30,4 +30,8 @@ pub enum PublicVerb {
         model: String,
         effort: Option<Effort>,
     },
+    /// The workspace owner is e-mailed (`account/sendAddCreditsNudgeEmail`): the app's one nudge
+    /// path, the banner's notify-owner action's too, with its one request in flight and its note
+    /// in the conversation (`finish_add_credits_nudge_email_request`).
+    NotifyOwner(Nudge),
 }

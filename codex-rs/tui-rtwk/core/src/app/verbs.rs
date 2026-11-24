@@ -17,6 +17,10 @@ pub(super) fn carry(app: &mut CodexApp, verb: PublicVerb, fx: &mut AppFx) {
         PublicVerb::OverrideTurn { model, effort } => {
             select::turn_override(app, model, effort, fx);
         }
+        PublicVerb::NotifyOwner(nudge) => {
+            let backend = super::session::active_backend(app);
+            super::notify_owner(app, backend, nudge, fx);
+        }
     }
 }
 

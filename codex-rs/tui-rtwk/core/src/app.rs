@@ -1443,6 +1443,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 apply_thread(app, &thread, ev, fx);
             }
             if let Some((thread, ev)) = threads::project(&notification) {
+                let ev = reworded(app, &thread, ev);
                 if app.threads.contains(&thread) {
                     let reverted = matches!(ev, ThreadEv::Reverted);
                     // a user message of a thread with no name (`automatic_title_user_message`)
@@ -2093,6 +2094,30 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
     }
 }
 
+/// The workspace owner is e-mailed (`account/sendAddCreditsNudgeEmail`): the one path of the
+/// banner's notify-owner action and of a feature's `PublicVerb::NotifyOwner`. One e-mail at a
+/// time, as the oracle keeps one request in flight; the notice goes to the thread that was open.
+fn notify_owner(app: &mut CodexApp, backend: BackendId, nudge: chat::Nudge, fx: &mut AppFx) {
+    if app.outgoing.any(|ctx| matches!(ctx, AppCtx::Nudge { .. })) {
+        return;
+    }
+    let ticket = app.mint.next();
+    let thread = app.session.active.clone();
+    app.outgoing.insert(
+        ticket,
+        AppCtx::Nudge {
+            backend,
+            nudge,
+            thread,
+        },
+    );
+    fx.commands.push(Command::SendAddCreditsNudge {
+        ticket,
+        backend,
+        nudge,
+    });
+}
+
 fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
     match intent {
         Intent::DismissBackendBanner { backend, ticket } => {
@@ -2123,25 +2148,8 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 Some(chat::BannerAction::OpenUrl(url)) => {
                     fx.commands.push(Command::OpenUrl { url })
                 }
-                // one e-mail at a time, as the oracle keeps one request in flight
-                Some(chat::BannerAction::NotifyOwner(nudge))
-                    if !app.outgoing.any(|ctx| matches!(ctx, AppCtx::Nudge { .. })) =>
-                {
-                    let ticket = app.mint.next();
-                    let thread = app.session.active.clone();
-                    app.outgoing.insert(
-                        ticket,
-                        AppCtx::Nudge {
-                            backend,
-                            nudge,
-                            thread,
-                        },
-                    );
-                    fx.commands.push(Command::SendAddCreditsNudge {
-                        ticket,
-                        backend,
-                        nudge,
-                    });
+                Some(chat::BannerAction::NotifyOwner(nudge)) => {
+                    notify_owner(app, backend, nudge, fx);
                 }
                 _ => {}
             }
@@ -2334,6 +2342,23 @@ fn finish_status_cells(
             })),
             fx,
         );
+    }
+}
+
+/// A failed turn's error in the words a feature says for it, when one does
+/// (`Feature::fault_words`); the server's own words stand otherwise.
+fn reworded(app: &CodexApp, thread: &ThreadId, ev: ThreadEv) -> ThreadEv {
+    let ThreadEv::TurnError {
+        turn,
+        fault: threads::Fault::Message(message),
+    } = ev
+    else {
+        return ev;
+    };
+    let message = features::fault_words(app, thread, &message).unwrap_or(message);
+    ThreadEv::TurnError {
+        turn,
+        fault: threads::Fault::Message(message),
     }
 }
 

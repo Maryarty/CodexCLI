@@ -461,6 +461,21 @@ pub trait Feature: 'static {
         let _ = (state, backend, read, cx);
     }
 
+    /// The words a feature says for the error of a failed turn of `thread` instead of the
+    /// server's `message` (oracle `on_rate_limit_error`: a workspace owner is told what to do,
+    /// not what the server said). Asked once per turn error that is the server's own words (not
+    /// a policy refusal or an overload), after the features read the notification (`project`),
+    /// in list order: the first that answers wins; none: the server's words stand.
+    fn fault_words(
+        state: &Self::State,
+        thread: &ThreadId,
+        message: &str,
+        view: &AppView<'_>,
+    ) -> Option<String> {
+        let _ = (state, thread, message, view);
+        None
+    }
+
     /// The thread in use is now `thread` (the app showed it, whether it was held or just opened).
     fn on_shown(state: &mut Self::State, thread: &ThreadId, cx: &mut AppCx<'_>) {
         let _ = (state, thread, cx);
@@ -882,6 +897,21 @@ macro_rules! feature_dirs {
             cx: &mut AppCx<'_>,
         ) {
             $(<$name::$variant as Feature>::on_user_message(&mut states.$name, thread, text, cx);)*
+        }
+
+        /// The words a feature says for a failed turn's error instead of the server's: the first
+        /// in list order that has any.
+        #[allow(unused_variables)]
+        pub fn fault_words(
+            states: &FeatureStates,
+            thread: &ThreadId,
+            message: &str,
+            view: &$crate::features::AppView<'_>,
+        ) -> Option<String> {
+            $(if let Some(words) = <$name::$variant as Feature>::fault_words(&states.$name, thread, message, view) {
+                return Some(words);
+            })*
+            None
         }
 
         /// The account's limits were read: every feature's hook, in list order.

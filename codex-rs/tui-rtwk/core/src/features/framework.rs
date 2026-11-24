@@ -180,6 +180,15 @@ macro_rules! probe {
                     log($name, Hook::Rates(backend));
                 }
 
+                fn fault_words(
+                    _state: &u32,
+                    _thread: &ThreadId,
+                    message: &str,
+                    _view: &AppView<'_>,
+                ) -> Option<String> {
+                    (message == $name).then(|| format!("{} says", $name))
+                }
+
                 fn structured_wanted(_state: &u32, ctx: &Ctx, _view: &AppView<'_>) -> bool {
                     ctx.0 != "stale"
                 }
@@ -324,7 +333,7 @@ use probe_list::{
     answered, apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode,
     effect_done, names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact,
     on_interest, on_interrupted, on_rate_limits_read, on_resumed, on_shown, on_user_message, on_turn_end, project, project_request,
-    runs_of, seed_note, structured_done, structured_wanted, thread_opened, thread_wakes_due, wakes_due, wire,
+    fault_words, runs_of, seed_note, structured_done, structured_wanted, thread_opened, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -761,6 +770,23 @@ fn a_rate_limits_read_reaches_every_feature_in_list_order() {
         logged(),
         [("alpha", Hook::Rates(backend)), ("beta", Hook::Rates(backend))]
     );
+}
+
+/// A turn error is reworded by the first feature in list order that has words for it.
+#[test]
+fn a_turn_error_is_reworded_by_the_first_feature_that_has_words() {
+    let states = FeatureStates::default();
+    let (threads, screens, tui) = (
+        ThreadSet::default(),
+        ScreenStates::default(),
+        TuiSettings::default(),
+    );
+    let view = AppView::new(None, &threads, &screens, &tui, &[], None);
+    let thread = ThreadId::new("t1");
+    let words = |message: &str| fault_words(&states, &thread, message, &view);
+    assert_eq!(words("beta").as_deref(), Some("beta says"));
+    assert_eq!(words("alpha").as_deref(), Some("alpha says"));
+    assert_eq!(words("the server's own"), None);
 }
 
 /// A user message of an unnamed thread reaches every feature, in list order.

@@ -304,6 +304,11 @@ pub(super) fn on_rate_limits_read(
     });
 }
 
+/// What a feature says for the error of a failed turn instead of the server's `message`.
+pub(super) fn fault_words(app: &CodexApp, thread: &ThreadId, message: &str) -> Option<String> {
+    features::fault_words(&app.features, thread, message, &view(app))
+}
+
 /// The feature that asked for a structured turn still wants it (`Feature::structured_wanted`).
 pub(super) fn structured_wanted(app: &CodexApp, ctx: &FeatureCtx) -> bool {
     features::structured_wanted(&app.features, ctx, &view(app))
