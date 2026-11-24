@@ -11,20 +11,28 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use codex_app_server_client::AppServerRequestHandle;
 use codex_config::types::CopyOnSelect;
 use codex_core::config::Config;
 use codex_terminal_detection::{TerminalInfo, TerminalName, terminal_info};
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Command;
-use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::effects::Chain;
+use codex_tui_core::app::effects::ConfigEdit;
+use codex_tui_core::app::effects::DaemonAsk;
 use codex_tui_core::app::effects::Done;
+use codex_tui_core::app::effects::EditorFailure;
+use codex_tui_core::app::effects::HostDoors;
+use codex_tui_core::app::effects::run_ask;
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::app::facts::TuiSettings;
+use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
 use codex_tui_core::screens::select::quick_dials::{Dial, Origin, SLOTS, Slot};
 use codex_tui_core::screens::select::review::Commit;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
+use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::clipboard::Clipboard;
 use codex_tui_rtwk::services::clipboard::Machine;
 use codex_tui_rtwk::services::clipboard::environment;
@@ -32,6 +40,7 @@ use codex_tui_rtwk::services::effects::Services;
 use codex_tui_rtwk::services::file_search::InProcessSearch;
 use codex_tui_rtwk::services::history::file::MessageHistory;
 use codex_tui_rtwk::services::history::usage::MentionFile;
+use codex_tui_rtwk::services::shell::IngressTx;
 use codex_tui_rtwk::services::shell::WorkspaceExec;
 
 use crate::startup::Browser;
@@ -215,79 +224,41 @@ impl Effects {
 
     /// The work `command` asks of this machine, as the future that answers it; the command back
     /// when it is not this machine's (the pump hands it on). `exec` runs the workspace's
-    /// commands (the diff).
+    /// commands (the diff); `link` is the connection's door to its app server, for the
+    /// capabilities that go through it (the config file, the worktree owners).
+    ///
+    /// An `Ask` is answered by the first executor of `HostDoors` that has its capability: the
+    /// library's services, then this machine's own (`Own`).
     pub(crate) fn run(
         self: &Arc<Self>,
         command: &Command,
         exec: impl WorkspaceExec + 'static,
+        link: Option<Link>,
     ) -> Option<Boxed<Option<AppEv>>> {
-        if let Command::Effect {
-            request,
-            ask: ask @ (Ask::GitBranches { .. } | Ask::GitLog { .. }),
-            ..
-        } = command
-        {
+        let this = Arc::clone(self);
+        if let Command::Effect { request, ask, .. } = command {
             let (request, ask) = (*request, ask.clone());
             return Some(Box::pin(async move {
-                Some(AppEv::Effect {
-                    request,
-                    done: git_list(ask).await?,
-                })
+                let doors = Chain(
+                    codex_tui_rtwk::services::effects::Doors {
+                        services: &this.services,
+                        exec: &exec,
+                    },
+                    Own {
+                        effects: &this,
+                        link: link.as_ref(),
+                    },
+                );
+                let (done, terminal) = run_ask(&doors, ask).await?;
+                if let Some(text) = terminal {
+                    (this.terminal)(&text);
+                }
+                Some(AppEv::Effect { request, done })
             }));
         }
-        if let Command::Effect {
-            request,
-            ask: ask @ Ask::BackgroundServer(_),
-            ..
-        } = command
-        {
-            let (request, ask) = (*request, ask.clone());
-            return Some(Box::pin(async move {
-                Some(AppEv::Effect {
-                    request,
-                    done: crate::daemon::run(&ask).await?,
-                })
-            }));
-        }
-        // The external editor is the host's own: it reads the config and runs a program.
-        if let Command::Effect {
-            request,
-            ask: Ask::Editor { draft, cwd },
-            ..
-        } = command
-        {
-            let (request, draft, cwd) = (*request, draft.clone(), cwd.clone());
-            let config = self.config.clone();
-            return Some(Box::pin(async move {
-                let done = match config {
-                    Some(config) => {
-                        let policy = config.permissions.file_system_sandbox_policy();
-                        codex_tui_rtwk::services::editor::ask(
-                            config.codex_home.as_path(),
-                            &policy,
-                            config.cwd.as_path(),
-                            draft,
-                            cwd,
-                        )
-                        .await
-                    }
-                    None => Err(codex_tui_core::app::effects::EditorFailure::Failed(
-                        "no config to read the sandbox policy from".to_owned(),
-                    )),
-                };
-                Some(AppEv::Effect {
-                    request,
-                    done: Done::Editor(done),
-                })
-            }));
-        }
-        if !matches!(
-            command,
-            Command::Effect { .. } | Command::Popovers { .. } | Command::OpenUrl { .. }
-        ) {
+        if !matches!(command, Command::Popovers { .. } | Command::OpenUrl { .. }) {
             return None;
         }
-        let this = Arc::clone(self);
         let command = command.clone();
         Some(Box::pin(async move {
             let ran = this.services.run(command, &exec).await?;
@@ -299,30 +270,101 @@ impl Effects {
     }
 }
 
-/// The branches or the log of the `/review` pickers (oracle `local_git_branches`,
-/// `current_branch_name`, `recent_commits`): an empty list where there is no repository.
-async fn git_list(ask: Ask) -> Option<Done> {
-    let at = |cwd: Option<String>| cwd.map_or_else(|| PathBuf::from("."), PathBuf::from);
-    match ask {
-        Ask::GitBranches { cwd } => {
-            let cwd = at(cwd);
-            Some(Done::GitBranches {
+/// What a connection lends the executors that talk to its app server: the startup (the config in
+/// force), the request ids and handle, and the way to tell the app (a config write's facts reach
+/// the views before its answer does).
+pub(crate) struct Link {
+    pub startup: crate::startup::Startup,
+    pub ids: Ids,
+    pub handle: AppServerRequestHandle,
+    pub ingress: IngressTx,
+    pub epoch: ConnEpoch,
+    pub codex_home: PathBuf,
+}
+
+/// The executors that are this host's own: the git lists, the background server, the editor, the
+/// config file and the worktrees. The six capabilities listed before they were built (audio,
+/// suspend, notifications, the screen mode, the terminal probe, the session lock) have no
+/// executor yet: each is one method here, in the file of the package that builds it.
+struct Own<'a> {
+    effects: &'a Effects,
+    link: Option<&'a Link>,
+}
+
+impl HostDoors for Own<'_> {
+    type Out = (Done, Option<String>);
+
+    async fn git_branches(&self, cwd: Option<String>) -> Option<Self::Out> {
+        let cwd = at(cwd);
+        Some((
+            Done::GitBranches {
                 branches: codex_git_utils::local_git_branches(&cwd).await,
                 current: codex_git_utils::current_branch_name(&cwd).await,
-            })
-        }
-        Ask::GitLog { cwd, limit } => Some(Done::GitLog(
-            codex_git_utils::recent_commits(&at(cwd), limit)
-                .await
-                .into_iter()
-                .map(|entry| Commit {
-                    sha: entry.sha,
-                    subject: entry.subject,
-                })
-                .collect(),
-        )),
-        _ => None,
+            },
+            None,
+        ))
     }
+
+    async fn git_log(&self, cwd: Option<String>, limit: usize) -> Option<Self::Out> {
+        let commits = codex_git_utils::recent_commits(&at(cwd), limit)
+            .await
+            .into_iter()
+            .map(|entry| Commit {
+                sha: entry.sha,
+                subject: entry.subject,
+            })
+            .collect();
+        Some((Done::GitLog(commits), None))
+    }
+
+    async fn background_server(&self, ask: DaemonAsk) -> Option<Self::Out> {
+        Some((crate::daemon::run(ask).await, None))
+    }
+
+    // The external editor is the host's own: it reads the config and runs a program.
+    async fn editor(&self, draft: String, cwd: String) -> Option<Self::Out> {
+        let done = match &self.effects.config {
+            Some(config) => {
+                let policy = config.permissions.file_system_sandbox_policy();
+                codex_tui_rtwk::services::editor::ask(
+                    config.codex_home.as_path(),
+                    &policy,
+                    config.cwd.as_path(),
+                    draft,
+                    cwd,
+                )
+                .await
+            }
+            None => Err(EditorFailure::Failed(
+                "no config to read the sandbox policy from".to_owned(),
+            )),
+        };
+        Some((Done::Editor(done), None))
+    }
+
+    // A write of the config file is the app server's, and the facts the dialogs read follow it.
+    async fn config_write(&self, edits: Vec<ConfigEdit>) -> Option<Self::Out> {
+        let link = self.link?;
+        Some((crate::in_process::config_write(edits, link).await, None))
+    }
+
+    async fn worktrees(&self, cwd: String) -> Option<Self::Out> {
+        let link = self.link?;
+        let done =
+            crate::workspace::list(link.codex_home.clone(), cwd, &link.ids, &link.handle).await;
+        Some((done, None))
+    }
+
+    async fn worktree_remove(&self, cwd: String, root: String) -> Option<Self::Out> {
+        let link = self.link?;
+        let removed = crate::workspace::remove_worktree(link.codex_home.clone(), cwd, root).await;
+        Some((Done::WorktreeRemoved(removed), None))
+    }
+}
+
+/// The directory an ask names (`None`: the process's own).
+fn at(cwd: Option<String>) -> PathBuf {
+    cwd.map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
 
 /// The popovers' event of the file search, as the app takes it.
@@ -559,7 +601,7 @@ mod tests {
 
     async fn answer(rig: &Rig, command: Command) -> Option<AppEv> {
         rig.effects
-            .run(&command, NoExec)
+            .run(&command, NoExec, None)
             .expect("this machine's command")
             .await
     }

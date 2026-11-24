@@ -1422,6 +1422,61 @@ fn hub_enums_only_shrink() {
     assert!(found.is_empty(), "{found:#?}");
 }
 
+/// The entries of the macro list `name! { .. }` in `text`: the lines at the list's own depth that
+/// start a lowercase method name and carry `=>` (the shape of `host_capability_list!`), with
+/// multi-line entries counted once.
+fn list_entries(text: &str, name: &str) -> usize {
+    let start = format!("{name}! {{");
+    let mut lines = text
+        .lines()
+        .skip_while(|line| !line.trim_start().starts_with(&start));
+    lines.next().expect("the list is in the file");
+    let mut depth: i32 = 1;
+    let mut count = 0;
+    for line in lines {
+        let line = bare(line);
+        if depth == 1
+            && line.trim_start().starts_with(|c: char| c.is_lowercase())
+            && line.contains("=>")
+        {
+            count += 1;
+        }
+        depth += line
+            .chars()
+            .map(|c| match c {
+                '(' | '[' | '{' => 1,
+                ')' | ']' | '}' => -1,
+                _ => 0,
+            })
+            .sum::<i32>();
+        if depth <= 0 {
+            break;
+        }
+    }
+    count
+}
+
+/// The host's capability list (`host_capability_list!`, ADR-012 "the host's doors") is the one
+/// enum of what the host can do: it only shrinks, and a capability added is a decision that
+/// raises its line (its `Ask` and `Done` variants are the same line of the list).
+#[test]
+fn hub_lists_only_shrink() {
+    let lines = budget_lines("list");
+    assert!(!lines.is_empty(), "the budget lists the host capabilities");
+    let mut found = Vec::new();
+    for words in lines {
+        let [file, name, budget] = words.as_slice() else {
+            panic!("`list <file> <macro> <n>`: {words:?}");
+        };
+        found.extend(ratchet(
+            &format!("{file} {name}!"),
+            list_entries(&read(file), name),
+            budget.parse().expect("a count"),
+        ));
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
+
 /// The number of methods of `trait name` in `text`: the `fn` items at the trait's own depth
 /// (four spaces in), up to the `}` that closes it at column 0.
 fn trait_methods(text: &str, name: &str) -> usize {

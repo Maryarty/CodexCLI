@@ -34,7 +34,6 @@ use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
-use codex_tui_core::app::effects::Ask;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
@@ -537,37 +536,25 @@ async fn run(
                         }));
                     }
                     let exec = AppServerExec::new(sender(handle.clone()), ids.clone());
-                    // A write of the config file is the app server's, and the facts the dialogs
-                    // read follow it: it is not one of the machine's effects.
-                    let job = if let Command::Effect {
-                        request,
-                        ask: Ask::ConfigWrite { edits },
-                        ..
-                    } = &command
-                    {
-                        config_write_job(
-                            *request,
-                            edits.clone(),
-                            startup.clone(),
-                            ids.clone(),
+                    let link = crate::effects::Link {
+                        startup: startup.clone(),
+                        ids: ids.clone(),
+                        handle: handle.clone(),
+                        ingress: ingress.clone(),
+                        epoch,
+                        codex_home: config.codex_home.to_path_buf(),
+                    };
+                    let job = match effects.run(&command, exec, Some(link)) {
+                        Some(job) => job,
+                        None => work(
+                            command.clone(),
                             handle.clone(),
-                            (ingress.clone(), epoch),
-                        )
-                    } else if let Some(job) = worktree_job(&command, &config, &ids, &handle) {
-                        job
-                    } else {
-                        match effects.run(&command, exec) {
-                            Some(job) => job,
-                            None => work(
-                                command.clone(),
-                                handle.clone(),
-                                ids.clone(),
-                                facts,
-                                workspace.clone(),
-                                model.clone(),
-                                Some(startup.clone()),
-                            ),
-                        }
+                            ids.clone(),
+                            facts,
+                            workspace.clone(),
+                            model.clone(),
+                            Some(startup.clone()),
+                        ),
                     };
                     inflight.push(latest.wrap(&command, job));
                 }
@@ -705,71 +692,50 @@ fn security_job(
     })
 }
 
-/// The list and the removal of the worktree menus: the pool is this machine's, the owners are
-/// read through the app server (`workspace::job`).
-fn worktree_job(
-    command: &Command,
-    config: &Config,
-    ids: &Ids,
-    handle: &AppServerRequestHandle,
-) -> Option<Boxed<Option<AppEv>>> {
-    let Command::Effect { request, ask, .. } = command else {
-        return None;
-    };
-    crate::workspace::job(
-        *request,
-        ask,
-        config.codex_home.to_path_buf(),
-        ids.clone(),
-        handle.clone(),
-    )
-}
-
 /// `Ask::ConfigWrite` of a dialog (`/theme`, `/title`, `/statusline`, `/memories`): the edits go
 /// through the app server, and once the config file holds them the status card, the terminal
 /// settings and the dialogs' facts follow from the config as it is now, before the answer (the
 /// dialog that reads it finds them).
-fn config_write_job(
-    request: u64,
+pub(crate) async fn config_write(
     edits: Vec<ConfigEdit>,
-    startup: crate::startup::Startup,
-    ids: Ids,
-    handle: AppServerRequestHandle,
-    (ingress, epoch): (IngressTx, ConnEpoch),
-) -> Boxed<Option<AppEv>> {
-    Box::pin(async move {
-        let written = crate::settings::write(edits, &startup, &ids, sender(handle)).await;
-        if let Some(config) = &written.config {
-            let status = crate::facts::status(config).await;
-            emit(
-                &ingress,
-                epoch,
-                AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status)))),
-            );
-            emit(
-                &ingress,
-                epoch,
-                AppEv::Tui(crate::effects::tui_settings(config)),
-            );
-            emit(
-                &ingress,
-                epoch,
-                AppEv::Feature(settings_fact(config).into()),
-            );
-            emit(
-                &ingress,
-                epoch,
-                AppEv::Feature(feedback_fact(config, startup.target).into()),
-            );
-            for fact in small_facts(config) {
-                emit(&ingress, epoch, AppEv::Feature(fact.into()));
-            }
+    crate::effects::Link {
+        startup,
+        ids,
+        handle,
+        ingress,
+        epoch,
+        ..
+    }: &crate::effects::Link,
+) -> codex_tui_core::app::effects::Done {
+    let (ingress, epoch) = (ingress.clone(), *epoch);
+    let written = crate::settings::write(edits, startup, ids, sender(handle.clone())).await;
+    if let Some(config) = &written.config {
+        let status = crate::facts::status(config).await;
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status)))),
+        );
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Tui(crate::effects::tui_settings(config)),
+        );
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Feature(settings_fact(config).into()),
+        );
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Feature(feedback_fact(config, startup.target).into()),
+        );
+        for fact in small_facts(config) {
+            emit(&ingress, epoch, AppEv::Feature(fact.into()));
         }
-        Some(AppEv::Effect {
-            request,
-            done: written.done,
-        })
-    })
+    }
+    written.done
 }
 
 /// What `/debug-config` and `/ide` read of the host: the config's layers and requirements as
