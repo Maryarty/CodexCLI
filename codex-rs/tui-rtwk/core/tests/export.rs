@@ -56,8 +56,8 @@ fn export_command(app: &mut CodexApp, path: &str) -> AppFx {
         AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread: Some(ThreadId::new(T)),
             command: SlashCommand::Export,
-            intent: SessionIntent::Export {
-                path: path.to_owned(),
+            intent: SessionIntent::Feature {
+                args: path.to_owned(),
             },
         }))),
     )
@@ -259,8 +259,8 @@ fn without_a_thread_the_failure_is_a_note_of_the_chat() {
         AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread: None,
             command: SlashCommand::Export,
-            intent: SessionIntent::Export {
-                path: "a.md".to_owned(),
+            intent: SessionIntent::Feature {
+                args: "a.md".to_owned(),
             },
         }))),
     );

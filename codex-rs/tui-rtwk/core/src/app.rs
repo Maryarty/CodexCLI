@@ -517,9 +517,8 @@ enum AppCtx {
     NewConversation {
         source: Option<ThreadId>,
         backend: BackendId,
-        /// What the new thread is asked once it has started (`/new <name>`: the rename); the
-        /// slash router builds it from a feature's thread intent.
-        then: Option<crate::features::FeatureThreadIntent>,
+        /// What the new thread is called once it has started (`/new <name>`: `name_started`).
+        name: Option<String>,
         /// The approved plan the new thread starts from (the plan prompt's "clear context" row).
         plan: Option<String>,
         /// A text for the new thread's composer (the provider-error notice's continue key).
@@ -1894,7 +1893,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::NewConversation {
                 source,
                 backend,
-                then,
+                name,
                 plan,
                 draft,
                 side,
@@ -1918,8 +1917,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             fx,
                         );
                         note_instruction_sources(app, &thread, sources, fx);
-                        if let Some(intent) = then {
-                            apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
+                        if let Some(name) = name {
+                            session::name_started(app, &thread, name, fx);
                         }
                         // A side conversation is linked to its parent before it is shown, and
                         // starts empty: the forked history is the model's, not the screen's.

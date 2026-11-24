@@ -79,6 +79,29 @@ pub enum Never<F> {
 /// How a script's `fact` step reads one fact of a feature from its JSON (`Feature::SEED`).
 pub type SeedFn<T> = fn(serde_json::Value) -> Result<T, SeedError>;
 
+/// A slash command a feature runs (`Feature::RUNS`), as the composer's line made it: the command,
+/// the text after its name (trimmed; empty for the bare command) and the thread it was typed in
+/// (none before the session has started). The feature reads its own arguments from it, as
+/// Flutter's `onGenerateRoute` reads `RouteSettings.arguments`: the hub does not parse them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Slash {
+    pub command: SlashCommand,
+    pub args: String,
+    pub source: Option<ThreadId>,
+}
+
+impl Slash {
+    /// The arguments, none for the bare command.
+    pub fn args(&self) -> Option<&str> {
+        Some(self.args.as_str()).filter(|args| !args.is_empty())
+    }
+
+    /// The arguments by value, none for the bare command.
+    pub fn into_args(self) -> Option<String> {
+        Some(self.args).filter(|args| !args.is_empty())
+    }
+}
+
 impl<F> Clone for Never<F> {
     fn clone(&self) -> Self {
         *self
@@ -134,6 +157,13 @@ pub trait Feature: 'static {
     /// a sheet of the feature (`/goal`, `/rename` run a verb), and `Target` is `Never<Self>`.
     const OPENS: Option<(SlashCommand, Self::Target)> = None;
 
+    /// The slash commands the feature runs, with their arguments (`slash`): the verbs that are no
+    /// sheet. The one list line generates `runs_of` and `apply_slash`; `SessionIntent::Feature`
+    /// carries the line's text to the owner, so the hub names no slice's command. A command has
+    /// one owner (`one_owner_per_command`); one that opens a sheet bare and runs with arguments
+    /// (`/export <path>`, `/mcp verbose`) is in `OPENS` and `RUNS` of the same feature.
+    const RUNS: &'static [SlashCommand] = &[];
+
     /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
     /// `intent`, `answered`, `effect_done`, `on_fact`, `on_interest` and `on_resumed`.
     type State: Clone + std::fmt::Debug + Default + PartialEq + Eq;
@@ -174,6 +204,12 @@ pub trait Feature: 'static {
     /// An intent of the feature.
     fn intent(state: &mut Self::State, intent: Self::Intent, cx: &mut AppCx<'_>) {
         let _ = (state, intent, cx);
+    }
+
+    /// A slash command of `RUNS`, typed with `slash.args` after its name: the feature checks the
+    /// arguments, says what is wrong with them as a note, and does what they ask through `cx`.
+    fn slash(state: &mut Self::State, slash: Slash, cx: &mut AppCx<'_>) {
+        let _ = (state, slash, cx);
     }
 
     /// The answer of an RPC the feature asked through `AppCx::ask`.
@@ -445,6 +481,23 @@ macro_rules! feature_dirs {
                 }
             })*
             None
+        }
+
+        /// Whether some feature runs the slash command (`Feature::RUNS`).
+        #[allow(unused_variables, dead_code)]
+        pub fn runs_of(command: $crate::commands::SlashCommand) -> bool {
+            false $(|| <$name::$variant as Feature>::RUNS.contains(&command))*
+        }
+
+        /// Hands a slash command to the feature that runs it; false when none does (the app says
+        /// the command is not available).
+        #[allow(unused_variables, unreachable_code)]
+        pub fn apply_slash(states: &mut FeatureStates, slash: Slash, cx: &mut AppCx<'_>) -> bool {
+            $(if <$name::$variant as Feature>::RUNS.contains(&slash.command) {
+                <$name::$variant as Feature>::slash(&mut states.$name, slash, cx);
+                return true;
+            })*
+            false
         }
 
         /// The names of the features, in list (hook) order.

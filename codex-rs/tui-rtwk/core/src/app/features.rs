@@ -111,6 +111,15 @@ pub(super) fn intent(app: &mut CodexApp, intent: FeatureIntent, fx: &mut AppFx) 
     });
 }
 
+/// A slash command a feature runs (`Feature::RUNS`): false when no feature owns it.
+pub(super) fn slash(app: &mut CodexApp, slash: features::Slash, fx: &mut AppFx) -> bool {
+    let mut owned = false;
+    run(app, fx, |states, cx| {
+        owned = features::apply_slash(states, slash, cx);
+    });
+    owned
+}
+
 /// The answer of a feature's app-scoped RPC.
 pub(super) fn answer(app: &mut CodexApp, ctx: FeatureCtx, answer: Answer, fx: &mut AppFx) {
     let result = match answer {

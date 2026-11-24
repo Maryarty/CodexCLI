@@ -690,12 +690,6 @@ fn names_feature_path(line: &str, feature: &str) -> bool {
     })
 }
 
-/// The files that route the oracle's slash list (`SessionIntent`) into a feature's intent:
-/// the one place besides a feature's own files that may name `features::<f>::Intent` (and
-/// `ThreadIntent`, for what a command asks of the thread it starts: `/new <name>`), and nothing
-/// else of the feature.
-const SLASH_ROUTERS: &[&str] = &["core/src/app/session.rs"];
-
 /// The file that sends a fact the host read, unasked, to a feature (`AppEv::Feature`): the one
 /// place besides a feature's own files that may name `features::<f>::Fact` (the payload type
 /// it builds `FeatureFact::from(..)` of), and nothing else of the feature.
@@ -725,14 +719,9 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
             if is_own(name, feature) {
                 continue;
             }
-            let intent = format!("features::{feature}::Intent");
-            let thread_intent = format!("features::{feature}::ThreadIntent");
             let fact = format!("features::{feature}::Fact");
             for (index, line) in code_lines(text) {
                 let mut line_left = line.to_string();
-                if SLASH_ROUTERS.contains(&name.as_str()) {
-                    line_left = line_left.replace(&intent, "").replace(&thread_intent, "");
-                }
                 if FACT_SENDERS.contains(&name.as_str()) {
                     line_left = line_left.replace(&fact, "");
                 }
@@ -748,7 +737,8 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
 /// A feature is reached through the list: the generated `FeatureIntent`, `FeatureMenu`...
 /// carry one variant per feature and the dispatch is generated, so no hub, screen, view or
 /// shell file names `features::<f>` (its types, its functions). The feature's own two folders
-/// do; the slash router may build its intent and the host's sender its fact.
+/// do, and the host's sender its fact; a slash command is carried to its owner by
+/// `SessionIntent::Feature` and `apply_slash`, so no router names a feature's intent.
 #[test]
 fn features_are_named_only_through_the_list() {
     let mod_rs = read("core/src/features/mod.rs");
@@ -766,6 +756,108 @@ fn features_are_named_only_through_the_list() {
         found.is_empty(),
         "a feature is named outside the list and its own files: {found:#?}"
     );
+}
+
+/// The slash commands a slice claims, by claim: the `SlashCommand::X` names inside its
+/// `const RUNS ... ;` (verbs it runs with their arguments) or its `const OPENS ... ;` (the one
+/// command that opens its sheet), read out of the code of one file.
+fn command_claims(text: &str, constant: &str) -> Vec<String> {
+    let code = code_lines(text)
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut claims = Vec::new();
+    for (at, _) in code.match_indices(&format!("const {constant}:")) {
+        let span = code[at..].split(';').next().unwrap_or_default();
+        for (found, pattern) in span.match_indices("SlashCommand::") {
+            let name: String = span[found + pattern.len()..]
+                .chars()
+                .take_while(|c| is_ident(*c))
+                .collect();
+            claims.push(name);
+        }
+    }
+    claims
+}
+
+/// The commands that more than one feature claims (`RUNS` with `RUNS`, `OPENS` with `OPENS`);
+/// one feature may open a sheet bare and run the command with arguments.
+fn commands_with_two_owners(files: &[(String, String)]) -> Vec<String> {
+    let mut found = Vec::new();
+    for constant in ["RUNS", "OPENS"] {
+        let mut owners: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        for (name, text) in files {
+            let Some(rest) = name.strip_prefix("core/src/features/") else {
+                continue;
+            };
+            let feature = rest.split(['/', '.']).next().unwrap_or_default();
+            for command in command_claims(text, constant) {
+                let own = owners.entry(command).or_default();
+                if !own.iter().any(|owner| owner == feature) {
+                    own.push(feature.to_owned());
+                }
+            }
+        }
+        for (command, owners) in owners {
+            if owners.len() > 1 {
+                found.push(format!("{constant} {command}: {owners:?}"));
+            }
+        }
+    }
+    found
+}
+
+/// A slash command has one owner (ADR-012, "the slash door"): `SessionIntent::Feature` is carried
+/// to the one feature whose `RUNS` holds the command, so two claims would make the later one dead
+/// code. The same holds for `OPENS`, the sheet a bare command opens.
+#[test]
+fn one_owner_per_command() {
+    let found = commands_with_two_owners(&sources_of("core/src/features"));
+    assert!(
+        found.is_empty(),
+        "a slash command is claimed by two features: {found:#?}"
+    );
+}
+
+#[test]
+fn the_command_owner_scan_bites() {
+    let file = |name: &str, text: &str| (name.to_owned(), text.to_owned());
+    let runs = |a: &str, b: &str| {
+        vec![
+            file(
+                "core/src/features/goal/mod.rs",
+                &format!("    const RUNS: &'static [SlashCommand] = &[{a}];\n"),
+            ),
+            file(
+                "core/src/features/rename/mod.rs",
+                &format!("    const RUNS: &'static [SlashCommand] = &[{b}];\n"),
+            ),
+        ]
+    };
+    assert_eq!(
+        commands_with_two_owners(&runs("SlashCommand::Goal", "SlashCommand::Rename")),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        commands_with_two_owners(&runs(
+            "SlashCommand::Goal, SlashCommand::Rename",
+            "SlashCommand::Rename"
+        ))
+        .len(),
+        1
+    );
+    // a feature that opens a sheet bare and runs the command with arguments owns both
+    let both = vec![file(
+        "core/src/features/export/mod.rs",
+        "const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Export, Sheet));\n    const RUNS: &'static [SlashCommand] = &[SlashCommand::Export];\n",
+    )];
+    assert!(commands_with_two_owners(&both).is_empty());
+    // a comment is not a claim
+    let comment = [file(
+        "core/src/features/export/mod.rs",
+        "// const RUNS: &'static [SlashCommand] = &[SlashCommand::Goal];\n",
+    )];
+    assert!(command_claims(&comment[0].1, "RUNS").is_empty());
 }
 
 /// The plain `pub mod` lines of `core/src/features/mod.rs` (written out so that rustfmt follows
@@ -925,13 +1017,14 @@ fn the_feature_naming_scan_bites() {
         found("core/src/app/session.rs", "features::goal::Fact::Seen"),
         1
     );
-    // the slash router builds an intent, or a thread intent, and names nothing else
+    // the slash door is generic: no hub names a feature's intent or thread intent, the session
+    // file included (`SessionIntent::Feature`, `features::apply_slash`)
     assert_eq!(
         found(
             "core/src/app/session.rs",
             "features::goal::ThreadIntent::Set(name).into()"
         ),
-        0
+        1
     );
     assert_eq!(
         found("core/src/app.rs", "features::goal::ThreadIntent::Set(name)"),
@@ -939,7 +1032,7 @@ fn the_feature_naming_scan_bites() {
     );
     assert_eq!(
         found("core/src/app/session.rs", "features::goal::Intent::Open"),
-        0
+        1
     );
     assert_eq!(
         found(

@@ -19,7 +19,12 @@
 # `mcp_inventory::Mode`s; `SessionIntent::Ps` went, `Mcp` stays for `/mcp login`.
 # fw1-c8: `ElevateSandbox` is `features/windows_sandbox` (`Feature::OPENS`, `Target::Feature`): 43 -> 42.
 # Merged (c5 + c8, wave 1): 41.
-enum core/src/commands/dispatch.rs SessionIntent 41
+# fw-hubs-a (P1, the slash door): `SessionIntent::Feature { args }` is the one variant for every
+# command a feature runs (`Feature::RUNS`, `features::apply_slash`); Recap, Rename, Goal, Copy,
+# Export, Mcp, Logout, Ide, Daybreak, Hooks, DebugConfig, Model, Title, Statusline and ResumeNamed
+# left it, and the dead Apps and Tui with them: 41 - 17 + 1 = 25. Side stays until fw-hubs-b moves
+# the side lifecycle into its slice.
+enum core/src/commands/dispatch.rs SessionIntent 25
 # fw1-c8: the seven worktree lines are one `Note::Worktree(worktree::Line)` (39 -> 33 with the new ones).
 enum core/src/screens/select.rs Note 33
 enum core/src/screens/select.rs Picked 8
@@ -92,7 +97,8 @@ enum core/src/features/mod.rs FeatureThreadIntent 1
 # the arguments of the sheet (`OpenArgs`, the UI half).
 enum core/src/features/mod.rs FeatureTarget 0
 enum src/features/mod.rs OpenArgs 0
-methods core/src/features/mod.rs Feature 14
+# fw-hubs-a: `slash` (the command a feature runs, ADR-012 "the slash door"): 14 -> 15.
+methods core/src/features/mod.rs Feature 15
 # threads::apply_ev still matches the chat screen's thread intents by name (the draft, the mask,
 # ...): the count goes to 0 as they move behind `chat::apply_thread_intent` or into feature
 # slices. The queue's five went to `threads/queue.rs` (`apply`, which gives back what is not the

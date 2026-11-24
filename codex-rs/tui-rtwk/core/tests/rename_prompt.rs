@@ -63,8 +63,8 @@ fn rename(app: &mut CodexApp, name: Option<&str>) -> AppFx {
         AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread: Some(ThreadId::new(T)),
             command: SlashCommand::Rename,
-            intent: SessionIntent::Rename {
-                name: name.map(str::to_owned),
+            intent: SessionIntent::Feature {
+                args: name.unwrap_or_default().to_owned(),
             },
         }))),
     )

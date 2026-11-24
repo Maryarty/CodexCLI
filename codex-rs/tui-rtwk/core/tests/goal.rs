@@ -71,8 +71,8 @@ fn command(app: &mut CodexApp, thread: bool, args: Option<&str>) -> AppFx {
         AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread: thread.then(|| ThreadId::new(T)),
             command: SlashCommand::Goal,
-            intent: SessionIntent::Goal {
-                args: args.map(str::to_owned),
+            intent: SessionIntent::Feature {
+                args: args.unwrap_or_default().to_owned(),
             },
         }))),
     )

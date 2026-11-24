@@ -15,7 +15,8 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
-use super::{AppCx, AppView, Feature, Never, Out, ThreadCx, Tone, TurnEnd};
+use super::{AppCx, AppView, Feature, Never, Out, Slash, ThreadCx, Tone, TurnEnd};
+use crate::commands::SlashCommand;
 use crate::app::AppFx;
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
@@ -50,7 +51,7 @@ fn logged() -> Vec<(&'static str, Hook)> {
 /// own; beta has none of the note, fact, wish and interest (`Never<Self>`), which is the case
 /// the root `From` impls must survive twice.
 macro_rules! probe {
-    ($module:ident, $marker:ident, $name:literal, $($rest:tt)*) => {
+    ($module:ident, $marker:ident, $name:literal, $runs:expr, $($rest:tt)*) => {
         pub mod $module {
             use super::*;
 
@@ -71,6 +72,7 @@ macro_rules! probe {
 
             impl Feature for $marker {
                 const NAME: &'static str = $name;
+                const RUNS: &'static [SlashCommand] = $runs;
                 type State = u32;
                 type ThreadPart = u32;
                 type Target = Never<Self>;
@@ -86,6 +88,10 @@ macro_rules! probe {
 
                 fn intent(state: &mut u32, intent: Intent, _cx: &mut AppCx<'_>) {
                     *state += intent.0;
+                }
+
+                fn slash(state: &mut u32, slash: Slash, _cx: &mut AppCx<'_>) {
+                    *state += slash.args.len() as u32 + slash.source.map_or(0, |_| 100);
                 }
 
                 fn answered(
@@ -197,8 +203,14 @@ macro_rules! probe {
 mod probe_list {
     use super::*;
 
-    probe!(alpha, Alpha, "alpha", full);
-    probe!(beta, Beta, "beta", bare);
+    probe!(alpha, Alpha, "alpha", &[SlashCommand::Rename], full);
+    probe!(
+        beta,
+        Beta,
+        "beta",
+        &[SlashCommand::Goal, SlashCommand::Copy],
+        bare
+    );
 
     feature_dirs! {
         alpha => Alpha;
@@ -209,8 +221,8 @@ mod probe_list {
 use probe_list::{
     FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote,
     FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha, answered,
-    apply_intent, apply_thread_intent, apply_thread_reply, beta, decode, effect_done, names,
-    note_tone, on_fact, on_interest, on_interrupted, on_resumed, on_turn_end, wire,
+    apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode, effect_done, names,
+    note_tone, on_fact, on_interest, on_interrupted, on_resumed, on_turn_end, runs_of, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -285,6 +297,32 @@ fn an_intent_reaches_its_feature_and_only_its_feature() {
     app_step(|cx| apply_intent(&mut states, FeatureIntent::Alpha(alpha::Intent(5)), cx));
     app_step(|cx| apply_intent(&mut states, FeatureIntent::from(beta::Intent(3)), cx));
     assert_eq!((*states.alpha, *states.beta), (5, 5));
+}
+
+/// A slash command goes to the feature whose `RUNS` holds it, with the text after its name and
+/// the thread it was typed in; one nobody runs is not taken (the app says it is not available).
+#[test]
+fn a_slash_command_reaches_its_owner_with_its_arguments() {
+    let mut states = FeatureStates::default();
+    let slash = |command, args: &str, thread: Option<&str>| Slash {
+        command,
+        args: args.to_owned(),
+        source: thread.map(ThreadId::new),
+    };
+    let mut taken = Vec::new();
+    app_step(|cx| {
+        for line in [
+            slash(SlashCommand::Rename, "abc", None),
+            slash(SlashCommand::Copy, "xy", Some("t1")),
+            slash(SlashCommand::Goal, "", None),
+            slash(SlashCommand::Logout, "", None),
+        ] {
+            taken.push(apply_slash(&mut states, line, cx));
+        }
+    });
+    assert_eq!(taken, [true, true, true, false]);
+    assert_eq!((*states.alpha, *states.beta), (3, 2 + 100));
+    assert!(runs_of(SlashCommand::Goal) && !runs_of(SlashCommand::Logout));
 }
 
 #[test]

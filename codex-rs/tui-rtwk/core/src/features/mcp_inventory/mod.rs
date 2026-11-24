@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never};
+use super::{AppCx, Feature, Never, Slash};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -188,6 +188,7 @@ fn ask(
 impl Feature for McpInventory {
     const NAME: &'static str = "mcp_inventory";
     const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Mcp, Sheet));
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Mcp];
 
     type State = State;
     type ThreadPart = ();
@@ -201,6 +202,18 @@ impl Feature for McpInventory {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+
+    /// `/mcp verbose`: the inventory with the tools and resources. Any other word is the
+    /// dispatcher's (`/mcp login` is not this feature's).
+    fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+        if slash.args.eq_ignore_ascii_case("verbose") {
+            let show = Intent::Show {
+                source: slash.source,
+                full: true,
+            };
+            Self::intent(state, show, cx);
+        }
+    }
 
     /// The thread is asked about only when this process knows it (oracle
     /// `mcp_inventory_request_thread_id`: the thread in use that is not closed).

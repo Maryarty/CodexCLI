@@ -22,7 +22,8 @@ mod prompt;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 use serde_json::{Value, json};
 
-use super::{AppCx, Feature, Never};
+use super::{AppCx, Feature, Never, Slash};
+use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -178,6 +179,7 @@ fn request(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
 
 impl Feature for Recap {
     const NAME: &'static str = "recap";
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Recap];
 
     type State = State;
     type ThreadPart = ();
@@ -191,6 +193,11 @@ impl Feature for Recap {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+
+    /// `/recap`: a summary of the conversation in use.
+    fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+        Self::intent(state, Intent::Command { source: slash.source }, cx);
+    }
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         let Intent::Command { source } = intent;

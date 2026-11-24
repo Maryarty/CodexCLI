@@ -723,7 +723,12 @@ fn slash_exit_aliases_request_exit() {
 fn slash_logout_requests_app_server_logout() {
     assert_eq!(
         dispatch("/logout", &cx()),
-        session(SlashCommand::Logout, SessionIntent::Logout)
+        session(
+            SlashCommand::Logout,
+            SessionIntent::Feature {
+                args: String::new()
+            }
+        )
     );
 }
 
@@ -756,8 +761,8 @@ fn slash_resume_with_arg_requests_named_session() {
         dispatch("/resume  my chat ", &cx()),
         session(
             SlashCommand::Resume,
-            SessionIntent::ResumeNamed {
-                name: "my chat".to_string()
+            SessionIntent::Feature {
+                args: "my chat".to_string()
             }
         )
     );
@@ -986,19 +991,14 @@ fn slash_mcp_requests_inventory_and_verbose_and_login() {
         dispatch("/mcp verbose", &cx()),
         session(
             SlashCommand::Mcp,
-            SessionIntent::Mcp {
-                args: Some("verbose".to_string())
+            SessionIntent::Feature {
+                args: "verbose".to_string()
             }
         )
     );
     assert_eq!(
         dispatch("/mcp login github", &cx()),
-        session(
-            SlashCommand::Mcp,
-            SessionIntent::Mcp {
-                args: Some("login github".to_string())
-            }
-        )
+        Outcome::Notice(Notice::NotAvailable(SlashCommand::Mcp))
     );
 }
 
@@ -1060,8 +1060,8 @@ fn goal_slash_command_with_extra_os_emits_set_goal_event() {
         dispatch("/gooooal ship it", &cx()),
         session(
             SlashCommand::Goal,
-            SessionIntent::Goal {
-                args: Some("ship it".to_string())
+            SessionIntent::Feature {
+                args: "ship it".to_string()
             }
         )
     );
@@ -1144,7 +1144,6 @@ fn every_screen_opening_command_names_its_target() {
         ("/usage", Target::Usage),
         ("/warnings", Target::Dialogs),
         ("/feedback", Target::Dialogs),
-        ("/rename", Target::Dialogs),
         ("/test-approval", Target::Approvals),
     ];
     for (line, target) in table {

@@ -74,14 +74,6 @@ pub enum Intent {
     /// What a dialog asks of the app (`AppEvent`s of the oracle): recorded, and written to the
     /// config file when it is a write.
     Request(Edit),
-    /// `/hooks`, `/title`, `/statusline` or `/model` with what followed the name: the
-    /// arguments are checked here; what they ask is a wish for the page's presenter (the chat's
-    /// status override, a model pick for this session), what they cannot be is a note.
-    Slash {
-        command: crate::commands::SlashCommand,
-        args: String,
-        thread: Option<ThreadId>,
-    },
     /// A shortcut was captured for an action of the keymap picker: the key as the config
     /// writes it, and what it is for. The feature applies it to the config the host read,
     /// checks that the keymap still resolves, and writes it (`Edit::KeymapBound`'s write).
@@ -925,6 +917,13 @@ impl State {
 impl super::Feature for Settings {
     const NAME: &'static str = "settings";
     const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed::seed);
+    const RUNS: &'static [crate::commands::SlashCommand] = &[
+        crate::commands::SlashCommand::Hooks,
+        crate::commands::SlashCommand::Title,
+        crate::commands::SlashCommand::Statusline,
+        crate::commands::SlashCommand::Model,
+        crate::commands::SlashCommand::Resume,
+    ];
 
     type State = State;
     type ThreadPart = ();
@@ -939,6 +938,13 @@ impl super::Feature for Settings {
     type Wish = Wish;
     type Interest = super::Never<Self>;
 
+    /// `/hooks`, `/title`, `/statusline`, `/model` and `/resume` with what followed the name: the
+    /// arguments are checked here; what they ask is a wish for the page's presenter (the chat's
+    /// status override, a model pick for this session), what they cannot be is a note.
+    fn slash(state: &mut State, slash: super::Slash, cx: &mut AppCx<'_>) {
+        state.slash(slash.command, &slash.args, slash.source, cx);
+    }
+
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
             Intent::Open(which) => state.open(which, cx),
@@ -946,11 +952,6 @@ impl super::Feature for Settings {
                 state.syntax_theme = theme.or_else(|| state.facts.syntax_theme.clone());
             }
             Intent::Request(edit) => state.request(edit, cx),
-            Intent::Slash {
-                command,
-                args,
-                thread,
-            } => state.slash(command, &args, thread, cx),
             Intent::KeymapCaptured {
                 context,
                 action,

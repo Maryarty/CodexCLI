@@ -15,7 +15,8 @@ mod visible;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, AppView, Feature, Never};
+use super::{AppCx, AppView, Feature, Never, Slash};
+use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -110,6 +111,7 @@ fn copy(cx: &mut AppCx<'_>, text: String, label: String, format: CopyFormat) {
 
 impl Feature for Copier {
     const NAME: &'static str = "copy";
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Copy];
 
     type State = ();
     type ThreadPart = ();
@@ -123,6 +125,11 @@ impl Feature for Copier {
     type Fact = Never<Self>;
     type Wish = Wish;
     type Interest = Never<Self>;
+
+    /// `/copy`: the picker of what the last response holds, asked of the surface.
+    fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
+        Self::intent(state, Intent::Command { source: slash.source }, cx);
+    }
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
         match intent {

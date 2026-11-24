@@ -21,7 +21,8 @@ mod wire;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never, ThreadCx};
+use super::{AppCx, Feature, Never, Slash, ThreadCx};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
@@ -301,6 +302,7 @@ fn daybreak_saved(thread: ThreadId, enabled: bool, cx: &mut AppCx<'_>) {
 
 impl Feature for SmallCmds {
     const NAME: &'static str = "small_cmds";
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Logout, SlashCommand::Ide, SlashCommand::Daybreak, SlashCommand::DebugConfig];
 
     type State = State;
     type ThreadPart = ThreadPart;
@@ -314,6 +316,22 @@ impl Feature for SmallCmds {
     type Fact = Fact;
     type Wish = Wish;
     type Interest = Never<Self>;
+
+    /// `/logout`, `/ide [on|off|status]`, `/daybreak`, `/debug-config`.
+    fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+        let intent = match slash.command {
+            SlashCommand::Logout => Intent::Logout,
+            SlashCommand::Ide => Intent::Ide {
+                args: slash.into_args(),
+            },
+            SlashCommand::Daybreak => Intent::Daybreak {
+                source: slash.source,
+            },
+            SlashCommand::DebugConfig => Intent::DebugConfig,
+            _ => return,
+        };
+        Self::intent(state, intent, cx);
+    }
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {

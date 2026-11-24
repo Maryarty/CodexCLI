@@ -226,23 +226,6 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 }
             }
         }
-        // A bare `/rename`: the feature checks the thread and wishes for the name prompt, which
-        // the presenter shows.
-        Outcome::Open(Open {
-            command: SlashCommand::Rename,
-            ..
-        }) => {
-            record(cx);
-            clear_sent(&w.ui);
-            screen(
-                cx,
-                chat::Intent::Session {
-                    thread: session.active.clone(),
-                    command: SlashCommand::Rename,
-                    intent: SessionIntent::Rename { name: None },
-                },
-            );
-        }
         // A feature's own sheet (`/plugins`, a bare `/export`): its UI half opens it with the
         // typed arguments (`features::OpenArgs`), the feature is told what it needs to be.
         Outcome::Open(Open {

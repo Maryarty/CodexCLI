@@ -23,7 +23,8 @@ use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never, Remote, ThreadCx};
+use super::{AppCx, Feature, Never, Remote, Slash, ThreadCx};
+use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -154,6 +155,7 @@ fn set(cx: &mut AppCx<'_>, thread: ThreadId, text: &str) {
 
 impl Feature for Rename {
     const NAME: &'static str = "rename";
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Rename];
 
     type State = State;
     type ThreadPart = ();
@@ -167,6 +169,13 @@ impl Feature for Rename {
     type Fact = Never<Self>;
     type Wish = Wish;
     type Interest = Interest;
+
+    /// `/rename` and `/rename <name>`.
+    fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+        let source = slash.source.clone();
+        let name = slash.into_args();
+        Self::intent(state, Intent::Command { source, name }, cx);
+    }
 
     fn intent(_state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         let (source, name) = match intent {
