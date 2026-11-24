@@ -79,8 +79,8 @@ pub enum Event {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     machine: model::State,
-    /// The figures a widget shows now (`SelectedThreadUsage`).
-    selected: Selected,
+    /// The figures a widget wants (`SelectedThreadUsage`).
+    wanted: Selected,
     /// A `/status` card shows the thread's usage.
     card: bool,
 }
@@ -112,12 +112,12 @@ fn ctx(state: &State, view: AppView<'_>) -> model::Ctx {
         now: facts.now().millis(),
         plan,
         backend_auth,
-        status_items: state.selected,
+        status_items: state.wanted,
     }
 }
 
 fn is_shown(state: &State) -> bool {
-    state.selected.credits || state.selected.estimated_cost
+    state.wanted.credits || state.wanted.estimated_cost
 }
 
 fn ask(cx: &mut AppCx<'_>, request: model::Request) {
@@ -221,8 +221,8 @@ impl Feature for ThreadUsageCost {
         cx: &mut AppCx<'_>,
     ) {
         match interest {
-            UsageInterest::Credits => state.selected.credits = open,
-            UsageInterest::EstimatedCost => state.selected.estimated_cost = open,
+            UsageInterest::Credits => state.wanted.credits = open,
+            UsageInterest::EstimatedCost => state.wanted.estimated_cost = open,
             UsageInterest::Card => state.card = open,
         }
         if !open {
