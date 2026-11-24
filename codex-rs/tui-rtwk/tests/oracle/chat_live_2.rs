@@ -237,10 +237,6 @@ fn compaction_status_survives_follow_up_and_preserves_turn_time() {
 // ORACLE chatwidget/tests/compaction_tests.rs:106 compaction_status_clears_when_turn_ends_without_item_completion kind=ui owner=chat-live
 #[test]
 fn compaction_status_clears_when_turn_ends_without_item_completion() {
-    kit::pending(
-        Owner::ChatLive,
-        "the status line's compaction header is not built: it must clear on a turn that ends completed, interrupted or failed without the item completing",
-    );
     for script in [
         include_str!("fixtures/chat_live_2/turn_end_completed.jsonl"),
         include_str!("fixtures/chat_live_2/turn_end_interrupted.jsonl"),

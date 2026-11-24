@@ -991,10 +991,6 @@ fn projected_image_marker_still_requires_a_complete_image() {
 // ORACLE history_cell/mcp_tests.rs:405 code_mode_preserves_text_fields_on_nontext_and_unknown_blocks kind=snap owner=chat-live
 #[test]
 fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
         .script(include_str!(
