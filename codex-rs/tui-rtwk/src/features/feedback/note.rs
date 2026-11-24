@@ -27,7 +27,7 @@ use super::strings::{self, Piece};
 use crate::app::theme::Tokens;
 use crate::keymap::bind_fixed;
 use crate::widgets::measure;
-use crate::widgets::page_keys::{Variant, footer_fit};
+use crate::widgets::page_keys::{Variant, footer_with};
 
 /// What the note step draws from.
 pub(super) struct NoteView {
@@ -45,6 +45,7 @@ pub(super) struct NoteView {
 }
 
 const GUTTER: &str = "\u{258c} ";
+const SEPARATOR: &str = " \u{b7} ";
 
 pub(super) fn build(view: NoteView, cx: &mut Cx<'_, SheetState>) -> AnyWidget {
     let tokens = Tokens::of(cx);
@@ -194,13 +195,25 @@ pub(super) fn build(view: NoteView, cx: &mut Cx<'_, SheetState>) -> AnyWidget {
                 entries,
             }
         };
-        column = column.child(footer_fit(
-            vec![variant(&strings::HINTS_LONG), variant(&strings::HINTS_SHORT)],
-            dim.clone(),
-            dim.clone(),
-            " \u{b7} ",
-            0,
-        ));
+        // The long spelling when it fits, else the short one, drawn clipped when that does
+        // not fit either (the oracle's `hints.width() > area.width` fallback).
+        let variants = [variant(&strings::HINTS_LONG), variant(&strings::HINTS_SHORT)];
+        let (key_style, hint_style) = (dim.clone(), dim.clone());
+        column = column.child(LayoutBuilder::new(move |cx, constraints| {
+            let seg = segmenter_of(cx);
+            let room = constraints.max_width;
+            let chosen = variants
+                .iter()
+                .find(|v| v.width(seg, SEPARATOR) <= room)
+                .unwrap_or(&variants[1]);
+            let bar = footer_with(
+                chosen.entries.clone(),
+                key_style.clone(),
+                hint_style.clone(),
+                SEPARATOR,
+            );
+            SizedBox::new(None, Some(1), Some(bar.into())).into()
+        }));
         column.into()
     });
     let panel = BoxWidget::new().style(surface).child(body);

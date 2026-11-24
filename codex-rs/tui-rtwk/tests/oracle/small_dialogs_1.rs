@@ -666,29 +666,40 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:165 feedback_disclosure_keeps_editor_visible_in_four_rows kind=snap owner=dialogs-pane snap=feedback_disclosure_four_rows
 #[test]
 fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no kit call compares the two headerless states of the snapshot in order (KIT GAP)",
-    );
-    // KIT GAP: the snapshot joins the initial and the scrolled state by a blank
-    // row with no header; no kit call compares two states in order.
+    // The snapshot joins the initial and the scrolled state by a blank row with no header: the
+    // four rows of each are compared by hand.
+    let states = kit::snap_rows("feedback_disclosure_four_rows", "");
+    let same_rows = |s: &Screen, state: usize| {
+        let ours = s.rows();
+        for at in 0..4 {
+            assert_eq!(
+                ours[at].trim_end(),
+                states[state * 5 + at].trim_end(),
+                "state {state}, row {at}:\n{}",
+                s.text()
+            );
+        }
+    };
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 4)
         .entry("feedback", "feedback_note_employee_80x4")
         .open();
     s.paste("A visible note.");
     s.assert_contains("Feedback sent to OpenAI may be used to improve our models and products");
-    for _ in 0..16 {
-        if s.rows()
-            .iter()
-            .any(|row| row.contains("personal information."))
-        {
-            break;
-        }
+    same_rows(&s, 0);
+    // a page down per line of the disclosure (the oracle's `intro_lines`), the sensitive-information
+    // notice passing by on the way
+    let mut saw_sensitive_information_notice = false;
+    for _ in 0..40 {
         s.keys("pagedown");
+        saw_sensitive_information_notice |= s
+            .rows()
+            .iter()
+            .any(|row| row.contains("personal information."));
     }
-    s.assert_contains("personal information.");
+    assert!(saw_sensitive_information_notice);
     s.assert_contains("which is not sent to OpenAI");
+    same_rows(&s, 1);
     for entry in [
         "feedback_note_safety_check_employee_24x4",
         "feedback_note_safety_check_external_24x4",
@@ -753,12 +764,8 @@ fn feedback_bracketed_paste_does_not_reach_chat_composer() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:316 remote_save_shortcut_keeps_the_note_for_explicit_upload kind=ui owner=dialogs-pane
 #[test]
 fn remote_save_shortcut_keeps_the_note_for_explicit_upload() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note entry with can_save off and the note `  something broke  ` (`feedback_note_remote_save`)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "feedback_note_remote_save")
+        .entry("feedback", "feedback_note_remote_save")
         .open();
     s.keys("ctrl+s");
     s.assert_contains("something broke");
@@ -779,17 +786,13 @@ fn submit_feedback_omits_empty_note() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:377 save_shortcut_keeps_note_and_consent_with_or_without_uploads kind=snap owner=dialogs-pane snap=feedback_note_uploads_disabled
 #[test]
 fn save_shortcut_keeps_note_and_consent_with_or_without_uploads() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note entries without upload audience (`feedback_note_bug_turn_no_uploads`) and with the external one (`feedback_note_bug_turn_external`), 60 columns",
-    );
     for entry in [
         "feedback_note_bug_turn_no_uploads",
         "feedback_note_bug_turn_external",
     ] {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(60, 9)
-            .entry("dialogs", entry)
+            .entry("feedback", entry)
             .open();
         s.paste("Review before sharing");
         if entry == "feedback_note_bug_turn_no_uploads" {
