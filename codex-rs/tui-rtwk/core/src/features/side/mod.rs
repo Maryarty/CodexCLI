@@ -5,21 +5,19 @@
 //! conversations of which parent (`State::link`), what the parent last did while the side is shown
 //! (`ParentStatus`, the oracle's `SideThreadState::parent_status`), and the forks whose boundary is
 //! still going in (the prompt of `/btw` waits for it). The thread lifecycle is not the slice's
-//! (ADR-012, "half a slice"): the fork is `ThreadAsk::ForkAt { side: true }` (an ephemeral
+//! (ADR-012, "half a slice"): the fork is `ThreadAsk::ForkAt` with the side policy (an ephemeral
 //! `thread/fork` with the side policy as developer instructions), switching and discarding go
 //! through the app's own doors (`app/side.rs`), which read the decisions made here (`State::start`)
 //! and report what happened as intents (`Linked`, `Dropped`, `Parent`). The fork's history is
 //! reference-only to the model: the policy and the boundary go in as `thread/inject_items`
 //! (`Command::Boundary`), and a `/btw` prompt is sent once they are in (`State::take_ready`).
 //!
-//! The words are `src/features/side/strings.rs`; the footer label 
+//! The words are `src/features/side/strings.rs`; the footer label
 //! is data here (`Footer`) and words in the view.
 
 mod policy;
 
 use std::collections::BTreeMap;
-
-use serde::Deserialize;
 
 use codex_app_server_protocol::{
     ClientRequest, RequestId, ServerNotification, ServerRequest, ThreadInjectItemsParams,
@@ -36,56 +34,19 @@ pub use policy::developer_instructions;
 /// The marker type of the feature.
 pub struct Side;
 
-/// A parent thread's condition that changed while its side conversation is shown
-/// (`SideParentStatus`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ParentStatus {
-    NeedsInput,
-    NeedsApproval,
-    Failed,
-    Interrupted,
-    Closed,
-    Finished,
-}
+pub use crate::screens::chat::facts::{SideFooter as Footer, SideStatus as ParentStatus};
 
-impl ParentStatus {
-    /// The label's part (`main needs input`, `parent finished`...).
-    pub fn label(self, parent_is_main: bool) -> &'static str {
-        match (self, parent_is_main) {
-            (ParentStatus::NeedsInput, true) => "main needs input",
-            (ParentStatus::NeedsInput, false) => "parent needs input",
-            (ParentStatus::NeedsApproval, true) => "main needs approval",
-            (ParentStatus::NeedsApproval, false) => "parent needs approval",
-            (ParentStatus::Failed, true) => "main failed",
-            (ParentStatus::Failed, false) => "parent failed",
-            (ParentStatus::Interrupted, true) => "main interrupted",
-            (ParentStatus::Interrupted, false) => "parent interrupted",
-            (ParentStatus::Closed, true) => "main closed",
-            (ParentStatus::Closed, false) => "parent closed",
-            (ParentStatus::Finished, true) => "main finished",
-            (ParentStatus::Finished, false) => "parent finished",
-        }
-    }
-
-    /// A status the user can act on (an approval or a question waits): it clears when the request
-    /// is resolved or an item starts.
-    pub fn is_actionable(self) -> bool {
-        matches!(self, ParentStatus::NeedsInput | ParentStatus::NeedsApproval)
-    }
-
-    /// `SideParentStatus::for_request`: what a server request of the parent makes the parent.
-    pub fn for_request(request: &ServerRequest) -> Option<Self> {
-        match request {
-            ServerRequest::ToolRequestUserInput { .. } => Some(ParentStatus::NeedsInput),
-            ServerRequest::CommandExecutionRequestApproval { .. }
-            | ServerRequest::FileChangeRequestApproval { .. }
-            | ServerRequest::McpServerElicitationRequest { .. }
-            | ServerRequest::PermissionsRequestApproval { .. }
-            | ServerRequest::ApplyPatchApproval { .. }
-            | ServerRequest::ExecCommandApproval { .. } => Some(ParentStatus::NeedsApproval),
-            _ => None,
-        }
+/// `SideParentStatus::for_request`: what a server request of the parent makes the parent.
+pub fn status_for_request(request: &ServerRequest) -> Option<ParentStatus> {
+    match request {
+        ServerRequest::ToolRequestUserInput { .. } => Some(ParentStatus::NeedsInput),
+        ServerRequest::CommandExecutionRequestApproval { .. }
+        | ServerRequest::FileChangeRequestApproval { .. }
+        | ServerRequest::McpServerElicitationRequest { .. }
+        | ServerRequest::PermissionsRequestApproval { .. }
+        | ServerRequest::ApplyPatchApproval { .. }
+        | ServerRequest::ExecCommandApproval { .. } => Some(ParentStatus::NeedsApproval),
+        _ => None,
     }
 }
 
@@ -221,23 +182,6 @@ impl State {
     }
 }
 
-/// What the footer shows of side conversations: data; its words are `src/features/side/strings.rs`.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Footer {
-    /// The shown thread has a side conversation: `ctrl + / for side`.
-    Parent { switch: String },
-    /// The shown thread is a side conversation.
-    Side {
-        parent_is_main: bool,
-        /// The parent's name when it is not the main thread.
-        parent_label: String,
-        status: Option<ParentStatus>,
-        /// The toggle key's label.
-        switch: Option<String>,
-    },
-}
-
 /// What the user or the app says of side conversations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -357,7 +301,11 @@ impl Feature for Side {
                     .and_then(|link| link.status);
                 state.links.insert(child.clone(), Link { parent, status });
                 state.preparing.insert(child.clone(), prompt);
-                cx.ask(Some(&child), Command::Boundary, Ctx::Boundary(child.clone()));
+                cx.ask(
+                    Some(&child),
+                    Command::Boundary,
+                    Ctx::Boundary(child.clone()),
+                );
             }
             Intent::Dropped { child } => {
                 state.links.remove(&child);
@@ -365,7 +313,11 @@ impl Feature for Side {
                 state.ready.retain(|(thread, _)| *thread != child);
             }
             Intent::Parent { parent, change } => {
-                for link in state.links.values_mut().filter(|link| link.parent == parent) {
+                for link in state
+                    .links
+                    .values_mut()
+                    .filter(|link| link.parent == parent)
+                {
                     match change {
                         StatusChange::Set(status) => link.status = Some(status),
                         StatusChange::Clear => link.status = None,
@@ -382,12 +334,7 @@ impl Feature for Side {
 
     /// The boundary is in: the prompt that waited for it goes. It is not: the side conversation
     /// stays as it is, with the line saying so (it can be closed), and the prompt is not sent.
-    fn answered(
-        state: &mut State,
-        ctx: Ctx,
-        result: Result<Reply, RpcError>,
-        cx: &mut AppCx<'_>,
-    ) {
+    fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
         let Ctx::Boundary(child) = ctx;
         let Some(prompt) = state.preparing.remove(&child) else {
             return;
@@ -450,7 +397,10 @@ mod tests {
             },
         );
         assert_eq!(state.start(Some(&id("main"))), Start::Reuse(id("side")));
-        assert_eq!(state.start(Some(&id("side"))), Start::Block(Note::AlreadyOpen));
+        assert_eq!(
+            state.start(Some(&id("side"))),
+            Start::Block(Note::AlreadyOpen)
+        );
     }
 
     #[test]
@@ -479,30 +429,6 @@ mod tests {
             })
         );
         assert_eq!(state.footer(&id("other"), true, "", Some("ctrl + /")), None);
-    }
-
-    #[test]
-    fn the_fork_is_ephemeral_and_carries_the_side_policy() {
-        let ask = crate::threads::ThreadAsk::ForkAt {
-            thread: "main".to_owned(),
-            cwd: None,
-            side: true,
-        };
-        let ClientRequest::ThreadFork { params, .. } = ask.wire(RequestId::Integer(1)) else {
-            panic!("not a fork");
-        };
-        assert!(params.ephemeral && params.exclude_turns);
-        let instructions = params.developer_instructions.expect("the side policy");
-        assert!(instructions.contains("You are in a side conversation, not the main thread."));
-        let plain = crate::threads::ThreadAsk::ForkAt {
-            thread: "main".to_owned(),
-            cwd: None,
-            side: false,
-        };
-        let ClientRequest::ThreadFork { params, .. } = plain.wire(RequestId::Integer(2)) else {
-            panic!("not a fork");
-        };
-        assert!(!params.ephemeral && params.developer_instructions.is_none());
     }
 
     #[test]

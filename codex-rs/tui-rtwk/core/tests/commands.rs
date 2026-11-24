@@ -2099,7 +2099,7 @@ mod directory {
             [ThreadAsk::ForkAt {
                 thread: T.to_string(),
                 cwd: Some("/tmp".to_string()),
-                side: false,
+                temporary: None,
             }]
         );
         assert_eq!(notes_of(&app.active_thread()), []);

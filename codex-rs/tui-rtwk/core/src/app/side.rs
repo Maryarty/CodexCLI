@@ -13,7 +13,10 @@ use codex_app_server_protocol::{ServerNotification, ServerRequest};
 use super::{
     AppCtx, AppFx, CodexApp, Command, apply_thread, features, open_thread, session_note, submit,
 };
-use crate::features::side::{Intent, Start, StatusChange, ParentStatus, start_failure};
+use crate::features::side::{
+    Intent, Note as SideNote, Start, StatusChange, developer_instructions, start_failure,
+    status_for_request,
+};
 use crate::features::{FeatureIntent, FeatureNote};
 use crate::ids::ThreadId;
 use crate::keymap::actions::GLOBAL_TOGGLE_SIDE_CONVERSATION;
@@ -30,7 +33,7 @@ pub(super) struct Opening {
     pub prompt: Option<String>,
 }
 
-fn say(app: &mut CodexApp, thread: Option<ThreadId>, note: crate::features::side::Note, fx: &mut AppFx) {
+fn say(app: &mut CodexApp, thread: Option<ThreadId>, note: SideNote, fx: &mut AppFx) {
     let note = Note::from(NoteKey::Feature(FeatureNote::Side(note)));
     session_note(app, thread, note, fx);
 }
@@ -83,7 +86,7 @@ pub(super) fn start(
             let ask = ThreadAsk::ForkAt {
                 thread: parent.to_string(),
                 cwd: None,
-                side: true,
+                temporary: Some(developer_instructions()),
             };
             app.outgoing.insert(
                 ticket,
@@ -133,7 +136,11 @@ pub(super) fn discard(app: &mut CodexApp, child: &ThreadId, fx: &mut AppFx) {
     if app.session.active.as_ref() == Some(child) || !app.features.side.is_side(child) {
         return;
     }
-    if app.threads.get(child).is_some_and(|model| model.is_running()) {
+    if app
+        .threads
+        .get(child)
+        .is_some_and(|model| model.is_running())
+    {
         apply_thread(app, child, ThreadEv::Interrupt, fx);
     }
     // `thread/unsubscribe`: the answer is nobody's (the thread is gone from here).
@@ -151,6 +158,17 @@ pub(super) fn discard(app: &mut CodexApp, child: &ThreadId, fx: &mut AppFx) {
     };
     features::intent(app, FeatureIntent::Side(dropped), fx);
     sync(app, fx);
+}
+
+/// The app's part of an intent of the slice (the fork, the discard): none when it was all of it,
+/// else the intent goes on to the slice.
+pub(super) fn intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) -> Option<Intent> {
+    match intent {
+        Intent::Start { source, prompt } => start(app, source, prompt, fx),
+        Intent::Discard { child } => discard(app, &child, fx),
+        other => return Some(other),
+    }
+    None
 }
 
 /// What the parent did (`apply_side_parent_status_change`).
@@ -171,7 +189,7 @@ pub(super) fn observe_request(
     thread: &str,
     fx: &mut AppFx,
 ) {
-    if let Some(status) = ParentStatus::for_request(request) {
+    if let Some(status) = status_for_request(request) {
         parent_changed(app, ThreadId::new(thread), StatusChange::Set(status), fx);
     }
 }
@@ -187,9 +205,7 @@ fn parent_changed(app: &mut CodexApp, parent: ThreadId, change: StatusChange, fx
 
 /// The prompts whose boundary is in are sent (`/btw`).
 pub(super) fn released(app: &mut CodexApp, fx: &mut AppFx) {
-    let ready = std::rc::Rc::make_mut(&mut app.features)
-        .side
-        .take_ready();
+    let ready = std::rc::Rc::make_mut(&mut app.features).side.take_ready();
     for (child, prompt) in ready {
         submit(app, &child, UserMessage::text(prompt), fx);
     }

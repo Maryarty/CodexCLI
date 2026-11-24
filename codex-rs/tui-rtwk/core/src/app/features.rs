@@ -98,12 +98,10 @@ pub(super) fn intent(app: &mut CodexApp, intent: FeatureIntent, fx: &mut AppFx) 
     // `/side`'s lifecycle half (the fork, the discard) is the app's, run before the slice is asked
     // (`app/side.rs`, ADR-012 "half a slice").
     let intent = match intent {
-        FeatureIntent::Side(crate::features::side::Intent::Start { source, prompt }) => {
-            return super::side::start(app, source, prompt, fx);
-        }
-        FeatureIntent::Side(crate::features::side::Intent::Discard { child }) => {
-            return super::side::discard(app, &child, fx);
-        }
+        FeatureIntent::Side(side) => match super::side::intent(app, side, fx) {
+            Some(side) => FeatureIntent::Side(side),
+            None => return,
+        },
         intent => intent,
     };
     run(app, fx, |states, cx| {

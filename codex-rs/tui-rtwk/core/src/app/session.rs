@@ -515,7 +515,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         ThreadAsk::ForkAt {
             thread: thread.to_string(),
             cwd,
-            side: false,
+            temporary: None,
         }
     } else {
         ThreadAsk::Start { cwd }

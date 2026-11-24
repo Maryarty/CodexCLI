@@ -1724,7 +1724,7 @@ fn open_session(app: &mut CodexApp, fx: &mut AppFx) {
         Action::Fork => ThreadAsk::ForkAt {
             thread,
             cwd: opening.cwd,
-            side: false,
+            temporary: None,
         },
     };
     fx.commands.push(Command::Screen {

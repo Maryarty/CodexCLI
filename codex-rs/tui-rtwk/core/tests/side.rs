@@ -6,7 +6,9 @@
 //! second one, reuses the parent's own, and drops the side conversation the user returned from.
 
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
-use codex_tui_core::features::side::{Footer, Intent as SideIntent, Note as SideNote, Reply as SideReply};
+use codex_tui_core::features::side::{
+    Footer, Intent as SideIntent, Note as SideNote, Reply as SideReply,
+};
 use codex_tui_core::features::{FeatureCommand, FeatureIntent, FeatureNote, FeatureReply};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
@@ -65,7 +67,8 @@ fn forks(fx: &AppFx) -> Vec<(Ticket, ThreadAsk)> {
         .filter_map(|c| match c {
             Command::Screen {
                 ticket,
-                command: ScreenCommand::Agents(agents::Command::Thread(ask @ ThreadAsk::ForkAt { .. })),
+                command:
+                    ScreenCommand::Agents(agents::Command::Thread(ask @ ThreadAsk::ForkAt { .. })),
                 ..
             } => Some((*ticket, ask.clone())),
             _ => None,
@@ -139,10 +142,18 @@ fn side_forks_an_ephemeral_thread_with_the_side_policy() {
     let mut app = ready();
     let fx = start(&mut app, MAIN, None);
     let [(_, ask)] = forks(&fx).try_into().expect("one fork");
-    let ThreadAsk::ForkAt { thread, side, .. } = &ask else {
+    let ThreadAsk::ForkAt {
+        thread, temporary, ..
+    } = &ask
+    else {
         unreachable!()
     };
-    assert_eq!((thread.as_str(), *side), (MAIN, true));
+    assert_eq!(thread.as_str(), MAIN);
+    assert!(
+        temporary
+            .as_deref()
+            .is_some_and(|text| text.contains("side conversation"))
+    );
     // nothing is shown before the fork answers
     assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
 }
@@ -154,7 +165,9 @@ fn the_fork_is_shown_linked_and_labelled() {
     let state = &app.features().side;
     assert!(state.is_side(&ThreadId::new(SIDE)));
     assert_eq!(
-        state.link(&ThreadId::new(SIDE)).map(|link| link.parent.clone()),
+        state
+            .link(&ThreadId::new(SIDE))
+            .map(|link| link.parent.clone()),
         Some(ThreadId::new(MAIN))
     );
     assert!(app.screens().chat.flags.side_conversation_active);
@@ -189,9 +202,9 @@ fn a_btw_prompt_goes_once_the_boundary_is_in() {
         fx.commands()
             .iter()
             .filter_map(|c| match c {
-                Command::StartTurn { message, thread, .. } => {
-                    Some((thread.as_str().to_owned(), message.text.clone()))
-                }
+                Command::StartTurn {
+                    message, thread, ..
+                } => Some((thread.as_str().to_owned(), message.text.clone())),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -237,7 +250,10 @@ fn a_second_side_is_refused_in_a_side_conversation() {
 #[test]
 fn side_in_the_parent_shows_its_own_side_conversation_again() {
     let (mut app, _) = opened(None);
-    run(&mut app, AppEv::Intent(Intent::OpenThread(ThreadId::new(MAIN))));
+    run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(MAIN))),
+    );
     assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
     assert!(!app.screens().chat.flags.side_conversation_active);
     assert!(matches!(
@@ -253,11 +269,24 @@ fn side_in_the_parent_shows_its_own_side_conversation_again() {
 fn returning_drops_the_side_conversation() {
     let (mut app, _) = opened(None);
     // while it is shown nothing is dropped
-    let fx = feature(&mut app, SideIntent::Discard { child: ThreadId::new(SIDE) });
+    let fx = feature(
+        &mut app,
+        SideIntent::Discard {
+            child: ThreadId::new(SIDE),
+        },
+    );
     assert!(fx.commands().is_empty());
     assert!(app.features().side.is_side(&ThreadId::new(SIDE)));
-    run(&mut app, AppEv::Intent(Intent::OpenThread(ThreadId::new(MAIN))));
-    let fx = feature(&mut app, SideIntent::Discard { child: ThreadId::new(SIDE) });
+    run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(MAIN))),
+    );
+    let fx = feature(
+        &mut app,
+        SideIntent::Discard {
+            child: ThreadId::new(SIDE),
+        },
+    );
     let unsubscribed = fx.commands().iter().any(|c| {
         matches!(c, Command::Screen { command: ScreenCommand::Agents(agents::Command::Thread(
             ThreadAsk::Unsubscribe { thread })), .. } if thread == SIDE)
@@ -286,7 +315,13 @@ fn a_fork_that_failed_before_the_first_message_says_to_send_one() {
 #[test]
 fn side_before_the_session_has_started_says_so() {
     let mut app = CodexApp::new();
-    let fx = feature(&mut app, SideIntent::Start { source: None, prompt: None });
+    let fx = feature(
+        &mut app,
+        SideIntent::Start {
+            source: None,
+            prompt: None,
+        },
+    );
     assert!(forks(&fx).is_empty());
     assert!(!app.features().side.is_side(&ThreadId::new(MAIN)));
 }
