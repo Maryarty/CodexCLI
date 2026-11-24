@@ -10,15 +10,16 @@
 
 use rtwk::AnyWidget;
 use rtwk::LayoutBuilder;
-use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::{Span, Style};
 use rtwk::text::segmenter_of;
 use rtwk_render::objects::text::{TextWrap, break_lines};
 
 use codex_tui_core::threads::{ExplorationAction, ToolActivity, ToolKind, ToolStatus};
 
-use super::strings::Strings;
-use super::tool_rows::{BULLET_COLUMNS, branch_row, clipped};
+use super::strings::{BLANK, Strings};
+use super::tool_rows::{BULLET_COLUMNS, branch_row};
+use crate::widgets::dots::dots_spans;
 
 /// The rows the compact cell keeps under its header (oracle `DETAIL_PREVIEW_LINES`).
 pub const PREVIEW_ROWS: usize = 3;
@@ -62,7 +63,9 @@ pub fn failure(tool: &ToolActivity) -> Option<i32> {
     match tool.status {
         ToolStatus::Running => None,
         ToolStatus::Completed => exit_code.filter(|code| *code != 0),
-        ToolStatus::Failed | ToolStatus::Declined => Some(exit_code.filter(|code| *code != 0).unwrap_or(1)),
+        ToolStatus::Failed | ToolStatus::Declined => {
+            Some(exit_code.filter(|code| *code != 0).unwrap_or(1))
+        }
     }
 }
 
@@ -162,9 +165,10 @@ fn read_step(names: &[&str], strings: &Strings) -> Step {
 
 fn step_of(action: &ExplorationAction, strings: &Strings) -> Step {
     match action {
-        ExplorationAction::Read(names) => {
-            read_step(&names.iter().map(String::as_str).collect::<Vec<_>>(), strings)
-        }
+        ExplorationAction::Read(names) => read_step(
+            &names.iter().map(String::as_str).collect::<Vec<_>>(),
+            strings,
+        ),
         ExplorationAction::List(path) => Step {
             title: strings.explore_list,
             pieces: vec![(path.clone(), Paint::Plain)],
@@ -195,10 +199,17 @@ pub fn body(steps: Vec<Step>, accent: Style, dim: Style, red: Style) -> AnyWidge
             Paint::Dim => dim.clone(),
             Paint::Red => red.clone(),
         };
-        let mut rows: Vec<Vec<Span>> = Vec::new();
+        // The rows: the blank cells before the text (a continuation sits under the title) and the spans.
+        let mut rows: Vec<(i32, Vec<Span>)> = Vec::new();
         for step in &steps {
-            let indent = i32::try_from(seg.width(step.title)).unwrap_or(i32::MAX).saturating_add(1);
-            let text: String = step.pieces.iter().map(|(piece, _)| piece.as_str()).collect();
+            let indent = i32::try_from(seg.width(step.title))
+                .unwrap_or(i32::MAX)
+                .saturating_add(1);
+            let text: String = step
+                .pieces
+                .iter()
+                .map(|(piece, _)| piece.as_str())
+                .collect();
             let room = width.saturating_sub(indent).max(1);
             let chunks = if text.is_empty() {
                 vec![(0, 0)]
@@ -206,30 +217,41 @@ pub fn body(steps: Vec<Step>, accent: Style, dim: Style, red: Style) -> AnyWidge
                 break_lines(&seg, &text, room, TextWrap::Word)
             };
             for (index, (from, to)) in chunks.into_iter().enumerate() {
-                let mut spans = vec![if index == 0 {
-                    Span::styled(format!("{} ", step.title), accent.clone())
-                } else {
-                    Span::new(" ".repeat(usize::try_from(indent).unwrap_or(0)))
-                }];
+                let mut spans = Vec::new();
+                if index == 0 {
+                    spans.push(Span::styled(step.title.to_owned() + BLANK, accent.clone()));
+                }
                 // The chunk's slice of each piece.
                 let mut start = 0;
                 for (piece, style) in &step.pieces {
                     let end = start + piece.len();
                     let (a, b) = (from.max(start), to.min(end));
                     if a < b {
-                        let shown = if end >= to { piece[a - start..b - start].trim_end() } else { &piece[a - start..b - start] };
+                        let shown = if end >= to {
+                            piece[a - start..b - start].trim_end()
+                        } else {
+                            &piece[a - start..b - start]
+                        };
                         spans.push(Span::styled(shown.to_owned(), paint(*style)));
                     }
                     start = end;
                 }
-                rows.push(spans);
+                rows.push((if index == 0 { 0 } else { indent }, spans));
             }
         }
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        for (index, spans) in rows.into_iter().take(PREVIEW_ROWS).enumerate() {
-            column = column.child(branch_row(index, clipped(spans), dim.clone()));
+        for (index, (lead, spans)) in rows.into_iter().take(PREVIEW_ROWS).enumerate() {
+            let row: AnyWidget = if lead == 0 {
+                dots_spans(spans)
+            } else {
+                Row::new()
+                    .child(SizedBox::new(Some(lead), Some(1), None))
+                    .child(Expanded::new(1, dots_spans(spans)))
+                    .into()
+            };
+            column = column.child(branch_row(index, row, dim.clone()));
         }
         column.into()
     })

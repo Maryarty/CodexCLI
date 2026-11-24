@@ -4,10 +4,10 @@
 //! `transcript_activity.rs`'s `ToolRow`, Flutter's `ExpansionTile` state) and
 //! the dim `└` rows (oracle `exec_cell/render.rs` `prefix_lines`, `mcp.rs`).
 
+use rtwk::AnyWidget;
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row};
 use rtwk::style::{Attrs, Span, Style};
-use rtwk::text::{TextOverflow, segmenter_of};
-use rtwk::{AnyWidget, LayoutBuilder};
+use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
 use rtwk_rich::highlight::SyntaxTheme;
 
@@ -63,48 +63,6 @@ pub fn glyph_row(glyph: &'static str, body: AnyWidget, marker: Style) -> AnyWidg
         .child(Text::line(glyph).style(marker))
         .child(Expanded::new(1, body))
         .into()
-}
-
-/// A row of spans cut by the room it gets (oracle `clipped_line`): the end goes and a `…` in the
-/// style of the last span kept takes the last cell; the blanks before it stay (N1,
-/// `widgets/dots.rs`: `TextOverflow::Ellipsis` drops them).
-pub fn clipped(spans: Vec<Span>) -> AnyWidget {
-    LayoutBuilder::new(move |cx, constraints| {
-        let seg = segmenter_of(cx);
-        let room = usize::try_from(constraints.max_width).unwrap_or(0);
-        let width: usize = spans.iter().map(|span| seg.width(&span.text)).sum();
-        let shown = if width <= room {
-            spans.clone()
-        } else if room == 0 {
-            Vec::new()
-        } else {
-            let mut left = room - 1;
-            let mut kept: Vec<Span> = Vec::new();
-            'spans: for span in &spans {
-                let mut text = String::new();
-                for ch in span.text.chars() {
-                    let cells = seg.width(ch.encode_utf8(&mut [0; 4]));
-                    if cells > left {
-                        if !text.is_empty() {
-                            kept.push(Span::styled(text, span.style.clone()));
-                        }
-                        break 'spans;
-                    }
-                    left -= cells;
-                    text.push(ch);
-                }
-                kept.push(Span::styled(text, span.style.clone()));
-            }
-            let style = kept.last().map(|span| span.style.clone()).unwrap_or_default();
-            kept.push(Span::styled("\u{2026}", style));
-            kept
-        };
-        Text::rich(shown)
-            .max_lines(Some(1))
-            .overflow(TextOverflow::Clip)
-            .into()
-    })
-    .into()
 }
 
 /// One dim row of plain text, cut by `…` at the room's end (oracle

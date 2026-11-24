@@ -299,6 +299,8 @@ pub struct Strings {
 pub const INVOCATION_DOT: &str = ".";
 pub const INVOCATION_OPEN: &str = "(";
 pub const INVOCATION_CLOSE: &str = ")";
+/// The blank between a title and its text.
+pub const BLANK: &str = " ";
 
 pub const EN: Strings = Strings {
     title: "streaming and history cells",

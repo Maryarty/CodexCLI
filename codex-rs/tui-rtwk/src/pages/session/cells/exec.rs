@@ -17,10 +17,11 @@ use codex_tui_core::threads::{ToolActivity, ToolKind, ToolStatus};
 
 use crate::app::theme::Tokens;
 use crate::pages::session::strings::{INLINE_GAP, LINE_BREAK, MORE};
+use crate::widgets::dots::dots_spans;
 
-use super::strings::Strings;
 use super::exploration;
-use super::tool_rows::{Env, Parts, Rows, ansi_row, clipped};
+use super::strings::Strings;
+use super::tool_rows::{Env, Parts, Rows, ansi_row};
 
 const PREVIEW_LINES: usize = 3;
 const PREVIEW_LINE_BYTES: usize = 16 * 1024;
@@ -106,7 +107,7 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
             header.push(Span::new(MORE));
         }
     }
-    let header = clipped(header);
+    let header = dots_spans(header);
     let output = tool
         .output
         .as_deref()
