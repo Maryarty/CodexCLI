@@ -381,24 +381,6 @@ async fn run(
         epoch,
         AppEv::Presets(crate::effects::presets(&config)),
     );
-    emit(
-        &ingress,
-        epoch,
-        AppEv::Feature(plugins_fact(&config).into()),
-    );
-    emit(
-        &ingress,
-        epoch,
-        AppEv::Feature(settings_fact(&config).into()),
-    );
-    emit(
-        &ingress,
-        epoch,
-        AppEv::Feature(feedback_fact(&config, startup.target).into()),
-    );
-    for fact in small_facts(&config) {
-        emit(&ingress, epoch, AppEv::Feature(fact.into()));
-    }
     if !warnings.is_empty() {
         emit(
             &ingress,
@@ -433,13 +415,23 @@ async fn run(
     inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
     // The status card's own: the account it shows, the catalog it names the model in, the server.
     status_feed(&mut inflight, &ids, &handle);
-    // The security-setup reminder: the server's notice for this account, if it has one.
+    // What the slices read at start (their feeds): facts now, the server reads as jobs.
     let remote_workspace = matches!(mode, Mode::Remote { daemon: false, .. });
-    if crate::security_setup::eligible(&config, remote_workspace) {
-        inflight.push(security_job(&config, &ids, &handle));
-    }
-    // The Windows sandbox: its configuration, requirements and readiness (Windows only).
-    inflight.push(sandbox_job(&config, remote_workspace, &ids, &handle));
+    deliver(
+        crate::feeds::run(
+            &crate::feeds::Event::Startup,
+            &crate::feeds::FeedCx {
+                config: &config,
+                target: startup.target,
+                remote_workspace,
+                ids: &ids,
+                handle: &handle,
+            },
+        ),
+        &ingress,
+        epoch,
+        &mut inflight,
+    );
     if let Some(client) = held.get() {
         emit_connection(&ingress, epoch, client, reconnect_endpoint(&mode), daemon);
     }
@@ -471,28 +463,22 @@ async fn run(
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
                 }
                 Some(AppServerEvent::ServerNotification(notification)) => {
-                    // The account was announced again: what the reminder holds is stale until
-                    // the notice is fetched and verified again.
-                    if matches!(
-                        *notification,
-                        codex_app_server_protocol::ServerNotification::AccountUpdated(_)
-                    ) && crate::security_setup::eligible(&config, remote_workspace)
-                    {
-                        emit(
-                            &ingress,
-                            epoch,
-                            AppEv::Feature(
-                                codex_tui_core::features::security_setup::Fact::Invalidated.into(),
-                            ),
-                        );
-                        inflight.push(security_job(&config, &ids, &handle));
-                    }
-                    if let codex_app_server_protocol::ServerNotification::WindowsSandboxSetupCompleted(
-                        done,
-                    ) = &*notification
-                    {
-                        emit(&ingress, epoch, AppEv::Feature(codex_tui_core::features::windows_sandbox::Fact::completed(done).into()));
-                    }
+                    // The slices that follow the stream tell their facts first.
+                    deliver(
+                        crate::feeds::run(
+                            &crate::feeds::Event::Notification(&notification),
+                            &crate::feeds::FeedCx {
+                                config: &config,
+                                target: startup.target,
+                                remote_workspace,
+                                ids: &ids,
+                                handle: &handle,
+                            },
+                        ),
+                        &ingress,
+                        epoch,
+                        &mut inflight,
+                    );
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
                 }
                 Some(AppServerEvent::ServerRequest(request)) => {
@@ -612,6 +598,21 @@ async fn run(
         }
         inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
         status_feed(&mut inflight, &ids, &handle);
+        deliver(
+            crate::feeds::run(
+                &crate::feeds::Event::Reconnected,
+                &crate::feeds::FeedCx {
+                    config: &config,
+                    target: startup.target,
+                    remote_workspace,
+                    ids: &ids,
+                    handle: &handle,
+                },
+            ),
+            &ingress,
+            epoch,
+            &mut inflight,
+        );
         emit_connection(&ingress, epoch, client, Some(endpoint.clone()), daemon);
         inflight.push(Box::pin(crate::facts::daybreak(
             cyber,
@@ -620,76 +621,6 @@ async fn run(
         )));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
-}
-
-/// What the settings dialogs read of the config and the disk: the theme in force, the custom
-/// themes, the memory tool's switches (`settings::read`).
-fn settings_fact(config: &Config) -> codex_tui_core::features::settings::Fact {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    crate::settings::fact(config, home.as_deref())
-}
-
-/// What `/feedback` reads of the config and the connection: whether uploads are on, whether the
-/// workspace is remote (no ZIP can be saved here), the Codex home the ZIPs go under.
-fn feedback_fact(
-    config: &Config,
-    target: crate::startup::Target,
-) -> codex_tui_core::features::feedback::Fact {
-    codex_tui_core::features::feedback::Fact::config(
-        config.feedback_enabled,
-        target == crate::startup::Target::Remote,
-        Some(config.codex_home.to_string_lossy().into_owned()),
-    )
-}
-
-/// The Windows sandbox facts, as one job of the pump (nothing off Windows).
-fn sandbox_job(
-    config: &Arc<Config>,
-    remote_workspace: bool,
-    ids: &Ids,
-    handle: &AppServerRequestHandle,
-) -> Boxed<Option<AppEv>> {
-    let (cwd, ids, handle) = (
-        config.cwd.display().to_string(),
-        ids.clone(),
-        handle.clone(),
-    );
-    Box::pin(async move {
-        let (config, requirements, ready) =
-            crate::windows_sandbox::fetch(cwd, &ids, sender(handle)).await?;
-        Some(AppEv::Feature(
-            codex_tui_core::features::windows_sandbox::Fact::environment(
-                &config,
-                requirements,
-                remote_workspace,
-                ready,
-            )
-            .into(),
-        ))
-    })
-}
-
-/// The security-setup notice of the account, as one job of the pump.
-fn security_job(
-    config: &Arc<Config>,
-    ids: &Ids,
-    handle: &AppServerRequestHandle,
-) -> Boxed<Option<AppEv>> {
-    let (config, ids, handle) = (Arc::clone(config), ids.clone(), handle.clone());
-    Box::pin(async move {
-        let notice = crate::security_setup::fetch(&config, &ids, sender(handle)).await?;
-        Some(AppEv::Feature(
-            codex_tui_core::features::security_setup::Fact::loaded(
-                notice.account,
-                notice.user,
-                notice.title,
-                notice.description,
-                notice.label,
-                notice.url,
-            )
-            .into(),
-        ))
-    })
 }
 
 /// `Ask::ConfigWrite` of a dialog (`/theme`, `/title`, `/statusline`, `/memories`): the edits go
@@ -721,69 +652,44 @@ pub(crate) async fn config_write(
             epoch,
             AppEv::Tui(crate::effects::tui_settings(config)),
         );
-        emit(
+        let mut jobs = FuturesUnordered::new();
+        deliver(
+            crate::feeds::run(
+                &crate::feeds::Event::ConfigWritten,
+                &crate::feeds::FeedCx {
+                    config,
+                    target: startup.target,
+                    remote_workspace: false,
+                    ids,
+                    handle,
+                },
+            ),
             &ingress,
             epoch,
-            AppEv::Feature(settings_fact(config).into()),
+            &mut jobs,
         );
-        emit(
-            &ingress,
-            epoch,
-            AppEv::Feature(feedback_fact(config, startup.target).into()),
-        );
-        for fact in small_facts(config) {
-            emit(&ingress, epoch, AppEv::Feature(fact.into()));
+        while let Some(done) = jobs.next().await {
+            if let Some(ev) = done {
+                emit(&ingress, epoch, ev);
+            }
         }
     }
     written.done
 }
 
-/// What `/debug-config` and `/ide` read of the host: the config's layers and requirements as
-/// rows, and whether an IDE answers (its ipc is not carried: none does).
-fn small_facts(config: &Config) -> [codex_tui_core::features::small_cmds::Fact; 2] {
-    use codex_tui_core::features::small_cmds::Fact;
-    [
-        Fact::debug_config(
-            crate::debug_config::rows(config)
-                .into_iter()
-                .map(|row| (row.text, row.style)),
-        ),
-        Fact::ide_unavailable(
-            crate::small::OPEN_IDE_HINT.to_owned(),
-            crate::small::OPEN_IDE_HINT.to_owned(),
-        ),
-    ]
-}
-
-/// What `/plugins` reads of the config: the features it depends on, the home directory the
-/// personal marketplace is under, and the marketplaces the user configured (the ones a tab can
-/// remove; the git ones it can upgrade).
-fn plugins_fact(config: &Config) -> codex_tui_core::features::plugins::Fact {
-    use codex_features::Feature;
-    let stack = &config.config_layer_stack;
-    let user = stack.effective_user_config();
-    let git = |name: &str| {
-        stack
-            .get_active_user_layer()
-            .and_then(|layer| layer.config.get("marketplaces"))
-            .and_then(|marketplaces| marketplaces.get(name))
-            .and_then(|marketplace| marketplace.get("source_type"))
-            .and_then(|kind| kind.as_str())
-            .is_some_and(|kind| kind == "git")
-    };
-    let configured: Vec<(String, bool)> = user
-        .as_ref()
-        .and_then(|user| user.get("marketplaces"))
-        .and_then(|marketplaces| marketplaces.as_table())
-        .map(|table| table.keys().map(|name| (name.clone(), git(name))).collect())
-        .unwrap_or_default();
-    codex_tui_core::features::plugins::Fact::config(
-        config.features.enabled(Feature::Plugins),
-        config.features.enabled(Feature::RemotePlugin),
-        config.features.enabled(Feature::PluginSharing),
-        std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned()),
-        configured,
-    )
+/// What the feeds told: the facts go to the app now, the jobs join the pump's work.
+fn deliver(
+    feeds: Vec<crate::feeds::Feed>,
+    ingress: &IngressTx,
+    epoch: ConnEpoch,
+    inflight: &mut FuturesUnordered<Boxed<Option<AppEv>>>,
+) {
+    for feed in feeds {
+        match feed {
+            crate::feeds::Feed::Fact(fact) => emit(ingress, epoch, AppEv::Feature(fact)),
+            crate::feeds::Feed::Job(job) => inflight.push(job),
+        }
+    }
 }
 
 /// The reads of the facts the status card shows (`/status`): the account and the model catalog.
@@ -796,16 +702,6 @@ fn status_feed(
         ids.clone(),
         sender(handle.clone()),
     )));
-    // `/feedback`'s audience: an `@openai.com` account is an employee.
-    inflight.push(Box::pin({
-        let (ids, send) = (ids.clone(), sender(handle.clone()));
-        async move {
-            let email = crate::facts::account_email(ids, send).await;
-            Some(AppEv::Feature(
-                codex_tui_core::features::feedback::Fact::account(email.as_deref()).into(),
-            ))
-        }
-    }));
     inflight.push(Box::pin(crate::facts::card_catalog(
         ids.clone(),
         sender(handle.clone()),

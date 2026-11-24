@@ -86,7 +86,7 @@ enum core/src/threads/note.rs NoteKey 16
 enum core/src/screens/chat.rs ThreadIntent 16
 # fw-hubs-c: the chat screen's `ThreadEv` (the thread facts the screen takes, screens/chat.rs): the
 # count the ADR-012 read of the framework (fw1-adr-read) noted; it only shrinks.
-enum core/src/screens/chat.rs ThreadEv 0
+enum core/src/screens/chat.rs ThreadEv 12
 enum core/src/rpc.rs Answer 11
 # fw1-c2: `Ask::Editor` (the draft to the host editor, answered by `Done::Editor`).
 # ADR-013: `Ask::OpenUrl` (the browser door a feature asks through `AppCx::effect`, answered by

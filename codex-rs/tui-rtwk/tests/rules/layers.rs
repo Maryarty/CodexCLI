@@ -669,10 +669,11 @@ fn is_framework_file(name: &str) -> bool {
     )
 }
 
-/// `core/src/features/<f>/` or `<f>.rs`, and `src/features/<f>/` or `<f>.rs`: both halves of
-/// feature `f`.
+/// `core/src/features/<f>/` or `<f>.rs`, `src/features/<f>/` or `<f>.rs`, and
+/// `host/src/feeds/<f>/` or `<f>.rs`: the three halves of feature `f` (the model, the view, the
+/// host's feed).
 fn is_own(name: &str, feature: &str) -> bool {
-    ["core/src/features/", "src/features/"].iter().any(|root| {
+    ["core/src/features/", "src/features/", "host/src/feeds/"].iter().any(|root| {
         name.strip_prefix(root).is_some_and(|rest| {
             rest == format!("{feature}.rs") || rest.starts_with(&format!("{feature}/"))
         })
@@ -704,11 +705,6 @@ fn names_path_after(line: &str, marker: &str, feature: &str) -> bool {
     })
 }
 
-/// The file that sends a fact the host read, unasked, to a feature (`AppEv::Feature`): the one
-/// place besides a feature's own files that may name `features::<f>::Fact` (the payload type
-/// it builds `FeatureFact::from(..)` of), and nothing else of the feature.
-const FACT_SENDERS: &[&str] = &["host/src/in_process.rs"];
-
 /// The framework's own tests: the outbox (`Out`) and the app's `Effects` are typed by the real
 /// list's roots, while the probes' list is a second one, so the test of a door builds a ctx of
 /// a real feature. The only files besides a feature's own that name one, and they are test
@@ -733,13 +729,8 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
             if is_own(name, feature) {
                 continue;
             }
-            let fact = format!("features::{feature}::Fact");
             for (index, line) in code_lines(text) {
-                let mut line_left = line.to_string();
-                if FACT_SENDERS.contains(&name.as_str()) {
-                    line_left = line_left.replace(&fact, "");
-                }
-                if names_feature_path(&line_left, feature) {
+                if names_feature_path(line, feature) {
                     found.push(format!("{name}:{}: {}", index + 1, line.trim()));
                 }
             }
@@ -751,7 +742,8 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
 /// A feature is reached through the list: the generated `FeatureIntent`, `FeatureMenu`...
 /// carry one variant per feature and the dispatch is generated, so no hub, screen, view or
 /// shell file names `features::<f>` (its types, its functions). The feature's own two folders
-/// do, and the host's sender its fact; a slash command is carried to its owner by
+/// do, and the host's feed of the feature (`host/src/feeds/<f>.rs`, the one file that names it
+/// on the host's side); a slash command is carried to its owner by
 /// `SessionIntent::Feature` and `apply_slash`, so no router names a feature's intent.
 #[test]
 fn features_are_named_only_through_the_list() {
@@ -769,6 +761,59 @@ fn features_are_named_only_through_the_list() {
     assert!(
         found.is_empty(),
         "a feature is named outside the list and its own files: {found:#?}"
+    );
+}
+
+/// The names of `host_feed_list!` in `host/src/feeds.rs`, in list order.
+fn listed_feeds() -> Vec<String> {
+    let text = read("host/src/feeds.rs");
+    let (_, body) = text
+        .split_once("host_feed_list! {")
+        .expect("host_feed_list! { .. } in host/src/feeds.rs");
+    let (body, _) = body.split_once("\n}\n").expect("end of host_feed_list!");
+    code_lines(body)
+        .filter_map(|(_, line)| line.trim().strip_suffix(';').map(str::to_owned))
+        .filter(|name| name.chars().all(is_ident))
+        .collect()
+}
+
+/// The host half of a slice is one file, `host/src/feeds/<f>.rs`, a line of `host_feed_list!`,
+/// and it names the types of that slice and of no other (rule `features_are_named_only_through_the_list`
+/// reads every other host file as a framework file that names none): `in_process.rs` tells the
+/// feeds what happened and delivers what they tell (arch-pillars P7).
+#[test]
+fn host_half_names_one_feature() {
+    let feeds = listed_feeds();
+    assert!(!feeds.is_empty(), "host_feed_list! lists the feeds");
+    let features = listed_features(&read("core/src/features/mod.rs"));
+    for feed in &feeds {
+        assert!(
+            features.contains(feed),
+            "host/src/feeds/{feed}.rs feeds `{feed}`, which feature_list! does not list"
+        );
+    }
+    let mut files = sources_of("host/src/feeds");
+    files.retain(|(name, _)| name != "host/src/feeds.rs");
+    for (name, _) in &files {
+        let stem = name
+            .strip_prefix("host/src/feeds/")
+            .and_then(|rest| rest.split(['/', '.']).next())
+            .unwrap_or_default();
+        assert!(
+            feeds.iter().any(|feed| feed == stem),
+            "{name}: not a line of host_feed_list!"
+        );
+    }
+    for feed in &feeds {
+        assert!(
+            crate_dir().join(format!("host/src/feeds/{feed}.rs")).exists(),
+            "host_feed_list! lists {feed} but host/src/feeds/{feed}.rs is not there"
+        );
+    }
+    let found = features_named_outside_the_list(&files, &features);
+    assert!(
+        found.is_empty(),
+        "a feed names a feature other than its own: {found:#?}"
     );
 }
 
@@ -1004,13 +1049,28 @@ fn the_feature_naming_scan_bites() {
         found("core/src/app/features.rs", "features::goal::Ctx {"),
         1
     );
-    // the host's fact sender builds the feature's `Fact` and names nothing else; no other file may
+    // the host's feed of a feature (`host/src/feeds/<f>.rs`) names that feature and no other; the
+    // pump (`in_process.rs`) names none, not even a `Fact`
+    assert_eq!(
+        found(
+            "host/src/feeds/goal.rs",
+            "FeatureFact::from(features::goal::Fact::Seen)"
+        ),
+        0
+    );
+    assert_eq!(
+        found(
+            "host/src/feeds/rename.rs",
+            "FeatureFact::from(features::goal::Fact::Seen)"
+        ),
+        1
+    );
     assert_eq!(
         found(
             "host/src/in_process.rs",
             "FeatureFact::from(features::goal::Fact::Seen)"
         ),
-        0
+        1
     );
     assert_eq!(
         found("host/src/in_process.rs", "features::goal::Model::new()"),
