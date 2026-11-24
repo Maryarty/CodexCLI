@@ -105,6 +105,9 @@ pub enum Ask {
         cwd: String,
         markdown: String,
     },
+    /// A feedback report: staged with the client logs, uploaded or saved as a ZIP through the
+    /// server (oracle `feedback_upload.rs`). Answered once by `Done::Feedback`.
+    FeedbackUpload(crate::features::feedback::Upload),
     /// Edits of the config file.
     ConfigWrite { edits: Vec<ConfigEdit> },
     /// The text the system clipboard holds (Ctrl+Shift+V, the right-click paste).
@@ -149,6 +152,8 @@ pub enum Done {
     Title(Option<String>),
     /// The path written, or the host's failure text.
     Export(Result<String, String>),
+    /// What the delivery came to, or the failure text (`Failed to upload feedback: ...`).
+    Feedback(Result<crate::features::feedback::Receipt, String>),
     /// Nothing, or the host's failure text.
     Config(Result<(), String>),
     /// The clipboard's text, or why it could not be read.

@@ -29,6 +29,7 @@ mod composer_vim;
 mod dialogs;
 mod directives;
 mod export;
+mod feedback;
 mod goal;
 mod import;
 mod keymap;

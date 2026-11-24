@@ -29,7 +29,6 @@ use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
-use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
@@ -157,7 +156,7 @@ async fn start_args(
         strict_config: false,
         cloud_config_bundle: CloudConfigBundleLoader::default(),
         embedded_network_policy,
-        feedback: CodexFeedback::new(),
+        feedback: crate::feedback::shared(),
         log_db: None,
         state_db,
         environment_manager: Arc::new(environment_manager),
@@ -507,6 +506,19 @@ async fn run(
                             ids.clone(),
                             handle.clone(),
                             (ingress.clone(), epoch),
+                        )
+                    } else if let Command::Effect {
+                        request,
+                        ask: Ask::FeedbackUpload(upload),
+                        ..
+                    } = &command
+                    {
+                        crate::feedback::job(
+                            *request,
+                            upload.clone(),
+                            startup.clone(),
+                            ids.clone(),
+                            sender(handle.clone()),
                         )
                     } else {
                         match effects.run(&command, exec) {

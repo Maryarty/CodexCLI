@@ -7,6 +7,7 @@ mod analytics;
 mod cloud;
 mod effects;
 mod facts;
+mod feedback;
 mod gateway;
 mod import;
 mod in_process;
