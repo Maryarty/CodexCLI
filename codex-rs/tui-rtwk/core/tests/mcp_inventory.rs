@@ -8,12 +8,13 @@
 
 use codex_app_server_protocol::RequestId;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
-use codex_tui_core::commands::{SessionIntent, SlashCommand};
-use codex_tui_core::features::mcp_inventory::{Auth, Connection, Note as McpNote};
-use codex_tui_core::features::{self, FeatureCommand, FeatureNote};
+use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::features::mcp_inventory::{
+    Auth, Connection, Intent as McpIntent, Note as McpNote,
+};
+use codex_tui_core::features::{self, FeatureCommand, FeatureIntent, FeatureNote, FeatureTarget};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenIntent, chat};
 use codex_tui_core::threads::{Item, Note, NoteKey};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -45,17 +46,26 @@ fn ready() -> CodexApp {
     app
 }
 
+/// What the UI half's `open` says for `/mcp` (`full`: `/mcp verbose`): the verb, for the thread in
+/// use.
 fn mcp(app: &mut CodexApp, args: Option<&str>) -> AppFx {
     run(
         app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
-            thread: Some(ThreadId::new(T)),
-            command: SlashCommand::Mcp,
-            intent: SessionIntent::Mcp {
-                args: args.map(str::to_owned),
+        AppEv::Intent(Intent::Feature(FeatureIntent::McpInventory(
+            McpIntent::Show {
+                source: Some(ThreadId::new(T)),
+                full: args.is_some(),
             },
-        }))),
+        ))),
     )
+}
+
+#[test]
+fn the_slash_command_is_the_features_through_opens() {
+    assert!(matches!(
+        features::target_of(SlashCommand::Mcp),
+        Some(FeatureTarget::McpInventory(_))
+    ));
 }
 
 /// The feature RPCs a step said: their tickets, commands and `mcpServerStatus/list` parameters.

@@ -8,12 +8,11 @@
 //! says them as a note of the thread. The words and the cell are the view's.
 
 use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::commands::{SessionIntent, SlashCommand};
-use codex_tui_core::features::FeatureNote;
-use codex_tui_core::features::processes::Note as PsNote;
+use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::features::processes::{Intent as PsIntent, Note as PsNote};
+use codex_tui_core::features::{self, FeatureIntent, FeatureNote, FeatureTarget};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::{ScreenIntent, chat};
 use codex_tui_core::threads::{Item, Note, NoteKey, Notice};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -87,14 +86,21 @@ fn interactions(sandbox: &Sandbox) -> Vec<(Option<String>, String)> {
         .collect()
 }
 
+/// What the UI half's `open` says for `/ps`: the verb, for the thread in use.
 fn ps(sandbox: &mut Sandbox) {
-    sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Chat(
-        chat::Intent::Session {
-            thread: Some(ThreadId::new(T)),
-            command: SlashCommand::Ps,
-            intent: SessionIntent::Ps,
+    sandbox.send(AppEv::Intent(Intent::Feature(FeatureIntent::Processes(
+        PsIntent::Show {
+            source: Some(ThreadId::new(T)),
         },
     ))));
+}
+
+#[test]
+fn the_slash_command_is_the_features_through_opens() {
+    assert!(matches!(
+        features::target_of(SlashCommand::Ps),
+        Some(FeatureTarget::Processes(_))
+    ));
 }
 
 fn ps_notes(sandbox: &Sandbox) -> Vec<PsNote> {

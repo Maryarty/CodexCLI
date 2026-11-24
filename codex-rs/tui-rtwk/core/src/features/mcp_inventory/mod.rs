@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
@@ -29,10 +30,16 @@ pub use wire::{Command, Reply, server};
 /// The marker type of the feature.
 pub struct McpInventory;
 
+/// What `/mcp` names (`FeatureTarget`): the command runs the feature through its UI half's `open`,
+/// which says the verb below for the thread in use (no sheet is drawn).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sheet;
+
 /// What the user asks of `/mcp`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// `/mcp` (`full: false`) and `/mcp verbose`, typed in the thread `source` (none before the
+    /// `/mcp` (`full: false`, the UI half's `open`) and `/mcp verbose` (`full: true`: the verb waits for
+    /// the router to carry the command's text to a feature's `open`), typed in the thread `source` (none before the
     /// session has started: the app's own servers).
     Show {
         source: Option<ThreadId>,
@@ -180,10 +187,11 @@ fn ask(
 
 impl Feature for McpInventory {
     const NAME: &'static str = "mcp_inventory";
+    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Mcp, Sheet));
 
     type State = State;
     type ThreadPart = ();
-    type Target = Never<Self>;
+    type Target = Sheet;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
     type Command = Command;

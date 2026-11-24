@@ -247,21 +247,6 @@ pub(super) fn session_intent(
             let intent = crate::features::rename::Intent::Command { source, name };
             super::features::intent(app, intent.into(), fx);
         }
-        // `/ps` and `/mcp [verbose]`: a note of the thread (`features/processes`,
-        // `features/mcp_inventory`); `/mcp login` is another chunk's.
-        S::Ps => {
-            let intent = crate::features::processes::Intent::Show { source };
-            super::features::intent(app, intent.into(), fx);
-        }
-        S::Mcp { args }
-            if args
-                .as_deref()
-                .is_none_or(|a| a.eq_ignore_ascii_case("verbose")) =>
-        {
-            let full = args.is_some();
-            let intent = crate::features::mcp_inventory::Intent::Show { source, full };
-            super::features::intent(app, intent.into(), fx);
-        }
         S::Status => status_command(app, source, fx),
         S::Compact => {
             if let Some(thread) = source {

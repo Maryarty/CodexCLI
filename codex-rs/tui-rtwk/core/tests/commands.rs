@@ -976,7 +976,11 @@ fn usage_views_open_the_requested_summary_mode() {
 fn slash_mcp_requests_inventory_and_verbose_and_login() {
     assert_eq!(
         dispatch("/mcp", &cx()),
-        session(SlashCommand::Mcp, SessionIntent::Mcp { args: None })
+        open(
+            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Mcp).unwrap()),
+            SlashCommand::Mcp,
+            ""
+        )
     );
     assert_eq!(
         dispatch("/mcp verbose", &cx()),

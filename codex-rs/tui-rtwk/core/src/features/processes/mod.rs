@@ -10,12 +10,18 @@
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::{Terminal, Tone};
 
 /// The marker type of the feature.
 pub struct Processes;
+
+/// What `/ps` names (`FeatureTarget`): the command runs the feature through its UI half's `open`,
+/// which says the verb below for the thread in use (no sheet is drawn).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sheet;
 
 /// What the user asks of `/ps`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,10 +41,11 @@ pub struct Note {
 
 impl Feature for Processes {
     const NAME: &'static str = "processes";
+    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Ps, Sheet));
 
     type State = ();
     type ThreadPart = ();
-    type Target = Never<Self>;
+    type Target = Sheet;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
     type Command = Never<Self>;
