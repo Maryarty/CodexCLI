@@ -71,9 +71,9 @@ No gap row is closed by the 346 commits.
 
 ## Oracle counts (`--profile oracle`, `summary.py`)
 
-| | pass | n/a | pending | todo | red | stale |
-|---|---|---|---|---|---|---|
-| after | 1215 | 301 | 1098 | 0 | 0 | 0 |
+| | pass | n/a | pending | red | stale |
+|---|---|---|---|---|---|
+| after | 1215 | 301 | 1098 | 0 | 0 |
 
 (The tip moved a lot since repin-4's table: the baseline is the land-check of `8cf058010`;
 no test changed state because of the pin.) The probe run (`KIT_PROBE_PENDING=1`) lists
@@ -99,9 +99,9 @@ stale pending tests that are unrelated to the pin.
 - `item_text()` has no `bullet` parameter any more (w2-transcript run 3 calls it).
 - Visible change: none expected in the rows; a drag over a message now leaves out the
   gutters through `ExcludeSelection` instead of the old `GUTTERS_SELECTED` text trick.
-- key: `pages::a_drag_from_the_first_entry_copies_the_source_of_entries_scrolled_out`,
-  `pages::a_selection_keeps_its_entries_when_older_history_is_prepended`,
-  `pages::a_note_is_one_text_with_its_mark_in_front`, `pages::text_contract`,
+- key: `pages::rtwk_g9::a_drag_from_the_first_entry_copies_the_source_of_entries_scrolled_out`,
+  `pages::rtwk_g9::a_selection_keeps_its_entries_when_older_history_is_prepended`,
+  `screens::cells::text_contract::a_note_is_one_text_with_its_mark_in_front`,
   `rules::pin`.
 - pty: startup, one chat turn, then a mouse drag over the transcript and a copy: the
   copied text has no prompt mark or bullets.

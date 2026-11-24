@@ -19,7 +19,7 @@ This brief is everything after that, plus the pager and backtrack. It replaces `
     `enlarging_paused_view_hides_back_to_bottom_when_tail_fits`, `decimal_mouse_scroll_speeds_preserve_whole_rows`,
     `mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement`;
   - tv5: `offsets_can_reach_rows_after_u16_limit`, `single_row_scrolling_crosses_an_entry_separator_in_both_directions`;
-  - also `tests/rtwk_g9.rs`: it is green; keep it as the ADR-028 guard.
+  - also `tests/rtwk_g9.rs`: it is green; keep it as the ADR-029 guard.
 - `tests/oracle/pager.rs` has 23 `kit::missing` stubs with no bodies, all owned by ChatLive. Write the bodies from the oracle first (step 1), then set their owner to this chunk.
 - tm housekeeping is the orchestrator's: tasks `pager` and `backtrack` carry stale areas (`src/screens/pager`, `tests/pager.rs`). Set them to the §5 list, or fold both into this job.
 
