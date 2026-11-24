@@ -39,6 +39,7 @@ pub mod export;
 pub mod goal;
 pub mod plugins;
 pub mod rename;
+pub mod security_setup;
 pub mod settings;
 
 /// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope

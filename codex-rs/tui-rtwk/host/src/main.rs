@@ -17,6 +17,7 @@ mod startup;
 mod target;
 mod update;
 mod viewer;
+mod security_setup;
 mod workspace;
 
 use codex_arg0::Arg0DispatchPaths;

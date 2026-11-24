@@ -426,6 +426,11 @@ async fn run(
     inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
     // The status card's own: the account it shows, the catalog it names the model in, the server.
     status_feed(&mut inflight, &ids, &handle);
+    // The security-setup reminder: the server's notice for this account, if it has one.
+    let remote_workspace = matches!(mode, Mode::Remote { daemon: false, .. });
+    if crate::security_setup::eligible(&config, remote_workspace) {
+        inflight.push(security_job(&config, &ids, &handle));
+    }
     if let Some(client) = held.get() {
         emit_connection(&ingress, epoch, client, reconnect_endpoint(&mode), daemon);
     }
@@ -457,6 +462,22 @@ async fn run(
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
                 }
                 Some(AppServerEvent::ServerNotification(notification)) => {
+                    // The account was announced again: what the reminder holds is stale until
+                    // the notice is fetched and verified again.
+                    if matches!(
+                        *notification,
+                        codex_app_server_protocol::ServerNotification::AccountUpdated(_)
+                    ) && crate::security_setup::eligible(&config, remote_workspace)
+                    {
+                        emit(
+                            &ingress,
+                            epoch,
+                            AppEv::Feature(
+                                codex_tui_core::features::security_setup::Fact::Invalidated.into(),
+                            ),
+                        );
+                        inflight.push(security_job(&config, &ids, &handle));
+                    }
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
                 }
                 Some(AppServerEvent::ServerRequest(request)) => {
@@ -601,6 +622,16 @@ fn settings_fact(config: &Config) -> codex_tui_core::features::settings::Fact {
         read.themes_dir,
         read.memories,
     )
+}
+
+/// The security-setup notice of the account, as one job of the pump.
+fn security_job(
+    config: &Arc<Config>,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) -> Boxed<Option<AppEv>> {
+    let (config, ids, handle) = (Arc::clone(config), ids.clone(), handle.clone());
+    Box::pin(async move { crate::security_setup::fetch(&config, &ids, sender(handle)).await })
 }
 
 /// The list and the removal of the worktree menus: the pool is this machine's, the owners are

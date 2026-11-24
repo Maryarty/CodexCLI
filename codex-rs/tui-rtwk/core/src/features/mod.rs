@@ -50,6 +50,7 @@ pub mod export;
 pub mod goal;
 pub mod plugins;
 pub mod rename;
+pub mod security_setup;
 pub mod settings;
 
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
@@ -268,6 +269,7 @@ macro_rules! feature_list {
             export => Export;
             plugins => Plugins;
             settings => Settings;
+            security_setup => SecuritySetup;
         }
     };
 }
