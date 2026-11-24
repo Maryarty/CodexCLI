@@ -8,12 +8,108 @@
 //! two-space hang, which the cell that draws them adds.
 
 use codex_tui_core::features::feedback::{Audience, Note};
+
+use crate::l10n::Lang;
 use codex_tui_core::screens::dialogs::FeedbackCategory;
 
 const BASE_CLI_BUG_ISSUE_URL: &str =
     "https://github.com/openai/codex/issues/new?template=3-cli.yml";
 /// Internal routing link for employee feedback follow-ups: never shown to external users.
 const CODEX_FEEDBACK_INTERNAL_URL: &str = "http://go/codex-feedback-internal";
+
+/// The title of the flow in the debug menu.
+pub fn title(_lang: Lang) -> &'static str {
+    "Feedback"
+}
+
+/// `FEEDBACK_POLICY_URL`: how the data of a report is used (the link of `Learn more`).
+pub const POLICY_URL: &str = "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance";
+/// `EMPLOYEE_FEEDBACK_FAQ_URL`: the link of `here` for an employee.
+pub const EMPLOYEE_FAQ_URL: &str = "https://go/codex-employee-feedback-faq";
+
+/// The title of the note step and its placeholder (`feedback_title_and_placeholder`).
+pub fn title_and_placeholder(category: FeedbackCategory) -> (&'static str, &'static str) {
+    const DESCRIBE: &str = "(optional) Write a short description to help us further";
+    match category {
+        FeedbackCategory::BadResult => ("Tell us more (bad result)", DESCRIBE),
+        FeedbackCategory::GoodResult => ("Tell us more (good result)", DESCRIBE),
+        FeedbackCategory::Bug => ("Tell us more (bug)", DESCRIBE),
+        FeedbackCategory::SafetyCheck => (
+            "Tell us more (safety check)",
+            "(optional) Share what was refused and why it should have been allowed",
+        ),
+        FeedbackCategory::Other => ("Tell us more (other)", DESCRIBE),
+    }
+}
+
+/// The disclosure of the note step, in paragraphs of pieces: a piece is its words and what it
+/// is (`FeedbackNoteView::intro_lines`). Uploads disabled, `audience` is none.
+pub fn disclosure(audience: Option<Audience>, can_save: bool) -> Vec<Vec<(&'static str, Piece)>> {
+    let mut paragraphs = Vec::new();
+    match audience {
+        None => paragraphs.push(vec![("Feedback uploads are disabled.", Piece::Dim)]),
+        Some(Audience::OpenAiEmployee) => {
+            paragraphs.push(vec![(
+                "Feedback sent to OpenAI may be used to improve our models and products",
+                Piece::Bold,
+            )]);
+            paragraphs.push(vec![
+                ("By submitting feedback, you agree that OpenAI can use your feedback for safety purposes and internal model training, as explained in more detail ", Piece::Dim),
+                ("here", Piece::Link),
+                (". Please avoid sharing tented information under NDA, or privileged, HR-related, or sensitive personal information.", Piece::Dim),
+            ]);
+        }
+        Some(Audience::External) => paragraphs.push(vec![
+            (
+                "Feedback sent to OpenAI can be used to improve ChatGPT. ",
+                Piece::Dim,
+            ),
+            ("Learn more", Piece::Link),
+            (".", Piece::Dim),
+        ]),
+    }
+    if can_save {
+        paragraphs.push(vec![(
+            if audience.is_some() {
+                "You can also save feedback to a ZIP file, which is not sent to OpenAI."
+            } else {
+                "You can save feedback to a ZIP file, which is not sent to OpenAI."
+            },
+            Piece::Dim,
+        )]);
+    }
+    paragraphs
+}
+
+/// What a piece of the disclosure is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Piece {
+    Dim,
+    Bold,
+    /// The link of the audience: the accent, underlined.
+    Link,
+}
+
+/// The words of the note step's keys, from the longest to the shortest spelling of the row: the
+/// keys the view offers are `(key, words)` of each (`save`, `send`, `cancel`).
+pub struct Hints {
+    pub save: &'static str,
+    pub send: &'static str,
+    pub cancel: &'static str,
+}
+
+pub const HINTS_LONG: Hints = Hints {
+    save: "save ZIP",
+    send: "send to OpenAI",
+    cancel: "cancel",
+};
+pub const HINTS_SHORT: Hints = Hints {
+    save: "save",
+    send: "send",
+    cancel: "cancel",
+};
+/// The line over the hints when the disclosure scrolls.
+pub const SCROLL_HINT: (&str, &str) = ("pgup/pgdn", "scroll disclosure");
 
 /// The words of one of the feature's notes.
 pub fn note(note: &Note) -> String {

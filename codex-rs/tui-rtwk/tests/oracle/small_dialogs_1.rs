@@ -555,10 +555,6 @@ fn experimental_features_empty_error_and_cancel_remain_usable() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:52 feedback_category_titles kind=ui owner=dialogs-pane
 #[test]
 fn feedback_category_titles() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no note step in the feedback flow (core Feedback holds the category and consent steps only): the FeedbackNoteView title is not built",
-    );
     // The digits follow the oracle's feedback_selection_params order: Bug 1, Bad result 2,
     // Good result 3, Safety check 4, Other 5.
     for (digit, title) in [
@@ -568,10 +564,12 @@ fn feedback_category_titles() {
         ("5", "▌ Tell us more (other)"),
     ] {
         let mut s = Screen::build(Owner::DialogsPane)
-            .size(60, 12)
-            .entry("dialogs", "feedback_categories")
+            .size(60, 24)
+            .entry("feedback", "feedback_categories")
             .open();
+        // The category, then `Yes` to the logs: the note step follows.
         s.keys(digit);
+        s.keys("1");
         s.assert_has_row(title);
     }
 }
@@ -579,13 +577,9 @@ fn feedback_category_titles() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:65 feedback_view_bug kind=snap owner=dialogs-pane snap=feedback_view_bug
 #[test]
 fn feedback_view_bug() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note step for the Bug category (`feedback_note_bug`, 60 columns): the note view is not built",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(60, 10)
-        .entry("dialogs", "feedback_note_bug")
+        .entry("feedback", "feedback_note_bug")
         .open();
     s.assert_snap("feedback_view_bug");
 }
@@ -593,13 +587,9 @@ fn feedback_view_bug() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:72 feedback_view_safety_check kind=snap owner=dialogs-pane snap=feedback_view_safety_check
 #[test]
 fn feedback_view_safety_check() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note step for the Safety check category (`feedback_note_safety_check`, 60 columns): the note view is not built",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(60, 10)
-        .entry("dialogs", "feedback_note_safety_check")
+        .entry("feedback", "feedback_note_safety_check")
         .open();
     s.assert_snap("feedback_view_safety_check");
 }
@@ -609,13 +599,13 @@ fn feedback_view_safety_check() {
 fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
     kit::pending(
         Owner::DialogsPane,
-        "no feedback note entries with an upload audience (`feedback_note_bug_external`, `feedback_note_bug_employee`) nor with can_save off (`feedback_note_bug_remote`)",
+        "oracle_snap::header takes no `external (80 columns)`-style frame headers (KIT GAP)",
     );
     // KIT GAP: the snapshot joins its states under `external (80 columns)`-style
     // headers, which oracle_snap::header does not take as frames.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
-        .entry("dialogs", "feedback_note_bug_external")
+        .entry("feedback", "feedback_note_bug_external")
         .open();
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
     s.assert_snap_section("feedback_disclosures", "external (80 columns)");
@@ -624,7 +614,7 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
     s.assert_snap_section("feedback_disclosures", "external (40 columns)");
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
-        .entry("dialogs", "feedback_note_bug_employee")
+        .entry("feedback", "feedback_note_bug_employee")
         .open();
     s.assert_link("here", "https://go/codex-employee-feedback-faq");
     s.assert_snap_section("feedback_disclosures", "employee (80 columns)");
@@ -633,7 +623,7 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
     s.assert_snap_section("feedback_disclosures", "employee (40 columns)");
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
-        .entry("dialogs", "feedback_note_bug_remote")
+        .entry("feedback", "feedback_note_bug_remote")
         .open();
     s.assert_snap_section("feedback_disclosures", "remote server (80 columns)");
 }
@@ -643,7 +633,7 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
 fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
     kit::pending(
         Owner::DialogsPane,
-        "no feedback note entries of the employee audience at 40x12 and 80x8 (`feedback_note_employee_40x12`, `feedback_note_employee_80x8`)",
+        "oracle_snap::header takes no `40x12 initial`-style frame headers (KIT GAP)",
     );
     // KIT GAP: the snapshot's states are headed `40x12 initial`-style, which
     // oracle_snap::header does not take as frames.
@@ -653,7 +643,7 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
     ] {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(width, height)
-            .entry("dialogs", entry)
+            .entry("feedback", entry)
             .open();
         s.paste("A visible note.");
         s.assert_contains("A visible note.");
@@ -681,13 +671,13 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
 fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
     kit::pending(
         Owner::DialogsPane,
-        "no feedback note entries in four rows (`feedback_note_employee_80x4`) nor at 24 columns (`feedback_note_safety_check_employee_24x4`, `feedback_note_safety_check_external_24x4`)",
+        "no kit call compares the two headerless states of the snapshot in order (KIT GAP)",
     );
     // KIT GAP: the snapshot joins the initial and the scrolled state by a blank
     // row with no header; no kit call compares two states in order.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 4)
-        .entry("dialogs", "feedback_note_employee_80x4")
+        .entry("feedback", "feedback_note_employee_80x4")
         .open();
     s.paste("A visible note.");
     s.assert_contains("Feedback sent to OpenAI may be used to improve our models and products");
@@ -708,7 +698,7 @@ fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
     ] {
         let s = Screen::build(Owner::DialogsPane)
             .size(24, 4)
-            .entry("dialogs", entry)
+            .entry("feedback", entry)
             .open();
         s.assert_contains("Feedback sent to");
         s.assert_contains("save · enter send");
@@ -720,13 +710,13 @@ fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
 fn feedback_paste_burst_preserves_multiline_note_until_submit() {
     kit::pending(
         Owner::DialogsPane,
-        "no feedback note entries for a note typed by key, with logs (`feedback_note_bug`) and without (`feedback_note_bug_no_logs`): the note view is not built",
+        "TextArea has no paste-burst: a fast Enter after typed text must insert a newline (NEED: widget)",
     );
     for entry in ["feedback_note_bug_no_logs", "feedback_note_bug"] {
         for note in ["x\nrest", "id\n\nbody", "foo\nbar", "x\t\nrest"] {
             let mut s = Screen::build(Owner::DialogsPane)
                 .size(60, 11)
-                .entry("dialogs", entry)
+                .entry("feedback", entry)
                 .open();
             for ch in note.chars() {
                 match ch {
@@ -782,12 +772,8 @@ fn remote_save_shortcut_keeps_the_note_for_explicit_upload() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:349 submit_feedback_omits_empty_note kind=ui owner=dialogs-pane
 #[test]
 fn submit_feedback_omits_empty_note() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note entry for the Good result category with an empty note (`feedback_note_good_result`)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "feedback_note_good_result")
+        .entry("feedback", "feedback_note_good_result")
         .open();
     s.keys("enter");
     s.assert_absent("Tell us more");
@@ -822,12 +808,8 @@ fn save_shortcut_keeps_note_and_consent_with_or_without_uploads() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:411 feedback_note_cancel_does_not_submit kind=ui owner=dialogs-pane
 #[test]
 fn feedback_note_cancel_does_not_submit() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note entry with the unfinished text `unfinished feedback` (`feedback_note_unfinished`)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "feedback_note_unfinished")
+        .entry("feedback", "feedback_note_unfinished")
         .open();
     s.assert_contains("unfinished feedback");
     s.keys("esc");
@@ -840,7 +822,7 @@ fn feedback_note_cancel_does_not_submit() {
 fn feedback_upload_consent_lists_doctor_report() {
     let s = Screen::build(Owner::DialogsPane)
         .size(60, 24)
-        .entry("dialogs", "feedback_consent")
+        .entry("feedback", "feedback_consent")
         .open();
     let (row, col) = locate(&s, "Include logs and session history?");
     s.assert_snap_region("feedback_upload_consent_lists_doctor_report", row, col);
@@ -851,7 +833,7 @@ fn feedback_upload_consent_lists_doctor_report() {
 fn feedback_upload_consent_lists_windows_sandbox_log_when_included() {
     let s = Screen::build(Owner::DialogsPane)
         .size(60, 24)
-        .entry("dialogs", "feedback_consent_windows")
+        .entry("feedback", "feedback_consent_windows")
         .open();
     let (row, col) = locate(&s, "Include logs and session history?");
     s.assert_snap_region(

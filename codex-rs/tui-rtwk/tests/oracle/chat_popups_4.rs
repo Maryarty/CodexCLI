@@ -892,10 +892,6 @@ fn auto_model_advertising_advanced_effort_opens_reasoning_picker() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4320 feedback_selection_popup_snapshot kind=snap owner=dialogs-pane snap=feedback_command_suggestion snap=feedback_selection_popup
 #[test]
 fn feedback_selection_popup_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the first frame (the /feedback suggestion) is the composer slash popup, not the dialogs screen; the category list itself is the feedback_categories entry (oracle data)",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 5).live().open();
     s.type_text("/feedback");
     s.assert_snap("feedback_command_suggestion");

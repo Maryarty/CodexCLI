@@ -52,7 +52,7 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, target: Target) {
         Target::Agents => push(cx, agents::route()),
         Target::Import => push(cx, import::route()),
         Target::Usage => push(cx, usage::route()),
-        Target::Dialogs => drop(dialogs::open(cx)),
+        Target::Dialogs => drop(dialogs::open_warnings(cx)),
         Target::Approvals => drop(approvals::open(cx)),
         Target::Pets => drop(pets::open(cx)),
         Target::Voice => drop(voice::open(cx)),

@@ -1,0 +1,4 @@
+# /feedback: the note step with uploads disabled: only a ZIP is offered.
+# Oracle data: bottom_pane/feedback_note_view_tests.rs save_shortcut_keeps_note_and_consent_with_or_without_uploads
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"feedback","fact":{"uploads":false}}

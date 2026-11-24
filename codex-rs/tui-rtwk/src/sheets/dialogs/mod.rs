@@ -1,12 +1,11 @@
 //! `dialogs`: the view half of S23 (the small dialogs): the shortcut overlay,
-//! the warnings viewer and the feedback flow. They share one host widget that
+//! and the warnings viewer. They share one host widget that
 //! reads which dialog the model holds (`core::screens::dialogs::Open`) through
 //! a provider projection and returns what the user does as intents.
 //! Oracle: `bottom_pane/shortcut_overlay.rs`, `warnings_view.rs`,
-//! `feedback_view.rs`.
+//! (`/feedback` is `features/feedback`.)
 
 mod dialog;
-mod feedback;
 mod shortcuts;
 mod warnings;
 
@@ -56,21 +55,6 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "the warnings viewer, a long text",
             include_str!("fixtures/warnings_long.jsonl"),
         ),
-        (
-            "feedback_categories",
-            "/feedback: how was this?",
-            include_str!("fixtures/feedback_categories.jsonl"),
-        ),
-        (
-            "feedback_consent",
-            "/feedback: include logs?",
-            include_str!("fixtures/feedback_consent.jsonl"),
-        ),
-        (
-            "feedback_consent_windows",
-            "/feedback: include logs, Windows",
-            include_str!("fixtures/feedback_consent_windows.jsonl"),
-        ),
     ];
     entries
         .into_iter()
@@ -81,8 +65,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Dialog(match name {
                 "shortcut_overlay" => |_| dialog::SmallDialog::of(Page::Shortcuts).into(),
                 "warnings" | "warnings_long" => |_| dialog::SmallDialog::of(Page::Warnings).into(),
-                "feedback_categories" => |_| dialog::SmallDialog::of(Page::Feedback).into(),
-                _ => |_| dialog::SmallDialog::of(Page::Consent).into(),
+                _ => |_| dialog::SmallDialog::of(Page::Shortcuts).into(),
             }),
         })
         .collect()
@@ -96,11 +79,6 @@ pub fn open_page<S>(cx: &mut Cx<'_, S>, page: Page) -> DialogResult<()> {
         move |_| dialog::SmallDialog::of(page).into(),
         crate::sheets::sheet_options(),
     )
-}
-
-/// `/feedback`: how was this? (the `Target::Dialogs` sheet).
-pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    open_page(cx, Page::Feedback)
 }
 
 /// F2 and `/warnings`: the viewer over the warnings the session retains (with none it shows

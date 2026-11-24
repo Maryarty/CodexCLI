@@ -1,0 +1,4 @@
+# /feedback: the note step over a remote workspace: no ZIP can be saved here.
+# Oracle data: bottom_pane/feedback_note_view_tests.rs (`can_save = false`)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"feedback","fact":{"remote":true}}

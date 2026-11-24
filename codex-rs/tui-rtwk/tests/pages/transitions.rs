@@ -82,7 +82,7 @@ command_opens! {
     slash_usage_opens_the_usage_dashboard: "/usage" => "usage";
     slash_usage_weekly_opens_the_usage_dashboard: "/usage weekly" => "usage";
     slash_warnings_opens_the_dialogs: "/warnings" => "dialogs";
-    slash_feedback_opens_the_dialogs: "/feedback" => "dialogs";
+    slash_feedback_opens_the_flow: "/feedback" => "feedback";
     slash_pets_opens_the_pets: "/pets" => "pets";
     slash_pet_alias_opens_the_pets: "/pet" => "pets";
     slash_test_approval_opens_the_approvals: "/test-approval" => "approvals";

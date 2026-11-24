@@ -1,6 +1,6 @@
 //! The feedback flow's two selection steps: "How was this?" and "Include logs
 //! and session history?". Oracle: `bottom_pane/feedback_view.rs`
-//! (`feedback_selection_params`, `feedback_consent_params`).
+//! (`feedback_selection_params`, `feedback_consent_params`). The words are the dialogs' table.
 
 use std::rc::Rc;
 
@@ -8,24 +8,30 @@ use rtwk::controls::SelectionList;
 use rtwk::focus::Focus;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::overlay::Dialog;
+use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::dialogs::{Attachments, FeedbackCategory};
 
-use super::dialog::{Msg, SmallDialogState};
-use super::strings::Strings;
+use super::sheet::{Msg, SheetState};
 use crate::app::theme::Tokens;
+use crate::sheets::dialogs::strings::Strings;
 use crate::keymap::bind_fixed;
 
-/// A step of the feedback flow: drawn state of the dialog.
+/// A step of the feedback flow: drawn state of the sheet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Step {
+pub enum Step {
     /// "How was this?"
     Category,
     /// "Include logs and session history?"
     Consent(FeedbackCategory),
+    /// "Tell us more": the note, with or without the logs.
+    Note {
+        category: FeedbackCategory,
+        include_logs: bool,
+    },
 }
 
 /// The category of the picker's row `index`.
@@ -37,7 +43,7 @@ pub(super) fn build(
     step: Step,
     attachments: &Attachments,
     s: &Strings,
-    cx: &mut Cx<'_, SmallDialogState>,
+    cx: &mut Cx<'_, SheetState>,
 ) -> Focus {
     let tokens = Tokens::of(cx);
     match step {
@@ -55,6 +61,7 @@ pub(super) fn build(
                 .child(Text::line(s.popup_hint).style(tokens.dim()));
             frame(Dialog::new(column).title(s.feedback_title), 5, cx)
         }
+        Step::Note { .. } => Focus::new(Text::new(String::new())),
         Step::Consent(_) => {
             let rows = vec![
                 (
@@ -105,7 +112,7 @@ fn files(attachments: &Attachments, s: &Strings) -> Vec<String> {
 }
 
 /// The dialog around a step: Esc closes, the digits pick a row.
-fn frame(dialog: Dialog, count: usize, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
+fn frame(dialog: Dialog, count: usize, cx: &mut Cx<'_, SheetState>) -> Focus {
     let consent = count == 2;
     let mut focus = bind_fixed(
         Focus::new(dialog).can_request_focus(false),
@@ -128,7 +135,7 @@ fn frame(dialog: Dialog, count: usize, cx: &mut Cx<'_, SmallDialogState>) -> Foc
 /// The rows `N. name  description`, the descriptions in one wrapped column.
 fn list(
     rows: Vec<(String, String)>,
-    cx: &mut Cx<'_, SmallDialogState>,
+    cx: &mut Cx<'_, SheetState>,
     msg: fn(usize) -> Msg,
 ) -> AnyWidget {
     let tokens = Tokens::of(cx);
@@ -138,9 +145,10 @@ fn list(
         .enumerate()
         .map(|(index, (name, description))| (format!("{}. {name}", index + 1), description))
         .collect();
+    let segmenter = segmenter_of(cx);
     let name_width = labels
         .iter()
-        .map(|row| row.0.chars().count())
+        .map(|row| segmenter.width(&row.0))
         .max()
         .unwrap_or(0);
     let count = labels.len();

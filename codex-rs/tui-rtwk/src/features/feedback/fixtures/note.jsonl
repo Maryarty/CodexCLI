@@ -1,0 +1,4 @@
+# /feedback: the note step, uploads on, a local workspace (the oracle's `make_view`).
+# Oracle data: bottom_pane/feedback_note_view_tests.rs make_view
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"dialogs","ev":{"kind":"attachments","can_save":true,"rollout":"rollout.jsonl"}}

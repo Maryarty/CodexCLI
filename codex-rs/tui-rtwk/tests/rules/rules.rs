@@ -647,7 +647,7 @@ const R15_GAPS: &[(&str, &str)] = &[
         "measure, not a gap: break_lines is the TextPainter of the oracle's row count",
     ),
 ];
-const R15_NOT_YET: &[&str] = &["src/sheets/dialogs/feedback.rs"];
+const R15_NOT_YET: &[&str] = &[];
 const R15_PATTERNS: &[&str] = &[
     ".chars().count()",
     "UnicodeWidth",
