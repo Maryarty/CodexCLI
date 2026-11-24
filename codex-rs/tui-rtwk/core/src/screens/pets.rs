@@ -124,15 +124,6 @@ impl Picker {
     }
 }
 
-/// What the picker's owner was asked (`AppEvent`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Choice {
-    /// `PetSelected`.
-    Selected(String),
-    /// `PetDisabled`.
-    Disabled,
-}
-
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
@@ -140,7 +131,6 @@ pub struct Model {
     pub catalog: Option<Picker>,
     /// `PetPreviewRequested`, in order.
     pub previews: Vec<String>,
-    pub chosen: Vec<Choice>,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -158,10 +148,9 @@ pub enum Ev {
 pub enum Intent {
     /// The picker wants the preview of the pet with this selector.
     LoadPreview(String),
-    /// The picker was left: the preview is not wanted any more.
+    /// The picker was left, or a pet was picked (the pick itself is `settings::Edit::PetSelected`,
+    /// a write of `tui.pet`): the preview is not wanted any more.
     ReleasePreview,
-    /// Enter on the row with this selector.
-    Pick(String),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -193,17 +182,6 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::ReleasePreview => {
-            if let Some(picker) = &mut model.catalog {
-                picker.preview = None;
-            }
-        }
-        Intent::Pick(selector) => {
-            let choice = if selector == DISABLED {
-                Choice::Disabled
-            } else {
-                Choice::Selected(selector)
-            };
-            model.chosen.push(choice);
             if let Some(picker) = &mut model.catalog {
                 picker.preview = None;
             }

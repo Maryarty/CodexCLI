@@ -20,6 +20,8 @@ pub enum Subject {
     /// `/tui`: fullscreen transcript on or off.
     TuiMode(bool),
     Keymap,
+    /// `/pets`: the pet picked (or the selector that turns pets off), `[tui].pet`.
+    Pet(String),
 }
 
 impl Subject {
@@ -32,6 +34,10 @@ impl Subject {
             Subject::Memories(_) => Setting::Memories,
             Subject::TuiMode(_) => Setting::TuiMode,
             Subject::Keymap => Setting::Keymap,
+            Subject::Pet(selector) if selector == crate::screens::pets::DISABLED => {
+                Setting::PetsDisabled
+            }
+            Subject::Pet(_) => Setting::PetSelection,
         }
     }
 }
@@ -45,6 +51,8 @@ pub enum Setting {
     Memories,
     TuiMode,
     Keymap,
+    PetSelection,
+    PetsDisabled,
 }
 
 /// One batch of the config file and what it is for.
@@ -104,6 +112,11 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
                 "tui.fullscreen_transcript",
                 serde_json::json!(enabled),
             )],
+        },
+        // `PetSelected` / `PetDisabled` (`app/pets.rs`): `[tui].pet` is the selector.
+        Edit::PetSelected(selector) => Write {
+            subject: Subject::Pet(selector.clone()),
+            edits: vec![replace("tui.pet", serde_json::json!(selector))],
         },
         // The keymap: `[tui.keymap.<context>] <action> = [keys]`.
         Edit::KeymapBound {

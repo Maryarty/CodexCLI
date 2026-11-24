@@ -211,14 +211,9 @@ pub struct NoteRequest {
 ///
 /// What is drawn (which dialog is up, the warnings viewer's page, the keyboard page of the
 /// shortcut overlay, the feedback step) is the sheet's own state, ADR-013; the model keeps what
-/// the app and the host read: the warnings the session retains, the host's list of attachments,
-/// and what the user decided.
+/// the app and the host read: the warnings the session retains, and the host's list of attachments.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// Decisions made when a warnings viewer closed.
-    pub decided: Vec<Decision>,
-    /// Warning texts copied (`AppEvent::CopyWarning`).
-    pub copied: Vec<String>,
     /// The note the feedback flow asked for last.
     pub note: Option<NoteRequest>,
     /// What the consent step lists: the host's fact of the files a report would attach.
@@ -244,8 +239,6 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// Ctrl+O in the warnings viewer: the text of the page shown goes to the clipboard.
-    CopyWarning(String),
     /// The warnings viewer closed: what the user dismissed and saved.
     Decide(Decision),
     /// The consent step was answered: the note the feedback flow ends in.
@@ -263,7 +256,6 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::CopyWarning(text) => model.copied.push(text),
         Intent::Decide(decision) => decide(model, decision),
         Intent::RequestNote(note) => model.note = Some(note),
     }
@@ -277,9 +269,6 @@ fn decide(model: &mut Model, decision: Decision) {
         if let Some(at) = model.retained.iter().position(|w| w == gone) {
             model.retained.remove(at);
         }
-    }
-    if !decision.dismissed.is_empty() || !decision.saved.is_empty() {
-        model.decided.push(decision);
     }
 }
 

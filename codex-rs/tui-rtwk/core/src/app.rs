@@ -2216,27 +2216,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             decision: approvals::Decision::Verify,
         })) => start_verification(app, key, fx),
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::Answer { key, decision })) => {
-            if resolve_request(
-                app,
-                key.clone(),
-                approvals::RequestAnswer::Choice(decision.clone()),
-                fx,
-            ) {
-                approvals::apply_intent(
-                    &mut Rc::make_mut(&mut app.screens).approvals,
-                    approvals::Intent::Answer { key, decision },
-                    fx,
-                );
-            }
+            resolve_request(app, key, approvals::RequestAnswer::Choice(decision), fx);
         }
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::Respond { key, answer })) => {
-            if resolve_request(app, key.clone(), answer.clone(), fx) {
-                approvals::apply_intent(
-                    &mut Rc::make_mut(&mut app.screens).approvals,
-                    approvals::Intent::Respond { key, answer },
-                    fx,
-                );
-            }
+            resolve_request(app, key, answer, fx);
         }
         Intent::Screen(ScreenIntent::Agents(agents::Intent::CancelOpen)) => {
             if let Some(id) = Rc::make_mut(&mut app.screens).agents.opening.take() {

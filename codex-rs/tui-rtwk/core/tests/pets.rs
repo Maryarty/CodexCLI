@@ -1,12 +1,12 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! State tests of S24 (the `/pets` picker): `pets/picker.rs` tests and the
-//! selection events of `build_pet_picker_params`.
+//! State tests of S24 (the `/pets` picker): `pets/picker.rs` tests. The pick is a write of the
+//! config, `settings::Edit::PetSelected`: its tests are in `settings.rs`.
 
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::pets::{Choice, DISABLED, Intent as PetsIntent, Picker, Preview};
+use codex_tui_core::screens::pets::{DISABLED, Intent as PetsIntent, Picker, Preview};
 use pretty_assertions::assert_eq;
 
 const PLAIN: &str = include_str!("../../src/sheets/pets/fixtures/picker.jsonl");
@@ -139,25 +139,6 @@ fn the_preview_becomes_ready_only_for_the_row_it_was_asked_for() {
 }
 
 #[test]
-fn enter_selects_the_pet_and_closes() {
-    let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Pick("codex".into()));
-    assert_eq!(
-        sandbox.app().screens().pets.chosen,
-        vec![Choice::Selected("codex".into())]
-    );
-    // The preview is not wanted any more: the next picker asks again.
-    assert_eq!(picker(&sandbox).preview, None);
-}
-
-#[test]
-fn enter_on_the_disable_row_disables_pets() {
-    let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Pick(DISABLED.into()));
-    assert_eq!(sandbox.app().screens().pets.chosen, vec![Choice::Disabled]);
-}
-
-#[test]
 fn typing_filters_the_pets_and_the_disable_row_answers_to_its_words() {
     let sandbox = Sandbox::play(PLAIN).expect("plays");
     // The search text is the widget's; the model filters by it on request.
@@ -182,7 +163,6 @@ fn leaving_the_picker_releases_its_preview_without_a_choice() {
     send(&mut sandbox, PetsIntent::LoadPreview("codex".into()));
     send(&mut sandbox, PetsIntent::ReleasePreview);
     assert_eq!(picker(&sandbox).preview, None);
-    assert!(sandbox.app().screens().pets.chosen.is_empty());
     send(&mut sandbox, PetsIntent::LoadPreview("codex".into()));
     assert_eq!(
         sandbox.app().screens().pets.previews,

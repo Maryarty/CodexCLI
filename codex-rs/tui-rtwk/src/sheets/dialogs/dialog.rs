@@ -20,6 +20,7 @@ use super::warnings::{Pages, Turn};
 use super::{shortcuts, strings, warnings};
 use crate::app::view::Hs;
 use crate::keymap::{bindings, first_of_each, keymap};
+use crate::pages::session::transcript::copy::CopyJob;
 
 /// The dialog a `SmallDialog` is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,7 +119,9 @@ impl State for SmallDialogState {
                 match pages.turn(turn) {
                     warnings::Outcome::Stay => Rebuild::Yes,
                     warnings::Outcome::Copy(text) => {
-                        cx.emit(&hs.screen, ScreenIntent::Dialogs(Intent::CopyWarning(text)));
+                        // the clipboard verb (oracle `AppEvent::CopyWarning`); the page's
+                        // gap shows what came of it
+                        cx.emit(&hs.copy, CopyJob::plain(text));
                         Rebuild::No
                     }
                     warnings::Outcome::Finish => {

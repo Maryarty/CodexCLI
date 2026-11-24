@@ -54,6 +54,17 @@ impl CopyJob {
         }
     }
 
+    /// Text that is not a selection (a warning's details): copied as it is, nothing to let go.
+    pub fn plain(text: String) -> CopyJob {
+        CopyJob {
+            text,
+            format: CopyFormat::PlainText,
+            destination: CopyDestination::Clipboard,
+            clear_after: None,
+            follow: false,
+        }
+    }
+
     /// Back to the last row once the copy is confirmed.
     #[must_use]
     pub fn following(mut self) -> CopyJob {

@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 use super::catalog::{ActionItem, KeymapPicker, KeymapTab};
 use super::keymap_actions::ACTIONS;
-use crate::keymap::{Binding, Keymap};
+use crate::keymap::Keymap;
 
 /// The feature an action needs before `/keymap` lists it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,16 +112,6 @@ pub fn action_label(action: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-/// A binding as the config writes it: `ctrl-t`, `ctrl-x b`.
-pub fn binding_spec(binding: &Binding) -> String {
-    match binding {
-        Binding::Single(stroke) => stroke.spec(),
-        Binding::Chord { prefix, completion } => {
-            format!("{} {}", prefix.spec(), completion.spec())
-        }
-    }
 }
 
 /// The action of the catalogue named `context.name`.

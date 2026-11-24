@@ -3,8 +3,12 @@
 //! `chatwidget/tests/slash_commands.rs` (`slash_pets_picker`),
 //! `pets/picker.rs` tests.
 
-use crate::common::{Harness, ms, start_sized};
+use crate::common::{Harness, ms, start_driven, start_sized};
 use crate::dialogs::oracle::assert_rows;
+use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::{AppEv, Command};
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::pets::{Ev, Pet, Picker};
 
 fn open(entry: &str) -> Harness {
     let mut h = start_sized(true, 80, 24);
@@ -46,6 +50,65 @@ fn enter_picks_the_pet_and_closes() {
     h.press("enter");
     h.t.pump_for(ms(800));
     assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
+}
+
+/// `/pets` on a driven harness with the catalog the host listed.
+fn pets_command() -> Harness {
+    let pet = |selector: &str, name: &str| Pet {
+        selector: selector.into(),
+        name: name.into(),
+        description: None,
+        legacy_selector: None,
+    };
+    let mut h = start_driven(false, 80, 24);
+    h.wait_idle();
+    h.inject([AppEv::Screen(ScreenEv::Pets(Ev::Listed(Picker::build(
+        None,
+        vec![pet("codex", "Codex"), pet("dewey", "Dewey")],
+    ))))]);
+    h.t.type_text("/pets");
+    h.press("enter");
+    h.wait_for("the picker", |screen| screen.contains("Select Pet"));
+    h.advance(600);
+    h
+}
+
+/// The pick is saved: Enter writes `tui.pet` through the host (the oracle's `PetSelected`).
+#[test]
+fn enter_writes_the_pick_to_the_config() {
+    let mut h = pets_command();
+    h.press("down");
+    h.press("enter");
+    h.wait_until("the write", |h| !edits(h).is_empty());
+    assert_eq!(edits(&h), vec![("tui.pet".to_owned(), "dewey".into())]);
+    assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
+}
+
+/// The disable row is saved as the selector the oracle's `PetDisabled` writes.
+#[test]
+fn enter_on_the_disable_row_writes_the_disabled_pet() {
+    let mut h = pets_command();
+    h.press("up");
+    h.press("enter");
+    h.wait_until("the write", |h| !edits(h).is_empty());
+    assert_eq!(edits(&h), vec![("tui.pet".to_owned(), "disabled".into())]);
+}
+
+/// The config edits the app has asked of the host.
+fn edits(h: &Harness) -> Vec<(String, serde_json::Value)> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Effect {
+                ask: Ask::ConfigWrite { edits },
+                ..
+            } => Some(edits),
+            _ => None,
+        })
+        .flatten()
+        .map(|edit| (edit.key_path, edit.value))
+        .collect()
 }
 
 #[test]
