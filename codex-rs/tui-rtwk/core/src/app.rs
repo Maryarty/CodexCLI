@@ -16,10 +16,10 @@ mod mentions;
 mod notices;
 mod reset;
 mod select;
-mod verbs;
 mod session;
 mod structured;
 mod transcript_text;
+mod verbs;
 pub use clock::{Now, Wake};
 pub use transcript_text::TranscriptText;
 

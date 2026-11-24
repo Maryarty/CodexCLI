@@ -882,11 +882,26 @@ fn the_reachability_resolves_a_name_by_its_path() {
             "core/src/app.rs",
             "use crate::threads::safety::Ev;\npub struct CodexApp { pub a: Ev, pub b: other::Pane, pub c: crate::feed::Plain }\n",
         ),
-        file("core/src/threads/safety.rs", "pub struct Ev { pub cursor: usize }\n"),
-        file("core/src/threads/loud.rs", "pub struct Ev { pub scroll_top: usize }\n"),
-        file("core/src/other.rs", "pub struct Pane { pub expanded: bool }\n"),
-        file("core/src/unlisted/pane.rs", "pub struct Pane { pub highlight: usize }\n"),
-        file("core/src/feed.rs", "pub struct Plain { pub name: String }\n"),
+        file(
+            "core/src/threads/safety.rs",
+            "pub struct Ev { pub cursor: usize }\n",
+        ),
+        file(
+            "core/src/threads/loud.rs",
+            "pub struct Ev { pub scroll_top: usize }\n",
+        ),
+        file(
+            "core/src/other.rs",
+            "pub struct Pane { pub expanded: bool }\n",
+        ),
+        file(
+            "core/src/unlisted/pane.rs",
+            "pub struct Pane { pub highlight: usize }\n",
+        ),
+        file(
+            "core/src/feed.rs",
+            "pub struct Plain { pub name: String }\n",
+        ),
     ];
     assert_eq!(
         draw_fields(&files),

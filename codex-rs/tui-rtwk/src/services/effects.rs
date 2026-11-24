@@ -121,7 +121,14 @@ impl Services {
     /// One ask of `Intent::Effect`, answered under `request`; `None` for the asks of the
     /// app-server (the title, the config).
     pub async fn effect(&self, request: u64, ask: Ask, exec: &dyn WorkspaceExec) -> Option<Ran> {
-        let (done, terminal) = run_ask(&Doors { services: self, exec }, ask).await?;
+        let (done, terminal) = run_ask(
+            &Doors {
+                services: self,
+                exec,
+            },
+            ask,
+        )
+        .await?;
         Some(Ran {
             ev: AppEv::Effect { request, done },
             terminal,

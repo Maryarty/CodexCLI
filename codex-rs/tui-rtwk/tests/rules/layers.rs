@@ -673,11 +673,13 @@ fn is_framework_file(name: &str) -> bool {
 /// `host/src/feeds/<f>/` or `<f>.rs`: the three halves of feature `f` (the model, the view, the
 /// host's feed).
 fn is_own(name: &str, feature: &str) -> bool {
-    ["core/src/features/", "src/features/", "host/src/feeds/"].iter().any(|root| {
-        name.strip_prefix(root).is_some_and(|rest| {
-            rest == format!("{feature}.rs") || rest.starts_with(&format!("{feature}/"))
+    ["core/src/features/", "src/features/", "host/src/feeds/"]
+        .iter()
+        .any(|root| {
+            name.strip_prefix(root).is_some_and(|rest| {
+                rest == format!("{feature}.rs") || rest.starts_with(&format!("{feature}/"))
+            })
         })
-    })
 }
 
 /// `line` names feature `feature` by path: `features::goal` or `features::{.., goal, ..}`.
@@ -806,7 +808,9 @@ fn host_half_names_one_feature() {
     }
     for feed in &feeds {
         assert!(
-            crate_dir().join(format!("host/src/feeds/{feed}.rs")).exists(),
+            crate_dir()
+                .join(format!("host/src/feeds/{feed}.rs"))
+                .exists(),
             "host_feed_list! lists {feed} but host/src/feeds/{feed}.rs is not there"
         );
     }

@@ -214,7 +214,6 @@ impl Ask {
     }
 }
 
-
 /// Why the external editor did not give a text back (oracle `EditorError` and the failures of
 /// `run_editor`).
 #[derive(Clone, Debug, PartialEq, Eq)]

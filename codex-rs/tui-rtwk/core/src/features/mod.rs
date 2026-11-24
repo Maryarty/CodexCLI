@@ -50,8 +50,8 @@ pub use crate::threads::structured::{
 pub use cx::{AppCx, AppFacts, AppView, ChatFacts, Out, ThreadCx, ThreadView};
 pub use lifecycle::{Connection, Lifecycle, Refusal, ThreadSpawn};
 pub use remote::Remote;
-pub use verb::PublicVerb;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
+pub use verb::PublicVerb;
 
 // One line per feature of `feature_list!`, written out so that rustfmt (which follows `mod` lines,
 // not macro expansions) formats the slices too. A feature of the list without its module does not
