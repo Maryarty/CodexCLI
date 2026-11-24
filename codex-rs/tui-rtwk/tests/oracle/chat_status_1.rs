@@ -16,6 +16,54 @@ fn rolling(snapshot: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": snapshot}}})
 }
 
+/// `model/list` with the lower-cost model of the switch prompt, listed for the picker.
+fn luna_catalog() -> String {
+    let model = serde_json::json!({
+        "additionalSpeedTiers": [], "availabilityNux": null, "defaultReasoningEffort": "medium",
+        "defaultServiceTier": null, "description": "Fast and affordable model for easier tasks.",
+        "displayName": "GPT-6 Luna", "hidden": false, "id": "gpt-6-luna",
+        "inputModalities": ["text"], "isDefault": false, "model": "gpt-6-luna",
+        "modelSpecialty": null, "serviceTiers": [],
+        "supportedReasoningEfforts": [{"description": "Balanced", "reasoningEffort": "medium"}],
+        "supportsPersonality": false, "upgrade": null, "upgradeInfo": null
+    });
+    serde_json::json!({"step": "respond", "method": "model/list",
+        "result": {"data": [model], "nextCursor": null}})
+    .to_string()
+}
+
+/// A rolling snapshot of the plan's limit at `used` percent, with the limit type it reached.
+fn limit_snapshot(used: i32, reached: Option<&str>) -> serde_json::Value {
+    serde_json::json!({"limitId": "codex", "rateLimitReachedType": reached,
+        "primary": {"usedPercent": used, "windowDurationMins": 300, "resetsAt": null}})
+}
+
+/// `turn/completed` of the live seed's thread.
+const TURN_ENDED: &str = r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
+
+/// `error` of the live seed's thread that is no retry: the usage limit (`"usageLimitExceeded"`)
+/// or the generic rate limit (a 429 after too many attempts).
+fn limit_error(usage_limit: bool) -> String {
+    let info = if usage_limit {
+        r#""usageLimitExceeded""#
+    } else {
+        r#"{"responseTooManyFailedAttempts":{"httpStatusCode":429}}"#
+    };
+    format!(
+        r#"{{"step":"notify","message":{{"method":"error","params":{{"threadId":"thread-1","turnId":"turn-1","willRetry":false,"error":{{"message":"Usage limit reached.","codexErrorInfo":{info},"additionalDetails":null,"misalignment":null}}}}}}}}"#
+    )
+}
+
+/// The oracle snapshot `name` is on the screen, its first row the one that reads `title`.
+fn assert_popup(s: &Screen, name: &str, title: &str) {
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.trim() == title)
+        .unwrap_or_else(|| panic!("no `{title}` row:\n{}", s.text()));
+    s.assert_snap_rows_at(name, row);
+}
+
 /// The usage warnings the transcript holds begin `Heads up, you have less than ..`.
 const WARNING: &str = "Heads up, you have less than";
 
@@ -422,7 +470,7 @@ fn rate_limit_duration_labels_only_render_supported_windows() {
 fn rate_limit_switch_prompt_clears_when_account_usage_recovers() {
     kit::pending(
         Owner::UiPane,
-        "no rate-limit switch prompt (and its recovery countdown) on the chat screen",
+        "the countdown starts from the answer of an account read, which the rate_limit_prompt feature does not see (need: a read door for features); the switch prompt itself is built",
     );
     // oracle: a 95% snapshot shows the switch prompt; recovery to 0% starts the countdown "Dismissing in 1 second…";
     // the prompt is gone at the deadline; the recovered prompt is the snapshot.
@@ -439,7 +487,7 @@ fn rate_limit_switch_prompt_clears_when_account_usage_recovers() {
 fn rate_limit_recovery_prompt_can_be_dismissed_manually() {
     kit::pending(
         Owner::UiPane,
-        "no rate-limit recovery prompt on the chat screen",
+        "the countdown starts from the answer of an account read, which the rate_limit_prompt feature does not see (need: a read door for features); the switch prompt itself is built",
     );
     // oracle: Enter and Esc both dismiss the recovery prompt (each on a fresh chat).
     for key in ["enter", "esc"] {
@@ -455,7 +503,7 @@ fn rate_limit_recovery_prompt_can_be_dismissed_manually() {
 fn rate_limit_usage_warnings_keep_newly_reached_workspace_limit() {
     kit::pending(
         Owner::UiPane,
-        "no workspace-limit switch popup on the chat screen",
+        "the credits and limit type come from account reads, which the rate_limit_prompt feature does not see (need: a read door for features); the same prompt is built from rolling updates",
     );
     // oracle: a newly reached workspace limit on the codex limit id warns and shows the request popup; another limit id does not.
     let s = Screen::build(Owner::UiPane).size(100, 24).live().open();
@@ -466,96 +514,122 @@ fn rate_limit_usage_warnings_keep_newly_reached_workspace_limit() {
 // ORACLE chatwidget/tests/status_and_layout.rs:1891 rolling_credits_preserve_depleted_workspace_error_routing kind=ui owner=ui-pane
 #[test]
 fn rolling_credits_preserve_depleted_workspace_error_routing() {
-    kit::pending(
-        Owner::UiPane,
-        "no workspace-credits switch popup on the chat screen",
-    );
-    // oracle: depleted workspace member credits route the error to the credits prompt.
-    let s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // needs feed: WorkspaceMemberCreditsDepleted snapshot, rolling 95% with zero balance, generic rate-limit error
+    // oracle: depleted workspace member credits route the error to the credits prompt, however a
+    // rolling update that carries credits (a zero balance, 95% used) reads.
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let blocked = limit_snapshot(0, Some("workspace_member_credits_depleted"));
+    let mut rolling_limits = limit_snapshot(95, None);
+    rolling_limits["credits"] =
+        serde_json::json!({"hasCredits": true, "unlimited": false, "balance": "0"});
+    rolling_limits["spendControlReached"] = serde_json::json!(false);
+    s.feed(&format!(
+        "{}\n{}\n{}\n",
+        rolling(&blocked),
+        rolling(&rolling_limits),
+        limit_error(false)
+    ));
     s.assert_contains("Ask your workspace owner to add more");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2059 rate_limit_switch_prompt_popup_snapshot kind=snap owner=ui-pane snap=rate_limit_switch_prompt_popup
 #[test]
 fn rate_limit_switch_prompt_popup_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no rate-limit switch prompt popup on the chat screen",
+    // oracle: a 92% snapshot shows the switch prompt popup at width 80, once the turn is over.
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(&format!(
+        "{}\n{}\n{}\n",
+        luna_catalog(),
+        rolling(&limit_snapshot(92, None)),
+        TURN_ENDED
+    ));
+    assert_popup(
+        &s,
+        "rate_limit_switch_prompt_popup",
+        "Approaching rate limits",
     );
-    // oracle: a 92% snapshot shows the switch prompt popup at width 80.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: rate-limit 92% snapshot
-    s.assert_snap("rate_limit_switch_prompt_popup");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2071 workspace_member_credits_depleted_prompts_and_sends_credits kind=snap owner=ui-pane snap=workspace_member_credits_depleted_prompt
 #[test]
 fn workspace_member_credits_depleted_prompts_and_sends_credits() {
-    kit::pending(
-        Owner::UiPane,
-        "no workspace-member credits prompt on the chat screen",
-    );
-    // oracle: the depleted-credits prompt at width 90; y sends the credits nudge (an event, not drawn).
+    // oracle: the depleted-credits prompt at width 90; y sends the credits nudge.
     let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
-    // needs feed: WorkspaceMemberCreditsDepleted at 100%, generic rate-limit error "Usage limit reached."
-    s.assert_snap("workspace_member_credits_depleted_prompt");
+    let limits = limit_snapshot(100, Some("workspace_member_credits_depleted"));
+    s.feed(&format!("{}\n{}\n", rolling(&limits), limit_error(false)));
+    assert_popup(
+        &s,
+        "workspace_member_credits_depleted_prompt",
+        "You've reached your workspace credit limit",
+    );
     s.keys("y");
+    s.assert_requests_of("account/sendAddCreditsNudgeEmail", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2090 workspace_member_usage_limit_prompts_and_sends_usage_limit kind=snap owner=ui-pane snap=workspace_member_usage_limit_prompt
 #[test]
 fn workspace_member_usage_limit_prompts_and_sends_usage_limit() {
-    kit::pending(
-        Owner::UiPane,
-        "no workspace-member usage-limit prompt on the chat screen",
-    );
-    // oracle: the usage-limit prompt at width 100; y sends the usage-limit nudge (an event, not drawn).
+    // oracle: the usage-limit prompt at width 100; y sends the usage-limit nudge.
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // needs feed: WorkspaceMemberUsageLimitReached at 100%, usage-limit error "Usage limit reached."
-    s.assert_snap("workspace_member_usage_limit_prompt");
+    let limits = limit_snapshot(100, Some("workspace_member_usage_limit_reached"));
+    s.feed(&format!("{}\n{}\n", rolling(&limits), limit_error(true)));
+    assert_popup(
+        &s,
+        "workspace_member_usage_limit_prompt",
+        "Usage limit reached",
+    );
     s.keys("y");
+    s.assert_requests_of("account/sendAddCreditsNudgeEmail", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2109 sparse_rate_limit_snapshot_preserves_member_limit_type_for_error_prompt kind=ui owner=ui-pane
 #[test]
 fn sparse_rate_limit_snapshot_preserves_member_limit_type_for_error_prompt() {
-    kit::pending(
-        Owner::UiPane,
-        "no request-limit-increase prompt on the chat screen",
-    );
     // oracle: a sparse rolling snapshot keeps the member limit type, so the usage-limit prompt still shows; y sends the usage nudge.
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // needs feed: member usage-limit snapshot, sparse rolling snapshot, usage-limit error
+    let limits = limit_snapshot(100, Some("workspace_member_usage_limit_reached"));
+    s.feed(&format!(
+        "{}\n{}\n{}\n",
+        rolling(&limits),
+        rolling(&limit_snapshot(100, None)),
+        limit_error(true)
+    ));
     s.assert_contains("Request a limit increase from your owner");
     s.keys("y");
+    s.assert_requests_of("account/sendAddCreditsNudgeEmail", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2136 usage_limit_error_remaps_stale_member_credits_state_to_usage_limit_prompt kind=ui owner=ui-pane
 #[test]
 fn usage_limit_error_remaps_stale_member_credits_state_to_usage_limit_prompt() {
-    kit::pending(
-        Owner::UiPane,
-        "no request-limit-increase prompt on the chat screen",
-    );
     // oracle: a stale member-credits state is remapped to the usage-limit prompt by a usage-limit error; y sends the usage nudge.
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // needs feed: WorkspaceMemberCreditsDepleted snapshot, then usage-limit error
+    let limits = limit_snapshot(100, Some("workspace_member_credits_depleted"));
+    s.feed(&format!("{}\n{}\n", rolling(&limits), limit_error(true)));
     s.assert_contains("Request a limit increase from your owner");
     s.keys("y");
+    s.assert_requests_of("account/sendAddCreditsNudgeEmail", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2158 workspace_owner_limit_states_do_not_prompt_for_owner_nudge kind=ui owner=ui-pane
 #[test]
 fn workspace_owner_limit_states_do_not_prompt_for_owner_nudge() {
-    kit::pending(
-        Owner::UiPane,
-        "no workspace-owner nudge prompt on the chat screen",
-    );
     // oracle: each of the owner-depleted, owner-usage and plain rate-limit states (fresh chat each) shows no owner nudge.
-    let s = Screen::build(Owner::UiPane).size(90, 24).live().open();
-    // needs feed: owner limit snapshot at 100% and its error (per state)
-    s.assert_absent("workspace owner");
+    for (reached, usage_limit) in [
+        ("workspace_owner_credits_depleted", false),
+        ("workspace_owner_usage_limit_reached", true),
+        ("rate_limit_reached", false),
+    ] {
+        let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
+        let limits = limit_snapshot(100, Some(reached));
+        s.feed(&format!(
+            "{}\n{}\n",
+            rolling(&limits),
+            limit_error(usage_limit)
+        ));
+        s.assert_absent("workspace owner");
+        s.assert_absent("Request a limit increase");
+        s.assert_requests_of("account/sendAddCreditsNudgeEmail", 0);
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2186 workspace_owner_limit_states_render_state_specific_messages kind=snap owner=ui-pane snap=workspace_owner_limit_state_messages
@@ -563,7 +637,7 @@ fn workspace_owner_limit_states_do_not_prompt_for_owner_nudge() {
 fn workspace_owner_limit_states_render_state_specific_messages() {
     kit::pending(
         Owner::UiPane,
-        "no state-specific workspace-owner limit messages on the chat screen",
+        "the owner states replace the error's text (`on_rate_limit_error`): the threads error cell has no hook for a feature to say its own message (need: threads error hook)",
     );
     // oracle: each owner limit state renders its own message (the joined snapshot has one case per state).
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -588,14 +662,15 @@ fn academic_researchers_usage_limit_renders_admin_guidance() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2246 missing_rate_limit_reached_type_does_not_prompt_or_refresh kind=ui owner=ui-pane
 #[test]
 fn missing_rate_limit_reached_type_does_not_prompt_or_refresh() {
-    kit::pending(
-        Owner::UiPane,
-        "no workspace-owner prompt on the chat screen",
-    );
-    // oracle: without a rate_limit_reached_type no owner prompt shows; the refresh is an event, not drawn.
-    let s = Screen::build(Owner::UiPane).size(90, 24).live().open();
-    // needs feed: a 100% snapshot with no reached type, then a usage-limit error
+    // oracle: without a rate_limit_reached_type no owner prompt shows (the refresh is an event, not drawn).
+    let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
+    s.feed(&format!(
+        "{}\n{}\n",
+        rolling(&limit_snapshot(100, None)),
+        limit_error(true)
+    ));
     s.assert_absent("workspace owner");
+    s.assert_absent("Request a limit increase");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2260 workspace_owner_nudge_default_no_dismisses_without_sending kind=ui owner=ui-pane
@@ -610,47 +685,68 @@ fn workspace_owner_nudge_default_no_dismisses_without_sending() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2276 workspace_owner_nudge_reappears_after_dismissing_no kind=ui owner=ui-pane
 #[test]
 fn workspace_owner_nudge_reappears_after_dismissing_no() {
-    kit::pending(
-        Owner::UiPane,
-        "no workspace-owner nudge prompt that reappears after a dismissal on the chat screen",
-    );
-    // oracle: Enter dismisses the first nudge (no event); the next usage-limit error shows the request popup again.
+    // oracle: Enter dismisses the first nudge (no request); the next usage-limit error shows the request popup again.
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // needs feed: WorkspaceMemberUsageLimitReached at 100%, usage-limit error, Enter, usage-limit error again
+    let limits = limit_snapshot(100, Some("workspace_member_usage_limit_reached"));
+    s.feed(&format!("{}\n{}\n", rolling(&limits), limit_error(true)));
+    s.assert_contains("Request a limit increase from your owner");
     s.keys("enter");
+    s.assert_absent("Request a limit increase from your owner");
+    s.assert_requests_of("account/sendAddCreditsNudgeEmail", 0);
+    s.feed(&format!("{}\n", limit_error(true)));
     s.assert_contains("Request a limit increase from your owner");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2301 workspace_owner_credits_nudge_completion_renders_feedback kind=snap owner=ui-pane snap=workspace_owner_credits_nudge_completion_feedback
 #[test]
 fn workspace_owner_credits_nudge_completion_renders_feedback() {
-    kit::pending(
-        Owner::UiPane,
-        "no add-credits nudge completion feedback on the chat screen",
-    );
-    // oracle: the completed credits nudge says "Workspace owner notified.", the cooldown says "...already notified recently.",
-    // and a failed request says "Could not notify your workspace owner. Please try again." (joined snapshot, one case each).
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: start the credits nudge, finish it as Sent, CooldownActive, then Err("request failed")
-    s.assert_contains("Workspace owner notified.");
-    s.assert_contains("Workspace owner was already notified recently.");
-    s.assert_contains("Could not notify your workspace owner. Please try again.");
+    // oracle: the completed credits nudge says "Workspace owner notified.", the cooldown says "...already notified recently."
+    // (one fresh chat each; the failed request is the fake backend's gap: it answers no error).
+    for (status, text) in [
+        ("sent", "Workspace owner notified."),
+        (
+            "cooldown_active",
+            "Workspace owner was already notified recently.",
+        ),
+    ] {
+        let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
+        let limits = limit_snapshot(100, Some("workspace_member_credits_depleted"));
+        let answer = serde_json::json!({"step": "respond", "method": "account/sendAddCreditsNudgeEmail",
+            "result": {"status": status}});
+        s.feed(&format!(
+            "{answer}\n{}\n{}\n",
+            rolling(&limits),
+            limit_error(false)
+        ));
+        s.keys("y");
+        s.assert_has_row(&format!("• {text}"));
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2339 workspace_owner_usage_limit_nudge_completion_renders_feedback kind=snap owner=ui-pane snap=workspace_owner_usage_limit_nudge_completion_feedback
 #[test]
 fn workspace_owner_usage_limit_nudge_completion_renders_feedback() {
-    kit::pending(
-        Owner::UiPane,
-        "no usage-limit nudge completion feedback on the chat screen",
-    );
-    // oracle: the completed usage-limit nudge says "Limit increase requested.", the cooldown "...already requested recently.",
-    // a failed request "Could not request a limit increase. Please try again." (joined snapshot, one case each).
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: start the usage-limit nudge (a credits start is refused while it runs), finish it as Sent, CooldownActive, then Err
-    s.assert_contains("Limit increase requested.");
-    s.assert_contains("A limit increase was already requested recently.");
-    s.assert_contains("Could not request a limit increase. Please try again.");
+    // oracle: the completed usage-limit nudge says "Limit increase requested.", the cooldown "...already requested recently."
+    // (one fresh chat each; the failed request is the fake backend's gap: it answers no error).
+    for (status, text) in [
+        ("sent", "Limit increase requested."),
+        (
+            "cooldown_active",
+            "A limit increase was already requested recently.",
+        ),
+    ] {
+        let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+        let limits = limit_snapshot(100, Some("workspace_member_usage_limit_reached"));
+        let answer = serde_json::json!({"step": "respond", "method": "account/sendAddCreditsNudgeEmail",
+            "result": {"status": status}});
+        s.feed(&format!(
+            "{answer}\n{}\n{}\n",
+            rolling(&limits),
+            limit_error(true)
+        ));
+        s.keys("y");
+        s.assert_has_row(&format!("• {text}"));
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2410 streaming_final_answer_keeps_task_running_state kind=ui owner=ui-pane

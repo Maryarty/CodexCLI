@@ -1258,6 +1258,8 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     {
                         refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                     }
+                    // the features follow the rolling limits too (the limit prompts)
+                    features::observe(app, &notification, fx);
                     return;
                 }
                 // The app server says the apps directory changed

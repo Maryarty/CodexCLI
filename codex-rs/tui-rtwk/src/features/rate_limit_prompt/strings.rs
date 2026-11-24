@@ -60,9 +60,10 @@ pub fn nudge_menu(nudge: Nudge) -> List {
             "Request a limit increase from your owner to continue using codex. Request increase?",
         ),
     };
+    // the picker draws no shortcut hint: the oracle's `display_shortcut` is part of the name
     let row = |id: &str, name: &str, shortcut: char| Item {
         id: id.to_owned(),
-        name: name.to_owned(),
+        name: format!("{name} ({shortcut})"),
         shortcut: Some(shortcut),
         ..Item::default()
     };
