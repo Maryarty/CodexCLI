@@ -19,7 +19,7 @@ use std::sync::Arc;
 use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
-    Definitions, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock, MdCodeBlock, MdInline,
+    Block, Definitions, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock, MdCodeBlock, MdInline,
     MdList, MdListItem, MdTable,
 };
 
@@ -187,6 +187,24 @@ pub fn view_with(
         })
         .collect();
     MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions)
+}
+
+/// The blocks the cell draws for `source` (what `view_with` hands the view: the directives read,
+/// the user's `rendering` applied, the links and headings rewritten as the oracle reads them).
+/// What find, the select mode and copy read as text of a message that is not mounted
+/// (`transcript::markdown_text`), and what a cell that wraps this body (the proposed plan, a
+/// delegated message) takes its text from, so that the text is the one the cell draws.
+pub fn blocks_of(
+    source: &str,
+    live: bool,
+    cwd: Option<&str>,
+    strings: &Strings,
+    rendering: Rendering,
+) -> Vec<Block> {
+    view_with(source, live, cwd, strings, rendering)
+        .blocks
+        .map(|blocks| blocks.to_vec())
+        .unwrap_or_default()
 }
 
 /// The inline nodes of a follow-up's label: its own Markdown, the first

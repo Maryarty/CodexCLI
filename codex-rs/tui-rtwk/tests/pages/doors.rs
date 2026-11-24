@@ -278,3 +278,28 @@ mod find_in_thread_ui {
         assert!(bar > prompt, "{}", s.text());
     }
 }
+
+mod blocks {
+    use codex_tui_core::app::facts::Rendering;
+    use codex_tui_rtwk::pages::session::cells::citation::blocks_of;
+    use codex_tui_rtwk::pages::session::cells::strings::EN;
+    use codex_tui_rtwk::pages::session::transcript::markdown_text;
+
+    /// `blocks_of` is what the cell draws, and the text model reads it: a source with two
+    /// paragraphs and a heading is three blocks, whose text is the source's.
+    #[test]
+    fn blocks_of_is_the_document_the_cell_draws() {
+        let blocks = blocks_of(
+            "# Title\n\npara one\n\npara two",
+            false,
+            None,
+            &EN,
+            Rendering::default(),
+        );
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(
+            markdown_text::text(&blocks).as_deref(),
+            Some("# Title\n\npara one\n\npara two")
+        );
+    }
+}
