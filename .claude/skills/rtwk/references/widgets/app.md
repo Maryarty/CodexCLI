@@ -11,14 +11,14 @@ A Code is the body of the gallery's preview: it names widgets by the last segmen
 
 The input no widget took: keys nothing is bound to, the mouse where no Listener is, pastes, focus and resizes.
 
-- `rtwk::binding::InputListener` (struct) in `crates/rtwk-widgets/src/binding/app_binding.rs:1556`: Gives its callback the input events of the app it is in while it is mounted, wherever it is in the tree: the keys that no focus node took (AppBinding::dispatch), the mouse events that no `Listener` took, pastes, focus and resizes.
+- `rtwk::binding::InputListener` (struct) in `crates/rtwk-widgets/src/binding/app_binding.rs:1648`: Gives its callback the input events of the app it is in while it is mounted, wherever it is in the tree: the keys that no focus node took (AppBinding::dispatch), the mouse events that no `Listener` took, pastes, focus and resizes.
 
 ### Code
 
 ```rust
 use rtwk::binding::InputListener;
+use rtwk::input::InputEvent;
 use rtwk::widgets::Text;
-use rtwk_core::input::InputEvent;
 
 pub fn build(on_input: impl Fn(String) + 'static) -> InputListener {
     InputListener::new(
@@ -85,9 +85,9 @@ Output that is finished once shown: in place here; in the inline mode above the 
 ### Code
 
 ```rust
+use rtwk::app::TerminalOptions;
 use rtwk::binding::Static;
 use rtwk::text::Text;
-use rtwk_core::terminal::TerminalOptions;
 
 pub fn terminal_options() -> TerminalOptions {
     let inline = true;
@@ -118,9 +118,8 @@ The program's progress in the terminal's tab or taskbar, where the terminal show
 ### Code
 
 ```rust
-use rtwk::binding::TerminalProgress;
+use rtwk::binding::{ProgressState, TerminalProgress};
 use rtwk::text::Text;
-use rtwk_core::terminal::ProgressState;
 
 pub fn build() -> TerminalProgress {
     let value = Some(0.33);
@@ -144,7 +143,7 @@ pub fn build() -> TerminalProgress {
 
 ## Viewport
 
-The app in a fixed rectangle of the screen (Viewport.fixed): nothing outside it is written, so what the terminal showed around it stays.
+The app in a fixed rectangle of the screen (Viewport::fixed): nothing outside it is written, so what the terminal showed around it stays.
 
 - `rtwk::app::Viewport` (struct) in `crates/rtwk-core/src/presenter/modes.rs:23`: A rectangle of the terminal's screen that an app draws in and owns: nothing outside it is written, erased or moved (ScreenMode::Fixed).
 - `rtwk::app::ScreenMode` (enum) in `crates/rtwk-core/src/presenter/modes.rs:63`: Which part of the terminal's screen a Presenter draws on.
@@ -201,7 +200,7 @@ use rtwk::binding::TerminalTitle;
 use rtwk::prelude::*;
 
 fn view(_: &(), _: &mut ViewCx<()>) -> AnyWidget {
-    TerminalTitle::new("twk gallery", Text::new("In the title bar: twk gallery")).into()
+    TerminalTitle::new("rtwk gallery", Text::new("In the title bar: rtwk gallery")).into()
 }
 
 ```
@@ -210,14 +209,14 @@ fn view(_: &(), _: &mut ViewCx<()>) -> AnyWidget {
 
 | option | values | starts at |
 | --- | --- | --- |
-| title | twk gallery, build: 3 of 5, chat · ~/project | twk gallery |
+| title | rtwk gallery, build: 3 of 5, chat · ~/project | rtwk gallery |
 | app running | false, true | true |
 
 ## Notifications
 
 A desktop notification of a title and a body, where the terminal shows one (OSC 9, 777 or 99); nothing where it does not.
 
-- `rtwk::binding::AppBinding` (struct) in `crates/rtwk-widgets/src/binding/app_binding.rs:327`: The app a widget runs in (twk's `AppBinding`): one per running app, found from a build by maybe_of.
+- `rtwk::binding::AppBinding` (struct) in `crates/rtwk-widgets/src/binding/app_binding.rs:344`: The app a widget runs in (twk's `AppBinding`): one per running app, found from a build by maybe_of.
 
 ### Code
 
@@ -260,7 +259,7 @@ fn view(count: &usize, cx: &mut ViewCx<usize>) -> AnyWidget {
 
 ## Cli
 
-A command-line tool's console (twk's cli.dart) as it runs: questions that leave their answer as a line, a spinner, tasks with bars, a traceback.
+A command-line tool's console (the Cli widget) as it runs: questions that leave their answer as a line, a spinner, tasks with bars, a traceback.
 
 - `rtwk::cli::Cli` (struct) in `crates/rtwk-cli/src/cli.rs:127`: The console of a command-line tool: messages by channel and level, styled as the terminal takes them, and any rtwk widget shown in the output (show).
 

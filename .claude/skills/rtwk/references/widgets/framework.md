@@ -20,10 +20,10 @@ use rtwk::layout::{
     Border, BorderTitle, BorderType, BoxWidget, Center, Column, CrossAxisAlignment, Expanded, Row,
     SizedBox,
 };
+use rtwk::render::describe_constraints;
 use rtwk::style::{Span, Theme};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, LayoutBuilder, column};
-use rtwk_render::describe_constraints;
 
 pub(crate) fn layout(width: i32, wide_from: i32) -> AnyWidget {
     SizedBox::new(

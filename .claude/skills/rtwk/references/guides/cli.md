@@ -35,6 +35,27 @@ printed to stdout and exits with 0.
 `record`, `play`, `tape` and `shell` need Unix for their terminal and
 pseudo-terminal parts; `decode` and `test-from-cast` run anywhere.
 
+## Typing a recording into a command: `rtwk record --replay`
+
+```bash
+rtwk record --replay demo.cast --replay-speed asap --replay-then end --out again.cast -- cargo run
+```
+
+`--replay <file>` types the keys of an earlier recording (one made with
+`--keys`) into the command, once the command has written; the terminal's own
+answers in that recording are left out (the splitter is twk's) and this
+terminal answers the command's queries again. `--replay-speed <n|asap>` is 1
+by default: a number types the keys at the recorded times divided by it;
+`asap` types each key once the command has shown what it showed at that key
+and has been quiet for 100 ms (waiting at most 2 s). `--replay-then
+<handover|end>`: `handover` (the default) gives this terminal to the command
+after the last key; `end` hangs the command up once it has been quiet for a
+second and exits 0. While the replay goes on the person's keys are held back;
+Ctrl+C goes through, and `--marker-key` is not read. `--replay-speed` and
+`--replay-then` without `--replay`, and a recording that cannot be read, are
+usage errors (exit 2). The design is
+dev-record-play.md.
+
 ## Running an app with the debug aids
 
 ```bash
@@ -142,8 +163,8 @@ token to the code.
 The test uses `rtwk-test` and `rtwk-dev` (for the recording reader), so the
 package lists both under `[dev-dependencies]`. `test-from-cast` writes its
 files and then says which is missing and exits with 1; the files stay.
-`rtwk-test` is `publish = false` for now, so the tests work inside this
-repository or with path dependencies, not from crates.io:
+`rtwk-test`'s `Cargo.toml` does not set `publish = false`. The paths below
+work inside this repository or beside a checkout of it:
 
 ```toml
 [dev-dependencies]

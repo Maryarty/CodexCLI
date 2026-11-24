@@ -185,6 +185,53 @@ no anchor when it goes on and clears the selection (twk's `_selectTo`), while
 a drag that stays within the entries in view selects across them as above
 (`an_entry_scrolled_out_of_the_list_leaves_the_selection_as_twks_select_to_has_it`).
 
+## Fenced blocks of your own
+
+A fenced block of code is twk's `CodeView` in the language of its info
+string. An app that draws a language itself (a diagram, a math block, a
+chart of its own) gives the view a builder for it. The builder returns a
+widget, or `None` to leave the block as code.
+
+```rust
+use rtwk::widgets::Text;
+use rtwk::AnyWidget;
+use rtwk_rich::markdown::{Fence, FenceBuilders, FenceBuildersScope, MarkdownView};
+
+// make the map once: builders are equal when they are the same map, and a
+// map made at every build makes every block again
+let builders = FenceBuilders::new().with(&["note", "aside"], |fence: &Fence<'_>| {
+    if fence.code.trim().is_empty() {
+        return None;
+    }
+    Some(Text::new(format!("Note: {}", fence.code)).into())
+});
+
+// for one view
+let view = MarkdownView::new("```note\nBack up first.\n```").fence_builders(builders.clone());
+// or for every view below a widget
+let app = FenceBuildersScope::new(builders, MarkdownView::new("..."));
+```
+
+* The language is the first word of the info string, in any case; the
+  builder is given the whole string (`fence.info`) and the code
+  (`fence.code`). A fence with no language and an indented block are code.
+* The view's builders come before the scope's, which come before
+  `CodeView`. `fence.code_block()` is that code block, for a builder that
+  puts a note above it.
+* The widget is laid out at the width the block has (in a list item and in a
+  quote, less). A builder that depends on the width makes its content in a
+  `LayoutBuilder`. A built block selects and copies as any other text.
+* **A fence still open is code.** In a stream, the builder is asked when
+  the closing fence comes, once; the widget is kept from then on. A builder
+  that wants the code as it arrives says `builds_open` (the `FenceBuilder`
+  trait) and gets `fence.open == true` until the close.
+* A document given as text cannot tell whether it is whole, so its unclosed
+  last fence counts as open. Show a finished reply from the snapshot of a
+  closed stream (`stream.close()`, then `MarkdownView::from_snapshot(stream.snapshot())`)
+  to have that fence built.
+* `markdown_lines`, the lines of a document as data, builds no widgets and
+  uses no builders.
+
 ## Markdown alongside other widgets
 
 Put the neighbours and the view in one `Column` inside the scroll view, so

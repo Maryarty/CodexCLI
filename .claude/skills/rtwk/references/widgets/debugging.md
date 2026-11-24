@@ -17,8 +17,8 @@ Log records listed over the app, newest last; the app has one of its own, which 
 
 ```rust
 use rtwk::debug::{Console, ConsoleController};
+use rtwk::log::{LogLevel, LogSink};
 use rtwk::text::Text;
-use rtwk_core::log::{LogLevel, LogSink};
 
 pub fn build(sink: &LogSink) -> Console {
     let controller = ConsoleController::new(sink);
@@ -73,16 +73,16 @@ pub fn record(sample: &FrameSample, now_micros: u64) -> FrameOverlay {
 
 Each repaint boundary tinted a new colour when it paints, and relayouts marked, to see what a change redraws; Ctrl+G then r, and l.
 
-- `rtwk_render::RenderTree` (struct) in `crates/rtwk-render/src/tree.rs:416`: A retained tree of RenderObjects and the pipeline that lays it out and paints it from its root, a frame at a time: what was marked since the last frame, and nothing else (twk's `PipelineOwner` and the tree it owns).
+- `rtwk_render::RenderTree` (struct) in `crates/rtwk-render/src/tree.rs:420`: A retained tree of RenderObjects and the pipeline that lays it out and paints it from its root, a frame at a time: what was marked since the last frame, and nothing else (twk's `PipelineOwner` and the tree it owns).
 
 ### Code
 
 ```rust
-use rtwk_render::RenderTree;
+use rtwk::WidgetTree;
 
-pub fn configure(tree: &mut RenderTree) {
-    tree.set_debug_repaint_rainbow(true);
-    tree.set_debug_relayout_highlight(false);
+pub fn configure(tree: &mut WidgetTree) {
+    tree.render_tree_mut().set_debug_repaint_rainbow(true);
+    tree.render_tree_mut().set_debug_relayout_highlight(false);
 }
 
 ```

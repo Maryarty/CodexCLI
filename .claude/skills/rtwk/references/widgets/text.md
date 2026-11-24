@@ -31,7 +31,7 @@ SizedBox::new(
                 ))
                 .wrap(TextWrap::Word)
                 .overflow(TextOverflow::Ellipsis)
-                .align(TextAlign::Left)
+                .text_align(TextAlign::Left)
                 .max_lines(None),
             )
             .into(),
@@ -44,7 +44,7 @@ SizedBox::new(
 | option | values | starts at |
 | --- | --- | --- |
 | wrap | word, grapheme, none | word |
-| overflow | clip, ellipsis, ellipsisStart, ellipsisMiddle | ellipsis |
+| overflow | Clip, Ellipsis, EllipsisStart, EllipsisMiddle | Ellipsis |
 | align | left, center, right, justify | left |
 | max lines | all, 3, 1 | all |
 | width | 14 cells, 15 cells, 16 cells, 17 cells, 18 cells, 19 cells, 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells, 49 cells, 50 cells | 32 cells |
@@ -59,51 +59,53 @@ Spans in styles of their own: attributes, colors and links, 'text'.bold.fg(…) 
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-Text::rich([
-    Span::styled("attributes\n", theme.muted.clone()),
-    Span::new("bold").bold(),
-    Span::new(" "),
-    Span::new("dim").dim(),
-    Span::new(" "),
-    Span::new("italic").italic(),
-    Span::new(" "),
-    Span::new("reverse").reverse(),
-    Span::new(" "),
-    Span::new("strike").strike(),
-    Span::new(" "),
-    Span::new("overline").overline(),
-    Span::new("\n\n"),
-    Span::styled("underlines\n", theme.muted.clone()),
-    Span::new("underline").underline(),
-    Span::new(" "),
-    Span::new("double").double_underline(),
-    Span::new(" "),
-    Span::new("curly").curly_underline(),
-    Span::new(" "),
-    Span::new("dotted").dotted_underline(),
-    Span::new(" "),
-    Span::new("dashed").dashed_underline(),
-    Span::new("\n\n"),
-    Span::styled("colors\n", theme.muted.clone()),
-    Span::new("red").fg(Color::RED),
-    Span::new(" "),
-    Span::new("color 166").fg(Color::indexed(166)),
-    Span::new(" "),
-    Span::new("rgb").fg(Color::rgb(64, 128, 224)),
-    Span::new(" "),
-    Span::new(" on navy ").fg(Color::WHITE).bg(Color::indexed(17)),
-    Span::new(" "),
-    Span::styled("red curly", Style
-    {
-        underline_color: Some(Color::RED),
-        ..Style::new().attrs(Attrs::CURLY_UNDERLINE)
-    },),
-    Span::new("\n\n"),
-    Span::styled("links\n", theme.muted.clone()),
-    Span::new("a link to dart.dev").link("https://dart.dev").underline(),
-])
-.on_link_tap(on_link.clone())
+fn rich(cx: &mut Cx<'_>, on_link: Handler<std::sync::Arc<str>>) -> Text {
+    let theme = Theme::of(cx);
+    Text::rich([
+        Span::styled("attributes\n", theme.muted.clone()),
+        Span::new("bold").bold(),
+        Span::new(" "),
+        Span::new("dim").dim(),
+        Span::new(" "),
+        Span::new("italic").italic(),
+        Span::new(" "),
+        Span::new("reverse").reverse(),
+        Span::new(" "),
+        Span::new("strike").strike(),
+        Span::new(" "),
+        Span::new("overline").overline(),
+        Span::new("\n\n"),
+        Span::styled("underlines\n", theme.muted.clone()),
+        Span::new("underline").underline(),
+        Span::new(" "),
+        Span::new("double").double_underline(),
+        Span::new(" "),
+        Span::new("curly").curly_underline(),
+        Span::new(" "),
+        Span::new("dotted").dotted_underline(),
+        Span::new(" "),
+        Span::new("dashed").dashed_underline(),
+        Span::new("\n\n"),
+        Span::styled("colors\n", theme.muted.clone()),
+        Span::new("red").fg(Color::RED),
+        Span::new(" "),
+        Span::new("color 166").fg(Color::indexed(166)),
+        Span::new(" "),
+        Span::new("rgb").fg(Color::rgb(64, 128, 224)),
+        Span::new(" "),
+        Span::new(" on navy ").fg(Color::WHITE).bg(Color::indexed(17)),
+        Span::new(" "),
+        Span::styled("red curly", Style
+        {
+            underline_color: Some(Color::RED),
+            ..Style::new().attrs(Attrs::CURLY_UNDERLINE)
+        },),
+        Span::new("\n\n"),
+        Span::styled("links\n", theme.muted.clone()),
+        Span::new("a link to rust-lang.org").link("https://www.rust-lang.org").underline(),
+    ])
+    .on_link_tap(on_link.clone())
+}
 ```
 
 ### Options
@@ -141,9 +143,9 @@ DefaultTextStyle::new(
 
 ## Right to left
 
-Hebrew and Arabic among left-to-right text: put in the order it reads where the app reorders it (TextOrder.visual), left as stored where the terminal reorders it itself.
+Hebrew and Arabic among left-to-right text: put in the order it reads where the app reorders it (TextOrder::Visual), left as stored where the terminal reorders it itself.
 
-- `rtwk_unicode::BidiText` (struct) in `crates/rtwk-unicode/src/bidi/mod.rs:381`: A text's bidirectional layout by UAX #9: its paragraphs, the embedding level of each character and, for a line of a paragraph, the runs it is drawn in.
+- `rtwk::render::BidiText` (struct) in `crates/rtwk-unicode/src/bidi/mod.rs:381`: A text's bidirectional layout by UAX #9: its paragraphs, the embedding level of each character and, for a line of a paragraph, the runs it is drawn in.
 
 ### Code
 
@@ -167,7 +169,7 @@ Column::new()
             TextAlign::End => !rtl,
             _ => align == TextAlign::Right,
         };
-        Text::new(format!("\u{200e}\u{202d}{shown}\u{202c}")).align(if right {
+        Text::new(format!("\u{200e}\u{202d}{shown}\u{202c}")).text_align(if right {
             TextAlign::Right
         } else {
             TextAlign::Left
@@ -186,7 +188,7 @@ Column::new()
 
 ## ANSI
 
-Output with ANSI colour codes, from a program or a log, as styled spans: all at once with parseAnsi, or as it streams in with AnsiStream.
+Output with ANSI colour codes, from a program or a log, as styled spans: all at once with parse_ansi, or as it streams in with AnsiStream.
 
 - `rtwk::ansi::AnsiStream` (struct) in `crates/rtwk-widgets/src/ansi/stream.rs:104`: Output of a program, such as a compiler or a test runner, that arrives in pieces, read as lines of spans: the lines a terminal would show it in, with nothing in them that could act on the terminal they are drawn on (twk's `AnsiStream`).
 - `rtwk::ansi::parse_ansi` (fn) in `crates/rtwk-widgets/src/ansi/stream.rs:29`: The lines of `text`, output of a program with ANSI escape sequences, as AnsiStream reads it, a tab moving to the next multiple of 8 columns (twk's `parseAnsi`; parse_ansi_with for another tab width).
@@ -194,15 +196,15 @@ Output with ANSI colour codes, from a program or a log, as styled spans: all at 
 ### Code
 
 ```rust
-//  dart test 
+//  cargo test 
 let output = concat!(
-    "\r\u{1b}[K00:00 \u{1b}[32m+0\u{1b}[0m: loading test/view_test.dart\r\u{1b}[K00:00 \u{1b}[32m+3\u{1b}[0m: test/view_test.dart: lists and their markers\r\u{1b}[K00:01 \u{1b}[32m+9\u{1b}[0m: test/stream_test.dart: a block settled once\r\u{1b}[K00:01 \u{1b}[32m+12\u{1b}[0m \u{1b}[33m~1\u{1b}[0m: test/code_test.dart: tabs\r\u{1b}[K00:02 \u{1b}[32m+16\u{1b}[0m \u{1b}[33m~1\u{1b}[0m: test/diff_test.dart: a gap row\r\u{1b}[K00:02 \u{1b}[32m+16\u{1b}[0m \u{1b}[33m~1\u{1b}[0m \u{1b}[31m-1\u{1b}[0m: test/diff_test.dart: a gap row [E]\n",
-    "  Expected: '⋯ 21 unchanged lines'\n",
-    "    Actual: '⋯ 20 unchanged lines'\n",
-    "     Which: is different.\n",
+    "\r\u{1b}[K\u{1b}[1;32m   Compiling\u{1b}[0m rtwk-rich v0.1.0\r\u{1b}[K\u{1b}[1;32m    Finished\u{1b}[0m `test` profile in 2.0s\r\u{1b}[Ktest a_gap_row ... \u{1b}[31mFAILED\u{1b}[0m\n",
+    "assertion `left == right` failed\n",
+    "  left: \"⋯ 20 unchanged lines\"\n",
+    " right: \"⋯ 21 unchanged lines\"\n",
     "\n",
-    "  \u{1b}[2mtest/diff_test.dart 88:7  main.<fn>\u{1b}[22m\n",
-    "\r\u{1b}[K00:03 \u{1b}[32m+21\u{1b}[0m \u{1b}[33m~1\u{1b}[0m \u{1b}[31m-1\u{1b}[0m: \u{1b}[31mSome tests failed.\u{1b}[0m\n",
+    "  \u{1b}[2mat tests/diff.rs:88:7\u{1b}[22m\n",
+    "\r\u{1b}[Ktest result: \u{1b}[31mFAILED\u{1b}[0m. 20 passed; 1 failed\n",
 );
 let lines = parse_ansi(output);
 Column::new().children(lines.into_iter().map(|line| {
@@ -214,6 +216,6 @@ Column::new().children(lines.into_iter().map(|line| {
 
 | option | values | starts at |
 | --- | --- | --- |
-| output | dart test, ls, log | dart test |
-| read with | parseAnsi, AnsiStream | parseAnsi |
+| output | cargo test, ls, log | cargo test |
+| read with | parse_ansi, AnsiStream | parse_ansi |
 | piece | 7 chars, 16, 64 | 7 chars |
