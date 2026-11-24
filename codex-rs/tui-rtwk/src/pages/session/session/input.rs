@@ -101,7 +101,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                     modes.borrow().hold(Input::Plain);
                 }
                 Step::Find => {
-                    if let Some(follow) = caret.follow() {
+                    if let Some(follow) = caret.reader() {
                         finder.begin(&follow, &selection);
                     }
                 }

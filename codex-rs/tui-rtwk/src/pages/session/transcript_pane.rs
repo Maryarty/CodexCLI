@@ -608,7 +608,7 @@ impl State for ViewportState {
                     );
                 }
             } else if caret.active() {
-                caret.apply(texts, &widget.selection);
+                caret.show(texts, &widget.selection);
                 if let Some(row) = caret.reveal() {
                     widget
                         .follow

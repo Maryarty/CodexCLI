@@ -6,7 +6,7 @@
 //! the finder the thread's `ThreadUi` holds (`of`; a thread's `ThreadUi` is another crate door's,
 //! so the registry is here until the controller is a field of it): the key action begins it, the page's key handler moves it (`key`), the pane gives
 //! it the rows (`RowTexts`, the transcript as the list's selection reads it) and shows it by
-//! asking the selection area for the caret's grapheme, or the marked range (`apply`), and the
+//! asking the selection area for the caret's grapheme, or the marked range (`show`), and the
 //! footer says what the keys do (`hints`). Nothing here is drawn: the area paints the range
 //! REVERSED as the oracle does, and the host paints the caret's cell bold and underlined too
 //! (`caret`).
@@ -550,7 +550,7 @@ impl Select {
     /// Shows what the mode holds in the selection area: the caret's grapheme or the marked range
     /// (a range across rows is a selection of the list as a whole: its object is learned from the
     /// first selection of it, so a range across rows shows from the second frame on).
-    pub fn apply(&self, rows: &Rc<RowTexts>, selection: &TextSelection) {
+    pub fn show(&self, rows: &Rc<RowTexts>, selection: &TextSelection) {
         let controller = selection.controller();
         if !self.0.attached.replace(true) {
             // a selection that is let go from outside (a delivered copy, a click) is asked for
@@ -610,7 +610,7 @@ impl Select {
     }
 
     /// The reader whose list the mode began over (Find opens from it).
-    pub fn follow(&self) -> Option<Follow> {
+    pub fn reader(&self) -> Option<Follow> {
         self.0.data.borrow().follow.clone()
     }
 
