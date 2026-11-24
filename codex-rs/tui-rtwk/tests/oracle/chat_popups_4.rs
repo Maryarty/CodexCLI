@@ -1164,13 +1164,8 @@ fn saved_quick_dials_save_and_clear_picker_snapshots() {
 /// The first `count` rows of the oracle's snapshot `name` (the menu's block) equal ours from the
 /// menu's title.
 fn assert_menu_head(s: &Screen, name: &str, count: usize) {
-    let row = popup_row(s, "Presets");
-    assert!(row != usize::MAX, "no menu:\n{}", s.text());
-    let ours = s.rows();
-    for (at, want) in kit::snap_rows(name, "").iter().take(count).enumerate() {
-        let got = ours.get(row + at).map_or("", |r| r.trim_end());
-        assert_eq!(got, want.trim_end(), "{name}: row {at}\n{}", s.text());
-    }
+    s.assert_contains("Presets");
+    s.assert_snap_rows_from(name, popup_row(s, "Presets"), count, false);
 }
 
 const MORE_PRESETS: &str = r#"{"step":"presets","slots":[{"slot":1,"input":"/model gpt-5.5 --reasoning=high --speed=fast","label":"coding","origin":"user"},{"slot":2,"input":"/permissions workspace-write","origin":"user"},{"slot":3,"input":"Review the current changes and explain every important behavior change","origin":"user"},{"slot":5,"input":"/skills simplify-code","origin":"user"},{"slot":7,"input":"Plan the requested change","origin":"user"},{"slot":0,"input":"/status","origin":"user"}]}"#;
@@ -1682,18 +1677,7 @@ fn worktree_picker_custom_keys_preserve_draft_and_protect_current_checkout() {
         owner: Held::Nobody,
     }]);
     s.keys("f3");
-    let unwrapped = |s: &Screen| {
-        s.rows()
-            .iter()
-            .flat_map(|row| row.split_whitespace())
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    assert!(
-        unwrapped(&s).contains("Switch to another checkout before deleting this one"),
-        "{:?}",
-        s.rows()
-    );
+    s.assert_contains_unwrapped("Switch to another checkout before deleting this one");
     s.keys("2");
     s.assert_contains("Delete worktree (disabled)");
     s.keys("f2");

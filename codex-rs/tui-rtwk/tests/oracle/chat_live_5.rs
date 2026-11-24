@@ -721,20 +721,12 @@ fn side_aliases_request_forked_questions_while_task_running() {
         if input.starts_with("/side") {
             // The status row's spinner blinks between `•` and `◦` with the clock (the snapshot
             // holds its first frame): every row but that glyph is the oracle's.
-            let want = kit::snap_rows(
+            s.assert_snap_rows_from(
                 "slash_side_requests_forked_side_question_while_task_running",
-                "",
+                0,
+                8,
+                true,
             );
-            let ours = s.rows();
-            for at in 0..8 {
-                let (ours, want) = (ours[at].trim_end(), want[at].trim_end());
-                assert_eq!(
-                    ours.trim_start_matches(['•', '◦']),
-                    want.trim_start_matches(['•', '◦']),
-                    "row {at}:\n{}",
-                    s.text()
-                );
-            }
         }
     }
 }
@@ -751,16 +743,7 @@ fn side_context_label_preserves_status_line_snapshot() {
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","items":["model-name"]}}}"#);
     // The composer's placeholder in a side conversation (`Ask a follow-up question`, row 2) is
     // `bottom.rs`'s (status': a flag-keyed placeholder): the other rows are the oracle's.
-    let want = kit::snap_rows("side_context_label_preserves_status_line", "");
-    let ours = s.rows();
-    for at in (0..6).filter(|at| *at != 2) {
-        assert_eq!(
-            ours[at].trim_end(),
-            want[at].trim_end(),
-            "row {at}:\n{}",
-            s.text()
-        );
-    }
+    s.assert_snap_rows_except("side_context_label_preserves_status_line", 0..6, &[2]);
     kit::pending(
         Owner::ChatLive,
         "the composer's placeholder in a side conversation is `Ask a follow-up question` (flags.side_conversation_active): bottom.rs (status') sets the chat's placeholder only",
@@ -780,16 +763,7 @@ fn side_context_label_shows_parent_status_snapshot() {
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}"#);
     // The composer's placeholder in a side conversation (`Ask a follow-up question`, row 2) is
     // `bottom.rs`'s (status': a flag-keyed placeholder): the other rows are the oracle's.
-    let want = kit::snap_rows("side_context_label_shows_parent_status", "");
-    let ours = s.rows();
-    for at in (0..6).filter(|at| *at != 2) {
-        assert_eq!(
-            ours[at].trim_end(),
-            want[at].trim_end(),
-            "row {at}:\n{}",
-            s.text()
-        );
-    }
+    s.assert_snap_rows_except("side_context_label_shows_parent_status", 0..6, &[2]);
     kit::pending(
         Owner::ChatLive,
         "the composer's placeholder in a side conversation is `Ask a follow-up question` (flags.side_conversation_active): bottom.rs (status') sets the chat's placeholder only",

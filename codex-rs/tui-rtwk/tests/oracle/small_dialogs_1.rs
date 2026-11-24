@@ -79,21 +79,7 @@ fn install_confirmation_does_not_split_long_url_like_token_without_scheme() {
     // The pane is narrower than the token, so no row holds it whole; it is not split at a
     // hyphen or a slash, but runs on to the width and goes on in the next row.
     let url = "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
-    let rows = s.rows();
-    let first = rows
-        .iter()
-        .position(|row| row.trim().starts_with("example.test/"))
-        .unwrap_or_else(|| panic!("no URL row on the screen:\n{}", s.text()));
-    let shown: Vec<&str> = rows[first..]
-        .iter()
-        .map(|row| row.trim())
-        .take_while(|row| !row.is_empty())
-        .collect();
-    assert_eq!(shown.concat(), url, "{}", s.text());
-    assert!(
-        !shown[0].ends_with('-') && !shown[0].ends_with('/'),
-        "the URL is split at a hyphen or a slash: {shown:?}"
-    );
+    s.assert_token_wraps_whole(url);
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1350 install_confirmation_render_keeps_url_tail_visible_when_narrow kind=ui owner=dialogs-pane
@@ -681,38 +667,18 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
 fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
     // The snapshot joins the initial and the scrolled state by a blank row with no header: the
     // four rows of each are compared by hand.
-    let states = kit::snap_rows("feedback_disclosure_four_rows", "");
-    let same_rows = |s: &Screen, state: usize| {
-        let ours = s.rows();
-        for at in 0..4 {
-            assert_eq!(
-                ours[at].trim_end(),
-                states[state * 5 + at].trim_end(),
-                "state {state}, row {at}:\n{}",
-                s.text()
-            );
-        }
-    };
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 4)
         .entry("feedback", "feedback_note_employee_80x4")
         .open();
     s.paste("A visible note.");
     s.assert_contains("Feedback sent to OpenAI may be used to improve our models and products");
-    same_rows(&s, 0);
+    s.assert_snap_state_rows("feedback_disclosure_four_rows", 0, 4);
     // a page down per line of the disclosure (the oracle's `intro_lines`), the sensitive-information
     // notice passing by on the way
-    let mut saw_sensitive_information_notice = false;
-    for _ in 0..40 {
-        s.keys("pagedown");
-        saw_sensitive_information_notice |= s
-            .rows()
-            .iter()
-            .any(|row| row.contains("personal information."));
-    }
-    assert!(saw_sensitive_information_notice);
+    s.assert_passes_by("pagedown", 40, "personal information.");
     s.assert_contains("which is not sent to OpenAI");
-    same_rows(&s, 1);
+    s.assert_snap_state_rows("feedback_disclosure_four_rows", 5, 4);
     for entry in [
         "feedback_note_safety_check_employee_24x4",
         "feedback_note_safety_check_external_24x4",

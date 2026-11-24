@@ -662,6 +662,104 @@ impl Screen {
         assert!(count > 0, "no {what} drawn:\n{}", self.text());
     }
 
+    /// The first `count` rows of the oracle's snapshot `name` equal our rows from `from` (trailing
+    /// blanks aside); `blink` ignores a leading `•`/`◦` (a spinner glyph that follows the clock).
+    pub fn assert_snap_rows_from(&self, name: &str, from: usize, count: usize, blink: bool) {
+        let ours = self.rows();
+        let glyph: &[char] = if blink { &['•', '◦'] } else { &[] };
+        for (at, want) in snap_rows(name, "").iter().take(count).enumerate() {
+            let got = ours.get(from + at).map_or("", |r| r.trim_end());
+            pretty_assertions::assert_eq!(
+                got.trim_start_matches(glyph),
+                want.trim_end().trim_start_matches(glyph),
+                "{name}: row {at}\n{}",
+                self.text()
+            );
+        }
+    }
+
+    /// As `assert_snap_rows_from` for the rows `rows` of the screen against the same rows of the
+    /// snapshot, but for the rows in `except` (the port's own words there).
+    pub fn assert_snap_rows_except(
+        &self,
+        name: &str,
+        rows: std::ops::Range<usize>,
+        except: &[usize],
+    ) {
+        let ours = self.rows();
+        let want = snap_rows(name, "");
+        for at in rows.filter(|at| !except.contains(at)) {
+            pretty_assertions::assert_eq!(
+                ours[at].trim_end(),
+                want[at].trim_end(),
+                "{name}: row {at}\n{}",
+                self.text()
+            );
+        }
+    }
+
+    /// The first `count` rows of the screen equal the rows `at..at + count` of the oracle's
+    /// snapshot `name` (one that joins several states by a blank row with no header).
+    pub fn assert_snap_state_rows(&self, name: &str, at: usize, count: usize) {
+        let ours = self.rows();
+        let want = snap_rows(name, "");
+        for row in 0..count {
+            pretty_assertions::assert_eq!(
+                ours[row].trim_end(),
+                want[at + row].trim_end(),
+                "{name} from row {at}, row {row}:\n{}",
+                self.text()
+            );
+        }
+    }
+
+    /// The oracle presses `keys` `times` times and asserts `text` showed on some row on the way.
+    pub fn assert_passes_by(&mut self, keys: &str, times: usize, text: &str) {
+        let mut seen = false;
+        for _ in 0..times {
+            self.keys(keys);
+            seen |= self.rows().iter().any(|row| row.contains(text));
+        }
+        assert!(seen, "`{text}` never showed:\n{}", self.text());
+    }
+
+    /// The oracle asserts the screen's words, wrapped or not, hold `text`: the rows' words joined
+    /// by single spaces.
+    pub fn assert_contains_unwrapped(&self, text: &str) {
+        let joined = self
+            .rows()
+            .iter()
+            .flat_map(|row| row.split_whitespace())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            joined.contains(text),
+            "no `{text}` in the screen's words:\n{}",
+            self.text()
+        );
+    }
+
+    /// The oracle asserts a token with no spaces (`token`) runs over rows from the one that starts
+    /// with its first piece: the rows' pieces join back to it, and the first piece does not end at
+    /// a hyphen or a slash.
+    pub fn assert_token_wraps_whole(&self, token: &str) {
+        let rows = self.rows();
+        let first = rows
+            .iter()
+            .position(|row| row.trim().starts_with(&token[..token.len().min(8)]))
+            .unwrap_or_else(|| panic!("no `{token}` row on the screen:\n{}", self.text()));
+        let shown: Vec<&str> = rows[first..]
+            .iter()
+            .map(|row| row.trim())
+            .take_while(|row| !row.is_empty())
+            .collect();
+        pretty_assertions::assert_eq!(shown.concat(), token, "{}", self.text());
+        assert!(
+            !shown[0].ends_with('-') && !shown[0].ends_with('/'),
+            "the token is split at a hyphen or a slash: {shown:?}"
+        );
+    }
+
     /// The oracle asserts the screen changed.
     pub fn assert_rows_differ(&self, before: &Shot) {
         assert!(
