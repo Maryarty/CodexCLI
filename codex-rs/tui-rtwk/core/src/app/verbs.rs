@@ -88,4 +88,31 @@ mod tests {
         );
         assert!(app.screens().chat.notes.is_empty(), "no line is said");
     }
+
+    /// The one path of the nudge: a feature's verb sends the e-mail through the same request the
+    /// banner's action does, one at a time, for the thread's backend.
+    #[test]
+    fn a_notify_owner_verb_asks_for_one_nudge_at_a_time() {
+        use crate::screens::chat::Nudge;
+
+        let mut app = open_app();
+        let sends = |app: &mut CodexApp| {
+            let mut fx = AppFx::default();
+            carry(app, PublicVerb::NotifyOwner(Nudge::UsageLimit), &mut fx);
+            fx.commands()
+                .iter()
+                .filter(|command| {
+                    matches!(
+                        command,
+                        Command::SendAddCreditsNudge {
+                            nudge: Nudge::UsageLimit,
+                            ..
+                        }
+                    )
+                })
+                .count()
+        };
+        assert_eq!(sends(&mut app), 1);
+        assert_eq!(sends(&mut app), 0, "the first is still in flight");
+    }
 }

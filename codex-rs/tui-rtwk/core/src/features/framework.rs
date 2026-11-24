@@ -27,8 +27,8 @@ use crate::app::facts::TuiSettings;
 use crate::app::{AppFx, Now};
 use crate::commands::SlashCommand;
 use crate::ids::{BackendId, ThreadId, TicketMint};
-use crate::screens::status::RateRead;
 use crate::rpc::RpcError;
+use crate::screens::status::RateRead;
 use crate::screens::{ScreenStates, SeedError};
 use crate::threads::{Origin, ThreadEv, ThreadFx, ThreadSet, UserMessage};
 
@@ -331,9 +331,10 @@ use probe_list::{
     FeatureCommand, FeatureCtx, FeatureEvent, FeatureFact, FeatureIntent, FeatureInterest,
     FeatureNote, FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha,
     answered, apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode,
-    effect_done, names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact,
-    on_interest, on_interrupted, on_rate_limits_read, on_resumed, on_shown, on_user_message, on_turn_end, project, project_request,
-    fault_words, runs_of, seed_note, structured_done, structured_wanted, thread_opened, thread_wakes_due, wakes_due, wire,
+    effect_done, fault_words, names, next_thread_wake, next_wake, note_tone, on_connection,
+    on_event, on_fact, on_interest, on_interrupted, on_rate_limits_read, on_resumed, on_shown,
+    on_turn_end, on_user_message, project, project_request, runs_of, seed_note, structured_done,
+    structured_wanted, thread_opened, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -768,7 +769,10 @@ fn a_rate_limits_read_reaches_every_feature_in_list_order() {
     app_step(|cx| on_rate_limits_read(&mut states, backend, &RateRead::default(), cx));
     assert_eq!(
         logged(),
-        [("alpha", Hook::Rates(backend)), ("beta", Hook::Rates(backend))]
+        [
+            ("alpha", Hook::Rates(backend)),
+            ("beta", Hook::Rates(backend))
+        ]
     );
 }
 
@@ -810,6 +814,37 @@ fn a_feature_makes_its_thread_quiet_about_interruptions() {
     );
 }
 
+/// The backend banner of the thread in use is a fact a feature reads, shown or not (the limit
+/// prompts wait while one shows); where the view has none, there is none.
+#[test]
+fn the_backend_banner_of_the_thread_in_use_is_a_fact_a_feature_reads() {
+    use crate::ids::Ticket;
+    use crate::screens::chat::{Banner, BannerOccurrence};
+
+    let banner: Banner = serde_json::from_value(serde_json::json!({
+        "banner_type": "selected_model_limit", "model_slug": "test-model-a",
+        "title": "Selected model usage exhausted", "description": "Switch to another model.",
+        "ctas": [], "presentation": "inline",
+    }))
+    .expect("a banner");
+    let occurrence = BannerOccurrence::new(banner, Ticket::new(3));
+    let (threads, screens, tui) = (
+        ThreadSet::default(),
+        ScreenStates::default(),
+        TuiSettings::default(),
+    );
+    let view = |banner| AppView::new(None, &threads, &screens, &tui, &[], None).with_banner(banner);
+    let with = view(Some(&occurrence));
+    let seen = with
+        .facts()
+        .backend_banner()
+        .expect("the banner of the view");
+    assert_eq!(seen.ticket, Ticket::new(3));
+    assert!(seen.is_visible(Some("test-model-a")));
+    assert!(!seen.is_visible(Some("another-model")));
+    assert!(view(None).facts().backend_banner().is_none());
+}
+
 /// A user message of an unnamed thread reaches every feature, in list order.
 #[test]
 fn a_user_message_reaches_every_feature_in_list_order() {
@@ -820,7 +855,10 @@ fn a_user_message_reaches_every_feature_in_list_order() {
     assert_eq!(
         logged(),
         [
-            ("alpha", Hook::Message(thread.clone(), "fix the build".into())),
+            (
+                "alpha",
+                Hook::Message(thread.clone(), "fix the build".into())
+            ),
             ("beta", Hook::Message(thread, "fix the build".into())),
         ]
     );

@@ -12,9 +12,9 @@ use crate::features::{
 };
 use crate::features::{ChatFacts, Connection, FeatureStates, Out, Refusal};
 use crate::ids::{BackendId, ThreadId};
-use crate::screens::status::RateRead;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::chat::facts;
+use crate::screens::status::RateRead;
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
 use codex_app_server_protocol::{ServerNotification, ServerRequest};

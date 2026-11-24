@@ -42,10 +42,7 @@ use super::{centered, centered_route};
 /// edge of it (where the oracle's pane is; `review_sheet.rs`), the confirmation in the middle of
 /// it (`SelectionViewParams::confirmation`: `ViewPresentation::Centered`).
 pub fn sheet(menu: &Menu) -> AnyWidget {
-    Navigator::new()
-        .home(placed(menu))
-        .back_key(None)
-        .into()
+    Navigator::new().home(placed(menu)).back_key(None).into()
 }
 
 /// The options the sheet is shown with: the bottom pane, built under the providers of the page

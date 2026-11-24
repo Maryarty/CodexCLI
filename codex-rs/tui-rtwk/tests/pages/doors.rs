@@ -184,6 +184,34 @@ mod picker {
         assert!(t.screen().contains("Learn more:"), "{}", t.screen());
     }
 
+    /// A run of the picker's header carries its link the same way
+    /// (`windows_sandbox_help_links_keep_complete_wrapped_destinations`: the URL is in the header).
+    #[test]
+    fn a_linked_run_of_the_header_names_its_destination_on_every_wrapped_cell() {
+        let list = List {
+            items: vec![row("Yes", "yes")],
+            header: vec![vec![
+                Span::new("Learn more: ", Role::Dim),
+                Span::new(URL, Role::Info).linked(URL),
+            ]],
+            ..List::default()
+        };
+        let (t, _) = mount(list, 30);
+        let mut spelled = String::new();
+        for y in 0..20 {
+            for x in 0..30 {
+                let cell = t.cell(x, y);
+                if let Some(link) = &cell.link {
+                    assert_eq!(link, URL, "({x}, {y})");
+                    if !cell.tail {
+                        spelled.push_str(&cell.text);
+                    }
+                }
+            }
+        }
+        assert_eq!(spelled, URL, "{}", t.screen());
+    }
+
     /// `Role::Good` is the success colour of `Role::Success` without its italic.
     #[test]
     fn the_good_role_is_not_italic() {
@@ -715,7 +743,10 @@ mod side_placeholder {
 
     #[test]
     fn a_side_conversation_asks_for_a_follow_up() {
-        let s = Screen::build(Owner::UiPane).size(80, 24).script(SIDE).open();
+        let s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .script(SIDE)
+            .open();
         s.assert_contains("Ask a follow-up question");
         s.assert_absent("Ask Codex to do anything");
     }
@@ -843,5 +874,49 @@ mod burst_into_the_feedback_note {
         s.assert_contains("foo");
         s.assert_contains("bar");
         s.assert_contains("Tell us more");
+    }
+}
+
+/// The panel's status-line and title rows open the setups the way `/statusline` and `/title`
+/// do, with the live values of the chat (`dialog_of`, `open`'s `live`), not the debug menu's.
+mod config_panel_opens_the_live_setups {
+    use crate::kit::{Owner, Screen};
+
+    const SCRIPT: &str = concat!(
+        include_str!("../oracle/fixtures/chat_status_3/preview_live.jsonl"),
+        "\n",
+        // the turn is over: `/config` is not a command of a working thread
+        r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n",
+        r#"{"step":"fact","feature":"settings","fact":{"kind":"config_panel","rows":[{"id":"theme","section":"appearance","label":"Theme","description":"Choose a syntax color palette with a live preview","keywords":"colors dark light palette","value":{"choice":"Automatic"}},{"id":"status_line_display","section":"appearance","label":"Status line display","description":"Choose and reorder the information below the composer","keywords":"statusline footer model branch context","value":"configure"},{"id":"terminal_title_display","section":"appearance","label":"Terminal title display","description":"Choose and reorder the information in your terminal tab or window title","keywords":"title tab window name","value":"configure"}]}}"#,
+        "\n"
+    );
+
+    fn panel() -> Screen {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(100, 28)
+            .script(SCRIPT)
+            .open();
+        s.type_text("/config");
+        s.keys("enter");
+        s.assert_contains("Configuration");
+        s
+    }
+
+    #[test]
+    fn the_status_line_row_previews_the_chats_live_values() {
+        let mut s = panel();
+        s.keys("down enter");
+        s.assert_absent("Configuration");
+        s.assert_contains("preview-live-root · feature/live-preview-branch · Live preview thread");
+    }
+
+    #[test]
+    fn the_title_row_previews_the_chats_live_values() {
+        let mut s = panel();
+        s.keys("down down enter");
+        s.assert_contains(
+            "preview-live-root | Live preview thread | feature/live-preview-branch | Tasks 2/5",
+        );
     }
 }
