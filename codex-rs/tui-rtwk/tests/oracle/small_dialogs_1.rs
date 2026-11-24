@@ -594,10 +594,6 @@ fn feedback_view_safety_check() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:79 feedback_disclosure_matches_audience_at_normal_and_narrow_widths kind=snap owner=dialogs-pane snap=feedback_disclosures
 #[test]
 fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `external (80 columns)`-style frame headers (KIT GAP)",
-    );
     // KIT GAP: the snapshot joins its states under `external (80 columns)`-style
     // headers, which oracle_snap::header does not take as frames.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -605,6 +601,10 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
         .entry("feedback", "feedback_note_bug_external")
         .open();
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
+    kit::pending(
+        Owner::DialogsPane,
+        "oracle_snap::header takes no `external (80 columns)`-style frame headers (KIT GAP)",
+    );
     s.assert_snap_section("feedback_disclosures", "external (80 columns)");
     s.resize(40, 16);
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
@@ -628,12 +628,8 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:130 feedback_disclosure_scrolls_without_hiding_input_in_short_panes kind=snap owner=dialogs-pane snap=feedback_disclosure_short_panes
 #[test]
 fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `40x12 initial`-style frame headers (KIT GAP)",
-    );
-    // KIT GAP: the snapshot's states are headed `40x12 initial`-style, which
-    // oracle_snap::header does not take as frames.
+    // The snapshot's states are headed `40x12 initial`-style, which
+    // oracle_snap::header does not take as frames (KIT GAP): the rest is checked by hand.
     for (entry, width, height) in [
         ("feedback_note_employee_40x12", 40, 12),
         ("feedback_note_employee_80x8", 80, 8),
@@ -645,12 +641,29 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
         s.paste("A visible note.");
         s.assert_contains("A visible note.");
         s.assert_contains("enter send");
+        s.keys("pagedown");
+        s.assert_contains("sensitive personal");
+        s.keys("pageup");
+        s.assert_contains("A visible note.");
+    }
+    kit::pending(
+        Owner::DialogsPane,
+        "oracle_snap::header takes no `40x12 initial`-style frame headers (KIT GAP)",
+    );
+    for (entry, width, height) in [
+        ("feedback_note_employee_40x12", 40, 12),
+        ("feedback_note_employee_80x8", 80, 8),
+    ] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(width, height)
+            .entry("feedback", entry)
+            .open();
+        s.paste("A visible note.");
         s.assert_snap_section(
             "feedback_disclosure_short_panes",
             &format!("{width}x{height} initial"),
         );
         s.keys("pagedown");
-        s.assert_contains("sensitive personal");
         s.assert_snap_section(
             "feedback_disclosure_short_panes",
             &format!("{width}x{height} scrolled"),
@@ -746,16 +759,20 @@ fn feedback_paste_burst_preserves_multiline_note_until_submit() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:277 feedback_bracketed_paste_does_not_reach_chat_composer kind=ui owner=dialogs-pane
 #[test]
 fn feedback_bracketed_paste_does_not_reach_chat_composer() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note over the live chat composer (`feedback_note_over_chat`, `feedback_note_over_chat_logs`): the /feedback note step is not built",
-    );
-    for entry in ["feedback_note_over_chat", "feedback_note_over_chat_logs"] {
+    // The flow runs over the live chat composer: `/feedback`, the category (1 is the bug), the
+    // consent (1 with the logs, 2 without), then the note.
+    for logs in ["1", "2"] {
         let mut s = Screen::build(Owner::DialogsPane)
-            .entry("dialogs", entry)
+            .size(80, 24)
+            .live()
             .open();
+        s.type_text("/feedback");
+        s.keys("enter");
+        s.keys("1");
+        s.keys(logs);
         s.type_text("x");
         s.paste("\nrest");
+        s.assert_contains("rest");
         s.keys("enter");
         s.assert_absent("rest");
     }

@@ -907,15 +907,22 @@ fn feedback_selection_popup_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4341 feedback_stops_before_collecting_a_note_when_no_destination_is_available kind=snap owner=dialogs-pane
 #[test]
 fn feedback_stops_before_collecting_a_note_when_no_destination_is_available() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature /feedback flow (w2-approvals, chat popups): none in the port in the port: with no upload destination the flow stops before the note and prints the two unavailable notices; no widget and no scripted state",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.assert_contains("• Feedback is unavailable in Cloud threads.");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(r#"{"step":"fact","feature":"feedback","fact":{"remote":true,"uploads":false}}"#)
+        .open();
+    s.type_text("/feedback");
+    s.keys("enter");
     s.assert_contains(
         "• Feedback uploads are disabled, and saving a ZIP requires a local app server.",
     );
+    s.assert_absent("How was this?");
+    kit::pending(
+        Owner::DialogsPane,
+        "cloud threads have no counterpart in this app (no cloud backend): `• Feedback is unavailable in Cloud threads.` is never said",
+    );
+    s.assert_contains("• Feedback is unavailable in Cloud threads.");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4359 feedback_upload_consent_popup_snapshot kind=snap owner=dialogs-pane snap=feedback_upload_consent_popup
