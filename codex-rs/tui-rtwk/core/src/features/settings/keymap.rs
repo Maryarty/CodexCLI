@@ -192,6 +192,11 @@ impl Row {
     }
 }
 
+/// A catalogue tab's name with its count, as the oracle's tab bar reads it.
+fn counted(label: &str, count: usize) -> String {
+    format!("{label} ({count})")
+}
+
 fn tab(id: &str, label: String, rows: &[&Row]) -> KeymapTab {
     KeymapTab {
         id: id.to_owned(),
@@ -231,10 +236,10 @@ pub fn picker(keymap: &Keymap, filter: Filter) -> KeymapPicker {
         tab("common", "Common".to_owned(), &common),
         tab(
             "customized",
-            format!("Customized ({})", customized.len()),
+            counted("Customized", customized.len()),
             &customized,
         ),
-        tab("unbound", format!("Unbound ({})", unbound.len()), &unbound),
+        tab("unbound", counted("Unbound", unbound.len()), &unbound),
     ];
     tabs[0].items = rows.iter().map(|row| row.item.clone()).collect();
     tabs[1].items = common.iter().map(|row| row.item.clone()).collect();
