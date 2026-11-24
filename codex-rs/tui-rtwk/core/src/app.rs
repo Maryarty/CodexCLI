@@ -1230,6 +1230,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             if *backend == origin && read.folds_into_a_read_in_flight())
                     });
                     install_rates(app, origin, note.rate_limits.clone().into());
+                    judge_by_account(app, origin);
                     // a rolling update warns like a read does, but never writes the buckets
                     let sample = crate::screens::status::Sample::of(&note.rate_limits);
                     let read_out = app.outgoing.any(|ctx| {
@@ -1296,7 +1297,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .entry(origin)
                         .or_default();
                     store.clear();
-                    store.limits_mut().set_plan(note.plan_type);
+                    store.limits_mut().set_account_plan(note.plan_type);
                     if active_backend(app) == origin {
                         reset::clear(app);
                     }
@@ -1901,6 +1902,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     if !overtaken {
                         install_rates(app, backend, limits);
                     }
+                    judge_by_account(app, backend);
                     let now = app.now.secs();
                     let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
@@ -2387,6 +2389,25 @@ fn install_rates(app: &mut CodexApp, backend: BackendId, limits: status::RateLim
     Rc::make_mut(&mut app.session)
         .rate_limits
         .insert(backend, limits);
+}
+
+/// The plan of the account the host read gives the limits their plan until a snapshot names one
+/// (`update_account_state` sets `plan_type` before any snapshot): read from the account the
+/// status model holds, so the order a bootstrap read and a snapshot arrive in does not matter.
+fn judge_by_account(app: &mut CodexApp, backend: BackendId) {
+    if active_backend(app) != backend {
+        return;
+    }
+    let Some(status::Account::ChatGpt { plan, .. }) = app.screens.status.account.as_ref() else {
+        return;
+    };
+    let plan = *plan;
+    Rc::make_mut(&mut app.session)
+        .rate_snapshots
+        .entry(backend)
+        .or_default()
+        .limits_mut()
+        .set_account_plan(plan);
 }
 
 fn install_banner(app: &mut CodexApp, backend: BackendId, banner: Option<chat::Banner>) {

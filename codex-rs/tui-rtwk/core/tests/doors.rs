@@ -231,6 +231,61 @@ fn the_account_plan_judges_a_snapshot_that_names_none() {
     assert_eq!(notice(&app), Some(80));
 }
 
+/// The account a host reads (the bootstrap, not the `account/updated` notification) gives the
+/// limits their plan as well, and a plan a snapshot named wins whichever came first.
+#[test]
+fn a_bootstrap_account_read_fills_the_plan_a_snapshot_did_not_name() {
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::status::{Account, Ev};
+
+    fn bootstrap(app: &mut CodexApp, plan: &str) {
+        let plan = serde_json::from_value(serde_json::json!(plan)).expect("a plan");
+        let account = Some(Account::ChatGpt {
+            email: None,
+            plan: Some(plan),
+            workspace: None,
+        });
+        run(app, AppEv::Screen(ScreenEv::Status(Ev::Account(account))));
+    }
+    fn rolling(app: &mut CodexApp, percent: i32, plan: Option<&str>) {
+        let window = serde_json::json!({"usedPercent": percent, "windowDurationMins": 300, "resetsAt": 2_000_000_000});
+        let mut rate_limits = serde_json::json!({"limitId": "codex", "primary": window});
+        if let Some(plan) = plan {
+            rate_limits["planType"] = serde_json::json!(plan);
+        }
+        let message = serde_json::json!({"method": "account/rateLimits/updated", "params": {"rateLimits": rate_limits}});
+        let message = serde_json::from_value(message).expect("a notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(message))),
+        );
+    }
+    fn notice(app: &CodexApp) -> Option<i32> {
+        let store = app.session().rate_snapshots.get(&BackendId::default())?;
+        store.limits().notice().map(|(used, _)| used.percent)
+    }
+
+    // the account was read, the snapshot names no plan: a Plus account warns at 50%
+    let mut app = CodexApp::new();
+    bootstrap(&mut app, "plus");
+    rolling(&mut app, 55, None);
+    assert_eq!(notice(&app), Some(55));
+
+    // the snapshot named Pro first and the read says Plus after: Pro wins
+    let mut app = CodexApp::new();
+    rolling(&mut app, 10, Some("pro"));
+    bootstrap(&mut app, "plus");
+    rolling(&mut app, 55, None);
+    assert_eq!(notice(&app), None);
+
+    // and the other way round
+    let mut app = CodexApp::new();
+    bootstrap(&mut app, "plus");
+    rolling(&mut app, 10, Some("pro"));
+    rolling(&mut app, 55, None);
+    assert_eq!(notice(&app), None);
+}
+
 /// The rate limit prompt's "Don't remind me again" is a settings write of
 /// `notice.hide_rate_limit_model_nudge`; the host reads the config again and the setting is in
 /// `TuiSettings`; a refusal of the file is said in the history with the oracle's words.

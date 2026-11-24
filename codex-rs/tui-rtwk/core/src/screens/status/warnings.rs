@@ -121,6 +121,8 @@ pub struct Limits {
     secondary_index: usize,
     primary_index: usize,
     plan: Option<PlanType>,
+    /// The plan of the signed-in account: what stands in for a plan no snapshot named.
+    account_plan: Option<PlanType>,
     /// The credits the last full read saw (`rate_limit_snapshots_by_limit_id`).
     credits_usable: Option<bool>,
     spend_control_reached: Option<bool>,
@@ -152,9 +154,14 @@ impl Limits {
     /// The plan of the account the app is signed in to (oracle `update_account_state`, which sets
     /// `plan_type` before any snapshot arrives): what a snapshot that names no plan is judged by,
     /// so a Plus or Team account warns at 50% of its five-hour window from the first update. A
-    /// snapshot that names a plan still wins.
-    pub fn set_plan(&mut self, plan: Option<PlanType>) {
-        self.plan = plan;
+    /// snapshot that names a plan wins, whichever came first: the account only fills the gap.
+    pub fn set_account_plan(&mut self, plan: Option<PlanType>) {
+        self.account_plan = plan;
+    }
+
+    /// The plan the warnings are judged by: the one a snapshot named, else the account's.
+    pub fn plan(&self) -> Option<PlanType> {
+        self.plan.or(self.account_plan)
     }
 
     /// A read failed; a newer failed read does not invalidate an older successful one.
@@ -212,7 +219,7 @@ impl Limits {
         if full(&sample.secondary) || full(&sample.primary) {
             return Vec::new();
         }
-        let plan = self.plan;
+        let plan = self.plan();
         let mut due = Vec::new();
         for (used, index, secondary) in [
             (sample.secondary, &mut self.secondary_index, true),
@@ -245,7 +252,7 @@ impl Limits {
             return;
         }
         let rolling = matches!(source, Source::Rolling { .. });
-        let plan = self.plan;
+        let plan = self.plan();
         for (current, incoming) in [
             (&mut self.primary, sample.primary),
             (&mut self.secondary, sample.secondary),
@@ -284,7 +291,7 @@ impl Limits {
             .into_iter()
             .filter_map(|(window, secondary)| Some((window?, secondary)))
             .filter(|(window, _)| {
-                window.percent >= warning_threshold(self.plan, window.window_minutes)
+                window.percent >= warning_threshold(self.plan(), window.window_minutes)
             })
             .max_by_key(|(window, _)| window.percent)
     }
