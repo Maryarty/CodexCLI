@@ -311,17 +311,31 @@ fn start(state: &State, source: Option<ThreadId>, prompt: Option<String>, cx: &m
             cx.note(source, note);
         }
         (Start::Reuse(child), Some(parent)) => {
+            starting(cx);
             cx.open_thread(&child, Ctx::Reuse { parent, prompt });
         }
-        (Start::Fork, Some(parent)) => cx.spawn_thread(
+        (Start::Fork, Some(parent)) => {
+            starting(cx);
+            cx.spawn_thread(
             ThreadSpawn::Fork {
                 parent: parent.clone(),
                 ephemeral: Some(developer_instructions()),
             },
             Ctx::Fork { parent, prompt },
-        ),
+        );
+        }
         _ => {}
     }
+}
+
+/// The footer says `Side starting...` until the thread is shown or the start fails
+/// (`request_side_conversation`'s context label). The thread in use is not a side conversation:
+/// `/side` there is blocked.
+fn starting(cx: &mut AppCx<'_>) {
+    cx.chat_facts(ChatFacts {
+        side_conversation: false,
+        side: Some(Footer::Starting),
+    });
 }
 
 /// What the screen reads of the thread shown (`sync_side_thread_ui`): whether it is a side
@@ -460,15 +474,22 @@ feature! {
                     }
                     // `side_start_error_message`: what a fork that failed says.
                     (Ctx::Fork { parent, .. }, Err(Refusal::Failed(error))) => {
+                        cx.chat_facts(chat_facts(state, cx.view()));
                         cx.note(Some(parent), start_failure(&failure(&error)));
                     }
-                    (Ctx::Fork { parent, prompt }, Err(Refusal::Busy)) => restore(cx, &parent, prompt),
+                    (Ctx::Fork { parent, prompt }, Err(Refusal::Busy)) => {
+                        cx.chat_facts(chat_facts(state, cx.view()));
+                        restore(cx, &parent, prompt);
+                    }
                     (Ctx::Reuse { prompt, .. }, Ok(child)) => {
                         if let Some(prompt) = prompt {
                             cx.submit(&child, UserMessage::text(prompt));
                         }
                     }
-                    (Ctx::Reuse { parent, prompt }, Err(_)) => restore(cx, &parent, prompt),
+                    (Ctx::Reuse { parent, prompt }, Err(_)) => {
+                        cx.chat_facts(chat_facts(state, cx.view()));
+                        restore(cx, &parent, prompt);
+                    }
                     (Ctx::Return { child }, Ok(_)) => drop_side(state, &child, cx),
                     // The parent cannot be shown: the side conversation stays as it is.
                     (Ctx::Return { .. }, Err(_)) => {}

@@ -710,18 +710,28 @@ fn side_aliases_without_args_start_empty_side_conversations() {
 // ORACLE chatwidget/tests/side.rs:242 side_aliases_request_forked_questions_while_task_running kind=snap owner=chat-live snap=slash_side_requests_forked_side_question_while_task_running
 #[test]
 fn side_aliases_request_forked_questions_while_task_running() {
-    kit::pending(
-        Owner::ChatLive,
-        "no side question forked while a task runs on the chat screen (status line 'model-with-reasoning' is not a seed; StartSide is not applied); the footer snapshot is not drawn",
-    );
     for input in ["/side explore the codebase", "/btw explore the codebase"] {
         let mut s = Screen::build(Owner::ChatLive).size(80, 8).live().open();
+        s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#);
+        s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","items":["model-with-reasoning"]}}}"#);
         s.feed(&turn_started("turn-1"));
         s.type_text(input);
         s.keys("enter");
         // oracle: StartSide { New, user_message "explore the codebase" } and no op on the parent thread (events, not drawn).
         if input.starts_with("/side") {
-            s.assert_snap("slash_side_requests_forked_side_question_while_task_running");
+            // The status row's spinner blinks between `•` and `◦` with the clock (the snapshot
+            // holds its first frame): every row but that glyph is the oracle's.
+            let want = kit::snap_rows("slash_side_requests_forked_side_question_while_task_running", "");
+            let ours = s.rows();
+            for at in 0..8 {
+                let (ours, want) = (ours[at].trim_end(), want[at].trim_end());
+                assert_eq!(
+                    ours.trim_start_matches(['•', '◦']),
+                    want.trim_start_matches(['•', '◦']),
+                    "row {at}:\n{}",
+                    s.text()
+                );
+            }
         }
     }
 }
