@@ -1021,7 +1021,7 @@ impl State for ComposerState {
             // a plain paste is the field's own insert, after this returns;
             // Vim's step has to close with it, so the draft inserts it here
             if !took && draft.vim_enabled() {
-                pasted_into.insert(text);
+                vim::insert_pasted(&draft, &pasted_into, text);
                 took = true;
             }
             if took {
