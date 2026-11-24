@@ -46,6 +46,9 @@ pub struct Screen {
     pub confirm_reset: bool,
     /// The keymap editor opens on the keypress inspector (`/keymap debug`).
     pub inspect: bool,
+    /// The setups preview what the chat shows now (a command opened them); a debug entry's
+    /// preview is what its script made.
+    pub live: bool,
 }
 
 /// Widget state: whether the feature offers the dialog yet.
@@ -77,7 +80,11 @@ impl State for ScreenState {
 
     fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         match w.which.filter(|_| self.offered).map(Shown::of) {
-            Some(Shown::Setup(which)) => setup::SetupSheet { which }.into(),
+            Some(Shown::Setup(which)) => setup::SetupSheet {
+                which,
+                live: w.live,
+            }
+            .into(),
             Some(Shown::Theme) => theme::ThemeSheet.into(),
             Some(Shown::Features) => features::FeaturesSheet.into(),
             Some(Shown::Memories) => memories::MemoriesSheet {

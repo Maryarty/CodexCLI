@@ -235,6 +235,7 @@ fn debug_screen(seeded: &Seeded<'_>, confirm_reset: bool, inspect: bool) -> AnyW
         which,
         confirm_reset,
         inspect,
+        live: false,
     }
     .into()
 }
@@ -250,6 +251,7 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
                 which: Some(args.which),
                 confirm_reset: false,
                 inspect: args.inspect,
+                live: true,
             }
             .into()
         },

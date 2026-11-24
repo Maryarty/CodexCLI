@@ -93,6 +93,8 @@ fn name_of<'a>(s: &'a Strings, item: &'a SetupItem) -> &'a str {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SetupSheet {
     pub which: Which,
+    /// The preview shows what the chat shows now (a command opened the sheet).
+    pub live: bool,
 }
 
 /// Widget state: the controllers and the draft (R14).
@@ -320,7 +322,11 @@ impl State for SetupState {
         let Some(offered) = offered(cx, w.which) else {
             return Dialog::bare(Text::new(String::new())).into();
         };
-        let offered = super::preview::live(cx, offered);
+        let offered = if w.live {
+            super::preview::live(cx, offered)
+        } else {
+            offered
+        };
         let setup = self.draft.view(&offered);
         let (title, subtitle, placeholder, hint) = match setup.kind {
             SetupKind::StatusLine => (
@@ -507,7 +513,11 @@ impl State for SetupState {
             .child(mark(true))
             .child(body)
             .child(mark(false));
-        let thread = super::preview::thread(cx);
+        let thread = if w.live {
+            super::preview::thread(cx)
+        } else {
+            None
+        };
         if let Some(preview) = super::preview::row(&setup, &tokens, thread, s.indent) {
             column = column.child(preview);
         }
