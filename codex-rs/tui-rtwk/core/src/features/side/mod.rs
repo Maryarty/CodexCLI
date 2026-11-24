@@ -6,7 +6,7 @@
 //! the side is shown (`ParentStatus`, the oracle's `SideThreadState::parent_status`) and the forks
 //! whose boundary is still going in (the prompt of `/btw` waits for it). The thread's life goes
 //! through the lifecycle doors of `AppCx` (ADR-012, "lifecycle doors"): the fork is
-//! `spawn(Fork { ephemeral })` (an ephemeral `thread/fork` with the side policy as developer
+//! `spawn_thread(Fork { ephemeral })` (an ephemeral `thread/fork` with the side policy as developer
 //! instructions; the fork starts empty on the screen), answered in `thread_opened`; the side
 //! conversation of a parent is shown again with `open_thread`, the prompt of `/btw` is `submit`ted
 //! once the boundary (`thread/inject_items`, `Command::Boundary`) is in, a prompt that could not
@@ -297,7 +297,7 @@ fn start(state: &State, source: Option<ThreadId>, prompt: Option<String>, cx: &m
         (Start::Reuse(child), Some(parent)) => {
             cx.open_thread(&child, Ctx::Reuse { parent, prompt });
         }
-        (Start::Fork, Some(parent)) => cx.spawn(
+        (Start::Fork, Some(parent)) => cx.spawn_thread(
             ThreadSpawn::Fork {
                 parent: parent.clone(),
                 ephemeral: Some(developer_instructions()),

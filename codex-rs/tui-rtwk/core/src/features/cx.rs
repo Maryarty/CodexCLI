@@ -435,7 +435,7 @@ impl<'a> AppCx<'a> {
     /// Makes a thread (a fork, a fresh start); `Feature::thread_opened` is told with `ctx` once it
     /// is open here, before it is shown. Refused (an `Err`) while another conversation is being
     /// made.
-    pub fn spawn(&mut self, spawn: ThreadSpawn, ctx: impl Into<FeatureCtx>) {
+    pub fn spawn_thread(&mut self, spawn: ThreadSpawn, ctx: impl Into<FeatureCtx>) {
         self.out.push(Out::Lifecycle(Lifecycle::Spawn {
             spawn,
             ctx: ctx.into(),

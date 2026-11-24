@@ -856,5 +856,12 @@ macro_rules! feature_dirs {
 
 feature_list!(feature_dirs);
 
+/// The Daybreak choice of a thread (`/daybreak`'s saved choice, else its metadata's): the one
+/// selector of a slice the app reads (it words a cyber refusal, `app/notices.rs`), through the
+/// list like every feature name (ADR-012, "selectors").
+pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
+    small_cmds::daybreak_of(thread)
+}
+
 #[cfg(test)]
 mod framework;

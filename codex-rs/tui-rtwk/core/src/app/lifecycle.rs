@@ -1,6 +1,6 @@
 //! The app's half of the lifecycle doors a feature has (ADR-012 "lifecycle doors", ADR-003): the
 //! app owns every `ThreadModel`, so a feature that wants a thread opened, made or dropped says so
-//! (`AppCx::open_thread`, `spawn`, `discard`, `submit`, `give_back`) and this file runs it through
+//! (`AppCx::open_thread`, `spawn_thread`, `discard`, `submit`, `give_back`) and this file runs it through
 //! the app's own steps (`open_thread`, the `thread/start` and `thread/fork` of `NewConversation`,
 //! `apply_thread`, `submit`), as the oracle's `app/session_lifecycle.rs` and `thread_routing.rs`
 //! do. The slice decides *what*; the lifecycle RPCs (`ThreadAsk`) stay in `threads.rs`.
@@ -81,7 +81,11 @@ pub(super) fn read(
 }
 
 fn opened(accepted: bool, thread: ThreadId) -> Result<ThreadId, Refusal> {
-    if accepted { Ok(thread) } else { Err(Refusal::Busy) }
+    if accepted {
+        Ok(thread)
+    } else {
+        Err(Refusal::Busy)
+    }
 }
 
 /// `AppCx::spawn`: one conversation is made at a time (`/new`, `/fork`, `/side` share the

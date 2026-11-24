@@ -1,17 +1,17 @@
 //! The doors of a thread's life that a feature has (ADR-012, "lifecycle doors"; ADR-003): a feature
 //! opens a thread, spawns one (a fork, a fresh start), drops one, sends a message in one or gives
 //! text back to a composer. The app owns every `ThreadModel`; a feature says what it wants through
-//! `AppCx` (`open_thread`, `spawn`, `discard`, `submit`, `give_back`) and the app runs it through
+//! `AppCx` (`open_thread`, `spawn_thread`, `discard`, `submit`, `give_back`) and the app runs it through
 //! its own steps (`app/lifecycle.rs`), as `thread_routing.rs` and `session_lifecycle.rs` of the
 //! oracle do. What the lifecycle RPCs are stays in `threads.rs` (`ThreadAsk`), the feature never
 //! builds one.
 //!
-//! The answers come back to the feature's `thread_opened` (`open_thread`, `spawn`), under the
+//! The answers come back to the feature's `thread_opened` (`open_thread`, `spawn_thread`), under the
 //! `ctx` the feature gave.
 
 use super::FeatureCtx;
-use crate::rpc::RpcError;
 use crate::ids::ThreadId;
+use crate::rpc::RpcError;
 use crate::threads::UserMessage;
 
 /// A thread a feature asks the app to make (`AppCx::spawn`).
@@ -57,10 +57,7 @@ pub enum Lifecycle {
     /// `thread_opened` (`Err` when the server has no such thread).
     Open { thread: ThreadId, ctx: FeatureCtx },
     /// Make a thread; answered by `thread_opened` once it is open here (before it is shown).
-    Spawn {
-        spawn: ThreadSpawn,
-        ctx: FeatureCtx,
-    },
+    Spawn { spawn: ThreadSpawn, ctx: FeatureCtx },
     /// Drop `thread`: its turn is interrupted, the server stops holding it and the app forgets it.
     /// Never the thread in use.
     Discard { thread: ThreadId },

@@ -184,11 +184,15 @@ pub enum Ctx {
         saved: Note,
     },
     /// A page of the listing `/resume <label>` looks the label up in.
-    Resume { lookup: resume::Lookup },
+    Resume {
+        lookup: resume::Lookup,
+    },
     /// The thread `/resume <id or label>` asked the app to open (`AppCx::open_thread`, the one
     /// door of ADR-003): the app reads the id it does not know, so a session the server has not
     /// got is answered here.
-    Opened { name: String },
+    Opened {
+        name: String,
+    },
 }
 
 /// What a listing of the experimental features is for.

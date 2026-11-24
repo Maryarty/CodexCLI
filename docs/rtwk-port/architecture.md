@@ -927,6 +927,58 @@ not need one: it is not a slice); the words of a note see the session strings on
 early review's R2: `AppCx::effect(ask, ctx)` and `Feature::effect_done(state, ctx, done, cx)`,
 below.
 
+**The stream: a typed `Event` per feature (fw-hubs-b, P4).** A feature that follows the server's
+event stream says what it makes of a notification in its own type: `Feature::Event`,
+`project(&ServerNotification) -> Option<Event>` and `project_request(&ServerRequest) ->
+Option<Event>` (pure, no state, no thread; the notification still goes to the threads as before:
+the event is the feature's own copy of the part it needs), delivered to `on_event(state, event,
+cx)` with an `AppCx`, in list order, once per notification or request (`features::observe`,
+`observe_request`). A server request is observe-only: the feature never answers it (the app asks
+the user as before). A feature with no event says `Never<Self>`. The side slice is the first user
+(the parent's status: `StatusChange::for_notification`, `status_for_request`); the app's hand-called
+`side::observe`/`sync` are gone. There is no `ThreadEv::FeatureEvent` (a thread-scoped event for a
+`ThreadPart`): no slice has a consumer for one, and a hook with no consumer is the kind this ADR
+refuses; the first thread-scoped follower adds it. Mcp startup and `McpLagged` still go through
+`threads::project` (they are a turn-pipeline interlock of the thread, `McpStartup` in `send_next`,
+not a feature's reading of the stream), and so do Goal, compaction and processes; moving them
+needs the chat screen's own part of the interlock to move too (a Need for the chat tasks).
+
+**Lifecycle doors (fw-hubs-b, P5; ADR-003 stays).** The app owns every `ThreadModel`; a feature
+that wants a thread opened, made or dropped says so through `AppCx` and the app runs it through
+its own steps (`app/lifecycle.rs`): `open_thread(&id, ctx)` (a thread this process holds or lists
+is shown, one it does not know is read first, so the server's "no such session" is answered
+rather than opened), `spawn_thread(ThreadSpawn::{Start | Fork { parent, ephemeral }}, ctx)` (the
+fork of `/side` is `Fork` with developer instructions: ephemeral, empty on the screen; named
+`spawn_thread` because rule R1 bans `cx.spawn(`), `discard(&id)` (the turn is interrupted, the
+server stops holding the thread, the app forgets it, never the thread in use), `submit(&id,
+message)` (the thread's own input pipeline) and `give_back(&id, text)` (text that could not go
+returns to the composer). Open and spawn are answered in `Feature::thread_opened(state, ctx,
+Result<ThreadId, Refusal>, cx)` under the feature's own `FeatureCtx`, before the thread is shown
+(`Refusal::Busy`: one conversation is made at a time; `Failed(RpcError)`). The app tells every
+feature when the thread in use changed (`on_shown`), and what the chat reads of it that a feature
+knows (a side conversation's flag and footer) comes back as `AppCx::chat_facts`, which the app
+writes to the chat (`Out::Chat`); the key label the footer names is read through
+`AppFacts::key_label`. `AppCtx` names no feature (`app_ctx_names_no_feature`: the generic
+`FeatureCtx` rides in it). Inside a thread step a feature has `ThreadCx::start_turn(message)`
+(one start per step; the thread must be idle, `ThreadView::busy`) and `ThreadCx::interrupt()`.
+`/resume <id>` is `open_thread` (the settings slice no longer reads the thread itself, which
+turned `thread_rpcs_only_in_threads` green). Not built: `AppCx::structured_turn(request, ctx)`, the
+oracle's `temporary_structured_request` as a lifecycle door (an ephemeral thread whose one turn
+follows a schema, with a timeout through the clock and a watch on its notifications); `/recap`
+keeps the host effect `Ask::StructuredTurn` until a second user, and the door is added then, as
+one `Lifecycle` variant answered to `effect_done` as `Done::Structured`.
+
+**Connection and stream loss (fw-hubs-b, P8).** `Feature::on_connection(state, Connection, cx)`
+tells every feature that a connection came up (`Up`: the first or a reconnect), was lost (`Lost`:
+what waited for it will not come) or that the host is quitting (`ShuttingDown`: what a feature
+holds on the server is let go; the host's word is `AppEv::ShuttingDown`). A thread's event stream
+can be lost while the connection stands (`BackendEv::StreamLost(thread)` /
+`StreamRestored(thread)`, owner-checked by backend; the host forwards them in `fix-stream-lost`):
+`ThreadEv::StreamLost` sets `ThreadCore::stream_lost` (`ThreadView::stream_lost()`), and the queue
+interlock follows the oracle's `thread_stream_disconnected` (`chatwidget/input_flow.rs`): while it
+stands `Submit` queues instead of sending or steering and `send_next` does not send;
+`StreamRestored` clears it and the queue goes on if no turn runs.
+
 ### Recipe: a feature as a slice
 
 For a flow that is not a screen: a slash command that opens a menu or a prompt, asks the

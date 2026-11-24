@@ -1726,10 +1726,9 @@ fn app_names_slice_state(files: &[(String, String)], features: &[String]) -> Vec
     found
 }
 
-/// The hub names no slice's state. What it still does is the debt of the side lifecycle
-/// (`app.features.side.*` in `app.rs` and `app/side.rs`: the hub starts, ends and asks the side
-/// conversations itself) and of one read of the thread's saved Daybreak choice
-/// (`app/notices.rs`): both are fw-hubs-b's, and the count only goes down, to zero.
+/// The hub names no slice's state (`app.features.<f>`, `parts.<f>`): the side lifecycle is the
+/// slice's (it asks the app through the lifecycle doors of `AppCx`), the thread's Daybreak choice
+/// is read through the list (`features::daybreak_of`). It is 0, and the budget line says so.
 #[test]
 fn app_names_no_feature_state() {
     let features = listed_features(&read("core/src/features/mod.rs"));
@@ -1767,6 +1766,58 @@ fn the_app_state_scan_bites() {
         ),
     ];
     assert_eq!(app_names_slice_state(&files, &features).len(), 2);
+}
+
+/// The text of `enum AppCtx { .. }` in `core/src/app.rs`: what an in-flight request of the app
+/// is waiting for.
+fn app_ctx_body(text: &str) -> &str {
+    let start = text
+        .find("enum AppCtx {")
+        .expect("the app has an AppCtx enum");
+    let rest = &text[start..];
+    &rest[..rest.find("\n}\n").expect("the enum ends")]
+}
+
+/// `line` names a listed feature's module (`side::Opening`, `features::side::Start`), not a
+/// longer name that ends in it.
+fn names_feature_module(line: &str, feature: &str) -> bool {
+    let marker = format!("{feature}::");
+    line.match_indices(&marker)
+        .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_ident))
+}
+
+/// The lines of `AppCtx` that name a feature: an in-flight request of the hub waits for a
+/// context the hub understands (the app's own steps, the generic `FeatureCtx`), never for a
+/// slice's own type (`side::Opening` was one).
+fn app_ctx_names_a_feature(text: &str, features: &[String]) -> Vec<String> {
+    app_ctx_body(text)
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim_start().starts_with("//"))
+        .filter(|(_, line)| {
+            features.iter().any(|feature| {
+                names_feature_module(line, feature) || names_feature_path(line, feature)
+            })
+        })
+        .map(|(index, line)| format!("core/src/app.rs AppCtx +{index}: {}", line.trim()))
+        .collect()
+}
+
+/// `AppCtx` names no feature (ADR-012, "lifecycle doors"): what a feature asked the app to make
+/// or open is told back through `Feature::thread_opened` under the feature's own `FeatureCtx`.
+#[test]
+fn app_ctx_names_no_feature() {
+    let features = listed_features(&read("core/src/features/mod.rs"));
+    assert!(features.len() > 5, "the list has its features");
+    let found = app_ctx_names_a_feature(&read("core/src/app.rs"), &features);
+    assert!(found.is_empty(), "AppCtx names a feature: {found:#?}");
+}
+
+#[test]
+fn the_app_ctx_scan_bites() {
+    let features = vec!["side".to_string(), "goal".to_string()];
+    let text = "enum AppCtx {\n    A { opening: side::Opening },\n    // goal::Note\n    B(crate::features::goal::Ctx),\n    C(FeatureCtx),\n    D { aside: u8, sides: u8 },\n}\nfn side::x() {}\n";
+    assert_eq!(app_ctx_names_a_feature(text, &features).len(), 2);
 }
 
 /// Time is told, never ticked (ADR-012, "time as a declared wake"): the shell reads the clock

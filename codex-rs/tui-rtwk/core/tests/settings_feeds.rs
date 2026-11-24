@@ -391,7 +391,11 @@ fn resume_by_name_refuses_two_sessions_with_one_label_and_none() {
         }]
     );
     let none = asked(&slash_resume(&mut app, "nothing")).remove(0);
-    commands.extend(answer(&mut app, &none, json!({"data": [], "nextCursor": null})));
+    commands.extend(answer(
+        &mut app,
+        &none,
+        json!({"data": [], "nextCursor": null}),
+    ));
     assert!(settings_notes(&app).contains(&Note::NoSavedChat {
         name: "nothing".into()
     }));
@@ -426,7 +430,10 @@ fn resume_by_id_opens_the_thread_through_the_app_and_a_session_it_has_not_is_no_
     );
     let [(ticket, read)] = opened(&commands).try_into().expect("the app reads the id");
     assert_eq!(read, id);
-    run(&mut app, AppEv::Reply(ticket, Reply::failed("no rollout found")));
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::failed("no rollout found")),
+    );
     assert_eq!(
         settings_notes(&app),
         [Note::NoSavedChat { name: id.into() }]
