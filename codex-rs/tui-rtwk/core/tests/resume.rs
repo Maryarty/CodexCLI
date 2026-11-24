@@ -954,7 +954,7 @@ fn a_failed_restore_says_so() {
 
 #[test]
 fn a_lost_connection_fails_the_pages_it_owed() {
-    // The reconnect drops the tickets of the lost backend; its page fails so
+    // The loss answers the tickets of the lost backend with a failure; its page fails so
     // the picker does not wait for a reply that never comes.
     let (mut app, _ticket) = opened();
     send(
@@ -963,6 +963,6 @@ fn a_lost_connection_fails_the_pages_it_owed() {
     );
     assert_eq!(
         app.screens().resume.load,
-        Load::Failed("connection lost".into())
+        Load::Failed("the connection to the app server was closed".into())
     );
 }
