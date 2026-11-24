@@ -698,9 +698,7 @@ fn fork_opens_the_copy_of_the_selected_task() {
     let _ = apply_answer(
         &mut m,
         &mut ThreadPreviews::default(),
-        Ctx::Fork {
-            thread: target.clone(),
-        },
+        Ctx::Fork { thread: target },
         Ok(Reply::Forked(Box::new(copy))),
     );
     assert_eq!(m.resumes, 1);
