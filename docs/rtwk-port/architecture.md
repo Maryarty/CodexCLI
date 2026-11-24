@@ -992,8 +992,12 @@ suggestion for a cloud conversation or one with no message to name it by); `Ask:
 tells every feature that a connection came up (`Up`: the first or a reconnect), was lost (`Lost`:
 what waited for it will not come) or that the host is quitting (`ShuttingDown`: what a feature
 holds on the server is let go; the host's word is `AppEv::ShuttingDown`). A thread's event stream
-can be lost while the connection stands (`BackendEv::StreamLost(thread)` /
-`StreamRestored(thread)`, owner-checked by backend; the host forwards them in `fix-stream-lost`):
+can be lost while the connection stands (`BackendEv::StreamLost{thread, error}` /
+`StreamRestored(thread)`, owner-checked by backend; host/src/cloud.rs forwards them, the in-process
+backend has no per-thread stream and shows the disconnect as an `Error` line): an idle displayed
+thread asks the host to reconnect (`Command::ReconnectIdleThread`, the error line only if that
+fails), a thread with a user turn shows the `Error` line; opening a thread whose stream was lost or
+whose history may be incomplete resumes it again;
 `ThreadEv::StreamLost` sets `ThreadCore::stream_lost` (`ThreadView::stream_lost()`), and the queue
 interlock follows the oracle's `thread_stream_disconnected` (`chatwidget/input_flow.rs`): while it
 stands `Submit` queues instead of sending or steering and `send_next` does not send;
