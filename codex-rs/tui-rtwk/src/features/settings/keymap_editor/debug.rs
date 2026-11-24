@@ -89,6 +89,14 @@ fn raw_of(key: &KeyPress, s: &Strings) -> String {
     s.raw_event(&code, &mods)
 }
 
+fn source_word(s: &Strings, source: Source) -> &'static str {
+    match source {
+        Source::Custom => s.source_custom,
+        Source::CustomGlobal => s.source_custom_global,
+        Source::Default => s.source_default,
+    }
+}
+
 impl InspectorState {
     fn inspect(&mut self, key: &KeyPress, cx: &mut Cx<'_, Self>) {
         let s = strings::of(cx);
