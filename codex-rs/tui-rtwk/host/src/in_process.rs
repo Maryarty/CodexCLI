@@ -508,6 +508,8 @@ async fn run(
                             handle.clone(),
                             (ingress.clone(), epoch),
                         )
+                    } else if let Some(job) = worktree_job(&command, &config, &ids, &handle) {
+                        job
                     } else {
                         match effects.run(&command, exec) {
                             Some(job) => job,
@@ -598,6 +600,26 @@ fn settings_fact(config: &Config) -> codex_tui_core::features::settings::Fact {
         read.custom_themes,
         read.themes_dir,
         read.memories,
+    )
+}
+
+/// The list and the removal of the worktree menus: the pool is this machine's, the owners are
+/// read through the app server (`workspace::job`).
+fn worktree_job(
+    command: &Command,
+    config: &Config,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) -> Option<Boxed<Option<AppEv>>> {
+    let Command::Effect { request, ask, .. } = command else {
+        return None;
+    };
+    crate::workspace::job(
+        *request,
+        ask,
+        config.codex_home.to_path_buf(),
+        ids.clone(),
+        handle.clone(),
     )
 }
 

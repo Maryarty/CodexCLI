@@ -15,7 +15,13 @@ use codex_core::config::ConfigOverrides;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_core::config::load_config_toml_with_layer_stack;
+use codex_app_server_client::AppServerRequestHandle;
+use codex_tui_core::app::AppEv;
+use codex_tui_core::app::effects::{Ask, Done};
+use codex_tui_core::ids::ThreadId;
+use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_core::screens::agents::DirKeys;
+use codex_tui_core::screens::select::worktree::{Entry, Owner, Thread};
 use codex_tui_rtwk::services::agents::workspace::Boxed;
 use codex_tui_rtwk::services::agents::workspace::Checkout;
 use codex_tui_rtwk::services::agents::workspace::Workspace;
@@ -68,6 +74,165 @@ pub fn dir_keys(cwd: &str) -> DirKeys {
         heading,
         directory,
     }
+}
+
+/// `Ask::Worktrees` (oracle `worktree_browser::fetch`): the managed worktrees of the repository
+/// `cwd` is in, each with its owner thread. The pool is the worktree manager's; the owner is read
+/// from the app server (`read_thread`, one `thread/read` answered as JSON) and is archived when
+/// its rollout lies in the archive, unavailable when the thread cannot be read.
+pub(crate) async fn list_worktrees<F, Fut>(
+    codex_home: PathBuf,
+    cwd: String,
+    read_thread: F,
+) -> Result<Vec<Entry>, String>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Result<serde_json::Value, String>>,
+{
+    let mut entries = pool(codex_home.clone(), PathBuf::from(cwd)).await?;
+    let archive = codex_home.join(ARCHIVED_SESSIONS_SUBDIR);
+    for entry in &mut entries {
+        let Owner::Unavailable(id) = &entry.owner else {
+            continue;
+        };
+        let id = id.clone();
+        let Ok(value) = read_thread(id.to_string()).await else {
+            continue;
+        };
+        if let Some(owner) = owner_of(id, &value, &archive) {
+            entry.owner = owner;
+        }
+    }
+    Ok(entries)
+}
+
+/// The worktree asks of the menus as one job: the list with its owners read through the app
+/// server, or the removal. `None` for any other ask.
+pub(crate) fn job(
+    request: u64,
+    ask: &Ask,
+    codex_home: PathBuf,
+    ids: Ids,
+    handle: AppServerRequestHandle,
+) -> Option<Boxed<Option<AppEv>>> {
+    let done = match ask.clone() {
+        Ask::Worktrees { cwd } => Box::pin(async move {
+            let read = |thread: String| {
+                let send = crate::in_process::sender(handle.clone());
+                let id = ids.next();
+                async move {
+                    send(codex_tui_core::screens::select::worktree::owner_request(&thread, id))
+                        .await
+                        .map_err(|error| error.message)
+                }
+            };
+            Done::Worktrees(list_worktrees(codex_home, cwd, read).await)
+        }) as Boxed<Done>,
+        Ask::WorktreeRemove { cwd, root } => Box::pin(async move {
+            Done::WorktreeRemoved(remove_worktree(codex_home, cwd, root).await)
+        }),
+        _ => return None,
+    };
+    Some(Box::pin(async move { Some(AppEv::Effect { request, done: done.await }) }))
+}
+
+/// The directory of the archived rollouts (`codex_rollout::ARCHIVED_SESSIONS_SUBDIR`).
+const ARCHIVED_SESSIONS_SUBDIR: &str = "archived_sessions";
+
+/// The title a worktree row shows is cut at this many characters.
+const TITLE_LIMIT: usize = 80;
+
+/// The owner a `thread/read` answer describes: none when it names no rollout that still exists.
+fn owner_of(id: ThreadId, value: &serde_json::Value, archive: &Path) -> Option<Owner> {
+    let thread = value.get("thread")?;
+    let path = PathBuf::from(thread.get("path")?.as_str()?);
+    if !path.exists() {
+        return None;
+    }
+    let named = thread
+        .get("name")
+        .and_then(|name| name.as_str())
+        .filter(|name| !name.trim().is_empty());
+    let preview = thread
+        .get("preview")
+        .and_then(|preview| preview.as_str())
+        .and_then(|preview| preview.lines().next())
+        .filter(|line| !line.trim().is_empty());
+    let title = named.or(preview).unwrap_or("Untitled conversation");
+    let title = if title.chars().count() > TITLE_LIMIT {
+        format!("{}…", title.chars().take(TITLE_LIMIT - 1).collect::<String>())
+    } else {
+        title.to_owned()
+    };
+    let summary = Thread {
+        id,
+        title,
+        updated_at: thread
+            .get("updatedAt")
+            .and_then(|at| at.as_i64())
+            .unwrap_or_default(),
+    };
+    Some(if path.starts_with(archive) {
+        Owner::Archived(summary)
+    } else {
+        Owner::Resumable(summary)
+    })
+}
+
+/// The worktrees of the pool of `cwd`'s repository, owners recorded but not yet read.
+async fn pool(codex_home: PathBuf, cwd: PathBuf) -> Result<Vec<Entry>, String> {
+    let settings = worktree_settings(&codex_home).await?;
+    codex_tui_rtwk::services::agents::workspace::blocking(move || {
+        let cwd = codex_git_utils::get_git_repo_root(&cwd).unwrap_or(cwd);
+        let manager = WorktreeManager::new(settings);
+        let listed = manager.list(&cwd).map_err(|error| error.to_string())?;
+        Ok(listed
+            .into_iter()
+            .map(|checkout| Entry {
+                owner: manager
+                    .owner(&checkout.root)
+                    .ok()
+                    .flatten()
+                    .map(|owner| ThreadId::new(&owner))
+                    .map_or(Owner::None, Owner::Unavailable),
+                root: checkout.root.display().to_string(),
+                cwd: checkout.cwd.display().to_string(),
+            })
+            .collect())
+    })
+    .await
+    .unwrap_or_else(|| Err("Worktree listing task failed.".to_owned()))
+}
+
+/// `Ask::WorktreeRemove` (oracle `worktree_browser::remove`): `root` removed from the pool of
+/// the repository `cwd` is in.
+pub(crate) async fn remove_worktree(
+    codex_home: PathBuf,
+    cwd: String,
+    root: String,
+) -> Result<(), String> {
+    let settings = worktree_settings(&codex_home).await?;
+    codex_tui_rtwk::services::agents::workspace::blocking(move || {
+        WorktreeManager::new(settings)
+            .remove(Path::new(&cwd), Path::new(&root))
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .unwrap_or_else(|| Err("Worktree removal task failed.".to_owned()))
+}
+
+/// The settings of the worktree pool: the config's desktop table over the defaults.
+async fn worktree_settings(codex_home: &Path) -> Result<WorktreeSettings, String> {
+    let host = load_config_toml_with_layer_stack(
+        codex_home,
+        /*cwd*/ None,
+        Vec::new(),
+        codex_core::config::ConfigLoadOptions::default(),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    WorktreeSettings::for_cli(codex_home, host.config_toml.desktop.as_ref())
+        .map_err(|error| error.to_string())
 }
 
 impl Workspace for Local {

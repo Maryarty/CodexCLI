@@ -249,30 +249,23 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
 /// What the worktree menus settled on: `/new` and `/fork` in the current checkout, a new
 /// worktree for `/new`, the owner thread opened, the directory copied.
 fn worktree_pick(app: &mut CodexApp, pick: select::worktree::Pick, fx: &mut AppFx) {
-    use crate::commands::{SessionIntent, SlashCommand};
+    use crate::commands::SlashCommand;
     use select::worktree::{Conversation, Pick};
     let source = app.session.active.clone();
     match pick {
         Pick::Current { mode, name } => {
-            let (command, intent) = match mode {
-                Conversation::New => (SlashCommand::New, SessionIntent::New { name }),
-                Conversation::Fork => (SlashCommand::Fork, SessionIntent::Fork { name }),
+            let command = match mode {
+                Conversation::New => SlashCommand::New,
+                Conversation::Fork => SlashCommand::Fork,
             };
-            super::session::session_intent(app, source, command, intent, fx);
+            super::session::begin_conversation(app, source, command, name, fx);
         }
-        // The creation chain of the command center (`worktree.rs`: create, start, bind, show)
-        // serves `/new`; a fork into the new checkout is not wired yet.
-        Pick::Start {
-            mode: Conversation::New,
-            ..
-        } => {
-            let cwd = Some(app.screens.select.worktree.cwd().to_owned());
-            super::worktree::Step::create(app, cwd, fx);
+        // The creation chain (`worktree.rs`: create, start or fork, bind, show) serves `/new`,
+        // `/fork` and `/worktree`'s continue and start; its checks and lines are the chat's.
+        Pick::Start { mode, name } => {
+            let fork = mode == Conversation::Fork;
+            super::worktree::Step::create_for_chat(app, source, fork, name, fx);
         }
-        Pick::Start {
-            mode: Conversation::Fork,
-            ..
-        } => {}
         Pick::Resume(thread) => super::apply_intent(app, super::Intent::OpenThread(thread), fx),
         Pick::Copy(text) => {
             let request = select::worktree::REQUEST_BIT | (1 << 40);

@@ -207,6 +207,12 @@ pub enum Note {
     WorktreesUnavailable,
     /// `Cannot list managed worktrees: {error}` (an error).
     WorktreeListFailed(String),
+    /// A worktree for the conversation was not started (`start_managed_worktree`; an error).
+    WorktreeRefused(worktree::Refusal),
+    /// The worktree could not be made (an error): the host's words.
+    WorktreeFailed(String),
+    /// The conversation did not start in the new worktree, which stays on disk (an error).
+    WorktreeRetained { root: String, reason: crate::app::worktree::RetainedReason },
     /// `Removed worktree at {root}. Thread history was kept.`
     WorktreeRemoved { root: String },
     /// `Could not remove worktree at {root}: {error}` (an error).
@@ -253,6 +259,9 @@ impl Note {
             | Note::AppsFailed(_)
             | Note::WorktreesUnavailable
             | Note::WorktreeListFailed(_)
+            | Note::WorktreeRefused(_)
+            | Note::WorktreeFailed(_)
+            | Note::WorktreeRetained { .. }
             | Note::WorktreeRemoveFailed { .. }
             | Note::PresetsUnavailable
             | Note::PresetInvalid(_)

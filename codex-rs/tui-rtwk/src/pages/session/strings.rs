@@ -703,6 +703,39 @@ impl Strings {
             Note::ModelsNotLoaded => self.note_models_not_loaded.to_string(),
             Note::WorktreesUnavailable => self.note_worktrees_unavailable.to_string(),
             Note::WorktreeListFailed(error) => text(self.note_worktree_list_failed, error),
+            // `start_managed_worktree`, `finish_managed_worktree` (English only until the table
+            // of the session strings gets their keys: UI LEFT).
+            Note::WorktreeRefused(why) => match why {
+                codex_tui_core::screens::select::worktree::Refusal::NotIdle => {
+                    "Creating a worktree requires an idle primary session without queued input."
+                }
+                codex_tui_core::screens::select::worktree::Refusal::Pending => {
+                    "A worktree is already being created."
+                }
+                codex_tui_core::screens::select::worktree::Refusal::HistoryNotSaved => {
+                    "Conversation history is not saved."
+                }
+            }
+            .to_string(),
+            Note::WorktreeFailed(error) => error.clone(),
+            Note::WorktreeRetained { root, reason } => {
+                use codex_tui_core::app::worktree::{BindFailure, RetainedReason};
+                let reason = match reason {
+                    RetainedReason::Start(codex_tui_core::rpc::RpcError::Remote(error)) => {
+                        format!("Cannot start the conversation in the new worktree: {error}")
+                    }
+                    RetainedReason::Start(_) => {
+                        "The server did not start a conversation in the new worktree.".to_owned()
+                    }
+                    RetainedReason::Bind(BindFailure::Workspace(error)) => error.clone(),
+                    RetainedReason::Bind(BindFailure::Interrupted) => {
+                        "Binding the conversation to the new worktree was interrupted.".to_owned()
+                    }
+                };
+                format!(
+                    "{reason} A checkout was retained at {root}; remove it with `git worktree remove <checkout-path>` from the source repository if it is no longer needed."
+                )
+            }
             Note::WorktreeRemoved { root } => text(self.note_worktree_removed, root),
             Note::WorktreeRemoveFailed { root, error } => Fmt::new(
                 self.note_worktree_remove_failed,

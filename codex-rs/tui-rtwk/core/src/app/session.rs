@@ -160,44 +160,25 @@ pub(super) fn session_intent(
 ) {
     use crate::commands::SessionIntent as S;
     match intent {
-        S::New { name } | S::Clear { name } | S::Fork { name } => {
-            if app
-                .outgoing
-                .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
-            {
-                return;
-            }
-            let ticket = app.mint.next();
-            let backend = source.as_ref().map_or(app.screens.agents.displayed, |id| {
-                app.screens.agents.owner_of(id.as_str())
-            });
-            let request = if matches!(command, crate::commands::SlashCommand::Fork) {
-                let Some(thread) = &source else {
-                    return;
-                };
-                Command::Screen {
-                    ticket,
-                    thread: ThreadId::default(),
-                    command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Fork {
-                        thread: thread.to_string(),
-                    })),
-                }
+        // `/clear` starts the conversation where the session is; `/new` and `/fork` first ask
+        // where it runs where a local repository offers a new checkout
+        // (`show_session_checkout_picker`), and the pick comes back through `begin_conversation`.
+        S::Clear { name } => begin_conversation(app, source, command, name, fx),
+        S::New { name } | S::Fork { name } => {
+            use crate::screens::select::{Intent, worktree::Conversation};
+            let mode = if matches!(command, crate::commands::SlashCommand::Fork) {
+                Conversation::Fork
             } else {
-                super::start_thread(app, ticket, backend)
+                Conversation::New
             };
-            // `/new <name>`: the new thread is named once it has started (`features/rename`).
-            let then = name.map(|name| crate::features::rename::ThreadIntent::Set(name).into());
-            app.outgoing.insert(
-                ticket,
-                AppCtx::NewConversation {
-                    source,
-                    backend,
-                    then,
-                    plan: None,
-                    draft: None,
-                },
-            );
-            fx.commands.push(request);
+            let open = Intent::OpenCheckout {
+                mode,
+                name,
+                available: app.screens.chat.flags.worktrees_enabled,
+                cwd: working_directory(app, source.as_ref()),
+                thread: source,
+            };
+            super::select::intent(app, open, fx);
         }
         // The provider-error notice's continue key: a fresh chat whose composer
         // holds the text (the view's words); only a refused chat that was saved.
@@ -438,6 +419,55 @@ fn plan(
     if let Some(prompt) = prompt {
         super::submit(app, &thread, UserMessage::text(prompt), fx);
     }
+}
+
+/// The new conversation of `/new`, `/clear` and `/fork`, in the working directory of the session:
+/// a fork of `source` (`/fork`), or a fresh thread; the new thread takes the screen
+/// (`AppCtx::NewConversation`) and is named once it has started.
+pub(super) fn begin_conversation(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    command: crate::commands::SlashCommand,
+    name: Option<String>,
+    fx: &mut AppFx,
+) {
+    if app
+        .outgoing
+        .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+    {
+        return;
+    }
+    let ticket = app.mint.next();
+    let backend = source.as_ref().map_or(app.screens.agents.displayed, |id| {
+        app.screens.agents.owner_of(id.as_str())
+    });
+    let request = if matches!(command, crate::commands::SlashCommand::Fork) {
+        let Some(thread) = &source else {
+            return;
+        };
+        Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Fork {
+                thread: thread.to_string(),
+            })),
+        }
+    } else {
+        super::start_thread(app, ticket, backend)
+    };
+    // `/new <name>`: the new thread is named once it has started (`features/rename`).
+    let then = name.map(|name| crate::features::rename::ThreadIntent::Set(name).into());
+    app.outgoing.insert(
+        ticket,
+        AppCtx::NewConversation {
+            source,
+            backend,
+            then,
+            plan: None,
+            draft: None,
+        },
+    );
+    fx.commands.push(request);
 }
 
 /// `review/start` inline on the thread: the review runs as a turn of it.

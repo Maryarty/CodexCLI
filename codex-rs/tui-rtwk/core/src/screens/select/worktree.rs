@@ -84,6 +84,26 @@ impl Entry {
     }
 }
 
+/// The `thread/read` that tells who owns a worktree (`worktree_browser::fetch` reads the thread
+/// of each recorded owner): the host sends it for every entry the pool names an owner of.
+pub fn owner_request(
+    thread: &str,
+    id: codex_app_server_protocol::RequestId,
+) -> codex_app_server_protocol::ClientRequest {
+    crate::threads::ThreadAsk::Read { thread: thread.to_owned() }.wire(id)
+}
+
+/// Why no worktree is made for the conversation (`start_managed_worktree`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// Not an idle primary session without queued input.
+    NotIdle,
+    /// A creation (or a new conversation) is already under way.
+    Pending,
+    /// A fork needs saved history.
+    HistoryNotSaved,
+}
+
 /// How long ago a worktree's owner thread was updated (`worktree_updated_ago`); the view words it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ago {
