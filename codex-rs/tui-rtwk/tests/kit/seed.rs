@@ -46,6 +46,8 @@ pub struct Open {
     pub(super) early: bool,
     pub(super) first_frame: bool,
     pub(super) held_start: bool,
+    /// The chat starts inside a `/side` conversation (`Open::side`).
+    pub(super) side: bool,
     pub(super) gutter: usize,
     pub(super) keymap: Option<&'static [(&'static str, &'static str)]>,
     pub(super) env: Env,
@@ -65,6 +67,7 @@ impl Screen {
             early: false,
             first_frame: false,
             held_start: false,
+            side: false,
             gutter: 0,
             keymap: None,
             env: Env::default(),
@@ -128,6 +131,14 @@ impl Open {
         self
     }
 
+    /// The live chat inside a side conversation (`/side`, the fork answered): its footer says
+    /// `to switch`, Ctrl+C and Ctrl+D over an empty composer return to the parent
+    /// (`Screen::side_closed`). For `live()` and `script(..)`.
+    pub fn side(mut self) -> Open {
+        self.side = true;
+        self
+    }
+
     /// The user's key bindings: `(action, key)` pairs as the keymap config
     /// names them, `&[("list.move_down", "z")]`.
     pub fn keymap(mut self, bindings: &'static [(&'static str, &'static str)]) -> Open {
@@ -146,12 +157,17 @@ impl Open {
     pub fn open(self) -> Screen {
         let gutter = self.gutter;
         let remote = self.remote_images.clone();
+        let side = self.side;
         let mut screen = match self.seed {
             Seed::Live => Screen::from(self.live_harness()),
             Seed::Entry { dir, entry } => self.open_entry(dir, entry),
             Seed::Script(text) => self.open_script(text),
         };
         screen.gutter = gutter;
+        if side {
+            assert!(!screen.entry, "a side conversation is of the live chat");
+            super::side::enter(&mut screen.h);
+        }
         if !remote.is_empty() {
             screen.set_remote_images(remote);
         }

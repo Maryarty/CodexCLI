@@ -27,6 +27,7 @@ mod probe;
 mod replies;
 mod seed;
 mod settings;
+mod side;
 mod sparkle;
 mod verdict;
 
@@ -42,6 +43,8 @@ pub use grid::{Grid, check_style, color_name, modifier_name};
 pub use input::event_bytes_of;
 #[allow(unused_imports)]
 pub use settings::Renderers;
+#[allow(unused_imports)]
+pub use side::SIDE_THREAD;
 #[allow(unused_imports)]
 pub use sparkle::{Dots, split_frames};
 

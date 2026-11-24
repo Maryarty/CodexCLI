@@ -210,3 +210,18 @@ mod picker {
         assert!(success.attrs.intersects(rtwk::style::Attrs::ITALIC));
     }
 }
+
+mod kit_seeds {
+    use crate::kit::{Owner, Screen};
+
+    /// `Open::side()` is the live chat inside `/side`; Ctrl+C over its empty composer returns.
+    #[test]
+    fn the_side_seed_opens_a_side_conversation_that_ctrl_c_closes() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 12).live().side().open();
+        s.assert_contains("to switch");
+        assert!(!s.side_closed());
+        s.keys("ctrl+c");
+        s.assert_absent("to switch");
+        assert!(s.side_closed());
+    }
+}
