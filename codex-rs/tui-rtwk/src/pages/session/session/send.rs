@@ -1,0 +1,77 @@
+//! What the composer sends: Enter, Tab's queue, a command picked in a popup and the
+//! edit-queued key. The line itself runs through `actions::run_line`.
+
+use std::rc::Rc;
+
+use rtwk::Cx;
+use rtwk::provider::read;
+
+use codex_tui_core::screens::{ScreenThreadIntent, chat};
+use codex_tui_core::threads::ThreadModel;
+
+use crate::app::view::Hs;
+use crate::pages::session::actions::{Delivery, run_line};
+use crate::pages::session::composer::submission;
+
+use super::{Chat, ChatState};
+
+impl ChatState {
+    /// Enter in the composer.
+    pub(super) fn submit(
+        &mut self,
+        text: &str,
+        w: &Chat,
+        cx: &mut Cx<'_, ChatState>,
+        hs: &Hs,
+        primed: bool,
+    ) {
+        // The same Enter may have run it through a popup's pick. A
+        // draft in shell mode has the `!` as its mode, not as text: a
+        // bare `!` is the help line (`submit_shell_command`). Remote
+        // images alone are a message of their own.
+        if !w.ui.composer.text().is_empty() || w.ui.draft.shell() || w.ui.draft.remote_count() > 0 {
+            run_line(text, w, cx, hs, Delivery::Submit);
+            // a command that took the line cleared the composer
+            self.sync_draft(w);
+        } else if !primed {
+            // an Enter on the empty composer is the reader's way
+            // back (`empty_enter_returns_to_latest`)
+            w.ui.follow.jump_to_latest();
+        }
+    }
+
+    /// Tab: queues behind a running turn and submits otherwise.
+    pub(super) fn queue_draft(&mut self, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+        let draft = submission(&w.ui);
+        if !draft.is_empty() || w.ui.draft.remote_count() > 0 {
+            let running = read::<ThreadModel, _>(cx).is_running();
+            let send = if running {
+                Delivery::Queue
+            } else {
+                Delivery::Submit
+            };
+            run_line(&draft, w, cx, hs, send);
+            self.sync_draft(w);
+        }
+    }
+
+    /// `Autocomplete::on_selected`: a command picked in the popup
+    /// runs as the pick names it (the command clears the composer
+    /// itself); what `$` and `@` put in is text and stays.
+    pub(super) fn picked(&mut self, text: &Rc<str>, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+        if text.starts_with('/') {
+            run_line(text, w, cx, hs, Delivery::Submit);
+            self.sync_draft(w);
+        }
+    }
+}
+
+/// The edit-queued key: the newest queued message goes back to the composer
+/// (`has_queued_follow_up_messages`: something waits behind the turn).
+pub(super) fn edit_queued(cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+    let thread = read::<ThreadModel, _>(cx);
+    if !thread.queue().is_empty() || !thread.rejected_steers().is_empty() {
+        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::EditQueued);
+        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+    }
+}
