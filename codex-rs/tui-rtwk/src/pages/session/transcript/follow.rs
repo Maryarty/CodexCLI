@@ -42,7 +42,12 @@ use super::strings::{self, Strings};
 /// `composer_gap.rs`: it wins over the control). With `status_above` (the working line
 /// or the previews are above), a blank row precedes the control to set it
 /// apart.
-pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidget {
+pub fn gap<S>(
+    cx: &mut Cx<'_, S>,
+    follow: Follow,
+    status_above: bool,
+    notice: Option<AnyWidget>,
+) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
     // the user message's surface, in the accent
@@ -72,6 +77,18 @@ pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidg
                     .into()
             } else {
                 row
+            }
+        } else if let Some(notice) = &notice {
+            // the usage notice (`composer_hint`) has the row while the reader is at the end, set
+            // apart from the working line as the control is
+            if status_above {
+                Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .child(blank)
+                    .child(notice.clone())
+                    .into()
+            } else {
+                notice.clone()
             }
         } else {
             blank

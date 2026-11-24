@@ -16,7 +16,7 @@ use rtwk::l10n::msg;
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::screens::status::{
     Account, Approval, ApprovalLabel, CreditsText, Effort, ModelDetail, PermissionsLabel,
-    PlanLabel, ResetTime, RowLabel, SandboxKind, SandboxText, Slot, Speed, BilledTokens, WindowName,
+    PlanLabel, ResetTime, RowLabel, SandboxKind, SandboxText, Slot, Speed, BilledTokens, WindowName, window_name,
 };
 
 use crate::l10n::Lang;
@@ -89,6 +89,22 @@ pub struct Strings {
     pub window_usage: &'static str,
     pub window_secondary_usage: &'static str,
     pub reset_at: Msg<1>,
+    // ---- the composer's usage notice (`chatwidget/usage_notice.rs`)
+    /// `⚠ {label} limit: {emphasis}{remaining} left`.
+    pub notice_summary: Msg<3>,
+    /// `⚠ {label} {remaining} left`, the shortest.
+    pub notice_compact: Msg<2>,
+    /// ` · resets at {when}`.
+    pub notice_resets: Msg<1>,
+    /// ` · /status`.
+    pub notice_status: &'static str,
+    /// The emphasis from 95% used.
+    pub notice_only: &'static str,
+    /// What is left at 100% used (the protocol rounds: 100% alone does not prove a hard stop).
+    pub notice_under_one: &'static str,
+    /// The window's name there (`limit_label_for_window`): 5h, daily, weekly, monthly, annual,
+    /// and the two generic ones.
+    pub notice_windows: [&'static str; 7],
     pub time_12: Msg<3>,
     pub time_24: Msg<2>,
     pub on_date: Msg<3>,
@@ -209,6 +225,21 @@ pub const EN: Strings = Strings {
     window_usage: "Usage",
     window_secondary_usage: "Secondary usage",
     reset_at: msg!("(resets {0})"),
+    notice_summary: msg!("⚠ {0} limit: {1}{2} left"),
+    notice_compact: msg!("⚠ {0} {1} left"),
+    notice_resets: msg!(" · resets at {0}"),
+    notice_status: " · /status",
+    notice_only: "only ",
+    notice_under_one: "<1%",
+    notice_windows: [
+        "5h",
+        "daily",
+        "weekly",
+        "monthly",
+        "annual",
+        "usage",
+        "secondary usage",
+    ],
     time_12: msg!("{0}:{1} {2}"),
     time_24: msg!("{0}:{1}"),
     on_date: msg!("{0} on {1} {2}"),
@@ -358,6 +389,20 @@ impl Strings {
             [Arg::Int(u64::try_from(percent).unwrap_or(0))],
             &self.num,
         )
+    }
+
+    /// The window's name in the composer's usage notice, lower case, the generic ones `usage` and
+    /// `secondary usage` (`limit_label_for_window`).
+    pub fn notice_window(&self, minutes: Option<i64>, secondary: bool) -> &'static str {
+        self.notice_windows[match window_name(minutes, secondary) {
+            WindowName::FiveHours => 0,
+            WindowName::Daily => 1,
+            WindowName::Weekly => 2,
+            WindowName::Monthly => 3,
+            WindowName::Annual => 4,
+            WindowName::Generic { secondary: false } => 5,
+            WindowName::Generic { secondary: true } => 6,
+        }]
     }
 
     pub fn window_name(&self, name: WindowName) -> &'static str {

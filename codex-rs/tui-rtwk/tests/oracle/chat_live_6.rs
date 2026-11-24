@@ -40,6 +40,8 @@ fn usage_chat_in(width: u16, clock: &str, credits: Option<&serde_json::Value>) -
 /// 2026-06-18 09:39 UTC, the first expiry of the oracle's credits (`expiry_timestamp(18, 9, 39)`).
 const FIRST_EXPIRY: i64 = 1_781_775_540;
 const DAY: i64 = 86_400;
+/// 2026-09-20 12:00 UTC, the moment of the oracle's usage notice tests.
+const NOTICE_NOW: i64 = 1_789_905_600;
 
 /// One available credit of the account's limits (the oracle's `reset_credit`).
 fn credit(id: &str, expires_at: Option<i64>, title: Option<&str>) -> serde_json::Value {
@@ -222,7 +224,18 @@ fn rate_limit_reset_confirmation_uses_backend_copy_snapshot() {
     open_resets(&mut s);
     s.keys("enter");
     // The oracle's OpenRateLimitResetConfirmation event carries the same fields: not asserted here.
-    s.assert_snap_region("rate_limit_reset_confirmation", 15, 0);
+    // The snapshot is `render_bottom_popup`, the popup alone in a bottom pane; here the
+    // confirmation is a dialog centred on the frame (`ViewPresentation::Centered`), over the
+    // picker, so its rows are asserted where they are, not as a region.
+    for row in [
+        "Use this reset?",
+        "Full reset (Weekly + 5 hr) · Expires 09:39 on 18 Jun 2026",
+        "1. Yes, use reset  Reset your weekly and 5-hour usage limits.",
+        "› 2. No, go back     Choose a different reset",
+        "enter confirm · esc back",
+    ] {
+        s.assert_contains(row);
+    }
 }
 
 // ORACLE chatwidget/tests/usage.rs:501 rate_limit_reset_confirmation_no_and_escape_return_to_picker kind=ui owner=chat-live
@@ -328,18 +341,33 @@ fn no_credit_outcome_disables_reset_entry_in_usage_menu() {
 fn rate_limit_reset_redemption_cannot_be_dismissed_while_in_flight() {
     kit::pending(
         Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption in flight (Using a reset...) and no Refreshing... state after a Reset outcome (seed steps)",
+        "the Refreshing... half: the kit's respond table answers every limits read at once, so the state between the Reset outcome and the post-consume read cannot be held (see reset_redemption_in_flight_ignores_escape for the first half)",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("Using a reset...");
     s.keys("esc");
     s.assert_contains("Using a reset...");
-    // The redemption answers Reset (seed step); Esc while refreshing.
+    // The redemption answers Reset; Esc while refreshing.
+    s.feed(&consume_answer("reset"));
     s.keys("esc");
     s.assert_contains("Refreshing...");
-    // The post-consume refresh lands (seed step); Esc closes it.
+    // The post-consume refresh lands; Esc closes it.
     s.keys("esc");
     s.assert_absent("Refreshing...");
+}
+
+/// The first half of the oracle test above: while the redemption is in flight Esc does not close
+/// the popup (the backend does not answer: no `respond` step for the consume).
+#[test]
+fn reset_redemption_in_flight_ignores_escape() {
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("Using a reset...");
+    s.keys("esc");
+    s.assert_contains("Using a reset...");
 }
 
 // ORACLE chatwidget/tests/usage.rs:765 rate_limit_reset_redemption_allows_ctrl_c_to_quit_while_in_flight kind=ui owner=chat-live
@@ -447,11 +475,10 @@ fn account_change_dismisses_reset_popup_beneath_overlay() {
 // ORACLE chatwidget/tests/usage.rs:974 startup_check_shows_available_reset_hint_snapshot kind=snap owner=chat-live snap=rate_limit_reset_available_hint
 #[test]
 fn startup_check_shows_available_reset_hint_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: the startup reset check with 2 available is not seeded, so the Run /usage to use one hint is not drawn",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // The startup check found 2 resets: the hint is one history line (the oracle's snapshot is
+    // that cell alone).
+    let mut s = usage_chat(80, Some(&count(2)));
+    s.wait_for("Run /usage to use one.");
     s.assert_contains("• You have 2 usage limit resets available. Run /usage to use one.");
 }
 
@@ -547,20 +574,50 @@ fn early_draw_rearms_thread_usage_settlement_after_immediate_redraw() {
 // ORACLE chatwidget/usage_notice_tests.rs:30 notice_details_fit_without_truncating_the_warning kind=snap owner=chat-live snap=usage_notice_widths snap=weekly_usage_notice_widths
 #[test]
 fn notice_details_fit_without_truncating_the_warning() {
-    kit::pending(
-        Owner::ChatLive,
-        "no usage notice in the chat: no rate-limit warning line (5h limit at 8% left, resets in an hour; weekly at 2% left) in the footer at each width",
-    );
-    // The oracle draws each width's section from one notice state; each width is one screen.
-    for width in [98, 97, 58, 57, 38, 37, 12, 11, 0] {
-        let s = Screen::build(Owner::ChatLive)
-            .size(width.max(1), 24)
-            .live()
-            .open();
-        s.assert_snap_section("usage_notice_widths", &format!("{width} columns"));
+    // The oracle draws each width's line from one notice state, `width` being the room the
+    // line gets; on the screen the row keeps two cells free (`composer_hint`), and the line sits
+    // one cell from the right edge. A width the line does not fit shows nothing.
+    let fits = |width: u16, window: serde_json::Value, expected: &str, absent: &str| {
+        let screen = width + 2;
+        let mut s = Screen::build(Owner::ChatLive).size(screen, 24).live().open();
+        let clock = serde_json::json!({"step": "screen", "dir": "cells", "ev": {"kind": "clock", "format": "twelve_hour", "utc_offset": 0}});
+        let now = serde_json::json!({"step": "clock", "secs": NOTICE_NOW, "utc_offset": 0});
+        let update = serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": window}}});
+        s.feed(&format!("{clock}\n{now}\n{update}\n"));
+        if expected.is_empty() {
+            // (the warning's own cell has a mark too)
+            s.assert_absent("⚠ 5h");
+            s.assert_absent("⚠ weekly");
+            return;
+        }
+        let pad = usize::from(screen) - 1 - expected.chars().count();
+        s.assert_has_row(&format!("{}{expected}", " ".repeat(pad)));
+        s.assert_absent(absent);
+    };
+    let hour = serde_json::json!({"primary": {"usedPercent": 92, "windowDurationMins": 300, "resetsAt": NOTICE_NOW + 3_600}});
+    for (width, expected, absent) in [
+        (98, "⚠ 5h limit: 8% left · resets at 1:00 PM · /status", "\u{0}"),
+        (97, "⚠ 5h limit: 8% left · /status", "resets at"),
+        (58, "⚠ 5h limit: 8% left · /status", "resets at"),
+        (57, "⚠ 5h limit: 8% left", " · /status"),
+        (38, "⚠ 5h limit: 8% left", " · /status"),
+        (37, "⚠ 5h 8% left", "limit:"),
+        (12, "⚠ 5h 8% left", "limit:"),
+        (11, "", ""),
+    ] {
+        fits(width, hour.clone(), expected, absent);
     }
-    for width in [138, 137, 76, 75, 56, 55, 16, 15] {
-        let s = Screen::build(Owner::ChatLive).size(width, 24).live().open();
-        s.assert_snap_section("weekly_usage_notice_widths", &format!("{width} columns"));
+    let weekly = serde_json::json!({"secondary": {"usedPercent": 98, "windowDurationMins": 10080, "resetsAt": NOTICE_NOW + DAY}});
+    for (width, expected, absent) in [
+        (138, "⚠ weekly limit: only 2% left · resets at 12:00 PM on 21 Sep · /status", "\u{0}"),
+        (137, "⚠ weekly limit: only 2% left · /status", "resets at"),
+        (76, "⚠ weekly limit: only 2% left · /status", "resets at"),
+        (75, "⚠ weekly limit: only 2% left", " · /status"),
+        (56, "⚠ weekly limit: only 2% left", " · /status"),
+        (55, "⚠ weekly 2% left", "limit:"),
+        (16, "⚠ weekly 2% left", "limit:"),
+        (15, "", ""),
+    ] {
+        fits(width, weekly.clone(), expected, absent);
     }
 }
