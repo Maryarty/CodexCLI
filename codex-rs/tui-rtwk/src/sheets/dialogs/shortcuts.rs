@@ -63,7 +63,7 @@ pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialog
         Focus::new(Dialog::new(column).title(title).max_width(None)).can_request_focus(false);
     let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
     bind_fixed(
-        focus.bind('?', cx.send(Msg::Close)),
+        bind_fixed(focus, fixed::OPEN_SHORTCUTS, cx.send(Msg::Close)),
         fixed::TAB,
         cx.send(Msg::Toggle),
     )

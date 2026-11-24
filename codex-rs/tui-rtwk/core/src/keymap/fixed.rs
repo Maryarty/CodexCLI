@@ -242,6 +242,11 @@ pub const USAGE_NEXT_TAB: ActionId = list("usage_next_tab");
 /// Left and Right turn the warnings dialog's page.
 pub const TURN_PREVIOUS: ActionId = list("turn_previous");
 pub const TURN_NEXT: ActionId = list("turn_next");
+/// `k` keeps the warning on the page and turns to the next.
+pub const TURN_KEEP: ActionId = list("turn_keep");
+/// Tab and Shift+Tab step the cursor of a dialog's action rows on and back (the app link dialog).
+pub const STEP_NEXT: ActionId = list("step_next");
+pub const STEP_PREVIOUS: ActionId = list("step_previous");
 
 /// The bytes a terminal without the kitty protocol sends for Ctrl+/ (`0x1f`, read as Ctrl+_, and
 /// Ctrl+7 shares it): the side conversation's key where `toggle_side_conversation` is Ctrl+/.
@@ -659,6 +664,18 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: USAGE_NEXT_TAB,
         bindings: &[exact(Key::Tab, Mods::NONE)],
+    },
+    Fixed {
+        id: STEP_NEXT,
+        bindings: &[exact(Key::Tab, Mods::NONE)],
+    },
+    Fixed {
+        id: STEP_PREVIOUS,
+        bindings: &[exact(Key::Tab, Mods::SHIFT)],
+    },
+    Fixed {
+        id: TURN_KEEP,
+        bindings: &[exact(Key::Char('k'), Mods::NONE)],
     },
     Fixed {
         id: TURN_PREVIOUS,

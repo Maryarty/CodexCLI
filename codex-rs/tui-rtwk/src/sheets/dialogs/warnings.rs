@@ -182,7 +182,11 @@ pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogSt
     let focus = Focus::new(Dialog::bare(column)).can_request_focus(false);
     let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
     let focus = bind_fixed(
-        focus.bind('k', cx.send(Msg::Turn(Turn::KeepAndNext))),
+        bind_fixed(
+            focus,
+            fixed::TURN_KEEP,
+            cx.send(Msg::Turn(Turn::KeepAndNext)),
+        ),
         fixed::TURN_PREVIOUS,
         cx.send(Msg::Turn(Turn::Previous)),
     );

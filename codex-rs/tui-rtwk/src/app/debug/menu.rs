@@ -17,12 +17,14 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use crate::l10n::Lang;
 use crate::l10n::lang;
 use crate::l10n::strings as l10n;
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::Kind;
 
 use crate::app::debug::seeded::SeededScope;
 use crate::app::debug::{self, DebugOpen, EntryOpen};
 use crate::app::theme;
 use crate::app::view::Hs;
+use crate::keymap::bind_fixed;
 use crate::sheets;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -193,14 +195,13 @@ impl State for DebugMenuState {
         .autofocus(true);
         // A route the menu opens may run at a few cells (the textarea's
         // oracle rects): the menu under it is clipped then, as meant.
-        Focus::new(
+        let focus = Focus::new(
             Column::new()
                 .overflow_intended(true)
                 .child(Text::new(strings.debug.title).style(tokens.accent()))
                 .child(Text::new(hint).style(tokens.dim()))
                 .child(Expanded::new(1, list)),
-        )
-        .bind('q', cx.send(MenuMsg::Back))
-        .into()
+        );
+        bind_fixed(focus, fixed::PICK_LEAVE, cx.send(MenuMsg::Back)).into()
     }
 }
