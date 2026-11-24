@@ -704,6 +704,15 @@ impl Strings {
         Fmt::new(self.notice_could_not_save, [Arg::Text(error)], &self.num)
     }
 
+    /// "Notifications · Notify only while ...".
+    pub fn search_desc<'a>(&'a self, group: &'a str, description: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.search_description,
+            [Arg::Text(group), Arg::Text(description)],
+            &self.num,
+        )
+    }
+
     /// "Automatic ›".
     pub fn choice<'a>(&'a self, label: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.value_choice, [Arg::Text(label)], &self.num)

@@ -15,6 +15,7 @@ use super::FeatureView;
 use crate::app::debug::Dir;
 use crate::pages::session::strings::Strings as SessionStrings;
 
+pub mod config_panel;
 pub mod draft;
 pub mod features;
 pub mod hooks;

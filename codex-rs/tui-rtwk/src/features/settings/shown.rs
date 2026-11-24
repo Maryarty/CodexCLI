@@ -8,7 +8,7 @@ use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::{ID, Settings, Which};
 
-use super::{features, hooks, memories, setup, theme};
+use super::{config_panel, features, hooks, memories, setup, theme};
 
 /// Which sheet the dialog asked for is drawn with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,6 +18,7 @@ pub(super) enum Shown {
     Features,
     Memories,
     Hooks,
+    Config,
     Other,
 }
 
@@ -29,7 +30,8 @@ impl Shown {
             Which::Experimental => Shown::Features,
             Which::Memories => Shown::Memories,
             Which::Hooks => Shown::Hooks,
-            Which::Config | Which::Keymap => Shown::Other,
+            Which::Config => Shown::Config,
+            Which::Keymap => Shown::Other,
         }
     }
 }
@@ -81,6 +83,7 @@ impl State for ScreenState {
             }
             .into(),
             Some(Shown::Hooks) => hooks::HooksSheet.into(),
+            Some(Shown::Config) => config_panel::ConfigSheet.into(),
             // No dialog offered (the debug menu's row, a dialog nothing builds yet): the
             // skeleton's empty-slot line.
             None | Some(Shown::Other) => {

@@ -1030,3 +1030,37 @@ fn hooks_a_tap_moves_the_cursor_to_a_hook_and_a_second_tap_toggles_it_and_the_wh
     );
     assert!(!h.t.screen().contains("↓"), "{}", h.t.screen());
 }
+
+// ---- the configuration panel (`config_panel/`): groups, rows, search, the editors.
+
+fn config_panel() -> Harness {
+    open_sized("config_panel", 140, 24)
+}
+
+#[test]
+fn config_panel_opens_on_the_appearance_group() {
+    let h = config_panel();
+    let screen = h.t.screen();
+    assert!(screen.contains("Configuration"), "{screen}");
+    assert!(screen.contains("› Theme"), "{screen}");
+    assert!(screen.contains("Changes save automatically"), "{screen}");
+}
+
+#[test]
+fn config_panel_groups_search_and_toggle() {
+    let mut h = config_panel();
+    h.t.press("right");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(screen.contains("Notifications"), "{screen}");
+    assert!(!screen.contains("› Theme"), "{screen}");
+    h.t.press("left");
+    h.t.press("/");
+    h.t.type_text("notify");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(screen.contains("Search › notify"), "{screen}");
+    h.t.press("esc");
+    h.t.pump_for(ms(200));
+    assert!(!h.t.screen().contains("Search ›"), "{}", h.t.screen());
+}

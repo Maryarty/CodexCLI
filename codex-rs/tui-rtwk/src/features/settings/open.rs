@@ -182,6 +182,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/hooks_wrapped_url.jsonl"),
         ),
         (
+            "config_panel",
+            "the configuration panel on the oracle's default settings",
+            include_str!("fixtures/config_panel.jsonl"),
+        ),
+        (
             "theme_picker_all",
             "the syntax theme picker over the built-in themes and a custom one",
             include_str!("fixtures/theme_picker_all.jsonl"),
