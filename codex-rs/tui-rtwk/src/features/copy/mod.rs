@@ -12,9 +12,10 @@ use std::rc::Rc;
 use rtwk::AnyWidget;
 
 use codex_tui_core::features::Scope;
-use codex_tui_core::features::copy::{Copier, Note, Wish};
+use codex_tui_core::features::copy::{Copier, Intent, Note, Wish};
+use codex_tui_core::keymap::actions::GLOBAL_COPY;
 
-use super::{FeatureView, Shown};
+use super::{FeatureAction, FeatureView, Shown};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for Copier {
@@ -32,6 +33,15 @@ impl FeatureView for Copier {
             }),
             options: crate::sheets::sheet_options(),
         })
+    }
+
+    /// Ctrl+O (`copy_last_response_binding`): the last response goes to the clipboard.
+    fn actions() -> Vec<FeatureAction> {
+        vec![FeatureAction {
+            id: GLOBAL_COPY,
+            also: &[],
+            run: |keyed| keyed.say(Intent::Last),
+        }]
     }
 
     fn note_words(note: &Note, _words: &SessionStrings) -> String {

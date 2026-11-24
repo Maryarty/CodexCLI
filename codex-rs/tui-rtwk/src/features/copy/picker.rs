@@ -13,7 +13,7 @@ use rtwk_core::unicode::grapheme_boundaries;
 use codex_tui_core::app::effects::CopyFormat;
 use codex_tui_core::features::copy::{Intent, Response, strip_line_directives};
 
-use super::strings::PICKER_TITLE;
+use super::strings::{BLOCKQUOTE, CODE_BLOCK, PICKER_TITLE, WHOLE_RESPONSE, code_in};
 use super::targets::{self, Target};
 use crate::features::verb;
 use crate::widgets::picker::list::{Columns, Item, List};
@@ -45,17 +45,14 @@ struct Choice {
 /// The rows of the picker for `response` (`show_copy_picker`).
 fn choices(response: &Response) -> Vec<Choice> {
     let mut choices = vec![Choice {
-        label: "Whole response".to_owned(),
+        label: WHOLE_RESPONSE.to_owned(),
         text: response.markdown.clone(),
         format: CopyFormat::Markdown,
     }];
     for target in targets::extract(&response.source) {
         match target {
             Target::Code { language, content } => choices.push(Choice {
-                label: language.map_or_else(
-                    || "Code block".to_owned(),
-                    |language| format!("{language} code"),
-                ),
+                label: language.map_or_else(|| CODE_BLOCK.to_owned(), |language| code_in(&language)),
                 text: content,
                 format: CopyFormat::PlainText,
             }),
@@ -66,7 +63,7 @@ fn choices(response: &Response) -> Vec<Choice> {
                     .collect();
                 if !content.trim().is_empty() {
                     choices.push(Choice {
-                        label: "Blockquote".to_owned(),
+                        label: BLOCKQUOTE.to_owned(),
                         text: content,
                         format: CopyFormat::PlainText,
                     });

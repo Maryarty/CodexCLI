@@ -17,19 +17,18 @@ fn chat() -> Screen {
 fn diff(s: &mut Screen, result: Result<Report, Failure>) {
     s.type_text("/diff");
     s.keys("enter");
-    let ask = s
-        .commands()
-        .into_iter()
-        .find(|c| {
-            matches!(
-                c,
-                Command::Effect {
-                    ask: Effect::GitDiff { .. },
-                    ..
-                }
-            )
-        })
-        .expect("the diff was asked of the host");
+    let asked = s.commands().into_iter().find(|c| {
+        matches!(
+            c,
+            Command::Effect {
+                ask: Effect::GitDiff { .. },
+                ..
+            }
+        )
+    });
+    let Some(ask) = asked else {
+        panic!("the diff was asked of the host");
+    };
     s.answer_effect(&ask, Done::GitDiff(result));
     s.wait(300);
 }

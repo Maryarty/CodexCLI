@@ -6,9 +6,9 @@ use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
 
+use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
-use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::scroll::{ListView, ScrollController, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
@@ -22,6 +22,7 @@ use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
+use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::cells::strings as cells_strings;
@@ -597,7 +598,7 @@ impl State for ViewportState {
         // every thread owns its reader (#57499; Flutter's `PageStorageKey` per list): the list of
         // another thread is another element, so the offset the render list held is never taken
         // for the controller of the thread now shown
-        let owner = Key::value(thread_id.clone());
+        let loading = thread_id.clone();
         let list: AnyWidget = NotificationListener::<ScrollNotification>::new(list)
             .on_notification(move |scroll| {
                 let metrics = scroll.metrics;
@@ -607,7 +608,7 @@ impl State for ViewportState {
                     metrics.pixels
                 };
                 if can_load && scroll.depth() == 0 && distance <= 3 {
-                    send(Msg::Load(thread_id.clone()));
+                    send(Msg::Load(loading.clone()));
                 }
                 // back at the last row: the news is seen
                 if follow.at_tail() {
@@ -616,7 +617,7 @@ impl State for ViewportState {
                 false
             })
             .into();
-        let list = list.with_key(owner);
+        let list = thread_scope(&thread_id, list);
         SelectionHost {
             child: list,
             selection: widget.selection.clone(),
