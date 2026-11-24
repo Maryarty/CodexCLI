@@ -8,11 +8,11 @@ Result of the survey (`survey-2026-11-24.txt`, rerun to refresh): the share is s
   entry 140, kit cannot set the state 82, keymap 49, **fixture/script missing 19**.
 - The 19 fixture-class tests are not fixture-only either: each still names a missing screen,
   cell or core step (`no script shape` = a core `ThreadEv` the chat does not apply). A fixture
-  un-pends none of them. The 276 reasons that merely name a seed/entry are 80% a feature or a
+  un-pends none of them. The 276 reasons that merely name a seed/entry are mostly a feature or a
   kit state (queued messages, a disconnect, an image file), not server messages.
-- Oracle form of the pending bodies: 33 build `ServerNotification` literals, ~590 drive a chat
-  widget through helpers (`handle_turn_started`, `begin_exec`, ...), ~190 build a history cell
-  directly, ~200 build a view directly (bottom pane, picker, transcript view): nothing a
+- Oracle form of the pending bodies: 33 build `ServerNotification` literals, 338 drive a chat
+  widget through helpers (`handle_turn_started`, `begin_exec`, ...), 280 build a history cell
+  directly, 365 build a view directly (bottom pane, picker, transcript view): nothing a
   fixture holds. Of the 548 existing fixture-using tests only 9 have `ServerNotification`
   literals in the oracle body; the hand-written fixtures are semantic translations (helpers,
   `screen` / `fact` steps), which a script cannot infer from the body without interpreting Rust.
