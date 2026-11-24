@@ -233,30 +233,11 @@ pub struct Entry {
     pub prompt: Prompt,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Answered {
-    pub thread: ThreadId,
-    pub id: ServerRequestId,
-    pub decision: Decision,
-}
-
-/// The app-scoped model state of this screen, changed only by `apply`.
+/// The app-scoped model state of this screen: none. The queue of requests is `CodexApp.requests`
+/// (what is asked, and which are answered, is the queue's); a seed's prompt is written there by
+/// the app.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {
-    /// What the queued requests ask (the queue itself is `CodexApp.requests`).
-    pub entries: Vec<Entry>,
-    /// Answers given; the effect that sends them is the app's (handover).
-    pub answered: Vec<Answered>,
-}
-
-impl Model {
-    pub fn prompt(&self, thread: &ThreadId, id: &ServerRequestId) -> Option<&Prompt> {
-        self.entries
-            .iter()
-            .find(|entry| &entry.thread == thread && &entry.id == id)
-            .map(|entry| &entry.prompt)
-    }
-}
+pub struct Model {}
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
@@ -276,51 +257,19 @@ pub enum Intent {
     Respond { key: RequestKey, answer: RequestAnswer },
 }
 
+/// The app takes a presented request into its queue (`CodexApp.requests`); the model has no copy.
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = fx;
+    let _ = (model, fx);
     match ev {
-        Ev::Presented(entry) => {
-            model
-                .entries
-                .retain(|e| !(e.thread == entry.thread && e.id == entry.id));
-            model.entries.push(entry);
-        }
+        Ev::Presented(_) => {}
     }
 }
 
+/// An answer resolves the request in the app's queue (`resolve_request`); the model has no copy.
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = fx;
+    let _ = (model, fx);
     match intent {
-        Intent::Answer { key, decision } => {
-            let before = model.entries.len();
-            model
-                .entries
-                .retain(|e| !(e.thread == key.thread && e.id == key.id));
-            if model.entries.len() != before {
-                model.answered.push(Answered {
-                    thread: key.thread,
-                    id: key.id,
-                    decision,
-                });
-            }
-        }
-        Intent::Respond { key, answer } => {
-            let before = model.entries.len();
-            model
-                .entries
-                .retain(|e| !(e.thread == key.thread && e.id == key.id));
-            if model.entries.len() != before {
-                model.answered.push(Answered {
-                    thread: key.thread,
-                    id: key.id,
-                    decision: match answer {
-                        RequestAnswer::Choice(decision)
-                        | RequestAnswer::Elicitation { decision, .. } => decision,
-                        RequestAnswer::UserInput(_) => Decision::Accept,
-                    },
-                });
-            }
-        }
+        Intent::Answer { .. } | Intent::Respond { .. } => {}
     }
 }
 

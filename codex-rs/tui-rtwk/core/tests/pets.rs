@@ -3,10 +3,13 @@
 //! State tests of S24 (the `/pets` picker): `pets/picker.rs` tests and the
 //! selection events of `build_pet_picker_params`.
 
-use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::app::effects::{Ask, Done};
+use codex_tui_core::app::{AppEv, Command, Ingress, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::fixtures::script::build;
 use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::pets::{Choice, DISABLED, Intent as PetsIntent, Picker, Preview};
+use codex_tui_core::screens::pets::{DISABLED, Intent as PetsIntent, Picker, Preview};
+use codex_tui_core::threads::Item;
 use pretty_assertions::assert_eq;
 
 const PLAIN: &str = include_str!("../../src/sheets/pets/fixtures/picker.jsonl");
@@ -138,23 +141,112 @@ fn the_preview_becomes_ready_only_for_the_row_it_was_asked_for() {
     );
 }
 
-#[test]
-fn enter_selects_the_pet_and_closes() {
-    let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Pick("codex".into()));
-    assert_eq!(
-        sandbox.app().screens().pets.chosen,
-        vec![Choice::Selected("codex".into())]
-    );
-    // The preview is not wanted any more: the next picker asks again.
-    assert_eq!(picker(&sandbox).preview, None);
+/// An app over a script, to see the commands a step asks of the host (the sandbox drops them).
+struct Rig {
+    app: codex_tui_core::app::CodexApp,
+}
+
+impl Rig {
+    fn play(text: &str) -> Rig {
+        Rig {
+            app: build(text).expect("plays").app,
+        }
+    }
+
+    fn send(&mut self, ev: AppEv) -> Vec<Command> {
+        let epoch = self.app.epoch();
+        let fx = self.app.ingest(Ingress::new(epoch, ev));
+        fx.map(|fx| fx.commands().to_vec()).unwrap_or_default()
+    }
+
+    fn pick(&mut self, selector: &str) -> (u64, Vec<(String, serde_json::Value)>) {
+        let commands = self.send(AppEv::Intent(Intent::Screen(ScreenIntent::Pets(
+            PetsIntent::Pick(selector.into()),
+        ))));
+        commands
+            .iter()
+            .find_map(|command| match command {
+                Command::Effect {
+                    request,
+                    ask: Ask::ConfigWrite { edits },
+                } => Some((
+                    *request,
+                    edits
+                        .iter()
+                        .map(|edit| (edit.key_path.clone(), edit.value.clone()))
+                        .collect(),
+                )),
+                _ => None,
+            })
+            .expect("the pick is a write of the config")
+    }
+
+    fn answer(&mut self, request: u64, result: Result<(), String>) {
+        self.send(AppEv::Effect {
+            request,
+            done: Done::Config(result),
+        });
+    }
+
+    fn picker(&self) -> Picker {
+        self.app
+            .screens()
+            .pets
+            .catalog
+            .clone()
+            .expect("the picker is open")
+    }
+
+    fn errors(&self) -> Vec<String> {
+        self.app
+            .active_thread()
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Error { message } => Some(message.clone()),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 #[test]
-fn enter_on_the_disable_row_disables_pets() {
-    let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Pick(DISABLED.into()));
-    assert_eq!(sandbox.app().screens().pets.chosen, vec![Choice::Disabled]);
+fn enter_selects_the_pet_writes_it_and_the_picker_shows_it_configured() {
+    let mut rig = Rig::play(PLAIN);
+    let (request, edits) = rig.pick("codex");
+    assert_eq!(edits, vec![("tui.pet".to_owned(), "codex".into())]);
+    // The preview is not wanted any more: the next picker asks again.
+    assert_eq!(rig.picker().preview, None);
+    assert_ne!(rig.picker().current.as_deref(), Some("codex"));
+    rig.answer(request, Ok(()));
+    assert_eq!(rig.picker().current.as_deref(), Some("codex"));
+    assert_eq!(rig.errors(), Vec::<String>::new());
+}
+
+#[test]
+fn enter_on_the_disable_row_writes_the_disabled_pet() {
+    let mut rig = Rig::play(PLAIN);
+    let (request, edits) = rig.pick(DISABLED);
+    assert_eq!(edits, vec![("tui.pet".to_owned(), DISABLED.into())]);
+    rig.answer(request, Ok(()));
+    assert_eq!(rig.picker().current.as_deref(), Some(DISABLED));
+}
+
+#[test]
+fn a_pick_the_config_refuses_is_an_error_line_in_the_oracles_words() {
+    let mut rig = Rig::play(PLAIN);
+    let (request, _) = rig.pick("codex");
+    rig.answer(request, Err("read-only".into()));
+    assert_eq!(
+        rig.errors(),
+        vec!["Failed to save pet selection: read-only".to_owned()]
+    );
+    let (request, _) = rig.pick(DISABLED);
+    rig.answer(request, Err("read-only".into()));
+    assert_eq!(
+        rig.errors().last().map(String::as_str),
+        Some("Failed to disable pets: read-only")
+    );
 }
 
 #[test]
@@ -182,7 +274,6 @@ fn leaving_the_picker_releases_its_preview_without_a_choice() {
     send(&mut sandbox, PetsIntent::LoadPreview("codex".into()));
     send(&mut sandbox, PetsIntent::ReleasePreview);
     assert_eq!(picker(&sandbox).preview, None);
-    assert!(sandbox.app().screens().pets.chosen.is_empty());
     send(&mut sandbox, PetsIntent::LoadPreview("codex".into()));
     assert_eq!(
         sandbox.app().screens().pets.previews,

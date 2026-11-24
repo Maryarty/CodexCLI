@@ -29,9 +29,13 @@ fn exec(extra: &str) -> String {
 }
 
 fn prompt(sandbox: &Sandbox) -> Prompt {
-    let model = &sandbox.app().screens().approvals;
-    model
-        .prompt(&ThreadId::new("thread-1"), &ServerRequestId::new("1"))
+    sandbox
+        .app()
+        .requests()
+        .entries
+        .iter()
+        .find(|entry| entry.key.thread.as_str() == "thread-1" && entry.key.id.as_str() == "1")
+        .and_then(|entry| entry.prompt.as_deref())
         .expect("a prompt")
         .clone()
 }
@@ -122,7 +126,7 @@ fn patch_options_use_expected_decisions() {
 }
 
 #[test]
-fn an_answer_is_a_model_fact_and_the_prompt_goes() {
+fn an_answer_takes_the_request_out_of_the_queue() {
     let mut sandbox = play(&exec(""));
     let key = RequestKey {
         backend: Default::default(),
@@ -130,20 +134,14 @@ fn an_answer_is_a_model_fact_and_the_prompt_goes() {
         thread: ThreadId::new("thread-1"),
         id: ServerRequestId::new("1"),
     };
+    assert!(sandbox.app().requests().contains(&key));
     sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Approvals(
         ApprovalIntent::Answer {
             key,
             decision: Decision::Accept,
         },
     ))));
-    let model = &sandbox.app().screens().approvals;
-    assert!(
-        model
-            .prompt(&ThreadId::new("thread-1"), &ServerRequestId::new("1"))
-            .is_none()
-    );
-    assert_eq!(model.answered.len(), 1);
-    assert_eq!(model.answered[0].decision, Decision::Accept);
+    assert!(sandbox.app().requests().entries.is_empty());
 }
 
 #[test]

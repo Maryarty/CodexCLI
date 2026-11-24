@@ -5,6 +5,9 @@
 //! and mouse behaviour), and the footer entries one by one while the shard's
 //! `footer_snapshots` waits for the entries that need the status line.
 
+use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::{Ask, Done, CopyStatus};
+
 use crate::kit::{Owner, Screen};
 
 const IDLE: &str = include_str!("../../src/pages/session/footer/fixtures/footer_idle.jsonl");
@@ -88,6 +91,24 @@ fn a_click_on_the_warning_notice_opens_the_warnings() {
     s.assert_contains("⚠ 3 warnings · f2 to view");
     s.click_text("3 warnings");
     s.assert_contains("warning 1");
+}
+
+/// Ctrl+O in the viewer copies the text of the page shown (oracle `AppEvent::CopyWarning`): the
+/// host's clipboard is asked, and its answer is said in the gap above the composer.
+#[test]
+fn ctrl_o_in_the_warnings_copies_the_page_and_says_so() {
+    let mut s = page(warned(), 80, 24);
+    s.click_text("3 warnings");
+    s.assert_contains("warning 1");
+    s.keys("ctrl+o");
+    let copies: Vec<Command> = s
+        .commands()
+        .into_iter()
+        .filter(|c| matches!(c, Command::Effect { ask: Ask::Copy { text, .. }, .. } if text == "warning 1"))
+        .collect();
+    assert_eq!(copies.len(), 1, "{}", s.text());
+    s.answer_effect(&copies[0], Done::Copy(Ok(CopyStatus::Confirmed)));
+    s.assert_contains("Copied 9 chars to host clipboard");
 }
 
 /// With a draft in the composer the footer carries no shortcut hints (the
