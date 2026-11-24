@@ -1073,6 +1073,20 @@ macro_rules! feature_dirs {
 
 feature_list!(feature_dirs);
 
+/// The intent a permissions pick waits for before it is applied, when a feature needs a setup first
+/// (the Windows sandbox of an Auto pick: its enable prompt, which lets the pick go when the setup
+/// is done); none: the pick is applied at once. The app asks through the list, like every
+/// selector (ADR-012, "selectors").
+pub(crate) fn setup_before_pick(
+    states: &FeatureStates,
+    selection: &crate::screens::select::permissions::Selection,
+) -> Option<FeatureIntent> {
+    states
+        .windows_sandbox
+        .pick_needs_setup(selection)
+        .then(|| FeatureIntent::from(windows_sandbox::Intent::Prompt(selection.clone())))
+}
+
 /// The Daybreak choice of a thread (`/daybreak`'s saved choice, else its metadata's): the one
 /// selector of a slice the app reads (it words a cyber refusal, `app/notices.rs`), through the
 /// list like every feature name (ADR-012, "selectors").

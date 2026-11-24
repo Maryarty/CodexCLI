@@ -26,7 +26,7 @@ use crate::widgets::thread_ui::ThreadUi;
 /// copy mode begins over `ui`'s transcript, a cursor on the last response, and no sheet opens.
 /// False where it cannot begin (Find or another mode of input holds the keys): the picker shows
 /// as it does for a transcript the chat does not own. The presenter that shows `Wish::Picker`
-/// asks this of the thread's `ThreadUi` first.
+/// asks this of the thread's `ThreadUi` first (`FeatureView::in_place`).
 pub fn begins_mode(ui: &ThreadUi) -> bool {
     copy_mode::enter(
         ui,
@@ -56,6 +56,11 @@ fn pieces(source: &str) -> Vec<copy_mode::Piece> {
 }
 
 impl FeatureView for Copier {
+    /// On the chat's own transcript `/copy` is copy mode, not the picker.
+    fn in_place(_wish: &Wish, ui: &ThreadUi) -> bool {
+        begins_mode(ui)
+    }
+
     /// The picker opens once for the wish, at the bottom of the chat; nothing keeps a scope's sheet
     /// open for it.
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {

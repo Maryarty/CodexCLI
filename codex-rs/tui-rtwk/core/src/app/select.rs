@@ -452,9 +452,8 @@ pub(super) fn permissions_pick(
 ) {
     // The sandbox of a Windows host is the missing piece of an Auto pick: the enable prompt
     // opens and the pick waits for the setup (`approval_preset_actions`).
-    if app.features.windows_sandbox.pick_needs_setup(&selection) {
-        let ask = crate::features::windows_sandbox::Intent::Prompt(selection);
-        super::features::intent(app, crate::features::FeatureIntent::from(ask), fx);
+    if let Some(ask) = crate::features::setup_before_pick(&app.features, &selection) {
+        super::features::intent(app, ask, fx);
         return;
     }
     permissions_apply(app, selection, fx);

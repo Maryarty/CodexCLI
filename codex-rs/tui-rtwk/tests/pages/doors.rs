@@ -630,7 +630,7 @@ mod copy_on_an_owned_transcript {
     }
 
     /// `show_copy_picker`: where the chat owns its transcript `/copy` begins copy mode over it
-    /// (the presenter asks `features::copy::begins_mode`); the picker is the other mode's way.
+    /// (the presenter asks the feature: `FeatureView::in_place`); the picker is the other mode's way.
     #[test]
     fn slash_copy_begins_copy_mode_only_where_the_transcript_is_owned() {
         let owned = after_copy(true);

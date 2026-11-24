@@ -34,6 +34,7 @@ use codex_tui_core::keymap::ActionId;
 use crate::app::debug::Dir;
 use crate::app::view::Hs;
 use crate::pages::session::strings::Strings as SessionStrings;
+use crate::widgets::thread_ui::ThreadUi;
 
 pub mod prompt;
 
@@ -127,6 +128,13 @@ pub trait FeatureView: Feature {
     /// How one of the feature's wishes is shown; none for a feature that has no wishes.
     fn shown(_wish: &Self::Wish, _scope: &Scope) -> Option<Shown> {
         None
+    }
+
+    /// A wish the surface takes in place, with no sheet (`/copy` on the chat's own transcript begins
+    /// copy mode): true when `ui`, the UI state of the wish's thread, took it. The presenter asks
+    /// before it shows the wish, and only where the chat owns its transcript.
+    fn in_place(_wish: &Self::Wish, _ui: &ThreadUi) -> bool {
+        false
     }
 
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
@@ -323,6 +331,16 @@ macro_rules! view_wishes {
             match *wish {
                 $(FeatureWish::$variant(ref wish) => {
                     <codex_tui_core::features::$name::$variant as FeatureView>::shown(wish, scope)
+                })*
+            }
+        }
+
+        /// Whether the feature takes a wish in place of a sheet (`FeatureView::in_place`).
+        #[allow(unused_variables)]
+        pub fn in_place(wish: &FeatureWish, ui: &ThreadUi) -> bool {
+            match *wish {
+                $(FeatureWish::$variant(ref wish) => {
+                    <codex_tui_core::features::$name::$variant as FeatureView>::in_place(wish, ui)
                 })*
             }
         }

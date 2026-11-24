@@ -305,7 +305,8 @@ mod copy_mode {
         s.wait(50);
         let sent = copies(&s);
         assert_eq!(sent.len(), 1, "{}", s.text());
-        assert_eq!(sent[0].0, "assistant code");
+        // the code block's own source, newline and all (oracle copy_mode_tests `payload`)
+        assert_eq!(sent[0].0, "assistant code\n");
         assert_eq!(s.thread_ui().input(), Input::Plain);
         s.assert_absent(HINTS);
     }

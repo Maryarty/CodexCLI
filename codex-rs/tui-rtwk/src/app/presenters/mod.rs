@@ -15,9 +15,7 @@
 use rtwk::app::AppCx;
 
 use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::features::FeatureWish;
-use codex_tui_core::features::copy;
-use codex_tui_core::ids::ThreadId;
+use codex_tui_core::features::Scope;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::select::Intent as SelectIntent;
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
@@ -115,15 +113,22 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         .wishes()
         .pending()
         .filter(|wish| wish.seq > app.ui.presenters.taken)
-        .map(|wish| (wish.seq, crate::features::shown(&wish.wish, &wish.scope)))
+        .map(|wish| {
+            (
+                wish.seq,
+                wish.wish.clone(),
+                wish.scope.clone(),
+                crate::features::shown(&wish.wish, &wish.scope),
+            )
+        })
         .collect();
-    for (seq, shown) in wishes {
+    for (seq, wish, scope, shown) in wishes {
         // `/copy` on the chat's own transcript is copy mode, not a sheet (`show_copy_picker`):
         // the picker is for a transcript the chat does not own, or where Find or another mode
-        // holds the keys
+        // holds the keys (`FeatureView::in_place`)
         if app.core.tui().transcript_owned
-            && let Some(thread) = copy_picker_thread(app, seq)
-            && crate::features::copy::begins_mode(&app.ui.thread_ui.get(Some(&thread)))
+            && let Scope::Thread(thread) = &scope
+            && crate::features::in_place(&wish, &app.ui.thread_ui.get(Some(thread)))
         {
             app.ui.presenters.taken = seq;
             app.send(AppEv::Intent(Intent::WishShown(seq)));
@@ -153,16 +158,4 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         app.ui.presenters.taken = seq;
         app.send(AppEv::Intent(Intent::WishShown(seq)));
     }
-}
-
-/// The thread of the copy picker wish numbered `seq`, when that is what it is.
-fn copy_picker_thread(app: &UiApp, seq: u64) -> Option<ThreadId> {
-    app.core
-        .wishes()
-        .pending()
-        .find(|wish| wish.seq == seq)
-        .and_then(|wish| match &wish.wish {
-            FeatureWish::Copier(copy::Wish::Picker { thread, .. }) => Some(thread.clone()),
-            _ => None,
-        })
 }

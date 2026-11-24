@@ -186,7 +186,7 @@ macro_rules! probe {
                     message: &str,
                     _view: &AppView<'_>,
                 ) -> Option<String> {
-                    (message == $name).then(|| format!("{} says", $name))
+                    (message == $name).then(|| format!("{}!", $name))
                 }
 
                 fn structured_wanted(_state: &u32, ctx: &Ctx, _view: &AppView<'_>) -> bool {
@@ -788,8 +788,8 @@ fn a_turn_error_is_reworded_by_the_first_feature_that_has_words() {
     let view = AppView::new(None, &threads, &screens, &tui, &[], None);
     let thread = ThreadId::new("t1");
     let words = |message: &str| fault_words(&states, &thread, message, &view);
-    assert_eq!(words("beta").as_deref(), Some("beta says"));
-    assert_eq!(words("alpha").as_deref(), Some("alpha says"));
+    assert_eq!(words("beta").as_deref(), Some("beta!"));
+    assert_eq!(words("alpha").as_deref(), Some("alpha!"));
     assert_eq!(words("the server's own"), None);
 }
 
@@ -823,8 +823,7 @@ fn the_backend_banner_of_the_thread_in_use_is_a_fact_a_feature_reads() {
 
     let banner: Banner = serde_json::from_value(serde_json::json!({
         "banner_type": "selected_model_limit", "model_slug": "test-model-a",
-        "title": "Selected model usage exhausted", "description": "Switch to another model.",
-        "ctas": [], "presentation": "inline",
+        "title": "t", "description": "d", "ctas": [], "presentation": "inline",
     }))
     .expect("a banner");
     let occurrence = BannerOccurrence::new(banner, Ticket::new(3));
@@ -851,15 +850,12 @@ fn a_user_message_reaches_every_feature_in_list_order() {
     let mut states = FeatureStates::default();
     logged();
     let thread = ThreadId::new("t1");
-    app_step(|cx| on_user_message(&mut states, &thread, "fix the build", cx));
+    app_step(|cx| on_user_message(&mut states, &thread, "build", cx));
     assert_eq!(
         logged(),
         [
-            (
-                "alpha",
-                Hook::Message(thread.clone(), "fix the build".into())
-            ),
-            ("beta", Hook::Message(thread, "fix the build".into())),
+            ("alpha", Hook::Message(thread.clone(), "build".into())),
+            ("beta", Hook::Message(thread, "build".into())),
         ]
     );
 }

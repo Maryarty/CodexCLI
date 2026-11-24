@@ -1002,6 +1002,23 @@ interlock follows the oracle's `thread_stream_disconnected` (`chatwidget/input_f
 stands `Submit` queues instead of sending or steering and `send_next` does not send;
 `StreamRestored` clears it and the queue goes on if no turn runs.
 
+**Doors of the second round (doors-r2).** Four hooks of `Feature`, each with a default that does
+nothing: `structured_wanted(state, &ctx, view)` asks the feature that asked for a structured run
+whether its answer is still wanted just before `turn/start` (a recap of a thread that moved on says
+no, and the run ends without a turn); `on_user_message(state, thread, text, cx)` tells every
+feature each user message of a thread as the thread takes it (the automatic title waits for the
+first); `on_rate_limits_read(state, backend, &RateRead, cx)` tells every feature an account read of
+the limits, after the model took it (`AppFacts::rate_limits()` and `AppFacts::backend_banner()` read
+what the app holds); `fault_words(state, thread, message, view)` lets the first feature, in list
+order, word the error of a turn of its own thread. `PublicVerb::NotifyOwner(Nudge)` is the one
+path of the add-credits e-mail (the banner's action goes through it too). `AppCx::quiet_interrupts`
+(`Lifecycle::QuietInterrupts`, `ThreadEv::QuietInterrupts`) makes one thread say no interrupted-turn
+notice: a side conversation's. Two selectors keep the hub from naming a slice: the app asks
+`features::setup_before_pick` (the Windows sandbox's enable prompt before an Auto pick, an
+`Intent::Prompt` that lets the pick go when the setup is done: `PublicVerb::PickPermissions`) and
+the presenter asks `FeatureView::in_place(wish, thread_ui)` (the copy mode that `/copy` begins on
+a transcript the chat owns, instead of the picker).
+
 **The host's doors: `host_capability_list!` (fw-hubs-c, P6).** `AppCx::effect` takes an
 `effects::Ask`, and `Ask` is the one enum of what the host can do for the app. It is written once, as
 a list (`core/src/app/effects.rs`, the macro in `effects/capability.rs`): a line is a capability, with

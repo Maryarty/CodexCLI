@@ -58,7 +58,9 @@ enum core/src/screens/select.rs Picked 8
 enum core/src/screens/select.rs Intent 29
 # fw-hubs-b (P8, `thread_stream_disconnected`): `StreamLost` and `StreamRestored` are thread facts of
 # the event stream (the queue interlock reads `ThreadCore::stream_lost`), not a feature's: 30 -> 32.
-enum core/src/threads.rs ThreadEv 32
+# doors-r2: `ThreadEv::QuietInterrupts(bool)` is the thread's own fact (a side conversation says no
+# interrupted-turn notice, `AppCx::quiet_interrupts`, ADR-012 "doors of the second round"): 32 -> 33.
+enum core/src/threads.rs ThreadEv 33
 # fix-recap-title (ADR-012 "structured turn"): the three RPCs of the temporary thread a feature asks
 # for through `AppCx::structured_turn` (`McpServers`: `config/read`, `StartTemporary`: `thread/start`,
 # `StructuredTurn`: `turn/start`; the unsubscribe and interrupt are the lifecycle's own): 21 -> 24.
@@ -141,7 +143,12 @@ enum src/features/mod.rs OpenArgs 0
 # fact with many consumers, not one producer and one consumer.
 # fix-recap-title: `structured_done` (the answer of a structured turn a feature asked for, the
 # counterpart of `thread_opened`: 24).
-methods core/src/features/mod.rs Feature 24
+# doors-r2 (ADR-012, "doors of the second round"): `structured_wanted` (a structured run is asked
+# once more before its turn starts: the recap's stale-run cancel), `on_user_message` (the first and
+# every user message of a thread: the automatic title, the recap), `on_rate_limits_read` (an account
+# read of the limits: the rate limit prompts, the status line) and `fault_words` (a feature words
+# the error of its own thread's turn): 24 -> 28.
+methods core/src/features/mod.rs Feature 28
 # fw-hubs-a (P3): the two views a slice reads the app through. `AppView` has 9 `pub fn`s and
 # `ThreadView` 7 (the handles `core`, `slots`, `parts`, `facts` and what depends on the step:
 # `busy`, `has_writer`); a fact one slice wants is that slice's selector over them
