@@ -53,6 +53,15 @@ command center bypassed ADR-003 and hit "thread already has an active writer").
   only in `.claude/agents/codex-porter.md`; the brief holds the rules all types
   share; a launch prompt or task description points to them and never
   restates them. Every restatement drifted.
+- Needs first (the person 2026-11-24): per round ONE doors task builds the
+  packages' actual NEEDS (core, the UI shared files, the test kit) as doors, an
+  entry point, a hook, an accessor or a kit helper with one test each, and lands
+  before any package starts; no package starts on an open need. A package that
+  meets a need after it started writes it into its checkpoint (`Needs:`) and
+  stops at it; the orchestrator appends those needs to the next round's doors
+  task. A door is never a package feature: what a need turns out to be a feature
+  of is said in the doors task's deliverable and left to its package
+  (doors-r1: `tools/rtwk-port/doors-r1/`).
 - A launch prompt is `tm task <alias>; worktree <path>; task_start`. The task
   description is the assignment, in this shape: Goal (1 line); Items, numbered,
   each with oracle origin and landing `file:line`; `read:` up to 8
