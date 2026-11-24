@@ -16,9 +16,9 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
 use super::{AppCx, AppView, Feature, Never, Out, Slash, ThreadCx, Tone, TurnEnd};
-use crate::app::AppFx;
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
+use crate::app::{AppFx, Now};
 use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TicketMint};
 use crate::rpc::RpcError;
@@ -114,6 +114,16 @@ macro_rules! probe {
                             Done::Title(None) => 1,
                             _ => 1000,
                         };
+                }
+
+                // A state (or part) of a thousand or more is a timer: that many seconds after
+                // the epoch. Its intent adds nothing, so it stays asked for.
+                fn wake_at(state: &u32) -> Option<(Now, Intent)> {
+                    (*state >= 1000).then(|| (Now::at_secs(i64::from(*state)), Intent(0)))
+                }
+
+                fn thread_wake_at(part: &u32) -> Option<(Now, ThreadIntent)> {
+                    (*part >= 1000).then(|| (Now::at_secs(i64::from(*part)), ThreadIntent(0)))
                 }
 
                 fn on_resumed(_state: &mut u32, thread: &ThreadId, _cx: &mut AppCx<'_>) {
@@ -222,7 +232,8 @@ use probe_list::{
     FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote,
     FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha, answered,
     apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode, effect_done,
-    names, note_tone, on_fact, on_interest, on_interrupted, on_resumed, on_turn_end, runs_of, wire,
+    names, next_thread_wake, next_wake, note_tone, on_fact, on_interest, on_interrupted,
+    on_resumed, on_turn_end, runs_of, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -288,6 +299,50 @@ fn an_interest_reaches_its_feature_opened_and_closed() {
         );
     });
     assert_eq!((*states.alpha, *states.beta), (2 + 100, 0));
+}
+
+/// A feature says when it wants the clock told (`Feature::wake_at`); the generated functions
+/// give the nearest moment of all (what the app hands the shell's one timer) and the intents
+/// whose moment the clock has reached, in list order, and nothing before. The clock is a value
+/// the test makes up: nothing here waits for a second.
+#[test]
+fn a_feature_declares_its_wake_and_it_is_due_only_when_the_clock_reaches_it() {
+    let mut states = FeatureStates::default();
+    assert_eq!(next_wake(&states), None, "no feature asked");
+    assert!(wakes_due(&states, Now::at_secs(1_000_000)).is_empty());
+    *states.alpha = 2_000;
+    *states.beta = 1_500;
+    assert_eq!(
+        next_wake(&states),
+        Some(Now::at_secs(1_500)),
+        "the nearer of the two"
+    );
+    assert!(wakes_due(&states, Now::at_secs(1_499)).is_empty());
+    assert_eq!(
+        wakes_due(&states, Now::at_secs(1_500)),
+        [FeatureIntent::from(beta::Intent(0))]
+    );
+    assert_eq!(
+        wakes_due(&states, Now::at_secs(2_500)),
+        [
+            FeatureIntent::from(alpha::Intent(0)),
+            FeatureIntent::from(beta::Intent(0))
+        ],
+        "both, in list order"
+    );
+}
+
+#[test]
+fn a_thread_part_declares_its_wake_the_same_way() {
+    let mut parts = FeatureThreadParts::default();
+    assert_eq!(next_thread_wake(&parts), None);
+    parts.beta = 3_000;
+    assert_eq!(next_thread_wake(&parts), Some(Now::at_secs(3_000)));
+    assert!(thread_wakes_due(&parts, Now::at_secs(2_999)).is_empty());
+    assert_eq!(
+        thread_wakes_due(&parts, Now::at_secs(3_000)),
+        [FeatureThreadIntent::from(beta::ThreadIntent(0))]
+    );
 }
 
 #[test]

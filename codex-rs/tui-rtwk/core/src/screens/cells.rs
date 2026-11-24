@@ -253,7 +253,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             SeedLinkDisplay::LabelOnly => LinkDisplay::LabelOnly,
             SeedLinkDisplay::WithDestination => LinkDisplay::WithDestination,
         }),
-        SeedEv::Clock {
+        SeedEv::ViewerClock {
             format,
             utc_offset,
         } => Ev::Viewer(ViewerClock {
@@ -273,7 +273,8 @@ enum SeedEv {
     LinkDisplay {
         display: SeedLinkDisplay,
     },
-    Clock {
+    #[serde(rename = "clock")]
+    ViewerClock {
         format: ClockFormat,
         #[serde(default)]
         utc_offset: Option<i32>,

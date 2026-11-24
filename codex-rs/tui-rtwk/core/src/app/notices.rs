@@ -145,7 +145,14 @@ pub(super) fn daybreak_of(app: &CodexApp, thread: &ThreadId) -> Daybreak {
     let enabled = app
         .threads
         .get(thread)
-        .and_then(|model| crate::features::small_cmds::daybreak_of(model.view()))
+        .and_then(|model| {
+            // the one read of a slice's part in the hub: fw-hubs-b's (`appstate` in the budget)
+            let saved = model
+                .view()
+                .parts()
+                .and_then(|parts| parts.small_cmds.saved());
+            saved.or(model.screen_slots().chat.daybreak)
+        })
         .unwrap_or(false);
     app.daybreak.notice(model, enabled)
 }

@@ -309,7 +309,8 @@ pub trait Feature: 'static {
     }
 
     /// The same for one thread's part: the intent is delivered to that thread under
-    /// `thread_intent`, whether or not this process still writes the thread.
+    /// `thread_intent`, as any thread intent is: only where this process writes the thread (a
+    /// thread it does not write asks for no moment).
     fn thread_wake_at(part: &Self::ThreadPart) -> Option<(Now, Self::ThreadIntent)> {
         let _ = part;
         None

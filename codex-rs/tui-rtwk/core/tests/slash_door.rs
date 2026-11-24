@@ -136,20 +136,24 @@ fn recap_is_routed_to_the_recap_slice_and_asks_the_host_for_a_structured_turn() 
 fn mcp_verbose_asks_for_the_full_inventory() {
     let mut app = app();
     let fx = slash(&mut app, SlashCommand::Mcp, "verbose");
-    let details: Vec<Value> = fx
-        .commands()
-        .iter()
-        .filter_map(|command| match command {
-            Command::Feature {
-                command: command @ FeatureCommand::McpInventory(mcp_inventory::Command::List { .. }),
-                ..
-            } => {
-                let request = features::wire(command, &ThreadId::new(T), RequestId::Integer(1));
-                Some(serde_json::to_value(request).expect("serializes")["params"]["detail"].clone())
-            }
-            _ => None,
-        })
-        .collect();
+    let details: Vec<Value> =
+        fx.commands()
+            .iter()
+            .filter_map(|command| match command {
+                Command::Feature {
+                    command:
+                        command @ FeatureCommand::McpInventory(mcp_inventory::Command::List { .. }),
+                    ..
+                } => {
+                    let request = features::wire(command, &ThreadId::new(T), RequestId::Integer(1));
+                    Some(
+                        serde_json::to_value(request).expect("serializes")["params"]["detail"]
+                            .clone(),
+                    )
+                }
+                _ => None,
+            })
+            .collect();
     assert_eq!(details, [json!("full")]);
     // anything else after `/mcp` is not the feature's verb: nothing is asked
     let mut app = self::app();
@@ -166,11 +170,16 @@ fn a_command_no_feature_runs_says_it_is_not_available() {
     assert!(!features::runs_of(SlashCommand::Pwd));
     let mut app = app();
     slash(&mut app, SlashCommand::Pwd, "");
-    let said: Vec<_> = notes(&app)
+    let said = notes(&app)
         .into_iter()
-        .filter(|note| matches!(note.key, NoteKey::Command(Notice::NotAvailable(SlashCommand::Pwd))))
-        .collect();
-    assert_eq!(said.len(), 1, "{:?}", notes(&app));
+        .filter(|note| {
+            matches!(
+                note.key,
+                NoteKey::Command(Notice::NotAvailable(SlashCommand::Pwd))
+            )
+        })
+        .count();
+    assert_eq!(said, 1, "{:?}", notes(&app));
 }
 
 /// The dispatcher names no slice's command: whatever it hands over as `Feature { .. }` must

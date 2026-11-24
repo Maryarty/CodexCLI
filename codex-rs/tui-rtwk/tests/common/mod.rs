@@ -357,8 +357,7 @@ impl Harness {
         let clock = |h: &mut Harness| h.t.read_app(|app: &UiApp| app.core.now().millis());
         wait::wait_until(self, "the shell's clock", |h| clock(h) != 0);
         let mark = clock(self) + 1;
-        self.fake
-            .inject(epoch, AppEv::Clock(Now::at_millis(mark)));
+        self.fake.inject(epoch, AppEv::Clock(Now::at_millis(mark)));
         wait::wait_until(self, "the injected events applied", |h| {
             h.t.read_app(|app: &UiApp| app.core.now().millis()) >= mark
         });

@@ -673,7 +673,13 @@ fn is_own(name: &str, feature: &str) -> bool {
 
 /// `line` names feature `feature` by path: `features::goal` or `features::{.., goal, ..}`.
 fn names_feature_path(line: &str, feature: &str) -> bool {
-    line.match_indices("features::").any(|(at, pattern)| {
+    names_path_after(line, "features::", feature)
+}
+
+/// `line` names `feature` right after `marker` (`features::`, `super::`): `<marker>goal` or
+/// `<marker>{.., goal, ..}`.
+fn names_path_after(line: &str, marker: &str, feature: &str) -> bool {
+    line.match_indices(marker).any(|(at, pattern)| {
         let rest = &line[at + pattern.len()..];
         let tokens = |text: &str| {
             text.split(|c: char| !is_ident(c))
@@ -1546,4 +1552,297 @@ fn the_function_body_scan_bites() {
     assert_eq!(count, 2);
     assert!(!body.contains("fn after"));
     assert!(ratchet("arms", 3, 2).is_some());
+}
+
+// ---- ADR-012: the doors of the hub (what a slice reads, what it names, what ticks) ----
+
+/// The number of `pub fn`s of the `impl` blocks of `name` in `text`: the methods at the block's
+/// own depth (four spaces in), up to the `}` that closes the block at column 0. `pub(crate)`
+/// ones are the framework's plumbing and are not a slice's to call.
+fn view_methods(text: &str, name: &str) -> usize {
+    let header = |line: &str| {
+        line.starts_with("impl")
+            && !line.contains(" for ")
+            && (line.contains(&format!(" {name}<")) || line.contains(&format!(" {name} {{")))
+    };
+    let mut inside = false;
+    let mut count = 0;
+    for line in text.lines() {
+        if header(line) {
+            inside = true;
+        } else if inside && line == "}" {
+            inside = false;
+        } else if inside && line.starts_with("    pub fn ") {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// `AppView` and `ThreadView` are what a slice reads the app through. A fact only one slice
+/// wants is that slice's selector over the handles (`ThreadView::core`, `slots`, `parts`,
+/// `AppView::facts`), not a method here: the two views grow by a decision with a line of the
+/// budget raised, never by a feature's convenience.
+#[test]
+fn view_methods_budget() {
+    let lines = budget_lines("view");
+    assert!(!lines.is_empty(), "the budget lists the views");
+    let mut found = Vec::new();
+    for words in lines {
+        let [file, name, budget] = words.as_slice() else {
+            panic!("`view <file> <Type> <n>`: {words:?}");
+        };
+        found.extend(ratchet(
+            &format!("{file} {name} methods"),
+            view_methods(&read(file), name),
+            budget.parse().expect("a count"),
+        ));
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn the_view_method_count_bites() {
+    let text = "impl<'a> View<'a> {\n    pub(crate) fn new() {}\n    pub fn a(&self) {}\n    fn private() {\n        pub fn inner() {}\n    }\n    pub fn b(&self) {}\n}\n\nimpl Views {\n    pub fn other(&self) {}\n}\n\nimpl Trait for View<'_> {\n    pub fn c(&self) {}\n}\n\nimpl View<'_> {\n    pub fn d(&self) {}\n}\n";
+    assert_eq!(view_methods(text, "View"), 3);
+    assert_eq!(view_methods(text, "Views"), 1);
+}
+
+/// The lines of `line` that reach into a feature's state or part: `parts.goal`, `states.goal`,
+/// `features.goal` (the fields the generated state and parts have, one per feature).
+fn names_slice_state(line: &str, feature: &str) -> bool {
+    ["parts.", "states.", "features."]
+        .iter()
+        .any(|owner| names_word(line, &format!("{owner}{feature}")))
+}
+
+/// `line` names a listed feature through `super::<f>` (the sibling module of a file inside
+/// `core/src/features/`).
+fn names_sibling(line: &str, feature: &str) -> bool {
+    names_path_after(line, "super::", feature)
+}
+
+/// The lines of the framework's own files (the contexts and the shared types of
+/// `core/src/features/`, not the list and not the probes) that name a slice: by path
+/// (`super::<f>`, `features::<f>`) or by its field of the states or the parts. The framework
+/// holds no slice's name (ADR-012): a selector that needs one is the slice's.
+fn framework_names_a_slice(files: &[(String, String)], features: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    for (name, text) in files {
+        let direct = name
+            .strip_prefix("core/src/features/")
+            .is_some_and(|rest| !rest.contains('/') && rest.ends_with(".rs"));
+        if !direct
+            || matches!(
+                name.as_str(),
+                "core/src/features/mod.rs" | "core/src/features/framework.rs"
+            )
+        {
+            continue;
+        }
+        for (index, line) in code_lines(text) {
+            if features.iter().any(|feature| {
+                names_sibling(line, feature)
+                    || names_feature_path(line, feature)
+                    || names_slice_state(line, feature)
+            }) {
+                found.push(format!("{name}:{}: {}", index + 1, line.trim()));
+            }
+        }
+    }
+    found
+}
+
+/// `cx.rs`, `surface.rs` and `remote.rs` (what every slice is handed, and what a surface and a
+/// remote are) name no slice: the facts a slice reads are selectors the slice writes over the
+/// handles. cx.rs carried the exemption while `ThreadView::daybreak` and `AppView::tui` lived
+/// there; they are `small_cmds::daybreak_of` and `AppFacts::tui` now.
+#[test]
+fn framework_names_no_slice() {
+    let features = listed_features(&read("core/src/features/mod.rs"));
+    assert!(features.len() > 5, "the list has its features");
+    let found = framework_names_a_slice(&sources_of("core/src/features"), &features);
+    assert!(
+        found.is_empty(),
+        "a framework file names a slice: {found:#?}"
+    );
+}
+
+#[test]
+fn the_framework_scan_bites() {
+    let features = vec!["goal".to_string(), "recap".to_string()];
+    let file = |name: &str, text: &str| vec![(name.to_string(), text.to_string())];
+    for text in [
+        "use super::recap::Message;",
+        "use super::{AppCx, goal};",
+        "use crate::features::goal::Model;",
+        "let part = parts.goal.saved();",
+        "let state = &states.recap;",
+    ] {
+        assert_eq!(
+            framework_names_a_slice(&file("core/src/features/cx.rs", text), &features).len(),
+            1,
+            "{text}"
+        );
+    }
+    for (name, text) in [
+        (
+            "core/src/features/cx.rs",
+            "// super::goal\nuse super::{AppCx, Out};",
+        ),
+        ("core/src/features/cx.rs", "let goals = parts.goals;"),
+        ("core/src/features/mod.rs", "use super::goal::Model;"),
+        ("core/src/features/framework.rs", "parts.goal"),
+        (
+            "core/src/features/goal/mod.rs",
+            "use super::recap::Message;",
+        ),
+    ] {
+        assert!(
+            framework_names_a_slice(&file(name, text), &features).is_empty(),
+            "{name}: {text}"
+        );
+    }
+}
+
+/// The lines of the app (`core/src/app.rs` and `core/src/app/`) that reach into a slice's state
+/// or part: the hub reads a feature through the generated dispatch or through the feature's own
+/// outbox, not by its field (`app.features.side`, `parts.small_cmds`).
+fn app_names_slice_state(files: &[(String, String)], features: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    for (name, text) in files {
+        if name != "core/src/app.rs" && !name.starts_with("core/src/app/") {
+            continue;
+        }
+        for (index, line) in code_lines(text) {
+            if features
+                .iter()
+                .any(|feature| names_slice_state(line, feature))
+            {
+                found.push(format!("{name}:{}: {}", index + 1, line.trim()));
+            }
+        }
+    }
+    found
+}
+
+/// The hub names no slice's state. What it still does is the debt of the side lifecycle
+/// (`app.features.side.*` in `app.rs` and `app/side.rs`: the hub starts, ends and asks the side
+/// conversations itself) and of one read of the thread's saved Daybreak choice
+/// (`app/notices.rs`): both are fw-hubs-b's, and the count only goes down, to zero.
+#[test]
+fn app_names_no_feature_state() {
+    let features = listed_features(&read("core/src/features/mod.rs"));
+    let found = app_names_slice_state(&sources_of("core/src"), &features);
+    let lines = budget_lines("appstate");
+    let [words] = lines.as_slice() else {
+        panic!("one `appstate <n>` line in the budget");
+    };
+    let [budget] = words.as_slice() else {
+        panic!("`appstate <n>`: {words:?}");
+    };
+    let message = ratchet(
+        "the app names a feature's state",
+        found.len(),
+        budget.parse().expect("a count"),
+    );
+    assert!(message.is_none(), "{message:?}: {found:#?}");
+}
+
+#[test]
+fn the_app_state_scan_bites() {
+    let features = vec!["side".to_string(), "goal".to_string()];
+    let files = vec![
+        (
+            "core/src/app.rs".to_string(),
+            "if app.features.side.is_side(&t) {}\nlet n = app.features.sides;\n// app.features.goal\n".to_string(),
+        ),
+        (
+            "core/src/app/notices.rs".to_string(),
+            "p.and_then(|parts| parts.goal.saved())\nself.features.insert(1, 2);\n".to_string(),
+        ),
+        (
+            "core/src/threads.rs".to_string(),
+            "parts.goal\n".to_string(),
+        ),
+    ];
+    assert_eq!(app_names_slice_state(&files, &features).len(), 2);
+}
+
+/// Time is told, never ticked (ADR-012, "time as a declared wake"): the shell reads the clock
+/// and says it (`AppEv::Clock`), and what wants to be woken declares the moment
+/// (`Feature::wake_at`). The count of what still ticks: a `Clock` variant in an enum of a screen
+/// or a slice (an event each screen had to be told the time by), `AppEv::Clock` named outside the
+/// app's own arm, the script's step and the shell's timer, and a periodic timer
+/// (`CLOCK_EVERY`, `tokio::time::interval`). It is 0, and stays 0.
+fn clock_loops(files: &[(String, String)]) -> Vec<String> {
+    let mut found = Vec::new();
+    for (name, text) in files {
+        let screen_or_slice = name.starts_with("core/src/screens/")
+            || name.starts_with("core/src/features/")
+            || name.starts_with("src/features/");
+        if screen_or_slice {
+            for (enum_name, names) in enums_with_variants(text) {
+                if names.iter().any(|variant| variant == "Clock") {
+                    found.push(format!("{name}: enum {enum_name} has a Clock variant"));
+                }
+            }
+        }
+        let own = matches!(
+            name.as_str(),
+            "core/src/app.rs" | "core/src/fixtures/script.rs" | "src/services/shell.rs"
+        );
+        for (index, line) in code_lines(text) {
+            let ticks = ["CLOCK_EVERY", "time::interval(", "time::interval_at("]
+                .iter()
+                .any(|pattern| line.contains(pattern));
+            if ticks || (!own && line.contains("AppEv::Clock")) {
+                found.push(format!("{name}:{}: {}", index + 1, line.trim()));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn no_clock_loops() {
+    let found = clock_loops(&all_sources());
+    let lines = budget_lines("clock_loops");
+    let [words] = lines.as_slice() else {
+        panic!("one `clock_loops <n>` line in the budget");
+    };
+    let [budget] = words.as_slice() else {
+        panic!("`clock_loops <n>`: {words:?}");
+    };
+    let message = ratchet(
+        "the app is ticked or told the time by a screen",
+        found.len(),
+        budget.parse().expect("a count"),
+    );
+    assert!(message.is_none(), "{message:?}: {found:#?}");
+}
+
+#[test]
+fn the_clock_loop_scan_bites() {
+    let files = vec![
+        (
+            "core/src/screens/agents/mod.rs".to_string(),
+            "pub enum Ev {\n    Home(Option<String>),\n    Clock(i64),\n}\n".to_string(),
+        ),
+        (
+            "core/src/features/goal/mod.rs".to_string(),
+            "enum Intent {\n    Open,\n}\nlet ev = AppEv::Clock(now);\n".to_string(),
+        ),
+        (
+            "src/services/shell.rs".to_string(),
+            "emit(AppEv::Clock(clock.now()));\nlet mut tick = tokio::time::interval(CLOCK_EVERY);\n"
+                .to_string(),
+        ),
+        (
+            "src/services/effects.rs".to_string(),
+            "// AppEv::Clock in a comment\nlet ok = Ev::ViewerClock;\n".to_string(),
+        ),
+    ];
+    // the variant, the stray AppEv::Clock, the interval and the constant; not the shell's own
+    assert_eq!(clock_loops(&files).len(), 3, "{:#?}", clock_loops(&files));
 }

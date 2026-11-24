@@ -83,8 +83,8 @@ use codex_app_server_protocol::TurnStatus;
 
 use crate::app::AppFx;
 use crate::app::Command;
-use crate::features::{self, FeatureCtx, FeatureThreadIntent, ThreadCx, ThreadView};
 use crate::app::Now;
+use crate::features::{self, FeatureCtx, FeatureThreadIntent, ThreadCx, ThreadView};
 use crate::ids::ItemId;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
@@ -1332,13 +1332,22 @@ impl ThreadModel {
     }
 
     /// The nearest moment a feature asks this thread to be woken at (`Feature::thread_wake_at`).
+    /// None where this process does not write the thread: the intent would not be delivered
+    /// there (`apply_thread_intent`), so asking the shell for the moment would only spin it.
     pub(crate) fn next_wake(&self) -> Option<Now> {
-        features::next_thread_wake(&self.features)
+        self.view()
+            .has_writer()
+            .then(|| features::next_thread_wake(&self.features))
+            .flatten()
     }
 
     /// The thread intents the features asked to be woken with, reached by `now`.
     pub(crate) fn wakes_due(&self, now: Now) -> Vec<FeatureThreadIntent> {
-        features::thread_wakes_due(&self.features, now)
+        if self.view().has_writer() {
+            features::thread_wakes_due(&self.features, now)
+        } else {
+            Vec::new()
+        }
     }
 
     pub(crate) fn history_cursor(&self) -> Option<&str> {
@@ -1903,7 +1912,10 @@ impl<'a> ThreadFx<'a> {
 
     /// The app's facts at this step (the defaults where none were stamped).
     pub(crate) fn facts(&self) -> features::AppFacts<'a> {
-        self.facts.unwrap_or_else(|| features::AppFacts::unknown())
+        match self.facts {
+            Some(facts) => facts,
+            None => features::AppFacts::unknown(),
+        }
     }
 
     /// The app's clock, epoch seconds (0 until the host has said).

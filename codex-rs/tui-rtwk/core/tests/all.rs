@@ -22,6 +22,7 @@ mod backtrack;
 mod banners;
 mod cells;
 mod citations;
+mod clock;
 mod cmd_args;
 mod commands;
 mod compaction;

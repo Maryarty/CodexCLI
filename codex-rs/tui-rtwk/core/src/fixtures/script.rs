@@ -46,8 +46,8 @@ use crate::app::AppFx;
 use crate::app::BackendEv;
 use crate::app::CodexApp;
 use crate::app::Command;
-use crate::app::Now;
 use crate::app::Ingress;
+use crate::app::Now;
 use crate::app::Session;
 use crate::ids::ThreadId;
 use crate::rpc::Reply;
@@ -366,7 +366,9 @@ impl Script {
                     ingest(app, AppEv::Screen(ev));
                 }
                 Step::Clock { .. } => {
-                    let now = step.now().ok_or_else(|| fail("a `clock` step names a time"))?;
+                    let now = step
+                        .now()
+                        .ok_or_else(|| fail("a `clock` step names a time"))?;
                     ingest(app, AppEv::Clock(now));
                 }
                 Step::Fact { feature, fact } => {

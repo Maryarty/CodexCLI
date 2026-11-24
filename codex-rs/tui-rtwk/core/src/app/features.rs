@@ -91,7 +91,10 @@ pub(super) fn wake(app: &CodexApp) -> Option<Wake> {
     for (_, model) in app.threads.iter() {
         next = nearest(next, model.next_wake());
     }
-    next = nearest(next, crate::screens::agents::wake_at(&app.screens.agents, app.now));
+    next = nearest(
+        next,
+        crate::screens::agents::wake_at(&app.screens.agents, app.now),
+    );
     next.map(|at| Wake::new(app.now, at))
 }
 

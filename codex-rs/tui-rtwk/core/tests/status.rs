@@ -675,9 +675,7 @@ mod cell {
 // backend, a read replaces only the buckets it names, a rolling update never
 // writes them, an account change forgets them.
 mod rates {
-    use codex_tui_core::app::{
-        AppEv, AppFx, BackendEv, CodexApp, Command, Intent, Now, apply_app,
-    };
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, Now, apply_app};
     use codex_tui_core::ids::{BackendId, ThreadId};
     use codex_tui_core::protocol;
     use codex_tui_core::rpc::Reply;
