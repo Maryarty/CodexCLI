@@ -339,14 +339,12 @@ pub(super) fn session_intent(
             super::select::intent(app, Intent::OpenPermissions(current), fx);
         }
         // What another chunk or a later step builds: until then the answer that says so.
-        S::VoiceControl(_) => {
-            session_note(
-                app,
-                source,
-                Note::from(crate::commands::Notice::NotAvailable(command)),
-                fx,
-            )
-        }
+        S::VoiceControl(_) => session_note(
+            app,
+            source,
+            Note::from(crate::commands::Notice::NotAvailable(command)),
+            fx,
+        ),
     }
 }
 

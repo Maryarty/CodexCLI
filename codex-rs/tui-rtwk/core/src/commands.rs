@@ -802,7 +802,6 @@ impl CommandPopup {
         } else {
             self.command_filter.clear();
         }
-
     }
 
     /// Exact then prefix matches, each in presentation order, with the

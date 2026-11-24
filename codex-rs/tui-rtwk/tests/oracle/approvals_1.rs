@@ -299,14 +299,18 @@ fn exec_history_cell_wraps_with_two_space_indent() {
 fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
     let mut approved = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/approvals_1/exec_empty_command.jsonl"))
+        .script(include_str!(
+            "fixtures/approvals_1/exec_empty_command.jsonl"
+        ))
         .open();
     approved.keys("y");
     approved.assert_contains("✔ You approved this request this time");
 
     let mut for_session = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/approvals_1/exec_empty_command_session.jsonl"))
+        .script(include_str!(
+            "fixtures/approvals_1/exec_empty_command_session.jsonl"
+        ))
         .open();
     for_session.keys("a");
     for_session.assert_contains("✔ You approved this request every time this session");
@@ -317,7 +321,9 @@ fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
 fn network_access_command_history_uses_target_without_structured_context() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/approvals_1/exec_network_access.jsonl"))
+        .script(include_str!(
+            "fixtures/approvals_1/exec_network_access.jsonl"
+        ))
         .open();
     s.keys("y");
     s.assert_contains("✔ You approved codex network access to https://example.com:8443 this time");
