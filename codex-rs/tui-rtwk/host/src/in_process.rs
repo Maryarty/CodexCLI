@@ -431,6 +431,8 @@ async fn run(
     if crate::security_setup::eligible(&config, remote_workspace) {
         inflight.push(security_job(&config, &ids, &handle));
     }
+    // The Windows sandbox: its configuration, requirements and readiness (Windows only).
+    inflight.push(sandbox_job(&config, remote_workspace, &ids, &handle));
     if let Some(client) = held.get() {
         emit_connection(&ingress, epoch, client, reconnect_endpoint(&mode), daemon);
     }
@@ -477,6 +479,12 @@ async fn run(
                             ),
                         );
                         inflight.push(security_job(&config, &ids, &handle));
+                    }
+                    if let codex_app_server_protocol::ServerNotification::WindowsSandboxSetupCompleted(
+                        done,
+                    ) = &*notification
+                    {
+                        emit(&ingress, epoch, crate::windows_sandbox::completed(done));
                     }
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
                 }
@@ -622,6 +630,19 @@ fn settings_fact(config: &Config) -> codex_tui_core::features::settings::Fact {
         read.themes_dir,
         read.memories,
     )
+}
+
+/// The Windows sandbox facts, as one job of the pump (nothing off Windows).
+fn sandbox_job(
+    config: &Arc<Config>,
+    remote_workspace: bool,
+    ids: &Ids,
+    handle: &AppServerRequestHandle,
+) -> Boxed<Option<AppEv>> {
+    let (cwd, ids, handle) = (config.cwd.display().to_string(), ids.clone(), handle.clone());
+    Box::pin(async move {
+        crate::windows_sandbox::fetch(cwd, remote_workspace, &ids, sender(handle)).await
+    })
 }
 
 /// The security-setup notice of the account, as one job of the pump.

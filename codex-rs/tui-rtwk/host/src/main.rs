@@ -18,6 +18,7 @@ mod target;
 mod update;
 mod viewer;
 mod security_setup;
+mod windows_sandbox;
 mod workspace;
 
 use codex_arg0::Arg0DispatchPaths;

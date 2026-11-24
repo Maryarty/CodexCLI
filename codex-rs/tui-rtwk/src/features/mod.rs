@@ -41,6 +41,7 @@ pub mod plugins;
 pub mod rename;
 pub mod security_setup;
 pub mod settings;
+pub mod windows_sandbox;
 
 /// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope
 /// shows it from its own slice of the feature's state (the data of the wish is the feature's, a

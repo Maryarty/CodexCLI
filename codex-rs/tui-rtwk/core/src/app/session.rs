@@ -160,6 +160,11 @@ pub(super) fn session_intent(
 ) {
     use crate::commands::SessionIntent as S;
     match intent {
+        // `/setup-default-sandbox`: the elevated setup (`features/windows_sandbox`).
+        S::ElevateSandbox => {
+            let intent = crate::features::windows_sandbox::Intent::Elevate;
+            super::features::intent(app, intent.into(), fx);
+        }
         // `/clear` starts the conversation where the session is; `/new` and `/fork` first ask
         // where it runs where a local repository offers a new checkout
         // (`show_session_checkout_picker`), and the pick comes back through `begin_conversation`.
@@ -349,7 +354,6 @@ pub(super) fn session_intent(
         | S::Logout
         | S::Ide { .. }
         | S::Daybreak
-        | S::ElevateSandbox
         | S::Hooks
         | S::DebugConfig
         | S::Ps
