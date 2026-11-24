@@ -5,6 +5,7 @@
 
 mod analytics;
 mod cloud;
+mod debug_config;
 mod effects;
 mod facts;
 mod gateway;
@@ -13,6 +14,7 @@ mod in_process;
 mod launch;
 mod providers;
 mod settings;
+mod small;
 mod startup;
 mod target;
 mod update;

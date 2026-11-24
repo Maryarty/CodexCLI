@@ -1,0 +1,665 @@
+//! `/debug-config` (oracle `debug_config.rs`): the config layers and the requirements as rows. The
+//! rendering is carried by `tools/rtwk-port/debug-config/port.py`; the cell that draws the rows is
+//! the view's (`Done::DebugConfig`). The session's network proxy is not the host's: no such rows.
+
+use codex_config::CONFIG_TOML_FILE;
+use codex_config::ConfigLayerEntry;
+use codex_config::ConfigLayerSource;
+use codex_config::ConfigLayerStack;
+use codex_config::ManagedHooksRequirementsToml;
+use codex_config::NetworkConstraints;
+use codex_config::NetworkDomainPermissionToml;
+use codex_config::NetworkUnixSocketPermissionToml;
+use codex_config::RequirementSource;
+use codex_config::ResidencyRequirement;
+use codex_config::SandboxModeRequirement;
+use codex_config::TomlValue;
+use codex_config::WebSearchModeRequirement;
+use codex_config::format_config_layer_source;
+use codex_core::config::Config;
+use codex_core::config::Permissions;
+use codex_protocol::models::PermissionProfile;
+use codex_protocol::permissions::NetworkSandboxPolicy;
+use codex_tui_core::features::small_cmds::{Row, Style};
+
+/// One row, as the oracle's `Stylize` chain builds it.
+pub(crate) struct Line(Row);
+
+impl From<&str> for Line {
+    fn from(text: &str) -> Self {
+        Self(Row {
+            text: text.to_owned(),
+            style: Style::Plain,
+        })
+    }
+}
+
+impl From<String> for Line {
+    fn from(text: String) -> Self {
+        Self(Row {
+            text,
+            style: Style::Plain,
+        })
+    }
+}
+
+trait Stylize: Sized + Into<Line> {
+    fn styled(self, style: Style) -> Line {
+        let Line(row) = self.into();
+        Line(Row { style, ..row })
+    }
+    fn bold(self) -> Line {
+        self.styled(Style::Bold)
+    }
+    fn dim(self) -> Line {
+        self.styled(Style::Dim)
+    }
+    fn magenta(self) -> Line {
+        self.styled(Style::Magenta)
+    }
+}
+
+impl Stylize for &str {}
+impl Stylize for String {}
+
+/// The rows of `/debug-config` for `config` (`new_debug_config_output` without the session proxy).
+pub(crate) fn rows(config: &Config) -> Vec<Row> {
+    let mut lines = render_debug_config_lines(&config.config_layer_stack, |mode| {
+        sandbox_mode_is_allowed_by_permissions(&config.permissions, mode)
+    });
+    lines.extend(render_agents_config_lines(config));
+    lines.into_iter().map(|Line(row)| row).collect()
+}
+
+fn render_agents_config_lines(config: &Config) -> Vec<Line> {
+    vec![
+        "".into(),
+        "[agents]:".bold().into(),
+        format!("  - enabled = {}", config.agents_enabled).into(),
+        format!(
+            "  - max_concurrent_threads_per_session = {}",
+            format_optional(config.agent_max_threads)
+        )
+        .into(),
+        format!(
+            "  - max_depth = {} (V1 only; ignored by V2)",
+            config.agent_max_depth
+        )
+        .into(),
+        format!(
+            "  - default_subagent_model = {}",
+            format_optional(config.agent_default_subagent_model.as_deref())
+        )
+        .into(),
+        format!(
+            "  - default_subagent_reasoning_effort = {}",
+            format_optional(config.agent_default_subagent_reasoning_effort.as_ref())
+        )
+        .into(),
+        format!(
+            "  - interrupt_message = {}",
+            config.agent_interrupt_message_enabled
+        )
+        .into(),
+    ]
+}
+
+fn format_optional(value: Option<impl std::fmt::Display>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "<unset>".to_string())
+}
+
+fn sandbox_mode_is_allowed_by_permissions(
+    permissions: &Permissions,
+    mode: SandboxModeRequirement,
+) -> bool {
+    let permission_profile = match mode {
+        SandboxModeRequirement::ReadOnly => PermissionProfile::read_only(),
+        SandboxModeRequirement::WorkspaceWrite => PermissionProfile::workspace_write(),
+        SandboxModeRequirement::DangerFullAccess => PermissionProfile::Disabled,
+        SandboxModeRequirement::ExternalSandbox => PermissionProfile::External {
+            network: NetworkSandboxPolicy::Restricted,
+        },
+    };
+
+    permissions
+        .can_set_permission_profile(&permission_profile)
+        .is_ok()
+}
+
+fn render_debug_config_lines(
+    stack: &ConfigLayerStack,
+    sandbox_mode_is_effectively_allowed: impl Fn(SandboxModeRequirement) -> bool,
+) -> Vec<Line> {
+    let mut lines = vec!["/debug-config".magenta().into(), "".into()];
+
+    lines.push(
+        "Config layer stack (lowest precedence first):"
+            .bold()
+            .into(),
+    );
+    let mut layers = stack.all_layers_low_to_high().peekable();
+    if layers.peek().is_none() {
+        lines.push("  <none>".dim().into());
+    } else {
+        for (index, layer) in layers.enumerate() {
+            let source = format_config_layer_source(&layer.name, CONFIG_TOML_FILE);
+            let status = if layer.is_disabled() {
+                "disabled"
+            } else {
+                "enabled"
+            };
+            lines.push(format!("  {}. {source} ({status})", index + 1).into());
+            lines.extend(render_non_file_layer_details(layer));
+            if let Some(reason) = &layer.disabled_reason {
+                lines.push(format!("     reason: {reason}").dim().into());
+            }
+        }
+    }
+
+    let requirements = stack.requirements();
+    let requirements_toml = stack.requirements_toml();
+
+    lines.push("".into());
+    lines.push("Requirements:".bold().into());
+    let mut requirement_lines = Vec::new();
+
+    if let Some(sqlite_home) = requirements.sqlite_home.as_ref() {
+        requirement_lines.push(requirement_line(
+            "sqlite_home",
+            sqlite_home.value.display().to_string(),
+            Some(&sqlite_home.source),
+        ));
+    }
+
+    if let Some(log_dir) = requirements.log_dir.as_ref() {
+        requirement_lines.push(requirement_line(
+            "log_dir",
+            log_dir.value.display().to_string(),
+            Some(&log_dir.source),
+        ));
+    }
+
+    if let Some(model_catalog_json) = requirements.model_catalog_json.as_ref() {
+        requirement_lines.push(requirement_line(
+            "model_catalog_json",
+            model_catalog_json.value.display().to_string(),
+            Some(&model_catalog_json.source),
+        ));
+    }
+
+    if let Some(check_for_update_on_startup) = requirements.check_for_update_on_startup.as_ref() {
+        requirement_lines.push(requirement_line(
+            "check_for_update_on_startup",
+            check_for_update_on_startup.value.to_string(),
+            Some(&check_for_update_on_startup.source),
+        ));
+    }
+
+    if let Some(allow_login_shell) = requirements.allow_login_shell.as_ref() {
+        requirement_lines.push(requirement_line(
+            "allow_login_shell",
+            allow_login_shell.value.to_string(),
+            Some(&allow_login_shell.source),
+        ));
+    }
+
+    if let Some(feedback) = requirements.feedback.as_ref()
+        && let Some(enabled) = feedback.value.enabled
+    {
+        requirement_lines.push(requirement_line(
+            "feedback.enabled",
+            enabled.to_string(),
+            Some(&feedback.source),
+        ));
+    }
+
+    if let Some(policies) = requirements_toml.allowed_approval_policies.as_ref() {
+        let value = join_or_empty(policies.iter().map(ToString::to_string).collect::<Vec<_>>());
+        requirement_lines.push(requirement_line(
+            "allowed_approval_policies",
+            value,
+            requirements.approval_policy.source.as_ref(),
+        ));
+    }
+
+    if let Some(reviewers) = requirements_toml.allowed_approvals_reviewers.as_ref() {
+        let value = join_or_empty(
+            reviewers
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+        );
+        requirement_lines.push(requirement_line(
+            "allowed_approvals_reviewers",
+            value,
+            requirements.approvals_reviewer.source.as_ref(),
+        ));
+    }
+
+    if let Some(modes) = requirements_toml.allowed_sandbox_modes.as_ref() {
+        let value = join_or_empty(
+            modes
+                .iter()
+                .copied()
+                .filter(|mode| sandbox_mode_is_effectively_allowed(*mode))
+                .map(format_sandbox_mode_requirement)
+                .collect::<Vec<_>>(),
+        );
+        requirement_lines.push(requirement_line(
+            "allowed_sandbox_modes",
+            value,
+            requirements.permission_profile.source.as_ref(),
+        ));
+    }
+
+    if let Some(modes) = requirements_toml.allowed_web_search_modes.as_ref() {
+        let normalized = normalize_allowed_web_search_modes(modes);
+        let value = join_or_empty(
+            normalized
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+        );
+        requirement_lines.push(requirement_line(
+            "allowed_web_search_modes",
+            value,
+            requirements.web_search_mode.source.as_ref(),
+        ));
+    }
+
+    if let Some(allow_managed_hooks_only) = requirements_toml.allow_managed_hooks_only {
+        requirement_lines.push(requirement_line(
+            "allow_managed_hooks_only",
+            allow_managed_hooks_only.to_string(),
+            requirements
+                .allow_managed_hooks_only
+                .as_ref()
+                .map(|sourced| &sourced.source),
+        ));
+    }
+
+    if let Some(allow_appshots) = requirements_toml.allow_appshots {
+        requirement_lines.push(requirement_line(
+            "allow_appshots",
+            allow_appshots.to_string(),
+            requirements
+                .allow_appshots
+                .as_ref()
+                .map(|sourced| &sourced.source),
+        ));
+    }
+
+    if let Some(allow_remote_control) = requirements_toml.allow_remote_control {
+        requirement_lines.push(requirement_line(
+            "allow_remote_control",
+            allow_remote_control.to_string(),
+            requirements
+                .allow_remote_control
+                .as_ref()
+                .map(|sourced| &sourced.source),
+        ));
+    }
+
+    if requirements_toml.guardian_policy_config.is_some() {
+        requirement_lines.push(requirement_line(
+            "guardian_policy_config",
+            "configured".to_string(),
+            requirements.guardian_policy_config_source.as_ref(),
+        ));
+    }
+
+    if let Some(feature_requirements) = requirements.feature_requirements.as_ref() {
+        let value = join_or_empty(
+            feature_requirements
+                .value
+                .entries
+                .iter()
+                .map(|(feature, enabled)| format!("{feature}={enabled}"))
+                .collect::<Vec<_>>(),
+        );
+        requirement_lines.push(requirement_line(
+            "features",
+            value,
+            Some(&feature_requirements.source),
+        ));
+    }
+
+    if let Some(hooks) = requirements_toml.hooks.as_ref() {
+        requirement_lines.push(requirement_line(
+            "hooks",
+            format_managed_hooks_requirements(hooks),
+            requirements
+                .managed_hooks
+                .as_ref()
+                .and_then(|managed_hooks| managed_hooks.source.as_ref()),
+        ));
+    }
+
+    // TODO(gt): Expand this debug output with detailed skills and rules display.
+    if requirements_toml.rules.is_some() {
+        requirement_lines.push(requirement_line(
+            "rules",
+            "configured".to_string(),
+            requirements.exec_policy_source(),
+        ));
+    }
+
+    if let Some(residency) = requirements_toml.enforce_residency {
+        requirement_lines.push(requirement_line(
+            "enforce_residency",
+            format_residency_requirement(residency),
+            requirements.enforce_residency.source.as_ref(),
+        ));
+    }
+
+    if let Some(network) = requirements.network.as_ref() {
+        let key = if requirements_toml
+            .permissions
+            .as_ref()
+            .and_then(|permissions| permissions.network.as_ref())
+            .is_some()
+        {
+            "permissions.network"
+        } else {
+            "network_proxy"
+        };
+        requirement_lines.push(requirement_line(
+            key,
+            format_network_constraints(&network.value),
+            Some(&network.source),
+        ));
+    }
+
+    if let Some(filesystem) = requirements.filesystem.as_ref() {
+        let deny_read = join_or_empty(
+            filesystem
+                .value
+                .deny_read
+                .iter()
+                .map(|pattern| pattern.as_str().to_string())
+                .collect::<Vec<_>>(),
+        );
+        requirement_lines.push(requirement_line(
+            "permissions.filesystem.deny_read",
+            deny_read,
+            Some(&filesystem.source),
+        ));
+    }
+
+    if requirement_lines.is_empty() {
+        lines.push("  <none>".dim().into());
+    } else {
+        lines.extend(requirement_lines);
+    }
+
+    lines
+}
+
+fn render_non_file_layer_details(layer: &ConfigLayerEntry) -> Vec<Line> {
+    match &layer.name {
+        ConfigLayerSource::SessionFlags => render_session_flag_details(&layer.config),
+        ConfigLayerSource::Mdm { .. }
+        | ConfigLayerSource::EnterpriseManaged { .. }
+        | ConfigLayerSource::LegacyManagedConfigTomlFromMdm => render_non_file_layer_value(layer),
+        ConfigLayerSource::PackagedDefaults { .. }
+        | ConfigLayerSource::System { .. }
+        | ConfigLayerSource::User { .. }
+        | ConfigLayerSource::Project { .. }
+        | ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. } => Vec::new(),
+    }
+}
+
+fn render_session_flag_details(config: &TomlValue) -> Vec<Line> {
+    let mut pairs = Vec::new();
+    flatten_toml_key_values(config, /*prefix*/ None, &mut pairs);
+
+    if pairs.is_empty() {
+        return vec!["     - <none>".dim().into()];
+    }
+
+    pairs
+        .into_iter()
+        .map(|(key, value)| format!("     - {key} = {value}").into())
+        .collect()
+}
+
+fn format_managed_hooks_requirements(hooks: &ManagedHooksRequirementsToml) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(managed_dir) = hooks.managed_dir.as_ref() {
+        parts.push(format!("managed_dir={}", managed_dir.display()));
+    }
+    if let Some(windows_managed_dir) = hooks.windows_managed_dir.as_ref() {
+        parts.push(format!(
+            "windows_managed_dir={}",
+            windows_managed_dir.display()
+        ));
+    }
+    parts.push(format!("handlers={}", hooks.handler_count()));
+
+    join_or_empty(parts)
+}
+
+fn render_non_file_layer_value(layer: &ConfigLayerEntry) -> Vec<Line> {
+    let label = non_file_layer_value_label(&layer.name);
+    let value = layer
+        .raw_toml()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format_toml_value(&layer.config));
+    if value.is_empty() {
+        return vec![format!("     {label}: <empty>").dim().into()];
+    }
+
+    if value.contains('\n') {
+        let mut lines = vec![format!("     {label}:").into()];
+        lines.extend(value.lines().map(|line| format!("       {line}").into()));
+        lines
+    } else {
+        vec![format!("     {label}: {value}").into()]
+    }
+}
+
+fn non_file_layer_value_label(source: &ConfigLayerSource) -> &'static str {
+    match source {
+        ConfigLayerSource::Mdm { .. } | ConfigLayerSource::LegacyManagedConfigTomlFromMdm => {
+            "MDM value"
+        }
+        ConfigLayerSource::EnterpriseManaged { .. } => "Enterprise-managed config value",
+        ConfigLayerSource::PackagedDefaults { .. }
+        | ConfigLayerSource::SessionFlags
+        | ConfigLayerSource::System { .. }
+        | ConfigLayerSource::User { .. }
+        | ConfigLayerSource::Project { .. }
+        | ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. } => "Layer value",
+    }
+}
+
+fn flatten_toml_key_values(
+    value: &TomlValue,
+    prefix: Option<&str>,
+    out: &mut Vec<(String, String)>,
+) {
+    match value {
+        TomlValue::Table(table) => {
+            let mut entries = table.iter().collect::<Vec<_>>();
+            entries.sort_by_key(|(key, _)| key.as_str());
+            for (key, child) in entries {
+                let next_prefix = if let Some(prefix) = prefix {
+                    format!("{prefix}.{key}")
+                } else {
+                    key.to_string()
+                };
+                flatten_toml_key_values(child, Some(&next_prefix), out);
+            }
+        }
+        _ => {
+            let key = prefix.unwrap_or("<value>").to_string();
+            out.push((key, format_toml_value(value)));
+        }
+    }
+}
+
+fn format_toml_value(value: &TomlValue) -> String {
+    value.to_string()
+}
+
+fn requirement_line(
+    name: &str,
+    value: String,
+    source: Option<&RequirementSource>,
+) -> Line {
+    let source = source
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "<unspecified>".to_string());
+    format!("  - {name}: {value} (source: {source})").into()
+}
+
+fn join_or_empty(values: Vec<String>) -> String {
+    if values.is_empty() {
+        "<empty>".to_string()
+    } else {
+        values.join(", ")
+    }
+}
+
+fn normalize_allowed_web_search_modes(
+    modes: &[WebSearchModeRequirement],
+) -> Vec<WebSearchModeRequirement> {
+    if modes.is_empty() {
+        return vec![WebSearchModeRequirement::Disabled];
+    }
+
+    let mut normalized = modes.to_vec();
+    if !normalized.contains(&WebSearchModeRequirement::Disabled) {
+        normalized.push(WebSearchModeRequirement::Disabled);
+    }
+    normalized
+}
+
+fn format_sandbox_mode_requirement(mode: SandboxModeRequirement) -> String {
+    match mode {
+        SandboxModeRequirement::ReadOnly => "read-only".to_string(),
+        SandboxModeRequirement::WorkspaceWrite => "workspace-write".to_string(),
+        SandboxModeRequirement::DangerFullAccess => "danger-full-access".to_string(),
+        SandboxModeRequirement::ExternalSandbox => "external-sandbox".to_string(),
+    }
+}
+
+fn format_residency_requirement(requirement: ResidencyRequirement) -> String {
+    match requirement {
+        ResidencyRequirement::Us => "us".to_string(),
+    }
+}
+
+fn format_network_constraints(network: &NetworkConstraints) -> String {
+    let mut parts = Vec::new();
+
+    let NetworkConstraints {
+        enabled,
+        http_port,
+        socks_port,
+        allow_upstream_proxy,
+        dangerously_allow_non_loopback_proxy,
+        dangerously_allow_all_unix_sockets,
+        domains,
+        review_domains,
+        managed_allowed_domains_only,
+        unix_sockets,
+        allow_local_binding,
+        header_injections,
+    } = network;
+
+    if let Some(enabled) = enabled {
+        parts.push(format!("enabled={enabled}"));
+    }
+    if let Some(http_port) = http_port {
+        parts.push(format!("http_port={http_port}"));
+    }
+    if let Some(socks_port) = socks_port {
+        parts.push(format!("socks_port={socks_port}"));
+    }
+    if let Some(allow_upstream_proxy) = allow_upstream_proxy {
+        parts.push(format!("allow_upstream_proxy={allow_upstream_proxy}"));
+    }
+    if let Some(dangerously_allow_non_loopback_proxy) = dangerously_allow_non_loopback_proxy {
+        parts.push(format!(
+            "dangerously_allow_non_loopback_proxy={dangerously_allow_non_loopback_proxy}"
+        ));
+    }
+    if let Some(dangerously_allow_all_unix_sockets) = dangerously_allow_all_unix_sockets {
+        parts.push(format!(
+            "dangerously_allow_all_unix_sockets={dangerously_allow_all_unix_sockets}"
+        ));
+    }
+    if let Some(domains) = domains {
+        parts.push(format!(
+            "domains={}",
+            format_network_permission_entries(&domains.entries, format_network_domain_permission)
+        ));
+    }
+    if let Some(review_domains) = review_domains {
+        parts.push(format!("review_domains={{{}}}", review_domains.join(", ")));
+    }
+    if let Some(managed_allowed_domains_only) = managed_allowed_domains_only {
+        parts.push(format!(
+            "managed_allowed_domains_only={managed_allowed_domains_only}"
+        ));
+    }
+    if let Some(unix_sockets) = unix_sockets {
+        parts.push(format!(
+            "unix_sockets={}",
+            format_network_permission_entries(
+                &unix_sockets.entries,
+                format_network_unix_socket_permission,
+            )
+        ));
+    }
+    if let Some(allow_local_binding) = allow_local_binding {
+        parts.push(format!("allow_local_binding={allow_local_binding}"));
+    }
+    if let Some(header_injections) = header_injections {
+        let hosts = header_injections
+            .iter()
+            .map(|rule| rule.host.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!(
+            "header_injections={} hosts={{{hosts}}}",
+            header_injections.len()
+        ));
+    }
+
+    join_or_empty(parts)
+}
+
+fn format_network_permission_entries<T: Copy>(
+    entries: &std::collections::BTreeMap<String, T>,
+    format_value: impl Fn(T) -> &'static str,
+) -> String {
+    let parts = entries
+        .iter()
+        .map(|(key, value)| format!("{key}={}", format_value(*value)))
+        .collect::<Vec<_>>();
+    format!("{{{}}}", parts.join(", "))
+}
+
+fn format_network_domain_permission(permission: NetworkDomainPermissionToml) -> &'static str {
+    match permission {
+        NetworkDomainPermissionToml::Allow => "allow",
+        NetworkDomainPermissionToml::Deny => "deny",
+    }
+}
+
+fn format_network_unix_socket_permission(
+    permission: NetworkUnixSocketPermissionToml,
+) -> &'static str {
+    match permission {
+        NetworkUnixSocketPermissionToml::Allow => "allow",
+        NetworkUnixSocketPermissionToml::Deny => "deny",
+    }
+}
+
