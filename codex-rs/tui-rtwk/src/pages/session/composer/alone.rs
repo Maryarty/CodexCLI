@@ -11,10 +11,11 @@ use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, 
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
-use crate::keymap::types_text;
+use crate::keymap::{pressed_fixed, types_text};
 use crate::pages::session::footer::{Flash, Footer, Line, Timed};
 use crate::pages::session::popovers::mention;
 use crate::sheets::dialogs::shortcut_panel;
@@ -113,10 +114,10 @@ impl State for AloneState {
             if !ui.composer.text().is_empty() || ui.draft.in_burst() || !types_text(&key) {
                 return KeyEventResult::Ignored;
             }
-            match key.text() {
-                Some("?") => send(Msg::Shortcuts),
-                _ => return KeyEventResult::Ignored,
+            if !pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
+                return KeyEventResult::Ignored;
             }
+            send(Msg::Shortcuts);
             KeyEventResult::Handled
         })));
     }

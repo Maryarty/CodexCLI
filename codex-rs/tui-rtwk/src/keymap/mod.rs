@@ -243,6 +243,11 @@ pub fn unmodified(key: &KeyPress) -> bool {
     key.mods == PressMods::NONE
 }
 
+/// Whether two presses are the same key with the same modifiers.
+pub fn same_press(a: &KeyPress, b: &KeyPress) -> bool {
+    a.ch == b.ch && a.mods == b.mods
+}
+
 /// A press with Ctrl held and nothing else.
 pub fn only_ctrl(key: &KeyPress) -> bool {
     key.mods == PressMods::CTRL

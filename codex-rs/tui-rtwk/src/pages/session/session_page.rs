@@ -36,7 +36,7 @@ use crate::pages::session::footer::{Footer, Line, Sparkle, StatusRows};
 use codex_tui_core::keymap::actions::GLOBAL_CHANGE_HOST;
 use codex_tui_core::keymap::{Binding, Keymap, fixed};
 
-use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed};
+use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::popovers::mention;
@@ -400,7 +400,7 @@ impl State for ChatState {
             // (`handle_inline_banner_key`; a popup needs text in the field).
             if composer.borrow().text().is_empty()
                 && !draft.borrow().in_burst()
-                && key.mods.is_empty()
+                && unmodified(&key)
                 && let Some(shown) = banner.keys.get().backend
                 && !blocked.get().running
             {
