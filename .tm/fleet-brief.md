@@ -57,6 +57,9 @@ agent file, not here.
   routes of a nested `Navigator` in `IntrinsicHeight` (no own page stack).
   Code you touch in an old family keeps its shape unless your task is its
   migration step.
+- Test roots `tests/{screens,pages,oracle,shell}.rs` are generated from the files
+  (`test-mods/build.rs`): a file of `tests/{pages,sheets,app}/` runs under
+  `--test screens` unless it starts with `// test root: pages`; no hand `mod` lines.
 - The rules tests (`--test rules`) check all of this.
 
 ## Done
