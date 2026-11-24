@@ -96,6 +96,13 @@ pub fn debug_entries() -> Vec<DebugEntry> {
     .collect()
 }
 
+/// The pager over the chat: the expanded mode of the session page's transcript (chat-live),
+/// until that lands the popup says so (`Target::Pager`).
+pub fn open_pager<S>(cx: &mut Cx<'_, S>) {
+    let action = crate::l10n::strings::of(cx).pages.action_transcript;
+    drop(crate::widgets::page_keys::not_yet(cx, action));
+}
+
 /// The part as a widget, placed by the chat screen's subtree.
 pub fn part() -> AnyWidget {
     Screen.into()
