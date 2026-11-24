@@ -9,7 +9,6 @@
 use rtwk::Cx;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
-use rtwk::prelude::Mods;
 use rtwk::provider::read;
 
 use codex_tui_core::kit::mentions::session::{Active, MentionPick, PickAction};
@@ -19,7 +18,7 @@ use super::editing::KeyData;
 use super::vim;
 use super::{Composer, ComposerMsg, ComposerState};
 use crate::app::view::Hs;
-use crate::keymap::pressed;
+use crate::keymap::{pressed, unmodified};
 use codex_tui_core::keymap::fixed::{
     DISMISS, POPUP_ACCEPT, POPUP_COMPLETE, POPUP_NEXT, POPUP_PREVIOUS, POPUP_TAB_NEXT,
     POPUP_TAB_PREVIOUS,
@@ -35,7 +34,7 @@ pub(super) fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress
     if !mentions.is_open() {
         return false;
     }
-    let plain = key.mods == Mods::NONE;
+    let plain = unmodified(key);
     let unified = mentions.read(|session| matches!(session.active(), Active::At(_)));
     let is = |id| pressed(&data.keymap, id, key);
     if is(POPUP_PREVIOUS) {

@@ -11,7 +11,6 @@
 
 use rtwk::editing::{StoredStops, TextEditingController, editing_key};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::Mods;
 
 use codex_tui_core::keymap::actions::{
     VIM_NORMAL_APPEND_AFTER_CURSOR, VIM_NORMAL_APPEND_LINE_END, VIM_NORMAL_CANCEL_OPERATOR,
@@ -47,10 +46,13 @@ use codex_tui_core::kit::vim::{
 
 use super::ComposerMsg;
 use super::editing::{self, Edit, KeyData, Resolved};
-use crate::keymap::{combo_of, pressed};
+use crate::keymap::{
+    at_most_shift, combo_of, holds_shift_or_alt, pressed, pressed_fixed, unmodified,
+};
 use crate::widgets::composer_draft::{ComposerDraft, VimHost};
 use codex_tui_core::keymap::fixed::{
-    DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_FORWARD, SEARCH_ACCEPT, SEARCH_CANCEL, TAB,
+    DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_FORWARD, SEARCH_ACCEPT, SEARCH_CANCEL,
+    SHELL_PREFIX, TAB,
 };
 
 /// What the engine is doing, read once per key.
@@ -233,7 +235,7 @@ fn command_char(keymap: &Keymap, key: &KeyPress) -> Option<char> {
     if pressed(keymap, ENTER, key) {
         return Some('\n');
     }
-    if key.mods != Mods::NONE && key.mods != Mods::SHIFT {
+    if !at_most_shift(key) {
         return None;
     }
     key.ch
@@ -328,11 +330,7 @@ fn is_pure(command: Normal) -> bool {
 
 /// A key that is typed text: a character with no modifier but Shift.
 fn typed_char(key: &KeyPress) -> Option<char> {
-    if key.mods == Mods::NONE || key.mods == Mods::SHIFT {
-        key.ch
-    } else {
-        None
-    }
+    if at_most_shift(key) { key.ch } else { None }
 }
 
 // ---- Normal mode ------------------------------------------------------------
@@ -344,8 +342,6 @@ pub fn opens_slash(data: &KeyData, c: &TextEditingController, key: &KeyPress, mo
         && mode.pending == VimPending::None
         && !data.suggest.open()
         && c.text().is_empty()
-        && key.ch == Some('/')
-        && key.mods == Mods::NONE
         && pressed(&data.keymap, VIM_SEARCH_FORWARD, key)
 }
 
@@ -418,8 +414,7 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
     if mode.pending == VimPending::None
         && prefix.is_none()
         && c.text().is_empty()
-        && key.ch == Some('!')
-        && key.mods == Mods::NONE
+        && pressed_fixed(SHELL_PREFIX, key)
     {
         draft.set_shell(true);
         // the command is typed next: Insert mode (`enter_vim_insert_mode`)
@@ -431,7 +426,7 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
     // undo step (the composer's key, Normal mode or not)
     if mode.pending == VimPending::None
         && pressed(&data.keymap, FIELD_DELETE_BACKWARD, key)
-        && key.mods == Mods::NONE
+        && unmodified(key)
         && draft.shell()
         && c.selection().is_collapsed()
         && c.selection().extent_offset == 0
@@ -496,7 +491,7 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
 pub fn search_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let draft = &data.draft;
     let query = draft.vim_query();
-    let plain = key.mods == Mods::NONE;
+    let plain = unmodified(key);
     let abort = pressed(&data.keymap, SEARCH_CANCEL, key)
         || (pressed(&data.keymap, FIELD_DELETE_BACKWARD, key) && plain && query.text().is_empty());
     if abort {
@@ -534,7 +529,7 @@ pub fn insert(
 ) -> Option<bool> {
     let draft = &data.draft;
     draft.vim_begin_edit(c);
-    let plain = key.mods == Mods::NONE;
+    let plain = unmodified(key);
     if pressed(&data.keymap, DISMISS, key) && plain {
         // shell mode's Esc on an empty draft is shell mode's
         if draft.shell() && c.text().is_empty() {
@@ -565,9 +560,7 @@ pub fn insert(
             ..
         } => {
             // Shift+Enter and Alt+Enter are the field's own line break
-            if pressed(&data.keymap, ENTER, key)
-                && (key.mods.contains(Mods::SHIFT) || key.mods.contains(Mods::ALT))
-            {
+            if pressed(&data.keymap, ENTER, key) && holds_shift_or_alt(key) {
                 return None;
             }
             run(data, c, |v, host| v.type_text(host, "\n"));

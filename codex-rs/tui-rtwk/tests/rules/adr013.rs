@@ -34,8 +34,10 @@ fn ratchet_file() -> String {
     let dir = crate_dir().join("tests/rules");
     let mut text =
         std::fs::read_to_string(dir.join("adr013_ratchets.txt")).expect("read the ratchet file");
+    // no family file left is no directory (git keeps none empty): every ratchet has run out
     let mut families: Vec<_> = std::fs::read_dir(dir.join("adr013_ratchets"))
-        .expect("read the ratchet directory")
+        .into_iter()
+        .flatten()
         .map(|entry| entry.expect("a ratchet file").path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "txt"))
         .collect();
@@ -1671,6 +1673,19 @@ fn keycode_outside_keymap(files: &Files) -> Vec<String> {
                 // `core::keymap::fixed`, whose presses `src/keymap` builds
                 || starts(tokens, i, &["KeyPress", ":", ":"])
                 || starts(tokens, i, &[".", "text", "(", ")", "=", "=", "Some"])
+                // a char bound (`focus.bind('k', ..)`): `cleaned` blanks a char literal to a space, so
+                // `.bind(` followed at once by `,` is the shape of a char as the key
+                || starts(tokens, i, &[".", "bind", "(", ","])
+                // a character compared to the press's (`key.ch == Some('/')`, `!=` too) and the
+                // modifiers read by hand (`key.mods == Mods::NONE`, `.mods.contains(Mods::CTRL)`):
+                // a named fixed action (`pressed_fixed`) and the helpers of `src/keymap`
+                // (`unmodified`, `types_text`, ..) say it
+                || starts(tokens, i, &[".", "ch", "=", "=", "Some", "("])
+                || starts(tokens, i, &[".", "ch", "!", "=", "Some", "("])
+                || starts(tokens, i, &["mods", "=", "=", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", "!", "=", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", ".", "contains", "(", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", ".", "0"])
         },
     )
 }
@@ -1689,7 +1704,7 @@ fn the_keycode_scan_bites() {
     let files = vec![
         (
             "src/pages/agents/dialogs.rs".to_owned(),
-            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\nlet s = Stroke::new(Key::Char('r'), m);\nlet w = x.with_key(Key::value(1));\n// Key::Tab\n"
+            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\nlet s = Stroke::new(Key::Char('r'), m);\nlet w = x.with_key(Key::value(1));\n// Key::Tab\nfocus.bind('k', y);\nfocus.bind(digit, y);\nfocus.bind(\"k\", y);\n// .bind('q', z)\nif key.ch == Some('/') {}\nif key.ch != Some('!') {}\nlet p = key.mods == Mods::NONE;\nlet q = key.mods != Mods::SHIFT;\nlet r = key.mods.contains(Mods::CTRL);\nlet t = key.mods.0 & 1;\nlet same = digit.ch == key.ch && key.mods == digit.mods;\n// key.mods == Mods::NONE\n"
                 .to_owned(),
         ),
         (
@@ -1704,6 +1719,13 @@ fn the_keycode_scan_bites() {
     assert_eq!(
         keycode_outside_keymap(&files),
         [
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",

@@ -10,7 +10,7 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyBindings};
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, SizedBox,
 };
@@ -23,13 +23,14 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::keymap::actions::{
     LIST_ACCEPT, LIST_CANCEL, LIST_MOVE_DOWN, LIST_MOVE_LEFT, LIST_MOVE_RIGHT, LIST_MOVE_UP,
 };
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::select::Intent;
 use codex_tui_core::screens::select::apps::Link;
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
-use crate::keymap::{bindings, first_of_each, keymap, label};
+use crate::keymap::{bind_fixed, bindings, first_of_each, fixed_presses, keymap, label};
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
 pub mod strings;
@@ -324,24 +325,25 @@ impl State for AppLinkState {
                 Text::new(hint).style(tokens.dim()).wrap(TextWrap::Word),
             ));
 
-        let mut focus = Focus::new(Dialog::bare(
+        let focus = Focus::new(Dialog::bare(
             BoxWidget::new().style(Style::new()).child(column),
         ))
         .focus_node(self.node.clone())
-        .autofocus()
-        .bind(KeyPress::ESC, cx.send(Msg::Cancel))
-        .bind(KeyPress::UP, cx.send(Msg::Move(-1)))
-        .bind(KeyPress::DOWN, cx.send(Msg::Move(1)))
-        .bind(KeyPress::TAB, cx.send(Msg::Move(1)))
-        .bind(KeyPress::BACKTAB, cx.send(Msg::Move(-1)))
-        .bind('k', cx.send(Msg::Move(-1)))
-        .bind('j', cx.send(Msg::Move(1)))
-        .bind(KeyPress::ENTER, cx.send(Msg::Enter));
-        for index in 0..rows.len() {
-            if let Some(digit) = char::from_digit(u32::try_from(index + 1).unwrap_or(0), 10) {
-                focus = focus.bind(digit, cx.send(Msg::Pick(index)));
-            }
-        }
+        .autofocus();
+        let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Cancel));
+        let focus = bind_fixed(focus, fixed::PICK_PREVIOUS, cx.send(Msg::Move(-1)));
+        let focus = bind_fixed(focus, fixed::PICK_NEXT, cx.send(Msg::Move(1)));
+        let focus = bind_fixed(focus, fixed::STEP_PREVIOUS, cx.send(Msg::Move(-1)));
+        let focus = bind_fixed(focus, fixed::STEP_NEXT, cx.send(Msg::Move(1)));
+        let focus = bind_fixed(focus, fixed::ENTER, cx.send(Msg::Enter));
+        // A digit answers the row of its place.
+        let focus = fixed_presses(fixed::PICK_NUMBERS)
+            .into_iter()
+            .take(rows.len())
+            .enumerate()
+            .fold(focus, |focus, (at, key)| {
+                focus.bind(key, cx.send(Msg::Pick(at)))
+            });
         // The keymap's own list keys (a remapped one moves or answers too).
         let mut named = Vec::new();
         named.extend(bindings(&keys, LIST_CANCEL, &cx.send(Msg::Cancel)));

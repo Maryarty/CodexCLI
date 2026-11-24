@@ -12,7 +12,6 @@ use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack, StackFit};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::prelude::Mods;
 use rtwk::provider::{read, select, watch};
 use rtwk::style::{Style, Theme};
 use rtwk::widgets::Text;
@@ -37,7 +36,7 @@ use crate::pages::session::footer::{Footer, Line, Sparkle, StatusRows};
 use codex_tui_core::keymap::actions::GLOBAL_CHANGE_HOST;
 use codex_tui_core::keymap::{Binding, Keymap, fixed};
 
-use crate::keymap::{combo_of, pressed_fixed};
+use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::popovers::mention;
@@ -425,8 +424,7 @@ impl State for ChatState {
             // (`is_in_paste_burst`)
             if !composer.borrow().text().is_empty()
                 || draft.borrow().in_burst()
-                || key.mods.contains(Mods::CTRL)
-                || key.mods.contains(Mods::ALT)
+                || holds_ctrl_or_alt(&key)
             {
                 return KeyEventResult::Ignored;
             }

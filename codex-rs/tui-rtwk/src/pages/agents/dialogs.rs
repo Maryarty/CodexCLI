@@ -20,7 +20,7 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::{strings, view};
 use crate::app::view::Hs;
-use crate::keymap::bind_fixed;
+use crate::keymap::{bind_fixed, fixed_presses};
 use crate::l10n::strings as shared;
 use crate::widgets::options::Options;
 
@@ -97,9 +97,14 @@ impl State for ConfirmDialogState {
         let focus = Focus::new(panel).can_request_focus(false);
         let focus = bind_fixed(focus, fixed::CONFIRM_PREVIOUS, cx.send(Msg::Move(-1)));
         let focus = bind_fixed(focus, fixed::CONFIRM_NEXT, cx.send(Msg::Move(1)));
-        bind_fixed(focus, fixed::ENTER, cx.send(Msg::Enter))
-            .bind('1', cx.send(Msg::Pick(0)))
-            .bind('2', cx.send(Msg::Pick(1)))
+        let focus = bind_fixed(focus, fixed::ENTER, cx.send(Msg::Enter));
+        fixed_presses(fixed::PICK_NUMBERS)
+            .into_iter()
+            .take(2)
+            .enumerate()
+            .fold(focus, |focus, (at, key)| {
+                focus.bind(key, cx.send(Msg::Pick(at)))
+            })
             .into()
     }
 }
@@ -157,8 +162,11 @@ impl State for FailureDialogState {
         };
         let focus = Focus::new(view::failure_dialog(&look, strings, failure)).autofocus();
         let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Dismiss));
-        bind_fixed(focus, fixed::ENTER, cx.send(Dismiss))
-            .bind('1', cx.send(Dismiss))
+        let focus = bind_fixed(focus, fixed::ENTER, cx.send(Dismiss));
+        fixed_presses(fixed::PICK_NUMBERS)
+            .into_iter()
+            .take(1)
+            .fold(focus, |focus, key| focus.bind(key, cx.send(Dismiss)))
             .into()
     }
 }

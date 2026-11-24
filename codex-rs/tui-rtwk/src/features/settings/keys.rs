@@ -9,7 +9,6 @@ use std::rc::Rc;
 
 use rtwk::Cx;
 use rtwk::focus::{KeyCombo, KeyPress};
-use rtwk::prelude::Mods;
 
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::keymap::actions::{
@@ -17,7 +16,7 @@ use codex_tui_core::keymap::actions::{
     LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
 
-use crate::keymap::{keymap, pressed};
+use crate::keymap::{keymap, pressed, types_text};
 use crate::widgets::session_list::Move;
 
 /// The keymap the sheet's key callback reads.
@@ -68,16 +67,11 @@ pub(super) fn letter_of(key: &KeyPress) -> Option<char> {
     })
 }
 
-/// A key that types a printable character (no Ctrl, no Alt).
-fn types_text(key: &KeyPress) -> bool {
-    letter_of(key).is_some() && !key.mods.contains(Mods::CTRL) && !key.mods.contains(Mods::ALT)
-}
-
 /// The list key a press is under the user's keymap (`MultiSelectPicker::handle_key_event`).
 /// With a search line (`searching`) printable characters are the query's: they move nothing,
 /// but a key the keymap binds to accept or cancel is still that.
 pub(super) fn list_key(keys: &Keymap, key: &KeyPress, searching: bool) -> Option<ListKey> {
-    if !(searching && types_text(key)) {
+    if !(searching && letter_of(key).is_some() && types_text(key)) {
         if let Some((_, mv)) = MOVES.iter().find(|(id, _)| pressed(keys, *id, key)) {
             return Some(ListKey::Move(*mv));
         }
