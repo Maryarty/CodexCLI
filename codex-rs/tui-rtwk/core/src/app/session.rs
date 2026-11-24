@@ -253,7 +253,11 @@ pub(super) fn session_intent(
             let intent = crate::features::processes::Intent::Show { source };
             super::features::intent(app, intent.into(), fx);
         }
-        S::Mcp { args } if args.as_deref().is_none_or(|a| a.eq_ignore_ascii_case("verbose")) => {
+        S::Mcp { args }
+            if args
+                .as_deref()
+                .is_none_or(|a| a.eq_ignore_ascii_case("verbose")) =>
+        {
             let full = args.is_some();
             let intent = crate::features::mcp_inventory::Intent::Show { source, full };
             super::features::intent(app, intent.into(), fx);

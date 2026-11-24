@@ -74,7 +74,9 @@ pub fn server(status: &McpServerStatus) -> Server {
     let connection = match status.runtime_status {
         Some(McpServerConnectionStatus::Connected) => Connection::Connected,
         Some(McpServerConnectionStatus::Starting) => Connection::Starting,
-        Some(McpServerConnectionStatus::AuthenticationRequired) => Connection::AuthenticationRequired,
+        Some(McpServerConnectionStatus::AuthenticationRequired) => {
+            Connection::AuthenticationRequired
+        }
         Some(McpServerConnectionStatus::Failed) => Connection::Failed,
         Some(McpServerConnectionStatus::NotStarted) => Connection::NotStarted,
         Some(McpServerConnectionStatus::Disabled) => Connection::Disabled,
@@ -102,7 +104,10 @@ pub fn server(status: &McpServerStatus) -> Server {
             .resources
             .iter()
             .map(|resource| Entry {
-                label: resource.title.clone().unwrap_or_else(|| resource.name.clone()),
+                label: resource
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| resource.name.clone()),
                 uri: resource.uri.clone(),
             })
             .collect(),
@@ -110,7 +115,10 @@ pub fn server(status: &McpServerStatus) -> Server {
             .resource_templates
             .iter()
             .map(|template| Entry {
-                label: template.title.clone().unwrap_or_else(|| template.name.clone()),
+                label: template
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| template.name.clone()),
                 uri: template.uri_template.clone(),
             })
             .collect(),

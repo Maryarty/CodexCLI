@@ -157,7 +157,13 @@ fn key(thread: &Option<ThreadId>) -> ThreadId {
     thread.clone().unwrap_or_default()
 }
 
-fn ask(cx: &mut AppCx<'_>, thread: &Option<ThreadId>, gen_: Gen, full: bool, cursor: Option<String>) {
+fn ask(
+    cx: &mut AppCx<'_>,
+    thread: &Option<ThreadId>,
+    gen_: Gen,
+    full: bool,
+    cursor: Option<String>,
+) {
     cx.ask(
         thread.as_ref(),
         Command::List {
