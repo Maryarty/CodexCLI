@@ -188,11 +188,12 @@ fn a_multi_line_command_is_kept_whole_for_the_cell_to_cut() {
     let mut app = ready();
     let command = "echo one\necho two\necho three";
     let key = ask(&mut app, exec("command", command, json!({})));
-    answer(&mut app, &key, Decision::AcceptForSession);
+    // a plain command offers no session-wide answer (`default_available_decisions`)
+    answer(&mut app, &key, Decision::Accept);
     let all = decisions(&app);
     let (_, subject, outcome) = request_of(&all[0]);
     assert_eq!(subject, &Subject::Command(command.to_owned()));
-    assert_eq!(outcome, &Outcome::ApprovedForSession);
+    assert_eq!(outcome, &Outcome::Approved);
 }
 
 #[test]
@@ -283,7 +284,8 @@ fn a_write_stdin_request_names_its_terminal_and_its_input() {
     };
     assert_eq!(exec.process.as_deref(), Some("42"));
     assert_eq!(exec.input.as_deref(), Some("confirm\n"));
-    // a command request has neither
+    // a command request has neither (the one asked first is answered: a request is keyed by id)
+    answer(&mut app, &key, Decision::Accept);
     let key = ask(&mut app, exec_plain());
     let Some(Prompt::Exec(plain)) = app
         .requests()

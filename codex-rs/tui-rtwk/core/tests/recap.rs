@@ -119,10 +119,12 @@ fn the_history_labels_exchanges_and_a_pending_request() {
 
 #[test]
 fn a_long_history_keeps_the_newest_exchanges_and_says_what_it_left_out() {
+    // the oracle reads the last eight exchanges, then drops the oldest ones until the rest fits
+    // the prompt's byte budget (32 KiB): eight of 6000 bytes do not
     let messages: Vec<Message> = (0..40)
         .flat_map(|i| {
             [
-                Message::User(format!("request {i} {}", "x".repeat(2000))),
+                Message::User(format!("request {i} {}", "x".repeat(6000))),
                 Message::Assistant(format!("answer {i}")),
             ]
         })
@@ -130,6 +132,7 @@ fn a_long_history_keeps_the_newest_exchanges_and_says_what_it_left_out() {
     let history = codex_tui_core::features::recap::recap_history(&messages);
     assert!(history.starts_with("[Earlier exchanges omitted]"));
     assert!(history.contains("answer 39"));
+    assert!(!history.contains("request 31 "));
     assert!(!history.contains("answer 0\n"));
 }
 

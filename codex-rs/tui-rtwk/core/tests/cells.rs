@@ -255,13 +255,27 @@ fn plan_image_view_and_notices_are_entries() {
         }
     );
     assert_eq!(
-        completed(json!({"type": "contextCompaction", "id": "c"})),
-        Item::Notice(Notice::ContextCompacted)
-    );
-    assert_eq!(
         completed(json!({"type": "enteredReviewMode", "id": "e", "review": "current changes"})),
         Item::Notice(Notice::EnteredReview("current changes".into()))
     );
+}
+
+#[test]
+fn a_completed_context_compaction_is_a_notice_made_on_completion() {
+    // the status header owns the start; the cell comes with the completion (`compaction.rs`)
+    let mut app = ready();
+    send(
+        &mut app,
+        "item/completed",
+        json!({"type": "contextCompaction", "id": "c"}),
+    );
+    let notices: Vec<Item> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| matches!(item, Item::Notice(_)).then(|| item.clone()))
+        .collect();
+    assert_eq!(notices, [Item::Notice(Notice::ContextCompacted)]);
 }
 
 /// The app with its thread `thread-1` started, as after `Connected` and the reply.

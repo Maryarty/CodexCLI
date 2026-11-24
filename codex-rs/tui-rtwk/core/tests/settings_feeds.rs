@@ -466,7 +466,8 @@ fn capture(
 fn a_captured_key_is_written_and_said_once_the_file_has_it() {
     use codex_tui_core::features::settings::capture::{Intent as Capture, Said};
     let mut app = app();
-    let commands = capture(&mut app, "ctrl-j", Capture::ReplaceAll);
+    // (`ctrl-j` is the composer's newline: a conflict, which the keymap refuses)
+    let commands = capture(&mut app, "ctrl-alt-s", Capture::ReplaceAll);
     let (request_id, edits) = commands
         .iter()
         .find_map(|command| match command {
@@ -479,7 +480,7 @@ fn a_captured_key_is_written_and_said_once_the_file_has_it() {
         })
         .expect("a config write");
     assert_eq!(edits[0].key_path, "tui.keymap.composer.submit");
-    assert_eq!(edits[0].value, json!(["ctrl-j"]));
+    assert_eq!(edits[0].value, json!(["ctrl-alt-s"]));
     run(
         &mut app,
         AppEv::Effect {
@@ -492,7 +493,7 @@ fn a_captured_key_is_written_and_said_once_the_file_has_it() {
         [Note::KeymapEdited {
             context: "composer".into(),
             action: "submit".into(),
-            key: "ctrl-j".into(),
+            key: "ctrl-alt-s".into(),
             said: Said::Remapped
         }]
     );

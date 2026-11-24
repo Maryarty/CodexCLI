@@ -384,6 +384,12 @@ impl State {
         redemption.step = Progress::Settled(Settled::Reset { left });
     }
 
+    /// Whether the startup check for the hint is out: a second startup fact asks no second one
+    /// (the oracle checks once, at startup, and the answer of an overtaken one is dropped).
+    pub fn hint_out(&self) -> bool {
+        self.hint_check.is_some()
+    }
+
     /// The startup check for the reset hint begins: the request number of the read.
     pub fn start_hint(&mut self) -> u64 {
         let request = self.request();

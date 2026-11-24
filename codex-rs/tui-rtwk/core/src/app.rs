@@ -1826,7 +1826,15 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     Rc::make_mut(&mut app.session)
                         .reserve
                         .insert(backend, reserve);
-                    install_rates(app, backend, limits);
+                    // a read a rolling update overtook does not replace the summary it wrote
+                    let overtaken = app
+                        .session
+                        .rate_snapshots
+                        .get(&backend)
+                        .is_some_and(|store| store.limits().next_read_is_stale());
+                    if !overtaken {
+                        install_rates(app, backend, limits);
+                    }
                     let now = app.screens.status.now;
                     let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots

@@ -33,7 +33,7 @@ pub(super) fn intent(app: &mut CodexApp, intent: &usage::Intent, fx: &mut AppFx)
 /// The startup prefetch of the limits, which also looks for resets to tell the user of (oracle
 /// `start_rate_limit_reset_startup_check`): once per account, until the count is known.
 pub(super) fn startup(app: &mut CodexApp, fx: &mut AppFx) {
-    if app.screens.usage.reset.available.is_some() {
+    if app.screens.usage.reset.available.is_some() || app.screens.usage.reset.hint_out() {
         refresh_rates(app, active_backend(app), RateLimitOrigin::Startup, fx);
         return;
     }

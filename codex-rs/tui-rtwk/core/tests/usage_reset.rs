@@ -127,10 +127,13 @@ fn no_credit_is_stale_for_a_chosen_credit_and_zero_for_the_default_one() {
 fn the_menu_waits_for_its_own_read_and_a_stale_answer_is_ignored() {
     let mut state = State::default();
     assert_eq!(state.menu_entry(true), MenuEntry::Check);
+    // a count that is not known is not read by the menu (oracle `open_usage_menu` reads at zero)
+    assert_eq!(state.open_menu(), None);
+    state.available = Some(0);
     let first = state.open_menu().expect("a read is asked");
     let second = state.open_menu().expect("a read is asked");
     state.menu_read(first, Ok(Some(credits(3))));
-    assert_eq!(state.available, None);
+    assert_eq!(state.available, Some(0));
     state.menu_read(second, Ok(Some(credits(1))));
     assert_eq!(state.available, Some(1));
     assert_eq!(state.menu_entry(true), MenuEntry::Available(1));

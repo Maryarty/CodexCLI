@@ -139,6 +139,13 @@ impl Limits {
             .is_some_and(|through| self.answered <= through)
     }
 
+    /// Whether the read that is answered next was overtaken by a rolling update: its answer is
+    /// older than what the app holds of the account's windows.
+    pub fn next_read_is_stale(&self) -> bool {
+        self.stale_through
+            .is_some_and(|through| self.answered < through)
+    }
+
     /// A read failed; a newer failed read does not invalidate an older successful one.
     pub fn read_failed(&mut self) {
         self.read_ended();
@@ -181,7 +188,8 @@ impl Limits {
             self.credits_usable = sample.credits_usable;
         }
         self.notice_update(sample, source, stale);
-        if workspace_blocked || credits == Some(true) {
+        // a reached workspace limit takes the credits' place (oracle `has_workspace_credits`)
+        if !workspace_blocked && credits == Some(true) {
             return Vec::new();
         }
         self.warnings(sample)
