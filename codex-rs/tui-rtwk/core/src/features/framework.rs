@@ -244,7 +244,7 @@ macro_rules! probe {
         const SEED_NOTE: Option<SeedFn<Note>> = Some(|value| match value.as_str() {
             Some("error") => Ok(Note("error")),
             Some("fine") => Ok(Note("fine")),
-            _ => Err(SeedError::Bad("a note is `error` or `fine`".to_owned())),
+            _ => Err(SeedError::Bad("bad note".to_owned())),
         });
 
         fn note_tone(note: &Note) -> Tone {

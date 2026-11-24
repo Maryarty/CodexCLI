@@ -193,7 +193,7 @@ impl Step {
                             note: Note::from(NoteKey::Feature(note)),
                         })))
                     })
-                    .map_err(|err| format!("note `{feature}`: {err:?}")),
+                    .map_err(|err| format!("{feature}: {err:?}")),
             ),
             _ => None,
         }
