@@ -258,7 +258,9 @@ impl State for AppLinkState {
                                 .underline()
                                 .link(link.url.clone()),
                         ])
-                        .wrap(TextWrap::Word),
+                        // a URL is not broken at a hyphen or a slash: it runs on to the line's end
+                        // (the oracle's pane does not split a URL-like token either)
+                        .wrap(TextWrap::Grapheme),
                     );
             }
         }
@@ -349,6 +351,14 @@ impl State for AppLinkState {
         named.extend(bindings(&keys, LIST_CANCEL, &cx.send(Msg::Cancel)));
         named.extend(bindings(&keys, LIST_MOVE_UP, &cx.send(Msg::Move(-1))));
         named.extend(bindings(&keys, LIST_MOVE_LEFT, &cx.send(Msg::Move(-1))));
+        // A terminal sends Ctrl+H as the C0 byte, which arrives as Backspace holding Ctrl: the
+        // keymap's `ctrl-h` (the oracle reads control characters so).
+        if bindings(&keys, LIST_MOVE_LEFT, &())
+            .iter()
+            .any(|(name, ())| name == "ctrl+h")
+        {
+            named.push(("ctrl+backspace".to_owned(), cx.send(Msg::Move(-1))));
+        }
         named.extend(bindings(&keys, LIST_MOVE_DOWN, &cx.send(Msg::Move(1))));
         named.extend(bindings(&keys, LIST_MOVE_RIGHT, &cx.send(Msg::Move(1))));
         named.extend(bindings(&keys, LIST_ACCEPT, &cx.send(Msg::Enter)));

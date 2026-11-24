@@ -10,14 +10,10 @@ use crate::kit::{self, Owner, Screen};
 // ORACLE bottom_pane/app_link_view.rs:1149 horizontal_list_keys_move_action_selection kind=ui owner=dialogs-pane
 #[test]
 fn horizontal_list_keys_move_action_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built in the dialogs screen (AppLinkView, Notion installed and enabled): entry `app_link_manage` missing",
-    );
     // The oracle moves the action selection right and back (ctrl+l, ctrl+h); the
     // selection is drawn, so the screen is the first one again when it is back.
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "app_link_manage")
+        .entry("select", "app_link_installed")
         .open();
     let first = s.shot();
     s.keys("ctrl+l");
@@ -29,13 +25,9 @@ fn horizontal_list_keys_move_action_selection() {
 // ORACLE bottom_pane/app_link_view.rs:1176 remapped_horizontal_list_keys_control_action_selection kind=ui owner=dialogs-pane
 #[test]
 fn remapped_horizontal_list_keys_control_action_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_manage` missing with the list keys remapped (list.move_left x, list.move_right z)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .keymap(&[("list.move_left", "x"), ("list.move_right", "z")])
-        .entry("dialogs", "app_link_manage")
+        .entry("select", "app_link_installed")
         .open();
     let first = s.shot();
     s.keys("l right");
@@ -52,12 +44,8 @@ fn remapped_horizontal_list_keys_control_action_selection() {
 // ORACLE bottom_pane/app_link_view.rs:1217 toggle_action_sends_set_app_enabled_and_updates_label kind=ui owner=dialogs-pane
 #[test]
 fn toggle_action_sends_set_app_enabled_and_updates_label() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_manage` missing (Notion installed and enabled); the SetAppEnabled event is not drawn, the label change is",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "app_link_manage")
+        .entry("select", "app_link_installed")
         .open();
     s.keys("2");
     s.assert_in_order(&["Manage on ChatGPT", "Enable app", "Back"]);
@@ -83,30 +71,39 @@ fn generic_url_elicitation_resolves_without_connector_refresh() {
 // ORACLE bottom_pane/app_link_view.rs:1306 install_confirmation_does_not_split_long_url_like_token_without_scheme kind=ui owner=dialogs-pane
 #[test]
 fn install_confirmation_does_not_split_long_url_like_token_without_scheme() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built on its install confirmation for a long URL-like token without a scheme: entry `app_link_long_url_confirm` missing (40 columns)",
-    );
-    let s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 16)
-        .entry("dialogs", "app_link_long_url_confirm")
+        .entry("select", "app_link_long_url")
         .open();
+    s.keys("enter");
+    // The pane is narrower than the token, so no row holds it whole; it is not split at a
+    // hyphen or a slash, but runs on to the width and goes on in the next row.
     let url = "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
-    let (row, col) = locate(&s, url);
-    s.assert_text_at(col, row, url);
+    let rows = s.rows();
+    let first = rows
+        .iter()
+        .position(|row| row.trim().starts_with("example.test/"))
+        .unwrap_or_else(|| panic!("no URL row on the screen:\n{}", s.text()));
+    let shown: Vec<&str> = rows[first..]
+        .iter()
+        .map(|row| row.trim())
+        .take_while(|row| !row.is_empty())
+        .collect();
+    assert_eq!(shown.concat(), url, "{}", s.text());
+    assert!(
+        !shown[0].ends_with('-') && !shown[0].ends_with('/'),
+        "the URL is split at a hyphen or a slash: {shown:?}"
+    );
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1350 install_confirmation_render_keeps_url_tail_visible_when_narrow kind=ui owner=dialogs-pane
 #[test]
 fn install_confirmation_render_keeps_url_tail_visible_when_narrow() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built on its install confirmation for a long https URL at 36 columns: entry `app_link_long_url_tail_confirm` missing",
-    );
-    let s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::DialogsPane)
         .size(36, 24)
-        .entry("dialogs", "app_link_long_url_tail_confirm")
+        .entry("select", "app_link_long_url_tail")
         .open();
+    s.keys("enter");
     s.assert_contains("tail42");
 }
 
@@ -597,10 +594,6 @@ fn feedback_view_safety_check() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:79 feedback_disclosure_matches_audience_at_normal_and_narrow_widths kind=snap owner=dialogs-pane snap=feedback_disclosures
 #[test]
 fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `external (80 columns)`-style frame headers (KIT GAP)",
-    );
     // KIT GAP: the snapshot joins its states under `external (80 columns)`-style
     // headers, which oracle_snap::header does not take as frames.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -608,6 +601,10 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
         .entry("feedback", "feedback_note_bug_external")
         .open();
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
+    kit::pending(
+        Owner::DialogsPane,
+        "oracle_snap::header takes no `external (80 columns)`-style frame headers (KIT GAP)",
+    );
     s.assert_snap_section("feedback_disclosures", "external (80 columns)");
     s.resize(40, 16);
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
@@ -631,12 +628,8 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:130 feedback_disclosure_scrolls_without_hiding_input_in_short_panes kind=snap owner=dialogs-pane snap=feedback_disclosure_short_panes
 #[test]
 fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `40x12 initial`-style frame headers (KIT GAP)",
-    );
-    // KIT GAP: the snapshot's states are headed `40x12 initial`-style, which
-    // oracle_snap::header does not take as frames.
+    // The snapshot's states are headed `40x12 initial`-style, which
+    // oracle_snap::header does not take as frames (KIT GAP): the rest is checked by hand.
     for (entry, width, height) in [
         ("feedback_note_employee_40x12", 40, 12),
         ("feedback_note_employee_80x8", 80, 8),
@@ -648,12 +641,29 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
         s.paste("A visible note.");
         s.assert_contains("A visible note.");
         s.assert_contains("enter send");
+        s.keys("pagedown");
+        s.assert_contains("sensitive personal");
+        s.keys("pageup");
+        s.assert_contains("A visible note.");
+    }
+    kit::pending(
+        Owner::DialogsPane,
+        "oracle_snap::header takes no `40x12 initial`-style frame headers (KIT GAP)",
+    );
+    for (entry, width, height) in [
+        ("feedback_note_employee_40x12", 40, 12),
+        ("feedback_note_employee_80x8", 80, 8),
+    ] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(width, height)
+            .entry("feedback", entry)
+            .open();
+        s.paste("A visible note.");
         s.assert_snap_section(
             "feedback_disclosure_short_panes",
             &format!("{width}x{height} initial"),
         );
         s.keys("pagedown");
-        s.assert_contains("sensitive personal");
         s.assert_snap_section(
             "feedback_disclosure_short_panes",
             &format!("{width}x{height} scrolled"),
@@ -669,29 +679,40 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:165 feedback_disclosure_keeps_editor_visible_in_four_rows kind=snap owner=dialogs-pane snap=feedback_disclosure_four_rows
 #[test]
 fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no kit call compares the two headerless states of the snapshot in order (KIT GAP)",
-    );
-    // KIT GAP: the snapshot joins the initial and the scrolled state by a blank
-    // row with no header; no kit call compares two states in order.
+    // The snapshot joins the initial and the scrolled state by a blank row with no header: the
+    // four rows of each are compared by hand.
+    let states = kit::snap_rows("feedback_disclosure_four_rows", "");
+    let same_rows = |s: &Screen, state: usize| {
+        let ours = s.rows();
+        for at in 0..4 {
+            assert_eq!(
+                ours[at].trim_end(),
+                states[state * 5 + at].trim_end(),
+                "state {state}, row {at}:\n{}",
+                s.text()
+            );
+        }
+    };
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 4)
         .entry("feedback", "feedback_note_employee_80x4")
         .open();
     s.paste("A visible note.");
     s.assert_contains("Feedback sent to OpenAI may be used to improve our models and products");
-    for _ in 0..16 {
-        if s.rows()
-            .iter()
-            .any(|row| row.contains("personal information."))
-        {
-            break;
-        }
+    same_rows(&s, 0);
+    // a page down per line of the disclosure (the oracle's `intro_lines`), the sensitive-information
+    // notice passing by on the way
+    let mut saw_sensitive_information_notice = false;
+    for _ in 0..40 {
         s.keys("pagedown");
+        saw_sensitive_information_notice |= s
+            .rows()
+            .iter()
+            .any(|row| row.contains("personal information."));
     }
-    s.assert_contains("personal information.");
+    assert!(saw_sensitive_information_notice);
     s.assert_contains("which is not sent to OpenAI");
+    same_rows(&s, 1);
     for entry in [
         "feedback_note_safety_check_employee_24x4",
         "feedback_note_safety_check_external_24x4",
@@ -738,16 +759,17 @@ fn feedback_paste_burst_preserves_multiline_note_until_submit() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:277 feedback_bracketed_paste_does_not_reach_chat_composer kind=ui owner=dialogs-pane
 #[test]
 fn feedback_bracketed_paste_does_not_reach_chat_composer() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note over the live chat composer (`feedback_note_over_chat`, `feedback_note_over_chat_logs`): the /feedback note step is not built",
-    );
-    for entry in ["feedback_note_over_chat", "feedback_note_over_chat_logs"] {
-        let mut s = Screen::build(Owner::DialogsPane)
-            .entry("dialogs", entry)
-            .open();
+    // The flow runs over the live chat composer: `/feedback`, the category (1 is the bug), the
+    // consent (1 with the logs, 2 without), then the note.
+    for logs in ["1", "2"] {
+        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+        s.type_text("/feedback");
+        s.keys("enter");
+        s.keys("1");
+        s.keys(logs);
         s.type_text("x");
         s.paste("\nrest");
+        s.assert_contains("rest");
         s.keys("enter");
         s.assert_absent("rest");
     }
@@ -756,12 +778,8 @@ fn feedback_bracketed_paste_does_not_reach_chat_composer() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:316 remote_save_shortcut_keeps_the_note_for_explicit_upload kind=ui owner=dialogs-pane
 #[test]
 fn remote_save_shortcut_keeps_the_note_for_explicit_upload() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note entry with can_save off and the note `  something broke  ` (`feedback_note_remote_save`)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "feedback_note_remote_save")
+        .entry("feedback", "feedback_note_remote_save")
         .open();
     s.keys("ctrl+s");
     s.assert_contains("something broke");
@@ -782,17 +800,13 @@ fn submit_feedback_omits_empty_note() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:377 save_shortcut_keeps_note_and_consent_with_or_without_uploads kind=snap owner=dialogs-pane snap=feedback_note_uploads_disabled
 #[test]
 fn save_shortcut_keeps_note_and_consent_with_or_without_uploads() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feedback note entries without upload audience (`feedback_note_bug_turn_no_uploads`) and with the external one (`feedback_note_bug_turn_external`), 60 columns",
-    );
     for entry in [
         "feedback_note_bug_turn_no_uploads",
         "feedback_note_bug_turn_external",
     ] {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(60, 9)
-            .entry("dialogs", entry)
+            .entry("feedback", entry)
             .open();
         s.paste("Review before sharing");
         if entry == "feedback_note_bug_turn_no_uploads" {

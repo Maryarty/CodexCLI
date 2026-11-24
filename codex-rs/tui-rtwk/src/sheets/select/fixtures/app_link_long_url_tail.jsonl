@@ -1,0 +1,3 @@
+# The link dialog of an app that is not installed: Install on ChatGPT, then the confirmation
+# Oracle: bottom_pane/app_link_view.rs (`link_content_lines`, `install_confirmation_lines`)
+{"step": "seed", "seed": "session", "thread": "thread-1"}

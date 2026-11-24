@@ -561,6 +561,9 @@ impl SideStatus {
 pub enum SideFooter {
     /// The shown thread has a side conversation: `ctrl + / for side`.
     Parent { switch: String },
+    /// A side conversation was asked for and is not open yet (`Side starting...`,
+    /// `request_side_conversation`).
+    Starting,
     /// The shown thread is a side conversation.
     Side {
         parent_is_main: bool,

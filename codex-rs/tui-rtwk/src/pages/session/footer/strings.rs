@@ -207,6 +207,7 @@ pub(super) mod sample {
 pub fn side_footer(footer: &SideFooter) -> String {
     match footer {
         SideFooter::Parent { switch } => format!("{switch} for side"),
+        SideFooter::Starting => "Side starting...".to_owned(),
         SideFooter::Side {
             parent_is_main,
             parent_label,

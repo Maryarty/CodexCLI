@@ -6,7 +6,7 @@
 
 #![allow(clippy::expect_used)]
 
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, Checkout, Held, Owner, Screen};
 
 // ---- oracle: chatwidget/tests/popups_and_settings.rs (43 screen-level tests here; 4 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/popups_and_settings.rs:2864 apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps kind=ui owner=dialogs-pane
@@ -907,15 +907,22 @@ fn feedback_selection_popup_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4341 feedback_stops_before_collecting_a_note_when_no_destination_is_available kind=snap owner=dialogs-pane
 #[test]
 fn feedback_stops_before_collecting_a_note_when_no_destination_is_available() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature /feedback flow (w2-approvals, chat popups): none in the port in the port: with no upload destination the flow stops before the note and prints the two unavailable notices; no widget and no scripted state",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.assert_contains("• Feedback is unavailable in Cloud threads.");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(r#"{"step":"fact","feature":"feedback","fact":{"remote":true,"uploads":false}}"#)
+        .open();
+    s.type_text("/feedback");
+    s.keys("enter");
     s.assert_contains(
         "• Feedback uploads are disabled, and saving a ZIP requires a local app server.",
     );
+    s.assert_absent("How was this?");
+    kit::pending(
+        Owner::DialogsPane,
+        "cloud threads have no counterpart in this app (no cloud backend): `• Feedback is unavailable in Cloud threads.` is never said",
+    );
+    s.assert_contains("• Feedback is unavailable in Cloud threads.");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4359 feedback_upload_consent_popup_snapshot kind=snap owner=dialogs-pane snap=feedback_upload_consent_popup
@@ -993,44 +1000,186 @@ fn account_change_dismisses_the_previous_app_directory_snapshot() {
 // ORACLE chatwidget/tests/quick_dials_tests.rs:8 current_settings_offer_model_permissions_and_status_layouts kind=snap owner=dialogs-pane snap=saved_quick_dials_source snap=saved_quick_dials_source_unavailable_model
 #[test]
 fn current_settings_offer_model_permissions_and_status_layouts() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature quick dials (w2-approvals, chat popups): none in the port in the port: the saved quick-dial source list (model, permissions, status) has no widget and no scripted state of the current settings",
+    let mut s = on_catalog(80, 20, "gpt-5.5", BUNDLED);
+    // the catalog is read when the picker opens (the oracle's chat holds it already)
+    s.type_text("/model").keys("enter");
+    s.keys("esc");
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project","approval_policy":"on-request","permission_profile":":workspace","terminal_title":["model-name","project","model-name"],"items":["model-name","project-root","model-name"],"colors":false}}}"#,
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 10).live().open();
-    s.assert_snap("saved_quick_dials_source");
-    // The oracle's Down and Enter send /permissions, /title and /statusline commands: the events are not drawn.
-    s.keys("down enter");
-    s.resize(80, 12);
-    s.assert_snap("saved_quick_dials_source_unavailable_model");
+    let source = |s: &mut Screen| {
+        s.type_text("/presets").keys("enter");
+        s.keys("s");
+    };
+    source(&mut s);
+    s.assert_snap_region(
+        "saved_quick_dials_source",
+        popup_row(&s, "Start preset from current settings"),
+        0,
+    );
+    // each source starts a preset with its line (the editor holds it)
+    for (down, line) in [
+        (
+            1,
+            "/permissions :workspace --approval-policy=on-request --reviewer=user",
+        ),
+        (2, "/title model project-name model"),
+        (3, "/statusline model project-name model --no-colors"),
+    ] {
+        s.keys(&"down ".repeat(down));
+        s.keys("enter");
+        s.assert_joined_rows_hold(line);
+        s.keys("esc esc esc");
+        source(&mut s);
+    }
+    s.keys("esc esc");
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","effort":"removed-effort","approval_policy":"on-request","permission_profile":":workspace","auto_review":true,"terminal_title":["removed-title-item"],"items":["model"],"colors":true}}}"#,
+    );
+    source(&mut s);
+    s.assert_snap_region(
+        "saved_quick_dials_source_unavailable_model",
+        popup_row(&s, "Start preset from current settings"),
+        0,
+    );
+    s.keys("enter");
+    s.assert_joined_rows_hold(
+        "/permissions :workspace --approval-policy=on-request --reviewer=auto_review",
+    );
+    s.keys("esc esc esc");
+    // a granular policy and a named profile
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","effort":"removed-effort","approval_granular":"{\"granular\":{\"sandbox_approval\":false,\"rules\":true,\"skill_approval\":false,\"request_permissions\":true,\"mcp_elicitations\":false}}","permission_profile":"team review","auto_review":false}}}"#,
+    );
+    source(&mut s);
+    s.keys("enter");
+    // the editor wraps at the spaces, which the joined rows lose
+    s.assert_joined_rows_hold("/permissions 'team review'");
+    s.assert_joined_rows_hold(
+        r#"--approval-policy='{"granular":{"sandbox_approval":false,"rules":true,"skill_approval":false,"request_permissions":true,"mcp_elicitations":false}}'"#,
+    );
+    s.assert_joined_rows_hold("--reviewer=user");
 }
 
 // ORACLE chatwidget/tests/quick_dials_tests.rs:141 saved_quick_dials_save_and_clear_picker_snapshots kind=snap owner=dialogs-pane snap=quick_dial_shortcuts snap=quick_dial_shortcuts_empty snap=quick_dial_shortcuts_narrow snap=saved_quick_dials_clear snap=saved_quick_dials_confirm_delete snap=saved_quick_dials_confirm_replace snap=saved_quick_dials_confirm_save snap=saved_quick_dials_editor snap=saved_quick_dials_save
 #[test]
 fn saved_quick_dials_save_and_clear_picker_snapshots() {
+    let mut s = on_catalog(100, 11, "gpt-5.5", BUNDLED);
+    s.feed(QUICK);
+    // the catalog is read when the picker opens (the oracle's chat holds it already)
+    s.type_text("/model").keys("enter");
+    s.keys("esc");
+    s.type_text("/presets");
+    s.keys("enter");
+    s.assert_snap_region("quick_dial_shortcuts_empty", popup_row(&s, "Presets"), 0);
+    s.keys("esc");
+    s.assert_absent("No presets saved");
+    s.feed(CODING_PRESET);
+    // the draft is in the composer when the menu opens (the leader's `p`), and Enter does not
+    // submit it behind the menu
+    s.type_text("Review the current changes");
+    s.keys("shift+enter");
+    s.type_text("for safety  ");
+    s.keys("ctrl+x p");
+    s.assert_contains("1 · coding");
+    let hud = s.shot();
+    s.keys("enter");
+    s.assert_same_rows(&hud);
+    s.keys("esc");
+    s.keys("ctrl+x p");
+    s.assert_same_rows(&hud);
+    s.keys("esc");
+    s.keys("ctrl+x p");
+    s.keys("n");
+    s.assert_snap_region("saved_quick_dials_editor", popup_row(&s, "New preset"), 0);
+    s.keys("enter");
+    s.resize(80, 20);
+    s.assert_snap_region(
+        "saved_quick_dials_save",
+        popup_row(&s, "Save preset to slot"),
+        0,
+    );
+    s.keys("esc");
+    s.assert_snap_region("saved_quick_dials_editor", popup_row(&s, "New preset"), 0);
+    s.keys("esc");
+    s.keys("ctrl+x p");
+    s.keys("d");
+    s.assert_snap_region(
+        "saved_quick_dials_clear",
+        popup_row(&s, "Delete a preset"),
+        0,
+    );
+    s.keys("esc");
+    // the preset of a slot, written over what the editor starts from
+    let replacement = "/model gpt-5.6-terra --reasoning=high --speed=fast";
+    s.keys("ctrl+x p");
+    s.keys("2");
+    s.keys(&"backspace ".repeat(60));
+    s.type_text(replacement);
+    s.keys("enter");
+    s.resize(52, 14);
+    s.assert_snap_region(
+        "saved_quick_dials_confirm_save",
+        popup_row(&s, "Save preset 2?"),
+        0,
+    );
+    s.keys("esc esc");
+    s.keys("ctrl+x p");
+    s.keys("e");
+    s.keys("1");
+    s.keys(&"backspace ".repeat(60));
+    s.type_text(replacement);
+    s.keys("enter");
+    s.assert_snap_region(
+        "saved_quick_dials_confirm_replace",
+        popup_row(&s, "Replace preset 1?"),
+        0,
+    );
+    s.keys("enter");
+    s.feed(CODING_PRESET);
+    s.keys("ctrl+x p");
+    s.keys("d");
+    s.keys("1");
+    s.resize(80, 10);
+    s.assert_snap_region(
+        "saved_quick_dials_confirm_delete",
+        popup_row(&s, "Delete preset 1?"),
+        0,
+    );
+    s.keys("esc esc");
+    // the menu with six presets: its columns (the rows above the queued follow-up of the oracle's
+    // snapshot, which holds a recalled preset the oracle's chat never drains)
+    s.feed(MORE_PRESETS);
+    s.resize(100, 20);
+    s.keys("ctrl+x p");
+    assert_menu_head(&s, "quick_dial_shortcuts", 7);
+    s.resize(48, 20);
+    assert_menu_head(&s, "quick_dial_shortcuts_narrow", 11);
     kit::pending(
         Owner::DialogsPane,
-        "feature quick dials (w2-approvals, chat popups): none in the port in the port: the shortcut menu, the slot editor, the save, clear and replace/delete confirmations have no widget and no scripted state",
+        "preset recall (w2-commands): the oracle's snapshot holds the recalled `/model` line as a queued follow-up (its test chat never drains the queue), the port runs the recalled preset at once, so no frame has the queue block under the menu",
     );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 10)
-        .live()
-        .open();
-    s.assert_snap("quick_dial_shortcuts_empty");
-    s.resize(80, 14);
-    s.assert_snap("saved_quick_dials_editor");
-    s.assert_snap("saved_quick_dials_save");
-    s.assert_snap("saved_quick_dials_clear");
-    s.resize(52, 8);
-    s.assert_snap("saved_quick_dials_confirm_save");
-    s.assert_snap("saved_quick_dials_confirm_replace");
-    s.resize(80, 7);
-    s.assert_snap("saved_quick_dials_confirm_delete");
-    s.resize(100, 16);
-    s.assert_snap("quick_dial_shortcuts");
-    s.resize(48, 20);
-    s.assert_snap("quick_dial_shortcuts_narrow");
 }
+
+/// The first `count` rows of the oracle's snapshot `name` (the menu's block) equal ours from the
+/// menu's title.
+fn assert_menu_head(s: &Screen, name: &str, count: usize) {
+    let row = popup_row(s, "Presets");
+    assert!(row != usize::MAX, "no menu:\n{}", s.text());
+    let ours = s.rows();
+    for (at, want) in kit::snap_rows(name, "").iter().take(count).enumerate() {
+        let got = ours.get(row + at).map_or("", |r| r.trim_end());
+        assert_eq!(got, want.trim_end(), "{name}: row {at}\n{}", s.text());
+    }
+}
+
+const MORE_PRESETS: &str = r#"{"step":"presets","slots":[{"slot":1,"input":"/model gpt-5.5 --reasoning=high --speed=fast","label":"coding","origin":"user"},{"slot":2,"input":"/permissions workspace-write","origin":"user"},{"slot":3,"input":"Review the current changes and explain every important behavior change","origin":"user"},{"slot":5,"input":"/skills simplify-code","origin":"user"},{"slot":7,"input":"Plan the requested change","origin":"user"},{"slot":0,"input":"/status","origin":"user"}]}"#;
+
+const CODING_PRESET: &str = r#"{"step":"presets","slots":[{"slot":1,"input":"/model gpt-5.5 --reasoning=high --speed=fast","label":"coding","origin":"user"}]}"#;
+
+/// The chat of the quick-dial tests: a model and a project directory for the status line.
+const QUICK: &str =
+    r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project"}}}"#;
 
 // ---- oracle: chatwidget/tests/review_picker_tests.rs (1 screen-level tests here; 0 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/review_picker_tests.rs:7 review_picker_filtered_accept_and_cancel_preserve_parent_and_draft kind=ui owner=dialogs-pane
@@ -1341,77 +1490,153 @@ fn manage_skills_summary_snapshot() {
 }
 
 // ---- oracle: chatwidget/tests/worktree_picker_tests.rs (5 screen-level tests here; 0 state tests left to dialogs-pane)
+// The session runs in a local Git repository whose host offers its worktrees (the
+// `worktrees_enabled` flag stands for `set_local_worktree_operations(true)` and the repository).
+const WORKTREES: &str = r#"{"step":"screen","dir":"chat","ev":{"flags":{"worktrees_enabled":true}}}
+{"step":"screen","dir":"chat","ev":{"status":{"cwd":"/tmp/project"}}}
+{"step":"clock","secs":1000020}"#;
+
+/// The clock of `WORKTREES` (a whole minute: the browser counts ages in minutes).
+const NOW: i64 = 1_000_020;
+
+/// The screen row of the first popup line `title`: the oracle's snapshots are the popup alone.
+fn popup_row(s: &Screen, title: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.trim() == title)
+        .unwrap_or(usize::MAX)
+}
+
+fn worktrees_screen(height: u16) -> Screen {
+    Screen::build(Owner::DialogsPane)
+        .size(80, height)
+        .live()
+        .script(WORKTREES)
+        .open()
+}
+
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:9 slash_new_and_fork_offer_checkout_choices_inside_local_git_repository kind=snap owner=dialogs-pane snap=worktrees_command_local snap=worktrees_command_remote snap=worktrees_fork_choices snap=worktrees_new_choices
 #[test]
 fn slash_new_and_fork_offer_checkout_choices_inside_local_git_repository() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree picker in the port (`/new`, `/fork`, `/work`): the checkout choices inside a local git repository have no widget and no git seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
+    let mut s = worktrees_screen(24);
     s.type_text("/new");
     s.keys("enter");
-    s.assert_snap("worktrees_new_choices");
-    s.keys("esc");
-    s.type_text("/fork named");
-    s.keys("enter");
-    s.assert_snap("worktrees_fork_choices");
+    s.assert_snap_region(
+        "worktrees_new_choices",
+        popup_row(&s, "Where should the new conversation run?"),
+        0,
+    );
     s.assert_contains("Use current Git worktree");
     s.assert_contains("Create new Git worktree");
     s.keys("esc");
-    s.resize(80, 3);
-    s.type_text("/work");
-    s.assert_snap("worktrees_command_remote");
+    s.type_text("/fork named");
+    s.keys("enter");
+    s.assert_snap_region(
+        "worktrees_fork_choices",
+        popup_row(&s, "Where should the forked conversation run?"),
+        0,
+    );
+    s.keys("esc");
+    kit::pending(
+        Owner::DialogsPane,
+        "the `/work` command-popup frames (worktrees_command_local at 80x5, _remote at 80x3) are the composer's popup: at 80x5 the composer draws the popup under the composer line where the oracle draws it above, the 80x3 screen draws no composer, and the footer's `GPT-5.6-Sol default` status is not a seed; the checkout choices above are the port's (w2-composer)",
+    );
     s.resize(80, 5);
+    s.type_text("/work");
     s.assert_snap("worktrees_command_local");
+    s.assert_contains("/worktree");
+    // a host without local worktree operations does not list /worktree
+    let mut remote = Screen::build(Owner::DialogsPane).size(80, 3).live().open();
+    remote.type_text("/work");
+    remote.assert_snap("worktrees_command_remote");
+    remote.assert_absent("/worktree");
 }
 
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:85 slash_worktree_offers_current_or_new_conversation kind=snap owner=dialogs-pane snap=worktrees_conversation_choices
 #[test]
 fn slash_worktree_offers_current_or_new_conversation() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree picker in the port: the continue-current or start-new conversation choice has no widget and no git seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 11).live().open();
+    let mut s = worktrees_screen(24);
     s.type_text("/worktree");
     s.keys("enter");
-    s.assert_snap("worktrees_conversation_choices");
+    s.assert_snap_region(
+        "worktrees_conversation_choices",
+        popup_row(&s, "Worktrees"),
+        0,
+    );
     s.assert_contains("Continue current conversation");
     s.assert_contains("Start new conversation");
+}
+
+/// The browser of `/worktree`: the third row (Browse worktrees), the host not yet answered.
+fn worktree_browser(s: &mut Screen) {
+    s.type_text("/worktree");
+    s.keys("enter");
+    s.keys("down down enter");
 }
 
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:107 worktree_browser_actions_and_stale_results kind=snap owner=dialogs-pane snap=worktree_browser_actions snap=worktree_browser_delete_confirmation snap=worktree_browser_list snap=worktree_browser_loading
 #[test]
 fn worktree_browser_actions_and_stale_results() {
+    let mut s = worktrees_screen(24);
+    worktree_browser(&mut s);
+    s.assert_snap_region(
+        "worktree_browser_loading",
+        popup_row(&s, "Managed worktrees"),
+        0,
+    );
+    s.answer_worktrees(&[Checkout {
+        root: "/repo/worktree",
+        cwd: "/repo/worktree",
+        owner: Held::Resumable("Fix login form", NOW - 7_200),
+    }]);
+    s.assert_snap_region(
+        "worktree_browser_list",
+        popup_row(&s, "Managed worktrees"),
+        0,
+    );
+    s.type_text("worktree");
+    s.keys("enter");
+    s.assert_snap_region(
+        "worktree_browser_actions",
+        popup_row(&s, "Worktree: Fix login form"),
+        0,
+    );
     kit::pending(
         Owner::DialogsPane,
-        "no worktree browser in the port: the loading state, the list, the actions, the delete confirmation and stale results have no widget and no git seed",
+        "the delete confirmation frame (worktree_browser_delete_confirmation) is the oracle's bottom pane alone, with the composer's `› As` and the footer's `GP` showing at the sides of the centred dialog: ours floats over the whole screen; the rows up to the actions are the port's",
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 6).live().open();
-    s.type_text("/worktree");
-    s.keys("enter");
-    s.assert_snap("worktree_browser_loading");
-    s.resize(80, 8);
-    s.assert_snap("worktree_browser_list");
-    s.keys("enter");
-    s.resize(80, 9);
-    s.assert_snap("worktree_browser_actions");
-    s.resize(80, 8);
+    s.keys("3");
     s.assert_snap("worktree_browser_delete_confirmation");
 }
 
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:214 worktree_browser_names_archived_and_missing_owners kind=snap owner=dialogs-pane snap=worktree_browser_owner_states
 #[test]
 fn worktree_browser_names_archived_and_missing_owners() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree browser in the port: the owner states (archived and missing owners) and the Worktree: title have no widget and no git seed",
+    let mut s = worktrees_screen(24);
+    worktree_browser(&mut s);
+    s.answer_worktrees(&[
+        Checkout {
+            root: "/repo/archived",
+            cwd: "/repo/archived",
+            owner: Held::Archived("Fix settings", NOW - 86_400),
+        },
+        Checkout {
+            root: "/repo/missing",
+            cwd: "/repo/missing",
+            owner: Held::Missing,
+        },
+        Checkout {
+            root: "/repo/empty",
+            cwd: "/repo/empty",
+            owner: Held::Nobody,
+        },
+    ]);
+    s.assert_snap_region(
+        "worktree_browser_owner_states",
+        popup_row(&s, "Managed worktrees"),
+        0,
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 10).live().open();
-    s.type_text("/worktree");
     s.keys("enter");
-    s.assert_snap("worktree_browser_owner_states");
     s.assert_contains("Worktree: Fix settings");
     s.assert_absent("Resume owner");
 }
@@ -1419,21 +1644,63 @@ fn worktree_browser_names_archived_and_missing_owners() {
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:273 worktree_picker_custom_keys_preserve_draft_and_protect_current_checkout kind=ui owner=dialogs-pane
 #[test]
 fn worktree_picker_custom_keys_preserve_draft_and_protect_current_checkout() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree browser in the port: the remapped f3 select and f2 back keys, the draft kept, and the current checkout protected from deletion; no widget and no keymap seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 24)
         .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
         .live()
+        .script(WORKTREES)
         .open();
-    s.type_text("Keep this draft");
     s.type_text("/worktree");
     s.keys("enter");
+    s.keys("down down f3");
+    s.answer_worktrees(&[
+        Checkout {
+            root: "/repo/日本語",
+            cwd: "/repo/日本語/src",
+            owner: Held::Nobody,
+        },
+        Checkout {
+            root: "/tmp/project",
+            cwd: "/tmp/project",
+            owner: Held::Nobody,
+        },
+    ]);
+    s.type_text("日本語");
     s.assert_contains("f3 select · f2 back");
+    s.keys("f3");
+    s.assert_contains("Worktree");
     s.keys("f2");
-    s.assert_contains("Keep this draft");
+    s.assert_absent("Worktree");
+    // the session's own checkout cannot be deleted
     s.resize(80, 24);
-    s.assert_contains("Switch to another checkout before deleting this one");
+    s.type_text("/worktree");
+    s.keys("enter");
+    s.keys("down down f3");
+    s.answer_worktrees(&[Checkout {
+        root: "/tmp/project",
+        cwd: "/tmp/project",
+        owner: Held::Nobody,
+    }]);
+    s.keys("f3");
+    let unwrapped = |s: &Screen| {
+        s.rows()
+            .iter()
+            .flat_map(|row| row.split_whitespace())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert!(
+        unwrapped(&s).contains("Switch to another checkout before deleting this one"),
+        "{:?}",
+        s.rows()
+    );
+    s.keys("2");
+    s.assert_contains("Delete worktree (disabled)");
+    s.keys("f2");
+    s.assert_absent("Delete worktree");
+    kit::pending(
+        Owner::DialogsPane,
+        "no seed keeps a draft in the composer while /worktree runs (the command empties the composer; the oracle opens the browser with `request_managed_worktrees` over the draft): the draft kept after f2 is not asserted; the remapped keys and the protected checkout above are the port's",
+    );
+    s.assert_composer("Keep this draft");
 }

@@ -361,6 +361,16 @@ fn fixture_entries() -> Vec<DebugEntry> {
             "the link dialog of an app that is not installed: install, then the confirmation",
             "fixtures/app_link_install"
         ),
+        link_entry!(
+            "app_link_long_url",
+            "the install confirmation of a URL-like token with no scheme: the token stays whole",
+            "fixtures/app_link_long_url"
+        ),
+        link_entry!(
+            "app_link_long_url_tail",
+            "the install confirmation of a long https URL: wrapped, its tail still shown",
+            "fixtures/app_link_long_url_tail"
+        ),
         list_entry!(
             "worktrees_conversation",
             "where the conversation goes",
