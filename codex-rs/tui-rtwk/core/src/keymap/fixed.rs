@@ -106,6 +106,10 @@ pub const SEARCH_CLEAR: ActionId = composer("search_clear");
 /// The ETX byte (`0x03`) a terminal without the kitty protocol sends for Ctrl+C, typed as text
 /// into a search: it cancels like Esc.
 pub const SEARCH_CANCEL_BYTE: ActionId = composer("search_cancel_byte");
+/// `!` on an empty draft turns it into a shell command (`shell_commands_enabled`), and `/` while a
+/// command's name is typed completes the highlighted command as text.
+pub const SHELL_PREFIX: ActionId = composer("shell_prefix");
+pub const SLASH_COMPLETE: ActionId = composer("slash_complete");
 /// The port's own hidden debug key: no field of the oracle's swallows it.
 pub const DEBUG_KEY: ActionId = ActionId::new(Context::Global, "debug_key");
 
@@ -321,6 +325,14 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: CLEAR_FOR_CTRL_C,
         bindings: &[exact(Key::Char('c'), CTRL)],
+    },
+    Fixed {
+        id: SHELL_PREFIX,
+        bindings: &[exact(Key::Char('!'), Mods::NONE)],
+    },
+    Fixed {
+        id: SLASH_COMPLETE,
+        bindings: &[exact(Key::Char('/'), Mods::NONE)],
     },
     Fixed {
         id: SEARCH_ACCEPT,

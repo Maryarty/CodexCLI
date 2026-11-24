@@ -234,6 +234,56 @@ pub fn press_of(stroke: &Stroke) -> Option<KeyPress> {
     })
 }
 
+// ---- What a press is, by the modifiers held --------------------------------------------------
+// The modifier checks of the pages (a press with nothing held, a printable press, a chord) live
+// here beside the keymap, so a page never reads `key.mods` itself.
+
+/// A press with no modifier held at all.
+pub fn unmodified(key: &KeyPress) -> bool {
+    key.mods == PressMods::NONE
+}
+
+/// A press with Ctrl held and nothing else.
+pub fn only_ctrl(key: &KeyPress) -> bool {
+    key.mods == PressMods::CTRL
+}
+
+/// A press with Shift held and nothing else.
+pub fn only_shift(key: &KeyPress) -> bool {
+    key.mods == PressMods::SHIFT
+}
+
+/// A press with Ctrl or Alt held (a shortcut chord, whatever the key).
+pub fn holds_ctrl_or_alt(key: &KeyPress) -> bool {
+    key.mods.contains(PressMods::CTRL) || key.mods.contains(PressMods::ALT)
+}
+
+/// A press with Ctrl, Alt or Super held.
+pub fn holds_command_mod(key: &KeyPress) -> bool {
+    holds_ctrl_or_alt(key) || key.mods.contains(PressMods::SUPER)
+}
+
+/// A press with Shift or Alt held (the field's own line break: Shift+Enter, Alt+Enter).
+pub fn holds_shift_or_alt(key: &KeyPress) -> bool {
+    key.mods.contains(PressMods::SHIFT) || key.mods.contains(PressMods::ALT)
+}
+
+/// A press with nothing held but perhaps Shift.
+pub fn at_most_shift(key: &KeyPress) -> bool {
+    unmodified(key) || only_shift(key)
+}
+
+/// A printable press with no Ctrl and no Alt (Shift and Super may be held): the text a key types.
+pub fn types_text(key: &KeyPress) -> bool {
+    key.ch.is_some() && !holds_ctrl_or_alt(key)
+}
+
+/// A printable press with no modifier but Shift: typed text a field takes as its own, where a
+/// binding on a plain character (`k`) is not a shortcut.
+pub fn types_plain_text(key: &KeyPress) -> bool {
+    key.ch.is_some() && at_most_shift(key)
+}
+
 /// The presses of every single key of an action, for the code that binds presses to a `Focus`
 /// (`names` is the same for `KeyBindings`): a hardwired action's own keys, or the keymap's.
 pub fn presses(keymap: &Keymap, id: ActionId) -> Vec<KeyPress> {

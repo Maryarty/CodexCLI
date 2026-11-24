@@ -1676,6 +1676,16 @@ fn keycode_outside_keymap(files: &Files) -> Vec<String> {
                 // a char bound (`focus.bind('k', ..)`): `cleaned` blanks a char literal to a space, so
                 // `.bind(` followed at once by `,` is the shape of a char as the key
                 || starts(tokens, i, &[".", "bind", "(", ","])
+                // a character compared to the press's (`key.ch == Some('/')`, `!=` too) and the
+                // modifiers read by hand (`key.mods == Mods::NONE`, `.mods.contains(Mods::CTRL)`):
+                // a named fixed action (`pressed_fixed`) and the helpers of `src/keymap`
+                // (`unmodified`, `types_text`, ..) say it
+                || starts(tokens, i, &[".", "ch", "=", "=", "Some", "("])
+                || starts(tokens, i, &[".", "ch", "!", "=", "Some", "("])
+                || starts(tokens, i, &["mods", "=", "=", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", "!", "=", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", ".", "contains", "(", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", ".", "0"])
         },
     )
 }
@@ -1694,7 +1704,7 @@ fn the_keycode_scan_bites() {
     let files = vec![
         (
             "src/pages/agents/dialogs.rs".to_owned(),
-            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\nlet s = Stroke::new(Key::Char('r'), m);\nlet w = x.with_key(Key::value(1));\n// Key::Tab\nfocus.bind('k', y);\nfocus.bind(digit, y);\nfocus.bind(\"k\", y);\n// .bind('q', z)\n"
+            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\nlet s = Stroke::new(Key::Char('r'), m);\nlet w = x.with_key(Key::value(1));\n// Key::Tab\nfocus.bind('k', y);\nfocus.bind(digit, y);\nfocus.bind(\"k\", y);\n// .bind('q', z)\nif key.ch == Some('/') {}\nif key.ch != Some('!') {}\nlet p = key.mods == Mods::NONE;\nlet q = key.mods != Mods::SHIFT;\nlet r = key.mods.contains(Mods::CTRL);\nlet t = key.mods.0 & 1;\nlet same = digit.ch == key.ch && key.mods == digit.mods;\n// key.mods == Mods::NONE\n"
                 .to_owned(),
         ),
         (
@@ -1709,6 +1719,12 @@ fn the_keycode_scan_bites() {
     assert_eq!(
         keycode_outside_keymap(&files),
         [
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",

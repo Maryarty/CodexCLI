@@ -8,13 +8,13 @@ use std::rc::Rc;
 
 use rtwk::focus::{FocusNode, KeyEventResult};
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize};
-use rtwk::prelude::Mods;
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
+use crate::keymap::types_text;
 use crate::pages::session::footer::{Flash, Footer, Line, Timed};
 use crate::pages::session::popovers::mention;
 use crate::sheets::dialogs::shortcut_panel;
@@ -110,11 +110,7 @@ impl State for AloneState {
         let send = cx.local_sender();
         let ui = w.ui.clone();
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
-            if !ui.composer.text().is_empty()
-                || ui.draft.in_burst()
-                || key.mods.contains(Mods::CTRL)
-                || key.mods.contains(Mods::ALT)
-            {
+            if !ui.composer.text().is_empty() || ui.draft.in_burst() || !types_text(&key) {
                 return KeyEventResult::Ignored;
             }
             match key.text() {
