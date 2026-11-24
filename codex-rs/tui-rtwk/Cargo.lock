@@ -3920,6 +3920,7 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "serde_json",
+ "tui-test-mods",
 ]
 
 [[package]]

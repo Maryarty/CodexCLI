@@ -13,13 +13,10 @@
 
 mod visible;
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
-
-use super::{AppCx, AppView, Feature, Never, Slash, ThreadView};
+use super::{AppCx, AppView, Slash, ThreadView};
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 use crate::threads::{Item, Tone};
 
 pub use visible::{copy_markdown, strip_line_directives, visible_markdown};
@@ -123,94 +120,79 @@ fn copy(cx: &mut AppCx<'_>, text: String, label: String, format: CopyFormat) {
     cx.effect(ask, Ctx { label });
 }
 
-impl Feature for Copier {
-    const NAME: &'static str = "copy";
-    const RUNS: &'static [SlashCommand] = &[SlashCommand::Copy];
+feature! {
+    impl Feature for Copier {
+        const NAME: &'static str = "copy";
+        const RUNS: &'static [SlashCommand] = &[SlashCommand::Copy];
+        type Intent = Intent;
+        type Ctx = Ctx;
+        type Note = Note;
+        type Wish = Wish;
+        {
+            /// `/copy`: the picker of what the last response holds, asked of the surface.
+            fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
+                Self::intent(
+                    state,
+                    Intent::Command {
+                        source: slash.source,
+                    },
+                    cx,
+                );
+            }
 
-    type State = ();
-    type ThreadPart = ();
-    type Target = Never<Self>;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Never<Self>;
-    type Wish = Wish;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
-
-    /// `/copy`: the picker of what the last response holds, asked of the surface.
-    fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
-        Self::intent(
-            state,
-            Intent::Command {
-                source: slash.source,
-            },
-            cx,
-        );
-    }
-
-    fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
-        match intent {
-            Intent::Command { source } => {
-                let Some(thread) = source.filter(|id| cx.view().thread(id).is_some()) else {
-                    return cx.note(None, Note::NoResponse);
-                };
-                match last_response(&cx.view(), &thread) {
-                    Some(response) => cx.wish(thread.clone(), Wish::Picker { thread, response }),
-                    None => cx.note(Some(thread), Note::NoResponse),
+            fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
+                match intent {
+                    Intent::Command { source } => {
+                        let Some(thread) = source.filter(|id| cx.view().thread(id).is_some()) else {
+                            return cx.note(None, Note::NoResponse);
+                        };
+                        match last_response(&cx.view(), &thread) {
+                            Some(response) => cx.wish(thread.clone(), Wish::Picker { thread, response }),
+                            None => cx.note(Some(thread), Note::NoResponse),
+                        }
+                    }
+                    Intent::Last => {
+                        let thread = cx.view().active().cloned();
+                        let response = thread
+                            .as_ref()
+                            .and_then(|thread| last_response(&cx.view(), thread));
+                        match response {
+                            Some(response) => copy(
+                                cx,
+                                response.markdown,
+                                LAST_MESSAGE.to_owned(),
+                                CopyFormat::Markdown,
+                            ),
+                            None => cx.note(thread, Note::NoResponse),
+                        }
+                    }
+                    Intent::Text {
+                        text,
+                        label,
+                        format,
+                    } => copy(cx, text, label, format),
                 }
             }
-            Intent::Last => {
-                let thread = cx.view().active().cloned();
-                let response = thread
-                    .as_ref()
-                    .and_then(|thread| last_response(&cx.view(), thread));
-                match response {
-                    Some(response) => copy(
-                        cx,
-                        response.markdown,
-                        LAST_MESSAGE.to_owned(),
-                        CopyFormat::Markdown,
-                    ),
-                    None => cx.note(thread, Note::NoResponse),
+
+            /// The host's answer to a copy, said in the thread in use.
+            fn effect_done(_state: &mut (), ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+                if let Done::Copy(result) = done {
+                    cx.note(
+                        None,
+                        Note::Copied {
+                            label: ctx.label,
+                            result,
+                        },
+                    );
                 }
             }
-            Intent::Text {
-                text,
-                label,
-                format,
-            } => copy(cx, text, label, format),
+
+            fn note_tone(note: &Note) -> Tone {
+                match note {
+                    Note::NoResponse | Note::Copied { result: Err(_), .. } => Tone::Error,
+                    Note::Copied { result: Ok(_), .. } => Tone::Info,
+                }
+            }
         }
-    }
-
-    /// The host's answer to a copy, said in the thread in use.
-    fn effect_done(_state: &mut (), ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        if let Done::Copy(result) = done {
-            cx.note(
-                None,
-                Note::Copied {
-                    label: ctx.label,
-                    result,
-                },
-            );
-        }
-    }
-
-    fn note_tone(note: &Note) -> Tone {
-        match note {
-            Note::NoResponse | Note::Copied { result: Err(_), .. } => Tone::Error,
-            Note::Copied { result: Ok(_), .. } => Tone::Info,
-        }
-    }
-
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
-    }
-
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
     }
 }

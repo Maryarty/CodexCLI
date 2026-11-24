@@ -1,3 +1,4 @@
+// cell: Item::Hook(_)
 //! A finished hook run (oracle history_cell/hook_cell.rs `HookCell::output_lines`).
 //! A completed run with a system message (its first warning entry) is that
 //! message after a dim `↳ Hook · `; any other run is a header (a green bullet

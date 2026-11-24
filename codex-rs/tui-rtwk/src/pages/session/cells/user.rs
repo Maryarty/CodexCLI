@@ -1,3 +1,4 @@
+// cell: Item::User(_)
 //! The user's message cell (oracle history_cell/messages.rs
 //! `UserHistoryCell`): the prompt mark and the text on the prompt surface, a
 //! label for each attached image above it, one blank row of the surface

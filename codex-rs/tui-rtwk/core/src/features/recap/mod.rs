@@ -19,15 +19,11 @@
 mod history;
 mod prompt;
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
 use serde_json::{Value, json};
 
-use super::{
-    AppCx, Feature, Never, Slash, StructuredFailure, StructuredKind, StructuredTurn, ThreadView,
-};
+use super::{AppCx, Slash, StructuredFailure, StructuredKind, StructuredTurn, ThreadView};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 use crate::threads::{Item, Tone};
 
 pub use history::{Message, recap_history};
@@ -196,82 +192,67 @@ fn request(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     });
 }
 
-impl Feature for Recap {
-    const NAME: &'static str = "recap";
-    const RUNS: &'static [SlashCommand] = &[SlashCommand::Recap];
+feature! {
+    impl Feature for Recap {
+        const NAME: &'static str = "recap";
+        const RUNS: &'static [SlashCommand] = &[SlashCommand::Recap];
+        type State = State;
+        type Intent = Intent;
+        type Ctx = Ctx;
+        type Note = Note;
+        {
+            /// `/recap`: a summary of the conversation in use.
+            fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+                Self::intent(
+                    state,
+                    Intent::Command {
+                        source: slash.source,
+                    },
+                    cx,
+                );
+            }
 
-    type State = State;
-    type ThreadPart = ();
-    type Target = Never<Self>;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Never<Self>;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                let Intent::Command { source } = intent;
+                request(state, source, cx);
+            }
 
-    /// `/recap`: a summary of the conversation in use.
-    fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
-        Self::intent(
-            state,
-            Intent::Command {
-                source: slash.source,
-            },
-            cx,
-        );
-    }
+            /// `handle_recap_started` and `handle_generated_recap`: the request ended; its answer is
+            /// dropped when it is stale, a recap when it parses, else the failure line.
+            fn structured_done(
+                state: &mut State,
+                ctx: Ctx,
+                result: Result<String, StructuredFailure>,
+                cx: &mut AppCx<'_>,
+            ) {
+                let Some(request) = state.in_flight.take_if(|request| request.at == ctx.0) else {
+                    return;
+                };
+                let view = cx.view();
+                let fresh = view.active() == Some(&request.thread)
+                    && view
+                        .thread(&request.thread)
+                        .is_some_and(|thread| !thread.busy())
+                    && excerpt(cx, &request.thread) == request.history;
+                if !fresh {
+                    return;
+                }
+                let note = match result.ok().as_deref().and_then(parse_recap) {
+                    Some((summary, next_action)) => Note::Recap {
+                        summary,
+                        next_action,
+                    },
+                    None => Note::Failed,
+                };
+                cx.note(Some(request.thread), note);
+            }
 
-    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
-        let Intent::Command { source } = intent;
-        request(state, source, cx);
-    }
-
-    /// `handle_recap_started` and `handle_generated_recap`: the request ended; its answer is
-    /// dropped when it is stale, a recap when it parses, else the failure line.
-    fn structured_done(
-        state: &mut State,
-        ctx: Ctx,
-        result: Result<String, StructuredFailure>,
-        cx: &mut AppCx<'_>,
-    ) {
-        let Some(request) = state.in_flight.take_if(|request| request.at == ctx.0) else {
-            return;
-        };
-        let view = cx.view();
-        let fresh = view.active() == Some(&request.thread)
-            && view
-                .thread(&request.thread)
-                .is_some_and(|thread| !thread.busy())
-            && excerpt(cx, &request.thread) == request.history;
-        if !fresh {
-            return;
+            fn note_tone(note: &Note) -> Tone {
+                match note {
+                    Note::Recap { .. } => Tone::Info,
+                    Note::Failed | Note::InProgress | Note::EmptyHistory => Tone::Error,
+                }
+            }
         }
-        let note = match result.ok().as_deref().and_then(parse_recap) {
-            Some((summary, next_action)) => Note::Recap {
-                summary,
-                next_action,
-            },
-            None => Note::Failed,
-        };
-        cx.note(Some(request.thread), note);
-    }
-
-    fn note_tone(note: &Note) -> Tone {
-        match note {
-            Note::Recap { .. } => Tone::Info,
-            Note::Failed | Note::InProgress | Note::EmptyHistory => Tone::Error,
-        }
-    }
-
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
-    }
-
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
     }
 }

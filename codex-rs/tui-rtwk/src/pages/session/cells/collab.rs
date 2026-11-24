@@ -1,3 +1,4 @@
+// cell: Item::Collab(_)
 //! The multi-agent rows (oracle multi_agents.rs `collab_event`): a title
 //! after a dim bullet, its detail lines under a dim `└` branch. Spawn, input,
 //! wait, close and resume of the model's collab tools and a sub-agent's

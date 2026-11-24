@@ -17,6 +17,22 @@ fn read(rel: &str) -> String {
     std::fs::read_to_string(crate_dir().join(rel)).unwrap_or_else(|_| panic!("read {rel}"))
 }
 
+// the lists that `build.rs` writes from the files: the rules read the same text (fw-hubs-c5);
+// shared with ui_registry.rs and feature_sheet.rs (clippy::duplicate_mod)
+#[path = "../../test-mods/registry.rs"]
+pub(crate) mod registry;
+
+/// `core/src/features/mod.rs` as the compiler sees it: the hub, then the `pub mod` lines and
+/// `feature_list!` that `core/build.rs` writes from the slices' directories.
+fn features_mod() -> String {
+    let dir = crate_dir().join("core/src/features");
+    let slices = registry::core_features(&dir).unwrap_or_else(|e| panic!("core features: {e}"));
+    registry::with_generated(
+        &read("core/src/features/mod.rs"),
+        &registry::core_features_text(&dir, &slices),
+    )
+}
+
 /// The UI crate's view files: everything under `src/` except services/, the
 /// model root (`app/mod.rs`), the composition root (`app/run.rs`) and `lib.rs`. An
 /// allowlist of the non-views, so a new directory is a view until it is named
@@ -51,6 +67,9 @@ const CORE_DEPS: &[&str] = &[
     "serde",
     "serde_json",
     "pretty_assertions",
+    // fw-hubs-c5: the module list of `tests/all.rs` (a dev-dependency without dependencies of its
+    // own, `test-mods/`: std only).
+    "tui-test-mods",
 ];
 
 #[test]
@@ -749,7 +768,7 @@ fn features_named_outside_the_list(files: &[(String, String)], features: &[Strin
 /// `SessionIntent::Feature` and `apply_slash`, so no router names a feature's intent.
 #[test]
 fn features_are_named_only_through_the_list() {
-    let mod_rs = read("core/src/features/mod.rs");
+    let mod_rs = features_mod();
     let features = listed_features(&mod_rs);
     for feature in &features {
         let slice = format!("core/src/features/{feature}");
@@ -787,7 +806,7 @@ fn listed_feeds() -> Vec<String> {
 fn host_half_names_one_feature() {
     let feeds = listed_feeds();
     assert!(!feeds.is_empty(), "host_feed_list! lists the feeds");
-    let features = listed_features(&read("core/src/features/mod.rs"));
+    let features = listed_features(&features_mod());
     for feed in &feeds {
         assert!(
             features.contains(feed),
@@ -947,7 +966,7 @@ fn declared_feature_mods(mod_rs: &str) -> Vec<String> {
 /// (the other way round it does not), so an extra plain `pub mod` is caught here.
 #[test]
 fn the_plain_feature_mods_are_the_feature_list() {
-    let mod_rs = read("core/src/features/mod.rs");
+    let mod_rs = features_mod();
     let mut listed = listed_features(&mod_rs);
     listed.sort();
     assert_eq!(
@@ -1335,7 +1354,7 @@ fn per_feature_enums(files: &[(String, String)], markers: &[String]) -> Vec<Stri
 /// generated enum, never an enum written by hand beside the list.
 #[test]
 fn no_enum_with_a_variant_per_feature_is_written_by_hand() {
-    let markers: Vec<String> = listed_entries(&read("core/src/features/mod.rs"))
+    let markers: Vec<String> = listed_entries(&features_mod())
         .into_iter()
         .map(|(_, ty)| ty)
         .collect();
@@ -1786,7 +1805,7 @@ fn framework_names_a_slice(files: &[(String, String)], features: &[String]) -> V
 /// there; they are `small_cmds::daybreak_of` and `AppFacts::tui` now.
 #[test]
 fn framework_names_no_slice() {
-    let features = listed_features(&read("core/src/features/mod.rs"));
+    let features = listed_features(&features_mod());
     assert!(features.len() > 5, "the list has its features");
     let found = framework_names_a_slice(&sources_of("core/src/features"), &features);
     assert!(
@@ -1858,7 +1877,7 @@ fn app_names_slice_state(files: &[(String, String)], features: &[String]) -> Vec
 /// is read through the list (`features::daybreak_of`). It is 0, and the budget line says so.
 #[test]
 fn app_names_no_feature_state() {
-    let features = listed_features(&read("core/src/features/mod.rs"));
+    let features = listed_features(&features_mod());
     let found = app_names_slice_state(&sources_of("core/src"), &features);
     let lines = budget_lines("appstate");
     let [words] = lines.as_slice() else {
@@ -1934,7 +1953,7 @@ fn app_ctx_names_a_feature(text: &str, features: &[String]) -> Vec<String> {
 /// or open is told back through `Feature::thread_opened` under the feature's own `FeatureCtx`.
 #[test]
 fn app_ctx_names_no_feature() {
-    let features = listed_features(&read("core/src/features/mod.rs"));
+    let features = listed_features(&features_mod());
     assert!(features.len() > 5, "the list has its features");
     let found = app_ctx_names_a_feature(&read("core/src/app.rs"), &features);
     assert!(found.is_empty(), "AppCtx names a feature: {found:#?}");

@@ -1,3 +1,4 @@
+// cell: Item::ImageView { .. }
 //! A viewed image (oracle history_cell/patches.rs `ViewImageHistoryCell`).
 //! Compact it is one row with the file's name; it discloses
 //! (transcript_view/layout.rs `activity_layout`) the transcript lines, the

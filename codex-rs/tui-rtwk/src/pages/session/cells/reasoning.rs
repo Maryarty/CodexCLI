@@ -1,3 +1,4 @@
+// cell: Item::Reasoning { .. }
 //! The reasoning summary of the detailed transcript (oracle history_cell/
 //! messages.rs `ReasoningSummaryCell`): `• ` and the Markdown body, every span
 //! dim and italic over its own style (`span.patch_style(dim().italic())`).

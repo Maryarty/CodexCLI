@@ -1,6 +1,7 @@
 //! The chat's key actions, one file each (registry 1 of the UI hubs, ADR-012 for the keys): a
 //! key action is a file of this directory with its keymap action (`KeyAction::ID`) and what it
-//! does (`KeyAction::run`), and one line in `action_list!`. The list generates `keys::Action`,
+//! does (`KeyAction::run`), and nothing else: `build.rs` writes `action_list!` and the `pub mod`
+//! lines from the files (`test-mods/registry.rs`, by file name). The list generates `keys::Action`,
 //! its keymap ids, its presses and its dispatch (`keys.rs`); neither the page's `update` nor the
 //! key binding of the page names an action. The keys of a feature are the feature's own
 //! (`FeatureView::actions`), reached through `Action::Feature`, never a file here.
@@ -18,13 +19,7 @@ use crate::app::view::Hs;
 use crate::pages::session::session_page::ChatState;
 use crate::widgets::thread_ui::ThreadUi;
 
-pub mod cycle_mode;
-pub mod find;
-pub mod open_transcript;
-pub mod raw_output;
-pub mod side;
-pub mod voice;
-pub mod warnings;
+include!(concat!(env!("OUT_DIR"), "/key_actions.rs"));
 
 /// What the page hands the action that a key ran: the door to the app and the controllers of the
 /// thread the page shows (its modes, its composer).
@@ -45,22 +40,3 @@ pub trait KeyAction {
     /// What the key does, from the page that bound it.
     fn run(cx: &mut Cx<'_, ChatState>, keyed: &Keyed<'_>);
 }
-
-/// The list of the key actions, in the order of their bindings, handed to `callback` as
-/// `file => Marker;` entries: `file` is the module `key_actions/<file>.rs`, `Marker` the type in
-/// it that implements `KeyAction`. An action is one line here (and its file).
-macro_rules! action_list {
-    ($callback:ident) => {
-        $callback! {
-            open_transcript => OpenTranscript;
-            find => Find;
-            warnings => Warnings;
-            voice => Voice;
-            side => Side;
-            raw_output => RawOutput;
-            cycle_mode => CycleMode;
-        }
-    };
-}
-
-pub(super) use action_list;

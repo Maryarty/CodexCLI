@@ -37,26 +37,11 @@ use crate::pages::session::strings::Strings as SessionStrings;
 
 pub mod prompt;
 
-// One line per directory of `feature_list!`, written out so that rustfmt (which follows `mod`
-// lines, not macro expansions) formats the views too. A feature of the list without its
-// directory does not compile: `view_dispatch!` needs its `FeatureView` impl.
-pub mod copy;
-pub mod daemon;
-pub mod diff;
-pub mod export;
-pub mod external_editor;
-pub mod feedback;
-pub mod goal;
-pub mod mcp_inventory;
-pub mod plugins;
-pub mod processes;
-pub mod recap;
-pub mod rename;
-pub mod security_setup;
-pub mod settings;
-pub mod side;
-pub mod small_cmds;
-pub mod windows_sandbox;
+// The `pub mod` line of every slice's view half and `sheet_list!` are written by `build.rs` from
+// core's slices (`test-mods/registry.rs`): a slice of core without its view directory (or
+// `<f>.rs`) does not build, and one with it needs no line here. rustfmt does not follow the
+// generated modules: `tools/rtwk-port/registry/fmt.sh` formats them.
+include!(concat!(env!("OUT_DIR"), "/features.rs"));
 
 /// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope
 /// shows it from its own slice of the feature's state (the data of the wish is the feature's, a
@@ -216,23 +201,6 @@ macro_rules! view_dispatch {
                     <codex_tui_core::features::$name::$variant as FeatureView>::note_words(note, words)
                 })*
             }
-        }
-    };
-}
-
-/// The slices whose command opens a sheet of their own (`Feature::OPENS` is `Some`), one line
-/// each, in the form of core's `feature_list!`. Written by hand: a slice joins it with its
-/// `impl FeatureSheet`, the rule `feature_sheet_only_with_opens` checks it against core.
-macro_rules! sheet_list {
-    ($m:ident) => {
-        $m! {
-            daemon => Daemon;
-            diff => Diff;
-            export => Export;
-            mcp_inventory => McpInventory;
-            plugins => Plugins;
-            processes => Processes;
-            windows_sandbox => WindowsSandbox;
         }
     };
 }

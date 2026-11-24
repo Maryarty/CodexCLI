@@ -15,7 +15,7 @@ use codex_app_server_protocol::{
 };
 use codex_protocol::config_types::WindowsSandboxLevel;
 
-use super::{AppCx, Feature, Never};
+use super::AppCx;
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -481,116 +481,113 @@ impl State {
     }
 }
 
-impl Feature for WindowsSandbox {
-    const NAME: &'static str = "windows_sandbox";
-    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::ElevateSandbox, Sheet));
-
-    type State = State;
-    type ThreadPart = ();
-    type Target = Sheet;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Wanted;
-    type Reply = Reply;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Fact;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
-
-    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
-        match intent {
-            // Listed only while the degraded sandbox is on; a direct dispatch outside it is
-            // nothing (oracle: "guard anyway").
-            Intent::Elevate => {
-                if state.degraded() {
-                    state.begin(Mode::Elevated, cx);
+feature! {
+    impl Feature for WindowsSandbox {
+        const NAME: &'static str = "windows_sandbox";
+        const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::ElevateSandbox, Sheet));
+        type State = State;
+        type Target = Sheet;
+        type Intent = Intent;
+        type Command = Wanted;
+        type Reply = Reply;
+        type Ctx = Ctx;
+        type Note = Note;
+        type Fact = Fact;
+        {
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                match intent {
+                    // Listed only while the degraded sandbox is on; a direct dispatch outside it is
+                    // nothing (oracle: "guard anyway").
+                    Intent::Elevate => {
+                        if state.degraded() {
+                            state.begin(Mode::Elevated, cx);
+                        }
+                    }
+                    Intent::Begin(mode) => state.begin(mode, cx),
+                    Intent::Shown(prompt) => {
+                        if state.due == Some(prompt) {
+                            state.due = None;
+                        }
+                    }
                 }
             }
-            Intent::Begin(mode) => state.begin(mode, cx),
-            Intent::Shown(prompt) => {
-                if state.due == Some(prompt) {
-                    state.due = None;
+
+            fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+                let Ctx::Start(_) = ctx;
+                match result {
+                    Ok(Reply::Started(true)) => {}
+                    // Transport lost or deserialization failed: the setup may still end; wait for it.
+                    Err(RpcError::Malformed(_)) => cx.note(None, Note::Failed),
+                    Err(RpcError::Remote(message)) if message.contains("-32601") => {
+                        state.pending = None;
+                        state.started = false;
+                        cx.note(None, Note::UpdateServer);
+                    }
+                    Err(_) => {
+                        state.pending = None;
+                        state.started = false;
+                        cx.note(None, Note::Failed);
+                    }
+                    Ok(Reply::Started(false)) => {
+                        state.pending = None;
+                        state.started = false;
+                        cx.note(None, Note::NotStarted);
+                    }
                 }
             }
-        }
-    }
 
-    fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
-        let Ctx::Start(_) = ctx;
-        match result {
-            Ok(Reply::Started(true)) => {}
-            // Transport lost or deserialization failed: the setup may still end; wait for it.
-            Err(RpcError::Malformed(_)) => cx.note(None, Note::Failed),
-            Err(RpcError::Remote(message)) if message.contains("-32601") => {
-                state.pending = None;
-                state.started = false;
-                cx.note(None, Note::UpdateServer);
-            }
-            Err(_) => {
-                state.pending = None;
-                state.started = false;
-                cx.note(None, Note::Failed);
-            }
-            Ok(Reply::Started(false)) => {
-                state.pending = None;
-                state.started = false;
-                cx.note(None, Note::NotStarted);
-            }
-        }
-    }
-
-    fn on_fact(state: &mut State, fact: Fact, cx: &mut AppCx<'_>) {
-        match fact {
-            Fact::Environment {
-                config,
-                host,
-                local_server,
-                elevated_ready,
-            } => state.environment(config, host, local_server, elevated_ready),
-            Fact::Completed {
-                mode,
-                success,
-                error,
-            } => state.ended(mode, success, error, cx),
-            Fact::Trusted => {
-                state.trusted_prompt = true;
-                if state.config.is_some() && state.local_setup() {
-                    state.trusted_prompt = false;
-                    state.maybe_prompt();
+            fn on_fact(state: &mut State, fact: Fact, cx: &mut AppCx<'_>) {
+                match fact {
+                    Fact::Environment {
+                        config,
+                        host,
+                        local_server,
+                        elevated_ready,
+                    } => state.environment(config, host, local_server, elevated_ready),
+                    Fact::Completed {
+                        mode,
+                        success,
+                        error,
+                    } => state.ended(mode, success, error, cx),
+                    Fact::Trusted => {
+                        state.trusted_prompt = true;
+                        if state.config.is_some() && state.local_setup() {
+                            state.trusted_prompt = false;
+                            state.maybe_prompt();
+                        }
+                    }
                 }
             }
-        }
-    }
 
-    fn note_tone(note: &Note) -> Tone {
-        match note {
-            Note::Disallowed | Note::StillRunning | Note::Mixed => Tone::Info,
-            _ => Tone::Error,
-        }
-    }
+            fn note_tone(note: &Note) -> Tone {
+                match note {
+                    Note::Disallowed | Note::StillRunning | Note::Mixed => Tone::Info,
+                    _ => Tone::Error,
+                }
+            }
 
-    fn wire(command: &Wanted, _thread: &ThreadId, id: RequestId) -> ClientRequest {
-        let Wanted::Start { mode, cwd } = command;
-        // The directory is an absolute path (the server's type); a relative one is left out.
-        let params = serde_json::from_value(serde_json::json!({ "mode": mode, "cwd": cwd }))
-            .unwrap_or(WindowsSandboxSetupStartParams {
-                mode: *mode,
-                cwd: None,
-            });
-        ClientRequest::WindowsSandboxSetupStart {
-            request_id: id,
-            params,
-        }
-    }
+            fn wire(command: &Wanted, _thread: &ThreadId, id: RequestId) -> ClientRequest {
+                let Wanted::Start { mode, cwd } = command;
+                // The directory is an absolute path (the server's type); a relative one is left out.
+                let params = serde_json::from_value(serde_json::json!({ "mode": mode, "cwd": cwd }))
+                    .unwrap_or(WindowsSandboxSetupStartParams {
+                        mode: *mode,
+                        cwd: None,
+                    });
+                ClientRequest::WindowsSandboxSetupStart {
+                    request_id: id,
+                    params,
+                }
+            }
 
-    fn decode(command: &Wanted, result: serde_json::Value) -> Result<Reply, RpcError> {
-        let Wanted::Start { .. } = command;
-        serde_json::from_value::<codex_app_server_protocol::WindowsSandboxSetupStartResponse>(
-            result,
-        )
-        .map(|response| Reply::Started(response.started))
-        .map_err(|error| RpcError::Malformed(error.to_string()))
+            fn decode(command: &Wanted, result: serde_json::Value) -> Result<Reply, RpcError> {
+                let Wanted::Start { .. } = command;
+                serde_json::from_value::<codex_app_server_protocol::WindowsSandboxSetupStartResponse>(
+                    result,
+                )
+                .map(|response| Reply::Started(response.started))
+                .map_err(|error| RpcError::Malformed(error.to_string()))
+            }
+        }
     }
 }

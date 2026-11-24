@@ -26,10 +26,12 @@ serde_json = "1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+# The module list of `tests/all.rs`, written from the files (test-mods/build.rs).
+tui-test-mods = { path = "../test-mods" }
 
 # The integration tests are one binary (tests/all.rs lists the files as modules): one rustc
 # run and one link instead of 25 (docs/rtwk-port/build-speed.md). A new tests/<name>.rs is a
-# `mod <name>;` line in tests/all.rs; tests/rules/registration.rs fails without it.
+# module by being a file (`tui_test_mods::core_all!`), no line.
 [[test]]
 name = "all"
 path = "tests/all.rs"

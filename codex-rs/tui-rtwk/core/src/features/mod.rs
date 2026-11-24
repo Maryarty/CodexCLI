@@ -2,7 +2,7 @@
 //! that opens a menu or a prompt, asks the server, says what happened in the transcript
 //! (`/goal`, `/export`, `/rename`, `/plugins`), or thread state that reacts to the turn
 //! lifecycle (the queue). Its code lives in `core/src/features/<f>/` and its words and views in
-//! `src/features/<f>/`; the list in `feature_list!` registers it once and generates the root
+//! `src/features/<f>/`; `build.rs` registers it from the directory (`feature_list!`) and generates the root
 //! enums and their dispatch, as `screen_list!` does for the screens.
 //!
 //! A feature implements `Feature` for a marker type: its own state, per-thread part, intents,
@@ -15,7 +15,7 @@
 //! `NoteKey::Feature`, `ThreadEv::FeatureIntent`, `ThreadCtx::Feature`, `Command::Feature`)
 //! and never a variant per feature (rule `hub_enums_only_shrink`).
 //!
-//! The order of the list is the order of every hook that runs over all features
+//! The order of the list (by name) is the order of every hook that runs over all features
 //! (`on_resumed`, `on_turn_end`, `on_interrupted`, `on_settled`).
 //!
 //! A feature reaches the server through `wire` (an RPC) and the host through `AppCx::effect`
@@ -53,26 +53,115 @@ pub use remote::Remote;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 pub use verb::PublicVerb;
 
-// One line per feature of `feature_list!`, written out so that rustfmt (which follows `mod` lines,
-// not macro expansions) formats the slices too. A feature of the list without its module does not
-// compile: `feature_dirs!` names `$name::$variant`.
-pub mod copy;
-pub mod daemon;
-pub mod diff;
-pub mod export;
-pub mod external_editor;
-pub mod feedback;
-pub mod goal;
-pub mod mcp_inventory;
-pub mod plugins;
-pub mod processes;
-pub mod recap;
-pub mod rename;
-pub mod security_setup;
-pub mod settings;
-pub mod side;
-pub mod small_cmds;
-pub mod windows_sandbox;
+/// The type `$t` a slice wrote, or `$default` when it wrote none (`feature!`).
+macro_rules! feature_or {
+    ($default:ty;) => {
+        $default
+    };
+    ($default:ty; $t:ty) => {
+        $t
+    };
+}
+
+/// `wire` and `decode` of a slice without RPCs: its `Command` is `Never<Self>` and there is nothing
+/// to make a request of (`feature!`); a slice that has `type Command` writes both in its methods.
+macro_rules! feature_no_rpcs {
+    () => {
+        fn wire(
+            command: &$crate::features::Never<Self>,
+            _thread: &$crate::ids::ThreadId,
+            _id: codex_app_server_protocol::RequestId,
+        ) -> codex_app_server_protocol::ClientRequest {
+            command.absurd()
+        }
+
+        fn decode(
+            command: &$crate::features::Never<Self>,
+            _result: serde_json::Value,
+        ) -> Result<$crate::features::Never<Self>, $crate::rpc::RpcError> {
+            command.absurd()
+        }
+    };
+    ($command:ty) => {};
+}
+
+/// `impl Feature for Marker`, with what a slice does not have left out: an associated type it
+/// does not write is `Never<Self>` (`()` for `State` and `ThreadPart`), `wire` and `decode` of a
+/// slice without `type Command` are `command.absurd()`, and every method it does not write is the
+/// trait's default. A slice says what it has, in the order of the trait:
+///
+/// ```ignore
+/// feature! {
+///     impl Feature for Processes {
+///         const NAME: &'static str = "processes";
+///         const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Ps, Sheet));
+///         type Target = Sheet;
+///         type Intent = Intent;
+///         type Note = Note;
+///         {
+///             fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) { .. }
+///         }
+///     }
+/// }
+/// ```
+///
+/// The constants are `NAME`, then `SEED`, `OPENS`, `RUNS`; the types are `State`, `ThreadPart`,
+/// `Target`, `Intent`, `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Note`, `Fact`, `Wish`,
+/// `Interest`, `Event`; the methods are the items of the last braces. Each is written as in the
+/// trait (rules scan these lines); a doc comment goes on a method, not on a constant or a type.
+/// rustfmt does not format the inside of a macro call: keep the layout of the trait's methods.
+macro_rules! feature {
+    (
+        impl Feature for $marker:ty {
+            const NAME: &'static str = $name:expr;
+            $(const SEED: $seed_ty:ty = $seed:expr;)?
+            $(const OPENS: $opens_ty:ty = $opens:expr;)?
+            $(const RUNS: $runs_ty:ty = $runs:expr;)?
+            $(type State = $state:ty;)?
+            $(type ThreadPart = $part:ty;)?
+            $(type Target = $target:ty;)?
+            $(type Intent = $intent:ty;)?
+            $(type ThreadIntent = $thread_intent:ty;)?
+            $(type Command = $command:ty;)?
+            $(type Reply = $reply:ty;)?
+            $(type Ctx = $ctx:ty;)?
+            $(type Note = $note:ty;)?
+            $(type Fact = $fact:ty;)?
+            $(type Wish = $wish:ty;)?
+            $(type Interest = $interest:ty;)?
+            $(type Event = $event:ty;)?
+            $({ $($method:item)* })?
+        }
+    ) => {
+        impl $crate::features::Feature for $marker {
+            const NAME: &'static str = $name;
+            $(const SEED: $seed_ty = $seed;)?
+            $(const OPENS: $opens_ty = $opens;)?
+            $(const RUNS: $runs_ty = $runs;)?
+            type State = feature_or!((); $($state)?);
+            type ThreadPart = feature_or!((); $($part)?);
+            type Target = feature_or!($crate::features::Never<Self>; $($target)?);
+            type Intent = feature_or!($crate::features::Never<Self>; $($intent)?);
+            type ThreadIntent = feature_or!($crate::features::Never<Self>; $($thread_intent)?);
+            type Command = feature_or!($crate::features::Never<Self>; $($command)?);
+            type Reply = feature_or!($crate::features::Never<Self>; $($reply)?);
+            type Ctx = feature_or!($crate::features::Never<Self>; $($ctx)?);
+            type Note = feature_or!($crate::features::Never<Self>; $($note)?);
+            type Fact = feature_or!($crate::features::Never<Self>; $($fact)?);
+            type Wish = feature_or!($crate::features::Never<Self>; $($wish)?);
+            type Interest = feature_or!($crate::features::Never<Self>; $($interest)?);
+            type Event = feature_or!($crate::features::Never<Self>; $($event)?);
+            feature_no_rpcs!($($command)?);
+            $($($method)*)?
+        }
+    };
+}
+
+// The `pub mod` line of every slice and `feature_list!` are written by `build.rs` from the
+// directories of `core/src/features/` (`test-mods/registry.rs`): a slice is a directory with a
+// `mod.rs` and an `impl Feature for <Marker>`, and no line of this file names it. rustfmt does
+// not follow the generated modules: `tools/rtwk-port/registry/fmt.sh` formats them.
+include!(concat!(env!("OUT_DIR"), "/features.rs"));
 
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
@@ -387,35 +476,6 @@ pub trait Feature: 'static {
 
     /// Decodes the JSON result of one of the feature's RPCs.
     fn decode(command: &Self::Command, result: serde_json::Value) -> Result<Self::Reply, RpcError>;
-}
-
-/// The list of the features, in hook order, handed to `callback` as `name => Type;` entries:
-/// `name` is the module `core/src/features/<name>/`, `Type` the marker type in it that
-/// implements `Feature`. The UI crate calls it with its own macro for the view half
-/// (`src/features/<name>/`), so the two lists cannot differ. A slice is one line here.
-#[macro_export]
-macro_rules! feature_list {
-    ($callback:ident) => {
-        $callback! {
-            goal => Goal;
-            rename => Rename;
-            export => Export;
-            feedback => Feedback;
-            plugins => Plugins;
-            settings => Settings;
-            processes => Processes;
-            mcp_inventory => McpInventory;
-            diff => Diff;
-            daemon => Daemon;
-            security_setup => SecuritySetup;
-            windows_sandbox => WindowsSandbox;
-            copy => Copier;
-            small_cmds => SmallCmds;
-            recap => Recap;
-            external_editor => ExternalEditor;
-            side => Side;
-        }
-    };
 }
 
 /// Everything the list generates: the states, the root enums with their `From` impls and the

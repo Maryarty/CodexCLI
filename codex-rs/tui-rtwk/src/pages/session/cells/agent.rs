@@ -1,3 +1,4 @@
+// cell: Item::Agent { .. }
 //! The assistant's message cell (oracle history_cell/messages.rs
 //! `AgentMessageCell`): the dim bullet and the Markdown of the message, one
 //! column free at the right. The Markdown is `citation::view` (directives,

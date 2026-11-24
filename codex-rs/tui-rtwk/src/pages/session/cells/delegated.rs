@@ -1,3 +1,4 @@
+// cell: Item::Delegated(_)
 //! A message another task sent to this thread (oracle history_cell/
 //! delegated_message.rs): `• Sent by Codex from task <id>` and the Markdown
 //! body indented by two columns. The chat shows the redrawable transcript,

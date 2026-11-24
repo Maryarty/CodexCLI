@@ -10,7 +10,11 @@ use codex_tui_core::screens::onboarding::{
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 
+// `all.rs` declares this file by `#[path]` (`test-mods`), which makes it a module file of its
+// directory: its children name their own.
+#[path = "onboarding/device.rs"]
 mod device;
+#[path = "onboarding/gateway.rs"]
 mod gateway;
 
 fn send(app: &mut CodexApp, ev: AppEv) {

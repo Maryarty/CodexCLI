@@ -1,3 +1,4 @@
+// cell: Item::Note(_)
 //! What a command line answered with, as a row of the transcript (oracle
 //! history_cell/notices.rs `new_info_event` and `new_error_event`): an info
 //! note is a dim bullet and the message, an error note is a red `■ ` and the
