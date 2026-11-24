@@ -10,15 +10,13 @@ use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding,
 };
 use rtwk::overlay::Dialog;
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::{Key, Mods as StrokeMods, Stroke};
-
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
+use crate::keymap::press::{self, Refusal};
 
 /// What the capture takes (`KeymapCaptureMode`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,77 +49,14 @@ pub enum Done {
     Cancel,
 }
 
-/// The press of `key` as a stroke, whatever the config can store of it (the debug view names
-/// what it detected); none for a key that is no stroke (a modifier alone).
-pub fn stroke_of(key: &KeyPress) -> Option<Stroke> {
-    let mut mods = StrokeMods::NONE;
-    for (flag, stroke) in [
-        (Mods::CTRL, StrokeMods::CTRL),
-        (Mods::ALT, StrokeMods::ALT),
-        (Mods::SHIFT, StrokeMods::SHIFT),
-        (Mods::SUPER, StrokeMods::SUPER),
-    ] {
-        if key.mods.contains(flag) {
-            mods = mods.with(stroke);
-        }
+/// What the capture view says of a key the config cannot store.
+pub fn refusal_words(refusal: Refusal, s: &Strings) -> String {
+    match refusal {
+        Refusal::Modifiers => s.key_modifiers,
+        Refusal::Printable => s.key_printable,
+        Refusal::Unsupported => s.key_unsupported,
     }
-    let k = match key.code {
-        KeyCode::Char => {
-            let ch = key.ch?;
-            if ch.is_ascii_uppercase() {
-                mods = mods.with(StrokeMods::SHIFT);
-                Key::Char(ch.to_ascii_lowercase())
-            } else {
-                Key::Char(ch)
-            }
-        }
-        KeyCode::Enter => Key::Enter,
-        KeyCode::Tab => Key::Tab,
-        KeyCode::Backspace => Key::Backspace,
-        KeyCode::Escape => Key::Esc,
-        KeyCode::Delete => Key::Delete,
-        KeyCode::Insert => Key::Insert,
-        KeyCode::Up => Key::Up,
-        KeyCode::Down => Key::Down,
-        KeyCode::Left => Key::Left,
-        KeyCode::Right => Key::Right,
-        KeyCode::Home => Key::Home,
-        KeyCode::End => Key::End,
-        KeyCode::PageUp => Key::PageUp,
-        KeyCode::PageDown => Key::PageDown,
-        KeyCode::F1 => Key::F(1),
-        KeyCode::F2 => Key::F(2),
-        KeyCode::F3 => Key::F(3),
-        KeyCode::F4 => Key::F(4),
-        KeyCode::F5 => Key::F(5),
-        KeyCode::F6 => Key::F(6),
-        KeyCode::F7 => Key::F(7),
-        KeyCode::F8 => Key::F(8),
-        KeyCode::F9 => Key::F(9),
-        KeyCode::F10 => Key::F(10),
-        KeyCode::F11 => Key::F(11),
-        KeyCode::F12 => Key::F(12),
-    };
-    Some(Stroke::new(k, mods).canonical())
-}
-
-/// The key as `tui.keymap` stores it, or why it cannot be (`key_event_to_config_key_spec`).
-pub fn spec_of(key: &KeyPress, s: &Strings) -> Result<String, String> {
-    let known = Mods::CTRL | Mods::ALT | Mods::SHIFT | Mods::SUPER;
-    if key.mods.0 & !known.0 != 0 {
-        return Err(s.key_modifiers.to_owned());
-    }
-    if key.code == KeyCode::Char
-        && let Some(ch) = key.ch
-        && ch != '-'
-        && (!ch.is_ascii() || ch.is_ascii_control())
-    {
-        return Err(s.key_printable.to_owned());
-    }
-    match stroke_of(key) {
-        Some(stroke) if stroke.key != Key::Insert => Ok(stroke.spec()),
-        _ => Err(s.key_unsupported.to_owned()),
-    }
+    .to_owned()
 }
 
 /// The sheet's instructions for what is left to press.
@@ -188,16 +123,12 @@ impl State for CaptureState {
 
     fn update(&mut self, msg: Msg, w: &Capture, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Key(key) = msg;
-        let escape = key.code == KeyCode::Escape && key.mods == Mods::NONE;
-        let interrupt = key.code == KeyCode::Char
-            && key.ch == Some('c')
-            && key.mods == Mods::CTRL;
-        if escape || interrupt {
+        if press::is_escape(&key) || press::is_ctrl_c(&key) {
             cx.emit(&w.on_done, Done::Cancel);
             return Rebuild::No;
         }
         let s = strings::of(cx);
-        match spec_of(&key, s) {
+        match press::spec_of(&key).map_err(|refusal| refusal_words(refusal, s)) {
             Ok(spec) => {
                 self.error = None;
                 let done = match w.mode {

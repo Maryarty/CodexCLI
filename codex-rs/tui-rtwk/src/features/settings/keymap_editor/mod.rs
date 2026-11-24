@@ -28,7 +28,7 @@ use codex_tui_core::features::settings::keymap;
 use codex_tui_core::features::settings::{Intent, KeymapPicker, Offer, Which};
 use codex_tui_core::keymap::Keymap;
 
-pub use self::capture::{Capture, Done, Mode, spec_of, stroke_of};
+pub use self::capture::{Capture, Done, Mode};
 pub use self::conflict::{CaptureSheet, ConflictSheet};
 pub use self::debug::Inspector;
 use self::lists::Pick;

@@ -12,7 +12,6 @@ use rtwk::animation::{AnimationController, AnimationStatus};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::overlay::Dialog;
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::select;
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextWrap};
@@ -22,9 +21,10 @@ use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::keymap::{self, KeyMatch, Source};
 use codex_tui_core::keymap::KeymapSpec;
 
-use super::capture::{spec_of, stroke_of};
+use super::capture::refusal_words;
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
+use crate::keymap::press::{self, is_ctrl_c, stroke_of};
 use crate::keymap::{keymap, stroke_label};
 
 /// How long the inspector waits for a first key before it says more (`MISSING_KEY_HINT_DELAY`).
@@ -76,53 +76,17 @@ impl_widget!(stateful eq Inspector);
 
 /// `code=F(8), modifiers=none, kind=Press`: the event as the oracle prints it.
 fn raw_of(key: &KeyPress, s: &Strings) -> String {
-    let shift = key.mods.contains(Mods::SHIFT);
-    let code = match key.code {
-        KeyCode::Char => s.raw_char(key.ch.unwrap_or(' ')),
-        KeyCode::Tab if shift => "BackTab".to_owned(),
-        KeyCode::Escape => "Esc".to_owned(),
-        KeyCode::F1 => "F(1)".to_owned(),
-        KeyCode::F2 => "F(2)".to_owned(),
-        KeyCode::F3 => "F(3)".to_owned(),
-        KeyCode::F4 => "F(4)".to_owned(),
-        KeyCode::F5 => "F(5)".to_owned(),
-        KeyCode::F6 => "F(6)".to_owned(),
-        KeyCode::F7 => "F(7)".to_owned(),
-        KeyCode::F8 => "F(8)".to_owned(),
-        KeyCode::F9 => "F(9)".to_owned(),
-        KeyCode::F10 => "F(10)".to_owned(),
-        KeyCode::F11 => "F(11)".to_owned(),
-        KeyCode::F12 => "F(12)".to_owned(),
-        other => format!("{other:?}"),
+    let code = match press::raw_code(key) {
+        press::Raw::Char(ch) => s.raw_char(ch),
+        press::Raw::Named(name) => name,
     };
-    let mut parts = Vec::new();
-    for (flag, name) in [
-        (Mods::CTRL, "ctrl"),
-        (Mods::ALT, "alt"),
-        (Mods::SHIFT, "shift"),
-    ] {
-        if key.mods.contains(flag) {
-            parts.push(name.to_owned());
-        }
-    }
-    if key.mods.contains(Mods::SUPER) {
-        parts.push("SUPER".to_owned());
-    }
-    let mods = if parts.is_empty() {
+    let mods = press::raw_mods(key);
+    let mods = if mods.is_empty() {
         s.modifiers_none.to_owned()
     } else {
-        parts.join("|")
+        mods.join("|")
     };
     s.raw_event(&code, &mods)
-}
-
-/// The words of where a binding comes from.
-fn source_word(s: &Strings, source: Source) -> &'static str {
-    match source {
-        Source::Custom => s.source_custom,
-        Source::CustomGlobal => s.source_custom_global,
-        Source::Default => s.source_default,
-    }
 }
 
 impl InspectorState {
@@ -137,7 +101,7 @@ impl InspectorState {
             detected: stroke
                 .as_ref()
                 .map_or_else(|| raw_of(key, s), stroke_label),
-            config_key: spec_of(key, s),
+            config_key: press::spec_of(key).map_err(|refusal| refusal_words(refusal, s)),
             raw: raw_of(key, s),
             matches: stroke
                 .map(|stroke| keymap::matching(&live, &spec, &stroke))
@@ -175,7 +139,7 @@ impl State for InspectorState {
     fn update(&mut self, msg: Msg, w: &Inspector, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Key(key) => {
-                if key.code == KeyCode::Char && key.ch == Some('c') && key.mods == Mods::CTRL {
+                if is_ctrl_c(&key) {
                     cx.emit(&w.on_close, ());
                     return Rebuild::No;
                 }
