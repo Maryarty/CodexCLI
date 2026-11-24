@@ -306,7 +306,7 @@ pkg("app-misc", "остальное приложения: exit summary, session 
     oracle="app/exit_summary.rs, session_log.rs, turn_tip.rs, chatwidget/{mcp_startup,reconnect,read_only,provider_error}.rs, tooltips.rs, app/server_version_notice.rs",
     core="exit summary (токены + подсказка resume), session log", ui="диалоги quit-confirm и task-running",
     deps="fw-core-hubs, fw-ui-registry")
-pkg("kit-seeds", "обвязка oracle-тестов: семена kit, имена кадров, хранилище настроек", W3, "1", "≈900",
+pkg("kit-seeds", "обвязка oracle-тестов: семена kit, имена кадров, хранилище настроек", W2, "1-2", "≈1400",
     ["tests/kit/**", "tests/oracle/fixtures/**", "tests/support/**"],
     oracle="—",
     ui="семена: keymap-семя, хранилище view-mode, entry для make_elicitation_request, имена кадров склеенного снимка, Screen::feed в entry-экраны; снимает pending «no seed»/«kit names the frames» (≈160 тестов)",
