@@ -755,10 +755,6 @@ fn collab_spawn_end_shows_requested_model_and_effort() {
 // ORACLE chatwidget/tests/app_server.rs:860 live_app_server_user_message_item_completed_does_not_duplicate_rendered_prompt kind=ui owner=chat-live
 #[test]
 fn live_app_server_user_message_item_completed_does_not_duplicate_rendered_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no user-prompt cell on the chat screen: the view draws only the streamed answer, so the echoed prompt and the completed user-message item are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("Hi, are you there?");
     s.keys("enter");

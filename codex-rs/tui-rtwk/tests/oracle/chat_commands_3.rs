@@ -725,10 +725,6 @@ fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering(
 // ORACLE chatwidget/tests/startup_submission_tests.rs:6 host_switch_snapshot_preserves_buffered_typing kind=ui owner=chat-nav-pane
 #[test]
 fn host_switch_snapshot_preserves_buffered_typing() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a host switch with buffered typing (paste-burst disabled) needs a startup host seed; not registered",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("draft x");
     s.assert_contains("draft x");
