@@ -20,6 +20,35 @@ fn limits(used: u8) -> String {
     )
 }
 
+/// `set_chatgpt_auth` on a Business plan (the plan with a thread usage): the account, the model
+/// of the card, and the chat's facts (the usage page link, `account_usage`).
+const BUSINESS: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"business"}}}}
+{"step":"screen","dir":"status","ev":{"kind":"catalog","models":[{"model":"gpt-5.5","display_name":"GPT-5.5","default_effort":"medium"}]}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project","account_usage":true}}}"#;
+
+/// What the server answers `account/usage/read` of the live thread with: `usage` is the
+/// `threadUsage` object without its thread id.
+fn thread_usage(usage: &str) -> String {
+    let usage = usage.replacen('{', r#"{"threadId":"thread-1","#, 1);
+    format!(
+        r#"{{"step":"respond","method":"account/usage/read","result":{{"summary":{{"lifetimeTokens":null,"peakDailyTokens":null,"longestRunningTurnSec":null,"currentStreakDays":null,"longestStreakDays":null}},"dailyUsageBuckets":null,"threadUsage":{usage}}}}}"#
+    )
+}
+
+/// 50 credits, ~$1.82, and the groups of the oracle's breakdown test.
+const BREAKDOWN: &str = r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsageUsdMicros":1820000,"groups":[{"model":"gpt-5.4","reasoningEffort":"high","speed":"fast","estimatedUsageCreditsMicros":40000000,"netNewInputTokens":80,"cachedInputTokens":20,"inputTokens":100,"outputTokens":40,"totalTokens":140},{"model":"gpt-5-mini","reasoningEffort":"medium","speed":"standard","estimatedUsageCreditsMicros":10000000,"netNewInputTokens":15,"cachedInputTokens":5,"inputTokens":20,"outputTokens":10,"totalTokens":30}]}"#;
+
+/// 50 credits and no dollars, one group.
+const CREDITS_ONLY: &str = r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsageUsdMicros":null,"groups":[{"model":"gpt-5.4","reasoningEffort":"high","speed":"fast","estimatedUsageCreditsMicros":50000000,"netNewInputTokens":80,"cachedInputTokens":20,"inputTokens":100,"outputTokens":40,"totalTokens":140}]}"#;
+
+/// The screen row the `Thread usage:` rows start at.
+fn usage_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.contains("Thread usage:"))
+        .unwrap_or_else(|| panic!("no `Thread usage:` row:\n{}", s.text()))
+}
+
 /// How many rows of the screen say `text`.
 // ---- oracle: chatwidget/tests/status_and_layout.rs (47 screen-level tests here; 40 state tests left to ui-pane)
 // ORACLE chatwidget/tests/status_and_layout.rs:3171 unsupported_code_mode_warning_renders_as_warning_history_cell kind=snap owner=ui-pane
@@ -807,7 +836,8 @@ fn status_command_renders_native_and_foreign_instruction_sources() {
 // ORACLE chatwidget/tests/status_command_tests.rs:148 status_command_overlapping_refreshes_update_matching_cells_only kind=ui owner=ui-pane
 #[test]
 fn status_command_overlapping_refreshes_update_matching_cells_only() {
-    let mut s = Screen::build(Owner::UiPane).live().open();
+    // two cards of this height stand one above the other: both are on the screen
+    let mut s = Screen::build(Owner::UiPane).height(60).live().open();
     s.feed(CHATGPT).feed(&limits(92));
     let startup = s.requests_of("account/rateLimits/read");
     s.type_text("/status");
@@ -824,88 +854,110 @@ fn status_command_overlapping_refreshes_update_matching_cells_only() {
 // ORACLE chatwidget/tests/status_command_tests.rs:214 status_command_renders_immediately_and_updates_first_card_without_status_line kind=snap owner=ui-pane snap=status_command_estimated_thread_usage
 #[test]
 fn status_command_renders_immediately_and_updates_first_card_without_status_line() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
-    );
     let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
-    // seed: ChatGPT auth, no status line; /status, then the thread usage answer (50 credits, ~$1.82)
+    // ChatGPT auth on a Business plan, no status line; /status, then the thread usage answer
+    // (50 credits, ~$1.82), then another /status that shows the figure there is
+    s.feed(BUSINESS).feed(&thread_usage(BREAKDOWN));
     s.type_text("/status");
     s.keys("enter");
-    s.assert_absent("Thread usage");
-    s.assert_contains("50 credits · ~$1.82");
+    s.wait_for("50 credits · ~$1.82");
     s.assert_contains("GPT-5.4 80%, GPT-5 Mini 20%");
     s.assert_contains("Medium 20%, High 80%");
     s.assert_contains("Fast mode 80%, Standard 20%");
     s.assert_contains("120 input (25 cached) + 50 output");
-    s.assert_snap("status_command_estimated_thread_usage");
+    s.assert_snap_rows_at("status_command_estimated_thread_usage", usage_row(&s));
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:306 status_command_omits_thread_usage_for_unsupported_plans kind=ui owner=ui-pane
 #[test]
 fn status_command_omits_thread_usage_for_unsupported_plans() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
-    );
-    let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: ChatGPT auth on an unsupported plan; /status
-    s.type_text("/status");
-    s.keys("enter");
-    s.assert_absent("Thread usage");
+    for plan in [
+        Some("enterprise"),
+        Some("pro"),
+        Some("edu"),
+        Some("self_serve_business_usage_based"),
+        Some("unknown"),
+        None,
+    ] {
+        let mut s = Screen::build(Owner::UiPane).live().open();
+        // ChatGPT auth on a plan with no thread usage; /status
+        let plan = plan.map_or(String::new(), |plan| format!(r#","plan":"{plan}""#));
+        s.feed(&BUSINESS.replace(r#","plan":"business""#, &plan))
+            .feed(&thread_usage(BREAKDOWN));
+        s.type_text("/status");
+        s.keys("enter");
+        s.assert_contains("Account:");
+        s.assert_absent("Thread usage");
+        s.assert_requests_of("account/usage/read", 0);
+    }
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:338 status_command_stays_visible_and_updates_after_thread_usage_retry kind=ui owner=ui-pane
 #[test]
 fn status_command_stays_visible_and_updates_after_thread_usage_retry() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+    let mut s = Screen::build(Owner::UiPane).height(90).live().open();
+    // ChatGPT auth on a Business plan; /status, the usage read is refused, then /status again
+    // with the usage answer: both cards show the figure
+    s.feed(BUSINESS).feed(
+        r#"{"step":"respond","method":"account/usage/read","error":{"message":"thread usage temporarily unavailable"}}"#,
     );
-    let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: ChatGPT auth; /status, the usage retry fails, then /status again with the usage answer
     s.type_text("/status");
     s.keys("enter");
+    s.wait_for("Account:");
     s.assert_absent("Thread usage");
-    // after the retry answer, the card shows the usage
-    s.assert_contains("50 credits · ~$1.82");
+    s.feed(&thread_usage(
+        r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsageUsdMicros":1820000,"groups":[]}"#,
+    ));
+    s.type_text("/status");
+    s.keys("enter");
+    s.wait_for("50 credits · ~$1.82");
+    s.assert_rows_with("50 credits · ~$1.82", 2);
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:393 status_command_renders_credits_and_breakdowns_without_usd_estimate kind=snap owner=ui-pane snap=status_command_estimated_thread_usage_without_usd
 #[test]
 fn status_command_renders_credits_and_breakdowns_without_usd_estimate() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
-    );
     let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
-    // seed: ChatGPT auth; /status with a credits-only usage answer (50 credits)
+    // ChatGPT auth on a Business plan; /status with a credits-only usage answer (50 credits)
+    s.feed(BUSINESS).feed(&thread_usage(CREDITS_ONLY));
     s.type_text("/status");
     s.keys("enter");
-    s.assert_contains("50 credits");
+    s.wait_for("50 credits");
     s.assert_contains("GPT-5.4 100%");
     s.assert_absent("~$");
     s.assert_contains("High 100%");
     s.assert_contains("Fast mode 100%");
     s.assert_contains("100 input (20 cached) + 40 output");
-    s.assert_snap("status_command_estimated_thread_usage_without_usd");
+    s.assert_snap_rows_at(
+        "status_command_estimated_thread_usage_without_usd",
+        usage_row(&s),
+    );
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:462 status_command_drops_stale_usd_when_updated_usage_has_only_credits kind=ui owner=ui-pane
 #[test]
 fn status_command_drops_stale_usd_when_updated_usage_has_only_credits() {
-    kit::pending(
-        Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
-    );
-    let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: ChatGPT auth; /status with 40 credits · ~$1.82, then a credits-only answer of 50 credits
+    let mut s = Screen::build(Owner::UiPane).height(120).live().open();
+    // ChatGPT auth on a Business plan; /status with 40 credits · ~$1.82, /status again (the card
+    // starts from that figure) and a credits-only answer of 50 credits, then a third /status
+    s.feed(BUSINESS).feed(&thread_usage(
+        r#"{"estimatedUsageCreditsMicros":40000000,"estimatedUsageUsdMicros":1820000,"groups":[]}"#,
+    ));
     s.type_text("/status");
     s.keys("enter");
-    s.assert_contains("40 credits · ~$1.82");
-    // after the credits-only answer, the card shows 50 credits and no USD estimate
-    s.assert_contains("50 credits");
-    s.assert_absent("~$1.82");
+    s.wait_for("40 credits · ~$1.82");
+    s.feed(&thread_usage(
+        r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsageUsdMicros":null,"groups":[]}"#,
+    ));
+    s.type_text("/status");
+    s.keys("enter");
+    s.wait_for("50 credits");
+    s.type_text("/status");
+    s.keys("enter");
+    s.wait(200);
+    // the first card keeps its figure; the later two show the credits alone
+    s.assert_rows_with("40 credits · ~$1.82", 1);
+    s.assert_rows_with("50 credits", 2);
 }
 
 // ---- oracle: chatwidget/tests/status_surface_command_tests.rs (1 screen-level tests here; 1 state tests left to ui-pane)
