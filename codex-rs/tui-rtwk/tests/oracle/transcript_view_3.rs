@@ -273,10 +273,6 @@ fn mouse_selected_blockquote_copies_without_markers() {
 // ORACLE transcript_view/mutations_tests.rs:35 page_join_holds_the_reading_revision_until_navigation_reaches_a_surviving_cell kind=ui owner=chat-live
 #[test]
 fn page_join_holds_the_reading_revision_until_navigation_reaches_a_surviving_cell() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript holds no reading revision across a page join: the kit has no step that sends a history load or a group replacement",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(20, 2)
         .script(include_str!("fixtures/transcript_view_3/page_join.jsonl"))
@@ -394,10 +390,6 @@ fn regrouping_preserves_new_activity_that_has_not_yet_been_drawn() {
 // ORACLE transcript_view/mutations_tests.rs:263 absorbing_older_history_keeps_live_readers_and_selections_on_their_displayed_revision kind=ui owner=chat-live
 #[test]
 fn absorbing_older_history_keeps_live_readers_and_selections_on_their_displayed_revision() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat keeps no displayed revision for a live reader: no kit step absorbs older history or hydrates the live tail",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(20, 2)
         .script(include_str!("fixtures/transcript_view_3/page_join.jsonl"))

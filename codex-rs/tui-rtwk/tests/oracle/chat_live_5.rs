@@ -275,10 +275,6 @@ fn failed_pending_steer_submit_does_not_add_pending_preview() {
 // ORACLE chatwidget/tests/review_mode.rs:611 item_completed_only_pops_front_pending_steer kind=ui owner=chat-live
 #[test]
 fn item_completed_only_pops_front_pending_steer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer preview on the chat screen: two steers during a stream are not kept in order, and a completed item does not pop the front one",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -300,10 +296,6 @@ fn item_completed_only_pops_front_pending_steer() {
 // ORACLE chatwidget/tests/review_mode.rs:741 steer_enter_during_final_stream_preserves_follow_up_prompts_in_order kind=ui owner=chat-live
 #[test]
 fn steer_enter_during_final_stream_preserves_follow_up_prompts_in_order() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer preview on the chat screen: two follow-ups entered during a final-answer stream are not kept in order",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -378,10 +370,6 @@ fn esc_with_pending_steers_overrides_agent_command_interrupt_behavior() {
 // ORACLE chatwidget/tests/review_mode.rs:973 manual_interrupt_restores_pending_steer_mention_bindings_to_composer kind=ui owner=chat-live
 #[test]
 fn manual_interrupt_restores_pending_steer_mention_bindings_to_composer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no skill mention binding ($figma) on the chat screen: the steer with a mention is not restored to the composer on interrupt",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -614,10 +602,6 @@ fn review_branch_picker_escape_navigates_back_then_dismisses() {
 // ORACLE chatwidget/tests/review_mode.rs:1491 enter_submits_steer_while_review_is_running kind=ui owner=chat-live
 #[test]
 fn enter_submits_steer_while_review_is_running() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode and no pending steer on the chat screen: Enter while /review runs does not show the steer as pending",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&entered_review("current changes"));

@@ -555,10 +555,6 @@ fn compact_picker_keeps_metadata_and_labeled_primary_actions() {
 // ORACLE resume_picker_color_tests.rs:263 narrow_toolbar_keeps_keyboard_focused_control_visible kind=snap owner=routes-lists snap=codex_tui__resume_picker__color_tests__narrow_toolbar_keeps_keyboard_focused_control_visible
 #[test]
 fn narrow_toolbar_keeps_keyboard_focused_control_visible() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the kit names the frames of a joined snapshot by `--- x ---`, `N columns:`, `width=N` headers or a label above a `Buffer {` dump, not by the oracle's plain `{action} {W}x{H}` lines (tests/oracle_snap, not this area); the page test of the same name (tests/pages/resume.rs) splits the frames itself and compares every one with the snapshot",
-    );
     // The oracle's own assertion at the first size: the focused control is on the screen.
     let s = Screen::build(Owner::RoutesLists)
         .size(38, 12)

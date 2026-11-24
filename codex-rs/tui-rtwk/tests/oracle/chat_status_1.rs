@@ -601,10 +601,6 @@ fn workspace_owner_usage_limit_nudge_completion_renders_feedback() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2410 streaming_final_answer_keeps_task_running_state kind=ui owner=ui-pane
 #[test]
 fn streaming_final_answer_keeps_task_running_state() {
-    kit::pending(
-        Owner::UiPane,
-        "no final-answer status hiding: the chat screen shows Working while a turn runs and has no Tab-queue row",
-    );
     // oracle: a final answer streams while the task runs; the status indicator is hidden; Tab queues the composer text;
     // Ctrl+C sends an interrupt (an event, not drawn).
     let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -674,10 +670,6 @@ fn request_user_input_interrupt_pauses_active_goal_turn() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2644 final_answer_completion_restores_status_indicator_for_pending_steer kind=ui owner=ui-pane
 #[test]
 fn final_answer_completion_restores_status_indicator_for_pending_steer() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending-steer queue or status-indicator restore on the chat screen",
-    );
     // oracle: Enter during a running turn queues a steer; the final answer keeps the Working status; the steer's user message clears the queue.
     let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
     // needs feed: turn started, two partial deltas and commit ticks

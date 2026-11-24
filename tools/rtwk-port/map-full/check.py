@@ -12,8 +12,10 @@ import packages  # noqa: E402
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 PORT = os.path.join(ROOT, "codex-rs", "tui-rtwk")
-# One-line doors, appended to by every slice (ADR-012: `feature_list!`); they own nothing.
-DOORS = {"core/src/features/mod.rs", "src/features/mod.rs"}
+# One-line doors, appended to by every slice (ADR-012: `feature_list!`, `sheet_list!`, `action_list!`, `cell_list!`,
+# `mode_list!`); they own nothing.
+DOORS = {"core/src/features/mod.rs", "src/features/mod.rs",
+         "src/pages/session/key_actions/mod.rs", "src/pages/session/cells/mod.rs", "src/pages/session/transcript/mod.rs"}
 # Test files (tests/oracle shards, tests/pages) are edited by function: a package changes only the
 # tests of its own un-pend list (unpend/<package>.txt), several packages in one shard file merge cleanly.
 PROD = ("src/", "core/src/", "host/src/", "tests/rules/")

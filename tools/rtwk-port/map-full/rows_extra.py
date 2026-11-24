@@ -4,7 +4,7 @@
 that cover.py names (`x:<title>`)."""
 EXTRA = [
     # ---- terminal and runtime
-    ("Inline viewport", "❌", "S27: нижний viewport со своим scrollback; нужны rtwk G1, G2, G5", "tui.rs, custom_terminal.rs, tui/frame_requester.rs", "—", "inline-mode"),
+    ("Inline viewport", "❌", "S27: нижний viewport со своим scrollback; rtwk ScreenMode::Inline + Static", "tui.rs, custom_terminal.rs, tui/frame_requester.rs", "—", "inline-mode"),
     ("Вставка завершённых строк в scrollback", "❌", "DECSTBM/native scrollback, OSC 8 и картинки в committed-строках (G7)", "insert_history.rs, tui/scrollback.rs, tui/history_tail.rs", "—", "inline-mode"),
     ("Resize reflow", "❌", "пересборка committed-строк из исходных ячеек при resize (G2)", "app/resize_reflow.rs, transcript_reflow.rs, resize_reflow_cap.rs", "—", "inline-mode"),
     ("Fullscreen (alt-screen + мышь)", "✅", "", "tui/alternate_screen.rs", "rtwk host (`App::run`), src/app/run.rs", "—"),
@@ -27,8 +27,8 @@ EXTRA = [
     ("Exit summary", "❌", "токены и подсказка resume при выходе", "app/exit_summary.rs, token_usage.rs", "—", "app-misc"),
     ("Update check", "🟡", "ячейка update-available и host/update.rs; нет действия обновления и кэша версий", "updates.rs, updates_cache.rs, update_action.rs, update_versions.rs, npm_registry.rs", "host/src/update.rs, " + "src/pages/session/cells/update_available.rs", "startup-rest"),
     ("Server version notice", "🟡", "заметка есть; нет сравнения версий сервера и проверки на старте", "app/server_version_notice.rs, version.rs", "src/pages/session/cells/notice.rs", "app-misc"),
-    ("Turn tips и tooltips", "🟡", "ячейка session_info показывает подсказки; нет `turn_tip` в ходе и каталога tooltips", "turn_tip.rs, tooltips.rs, tooltips/, app/turn_tips.rs", "src/pages/session/cells/session_info.rs", "ui-transcript-chrome"),
-    ("Empty-state animation", "🟡", "порт: `blossom`; нет процедурного освещения и политики пустого состояния", "empty_state_animation.rs, empty_state_animation/, app/empty_state_policy.rs, bottom_pane/empty_state_policy.rs", "src/pages/session/blossom/", "live-turn-sweep"),
+    ("Turn tips и tooltips", "🟡", "ячейка session_info показывает подсказки; нет `turn_tip` в ходе и каталога tooltips", "turn_tip.rs, tooltips.rs, tooltips/, app/turn_tips.rs", "src/pages/session/cells/session_info.rs", "w2-transcript"),
+    ("Empty-state animation", "🟡", "порт: `blossom`; нет процедурного освещения и политики пустого состояния", "empty_state_animation.rs, empty_state_animation/, app/empty_state_policy.rs, bottom_pane/empty_state_policy.rs", "src/pages/session/blossom/", "w2-live"),
     ("Assistant directives и git action directives", "✅", "директивы разобраны (`core/src/threads/directives.rs`); git-action-директивы показываются как текст", "assistant_directives.rs, git_action_directives.rs", "core/src/threads/directives.rs", "—"),
     ("Agents command center", "🟡", "страница `/agents` есть (src/pages/agents); остаток: agent status feed, навигация из composer, снимки", "app/agents_overview*.rs, app/agent_center/, agent_navigation.rs, app/agent_status_feed.rs", "src/pages/agents/, core/src/screens/agents/", "agents-center"),
     ("Provider editor и cloud environment", "❌", "список/редактор провайдера и выбор cloud environment", "app/provider/, app/cloud_switch_wait.rs, app_server_session/cloud_project.rs", "host/src/providers.rs (факты)", "startup-rest"),
@@ -48,22 +48,32 @@ SCREENS = [
     ("S04", "directory trust", "✅", "—", "—"),
     ("S05", "startup prompts (cwd, migration, hooks, unarchive, OSS, daemon recovery, startup error, Windows sandbox)", "🟡", "Windows sandbox (fw1-c8), startup error", "startup-rest"),
     ("S06", "import from other agents", "✅", "—", "—"),
-    ("S10", "main chat", "🟡", "см. разделы «Транскрипт», «Живой ход», «Composer», «Футер»", "live-turn-sweep"),
-    ("S11", "streaming and history cells, markdown, diff", "🟡", "см. «Транскрипт и ячейки»", "cells-sweep"),
+    ("S10", "main chat", "🟡", "см. разделы «Транскрипт», «Живой ход», «Composer», «Футер»", "w2-live"),
+    ("S11", "streaming and history cells, markdown, diff", "🟡", "см. «Транскрипт и ячейки»", "w2-cells"),
     ("S12", "composer popovers", "✅", "—", "—"),
-    ("S13", "approvals and questions", "🟡", "решение в транскрипте, write_stdin, черновики вопросов", "ui-approvals-rest"),
-    ("S14", "generic selection dialog", "🟡", "model/permissions хвосты, small_dialogs", "dialogs-sweep"),
-    ("S15", "settings dialogs", "🟡", "/config, /experimental, /skills, /hooks, keymap editor, провайдер", "ui-settings-feeds"),
-    ("S16", "transcript pager, static pager, search", "🟡", "статический pager, поиск", "ui-pager-find"),
+    ("S13", "approvals and questions", "🟡", "решение в транскрипте, write_stdin, черновики вопросов", "w2-approvals"),
+    ("S14", "generic selection dialog", "🟡", "model/permissions хвосты, small_dialogs", "w2-approvals"),
+    ("S15", "settings dialogs", "🟡", "/config, /experimental, /skills, /hooks, keymap editor, провайдер", "w2-settings"),
+    ("S16", "transcript pager, static pager, search", "🟡", "статический pager, поиск", "w2-transcript"),
     ("S17", "backtrack", "✅", "—", "—"),
     ("S18", "resume / fork picker", "🟡", "12 pending, превью транскрипта", "resume-rest"),
-    ("S19", "/status card", "🟡", "usage треда, строка сервера, лимиты", "ui-usage-limits"),
-    ("S20", "/usage dashboard", "🟡", "reset-flow, billing, подсказка", "ui-usage-limits"),
+    ("S19", "/status card", "🟡", "usage треда, строка сервера, лимиты", "w2-status"),
+    ("S20", "/usage dashboard", "🟡", "reset-flow, billing, подсказка", "w2-status"),
     ("S21", "agents command center, subagent switcher", "🟡", "agent status feed; switcher (/subagents)", "agents-center"),
     ("S22", "sidebar and side conversation", "❌", "обе панели", "sidebar"),
-    ("S23", "small dialogs", "🟡", "daemon menu, app link, user verification, feedback", "dialogs-sweep"),
+    ("S23", "small dialogs", "🟡", "daemon menu, app link, user verification, feedback", "w2-approvals"),
     ("S24", "pets", "🟡", "ambient, asset packs, графика", "pets-ambient"),
     ("S25", "voice / realtime", "❌", "вся функция", "voice"),
     ("S26", "ui_tree and inline visualization", "❌", "обе части", "ui-tree-viz"),
     ("S27", "inline mode", "❌", "режим целиком", "inline-mode"),
 ]
+
+
+# Hand edits of the generated port-map, kept as data (a rebuild must not lose them): a chat-map row whose status
+# or note changed since chat-feature-map.md was cut, and rows that chat-feature-map.md does not have (inserted after
+# the row named).  Closed rows (✅) get no package.
+OVERRIDES = {'/recap': dict(status='✅', note='fix-recap-title 4131311a7: AppCx::structured_turn (ephemeral read-only thread, outputSchema), recap cell / failure line; остаток: отказ для облачной беседы -> w2-commands')}
+INSERTS = [('/recap', [
+    dict(title='Пробел: /recap и предложение имени треда — заглушки', status='✅', note='fix-recap-title 4131311a7: заглушки Ask::StructuredTurn/SuggestTitle удалены; /recap и предложение имени идут через AppCx::structured_turn; остаток (авто-имя по первому сообщению, отмена устаревшего запуска) -> w2-commands', oracle='temporary_structured_request.rs, app/recap.rs, app/thread_title.rs', port='core/src/features/recap, core/src/features/rename, src/services/effects.rs'),
+    dict(title='Пробел: потеря/восстановление потока треда', status='✅', note='fix-stream-lost 78e957dcf: host/src/cloud.rs шлёт BackendEv::StreamLost{thread,error}/StreamRestored; простой тред — Command::ReconnectIdleThread, в ходе — строка Error, очередь держится; восстановление: history_may_be_incomplete + отправка очереди; открытие потерянного треда перечитывает его. Остаток: restore_reconnected_input (steer до эха) -> live-turn; AppEv::ShuttingDown без отправителя (нет on_stop в rtwk, потребителя нет)', oracle='app/app_server_events.rs:130-170, chatwidget/input_flow.rs', port='host/src/in_process.rs, host/src/cloud.rs, core/src/threads'),
+])]

@@ -2,72 +2,72 @@ oracle_file	status	package	port
 activation_key_guard.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 activation_key_guard_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 additional_dirs.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-analytics.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/account_layout_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/account_plan_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/activity_chart.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/activity_chart/palette.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/activity_chart/palette_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/activity_chart_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/chart.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/chat_panel.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/chat_panel_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/chats.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/chats_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/chrome.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/client.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/client_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/compact_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/connection_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/consumer_refresh_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/controls.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/dashboard.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/dashboard_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/data.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/data_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/hints.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/models.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/mouse.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/mouse_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/navigation_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/normalize.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/normalize_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/panels.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plan.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plan_panel.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plan_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plot.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plot/annotations.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plot/layout.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plot/painting.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/plot_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/profile_identity_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/recovery_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/redesign_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/render.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/report_data.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/report_data_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/runtime_auth_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/sections.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/styles.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/styles_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/summary.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/summary_panel.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/summary_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/task_panel.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/tasks.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/tasks_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/test_fixtures.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/test_support.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/tokens.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/tokens_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/tool_panel.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics/tool_panel_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-analytics_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-app.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+analytics.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/account_layout_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/account_plan_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/activity_chart.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/activity_chart/palette.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/activity_chart/palette_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/activity_chart_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/chart.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/chat_panel.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/chat_panel_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/chats.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/chats_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/chrome.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/client.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/client_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/compact_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/connection_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/consumer_refresh_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/controls.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/dashboard.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/dashboard_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/data.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/data_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/hints.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/models.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/mouse.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/mouse_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/navigation_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/normalize.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/normalize_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/panels.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plan.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plan_panel.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plan_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plot.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plot/annotations.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plot/layout.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plot/painting.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/plot_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/profile_identity_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/recovery_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/redesign_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/render.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/report_data.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/report_data_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/runtime_auth_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/sections.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/styles.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/styles_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/summary.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/summary_panel.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/summary_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/task_panel.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/tasks.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/tasks_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/test_fixtures.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/test_support.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/tokens.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/tokens_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/tool_panel.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics/tool_panel_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+analytics_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+app.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app/account_status.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/activity_groups.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-app/activity_groups_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
+app/activity_groups.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+app/activity_groups_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
 app/agent_center/hints.rs	🟡	agents-center	src/pages/agents/
 app/agent_center/input.rs	🟡	agents-center	src/pages/agents/
 app/agent_center/mod.rs	🟡	agents-center	src/pages/agents/
@@ -75,7 +75,7 @@ app/agent_center/navigation.rs	🟡	agents-center	src/pages/agents/
 app/agent_center/render.rs	🟡	agents-center	src/pages/agents/
 app/agent_center/rows.rs	🟡	agents-center	src/pages/agents/
 app/agent_center_tests.rs	🟡	agents-center	src/pages/agents/
-app/agent_message_consolidation.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app/agent_message_consolidation.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app/agent_navigation.rs	🟡	agents-center	src/pages/agents/
 app/agent_picker.rs	🟡	agents-center	src/pages/agents/
 app/agent_status_feed.rs	🟡	agents-center	src/pages/agents/
@@ -97,65 +97,65 @@ app/agents_overview_threads.rs	🟡	agents-center	src/pages/agents/
 app/agents_overview_usage.rs	🟡	agents-center	src/pages/agents/
 app/agents_overview_usage_tests.rs	🟡	agents-center	src/pages/agents/
 app/agents_overview_view.rs	🟡	agents-center	src/pages/agents/
-app/app_server_event_targets.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/app_server_events.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/app_server_requests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/app_server_thread_ownership.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app/app_server_event_targets.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/app_server_events.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/app_server_requests.rs	🟡	w2-approvals	src/sheets/approvals/
+app/app_server_thread_ownership.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app/backend_banner_fallback.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/backend_events.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/backend_registry.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/backend_selection.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/backend_sessions.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/background_requests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-app/clipboard.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
+app/background_requests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+app/clipboard.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
 app/cloud_switch_wait.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/composer_hints.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-app/composer_hints_tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-app/config_panel.rs	🟡	ui-settings-feeds	src/features/settings/
-app/config_panel_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-app/config_persistence.rs	🟡	ui-settings-feeds	src/features/settings/
-app/connector_mentions.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-app/connector_mentions_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-app/daemon_menu.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/daemon_menu_tests.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/daybreak.rs	❌	ui-feedback-cmds	—
-app/empty_state_animation_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/empty_state_policy.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/event_dispatch.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/exit_summary.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/experimental_features.rs	🟡	ui-settings-feeds	src/features/settings/
-app/experimental_features_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-app/feedback_upload.rs	🟡	ui-feedback-cmds	src/sheets/dialogs/feedback.rs
-app/file_change_approvals.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/footer_selection.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-app/history_completion.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-app/history_completion_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-app/history_pagination.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-app/history_pagination_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
+app/composer_hints.rs	🟡	w2-status	src/pages/session/footer/, status/
+app/composer_hints_tests.rs	🟡	w2-status	src/pages/session/footer/, status/
+app/config_panel.rs	🟡	w2-settings	src/features/settings/
+app/config_panel_tests.rs	🟡	w2-settings	src/features/settings/
+app/config_persistence.rs	🟡	w2-settings	src/features/settings/
+app/connector_mentions.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+app/connector_mentions_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+app/daemon_menu.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/daemon_menu_tests.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/daybreak.rs	❌	w2-commands	—
+app/empty_state_animation_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/empty_state_policy.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/event_dispatch.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/exit_summary.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/experimental_features.rs	🟡	w2-settings	src/features/settings/
+app/experimental_features_tests.rs	🟡	w2-settings	src/features/settings/
+app/feedback_upload.rs	🟡	w2-commands	src/sheets/dialogs/feedback.rs
+app/file_change_approvals.rs	🟡	w2-approvals	src/sheets/approvals/
+app/footer_selection.rs	🟡	w2-status	src/pages/session/footer/, status/
+app/history_completion.rs	🟡	w2-transcript	src/pages/session/transcript/
+app/history_completion_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+app/history_pagination.rs	🟡	w2-transcript	src/pages/session/transcript/
+app/history_pagination_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
 app/history_ui.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 app/history_ui_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
-app/input.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/input/select_mode.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-app/input_ownership_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/link_hover.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
+app/input.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/input/select_mode.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+app/input_ownership_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/link_hover.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
 app/loaded_threads.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/managed_worktree_creation.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-app/misalignment_policy.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
+app/managed_worktree_creation.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+app/misalignment_policy.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
 app/model_defaults.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/native_history.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 app/native_history_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
-app/new_session.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
+app/new_session.rs	🟡	w2-commands	src/sheets/select/worktree.rs
 app/owned_transcript.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 app/owned_transcript_browsing_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 app/owned_transcript_follow_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 app/owned_transcript_input_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 app/owned_transcript_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
-app/pane_motion.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-app/pending_interactive_replay.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/permission_shortcuts.rs	🟡	ui-settings-feeds	src/features/settings/
+app/pane_motion.rs	🟡	w2-status	src/pages/session/footer/, status/
+app/pending_interactive_replay.rs	🟡	w2-approvals	src/sheets/approvals/
+app/permission_shortcuts.rs	🟡	w2-settings	src/features/settings/
 app/pets.rs	🟡	pets-ambient	src/sheets/pets/
-app/platform_actions.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/plugin_mentions.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+app/platform_actions.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/plugin_mentions.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
 app/provider.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/provider/editor.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/provider/editor/form.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
@@ -164,413 +164,413 @@ app/provider/fields.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,p
 app/provider/rpc.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/provider/write.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/provider_tests.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/quick_dials.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/rate_limit_refresh.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
+app/quick_dials.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/rate_limit_refresh.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
 app/realtime_delivery.rs	❌	voice	—
 app/realtime_settings.rs	❌	voice	—
-app/reasoning_replay.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/recap.rs	❌	ui-feedback-cmds	—
-app/recap_history.rs	❌	ui-feedback-cmds	—
-app/recap_tests.rs	❌	ui-feedback-cmds	—
-app/reconnect.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/replay_filter.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app/reasoning_replay.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/recap.rs	❌	w2-commands	—
+app/recap_history.rs	❌	w2-commands	—
+app/recap_tests.rs	❌	w2-commands	—
+app/reconnect.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/replay_filter.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app/resize_reflow.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 app/resize_reflow_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
-app/resume_config.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/resume_preparation.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/retained_reply_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/right_click_paste.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-app/right_click_paste_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-app/safety_buffering.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-app/safety_buffering_tests.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-app/safety_recourse.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-app/server_version_notice.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/session_lifecycle.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app/resume_config.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/resume_preparation.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/retained_reply_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/right_click_paste.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+app/right_click_paste_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+app/safety_buffering.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+app/safety_buffering_tests.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+app/safety_recourse.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+app/server_version_notice.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/session_lifecycle.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app/session_picker.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/side.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/side_companion.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/side_focus.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/side_pane.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/sidebar.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/sidebar_close.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-app/sidebar_loading.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
+app/side.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/side_companion.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/side_focus.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/side_pane.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/sidebar.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/sidebar_close.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+app/sidebar_loading.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
 app/startup.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/startup_bootstrap.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/startup_prompts.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/startup_warnings.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app/startup_warnings_tests.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/test_support.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/active_reconnect_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/advanced_reasoning_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/agents_navigation_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/approvals_reviewer_error_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/backend_banner_fallback_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/backend_banner_recovery_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/backend_banner_startup_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/backend_event_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/backend_ownership_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/backend_sessions_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/background_exit_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/background_task_defaults_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/browsing_pagination_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/buffered_replay.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/connector_policy.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/copy_mode_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/disconnect_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/external_writer_fork_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/fork_workspace_roots_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/fresh_sparkle_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/history_hydration_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/home_cleanup_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/key_chords.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/local_command_scroll_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/luna_reserve_recovery_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/marketplace_upgrade_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/math_interruption_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/mcp_login_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/mcp_startup.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/misalignment_policy_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/model_catalog.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/model_defaults_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/navigation_reconnect_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/new_session_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/pagination_completion_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/patch_approval_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/permission_selection_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/permission_shortcuts_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/plugin_catalog.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/projectless_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/quick_dials_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/rate_limits.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/realtime_handoff_e2e.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/realtime_requests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/realtime_start.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/reasoning_resume_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/recap_generation_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/resume_shutdown_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/safety_buffering.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/saved_chat_loading_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/security_setup_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/session_lifecycle_requests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/side_chat_policy_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/startup.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/startup_defaults_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/startup_frame_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/startup_warnings_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/stream_animation_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/streaming_interleave_e2e.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/terminal_size_telemetry_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/thread_usage.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/transcript_composer.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/transcript_selection.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/turn_submission.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/unavailable_commands_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/user_verification_routes_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/tests/worktree_background_terminals_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
+app/test_support.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/active_reconnect_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/advanced_reasoning_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/agents_navigation_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/approvals_reviewer_error_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/backend_banner_fallback_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/backend_banner_recovery_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/backend_banner_startup_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/backend_event_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/backend_ownership_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/backend_sessions_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/background_exit_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/background_task_defaults_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/browsing_pagination_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/buffered_replay.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/connector_policy.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/copy_mode_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/disconnect_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/external_writer_fork_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/fork_workspace_roots_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/fresh_sparkle_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/history_hydration_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/home_cleanup_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/key_chords.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/local_command_scroll_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/luna_reserve_recovery_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/marketplace_upgrade_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/math_interruption_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/mcp_login_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/mcp_startup.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/misalignment_policy_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/model_catalog.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/model_defaults_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/navigation_reconnect_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/new_session_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/pagination_completion_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/patch_approval_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/permission_selection_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/permission_shortcuts_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/plugin_catalog.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/projectless_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/quick_dials_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/rate_limits.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/realtime_handoff_e2e.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/realtime_requests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/realtime_start.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/reasoning_resume_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/recap_generation_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/resume_shutdown_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/safety_buffering.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/saved_chat_loading_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/security_setup_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/session_lifecycle_requests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/side_chat_policy_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/startup.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/startup_defaults_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/startup_frame_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/startup_warnings_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/stream_animation_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/streaming_interleave_e2e.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/terminal_size_telemetry_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/thread_usage.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/transcript_composer.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/transcript_selection.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/turn_submission.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/unavailable_commands_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/user_verification_routes_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/tests/worktree_background_terminals_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
 app/thread_attachment.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app/thread_event_buffer.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/thread_event_buffer_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/thread_events.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/thread_goal_actions.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/thread_routing.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/thread_session_state.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/thread_settings.rs	🟡	ui-settings-feeds	src/features/settings/
-app/thread_title.rs	🟡	ui-settings-feeds	src/features/settings/
-app/thread_title_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-app/transcript_export.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/transcript_export_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/tui_mode_picker.rs	🟡	ui-settings-feeds	src/features/settings/
-app/tui_mode_picker_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-app/turn_tips.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-app/turn_tips_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-app/user_turn_submission.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/user_verification.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/user_verification_errors.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/user_verification_errors_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/user_verification_requests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/user_verification_requests_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-app/user_verification_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
+app/thread_event_buffer.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/thread_event_buffer_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/thread_events.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/thread_goal_actions.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/thread_routing.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/thread_session_state.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/thread_settings.rs	🟡	w2-settings	src/features/settings/
+app/thread_title.rs	🟡	w2-settings	src/features/settings/
+app/thread_title_tests.rs	🟡	w2-settings	src/features/settings/
+app/transcript_export.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/transcript_export_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/tui_mode_picker.rs	🟡	w2-settings	src/features/settings/
+app/tui_mode_picker_tests.rs	🟡	w2-settings	src/features/settings/
+app/turn_tips.rs	🟡	w2-transcript	src/pages/session/transcript/
+app/turn_tips_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+app/user_turn_submission.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/user_verification.rs	🟡	w2-approvals	src/sheets/approvals/
+app/user_verification_errors.rs	🟡	w2-approvals	src/sheets/approvals/
+app/user_verification_errors_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+app/user_verification_requests.rs	🟡	w2-approvals	src/sheets/approvals/
+app/user_verification_requests_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+app/user_verification_tests.rs	🟡	w2-approvals	src/sheets/approvals/
 app/voice_owner.rs	❌	voice	—
-app/warning_notice_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/warnings_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-app/working_directory.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app/workspace_hud.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-app_backtrack.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_backtrack/browsing.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_backtrack/legacy_input.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_backtrack/prompt_navigation.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app/warning_notice_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/warnings_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+app/working_directory.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app/workspace_hud.rs	🟡	w2-status	src/pages/session/footer/, status/
+app_backtrack.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_backtrack/browsing.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_backtrack/legacy_input.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_backtrack/prompt_navigation.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_command.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 app_command_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-app_event.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_event.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_event_sender.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 app_info.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_approval_conversions.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
+app_server_approval_conversions.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
 app_server_connection.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_session.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_server_session/account.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app_server_session/cloud_project.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app_server_session/cloud_project_tests.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_session/collaboration_catalog_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/collaboration_catalog_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_server_session/daybreak_api_key_compat.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_session/events.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/external_agent_config.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/external_agent_config_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/events.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/external_agent_config.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/external_agent_config_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_server_session/fs.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_session/history.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/history_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/history.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/history_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_server_session/models.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app_server_session/models_tests.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_session/prompt_history_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/prompt_history_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_server_session/provider_selection.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 app_server_session/provider_selection_tests.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_session/read_state.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/read_state.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_server_session/realtime.rs	❌	voice	—
-app_server_session/reasoning_defaults_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/rollout_history.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/rollout_history_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/side_chat_history.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/reasoning_defaults_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/rollout_history.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/rollout_history_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/side_chat_history.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 app_server_session/startup_launch.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
-app_server_session/thread_list.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/thread_list_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/user_message_submission.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-app_server_session/web_search.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-app_server_session/web_search_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-app_server_session/workspace_roots_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-approval_events.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-assistant_directives.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-assistant_directives_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-async_question_reply.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-async_question_reply_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-attachment_files.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-auto_review_denials.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
+app_server_session/thread_list.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/thread_list_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/user_message_submission.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+app_server_session/web_search.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+app_server_session/web_search_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+app_server_session/workspace_roots_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+approval_events.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+assistant_directives.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+assistant_directives_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+async_question_reply.rs	🟡	w2-approvals	src/sheets/approvals/
+async_question_reply_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+attachment_files.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+auto_review_denials.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
 backend_banners.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 backend_banners/actions.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 backend_banners/render.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 backend_banners_tests.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 backend_id.rs	🟡	startup-rest	host/src/{startup,launch,target,cloud,providers}.rs
 bin/md-events.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-bottom_pane/action_required_title.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/actionable_banner.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/app_link_view.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/apply_patch_header.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/approval_overlay.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/approval_overlay/clipping_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/async_questions/input.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/async_questions/layout.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/async_questions/mod.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/async_questions/render.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/async_questions/state.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/async_questions/state_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/bottom_pane_view.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/chat_composer.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/agents_navigation.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/agents_navigation_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/attachment_state.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/blockquote_paste_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/completion_target.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/completion_target_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/composer_layout.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/draft_state.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/embedded_input_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/footer_state.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/footer_state_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/history_search.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/history_search_draft.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/history_search_paste_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/inline_input.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/mentions_layout_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/mouse.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/mouse_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/passive_hints.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/paste_input.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/paste_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/popup_state.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/popup_state_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/reconnect.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/reconnect_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/skill_completion_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/slash_input.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/snapshot_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/sparkle.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/sparkle_field.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/sparkle_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/status_surface.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/status_surface_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/vim_history.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/vim_history_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/vim_register.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/vim_register_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/vim_search.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/vim_search_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/warning_notice.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer/warning_notice_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer_effort_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer_enter_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer_history.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer_history/search_batch.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/chat_composer_history/search_batch_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/command_popup.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/composer_gap.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/config_panel.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/custom_prompt_view.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/custom_prompt_view/picker.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/custom_prompt_view_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/effort_ignition.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/effort_ignition_styles.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/effort_ignition_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/effort_status_line.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/effort_status_line_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/empty_state_policy.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/experimental_features_view.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/experimental_features_view_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/feedback_note_view.rs	🟡	ui-feedback-cmds	src/sheets/dialogs/feedback.rs
-bottom_pane/feedback_note_view_tests.rs	🟡	ui-feedback-cmds	src/sheets/dialogs/feedback.rs
-bottom_pane/feedback_view.rs	🟡	ui-feedback-cmds	src/sheets/dialogs/feedback.rs
-bottom_pane/file_search_popup.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/footer.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/footer/footer_content.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/footer/footer_content_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/hook_status.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/hooks_browser_render.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/hooks_browser_render_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/hooks_browser_view.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/list_selection_view.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/mcp_server_elicitation.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/memories_settings_view.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/memories_settings_view_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/mention_usage.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mention_usage_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/candidate.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/filter.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/footer.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/mod.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/popup.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/render.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/render_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/search_catalog.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mentions_v2/search_mode.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/mod.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/multi_select_picker.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/paste_burst.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/pending_input_preview.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-bottom_pane/pending_thread_approvals.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/picker_option.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/picker_presets.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/picker_rows.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/picker_style.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/popup_consts.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/prompt_args.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/questions.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/questions_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/request_user_input/layout.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/request_user_input/mod.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/request_user_input/render.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/request_user_input/render_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/scroll_state.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/selection_picker_layout.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/selection_picker_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/selection_popup_common.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/selection_row_layout.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/selection_row_links.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/selection_row_links_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/selection_tabs.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/selection_tabs_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/shortcut_hud.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/shortcut_overlay.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/shortcut_overlay_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/skill_popup.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/skills_toggle_view.rs	🟡	ui-settings-feeds	src/features/settings/
-bottom_pane/slash_commands.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/startup.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/status_line.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/status_line_setup.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/status_line_style.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/status_surface_preview.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/tests/actionable_banner_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-bottom_pane/tests/picker_hint_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-bottom_pane/textarea.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/editing.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/editing_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/hyperlinks.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/hyperlinks_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/mouse.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/mouse_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/register.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/single_line.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/single_line_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/vim.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/vim_commands.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/vim_commands_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/vim_search.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/wrapping.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/textarea/wrapping_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-bottom_pane/title_setup.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/unified_exec_footer.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-bottom_pane/user_verification.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/user_verification_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-bottom_pane/view_stack.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/view_stack_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/action_required_title.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/actionable_banner.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/app_link_view.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/apply_patch_header.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/approval_overlay.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/approval_overlay/clipping_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/async_questions/input.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/async_questions/layout.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/async_questions/mod.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/async_questions/render.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/async_questions/state.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/async_questions/state_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/bottom_pane_view.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/chat_composer.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/agents_navigation.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/agents_navigation_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/attachment_state.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/blockquote_paste_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/completion_target.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/completion_target_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/composer_layout.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/draft_state.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/embedded_input_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/footer_state.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/footer_state_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/history_search.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/history_search_draft.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/history_search_paste_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/inline_input.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/mentions_layout_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/mouse.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/mouse_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/passive_hints.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/paste_input.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/paste_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/popup_state.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/popup_state_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/reconnect.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/reconnect_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/skill_completion_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/slash_input.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/snapshot_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/sparkle.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/sparkle_field.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/sparkle_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/status_surface.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/status_surface_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/vim_history.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/vim_history_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/vim_register.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/vim_register_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/vim_search.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/vim_search_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/warning_notice.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer/warning_notice_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer_effort_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer_enter_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer_history.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer_history/search_batch.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/chat_composer_history/search_batch_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/command_popup.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/composer_gap.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/config_panel.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/custom_prompt_view.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/custom_prompt_view/picker.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/custom_prompt_view_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/effort_ignition.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/effort_ignition_styles.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/effort_ignition_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/effort_status_line.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/effort_status_line_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/empty_state_policy.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/experimental_features_view.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/experimental_features_view_tests.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/feedback_note_view.rs	🟡	w2-commands	src/sheets/dialogs/feedback.rs
+bottom_pane/feedback_note_view_tests.rs	🟡	w2-commands	src/sheets/dialogs/feedback.rs
+bottom_pane/feedback_view.rs	🟡	w2-commands	src/sheets/dialogs/feedback.rs
+bottom_pane/file_search_popup.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/footer.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/footer/footer_content.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/footer/footer_content_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/hook_status.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/hooks_browser_render.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/hooks_browser_render_tests.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/hooks_browser_view.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/list_selection_view.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/mcp_server_elicitation.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/memories_settings_view.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/memories_settings_view_tests.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/mention_usage.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mention_usage_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/candidate.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/filter.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/footer.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/mod.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/popup.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/render.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/render_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/search_catalog.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mentions_v2/search_mode.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/mod.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/multi_select_picker.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/paste_burst.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/pending_input_preview.rs	🟡	w2-live	core/src/app/, src/pages/session/
+bottom_pane/pending_thread_approvals.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/picker_option.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/picker_presets.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/picker_rows.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/picker_style.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/popup_consts.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/prompt_args.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/questions.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/questions_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/request_user_input/layout.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/request_user_input/mod.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/request_user_input/render.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/request_user_input/render_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/scroll_state.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/selection_picker_layout.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/selection_picker_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/selection_popup_common.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/selection_row_layout.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/selection_row_links.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/selection_row_links_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/selection_tabs.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/selection_tabs_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/shortcut_hud.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/shortcut_overlay.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/shortcut_overlay_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/skill_popup.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/skills_toggle_view.rs	🟡	w2-settings	src/features/settings/
+bottom_pane/slash_commands.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/startup.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/status_line.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/status_line_setup.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/status_line_style.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/status_surface_preview.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/tests/actionable_banner_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+bottom_pane/tests/picker_hint_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+bottom_pane/textarea.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/editing.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/editing_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/hyperlinks.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/hyperlinks_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/mouse.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/mouse_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/register.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/single_line.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/single_line_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/vim.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/vim_commands.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/vim_commands_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/vim_search.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/wrapping.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/textarea/wrapping_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+bottom_pane/title_setup.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/unified_exec_footer.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+bottom_pane/user_verification.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/user_verification_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+bottom_pane/view_stack.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/view_stack_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
 bottom_pane/voice_strip.rs	❌	voice	—
 bottom_pane/voice_strip_tests.rs	❌	voice	—
-bottom_pane/warnings.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/warnings_view.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/warnings_view_render.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-bottom_pane/warnings_view_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/warnings.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/warnings_view.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/warnings_view_render.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+bottom_pane/warnings_view_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
 branch_summary.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-chatwidget.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/activity_groups.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-chatwidget/activity_presentation.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-chatwidget/backend_banners.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/clipboard.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-chatwidget/command_lifecycle.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-chatwidget/compaction.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/completion.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/config_panel.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/connector_mentions.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/connectors.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/constructor.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/copy_picker.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-chatwidget/dynamic_activity.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-chatwidget/empty_state_policy.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/exec_state.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-chatwidget/goal_menu.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/goal_status.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/hook_lifecycle.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/hooks.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/ide_context.rs	❌	ui-feedback-cmds	—
-chatwidget/image_submission.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/input_flow.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/input_queue.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/input_receipts.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/input_restore.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/input_submission.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/interaction.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-chatwidget/interrupts.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/keymap_picker.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/luna_reserve_model.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/luna_reserve_return.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/mcp_startup.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/misalignment_policy.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/model_command.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/model_popup_state.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/model_popups.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/notifications.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-chatwidget/permission_discovery.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/permission_popups.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/permission_shortcuts.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/permissions_menu.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/activity_groups.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+chatwidget/activity_presentation.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+chatwidget/backend_banners.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/clipboard.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+chatwidget/command_lifecycle.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+chatwidget/compaction.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/completion.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/config_panel.rs	🟡	w2-settings	src/features/settings/
+chatwidget/connector_mentions.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/connectors.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/constructor.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/copy_picker.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+chatwidget/dynamic_activity.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+chatwidget/empty_state_policy.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/exec_state.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+chatwidget/goal_menu.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/goal_status.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/hook_lifecycle.rs	🟡	w2-settings	src/features/settings/
+chatwidget/hooks.rs	🟡	w2-settings	src/features/settings/
+chatwidget/ide_context.rs	❌	w2-commands	—
+chatwidget/image_submission.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/input_flow.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/input_queue.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/input_receipts.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/input_restore.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/input_submission.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/interaction.rs	🟡	w2-approvals	src/sheets/approvals/
+chatwidget/interrupts.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/keymap_picker.rs	🟡	w2-settings	src/features/settings/
+chatwidget/luna_reserve_model.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/luna_reserve_return.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/mcp_startup.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/misalignment_policy.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/model_command.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/model_popup_state.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/model_popups.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/notifications.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+chatwidget/permission_discovery.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/permission_popups.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/permission_shortcuts.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/permissions_menu.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 chatwidget/pets.rs	🟡	pets-ambient	src/sheets/pets/
 chatwidget/pets_tests.rs	🟡	pets-ambient	src/sheets/pets/
-chatwidget/plan_implementation.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/plugin_catalog.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-chatwidget/plugins.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-chatwidget/protocol.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/protocol_requests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-chatwidget/provider_error.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/questions.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-chatwidget/quick_dials.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-chatwidget/rate_limits.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
+chatwidget/plan_implementation.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/plugin_catalog.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+chatwidget/plugins.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+chatwidget/protocol.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/protocol_requests.rs	🟡	w2-approvals	src/sheets/approvals/
+chatwidget/provider_error.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/questions.rs	🟡	w2-approvals	src/sheets/approvals/
+chatwidget/quick_dials.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+chatwidget/rate_limits.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
 chatwidget/realtime.rs	❌	voice	—
 chatwidget/realtime/failure_metrics.rs	❌	voice	—
 chatwidget/realtime/recording_controls.rs	❌	voice	—
@@ -590,143 +590,143 @@ chatwidget/realtime_tests/handoffs.rs	❌	voice	—
 chatwidget/realtime_tests/lifecycle.rs	❌	voice	—
 chatwidget/realtime_tests/speech_recovery.rs	❌	voice	—
 chatwidget/realtime_tests/transcripts.rs	❌	voice	—
-chatwidget/reasoning_shortcuts.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/recap.rs	❌	ui-feedback-cmds	—
-chatwidget/reconnect.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/rendering.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/rendering_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/replay.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/reset_credits.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-chatwidget/review.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/review_popups.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/safety_buffering.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/safety_recourse.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/safety_recourse/metadata.rs	🟡	ui-safety-compaction	src/pages/session/cells/safety.rs
-chatwidget/security_setup.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-chatwidget/service_tiers.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/session_flow.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/session_header.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/session_model_selection.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/settings.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/settings_popups.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/side.rs	❌	ui-openers-side	src/sheets/select/, src/features/side/ (нет)
-chatwidget/skills.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/slash_command_args.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/slash_command_args_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/slash_dispatch.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/startup_submission.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-chatwidget/status_controls.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/status_state.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/status_surface_commands.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/status_surfaces.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/streaming.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/app_server.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/approval_requests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/backend_banners_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/bedrock_catalog_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/collaboration_catalog_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/compaction_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/completion_styling_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/composer_submission.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/computer_activity_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/config_errors_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/copy_export_picker_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/dynamic_activity_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/exec_flow.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/goal_menu.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/goal_validation.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/guardian.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/helpers.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/history_projection.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/history_replay.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/home_cleanup_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/list_spacing_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/luna_reserve_usage_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/mcp_startup.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/misalignment_policy_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/model_display_name_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/model_picker_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/permission_picker_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/permission_shortcuts_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/permissions.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/plan_mode.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/plugin_catalog_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/popups_and_settings.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/program_status.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/question_notifications_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/question_turn_end_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/questions_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/quick_dials_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/rate_limit_recovery_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/reasoning_status_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/replay_render_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/review_mode.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/review_picker_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/security_setup_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/session_model_selection_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/side.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/skills_summary_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/slash_commands.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/sparkle_submission_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/startup_submission_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/status_and_layout.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/status_command_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/status_surface_command_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/status_surface_previews.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/subagent_activity_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/terminal_program_status.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/terminal_title.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/tool_activity_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/usage.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/tests/worktree_picker_tests.rs	🟡	live-turn-sweep	core/src/app/, src/pages/session/
-chatwidget/thread_usage.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-chatwidget/thread_usage_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-chatwidget/tool_lifecycle.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-chatwidget/tool_requests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-chatwidget/transcript.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/transcript_export.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/tui_mode_picker.rs	🟡	ui-settings-feeds	src/features/settings/
-chatwidget/turn_lifecycle.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/turn_runtime.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/usage.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-chatwidget/usage_history.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-chatwidget/usage_notice.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-chatwidget/usage_notice_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-chatwidget/user_messages.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/warnings.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-chatwidget/windows_sandbox_prompts.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-chatwidget/working_directory.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-chatwidget/worktree_picker.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
+chatwidget/reasoning_shortcuts.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/recap.rs	❌	w2-commands	—
+chatwidget/reconnect.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/rendering.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/rendering_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/replay.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/reset_credits.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+chatwidget/review.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/review_popups.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/safety_buffering.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/safety_recourse.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/safety_recourse/metadata.rs	🟡	w2-cells	src/pages/session/cells/safety.rs
+chatwidget/security_setup.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+chatwidget/service_tiers.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/session_flow.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/session_header.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/session_model_selection.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/settings.rs	🟡	w2-settings	src/features/settings/
+chatwidget/settings_popups.rs	🟡	w2-settings	src/features/settings/
+chatwidget/side.rs	❌	w2-commands	src/sheets/select/, src/features/side/ (нет)
+chatwidget/skills.rs	🟡	w2-settings	src/features/settings/
+chatwidget/slash_command_args.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/slash_command_args_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/slash_dispatch.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/startup_submission.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+chatwidget/status_controls.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/status_state.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/status_surface_commands.rs	🟡	w2-settings	src/features/settings/
+chatwidget/status_surfaces.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/streaming.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/app_server.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/approval_requests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/backend_banners_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/bedrock_catalog_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/collaboration_catalog_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/compaction_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/completion_styling_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/composer_submission.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/computer_activity_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/config_errors_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/copy_export_picker_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/dynamic_activity_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/exec_flow.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/goal_menu.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/goal_validation.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/guardian.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/helpers.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/history_projection.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/history_replay.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/home_cleanup_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/list_spacing_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/luna_reserve_usage_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/mcp_startup.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/misalignment_policy_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/model_display_name_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/model_picker_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/permission_picker_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/permission_shortcuts_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/permissions.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/plan_mode.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/plugin_catalog_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/popups_and_settings.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/program_status.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/question_notifications_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/question_turn_end_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/questions_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/quick_dials_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/rate_limit_recovery_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/reasoning_status_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/replay_render_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/review_mode.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/review_picker_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/security_setup_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/session_model_selection_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/side.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/skills_summary_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/slash_commands.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/sparkle_submission_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/startup_submission_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/status_and_layout.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/status_command_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/status_surface_command_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/status_surface_previews.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/subagent_activity_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/terminal_program_status.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/terminal_title.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/tool_activity_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/usage.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/tests/worktree_picker_tests.rs	🟡	w2-live	core/src/app/, src/pages/session/
+chatwidget/thread_usage.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+chatwidget/thread_usage_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+chatwidget/tool_lifecycle.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+chatwidget/tool_requests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+chatwidget/transcript.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/transcript_export.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/tui_mode_picker.rs	🟡	w2-settings	src/features/settings/
+chatwidget/turn_lifecycle.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/turn_runtime.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/usage.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+chatwidget/usage_history.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+chatwidget/usage_notice.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+chatwidget/usage_notice_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+chatwidget/user_messages.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/warnings.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+chatwidget/windows_sandbox_prompts.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+chatwidget/working_directory.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+chatwidget/worktree_picker.rs	🟡	w2-commands	src/sheets/select/worktree.rs
 cli.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-clipboard_copy.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/primary.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/routing_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/tmux.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/tmux_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/worker.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/worker_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/wsl.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_copy/wsl_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_html.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_html_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_paste.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_paste/macos.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_paste/macos_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_paste/text.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clipboard_paste/text_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-clock_format.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-clock_format_tests.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-collaboration_modes.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
+clipboard_copy.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/primary.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/routing_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/tmux.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/tmux_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/worker.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/worker_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/wsl.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_copy/wsl_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_html.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_html_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_paste.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_paste/macos.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_paste/macos_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_paste/text.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clipboard_paste/text_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+clock_format.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+clock_format_tests.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+collaboration_modes.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
 color.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
-config_panel/config_panel_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-config_panel/input.rs	🟡	ui-settings-feeds	src/features/settings/
-config_panel/mod.rs	🟡	ui-settings-feeds	src/features/settings/
-config_panel/render.rs	🟡	ui-settings-feeds	src/features/settings/
-config_panel/toggle.rs	🟡	ui-settings-feeds	src/features/settings/
+config_panel/config_panel_tests.rs	🟡	w2-settings	src/features/settings/
+config_panel/input.rs	🟡	w2-settings	src/features/settings/
+config_panel/mod.rs	🟡	w2-settings	src/features/settings/
+config_panel/render.rs	🟡	w2-settings	src/features/settings/
+config_panel/toggle.rs	🟡	w2-settings	src/features/settings/
 config_update.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 config_update_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-copy_input_guard.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
+copy_input_guard.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
 custom_terminal.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 custom_terminal/cursor.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 custom_terminal/tests/cursor_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
@@ -737,37 +737,37 @@ daemon_recovery_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.
 daemon_startup.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 daemon_startup_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 daemon_telemetry.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-daybreak.rs	❌	ui-feedback-cmds	—
-daybreak_tests.rs	❌	ui-feedback-cmds	—
-debug_config.rs	❌	ui-feedback-cmds	—
+daybreak.rs	❌	w2-commands	—
+daybreak_tests.rs	❌	w2-commands	—
+debug_config.rs	❌	w2-commands	—
 device_login.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 device_login_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-diff_model.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-diff_render.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-dynamic_tools.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-dynamic_tools_mcp.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-dynamic_tools_response.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-dynamic_tools_response_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-dynamic_tools_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-empty_state_animation.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-empty_state_animation/geometry.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-empty_state_animation/lighting.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-empty_state_animation/paths.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-empty_state_animation/policy.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-empty_state_animation/renderer.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-empty_state_animation/sequence.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-empty_state_animation_tests.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
-exec_cell/compact.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_cell/live_output.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_cell/live_output_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_cell/mod.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_cell/model.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_cell/render.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_cell/transcript.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_cell/transcript_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-exec_command.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-experimental_features.rs	🟡	ui-settings-feeds	src/features/settings/
-experimental_features_tests.rs	🟡	ui-settings-feeds	src/features/settings/
+diff_model.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+diff_render.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+dynamic_tools.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+dynamic_tools_mcp.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+dynamic_tools_response.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+dynamic_tools_response_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+dynamic_tools_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+empty_state_animation.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+empty_state_animation/geometry.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+empty_state_animation/lighting.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+empty_state_animation/paths.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+empty_state_animation/policy.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+empty_state_animation/renderer.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+empty_state_animation/sequence.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+empty_state_animation_tests.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
+exec_cell/compact.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_cell/live_output.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_cell/live_output_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_cell/mod.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_cell/model.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_cell/render.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_cell/transcript.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_cell/transcript_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+exec_command.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+experimental_features.rs	🟡	w2-settings	src/features/settings/
+experimental_features_tests.rs	🟡	w2-settings	src/features/settings/
 external_agent_config_migration/flow.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 external_agent_config_migration/flow_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 external_agent_config_migration/mod.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
@@ -775,65 +775,65 @@ external_agent_config_migration/model.rs	🟡	startup-rest	src/pages/startup/, h
 external_agent_config_migration/render.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 external_agent_config_migration/source.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 external_agent_config_migration/source_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-external_editor.rs	❌	ui-composer-states	—
-external_editor_tests.rs	❌	ui-composer-states	—
+external_editor.rs	❌	w2-composer	—
+external_editor_tests.rs	❌	w2-composer	—
 file_search.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-footer_hint.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-footer_hint_tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
+footer_hint.rs	🟡	w2-status	src/pages/session/footer/, status/
+footer_hint_tests.rs	🟡	w2-status	src/pages/session/footer/, status/
 footer_selection_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-get_git_diff.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
+get_git_diff.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
 git_action_directives.rs	✅	—	core/src/threads/directives.rs
-goal_display.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-goal_files.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-history_cell/activity_details.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/activity_group.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/activity_preview.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/approvals.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-history_cell/async_questions.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-history_cell/async_replies.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-history_cell/base.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/base_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/computer_activity.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/computer_activity_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/delegated_message.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/dynamic.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/dynamic_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/exec.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/hook_cell.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/markdown_render_cache.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/mcp.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/mcp_preview.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/mcp_result.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/mcp_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-history_cell/messages.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/messages_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/mod.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/notices.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/patches.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/patches_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/plans.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/plans_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/request_user_input.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-history_cell/request_user_input_tests.rs	🟡	ui-approvals-rest	src/sheets/approvals/
-history_cell/search.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/search_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/separators.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/separators_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/session.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/session_transcript_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/spoken_artifacts.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/startup_warnings.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/tests.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/warnings.rs	🟡	cells-sweep	src/pages/session/cells/
-history_cell/warnings_tests.rs	🟡	cells-sweep	src/pages/session/cells/
-hooks_rpc.rs	🟡	ui-settings-feeds	src/features/settings/
-ide_context.rs	❌	ui-feedback-cmds	—
-ide_context/ipc.rs	❌	ui-feedback-cmds	—
-ide_context/prompt.rs	❌	ui-feedback-cmds	—
-ide_context/windows_pipe.rs	❌	ui-feedback-cmds	—
-ide_context/windows_pipe_tests.rs	❌	ui-feedback-cmds	—
-image_decode.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-image_decode_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+goal_display.rs	🟡	w2-status	src/pages/session/footer/, status/
+goal_files.rs	🟡	w2-status	src/pages/session/footer/, status/
+history_cell/activity_details.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/activity_group.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/activity_preview.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/approvals.rs	🟡	w2-approvals	src/sheets/approvals/
+history_cell/async_questions.rs	🟡	w2-approvals	src/sheets/approvals/
+history_cell/async_replies.rs	🟡	w2-approvals	src/sheets/approvals/
+history_cell/base.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/base_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/computer_activity.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/computer_activity_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/delegated_message.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/dynamic.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/dynamic_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/exec.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/hook_cell.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/markdown_render_cache.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/mcp.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/mcp_preview.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/mcp_result.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/mcp_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+history_cell/messages.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/messages_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/mod.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/notices.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/patches.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/patches_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/plans.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/plans_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/request_user_input.rs	🟡	w2-approvals	src/sheets/approvals/
+history_cell/request_user_input_tests.rs	🟡	w2-approvals	src/sheets/approvals/
+history_cell/search.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/search_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/separators.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/separators_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/session.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/session_transcript_tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/spoken_artifacts.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/startup_warnings.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/tests.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/warnings.rs	🟡	w2-cells	src/pages/session/cells/
+history_cell/warnings_tests.rs	🟡	w2-cells	src/pages/session/cells/
+hooks_rpc.rs	🟡	w2-settings	src/features/settings/
+ide_context.rs	❌	w2-commands	—
+ide_context/ipc.rs	❌	w2-commands	—
+ide_context/prompt.rs	❌	w2-commands	—
+ide_context/windows_pipe.rs	❌	w2-commands	—
+ide_context/windows_pipe_tests.rs	❌	w2-commands	—
+image_decode.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+image_decode_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
 inline_visualization.rs	❌	ui-tree-viz	—
 inline_visualization/viewer.rs	❌	ui-tree-viz	—
 inline_visualization_tests.rs	❌	ui-tree-viz	—
@@ -841,25 +841,25 @@ insert_history.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 iterm_session_status_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 key_hint.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 key_hint_label_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-keymap.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/bindings.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/chords.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/chords/leader_defaults.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/chords_tests.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/conflict_tests.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/global_find_tests.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/leader.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/select_transcript_tests.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/vim_search.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap/voice_tests.rs	🟡	ui-keymap-editor	core/src/keymap/
-keymap_setup.rs	🟡	ui-settings-feeds	src/features/settings/
-keymap_setup/actions.rs	🟡	ui-settings-feeds	src/features/settings/
-keymap_setup/capture.rs	🟡	ui-settings-feeds	src/features/settings/
-keymap_setup/capture_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-keymap_setup/debug.rs	🟡	ui-settings-feeds	src/features/settings/
-keymap_setup/menu_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-keymap_setup/picker.rs	🟡	ui-settings-feeds	src/features/settings/
-keymap_setup/picker_tests.rs	🟡	ui-settings-feeds	src/features/settings/
+keymap.rs	🟡	w2-settings	core/src/keymap/
+keymap/bindings.rs	🟡	w2-settings	core/src/keymap/
+keymap/chords.rs	🟡	w2-settings	core/src/keymap/
+keymap/chords/leader_defaults.rs	🟡	w2-settings	core/src/keymap/
+keymap/chords_tests.rs	🟡	w2-settings	core/src/keymap/
+keymap/conflict_tests.rs	🟡	w2-settings	core/src/keymap/
+keymap/global_find_tests.rs	🟡	w2-settings	core/src/keymap/
+keymap/leader.rs	🟡	w2-settings	core/src/keymap/
+keymap/select_transcript_tests.rs	🟡	w2-settings	core/src/keymap/
+keymap/vim_search.rs	🟡	w2-settings	core/src/keymap/
+keymap/voice_tests.rs	🟡	w2-settings	core/src/keymap/
+keymap_setup.rs	🟡	w2-settings	src/features/settings/
+keymap_setup/actions.rs	🟡	w2-settings	src/features/settings/
+keymap_setup/capture.rs	🟡	w2-settings	src/features/settings/
+keymap_setup/capture_tests.rs	🟡	w2-settings	src/features/settings/
+keymap_setup/debug.rs	🟡	w2-settings	src/features/settings/
+keymap_setup/menu_tests.rs	🟡	w2-settings	src/features/settings/
+keymap_setup/picker.rs	🟡	w2-settings	src/features/settings/
+keymap_setup/picker_tests.rs	🟡	w2-settings	src/features/settings/
 lib.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 lib_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 line_truncation.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
@@ -871,52 +871,52 @@ local_settings_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.r
 main.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 managed_new_thread_defaults.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 managed_new_thread_defaults_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-managed_worktree_model_tests.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-managed_worktree_tool_specs.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-managed_worktree_tools.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-managed_worktree_tools_tests.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-markdown.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_copy.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-markdown_copy/table.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-markdown_copy/table_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-markdown_copy_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-markdown_render.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/file_citations_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/followups_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/inline_directives.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/list_spacing.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/list_spacing_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/local_links.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/local_links_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/math.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/math/render.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/math/render/structured.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/math_display_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/math_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/mermaid.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/mermaid_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/preferences.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/preferences_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/source_tables.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/streaming.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/table_key_value.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/task_list_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/task_lists.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/web_links.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render/web_links_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_render_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_stream.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-markdown_text_merge.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-mention_codec.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+managed_worktree_model_tests.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+managed_worktree_tool_specs.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+managed_worktree_tools.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+managed_worktree_tools_tests.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+markdown.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_copy.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+markdown_copy/table.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+markdown_copy/table_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+markdown_copy_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+markdown_render.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/file_citations_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/followups_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/inline_directives.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/list_spacing.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/list_spacing_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/local_links.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/local_links_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/math.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/math/render.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/math/render/structured.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/math_display_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/math_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/mermaid.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/mermaid_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/preferences.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/preferences_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/source_tables.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/streaming.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/table_key_value.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/task_list_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/task_lists.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/web_links.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render/web_links_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_render_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_stream.rs	🟡	w2-live	src/widgets/markdown.rs
+markdown_text_merge.rs	🟡	w2-live	src/widgets/markdown.rs
+mention_codec.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
 model_catalog.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 model_migration.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 motion.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 multi_agents.rs	🟡	agents-center	src/pages/agents/
-named_session_lookup.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-named_session_lookup_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-notifications/bel.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-notifications/mod.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-notifications/osc.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
+named_session_lookup.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+named_session_lookup_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+notifications/bel.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+notifications/mod.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+notifications/osc.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
 npm_registry.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 onboarding/auth.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 onboarding/auth/activation_key_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
@@ -937,13 +937,13 @@ onboarding/trust_directory.rs	🟡	startup-rest	src/pages/startup/, host/src/sta
 onboarding/welcome.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 oss_selection.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 oss_selection_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-pager_overlay.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-pager_overlay/scrolling.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-pager_overlay/scrolling_tests.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-pager_overlay/transcript.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-pager_overlay/transcript_tests.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-permission_discovery.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-permission_discovery_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
+pager_overlay.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+pager_overlay/scrolling.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+pager_overlay/scrolling_tests.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+pager_overlay/transcript.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+pager_overlay/transcript_tests.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+permission_discovery.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+permission_discovery_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
 pets/ambient.rs	🟡	pets-ambient	src/sheets/pets/
 pets/asset_pack.rs	🟡	pets-ambient	src/sheets/pets/
 pets/catalog.rs	🟡	pets-ambient	src/sheets/pets/
@@ -955,8 +955,8 @@ pets/picker.rs	🟡	pets-ambient	src/sheets/pets/
 pets/preview.rs	🟡	pets-ambient	src/sheets/pets/
 pets/sixel.rs	🟡	pets-ambient	src/sheets/pets/
 projectless.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-public_widgets/composer_input.rs	🟡	live-turn-sweep	core/src/
-public_widgets/mod.rs	🟡	live-turn-sweep	core/src/
+public_widgets/composer_input.rs	🟡	w2-live	core/src/
+public_widgets/mod.rs	🟡	w2-live	core/src/
 realtime_call.rs	❌	voice	—
 render/highlight.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 render/highlight_model_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
@@ -988,11 +988,11 @@ resume_picker_transcript_preview_tests.rs	🟡	resume-rest	src/pages/resume/
 screen_reader.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 screen_reader_tests.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 screen_reader_windows.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
-security_setup.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-security_setup_tests.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
+security_setup.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+security_setup_tests.rs	🟡	w2-commands	src/sheets/select/worktree.rs
 service_tier_resolution.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-session_archive_commands.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
-session_archive_commands_tests.rs	🟡	dialogs-sweep	src/sheets/dialogs/, src/sheets/select/
+session_archive_commands.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
+session_archive_commands_tests.rs	🟡	w2-approvals	src/sheets/dialogs/, src/sheets/select/
 session_lock.rs	❌	voice	—
 session_lock/linux.rs	❌	voice	—
 session_lock/macos.rs	❌	voice	—
@@ -1000,18 +1000,18 @@ session_lock/macos_tests.rs	❌	voice	—
 session_lock/windows.rs	❌	voice	—
 session_log.rs	❌	app-misc	—
 session_log_tests.rs	❌	app-misc	—
-session_queue_commands.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-session_queue_commands_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+session_queue_commands.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+session_queue_commands_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
 session_resume.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 session_start.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 session_start_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-session_state.rs	🟡	live-turn-sweep	core/src/app/, core/src/threads/, src/pages/session/live/
+session_state.rs	🟡	w2-live	core/src/app/, core/src/threads/, src/pages/session/live/
 shimmer.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-shortcut_help.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
+shortcut_help.rs	🟡	w2-status	src/pages/session/footer/, status/
 sidebar_chooser.rs	❌	sidebar	—
 sidebar_tab_strip.rs	❌	sidebar	—
-skills_helpers.rs	🟡	ui-settings-feeds	src/features/settings/
-slash_command.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+skills_helpers.rs	🟡	w2-settings	src/features/settings/
+slash_command.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
 startup_draft.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 startup_draft_input.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 startup_draft_layout.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
@@ -1027,36 +1027,36 @@ startup_presentation.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.r
 startup_presentation_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 startup_recovery.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 startup_recovery_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-status/account.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/card.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/format.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/helpers.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/mod.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/rate_limits.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/remote_connection.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/thread_usage.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status/thread_usage_tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status_indicator_widget.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status_indicator_widget/effects_tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status_indicator_widget/timer.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-status_indicator_widget/timer_tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-streaming/chunking.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/code_fence.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/code_fence_render_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/code_fence_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/commit_tick.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/controller.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/controller_preview_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/inline_math_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/math_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/mermaid_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/mod.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/prose_preview.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/render.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/render_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/rendering_preferences_tests.rs	🟡	markdown-gaps	src/widgets/markdown.rs
-streaming/table_holdback.rs	🟡	markdown-gaps	src/widgets/markdown.rs
+status/account.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/card.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/format.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/helpers.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/mod.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/rate_limits.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/remote_connection.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/tests.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/thread_usage.rs	🟡	w2-status	src/pages/session/footer/, status/
+status/thread_usage_tests.rs	🟡	w2-status	src/pages/session/footer/, status/
+status_indicator_widget.rs	🟡	w2-status	src/pages/session/footer/, status/
+status_indicator_widget/effects_tests.rs	🟡	w2-status	src/pages/session/footer/, status/
+status_indicator_widget/timer.rs	🟡	w2-status	src/pages/session/footer/, status/
+status_indicator_widget/timer_tests.rs	🟡	w2-status	src/pages/session/footer/, status/
+streaming/chunking.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/code_fence.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/code_fence_render_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/code_fence_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/commit_tick.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/controller.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/controller_preview_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/inline_math_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/math_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/mermaid_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/mod.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/prose_preview.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/render.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/render_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/rendering_preferences_tests.rs	🟡	w2-live	src/widgets/markdown.rs
+streaming/table_holdback.rs	🟡	w2-live	src/widgets/markdown.rs
 style.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 style/contrast.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 style/contrast_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
@@ -1065,14 +1065,14 @@ summary_shimmer.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/,
 summary_shimmer_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 system_motion.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 table_detect.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-task_mentions.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
-task_mentions_tests.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+task_mentions.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+task_mentions_tests.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
 temporary_structured_request.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 temporary_structured_request_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-terminal_hyperlinks.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-terminal_hyperlinks/paragraph.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-terminal_hyperlinks/source.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-terminal_hyperlinks_tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
+terminal_hyperlinks.rs	🟡	w2-status	src/pages/session/footer/, status/
+terminal_hyperlinks/paragraph.rs	🟡	w2-status	src/pages/session/footer/, status/
+terminal_hyperlinks/source.rs	🟡	w2-status	src/pages/session/footer/, status/
+terminal_hyperlinks_tests.rs	🟡	w2-status	src/pages/session/footer/, status/
 terminal_palette.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 terminal_probe.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 terminal_probe/startup_replay.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
@@ -1085,82 +1085,82 @@ terminal_probe/windows_replay_tests.rs	❌	terminal-features	src/app/terminal_ef
 terminal_probe/windows_tests.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 terminal_program_status.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 terminal_size_telemetry.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
-terminal_title.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
+terminal_title.rs	🟡	w2-status	src/pages/session/footer/, status/
 terminal_visualization_instructions.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 test_backend.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 test_support.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 text_formatting.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 text_selection.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-theme_picker.rs	🟡	ui-settings-feeds	src/features/settings/
-theme_picker_model_tests.rs	🟡	ui-settings-feeds	src/features/settings/
-thread_color.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-thread_color_tests.rs	🟡	footer-status-sweep	src/pages/session/footer/, status/
-thread_transcript.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/activity_pages.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/computer_groups.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/computer_groups_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/exploration_groups.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/other_items.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/other_items_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/tools.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-thread_transcript/tools_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-token_usage.rs	🟡	ui-usage-limits	src/pages/usage/, src/pages/session/live/
-tool_output.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-tool_output_tests.rs	🟡	ui-exec-mcp	src/pages/session/cells/exec.rs, tool_call.rs
-tooltips.rs	🟡	live-turn-sweep	core/src/
-tooltips/keybinding_tests.rs	🟡	live-turn-sweep	core/src/
+theme_picker.rs	🟡	w2-settings	src/features/settings/
+theme_picker_model_tests.rs	🟡	w2-settings	src/features/settings/
+thread_color.rs	🟡	w2-status	src/pages/session/footer/, status/
+thread_color_tests.rs	🟡	w2-status	src/pages/session/footer/, status/
+thread_transcript.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/activity_pages.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/computer_groups.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/computer_groups_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/exploration_groups.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/other_items.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/other_items_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/tools.rs	🟡	w2-transcript	src/pages/session/transcript/
+thread_transcript/tools_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+token_usage.rs	🟡	w2-status	src/pages/usage/, src/pages/session/live/
+tool_output.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+tool_output_tests.rs	🟡	w2-cells	src/pages/session/cells/exec.rs, tool_call.rs
+tooltips.rs	🟡	w2-live	core/src/
+tooltips/keybinding_tests.rs	🟡	w2-live	core/src/
 transcript_image.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 transcript_image/composer.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 transcript_mode.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 transcript_reflow.rs	❌	inline-mode	src/app/screen_mode/ (нет)
-transcript_view.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/activity.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/activity_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/bookmark.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/bookmark_tests.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/composer_gap.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/composer_gap_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/copy_mode.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/copy_mode_tests.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/copy_on_select_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/diff_source_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/disclosure.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/follow_control.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/follow_control_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/footer.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/footer_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/input.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/input_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/layout.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/layout_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/markdown_copy_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/markdown_element_copy_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/mutations.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/mutations_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/prompt_header.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/prompt_header_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/prompt_style_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/right_click_copy_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/search.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-transcript_view/search_footer.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-transcript_view/search_presentation.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-transcript_view/search_tests.rs	❌	ui-pager-find	src/pages/session/transcript/ (нет pager)
-transcript_view/select_mode.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/select_mode/motion.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/select_mode_tests.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/selection.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/selection_tests.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/snapshot.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/source_cell_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/table_copy_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/text.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/text_logical.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/text_tabs.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/text_tabs_tests.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/text_tests.rs	❌	ui-select-copy	src/pages/session/transcript/selection.rs
-transcript_view/turn_details.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view/turn_tip.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
-transcript_view_tests.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
+transcript_view.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/activity.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/activity_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/bookmark.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/bookmark_tests.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/composer_gap.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/composer_gap_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/copy_mode.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/copy_mode_tests.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/copy_on_select_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/diff_source_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/disclosure.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/follow_control.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/follow_control_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/footer.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/footer_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/input.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/input_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/layout.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/layout_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/markdown_copy_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/markdown_element_copy_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/mutations.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/mutations_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/prompt_header.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/prompt_header_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/prompt_style_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/right_click_copy_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/search.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+transcript_view/search_footer.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+transcript_view/search_presentation.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+transcript_view/search_tests.rs	❌	w2-transcript	src/pages/session/transcript/ (нет pager)
+transcript_view/select_mode.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/select_mode/motion.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/select_mode_tests.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/selection.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/selection_tests.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/snapshot.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/source_cell_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/table_copy_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/text.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/text_logical.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/text_tabs.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/text_tabs_tests.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/text_tests.rs	❌	w2-transcript	src/pages/session/transcript/selection.rs
+transcript_view/turn_details.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view/turn_tip.rs	🟡	w2-transcript	src/pages/session/transcript/
+transcript_view_tests.rs	🟡	w2-transcript	src/pages/session/transcript/
 tui.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 tui/alternate_screen.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 tui/alternate_screen_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
@@ -1173,16 +1173,16 @@ tui/history_tail_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 tui/input_boundary.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 tui/job_control.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 tui/keyboard_modes.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
-tui/link_pointer.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-tui/link_pointer_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-tui/notification_preview.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
-tui/notification_preview_tests.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
+tui/link_pointer.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+tui/link_pointer_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+tui/notification_preview.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
+tui/notification_preview_tests.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
 tui/owned_screen_tests.rs	✅	—	rtwk host
 tui/screen_size.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 tui/screen_size_tests.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 tui/scrollback.rs	❌	inline-mode	src/app/screen_mode/ (нет)
 tui/scrollback_tests.rs	❌	inline-mode	src/app/screen_mode/ (нет)
-tui/selection_clipboard.rs	🟡	ui-select-copy	src/services/clipboard/, src/pages/session/transcript/copy.rs
+tui/selection_clipboard.rs	🟡	w2-transcript	src/services/clipboard/, src/pages/session/transcript/copy.rs
 tui/size_monitor.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 tui/size_monitor_tests.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 tui/terminal_stderr.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
@@ -1195,7 +1195,7 @@ tui/windows_key_sequence_tests.rs	❌	terminal-features	src/app/terminal_effects
 tui/windows_term_program_tests.rs	❌	terminal-features	src/app/terminal_effects.rs, host/src/main.rs
 tui_panic_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 tui_startup_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-turn_tip.rs	🟡	ui-transcript-chrome	src/pages/session/transcript/
+turn_tip.rs	🟡	w2-transcript	src/pages/session/transcript/
 ui_consts.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 ui_tree.rs	❌	ui-tree-viz	—
 ui_tree/decode.rs	❌	ui-tree-viz	—
@@ -1214,18 +1214,18 @@ update_versions.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 updates.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 updates_cache.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 updates_cache_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-user_prompt.rs	🟡	live-turn-sweep	core/src/
-user_prompt_tests.rs	🟡	live-turn-sweep	core/src/
+user_prompt.rs	🟡	w2-live	core/src/
+user_prompt_tests.rs	🟡	w2-live	core/src/
 version.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-vim_search.rs	🟡	composer-sweep	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
+vim_search.rs	🟡	w2-composer	src/pages/session/composer/, src/widgets/composer_draft/, core/src/screens/composer/
 width.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
-windows_sandbox.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-windows_sandbox_tests.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
+windows_sandbox.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+windows_sandbox_tests.rs	🟡	w2-commands	src/sheets/select/worktree.rs
 workspace_command.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 workspace_messages.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
 workspace_messages_tests.rs	🟡	startup-rest	src/pages/startup/, host/src/startup.rs
-worktree_browser.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-worktree_startup.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
-worktree_startup_tests.rs	🟡	ui-worktree-sandbox	src/sheets/select/worktree.rs
+worktree_browser.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+worktree_startup.rs	🟡	w2-commands	src/sheets/select/worktree.rs
+worktree_startup_tests.rs	🟡	w2-commands	src/sheets/select/worktree.rs
 wrapping.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs
 wrapping_reuse_tests.rs	✅	—	rtwk (Widget, Text, wrap, Navigator); port: src/app/, host/src/main.rs

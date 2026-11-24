@@ -70,7 +70,6 @@ fn plain(width: u16, height: u16) -> Screen {
 }
 
 const FIND_REASON: &str = "the transcript Find footer (`Find: needle` above the composer, its cursor, the copy flash) is not built: the chat footer draws only the history-search row, and no key or seed opens a find footer";
-const HISTORY_IMAGES_REASON: &str = "the history entry that carries a local and a remote image (`HistoryEntry::local_image_paths`, `remote_image_urls`, the attachment previews of a searched entry): the popovers history event holds text only (`{\"history\": [..]}`), so no seed makes the search preview an attachment";
 const REPLACE_REASON: &str = "the draft replaced from outside while the history search is open (`ChatComposer::set_text_content`): no seed, key or fact replaces the composer's text from the host's side (the queued-draft restore and the external editor's result do it, with no search open)";
 const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkle_terminal_focus`, crossterm's FocusLost/FocusGained): rtwk reports no terminal focus-in/out events (rtwk-gaps.md), so the deadline's behaviour across a focus loss cannot be driven; a running turn on a fresh task (`set_task_running`) has no seed either: a turn that ran ends the fresh task";
 const CARET_REASON: &str = "the terminal cursor on the history search's own row (`reverse-i-search: query▮`): the search row is static text under the composer, and the composer's TextArea (focused, it takes the search's keys) keeps its caret on the prompt row (row 3 of 6, the oracle puts it on row 5); a caret at the query's end needs the query as an editing field that holds the focus (a restructure of composer/search.rs: footer field, Up/Down/Enter/Esc as its shortcuts) or a custom RenderObject calling `rtwk::editing::show_caret` (R15 forbids hand-made render objects in the app), and the TextArea has no way to hide its caret while it has the focus";
@@ -530,7 +529,6 @@ fn history_search_preserves_a_held_sparkle_command_without_reclassifying_it() {
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:762 cancelling_history_search_preserves_a_typed_command_despite_attachment_previews kind=ui owner=ui-pane
 #[test]
 fn cancelling_history_search_preserves_a_typed_command_despite_attachment_previews() {
-    kit::pending(Owner::UiPane, HISTORY_IMAGES_REASON);
     // `/status` is typed; the search previews an entry that has a local and a remote image
     // (their previews show over the composer); Esc restores `/status` and drops the previews, and
     // Enter runs the command: the sparkle then comes with Astra

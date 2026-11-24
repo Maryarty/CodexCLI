@@ -725,10 +725,6 @@ fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering(
 // ORACLE chatwidget/tests/startup_submission_tests.rs:6 host_switch_snapshot_preserves_buffered_typing kind=ui owner=chat-nav-pane
 #[test]
 fn host_switch_snapshot_preserves_buffered_typing() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a host switch with buffered typing (paste-burst disabled) needs a startup host seed; not registered",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("draft x");
     s.assert_contains("draft x");
@@ -801,10 +797,6 @@ fn rejected_initial_prompt_is_not_recorded_in_recall_history() {
 // ORACLE chatwidget/tests/startup_submission_tests.rs:252 startup_submission_waits_for_session_and_sends_exactly_once kind=ui owner=chat-nav-pane
 #[test]
 fn startup_submission_waits_for_session_and_sends_exactly_once() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a startup submission waiting for a session (confirmed draft from a source screen) is not seedable black-box",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("confirmed before startup");
     s.assert_contains("confirmed before startup");
@@ -850,10 +842,6 @@ fn startup_submission_waits_for_protected_view_and_preserves_paste_provenance() 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:367 startup_submission_edit_or_disconnect_cancels_without_losing_draft kind=ui owner=chat-nav-pane
 #[test]
 fn startup_submission_edit_or_disconnect_cancels_without_losing_draft() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a confirmed startup draft that an edit, a disconnect or a parent-owned thread cancels is not seedable black-box",
-    );
     let mut edit = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     edit.type_text("confirmed draft");
     edit.paste(" edited");

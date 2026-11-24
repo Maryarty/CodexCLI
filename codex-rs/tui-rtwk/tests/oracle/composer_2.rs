@@ -508,10 +508,6 @@ fn kill_buffer_preserves_image_after_submit() {
 // ORACLE bottom_pane/chat_composer.rs:9655 kill_buffer_persists_after_slash_command_dispatch kind=ui owner=chat-live
 #[test]
 fn kill_buffer_persists_after_slash_command_dispatch() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "`/diff` opens the transcript pager, which is not built (\"Not implemented yet: expanded transcript\") and takes the Ctrl+Y that should yank the killed text back",
-    );
     let mut s = ready(100, 24);
     s.type_text("restore me").keys("home ctrl+k");
     s.assert_row(prompt(&s), PLACEHOLDER);

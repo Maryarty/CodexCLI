@@ -366,10 +366,6 @@ fn backspace_deletes_a_body_selection_before_an_absorbed_prefix() {
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:115 selected_text_navigation_does_not_recall_history_or_select_images kind=ui owner=chat-live
 #[test]
 fn selected_text_navigation_does_not_recall_history_or_select_images() {
-    kit::pending(
-        Owner::ChatLive,
-        "no mouse selection on the chat composer; the remote-image case has no kit seed for set_remote_image_urls (the port draws the rows)",
-    );
     for (key, from, to) in [("up", 8, 2), ("down", 2, 8)] {
         let mut s = chat(80, 24);
         submit_once(&mut s, "first");
@@ -385,10 +381,6 @@ fn selected_text_navigation_does_not_recall_history_or_select_images() {
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:166 right_click_copy_uses_the_refreshed_editor_bounds kind=ui owner=chat-live
 #[test]
 fn right_click_copy_uses_the_refreshed_editor_bounds() {
-    kit::pending(
-        Owner::ChatLive,
-        "screen feature: the chat composer has no mouse selection and no copy of it by a right click (the copied `hello` goes to the clipboard, which no kit call reads); the kit sends the right click (`right_click`)",
-    );
     let mut s = chat(40, 24);
     s.type_text("hello world");
     let p = prompt(&s);
@@ -508,10 +500,6 @@ fn paste_burst_modified_queue_binding_still_dispatches() {
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:10 draft_handoff_preserves_newline_after_short_unicode_prefix kind=snap owner=chat-live
 #[test]
 fn draft_handoff_preserves_newline_after_short_unicode_prefix() {
-    kit::pending(
-        Owner::ChatLive,
-        "no draft-handoff mode on the chat screen (no seed): the restricted composer that hands a draft off is not reachable, and the newline after `猫` is typed here as Ctrl+J",
-    );
     let mut s = chat(100, 24);
     s.type_text("猫");
     s.keys("alt+enter");
@@ -526,10 +514,6 @@ fn draft_handoff_preserves_newline_after_short_unicode_prefix() {
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:31 handoff_edit_discards_stale_command_before_ordinary_enter kind=ui owner=chat-live
 #[test]
 fn handoff_edit_discards_stale_command_before_ordinary_enter() {
-    kit::pending(
-        Owner::ChatLive,
-        "no draft-handoff mode on the chat screen (no seed): a `/quit` handed over stays a command in the composer's popup until Ctrl+U",
-    );
     for bracketed_paste in [true, false] {
         let mut s = chat(100, 24);
         if bracketed_paste {
@@ -676,10 +660,6 @@ fn recovered_answers_undo_as_one_vim_edit() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:209 undo_and_redo_preserve_confirmed_vim_search kind=ui owner=chat-live
 #[test]
 fn undo_and_redo_preserve_confirmed_vim_search() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no confirmed `/` search on the chat composer: the search, the undo and the caret jump are not drawn",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "alpha beta alpha");
     s.type_text("/alpha");
@@ -911,10 +891,6 @@ fn undo_and_redo_restore_deleted_image_attachment() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:614 vim_replace_yank_preserves_existing_image_and_recovers_atomically kind=ui owner=chat-live
 #[test]
 fn vim_replace_yank_preserves_existing_image_and_recovers_atomically() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace and yank are built but the kit seeds no Vim state for this body, and no image attachment on the chat composer: the existing image and the recovered text are not drawn",
-    );
     let mut s = chat(100, 24);
     s.type_text("abcdefghij");
     s.keys("esc");
@@ -1094,10 +1070,6 @@ fn composer_handoff_preserves_only_the_live_rich_register() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:137 insert_yank_and_dot_preserve_rich_payloads kind=ui owner=chat-live
 #[test]
 fn insert_yank_and_dot_preserve_rich_payloads() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, no mention, image or paste payload on the chat composer (no kit seeds): the Insert and Replace yanks and the dot repeat are not drawn",
-    );
     for mode in ["i", "R"] {
         let mut s = chat(100, 24);
         rich_draft(&mut s);
@@ -1151,10 +1123,6 @@ fn rich_paste_renders_unique_image_and_paste_labels() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:220 replace_yank_inserts_rich_objects_without_stale_character_recovery kind=ui owner=chat-live
 #[test]
 fn replace_yank_inserts_rich_objects_without_stale_character_recovery() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace and yank are built but the kit seeds no Vim state for this body, no mention, image or paste payload on the chat composer (no kit seeds): the rich objects and the Backspace recovery are not drawn",
-    );
     for existing_element in [false, true] {
         let mut s = chat(100, 24);
         rich_draft(&mut s);
@@ -1268,10 +1236,6 @@ fn plain_replace_yank_preserves_previous_backspace_recovery() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:400 internal_snapshot_restores_exact_mention_identity kind=ui owner=chat-live
 #[test]
 fn internal_snapshot_restores_exact_mention_identity() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no mention elements on the chat composer (no seed for insert_element or plugin bindings): the `@plugin` chips are not drawn; the mention paths are not on the screen",
-    );
     let mut s = chat(100, 24);
     s.type_text("@plugin@plugin@plugin");
     s.assert_contains("@plugin");

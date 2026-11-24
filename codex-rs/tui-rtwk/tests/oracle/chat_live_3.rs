@@ -99,10 +99,6 @@ fn mcp_startup_header_booting_snapshot() {
 // ORACLE chatwidget/tests/mcp_startup.rs:216 review_opens_during_mcp_startup kind=snap owner=chat-live snap=review_during_mcp_startup
 #[test]
 fn review_opens_during_mcp_startup() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state and no /review preset popup on the chat screen; the oracle's remote image attachment cannot be made by keys",
-    );
     for dismiss_completion in [false, true] {
         let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
         s.feed(&mcp("slow", "starting"));
