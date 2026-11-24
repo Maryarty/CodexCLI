@@ -188,9 +188,14 @@ fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
                 })
                 .collect();
             Body {
-                title: Some(match &exec.network_host {
-                    Some(host) => s.network_title(host).to_string(),
-                    None => s.run_command.to_string(),
+                title: Some(match (&exec.input, &exec.network_host) {
+                    // `request.command.get(2)`: the terminal the input goes to.
+                    (Some(_), _) => match &exec.process {
+                        Some(process) => s.send_input_title(process).to_string(),
+                        None => s.send_input_existing.to_string(),
+                    },
+                    (None, Some(host)) => s.network_title(host).to_string(),
+                    (None, None) => s.run_command.to_string(),
                 }),
                 header,
                 options,
@@ -412,7 +417,8 @@ fn approval_option(decision: &Decision, s: &Strings, flavour: Flavour) -> Option
         Decision::Cancel if matches!(flavour, Flavour::Elicitation) => {
             (s.elicit_cancel.to_string(), None)
         }
-        Decision::Cancel => (s.cancel.to_string(), None),
+        // The default `approval.decline` is esc and `n`: the list shows the first.
+        Decision::Cancel => (s.cancel.to_string(), Some('n')),
         Decision::GrantForTurn => (s.grant_turn.to_string(), Some('y')),
         Decision::GrantForTurnStrict => (s.grant_turn_strict.to_string(), Some('r')),
         Decision::GrantForSession => (s.grant_session.to_string(), Some('a')),

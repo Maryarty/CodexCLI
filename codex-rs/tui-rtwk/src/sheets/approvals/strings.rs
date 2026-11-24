@@ -28,6 +28,8 @@ pub struct Strings {
     // bottom_pane/approval_overlay.rs: `build_options` (titles), `build_header`.
     pub run_command: &'static str,
     pub network_title: Msg<1>,
+    pub send_input_title: Msg<1>,
+    pub send_input_existing: &'static str,
     pub grant_permissions: &'static str,
     pub make_edits: &'static str,
     pub reason: &'static str,
@@ -265,6 +267,8 @@ pub const EN: Strings = Strings {
     num: NumSyms::ENGLISH,
     run_command: "Would you like to run the following command?",
     network_title: msg!("Do you want to approve network access to \"{0}\"?"),
+    send_input_title: msg!("Would you like to send input to terminal {0}?"),
+    send_input_existing: "Would you like to send input to the existing terminal?",
     grant_permissions: "Would you like to grant these permissions?",
     make_edits: "Would you like to make the following edits?",
     reason: "Reason: ",
@@ -479,6 +483,10 @@ pub fn title(lang: Lang) -> &'static str {
 }
 
 impl Strings {
+    pub fn send_input_title<'a>(&'a self, process: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.send_input_title, [Arg::Text(process)], &self.num)
+    }
+
     pub fn network_title<'a>(&'a self, host: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.network_title, [Arg::Text(host)], &self.num)
     }

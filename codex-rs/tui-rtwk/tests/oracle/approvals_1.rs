@@ -251,7 +251,7 @@ fn apply_patch_prompt_without_changes_shows_unavailable_destination() {
 fn network_exec_prompt_title_includes_host() {
     kit::pending(
         Owner::DialogsPane,
-        "screen feature (approval sheet): the selected option row `› 1. Yes, just this once` is drawn bold magenta, the oracle draws it bold reversed with the default colour; the cell after the title is bold in ours, plain in the oracle (the kit reads the snapshot, quote and all)",
+        "the cursor row now reverses bold with the default colour (no terminal background known) and the text rows are the oracle's; 8+ cells differ in blank-cell styles of rows 2 and 3 (ours dim Indexed(245) on the blank cells left of the Reason row, bold on the cell after the title) and the `1. ` prefix of the cursor row is not reversed (the row's hanging prefix is outside the list's style); a style pass of dialog.rs's Pane/Block",
     );
     // The sheet is bottom-aligned: 13 rows tall, the oracle's buffer.
     let s = Screen::build(Owner::DialogsPane)
@@ -278,11 +278,11 @@ fn ctrl_shift_a_opens_fullscreen() {
 fn exec_history_cell_wraps_with_two_space_indent() {
     kit::pending(
         Owner::DialogsPane,
-        "the decision cell (`✔ You approved ...`) is a transcript row: its model (core `approvals::decided::Decided`) and widget (`sheets::approvals::DecisionCell`) are done and pinned in core/tests/approvals.rs `decided` and tests/sheets/approvals.rs `decision_cell`; open is the thread holding it (NEED threads.rs `Item::Decision` from `ThreadEv::Decided`, app.rs recording it on resolve, transcript_pane.rs drawing it), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_zsh_git_add exists); and G49: TextWrap::Word does not break after a slash (the cell's rows are pinned apart from that in tests/sheets/approvals.rs)",
+        "G49: the decision cell's rows are the oracle's apart from the wrap: `TextWrap::Word` keeps `tui/src/render/mod.rs` whole and breaks `renderable.` / `rs`, the oracle's textwrap breaks after each slash (`  git add tui/src/render/` / `  mod.rs tui/src/render/` / `  renderable.rs this time`); the cell's own rows are pinned in tests/sheets/approvals.rs",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(28, 8)
-        .entry("approvals", "exec_zsh_git_add")
+        .script(include_str!("fixtures/approvals_1/exec_zsh_git_add.jsonl"))
         .open();
     s.keys("y");
     // The oracle compares four exact rows; the kit checks them in order until the port's rows are known.
@@ -297,20 +297,16 @@ fn exec_history_cell_wraps_with_two_space_indent() {
 // ORACLE bottom_pane/approval_overlay.rs:2415 exec_history_cell_does_not_render_blank_action_for_empty_command kind=ui owner=dialogs-pane
 #[test]
 fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the decision cell (`✔ You approved ...`) is a transcript row: its model (core `approvals::decided::Decided`) and widget (`sheets::approvals::DecisionCell`) are done and pinned in core/tests/approvals.rs `decided` and tests/sheets/approvals.rs `decision_cell`; open is the thread holding it (NEED threads.rs `Item::Decision` from `ThreadEv::Decided`, app.rs recording it on resolve, transcript_pane.rs drawing it), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_empty_command exists)",
-    );
     let mut approved = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .entry("approvals", "exec_empty_command")
+        .script(include_str!("fixtures/approvals_1/exec_empty_command.jsonl"))
         .open();
     approved.keys("y");
     approved.assert_contains("✔ You approved this request this time");
 
     let mut for_session = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .entry("approvals", "exec_empty_command")
+        .script(include_str!("fixtures/approvals_1/exec_empty_command_session.jsonl"))
         .open();
     for_session.keys("a");
     for_session.assert_contains("✔ You approved this request every time this session");
@@ -319,13 +315,9 @@ fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
 // ORACLE bottom_pane/approval_overlay.rs:2438 network_access_command_history_uses_target_without_structured_context kind=ui owner=dialogs-pane
 #[test]
 fn network_access_command_history_uses_target_without_structured_context() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the decision cell (`✔ You approved ...`) is a transcript row: its model (core `approvals::decided::Decided`) and widget (`sheets::approvals::DecisionCell`) are done and pinned in core/tests/approvals.rs `decided` and tests/sheets/approvals.rs `decision_cell`; open is the thread holding it (NEED threads.rs `Item::Decision` from `ThreadEv::Decided`, app.rs recording it on resolve, transcript_pane.rs drawing it), and an approvals entry draws the sheet over the debug menu, not over a chat (and no entry approvals/exec_network_access yet)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .entry("approvals", "exec_network_access")
+        .script(include_str!("fixtures/approvals_1/exec_network_access.jsonl"))
         .open();
     s.keys("y");
     s.assert_contains("✔ You approved codex network access to https://example.com:8443 this time");

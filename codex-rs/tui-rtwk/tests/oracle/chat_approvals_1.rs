@@ -12,12 +12,13 @@ use crate::kit::{self, Owner, Screen};
 fn exec_approval_emits_proposed_command_and_decision_history() {
     kit::pending(
         Owner::DialogsPane,
-        "the approval's decision cell is not drawn in the chat history after y: model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm",
+        "the modal's `$ echo hello world` is drawn in the theme's own colours (echo Rgb(137, 180, 250), the rest Rgb(205, 214, 244)): the app's `SyntaxPalette` has the scopes, the dialog's `Highlighter` gives rtwk `TokenKind`s with an unset plain style (`SyntaxTheme::of` is the widget default, not the settings pick); rows and the decision cell equal the oracle",
     );
     // oracle: the proposed exec request (echo hello world, reason) renders as the modal, no history cell;
     // `y` answers it and the history gets the decision cell.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
+        .syntax_theme("catppuccin-mocha")
         .script(include_str!("fixtures/chat_approvals_1/exec_short.jsonl"))
         .open();
     s.assert_snap("exec_approval_modal_exec");
@@ -39,7 +40,7 @@ fn app_server_exec_approval_request_splits_shell_wrapped_command() {
 fn app_server_write_stdin_approval_renders_terminal_input() {
     kit::pending(
         Owner::DialogsPane,
-        "no approval entry for a writeStdin request (send terminal input): the feed is fixtures/chat_approvals_1/write_stdin.jsonl, the slice registers it",
+        "the title (`send input to terminal 42`) and the `Input:` row are the oracle's; the harness's snapshot reader (tests/oracle_snap/mod.rs `parse_row`) turns the buffer's literal `\\n` in `Input: \"confirm\\n\"` into a line break (TestBackend rows are not escaped, as its own comment says): a Need on tests/oracle_snap",
     );
     // oracle: the write_stdin request shows the modal at 80x11; the desktop notification text is not drawn and is not asserted.
     let s = Screen::build(Owner::DialogsPane)
@@ -83,7 +84,7 @@ fn network_exec_approval_history_describes_one_time_host_allowance() {
 fn network_exec_approval_history_describes_canceled_host_request() {
     kit::pending(
         Owner::DialogsPane,
-        "no network-access approval on the chat screen and the history holds no decision cell yet (model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm) (feed: fixtures/chat_approvals_1/network_cancel.jsonl)",
+        "G72: `n` cancels and the decision cell is drawn, but `TextWrap::Word` breaks the target `socks5-tcp://example.com:1080` after the hyphen (`socks5-` / `tcp://example.com:1080`), the oracle's URL-aware wrap keeps it whole on the next row",
     );
     // oracle: `n` cancels the SOCKS5 network request; the decision cell names the request and the URL.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -111,10 +112,6 @@ fn exec_approval_uses_approval_id_when_present() {
 // ORACLE chatwidget/tests/approval_requests.rs:433 exec_approval_decision_truncates_multiline_and_long_commands kind=snap owner=dialogs-pane
 #[test]
 fn exec_approval_decision_truncates_multiline_and_long_commands() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no approval entry for a multi-line command with a reason, and the history holds no decision cell yet (NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm; feeds: exec_multiline_lines.jsonl, exec_long.jsonl)",
-    );
     // oracle: the multi-line request's first line shows in the modal; `n` aborts it into the history cell;
     // then the 200-character request (no reason) is aborted the same way and its cell is truncated.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -126,7 +123,12 @@ fn exec_approval_decision_truncates_multiline_and_long_commands() {
     s.assert_contains("echo line1");
     s.keys("n");
     s.assert_in_order(&["✗ You canceled the request to run echo line1 ..."]);
-    // needs feed: fixtures/chat_approvals_1/exec_long.jsonl (s.feed), then `n` again
+    // The oracle feeds the second request into the same widget; a screen on a script takes its feed
+    // from the file, so the long request is its own screen (the cell does not depend on the first).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_1/exec_long.jsonl"))
+        .open();
     s.keys("n");
     s.assert_in_order(&[
         "✗ You canceled the request to run echo",
@@ -639,10 +641,6 @@ fn approval_modal_exec_without_reason_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1487 approval_modal_exec_multiline_prefix_hides_execpolicy_option_snapshot kind=snap owner=dialogs-pane snap=approval_modal_exec_multiline_prefix_no_execpolicy
 #[test]
 fn approval_modal_exec_multiline_prefix_hides_execpolicy_option_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no approvals entry for a multi-line proposed prefix (fixtures/chat_approvals_1/exec_multiline_prefix.jsonl, the slice registers it)",
-    );
     // oracle: a multi-line prefix offers no "don't ask again" option; the modal is the snapshot, width 100.
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 13)

@@ -11,7 +11,7 @@ use rtwk::focus::Focus;
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
-use rtwk::style::{Attrs, Span, Style};
+use rtwk::style::{Attrs, Span, Style, TerminalBrightness};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
@@ -251,8 +251,15 @@ impl State for RequestDialogState {
             }
             return focus.into();
         }
+        // `selection_style`: where the terminal told nothing of its background the cursor row is
+        // the terminal's own bold reverse, else the accent.
+        let known = TerminalBrightness::background_of(cx).is_some();
         let styles = OptionStyles {
-            cursor: tokens.accent().attrs(Attrs::BOLD),
+            cursor: if known {
+                tokens.accent().attrs(Attrs::BOLD)
+            } else {
+                Style::new().attrs(Attrs::BOLD | Attrs::REVERSE)
+            },
             label: Style::new(),
             description: Style::new(),
         };
