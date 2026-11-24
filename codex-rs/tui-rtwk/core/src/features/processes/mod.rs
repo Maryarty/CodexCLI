@@ -60,6 +60,7 @@ impl Feature for Processes {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
         let Intent::Show { source } = intent;

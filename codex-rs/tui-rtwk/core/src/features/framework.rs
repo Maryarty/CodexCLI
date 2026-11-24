@@ -13,9 +13,14 @@ use std::cell::RefCell;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ServerRequest;
+use codex_app_server_protocol::ThreadClosedNotification;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
-use super::{AppCx, AppView, Feature, Never, Out, Slash, ThreadCx, Tone, TurnEnd};
+use super::{
+    AppCx, AppView, Connection, Feature, Never, Out, Refusal, Slash, ThreadCx, Tone, TurnEnd,
+};
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
 use crate::app::{AppFx, Now};
@@ -32,6 +37,9 @@ enum Hook {
     TurnEnd(TurnEnd, bool),
     Interrupted,
     Settled,
+    Shown(ThreadId),
+    Connection(Connection),
+    Opened(&'static str, Result<ThreadId, Refusal>),
 }
 
 thread_local! {
@@ -85,6 +93,7 @@ macro_rules! probe {
                 type Fact = Fact;
                 type Wish = Wish;
                 type Interest = Interest;
+                type Event = Event;
 
                 fn intent(state: &mut u32, intent: Intent, _cx: &mut AppCx<'_>) {
                     *state += intent.0;
@@ -128,6 +137,23 @@ macro_rules! probe {
 
                 fn on_resumed(_state: &mut u32, thread: &ThreadId, _cx: &mut AppCx<'_>) {
                     log($name, Hook::Resumed(thread.clone()));
+                }
+
+                fn thread_opened(
+                    _state: &mut u32,
+                    ctx: Ctx,
+                    result: Result<ThreadId, Refusal>,
+                    _cx: &mut AppCx<'_>,
+                ) {
+                    log($name, Hook::Opened(ctx.0, result));
+                }
+
+                fn on_shown(_state: &mut u32, thread: &ThreadId, _cx: &mut AppCx<'_>) {
+                    log($name, Hook::Shown(thread.clone()));
+                }
+
+                fn on_connection(_state: &mut u32, connection: Connection, _cx: &mut AppCx<'_>) {
+                    log($name, Hook::Connection(connection));
                 }
 
                 fn thread_intent(part: &mut u32, intent: ThreadIntent, _cx: &mut ThreadCx<'_, '_>) {
@@ -186,6 +212,8 @@ macro_rules! probe {
         pub struct Wish(pub &'static str);
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub struct Interest(pub u32);
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct Event(pub u32);
     };
     // and of one that has none
     (@components $marker:ident, bare) => {
@@ -193,6 +221,7 @@ macro_rules! probe {
         pub type Fact = Never<$marker>;
         pub type Wish = Never<$marker>;
         pub type Interest = Never<$marker>;
+        pub type Event = Never<$marker>;
     };
     (@steps full) => {
         fn note_tone(note: &Note) -> Tone {
@@ -201,6 +230,25 @@ macro_rules! probe {
 
         fn on_fact(state: &mut u32, fact: Fact, _cx: &mut AppCx<'_>) {
             *state += fact.0;
+        }
+
+        // the stream: a closed thread is an event worth the length of its id
+        fn project(notification: &ServerNotification) -> Option<Event> {
+            match notification {
+                ServerNotification::ThreadClosed(closed) => {
+                    Some(Event(closed.thread_id.len() as u32))
+                }
+                _ => None,
+            }
+        }
+
+        // a request is observed, never answered
+        fn project_request(_request: &ServerRequest) -> Option<Event> {
+            Some(Event(100))
+        }
+
+        fn on_event(state: &mut u32, event: Event, _cx: &mut AppCx<'_>) {
+            *state += event.0;
         }
 
         fn on_interest(state: &mut u32, interest: &Interest, open: bool, _cx: &mut AppCx<'_>) {
@@ -229,11 +277,12 @@ mod probe_list {
 }
 
 use probe_list::{
-    FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote,
+    FeatureCommand, FeatureCtx, FeatureEvent, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote,
     FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha, answered,
     apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode, effect_done,
-    names, next_thread_wake, next_wake, note_tone, on_fact, on_interest, on_interrupted,
-    on_resumed, on_turn_end, runs_of, thread_wakes_due, wakes_due, wire,
+    names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact, on_interest,
+    on_interrupted, on_resumed, on_shown, on_turn_end, project, project_request, runs_of,
+    thread_opened, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -517,6 +566,72 @@ fn app_hooks_run_in_list_order() {
             ("alpha", Hook::Resumed(thread.clone())),
             ("beta", Hook::Resumed(thread)),
         ]
+    );
+}
+
+#[test]
+fn a_feature_follows_the_stream_through_its_own_event() {
+    let mut states = FeatureStates::default();
+    let closed = ServerNotification::ThreadClosed(ThreadClosedNotification {
+        thread_id: "t-closed".to_owned(),
+    });
+    let events = project(&closed);
+    assert_eq!(
+        events,
+        [FeatureEvent::from(alpha::Event(8))],
+        "alpha projects the notification, beta follows nothing"
+    );
+    app_step(|cx| {
+        for event in events {
+            on_event(&mut states, event, cx);
+        }
+    });
+    assert_eq!((*states.alpha, *states.beta), (8, 0));
+    // a server request is observed the same way, and nothing answers it
+    let request: ServerRequest = serde_json::from_value(serde_json::json!({
+        "method": "item/commandExecution/requestApproval",
+        "id": 1,
+        "params": {
+            "threadId": "t", "turnId": "u", "itemId": "i", "startedAtMs": 0,
+            "approvalId": "i", "environmentId": null, "command": "echo hi", "cwd": "/tmp"
+        }
+    }))
+    .expect("a request");
+    let events = project_request(&request);
+    assert_eq!(events, [FeatureEvent::from(alpha::Event(100))]);
+    app_step(|cx| {
+        for event in events {
+            on_event(&mut states, event, cx);
+        }
+    });
+    assert_eq!(*states.alpha, 108);
+}
+
+#[test]
+fn the_shown_connection_and_opened_hooks_reach_their_features() {
+    let mut states = FeatureStates::default();
+    let thread = ThreadId::new("t9");
+    logged();
+    app_step(|cx| {
+        on_shown(&mut states, &thread, cx);
+        on_connection(&mut states, Connection::Lost, cx);
+        thread_opened(
+            &mut states,
+            FeatureCtx::from(beta::Ctx("b")),
+            Err(Refusal::Busy),
+            cx,
+        );
+    });
+    assert_eq!(
+        logged(),
+        [
+            ("alpha", Hook::Shown(thread.clone())),
+            ("beta", Hook::Shown(thread)),
+            ("alpha", Hook::Connection(Connection::Lost)),
+            ("beta", Hook::Connection(Connection::Lost)),
+            ("beta", Hook::Opened("b", Err(Refusal::Busy))),
+        ],
+        "the app-wide hooks run in list order, the answer reaches the feature that asked"
     );
 }
 

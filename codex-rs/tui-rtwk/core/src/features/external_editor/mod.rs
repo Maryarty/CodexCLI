@@ -87,6 +87,7 @@ impl Feature for ExternalEditor {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         let (thread, draft) = match intent {

@@ -139,6 +139,7 @@ impl Feature for Copier {
     type Fact = Never<Self>;
     type Wish = Wish;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     /// `/copy`: the picker of what the last response holds, asked of the surface.
     fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {

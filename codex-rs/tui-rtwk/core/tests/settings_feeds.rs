@@ -15,7 +15,8 @@ use codex_tui_core::features::{self, FeatureCommand, FeatureIntent};
 use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenIntent, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenIntent, agents, chat};
+use codex_tui_core::threads::ThreadAsk;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -317,11 +318,17 @@ fn thread_row(id: &str, name: Option<&str>, preview: &str) -> Value {
     })
 }
 
-fn opened(app: &CodexApp) -> Vec<String> {
-    app.wishes()
-        .pending()
-        .filter_map(|wish| match &wish.wish {
-            features::FeatureWish::Settings(Wish::OpenThread(id)) => Some(id.to_string()),
+/// The threads of a step that the app was told to open: it reads one it does not know first
+/// (`AppCx::open_thread`), so a session the server has not got is answered, not opened.
+fn opened(commands: &[Command]) -> Vec<(Ticket, String)> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read { thread })),
+                ..
+            } => Some((*ticket, thread.clone())),
             _ => None,
         })
         .collect()
@@ -357,19 +364,20 @@ fn resume_by_name_pages_through_the_listing_and_opens_the_one_session() {
         second.1,
         SettingsCommand::Sessions { cursor: Some(_) }
     ));
-    answer(
+    let commands = answer(
         &mut app,
         &second,
         json!({"data": [thread_row("b", None, "  work ")], "nextCursor": null}),
     );
-    assert_eq!(opened(&app), ["b"]);
+    let ids: Vec<_> = opened(&commands).into_iter().map(|(_, id)| id).collect();
+    assert_eq!(ids, ["b"]);
 }
 
 #[test]
 fn resume_by_name_refuses_two_sessions_with_one_label_and_none() {
     let mut app = app();
     let first = asked(&slash_resume(&mut app, "dup")).remove(0);
-    answer(
+    let mut commands = answer(
         &mut app,
         &first,
         json!({"data": [thread_row("a", Some("dup"), ""), thread_row("b", Some("dup"), "")], "nextCursor": null}),
@@ -383,11 +391,11 @@ fn resume_by_name_refuses_two_sessions_with_one_label_and_none() {
         }]
     );
     let none = asked(&slash_resume(&mut app, "nothing")).remove(0);
-    answer(&mut app, &none, json!({"data": [], "nextCursor": null}));
+    commands.extend(answer(&mut app, &none, json!({"data": [], "nextCursor": null})));
     assert!(settings_notes(&app).contains(&Note::NoSavedChat {
         name: "nothing".into()
     }));
-    assert!(opened(&app).is_empty());
+    assert!(opened(&commands).is_empty());
 }
 
 #[test]
@@ -408,17 +416,21 @@ fn a_label_found_across_a_cursor_that_pins_no_session_is_not_verified() {
 }
 
 #[test]
-fn resume_by_id_reads_the_session() {
+fn resume_by_id_opens_the_thread_through_the_app_and_a_session_it_has_not_is_no_saved_chat() {
     let mut app = app();
     let id = "11111111-1111-1111-1111-111111111111";
-    let read = asked(&slash_resume(&mut app, id)).remove(0);
-    assert_eq!(read.1, SettingsCommand::Session { id: id.into() });
-    answer(
-        &mut app,
-        &read,
-        json!({"thread": thread_row(id, None, "p")}),
+    let commands = slash_resume(&mut app, id);
+    assert!(
+        asked(&commands).is_empty(),
+        "the page asks the server for no session of its own"
     );
-    assert_eq!(opened(&app), [id]);
+    let [(ticket, read)] = opened(&commands).try_into().expect("the app reads the id");
+    assert_eq!(read, id);
+    run(&mut app, AppEv::Reply(ticket, Reply::failed("no rollout found")));
+    assert_eq!(
+        settings_notes(&app),
+        [Note::NoSavedChat { name: id.into() }]
+    );
 }
 
 #[test]

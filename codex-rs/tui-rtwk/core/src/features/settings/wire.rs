@@ -31,8 +31,6 @@ pub enum Command {
     HooksWrite { value: serde_json::Value },
     /// `thread/list`, one page of the sessions `/resume <name>` looks a label up in.
     Sessions { cursor: Option<String> },
-    /// `thread/read` (no turns) of the session an id names.
-    Session { id: String },
 }
 
 /// A skill of the listing (`SkillMetadata`).
@@ -60,7 +58,6 @@ pub enum Reply {
         rows: Vec<Listed>,
         next: Option<String>,
     },
-    Session(Listed),
 }
 
 pub fn request(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
@@ -140,13 +137,6 @@ pub fn request(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReq
                 cwd: None,
                 use_state_db_only: true,
                 search_term: None,
-            },
-        },
-        Command::Session { id: session } => ClientRequest::ThreadRead {
-            request_id: id,
-            params: wire::ThreadReadParams {
-                thread_id: session.clone(),
-                include_turns: false,
             },
         },
     }
@@ -325,10 +315,6 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Str
                 rows: page.data.iter().map(listed).collect(),
                 next: page.next_cursor,
             }
-        }
-        Command::Session { .. } => {
-            let read: wire::ThreadReadResponse = parse(result)?;
-            Reply::Session(listed(&read.thread))
         }
     })
 }

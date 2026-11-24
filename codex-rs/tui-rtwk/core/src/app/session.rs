@@ -205,7 +205,7 @@ pub(super) fn session_intent(
                     name: None,
                     plan: None,
                     draft: Some(message),
-                    side: None,
+                    spawned: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));
@@ -223,9 +223,6 @@ pub(super) fn session_intent(
         S::StartReview { target } => start_review(app, source, target, fx),
         S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
         S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
-        // `/side` and `/btw`: the slice decides, the app forks (`app/side.rs`; its lifecycle half
-        // goes into the slice with fw-hubs-b, and this arm with it).
-        S::Side { prompt } => super::side::start(app, source, prompt, fx),
         S::Status => status_command(app, source, fx),
         S::Compact => {
             if let Some(thread) = source {
@@ -457,7 +454,7 @@ pub(super) fn begin_conversation(
             name,
             plan: None,
             draft: None,
-            side: None,
+            spawned: None,
         },
     );
     fx.commands.push(request);
@@ -558,7 +555,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
             name: None,
             plan: None,
             draft: None,
-            side: None,
+            spawned: None,
         },
     );
     fx.commands.push(Command::Screen {
@@ -755,7 +752,7 @@ pub(super) fn plan_answer(
                     name: None,
                     plan: Some(markdown),
                     draft: None,
-                    side: None,
+                    spawned: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));

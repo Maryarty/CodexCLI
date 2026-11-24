@@ -118,6 +118,7 @@ impl Feature for Export {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     /// `/export <path>`: the conversation in use is written to the path as typed. A bare `/export`
     /// is the feature's sheet (`OPENS`) and never gets here.

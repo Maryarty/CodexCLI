@@ -204,6 +204,7 @@ impl Feature for Goal {
     type Fact = Never<Self>;
     type Wish = Wish;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     /// `/goal`: the goal shown, set, paused, resumed, cleared or edited.
     fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {

@@ -335,6 +335,7 @@ impl Feature for SmallCmds {
     type Fact = Fact;
     type Wish = Wish;
     type Interest = Never<Self>;
+    type Event = Never<Self>;
 
     /// `/logout`, `/ide [on|off|status]`, `/daybreak`, `/debug-config`.
     fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {

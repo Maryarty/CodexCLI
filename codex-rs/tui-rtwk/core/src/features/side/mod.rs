@@ -1,16 +1,20 @@
 //! Side conversations (`/side`, `/btw`) as a feature slice (ADR-012; oracle `app/side.rs`): a fork
 //! of the thread in use, asked quick questions while the parent stays as it was.
 //!
-//! What core keeps is what IO and the commands need (ADR-013): which threads are side
-//! conversations of which parent (`State::link`), what the parent last did while the side is shown
-//! (`ParentStatus`, the oracle's `SideThreadState::parent_status`), and the forks whose boundary is
-//! still going in (the prompt of `/btw` waits for it). The thread lifecycle is not the slice's
-//! (ADR-012, "half a slice"): the fork is `ThreadAsk::ForkAt` with the side policy (an ephemeral
-//! `thread/fork` with the side policy as developer instructions), switching and discarding go
-//! through the app's own doors (`app/side.rs`), which read the decisions made here (`State::start`)
-//! and report what happened as intents (`Linked`, `Dropped`, `Parent`). The fork's history is
-//! reference-only to the model: the policy and the boundary go in as `thread/inject_items`
-//! (`Command::Boundary`), and a `/btw` prompt is sent once they are in (`State::take_ready`).
+//! The slice is the whole feature. What core keeps for IO and the commands (ADR-013) is which
+//! threads are side conversations of which parent (`State::link`), what the parent last did while
+//! the side is shown (`ParentStatus`, the oracle's `SideThreadState::parent_status`) and the forks
+//! whose boundary is still going in (the prompt of `/btw` waits for it). The thread's life goes
+//! through the lifecycle doors of `AppCx` (ADR-012, "lifecycle doors"): the fork is
+//! `spawn(Fork { ephemeral })` (an ephemeral `thread/fork` with the side policy as developer
+//! instructions; the fork starts empty on the screen), answered in `thread_opened`; the side
+//! conversation of a parent is shown again with `open_thread`, the prompt of `/btw` is `submit`ted
+//! once the boundary (`thread/inject_items`, `Command::Boundary`) is in, a prompt that could not
+//! go is `give_back`, and the conversation the user returned from is `discard`ed. What the parent
+//! did is the slice's own reading of the server's stream (`project`, `project_request`,
+//! `on_event`), and what the chat reads of the thread in use (the commands a side conversation
+//! lacks are gated by a flag, the footer names the parent) the slice says through
+//! `AppCx::chat_facts` whenever the thread shown or the parent's status changes (`on_shown`).
 //!
 //! The words are `src/features/side/strings.rs`; the footer label
 //! is data here (`Footer`) and words in the view.
@@ -24,10 +28,13 @@ use codex_app_server_protocol::{
     TurnStatus,
 };
 
-use super::{AppCx, Feature, Never};
+use super::{AppCx, AppView, ChatFacts, Feature, Never, Refusal, Slash, ThreadSpawn};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
+use crate::keymap::actions::GLOBAL_TOGGLE_SIDE_CONVERSATION;
+use crate::protocol::targets;
 use crate::rpc::RpcError;
-use crate::threads::Tone;
+use crate::threads::{Tone, UserMessage};
 
 pub use policy::developer_instructions;
 
@@ -93,8 +100,6 @@ pub struct State {
     links: BTreeMap<ThreadId, Link>,
     /// The forks whose boundary is going in, with the prompt (`/btw`) that waits for it.
     preparing: BTreeMap<ThreadId, Option<String>>,
-    /// The prompts whose boundary is in: sent by the app (`take_ready`).
-    ready: Vec<(ThreadId, String)>,
 }
 
 /// What `/side` does in the thread it was typed in.
@@ -150,11 +155,6 @@ impl State {
         }
     }
 
-    /// The prompts whose boundary went in since the last call: they are to be sent.
-    pub fn take_ready(&mut self) -> Vec<(ThreadId, String)> {
-        std::mem::take(&mut self.ready)
-    }
-
     /// What the footer says while `shown` is displayed (`sync_side_thread_ui`): over a side
     /// conversation its parent and the parent's status, over a parent that has one the key that
     /// switches. `parent_label` words a parent that is not the main thread; `switch` is the label
@@ -182,11 +182,11 @@ impl State {
     }
 }
 
-/// What the user or the app says of side conversations.
+/// What the user says of side conversations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// `/side` and `/btw`, typed in `source` (none before the session has started), with the
-    /// prompt of `/btw`. Run by the app (`app/side.rs`): it asks `State::start` what to do.
+    /// prompt of `/btw`: `State::start` says what to do.
     Start {
         source: Option<ThreadId>,
         prompt: Option<String>,
@@ -195,16 +195,12 @@ pub enum Intent {
     /// the app forgets it (`discard_side_thread`). A verb the view says for `Ctrl+C` over an
     /// empty composer; the view shows the parent (`OpenThread`) itself.
     Discard { child: ThreadId },
-    /// The fork `child` of `parent` is open here: it is a side conversation from now on, and its
-    /// boundary is injected (`prompt` is sent once it is in).
-    Linked {
-        child: ThreadId,
-        parent: ThreadId,
-        prompt: Option<String>,
-    },
-    /// `child` is gone (discarded, or the thread was removed).
-    Dropped { child: ThreadId },
-    /// What `parent` did: its side conversation shows it.
+}
+
+/// What the stream says of a parent that has a side conversation (`SideParentStatusChange`): its
+/// side conversation shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Event {
     Parent {
         parent: ThreadId,
         change: StatusChange,
@@ -227,6 +223,17 @@ pub struct Reply;
 pub enum Ctx {
     /// The boundary of this fork.
     Boundary(ThreadId),
+    /// The fork of `parent` that `/side` or `/btw` asked for, with the prompt that waits for it.
+    Fork {
+        parent: ThreadId,
+        prompt: Option<String>,
+    },
+    /// The side conversation `parent` already has is shown again, with the prompt that waits
+    /// for it.
+    Reuse {
+        parent: ThreadId,
+        prompt: Option<String>,
+    },
 }
 
 /// What the feature says in the transcript; all of them are errors in the oracle.
@@ -269,6 +276,68 @@ fn failure(error: &RpcError) -> String {
     }
 }
 
+/// A prompt that could not go (`restore_side_user_message`) goes back to the composer it was
+/// typed in.
+fn restore(cx: &mut AppCx<'_>, thread: &ThreadId, prompt: Option<String>) {
+    if let Some(prompt) = prompt {
+        cx.give_back(thread, prompt);
+    }
+}
+
+/// `/side` and `/btw` (`handle_start_side`), typed in `source`.
+fn start(state: &State, source: Option<ThreadId>, prompt: Option<String>, cx: &mut AppCx<'_>) {
+    let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
+    match (state.start(source.as_ref()), source) {
+        (Start::Block(note), source) => {
+            if let Some(thread) = &source {
+                restore(cx, thread, prompt);
+            }
+            cx.note(source, note);
+        }
+        (Start::Reuse(child), Some(parent)) => {
+            cx.open_thread(&child, Ctx::Reuse { parent, prompt });
+        }
+        (Start::Fork, Some(parent)) => cx.spawn(
+            ThreadSpawn::Fork {
+                parent: parent.clone(),
+                ephemeral: Some(developer_instructions()),
+            },
+            Ctx::Fork { parent, prompt },
+        ),
+        _ => {}
+    }
+}
+
+/// What the screen reads of the thread shown (`sync_side_thread_ui`): whether it is a side
+/// conversation (the commands it lacks are gated by it) and the footer's facts.
+fn chat_facts(state: &State, view: AppView<'_>) -> ChatFacts {
+    let shown = view.active();
+    let side = shown.is_some_and(|id| state.is_side(id));
+    let footer = shown.and_then(|id| {
+        let parent = state.link(id).map(|link| &link.parent);
+        let parent_view = parent.and_then(|parent| view.thread(parent));
+        let is_main = !parent_view
+            .as_ref()
+            .is_some_and(|parent| parent.slots().chat.parent_owned);
+        let parent_label = parent_view
+            .map(|parent| {
+                parent
+                    .slots()
+                    .chat
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| parent.id().to_string())
+            })
+            .unwrap_or_default();
+        let switch = view.facts().key_label(GLOBAL_TOGGLE_SIDE_CONVERSATION);
+        state.footer(id, is_main, &parent_label, switch.as_deref())
+    });
+    ChatFacts {
+        side_conversation: side,
+        side: footer,
+    }
+}
+
 impl Feature for Side {
     const NAME: &'static str = "side";
 
@@ -284,16 +353,88 @@ impl Feature for Side {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+    type Event = Event;
+
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Side, SlashCommand::Btw];
+
+    /// `/side` and `/btw`, each with an optional prompt.
+    fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+        let source = slash.source.clone();
+        let prompt = slash.into_args();
+        Self::intent(state, Intent::Start { source, prompt }, cx);
+    }
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
-            // The lifecycle half, run by the app before the slice is asked.
-            Intent::Start { .. } | Intent::Discard { .. } => {}
-            Intent::Linked {
-                child,
-                parent,
-                prompt,
-            } => {
+            Intent::Start { source, prompt } => start(state, source, prompt, cx),
+            Intent::Discard { child } => {
+                // Done once the parent is the thread shown, never while the side conversation
+                // still is.
+                if cx.view().active() == Some(&child) || !state.is_side(&child) {
+                    return;
+                }
+                state.links.remove(&child);
+                state.preparing.remove(&child);
+                cx.discard(&child);
+                cx.chat_facts(chat_facts(state, cx.view()));
+            }
+        }
+    }
+
+    /// `SideParentStatusChange::for_notification` of the stream.
+    fn project(notification: &ServerNotification) -> Option<Event> {
+        Some(Event::Parent {
+            parent: ThreadId::new(targets::notification_thread(notification)?),
+            change: StatusChange::for_notification(notification)?,
+        })
+    }
+
+    /// `SideParentStatus::for_request`: a request of the parent that waits for the user.
+    fn project_request(request: &ServerRequest) -> Option<Event> {
+        let status = status_for_request(request)?;
+        let (_, thread) = targets::request_target(request);
+        Some(Event::Parent {
+            parent: ThreadId::new(thread),
+            change: StatusChange::Set(status),
+        })
+    }
+
+    /// What the parent did (`apply_side_parent_status_change`): each side conversation of it
+    /// shows it, and the footer follows.
+    fn on_event(state: &mut State, event: Event, cx: &mut AppCx<'_>) {
+        let Event::Parent { parent, change } = event;
+        if state.side_of(&parent).is_none() {
+            return;
+        }
+        for link in state
+            .links
+            .values_mut()
+            .filter(|link| link.parent == parent)
+        {
+            match change {
+                StatusChange::Set(status) => link.status = Some(status),
+                StatusChange::Clear => link.status = None,
+                StatusChange::ClearActionable => {
+                    if link.status.is_some_and(ParentStatus::is_actionable) {
+                        link.status = None;
+                    }
+                }
+            }
+        }
+        cx.chat_facts(chat_facts(state, cx.view()));
+    }
+
+    /// The fork is open here (`apply_side_creation`): it is a side conversation of its parent
+    /// from now on and its boundary goes in (before it is shown, so the footer has it). The
+    /// side conversation of a parent that was shown again gets the `/btw` prompt.
+    fn thread_opened(
+        state: &mut State,
+        ctx: Ctx,
+        result: Result<ThreadId, Refusal>,
+        cx: &mut AppCx<'_>,
+    ) {
+        match (ctx, result) {
+            (Ctx::Fork { parent, prompt }, Ok(child)) => {
                 // `child.parent_status`: the side conversation the parent already had.
                 let status = state
                     .side_of(&parent)
@@ -307,42 +448,39 @@ impl Feature for Side {
                     Ctx::Boundary(child.clone()),
                 );
             }
-            Intent::Dropped { child } => {
-                state.links.remove(&child);
-                state.preparing.remove(&child);
-                state.ready.retain(|(thread, _)| *thread != child);
+            // `side_start_error_message`: what a fork that failed says.
+            (Ctx::Fork { parent, .. }, Err(Refusal::Failed(error))) => {
+                cx.note(Some(parent), start_failure(&failure(&error)));
             }
-            Intent::Parent { parent, change } => {
-                for link in state
-                    .links
-                    .values_mut()
-                    .filter(|link| link.parent == parent)
-                {
-                    match change {
-                        StatusChange::Set(status) => link.status = Some(status),
-                        StatusChange::Clear => link.status = None,
-                        StatusChange::ClearActionable => {
-                            if link.status.is_some_and(ParentStatus::is_actionable) {
-                                link.status = None;
-                            }
-                        }
-                    }
+            (Ctx::Fork { parent, prompt }, Err(Refusal::Busy)) => restore(cx, &parent, prompt),
+            (Ctx::Reuse { prompt, .. }, Ok(child)) => {
+                if let Some(prompt) = prompt {
+                    cx.submit(&child, UserMessage::text(prompt));
                 }
             }
+            (Ctx::Reuse { parent, prompt }, Err(_)) => restore(cx, &parent, prompt),
+            (Ctx::Boundary(_), _) => {}
         }
+    }
+
+    /// What the chat reads of the thread shown (`sync_side_thread_ui`).
+    fn on_shown(state: &mut State, _thread: &ThreadId, cx: &mut AppCx<'_>) {
+        cx.chat_facts(chat_facts(state, cx.view()));
     }
 
     /// The boundary is in: the prompt that waited for it goes. It is not: the side conversation
     /// stays as it is, with the line saying so (it can be closed), and the prompt is not sent.
     fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
-        let Ctx::Boundary(child) = ctx;
+        let Ctx::Boundary(child) = ctx else {
+            return;
+        };
         let Some(prompt) = state.preparing.remove(&child) else {
             return;
         };
         match result {
             Ok(Reply) => {
                 if let Some(prompt) = prompt {
-                    state.ready.push((child, prompt));
+                    cx.submit(&child, UserMessage::text(prompt));
                 }
             }
             Err(error) => cx.note(
