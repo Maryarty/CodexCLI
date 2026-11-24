@@ -60,10 +60,30 @@ pub(super) fn event_bytes(key: &str, kind: KeyKind) -> String {
     }
 }
 
+/// `ctrl+j` and `ctrl+m`: on an xterm the bytes of Enter, so no terminal without the kitty
+/// protocol can tell them apart (`ctrl+h` and the others are the delete key and the like to the
+/// oracle's tests, and stay the bytes a terminal sends).
+fn shares_legacy_bytes(key: &str) -> bool {
+    let Ok(combo) = KeyCombo::parse(key) else {
+        return false;
+    };
+    combo.code == KeyCode::Char
+        && combo.modifiers == Mods::CTRL
+        && matches!(combo.char, Some('j' | 'm'))
+}
+
 impl Screen {
     /// One key as a terminal sends it: its own bytes where it has them, else
     /// the kitty protocol's (`super+space`, `shift+enter`).
     pub(super) fn press_key(&mut self, key: &str) {
+        if shares_legacy_bytes(key) {
+            // `ctrl+j` is the byte 0x0a on an xterm, which is Enter: a test that binds the chord
+            // means the key itself, so it goes as a terminal with the kitty protocol sends it.
+            for bytes in key_bytes(key, true).unwrap_or_else(|err| panic!("key `{key}`: {err}")) {
+                self.h.t.input(&bytes);
+            }
+            return;
+        }
         match key_bytes(key, false) {
             Ok(_) => self.h.t.press(key),
             Err(KeysError::NoBytes { .. }) => {

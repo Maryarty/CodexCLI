@@ -91,15 +91,27 @@ fn hidden_shell_paste_recalled_from_history_submits_literal_prompt() {
 fn hidden_shell_paste_queued_during_turn_submits_literal_prompt() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a running turn (turn-1 started) with a paste queued by Tab; the queued-preview snapshot is the bottom pane only, its region row is set when the pane is laid out",
+        "the queued preview shows the expanded `!echo xxx` text, the oracle keeps the `[Pasted Content 1006 chars]` placeholder in the queue row (the chat queue stores expanded text); the seed is the scripted running turn and the bottom-pane region",
     );
     for key in ["tab", "enter"] {
-        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .script(RUNNING)
+            .open();
         s.paste(&hidden_shell_payload());
         s.keys(key);
         if key == "tab" {
-            s.assert_snap("hidden_shell_paste_queued_preview");
+            // The oracle's snapshot is the queued preview alone: ours is the bottom pane's top.
+            let row = s
+                .rows()
+                .iter()
+                .position(|row| row.contains("Queued follow-up inputs"))
+                .unwrap_or(usize::MAX);
+            s.assert_snap_region("hidden_shell_paste_queued_preview", row, 0);
         }
+        // The turn finishes: the queued payload goes out as the literal `!echo` text.
+        s.feed(COMPLETED);
+        s.assert_turn_texts(&[&hidden_shell_payload()]);
     }
 }
 
@@ -583,12 +595,23 @@ fn pending_steer_interrupt_uses_remapped_binding() {
 fn default_shortcuts_edit_most_recent_queued_message() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a running turn with two queued messages (the queued-preview rows); the queue is not seeded",
+        "chat.edit_queued_message is not wired: shift+left opens the agent command center and alt+up does nothing, the queued message stays queued; the seed is the scripted running turn plus Tab",
     );
     for key in ["shift+left", "alt+up"] {
-        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+        // A running turn with two messages queued behind it (Tab queues a draft).
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .script(RUNNING)
+            .open();
+        for message in ["first queued", "second queued"] {
+            s.type_text(message);
+            s.keys("tab");
+        }
         s.keys(key);
-        s.assert_contains("second queued");
+        // The most recent one is back in the composer, the other still queued.
+        s.assert_composer("second queued");
+        s.assert_has_row("  ↳ first queued");
+        s.assert_text_count("second queued", 1);
     }
 }
 
@@ -597,30 +620,33 @@ fn default_shortcuts_edit_most_recent_queued_message() {
 fn unbound_queued_message_edit_does_not_fall_back_to_alt_up() {
     kit::pending(
         Owner::ChatNavPane,
-        "no keymap seed (the port reads no key bindings, and an unbound action has no pair in the kit) and no seed for a queued message on a running turn",
+        "chat.edit_queued_message is not wired (shift+left opens the agent command center, focus leaves the composer); the keymap seed with an unbound action and the queued Tab are in place",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
-        .live()
+        .script(RUNNING)
+        .keymap(&[("chat.edit_queued_message", "")])
         .open();
+    s.type_text("queued");
+    s.keys("tab");
     s.assert_absent("edit last queued message");
     s.keys("shift+left");
     s.keys("alt+up");
-    // The oracle then asserts the composer is empty and the queue still holds one message.
+    // Nothing came back to the composer and the message is still queued.
+    s.assert_composer("");
+    s.assert_has_row("  ↳ queued");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:2330 queued_message_edit_hint_displays_configured_chords kind=ui owner=chat-nav-pane
 #[test]
 fn queued_message_edit_hint_displays_configured_chords() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the seed sets the chord (`.keymap(..)` is read), but the chat has no queued-message hint (`edit last queued message` is nowhere in the port) and no seed queues a message on a running turn",
-    );
-    let s = Screen::build(Owner::ChatNavPane)
+    let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
-        .live()
+        .script(RUNNING)
         .keymap(&[("chat.edit_queued_message", "ctrl-x up")])
         .open();
+    s.type_text("queued");
+    s.keys("tab");
     // The oracle's hint: the chord's label (`⌃x ↑`) then the action's text.
     s.assert_contains("⌃x ↑ edit last queued message");
 }
