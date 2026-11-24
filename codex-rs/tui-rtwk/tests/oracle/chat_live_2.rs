@@ -333,10 +333,6 @@ fn chained_config_error_wraps_in_history_snapshot() {
 // ORACLE chatwidget/tests/goal_validation.rs:117 goal_slash_command_preserves_large_pasted_objective kind=ui owner=chat-live
 #[test]
 fn goal_slash_command_preserves_large_pasted_objective() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `/goal` command on the chat screen (feature Goals); a paste over the 4000-char objective limit shows its `[Pasted Content` placeholder in the composer, and submit opens the goal draft, not built",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("/goal ");
     // The oracle pastes MAX_THREAD_GOAL_OBJECTIVE_CHARS + 1 (4000 + 1) `x` cells.

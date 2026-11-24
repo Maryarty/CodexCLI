@@ -192,10 +192,6 @@ fn tool_suggestion_request(install_url: &str) -> String {
 // ORACLE chatwidget/input_queue.rs:142 preview_keeps_queue_categories_separate kind=ui owner=chat-live
 #[test]
 fn preview_keeps_queue_categories_separate() {
-    kit::pending(
-        Owner::ChatLive,
-        "no queue or steer state on the chat screen: a message sent during a running turn is not queued, steered or rejected by the port, so the queued, pending and rejected previews are not drawn",
-    );
     // oracle: one queued message, one pending steer and one rejected steer each show under their own category.
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
