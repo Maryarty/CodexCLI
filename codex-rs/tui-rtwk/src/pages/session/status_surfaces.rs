@@ -48,6 +48,44 @@ impl StatusContext<'_> {
         .collect()
     }
 
+    /// The values a setup previews for `ids` (`status_surface_preview_data`): the live value of an
+    /// item (as the title shows it for the title setup); an empty text where the item has none
+    /// and its placeholder is left out (a limit once the account's limits are known, a cost the
+    /// plan has no figure for).
+    pub fn preview_values(
+        &self,
+        title: bool,
+        ids: &[&str],
+        facts: &StatusFacts,
+    ) -> std::collections::BTreeMap<String, String> {
+        ids.iter()
+            .filter_map(|id| {
+                let value = if title {
+                    self.title_value(id, facts)
+                } else {
+                    self.value_for(id, facts)
+                };
+                let text = match value {
+                    Some(text) => text,
+                    None if self.suppressed(id) => String::new(),
+                    None => return None,
+                };
+                Some(((*id).to_string(), text))
+            })
+            .collect()
+    }
+
+    /// `suppress_placeholder`: the item shows nothing rather than its placeholder.
+    fn suppressed(&self, id: &str) -> bool {
+        match id {
+            "five-hour-limit" | "weekly-limit" => self.rate_limits.is_some(),
+            "estimated-thread-cost" => self
+                .cost
+                .is_some_and(|figure| figure.cost_micros(self.plan).is_none()),
+            _ => false,
+        }
+    }
+
     /// What the item `id` links to: the pull request number, to its page
     /// (`status_line_pull_request_url`).
     pub fn link_for(&self, id: &str) -> Option<String> {
@@ -248,10 +286,8 @@ impl StatusContext<'_> {
                 .map(|total| format_units(total, "used")),
             "total-input-tokens" => counted(|t| t.input).map(|n| format_units(n, "in")),
             "total-output-tokens" => counted(|t| t.output).map(|n| format_units(n, "out")),
-            "five-hour-limit" => percent_remaining(self.rate_limits?, 300)
-                .map(|percent| self.strings.status_quota("5h", percent)),
-            "weekly-limit" => percent_remaining(self.rate_limits?, 7 * 24 * 60)
-                .map(|percent| self.strings.status_quota("Weekly", percent)),
+            "five-hour-limit" => limit_text(self.strings, five_hour_window(self.rate_limits?)),
+            "weekly-limit" => limit_text(self.strings, weekly_window(self.rate_limits?)),
             "thread-credits" => self
                 .cost
                 .filter(|_| self.plan != Some(PlanType::Ent26))
@@ -443,13 +479,104 @@ fn format_units(value: i64, units: &str) -> String {
     format!("{} {units}", format_tokens_compact(value))
 }
 
-fn percent_remaining(limits: &status::RateLimits, duration: i64) -> Option<u64> {
-    let limit = limits
+/// `is_approximate_window`: within five percent of the span.
+fn is_approximate_window(minutes: i64, expected: i64) -> bool {
+    let (minutes, expected) = (minutes as f64, expected as f64);
+    minutes >= expected * 0.95 && minutes <= expected * 1.05
+}
+
+/// `get_limits_duration`: what a window of that many minutes is called.
+fn limit_duration(minutes: i64) -> Option<&'static str> {
+    const HOUR: i64 = 60;
+    const DAY: i64 = 24 * HOUR;
+    let minutes = minutes.max(0);
+    [
+        (5 * HOUR, "5h"),
+        (DAY, "daily"),
+        (7 * DAY, "weekly"),
+        (30 * DAY, "monthly"),
+        (365 * DAY, "annual"),
+    ]
+    .into_iter()
+    .find(|(span, _)| is_approximate_window(minutes, *span))
+    .map(|(_, name)| name)
+}
+
+/// `limit_label_for_window`: the window's name, else the fallback of its slot.
+fn limit_label(window: &status::RateWindow, secondary: bool) -> &'static str {
+    window
+        .window_minutes
+        .and_then(limit_duration)
+        .unwrap_or(if secondary { "secondary usage" } else { "usage" })
+}
+
+fn has_label(window: &status::RateWindow, label: &str) -> bool {
+    window.window_minutes.and_then(limit_duration) == Some(label)
+}
+
+type Slot<'a> = Option<(&'a status::RateWindow, bool)>;
+
+/// `find_codex_window`: the primary or else the secondary window of that name.
+fn find_window<'a>(limits: &'a status::RateLimits, label: &str) -> Slot<'a> {
+    limits
         .primary
-        .iter()
-        .chain(&limits.secondary)
-        .find(|window| window.window_minutes == Some(duration))?;
-    Some((100 - limit.used_percent.clamp(0, 100)) as u64)
+        .as_ref()
+        .filter(|window| has_label(window, label))
+        .map(|window| (window, false))
+        .or_else(|| {
+            limits
+                .secondary
+                .as_ref()
+                .filter(|window| has_label(window, label))
+                .map(|window| (window, true))
+        })
+}
+
+/// `five_hour_status_window`: the primary window when it is the 5h one; the secondary when it is
+/// and a weekly one exists; else the primary when it is not the weekly one; else the secondary
+/// under a weekly primary when it is not weekly too.
+fn five_hour_window(limits: &status::RateLimits) -> Slot<'_> {
+    let weekly = |window: &status::RateWindow| has_label(window, "weekly");
+    limits
+        .primary
+        .as_ref()
+        .filter(|window| has_label(window, "5h"))
+        .map(|window| (window, false))
+        .or_else(|| {
+            find_window(limits, "weekly")?;
+            limits
+                .secondary
+                .as_ref()
+                .filter(|window| has_label(window, "5h"))
+                .map(|window| (window, true))
+        })
+        .or_else(|| {
+            limits
+                .primary
+                .as_ref()
+                .filter(|window| !weekly(window))
+                .map(|window| (window, false))
+        })
+        .or_else(|| {
+            limits.primary.as_ref().filter(|window| weekly(window))?;
+            limits
+                .secondary
+                .as_ref()
+                .filter(|window| !weekly(window))
+                .map(|window| (window, true))
+        })
+}
+
+/// `weekly_status_window`: the weekly window, else the secondary one.
+fn weekly_window(limits: &status::RateLimits) -> Slot<'_> {
+    find_window(limits, "weekly").or_else(|| limits.secondary.as_ref().map(|window| (window, true)))
+}
+
+/// `status_line_limit_display`'s words: the window's name and what is left of it.
+fn limit_text(strings: &Shared, slot: Slot<'_>) -> Option<String> {
+    let (window, secondary) = slot?;
+    let left = (100 - window.used_percent.clamp(0, 100)) as u64;
+    Some(strings.status_quota(limit_label(window, secondary), left))
 }
 
 pub(super) fn display_dir(cwd: &str, home: Option<&str>) -> String {

@@ -1,0 +1,4 @@
+# The title setup with the credits and the cost, no estimate yet.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:544.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"terminal_title":["thread-credits","estimated-thread-cost"]}}}

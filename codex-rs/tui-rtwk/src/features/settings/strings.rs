@@ -806,6 +806,46 @@ impl Strings {
     }
 }
 
+/// `(prefix of the live value, name, description)` of a limit item once its window is known
+/// (`rate_limit_preview_copy`): the row is named after the window the value tells.
+pub(super) const RATE_LIMIT_COPY: &[(&str, &str, &str)] = &[
+    (
+        "secondary usage ",
+        "secondary-usage-limit",
+        "Remaining usage on the secondary usage limit (omitted when unavailable)",
+    ),
+    (
+        "usage ",
+        "usage-limit",
+        "Remaining usage on the primary usage limit (omitted when unavailable)",
+    ),
+    (
+        "5h ",
+        "five-hour-limit",
+        "Remaining usage on the 5-hour usage limit (omitted when unavailable)",
+    ),
+    (
+        "daily ",
+        "daily-limit",
+        "Remaining usage on the daily usage limit (omitted when unavailable)",
+    ),
+    (
+        "weekly ",
+        "weekly-limit",
+        "Remaining usage on the weekly usage limit (omitted when unavailable)",
+    ),
+    (
+        "monthly ",
+        "monthly-limit",
+        "Remaining usage on the monthly usage limit (omitted when unavailable)",
+    ),
+    (
+        "annual ",
+        "annual-limit",
+        "Remaining usage on the annual usage limit (omitted when unavailable)",
+    ),
+];
+
 /// `(id, description, preview)` of each item of the status line, in the oracle's order.
 pub(super) const STATUS_LINE_ITEMS: &[(&str, &str, &str)] = &[
     ("model", "Current model name", "gpt-5.2-codex"),

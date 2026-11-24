@@ -24,7 +24,7 @@ use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::sheets::select::hud;
-use crate::widgets::status_line::status_spans;
+use crate::widgets::status_line::{status_spans, thread_color};
 
 use super::frame::Frame;
 use super::slot::Slot;
@@ -74,9 +74,14 @@ pub(super) fn body(
         body = body.child(panel);
     }
     let context = frame.context();
-    let line = status_spans(context.items_for(facts), facts.colors, tokens, |id| {
-        context.link_for(id)
-    });
+    let thread_color = thread_color(cx, session.active.as_ref().map(|id| id.as_str()));
+    let line = status_spans(
+        context.items_for(facts),
+        facts.colors,
+        tokens,
+        thread_color,
+        |id| context.link_for(id),
+    );
     // The backend control above the composer (`rendering.rs`,
     // `visible_new_backend_control`): the displayed backend, and the key.
     let control = session

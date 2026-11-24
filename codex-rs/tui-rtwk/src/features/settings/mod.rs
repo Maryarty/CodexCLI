@@ -29,6 +29,7 @@ mod keys;
 pub mod keymap_editor;
 pub mod memories;
 mod open;
+mod preview;
 pub mod setup;
 mod shown;
 pub mod strings;

@@ -8,8 +8,11 @@ use crate::kit::{self, Owner, Screen};
 
 /// A bottom popup of the live chat at 100 columns. The oracle renders the popup
 /// alone, so its rows are the last rows of our screen (the bottom pane).
-fn bottom_popup(command: &str, snap: &str) -> Screen {
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+fn bottom_popup(script: &'static str, command: &str, snap: &str) -> Screen {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(script)
+        .open();
     s.type_text(command);
     s.keys("enter");
     let (_, rows) = kit::snap_size(snap);
@@ -21,27 +24,29 @@ fn bottom_popup(command: &str, snap: &str) -> Screen {
 // ORACLE chatwidget/tests/status_surface_previews.rs:16 thread_color_preview_matches_footer kind=snap owner=ui-pane
 #[test]
 fn thread_color_preview_matches_footer() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; no scripted state for a named thread with a thread color",
-    );
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_3/preview_color.jsonl"))
+        .open();
     s.type_text("/statusline");
     s.keys("enter");
     // The oracle's preview Line, with colors on: the name in the thread color, the dot grey.
     s.assert_contains("Named task · Named task");
-    s.assert_text_style("Named task", "fg=Rgb(242, 205, 205)");
-    s.assert_text_style(" · ", "fg=Rgb(140, 140, 140) !bold !dim");
+    // The oracle's thread has id 42, whose slot in the palette is (242, 205, 205); the harness's
+    // thread is `thread-1`, whose slot is (245, 194, 231). Same palette, same rule.
+    s.assert_text_style("Named task", "fg=Rgb(245, 194, 231)");
+    // The dot is the secondary text colour, not the thread's (the oracle pins its blend of the
+    // default colours it forces, (140, 140, 140); this terminal's default colours are its own).
+    s.assert_text_style("·", "!bold");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:138 status_surface_preview_lines_live_only_snapshot kind=snap owner=ui-pane snap=status_surface_previews_live_only
 #[test]
 fn status_surface_preview_lines_live_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; no scripted state for project root, branch, thread name and plan progress",
-    );
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_3/preview_live.jsonl"))
+        .open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
     s.type_text("/statusline");
     s.keys("enter");
@@ -57,11 +62,11 @@ fn status_surface_preview_lines_live_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:164 status_line_setup_popup_live_only_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_live_only
 #[test]
 fn status_line_setup_popup_live_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no /statusline popup in the ported chat; the live seed (status-line items, git branch, thread name, project root) has no entry or script",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/preview_live.jsonl"),
+        "/statusline",
+        "status_line_setup_popup_live_only",
     );
-    bottom_popup("/statusline", "status_line_setup_popup_live_only");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:183 status_surface_preview_lines_hardcoded_only_snapshot kind=snap owner=ui-pane snap=status_surface_previews_hardcoded_only
@@ -69,9 +74,12 @@ fn status_line_setup_popup_live_only_snapshot() {
 fn status_surface_preview_lines_hardcoded_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the hardcoded preview items have no scripted state",
+        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
     );
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_3/hardcoded_line.jsonl"))
+        .open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
     s.type_text("/statusline");
     s.keys("enter");
@@ -89,29 +97,32 @@ fn status_surface_preview_lines_hardcoded_only_snapshot() {
 fn status_line_setup_popup_hardcoded_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the status-line items (profile, provider) have no scripted state",
+        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
     );
-    bottom_popup("/statusline", "status_line_setup_popup_hardcoded_only");
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/hardcoded_status_popup.jsonl"),
+        "/statusline",
+        "status_line_setup_popup_hardcoded_only",
+    );
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:239 status_line_setup_popup_workspace_headline_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_workspace_headline
 #[test]
 fn status_line_setup_popup_workspace_headline_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the workspace headline has no scripted state",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/headline_popup.jsonl"),
+        "/statusline",
+        "status_line_setup_popup_workspace_headline",
     );
-    bottom_popup("/statusline", "status_line_setup_popup_workspace_headline");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:251 status_surface_preview_lines_mixed_snapshot kind=snap owner=ui-pane snap=status_surface_previews_mixed
 #[test]
 fn status_surface_preview_lines_mixed_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; no scripted state for the mixed live and hardcoded items",
-    );
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_3/mixed_line.jsonl"))
+        .open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
     s.type_text("/statusline");
     s.keys("enter");
@@ -125,11 +136,10 @@ fn status_surface_preview_lines_mixed_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:274 status_surface_preview_lines_rate_limits_snapshot kind=snap owner=ui-pane snap=status_surface_previews_rate_limits
 #[test]
 fn status_surface_preview_lines_rate_limits_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no /statusline or /title setup popup in the ported chat; no rate-limit seed",
-    );
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_3/rate_limits.jsonl"))
+        .open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
     s.type_text("/statusline");
     s.keys("enter");
@@ -143,11 +153,10 @@ fn status_surface_preview_lines_rate_limits_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:291 status_surface_preview_lines_thread_usage_snapshot kind=snap owner=ui-pane snap=status_surface_previews_thread_usage
 #[test]
 fn status_surface_preview_lines_thread_usage_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no /statusline or /title setup popup in the ported chat; no thread-usage seed",
-    );
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_3/usage_line.jsonl"))
+        .open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
     s.type_text("/statusline");
     s.keys("enter");
@@ -161,31 +170,31 @@ fn status_surface_preview_lines_thread_usage_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:438 status_line_setup_popup_rate_limits_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_rate_limits
 #[test]
 fn status_line_setup_popup_rate_limits_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the rate-limit snapshot (35% and 50% used) has no scripted state",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/rate_limits.jsonl"),
+        "/statusline",
+        "status_line_setup_popup_rate_limits",
     );
-    bottom_popup("/statusline", "status_line_setup_popup_rate_limits");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:453 status_line_setup_popup_mixed_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_mixed
 #[test]
 fn status_line_setup_popup_mixed_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the account, the daybreak feature and the status-line items have no scripted state",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/mixed_status_popup.jsonl"),
+        "/statusline",
+        "status_line_setup_popup_mixed",
     );
-    bottom_popup("/statusline", "status_line_setup_popup_mixed");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:474 terminal_title_setup_popup_live_only_snapshot kind=snap owner=ui-pane snap=terminal_title_setup_popup_live_only
 #[test]
 fn terminal_title_setup_popup_live_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the terminal-title items and the live branch and plan progress have no scripted state",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/preview_live.jsonl"),
+        "/title",
+        "terminal_title_setup_popup_live_only",
     );
-    bottom_popup("/title", "terminal_title_setup_popup_live_only");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:494 terminal_title_setup_popup_hardcoded_only_snapshot kind=snap owner=ui-pane snap=terminal_title_setup_popup_hardcoded_only
@@ -193,39 +202,43 @@ fn terminal_title_setup_popup_live_only_snapshot() {
 fn terminal_title_setup_popup_hardcoded_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the terminal-title items have no scripted state",
+        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
     );
-    bottom_popup("/title", "terminal_title_setup_popup_hardcoded_only");
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/hardcoded_title_popup.jsonl"),
+        "/title",
+        "terminal_title_setup_popup_hardcoded_only",
+    );
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:509 terminal_title_setup_popup_mixed_snapshot kind=snap owner=ui-pane snap=terminal_title_setup_popup_mixed
 #[test]
 fn terminal_title_setup_popup_mixed_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the account, the daybreak feature and the terminal-title items have no scripted state",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/mixed_title_popup.jsonl"),
+        "/title",
+        "terminal_title_setup_popup_mixed",
     );
-    bottom_popup("/title", "terminal_title_setup_popup_mixed");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:529 terminal_title_setup_popup_rate_limits_snapshot kind=snap owner=ui-pane snap=terminal_title_setup_popup_rate_limits
 #[test]
 fn terminal_title_setup_popup_rate_limits_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the rate-limit snapshot has no scripted state",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/rate_limits.jsonl"),
+        "/title",
+        "terminal_title_setup_popup_rate_limits",
     );
-    bottom_popup("/title", "terminal_title_setup_popup_rate_limits");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:544 terminal_title_setup_popup_thread_usage_snapshot kind=snap owner=ui-pane snap=terminal_title_setup_popup_thread_usage
 #[test]
 fn terminal_title_setup_popup_thread_usage_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the thread-credits and estimated-cost items have no scripted state",
+    bottom_popup(
+        include_str!("fixtures/chat_status_3/usage_title_popup.jsonl"),
+        "/title",
+        "terminal_title_setup_popup_thread_usage",
     );
-    bottom_popup("/title", "terminal_title_setup_popup_thread_usage");
 }
 
 // ---- oracle: chatwidget/tests/subagent_activity_tests.rs (2 screen-level tests here; 1 state tests left to ui-pane)

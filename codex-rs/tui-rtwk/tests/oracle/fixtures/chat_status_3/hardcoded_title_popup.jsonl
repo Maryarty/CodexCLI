@@ -1,0 +1,3 @@
+# The title setup with thread title, branch and task progress, no thread yet, nothing live.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:494.
+{"step":"screen","dir":"chat","ev":{"status":{"terminal_title":["thread-title","git-branch","task-progress"]}}}

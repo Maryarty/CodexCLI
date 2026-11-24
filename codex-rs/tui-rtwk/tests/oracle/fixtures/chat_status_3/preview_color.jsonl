@@ -1,0 +1,5 @@
+# A named thread whose status line is the thread name and title, colours on (thread_color_preview_matches_footer).
+# Oracle data: chatwidget/tests/status_surface_previews.rs:16 name `Named task`.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":["thread-name","thread-title"],"colors":true}}}
+{"step":"notify","message":{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"Named task"}}}

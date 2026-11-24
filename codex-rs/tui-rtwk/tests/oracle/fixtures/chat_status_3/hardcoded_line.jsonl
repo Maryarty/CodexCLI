@@ -1,0 +1,3 @@
+# No thread yet, a read-only profile asking for approval: the rest of both previews are placeholders.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:183.
+{"step":"screen","dir":"chat","ev":{"status":{"items":["project-name","git-branch","thread-title","permissions","approval-mode"],"terminal_title":["thread-title","git-branch","task-progress"],"approval_policy":"on-request","profile":"read_only"}}}

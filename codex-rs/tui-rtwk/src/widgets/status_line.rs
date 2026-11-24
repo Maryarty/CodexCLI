@@ -7,7 +7,7 @@
 
 use crate::widgets::measure::Measure;
 use rtwk::layout::{Expanded, Row, SizedBox};
-use rtwk::style::{Span, Style};
+use rtwk::style::{Color, Span, Style};
 use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, LayoutBuilder};
@@ -91,13 +91,21 @@ pub fn item_style(id: &str, colors: bool, tokens: &Tokens) -> Style {
     }
 }
 
+/// The colour of the thread `id` (`thread_color`): the accent of the theme's palette at its slot.
+pub fn thread_color<S>(cx: &mut rtwk::Cx<'_, S>, id: Option<&str>) -> Option<Color> {
+    let theme = rtwk::style::Theme::of(cx);
+    crate::app::theme::ThreadPalette::of(&theme).color(id?)
+}
+
 /// The spans of the line of `items` (id and text, in order), empty when there
 /// are none (`status_line_from_segments` returns `None`). Control characters
-/// are dropped from the texts.
+/// are dropped from the texts; with the colours on, `thread` is the colour of the
+/// thread's name and title.
 pub fn status_spans<I, S>(
     items: I,
     colors: bool,
     tokens: &Tokens,
+    thread: Option<Color>,
     link: impl Fn(&str) -> Option<String>,
 ) -> Vec<Span>
 where
@@ -110,7 +118,13 @@ where
             spans.push(Span::styled(SEPARATOR, tokens.dim()));
         }
         let text: String = text.chars().filter(|c| !c.is_control()).collect();
-        let style = item_style(id.as_ref(), colors, tokens);
+        // the thread's own colour on its name (`thread_color`), with the colours on
+        let style = match thread {
+            Some(color) if colors && matches!(id.as_ref(), "thread-name" | "thread-title") => {
+                Style::new().fg(color)
+            }
+            _ => item_style(id.as_ref(), colors, tokens),
+        };
         // the pull request number opens its page (`status_line_hyperlink`)
         let style = match link(id.as_ref()) {
             Some(url) => style.link(url),
@@ -129,7 +143,7 @@ where
     I: IntoIterator<Item = (S, String)>,
     S: AsRef<str>,
 {
-    let spans = status_spans(items, colors, tokens, |_| None);
+    let spans = status_spans(items, colors, tokens, None, |_| None);
     (!spans.is_empty()).then(|| {
         Text::rich(spans)
             .max_lines(Some(3))

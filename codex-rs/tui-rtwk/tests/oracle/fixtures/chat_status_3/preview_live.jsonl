@@ -1,0 +1,7 @@
+# Live values for the status line and title setups: project root, branch, thread name, plan progress 2/5.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:138 and :474 (the root `preview-live-root`, the branch, the thread `Live preview thread`).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"project_root":"preview-live-root","branch":"feature/live-preview-branch","items":["project-name","git-branch","thread-title"],"terminal_title":["project-name","thread-title","git-branch","task-progress"]}}}
+{"step":"notify","message":{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"Live preview thread"}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","explanation":null,"plan":[{"step":"a","status":"completed"},{"step":"b","status":"completed"},{"step":"c","status":"inProgress"},{"step":"d","status":"pending"},{"step":"e","status":"pending"}]}}}

@@ -1,0 +1,5 @@
+# Rate limits of a 30-day and a 7-day window, 35% and 50% used; both setups list the two limit items.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:100 cache_rate_limit_snapshot.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":["five-hour-limit","weekly-limit"],"terminal_title":["five-hour-limit","weekly-limit"]}}}
+{"step":"notify","message":{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":null,"limitName":null,"normalModelSlug":null,"primary":{"usedPercent":35,"windowDurationMins":43200,"resetsAt":null},"secondary":{"usedPercent":50,"windowDurationMins":10080,"resetsAt":null},"credits":null,"individualLimit":null,"spendControlReached":null,"planType":null,"rateLimitReachedType":null}}}}

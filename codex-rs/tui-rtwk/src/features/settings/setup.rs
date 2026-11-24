@@ -320,6 +320,7 @@ impl State for SetupState {
         let Some(offered) = offered(cx, w.which) else {
             return Dialog::bare(Text::new(String::new())).into();
         };
+        let offered = super::preview::live(cx, offered);
         let setup = self.draft.view(&offered);
         let (title, subtitle, placeholder, hint) = match setup.kind {
             SetupKind::StatusLine => (
@@ -377,7 +378,9 @@ impl State for SetupState {
                     rows.iter()
                         .map(|row| match row {
                             Entry::Item(index) => seg.width(name_of(s, &setup.items[*index])),
-                            Entry::Break => 0,
+                            // the rule counts as a name of its own width, less the check
+                            // the names carry (`compute_desc_col`)
+                            Entry::Break => seg.width(s.section_break).saturating_sub(4),
                         })
                         .collect(),
                 );
@@ -504,9 +507,9 @@ impl State for SetupState {
             .child(mark(true))
             .child(body)
             .child(mark(false));
-        let preview = setup.preview();
-        if !preview.is_empty() {
-            column = column.child(Text::line(format!("{}{preview}", s.indent)));
+        let thread = super::preview::thread(cx);
+        if let Some(preview) = super::preview::row(&setup, &tokens, thread, s.indent) {
+            column = column.child(preview);
         }
         column = column.child(Text::line(format!("{}{hint}", s.indent)).style(tokens.dim()));
         Dialog::bare(BoxWidget::new().style(Style::new()).child(column)).into()

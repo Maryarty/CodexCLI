@@ -1,0 +1,5 @@
+# A branch and a thread name live, the rest placeholders.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:251.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"branch":"feature/mixed-preview","items":["project-name","git-branch","thread-title"],"terminal_title":["project-name","thread-title","task-progress"]}}}
+{"step":"notify","message":{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"Mixed preview thread"}}}

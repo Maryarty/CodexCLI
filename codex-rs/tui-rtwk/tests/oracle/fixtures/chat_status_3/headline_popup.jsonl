@@ -1,0 +1,5 @@
+# The status line `workspace-headline` item; the headline probe answered.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:239.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":["workspace-headline"]}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"headline":{"request":1,"answer":{"available":"Workspace maintenance starts at 5pm"}}}}}

@@ -1,0 +1,6 @@
+# A ChatGPT account, Daybreak on for the thread and a thread name: the title setup.
+# Oracle data: chatwidget/tests/status_surface_previews.rs:509.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"terminal_title":["project-name","thread-title","task-progress","daybreak"]}}}
+{"step":"notify","message":{"method":"thread/started","params":{"thread":{"id":"thread-1","environments":null,"extra":null,"sessionId":"thread-1","forkedFromId":null,"attachedToThreadId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"legacy","modelProvider":"openai","model":null,"reasoningEffort":null,"createdAt":0,"updatedAt":0,"recencyAt":0,"status":{"type":"idle"},"path":null,"cwd":"/tmp/project","cliVersion":"0.0.0","originator":null,"source":"cli","canAcceptDirectInput":true,"threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":"Mixed preview thread","daybreakEnabled":true,"turns":[]}}}}
