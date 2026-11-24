@@ -17,12 +17,12 @@ const NEEDS_APPROVAL: &str = " (needs approval)";
 pub fn list(rows: &[Row], initial: Option<usize>) -> List {
     let items = rows
         .iter()
-        .map(|row| {
-            let name = row.name.label();
-            let uuid = row.thread.as_str().to_owned();
+        .map(|entry| {
+            let name = entry.name.label();
+            let uuid = entry.thread.as_str().to_owned();
             Item {
                 id: uuid.clone(),
-                name: if row.needs_approval {
+                name: if entry.needs_approval {
                     format!("{name}{NEEDS_APPROVAL}")
                 } else {
                     name.clone()
@@ -30,7 +30,7 @@ pub fn list(rows: &[Row], initial: Option<usize>) -> List {
                 prefix_spans: vec![
                     Span {
                         text: "\u{2022}".to_owned(),
-                        role: if row.closed {
+                        role: if entry.closed {
                             Role::Plain
                         } else {
                             Role::Success
@@ -42,7 +42,7 @@ pub fn list(rows: &[Row], initial: Option<usize>) -> List {
                     },
                 ],
                 description: Some(uuid.clone()),
-                current: row.current,
+                current: entry.current,
                 search_value: Some(format!("{name} {uuid}")),
                 ..Item::default()
             }

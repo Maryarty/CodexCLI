@@ -42,7 +42,6 @@ use codex_tui_core::threads::ThreadModel;
 use crate::app::debug::menu::DebugMenu;
 use crate::app::view::Hs;
 use crate::pages::session::key_actions::Keyed;
-use crate::pages::session::key_actions::side::return_from_side;
 use crate::pages::session::keys::Action;
 use crate::pages::session::open::open;
 use crate::widgets::composer_draft::ComposerDraft;
@@ -356,8 +355,6 @@ impl State for ChatState {
                 }
             }
             ChatMsg::QuitReadOnly => cx.emit(&hs.quit, ()),
-            ChatMsg::CtrlC | ChatMsg::CtrlD
-                if return_from_side(cx, &hs, w.ui.composer.text().is_empty()) => {}
             ChatMsg::CtrlC => {
                 let thread = read::<ThreadModel, _>(cx);
                 if thread.can_interrupt() {
