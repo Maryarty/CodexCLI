@@ -228,6 +228,20 @@ impl Effects {
                 })
             }));
         }
+        if let Command::Effect {
+            request,
+            ask: ask @ Ask::BackgroundServer(_),
+            ..
+        } = command
+        {
+            let (request, ask) = (*request, ask.clone());
+            return Some(Box::pin(async move {
+                Some(AppEv::Effect {
+                    request,
+                    done: crate::daemon::run(&ask).await?,
+                })
+            }));
+        }
         if !matches!(
             command,
             Command::Effect { .. } | Command::Popovers { .. } | Command::OpenUrl { .. }

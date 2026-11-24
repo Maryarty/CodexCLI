@@ -35,6 +35,8 @@ pub mod prompt;
 // One line per directory of `feature_list!`, written out so that rustfmt (which follows `mod`
 // lines, not macro expansions) formats the views too. A feature of the list without its
 // directory does not compile: `view_dispatch!` needs its `FeatureView` impl.
+pub mod daemon;
+pub mod diff;
 pub mod export;
 pub mod goal;
 pub mod plugins;

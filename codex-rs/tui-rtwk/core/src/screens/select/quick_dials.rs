@@ -311,6 +311,10 @@ pub enum Gate {
 /// What `Intent::Quick` asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Open {
+    /// `/presets`: the shortcut menu over the composer (`open_quick_dial_menu`). The menu is the
+    /// composer's drawn state: the model says only whether it may open (the gate's notes), and
+    /// opens no sheet.
+    Menu,
     /// `n`, a digit with no preset: the editor on the composer's text, on `dial`, or on the
     /// slot's own preset (`OpenQuickDialEditor`).
     Editor {
