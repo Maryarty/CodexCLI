@@ -11,7 +11,9 @@ use rtwk::text::DefaultTextStyle;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
+use super::dispatch::{CellEnv, Place, below};
 use crate::app::theme::Tokens;
+use codex_tui_core::threads::Item;
 
 /// The bullet and its blank (oracle `prefix_lines(.., "• ", "  ")`).
 const BULLET_COLUMNS: i32 = 2;
@@ -49,4 +51,23 @@ impl StatelessWidget for ReasoningCell {
             ))
             .into()
     }
+}
+
+/// The model's reasoning summary. A block with nothing to say (its parts empty or `<!-- -->`) draws nothing, not even the blank row above it (oracle: an empty layout takes no separator).
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Reasoning { .. } = item else {
+        return AnyWidget::default();
+    };
+    let summary = item.reasoning_text(env.show_raw_reasoning);
+    if summary.trim().is_empty() {
+        return AnyWidget::default();
+    }
+    below(
+        place.separator,
+        ReasoningCell {
+            summary: summary.to_owned(),
+        }
+        .into(),
+    )
 }

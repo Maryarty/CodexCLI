@@ -13,6 +13,7 @@ pub mod cells;
 pub mod composer;
 mod external_writer;
 mod footer;
+mod key_actions;
 mod keys;
 mod live;
 pub mod open;

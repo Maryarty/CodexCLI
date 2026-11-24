@@ -16,9 +16,11 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::one_row::one_row;
 use super::strings::Strings;
 use super::text::Part;
+use codex_tui_core::threads::Item;
 
 /// Control characters read as blanks.
 fn blank(text: &str, strings: &Strings) -> String {
@@ -128,4 +130,21 @@ impl State for ViewedImageCellState {
         };
         super::disclosure::disclosing(cx, summary, label, tokens.dim().attrs(Attrs::DIM), expanded)
     }
+}
+
+/// A viewed image.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::ImageView { name, path } = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        ViewedImageCell {
+            name: name.clone(),
+            path: path.clone(),
+            detailed: env.detailed,
+        }
+        .into(),
+    )
 }

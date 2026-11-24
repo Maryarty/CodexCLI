@@ -333,10 +333,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
             } else if opened.command == SlashCommand::Presets {
-                // The oracle's presets overlay is not built (chunk-popups-picker-rest): the popup
-                // says so, as `/daemon`'s does.
-                let action = crate::sheets::select::strings::of(cx).presets_action;
-                drop(crate::widgets::page_keys::not_yet(cx, action));
+                crate::sheets::select::open_presets(cx);
             } else if shown_by_presenter {
                 note_opened(opened.target);
             } else {

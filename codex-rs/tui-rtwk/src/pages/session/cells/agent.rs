@@ -12,7 +12,9 @@ use rtwk::widgets::Text;
 use rtwk_rich::markdown::MarkdownTheme;
 
 use super::citation;
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 /// What a message is drawn with.
 pub struct Look<'a> {
@@ -39,4 +41,26 @@ pub fn message(source: &str, live: bool, cwd: Option<&str>, look: &Look<'_>) -> 
             Padding::new(EdgeInsets::only(0, 0, 1, 0), markdown),
         ))
         .into()
+}
+
+/// An assistant message: it keeps one column free at the right.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Agent { text, .. } = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        message(
+            text,
+            place.streaming,
+            env.cwd,
+            &Look {
+                bullet: env.bullet,
+                bullet_style: env.bullet_style.clone(),
+                markdown: env.markdown,
+                cells: env.cells,
+            },
+        ),
+    )
 }

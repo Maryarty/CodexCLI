@@ -14,7 +14,9 @@ use crate::app::theme::Tokens;
 use crate::pages::session::strings::{LINE_BREAK, MORE};
 use crate::widgets::dots::dots_end;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 /// What a cell draws with: the tables, the theme, and whether the rows are
 /// the expanded ones (the transcript's detailed mode or a tap).
@@ -122,4 +124,21 @@ pub fn source_lines(text: &str) -> Vec<&str> {
         parts.pop();
     }
     parts
+}
+
+/// A tool call: the rows of the run it starts (an exploration, a computer call row shares its run).
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Tool(tool) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        crate::pages::session::transcript_activity::ToolRow {
+            first: tool.clone(),
+            rest: place.rest.clone(),
+            detailed: env.detailed,
+        }
+        .into(),
+    )
 }

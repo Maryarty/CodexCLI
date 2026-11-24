@@ -27,7 +27,9 @@ use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, ToolStatus}
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 /// oracle activity_preview.rs `DETAIL_PREVIEW_LINES`.
 const PREVIEW_LINES: usize = 3;
@@ -421,4 +423,21 @@ fn change_lines(
         }
     }
     out
+}
+
+/// A file edit.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Patch(activity) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        PatchCell {
+            activity: activity.clone(),
+            cwd: env.cwd.map(str::to_owned),
+            detailed: env.detailed,
+        }
+        .into(),
+    )
 }
