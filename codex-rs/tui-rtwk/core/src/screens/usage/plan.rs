@@ -339,14 +339,14 @@ pub struct PlanView {
     pub notes: Vec<Note>,
 }
 
-impl super::Model {
+impl super::View<'_> {
     /// The Plan report for the cursor `pos`: the first period of each table
     /// on the card, every one and the open details when `zoomed`.
     pub fn plan_view(&self, pos: &Pos, zoomed: bool) -> PlanView {
         let report = self.plan.ready().map(|report| &**report);
         let mut pos = pos.clone();
         pos.sync(report);
-        let group = self.groups[super::Section::Plan as usize];
+        let group = self.group_of(super::Section::Plan);
         let dimension = Dimension::of_group(group);
         let tables = [0, 1].map(|window| {
             let mut lines = vec![

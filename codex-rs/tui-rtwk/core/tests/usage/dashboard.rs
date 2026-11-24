@@ -3,21 +3,24 @@
 
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::usage::dashboard::{Geometry, Lead};
-use codex_tui_core::screens::usage::{Model, Section};
+use codex_tui_core::screens::usage::{Model, Section, UsageChoice, View};
 use pretty_assertions::assert_eq;
 
-fn account(plan: &str) -> Model {
+fn account(plan: &str) -> (Model, UsageChoice) {
     let script = format!(
         r#"{{"step":"seed","seed":"session","thread":"thread-1"}}
 {{"step":"screen","dir":"usage","ev":{{"account":{{"plan":"{plan}","today":"2026-09-02"}}}}}}
 "#
     );
-    Sandbox::play(&script)
+    let model = Sandbox::play(&script)
         .expect("plays")
         .app()
         .screens()
         .usage
-        .clone()
+        .clone();
+    let mut sel = UsageChoice::opening(None);
+    sel.settled(&model);
+    (model, sel)
 }
 
 /// The oracle's 144 by 64 screen: the body is 142 by 57 once the page has
@@ -75,18 +78,19 @@ fn a_card_belongs_to_a_row_and_a_row_to_its_cards() {
 
 #[test]
 fn the_lead_names_the_range_the_model_and_the_grouping() {
-    let consumer = account("plus");
-    let lead = |model: &Model, section| model.card_lead(section);
+    let (model, sel) = account("plus");
+    let consumer = (&model, &sel);
+    let lead = |(model, sel): (&Model, &UsageChoice), section| View::new(model, sel).card_lead(section);
     assert_eq!(
-        lead(&consumer, Section::Usage),
+        lead(consumer, Section::Usage),
         Lead {
             range: Some(false),
             model: None,
-            group: Some(consumer.groups[Section::Usage as usize])
+            group: Some(sel.groups[Section::Usage as usize])
         }
     );
     assert_eq!(
-        lead(&consumer, Section::Plugins),
+        lead(consumer, Section::Plugins),
         Lead {
             range: Some(false),
             model: None,
@@ -95,7 +99,7 @@ fn the_lead_names_the_range_the_model_and_the_grouping() {
     );
     for section in [Section::Summary, Section::Chats] {
         assert_eq!(
-            lead(&consumer, section),
+            lead(consumer, section),
             Lead {
                 range: None,
                 model: None,
@@ -103,16 +107,17 @@ fn the_lead_names_the_range_the_model_and_the_grouping() {
             }
         );
     }
-    assert_eq!(lead(&consumer, Section::Plan).range, None);
-    assert!(lead(&consumer, Section::Plan).group.is_some());
+    assert_eq!(lead(consumer, Section::Plan).range, None);
+    assert!(lead(consumer, Section::Plan).group.is_some());
 }
 
 #[test]
 fn a_business_token_card_carries_the_model_filter() {
-    let mut business = account("enterprise_cbp_usage_based");
-    let lead = business.card_lead(Section::Usage);
+    let (model, mut sel) = account("enterprise_cbp_usage_based");
+    let lead = View::new(&model, &sel).card_lead(Section::Usage);
     assert_eq!((lead.model.clone(), lead.range), (Some(None), Some(false)));
-    business.token_model = Some("gpt-5".into());
+    sel.token_model = Some("gpt-5".into());
+    let business = View::new(&model, &sel);
     assert_eq!(
         business.card_lead(Section::Usage).model,
         Some(Some("gpt-5".to_owned()))
@@ -123,12 +128,13 @@ fn a_business_token_card_carries_the_model_filter() {
 
 #[test]
 fn the_long_range_shows_on_the_cards_of_its_group() {
-    let mut model = account("plus");
+    let (model, mut sel) = account("plus");
     let group = model.range_group(Section::Plugins) as usize;
-    model.ranges[group] = 1;
-    assert_eq!(model.card_lead(Section::Plugins).range, Some(true));
-    assert_eq!(model.card_lead(Section::Skills).range, Some(true));
-    assert_eq!(model.card_lead(Section::Activity).range, Some(false));
+    sel.ranges[group] = 1;
+    let view = View::new(&model, &sel);
+    assert_eq!(view.card_lead(Section::Plugins).range, Some(true));
+    assert_eq!(view.card_lead(Section::Skills).range, Some(true));
+    assert_eq!(view.card_lead(Section::Activity).range, Some(false));
 }
 
 #[test]

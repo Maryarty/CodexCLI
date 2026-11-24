@@ -10,7 +10,7 @@ use rtwk::navigation::{Navigator, PageRoute};
 
 use codex_tui_core::commands::Target;
 
-use crate::pages::session::{backtrack, transcript};
+use crate::pages::session::backtrack;
 use crate::pages::startup::import;
 use crate::pages::{agents, resume, usage};
 use crate::sheets::{approvals, dialogs, pets, voice};
@@ -57,9 +57,8 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, target: Target) {
         Target::Pets => drop(pets::open(cx)),
         Target::Voice => drop(voice::open(cx)),
         Target::AgentPicker => agents::open_picker(cx),
-        Target::Pager => transcript::pager::open(cx),
         Target::Backtrack => push(cx, PageRoute::new(|_| backtrack::part())),
-        Target::Select | Target::Settings | Target::Feature(_) => {}
+        Target::Select | Target::Settings | Target::Pager | Target::Feature(_) => {}
     }
     // Recorded once the directory's opener has run: the identity a test
     // reads is what was opened, not what was asked for.

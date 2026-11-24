@@ -13,14 +13,16 @@ use codex_tui_core::screens::usage::chats::{
     balance_text,
 };
 use codex_tui_core::screens::usage::{
-    AccountReply, Ask, AskKind, Ev, Intent, Load, Model, NaiveDate, Section, settle, step,
+    AccountReply, Ask, AskKind, Ev, Intent, Load, Model, NaiveDate, Section, UsageChoice, View, settle,
+    step,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
+fn opened(plan: PlanType) -> (Model, UsageChoice, Vec<Ask>) {
     let mut model = Model::default();
-    let asks = step(&mut model, Intent::Open { view: None });
+    let mut sel = UsageChoice::opening(None);
+    let asks = step(&mut model, Intent::Open);
     let asks = settle(
         &mut model,
         Ev::Account {
@@ -37,7 +39,8 @@ fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
             }),
         },
     );
-    (model, asks)
+    sel.settled(&model);
+    (model, sel, asks)
 }
 
 fn chats(value: serde_json::Value) -> ChatList {
@@ -91,8 +94,8 @@ fn a_balance_is_rounded_to_cents_and_kept_where_it_cannot_be() {
 /// rows_and_only_offer_known_metrics`).
 #[test]
 fn consumer_rows_keep_the_missing_ones_last_and_offer_known_metrics() {
-    let (mut model, _) = opened(PlanType::Plus);
-    model.section = Section::Chats;
+    let (mut model, mut sel, _) = opened(PlanType::Plus);
+    sel.pick(&model, Section::Chats);
     model.tasks = Load::Ready(Rc::new(tasks(json!([
         {"title":"Private title from another account"},
         {"title":"Unverified backend row","task":{"status":"unavailable"}},
@@ -101,7 +104,8 @@ fn consumer_rows_keep_the_missing_ones_last_and_offer_known_metrics() {
                        "amounts":{"balance":"-0.000004"}}]}},
     ]))));
     assert_eq!(model.task_metrics(), vec![Metric::Balance]);
-    let reported = model
+    let view = View::new(&model, &sel);
+    let reported = view
         .task_rows()
         .iter()
         .map(|row| row.available().is_some())
@@ -112,9 +116,9 @@ fn consumer_rows_keep_the_missing_ones_last_and_offer_known_metrics() {
         cursor: 1,
         ..ChatPos::default()
     };
-    assert!(!model.chat_has_details(&pos));
-    assert!(model.chat_has_details(&ChatPos::default()));
-    let lines = model.task_view(&ChatPos::default(), true);
+    assert!(!view.chat_has_details(&pos));
+    assert!(view.chat_has_details(&ChatPos::default()));
+    let lines = view.task_view(&ChatPos::default(), true);
     let hidden = lines.iter().filter_map(|line| match line {
         TaskLine::Row { title, .. } => Some(title.clone()),
         _ => None,
@@ -133,29 +137,29 @@ fn consumer_rows_keep_the_missing_ones_last_and_offer_known_metrics() {
 /// (oracle: `compare` over the metric).
 #[test]
 fn the_sort_metric_orders_the_rows_and_a_missing_value_goes_last() {
-    let (mut model, _) = opened(PlanType::Plus);
-    model.section = Section::Chats;
+    let (mut model, mut sel, _) = opened(PlanType::Plus);
+    sel.pick(&model, Section::Chats);
     model.tasks = Load::Ready(Rc::new(tasks(json!([
         {"title":"low","task":{"status":"available","amounts":{"weekly_percent":1.0,"balance":"9"}}},
         {"title":"none","task":{"status":"available","amounts":{"balance":"5"}}},
         {"title":"high","task":{"status":"available","amounts":{"weekly_percent":50.5,"balance":"1"}}},
     ]))));
     assert_eq!(model.task_metrics(), vec![Metric::Weekly, Metric::Balance]);
-    let order = |model: &Model| {
-        model
-            .task_rows()
+    let order = |model: &Model, sel: &UsageChoice| {
+        let view = View::new(model, sel);
+        view.task_rows()
             .iter()
-            .map(|row| row.available().and_then(|a| a.shown(model.task_metric())))
+            .map(|row| row.available().and_then(|a| a.shown(view.task_metric())))
             .collect::<Vec<_>>()
     };
     assert_eq!(
-        order(&model),
+        order(&model, &sel),
         vec![Some("50.5%".into()), Some("1.0%".into()), None]
     );
-    step(&mut model, Intent::TaskMetric);
-    assert_eq!(model.task_metric(), Metric::Balance);
+    sel.next_metric(&model);
+    assert_eq!(View::new(&model, &sel).task_metric(), Metric::Balance);
     assert_eq!(
-        order(&model),
+        order(&model, &sel),
         vec![
             Some("9.00".into()),
             Some("5.00".into()),
@@ -207,17 +211,17 @@ fn a_tap_picks_then_opens_then_closes() {
     assert_eq!(pos.cursor, 2);
 }
 
-fn business() -> Model {
-    let (mut model, _) = opened(PlanType::EnterpriseCbpUsageBased);
-    model.section = Section::Chats;
-    model
+fn business() -> (Model, UsageChoice) {
+    let (model, mut sel, _) = opened(PlanType::EnterpriseCbpUsageBased);
+    sel.pick(&model, Section::Chats);
+    (model, sel)
 }
 
 /// The open chat's groups by credits, the zero ones hidden and counted until
 /// `a` shows them (oracle: `chats_breakdown_ranks_nonzero_groups_and_reflows`).
 #[test]
 fn an_open_chat_ranks_its_groups_and_hides_the_zero_ones() {
-    let mut model = business();
+    let (mut model, sel) = business();
     model.chats = Load::Ready(Rc::new(chats(json!([
         {"title":"Q3","estimate":{"credits_micros":19_350_041_551_i64,"groups":[
             group("Zero", 0), group("Small", 215_610_920), group("Top", 19_134_430_635), group("Refund", -4)]}},
@@ -237,7 +241,7 @@ fn an_open_chat_ranks_its_groups_and_hides_the_zero_ones() {
             })
             .collect::<Vec<_>>()
     };
-    let lines = model.chat_view(&pos);
+    let lines = View::new(&model, &sel).chat_view(&pos);
     assert_eq!(models(&lines), ["Top", "Small", "Refund"]);
     assert!(lines.contains(&ChatLine::Zeros {
         count: 1,
@@ -245,14 +249,14 @@ fn an_open_chat_ranks_its_groups_and_hides_the_zero_ones() {
     }));
     assert!(lines.contains(&ChatLine::Missing(1)));
     pos.zero_groups = true;
-    let lines = model.chat_view(&pos);
+    let lines = View::new(&model, &sel).chat_view(&pos);
     assert_eq!(models(&lines), ["Top", "Small", "Zero", "Refund"]);
     assert!(lines.contains(&ChatLine::Zeros {
         count: 1,
         shown: true
     }));
     // No row opens an estimate that is not there.
-    assert!(!model.chat_has_details(&ChatPos {
+    assert!(!View::new(&model, &sel).chat_has_details(&ChatPos {
         cursor: 1,
         ..ChatPos::default()
     }));
@@ -262,12 +266,12 @@ fn an_open_chat_ranks_its_groups_and_hides_the_zero_ones() {
 /// estimate keeps a dash and the title of the safe text.
 #[test]
 fn the_dollar_column_follows_the_estimates() {
-    let mut model = business();
+    let (mut model, sel) = business();
     model.chats = Load::Ready(Rc::new(chats(json!([
         {"title":"A","estimate":{"credits_micros":1_000_000,"usd_micros":2_500_000}},
         {"title":"B"},
     ]))));
-    let lines = model.chat_view(&ChatPos::default());
+    let lines = View::new(&model, &sel).chat_view(&ChatPos::default());
     assert!(lines.contains(&ChatLine::Head { usd: true }));
     let amounts = lines
         .iter()
@@ -301,14 +305,14 @@ fn the_dollar_column_follows_the_estimates() {
 /// (oracle: the dashboard's Chats card).
 #[test]
 fn the_business_card_keeps_five_rows() {
-    let mut model = business();
+    let (mut model, sel) = business();
     model.chats = Load::Ready(Rc::new(chats(json!(
         (0..8)
             .map(|i| json!({"title":format!("Chat {i}"),"estimate":{"credits_micros":i*1_000_000}}))
             .chain([json!({"title":"none"})])
             .collect::<Vec<_>>()
     ))));
-    let lines = model.chat_card();
+    let lines = View::new(&model, &sel).chat_card();
     let rows = lines
         .iter()
         .filter(|line| matches!(line, ChatLine::CardRow { .. }))
@@ -322,13 +326,13 @@ fn the_business_card_keeps_five_rows() {
 /// `load_tasks`).
 #[test]
 fn the_page_asks_for_the_listing_of_its_account_kind() {
-    let (model, asks) = opened(PlanType::EnterpriseCbpUsageBased);
+    let (model, _, asks) = opened(PlanType::EnterpriseCbpUsageBased);
     assert!(
         asks.iter().any(|ask| ask.what == AskKind::Chats),
         "{asks:?}"
     );
     assert!(!asks.iter().any(|ask| ask.what == AskKind::Tasks));
-    let (mut model_c, asks) = opened(PlanType::Plus);
+    let (mut model_c, _, asks) = opened(PlanType::Plus);
     assert!(
         asks.iter().any(|ask| ask.what == AskKind::Tasks),
         "{asks:?}"

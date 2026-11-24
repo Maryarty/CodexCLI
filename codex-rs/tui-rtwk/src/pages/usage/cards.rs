@@ -22,7 +22,7 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_wi
 use codex_tui_core::screens::usage::chats::Pos as ChatPos;
 use codex_tui_core::screens::usage::dashboard::{CARD_GAP, Geometry};
 use codex_tui_core::screens::usage::plan::Pos as PlanPos;
-use codex_tui_core::screens::usage::{Model, Section};
+use codex_tui_core::screens::usage::{Chosen, Section};
 
 use super::strings::Strings;
 use super::{Look, SECTIONS, Taps, chats, gap, line, overview, plan, report};
@@ -68,7 +68,7 @@ impl Fit {
 /// What the dashboard is drawn from (borrowed from the page for one build).
 #[derive(Clone)]
 pub struct Deck {
-    pub model: Model,
+    pub model: Chosen,
     pub strings: Strings,
     pub num: NumSyms,
     pub look: Look,
@@ -85,7 +85,7 @@ pub struct Deck {
 /// The dashboard in the room the body gets.
 pub fn dashboard(deck: Deck) -> AnyWidget {
     LayoutBuilder::new(move |cx, constraints| {
-        let sections = deck.model.visible_sections();
+        let sections = deck.model.model.visible_sections();
         let width = usize::try_from(constraints.max_width).unwrap_or(0);
         let height = usize::try_from(constraints.max_height).unwrap_or(0);
         let geometry = Geometry::new(width, height, sections.len());
@@ -96,7 +96,7 @@ pub fn dashboard(deck: Deck) -> AnyWidget {
         };
         let selected = sections
             .iter()
-            .position(|section| *section == deck.model.section)
+            .position(|section| *section == deck.model.sel.section)
             .unwrap_or(0);
         // A card row, a blank row, a card row: the list's items.
         let mut items: Vec<AnyWidget> = Vec::new();
@@ -151,7 +151,7 @@ impl Deck {
             look.dim.clone()
         };
         let content = self.content(section, geometry, fit);
-        let name = super::tab_name(strings, model, section);
+        let name = super::tab_name(strings, &model.model, section);
         let label = strings.card_title(card as u64 + 1, name, num);
         let title = vec![
             Span::styled(strings.blank, Style::new()),
@@ -214,6 +214,7 @@ impl Deck {
             cursors,
             ..
         } = self;
+        let model = &model.view();
         let lead = model.card_lead(section);
         let mut items: Vec<Item> = Vec::new();
         let mut say = |shown: String| {

@@ -20,3 +20,4 @@ pub mod rpc;
 pub mod screens;
 pub mod thread_color;
 pub mod threads;
+pub mod usage_choice;

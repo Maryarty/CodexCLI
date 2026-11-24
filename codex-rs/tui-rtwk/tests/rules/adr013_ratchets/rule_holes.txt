@@ -16,17 +16,17 @@ ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::C
 ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::DismissProblem 1
 ratchet adr013_core_intents_name_no_gesture core/src/screens/resume.rs:Intent::Paste 1
 ratchet adr013_core_intents_name_no_gesture core/src/screens/select.rs:Intent::Reasoning 1
-ratchet adr013_core_intents_name_no_gesture core/src/screens/transcript.rs:Intent::ClosePager 1
 exempt adr013_core_intents_name_no_gesture core/src/commands/dispatch.rs:SessionIntent::Clear `/clear` is the slash command of that name, a verb of the domain, not a widget gesture
 
 # adr013_domain_types_hold_no_draw_state, widened: `section`, `metric`, `pager`, `raw` name drawn state (R1 usage tab and sort, R2 transcript pager, chat raw output).
 ratchet adr013_domain_types_hold_no_draw_state core/src/screens/cells.rs:Model.show_raw_reasoning 1
 ratchet adr013_domain_types_hold_no_draw_state core/src/screens/chat.rs:Model.raw_output 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/transcript.rs:Model.pager 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:Model.chat_metric 1
-ratchet adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:Model.section 1
 exempt adr013_domain_types_hold_no_draw_state core/src/features/plugins/catalog.rs:Kind::Section.section the catalogue heading a marketplace names: content, not the tab shown
 exempt adr013_domain_types_hold_no_draw_state core/src/features/settings/catalog.rs:Row.section the catalogue heading of a setting: content, not the tab shown
 exempt adr013_domain_types_hold_no_draw_state core/src/features/settings/catalog.rs:SetupItem.section_break_after a break in the content of the setup list, not a view position
 exempt adr013_domain_types_hold_no_draw_state core/src/threads.rs:Item::Reasoning.with_raw the item carries raw reasoning content: a fact of the transcript, not a render mode
-exempt adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:AskKind::Report.section which report a request asks for: the key of the request (R1: it becomes the `ReportKey` of `Load`)
+exempt adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:AskKind::Report.section which report a request asks for: the key of the request
+exempt adr013_domain_types_hold_no_draw_state core/src/screens/usage/data.rs:ReportKey.section which report a request asks for: the key of the cache `Model.histories` is (a request record by its domain key, not the tab shown)
+exempt adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:Seed.section the tab a fixture script wants the page opened on: kept for the page's state to read once, nothing in core reads it
+exempt adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:GroupSeed.section the tab whose grouping a fixture script seeds: kept for the page's state to read once, nothing in core reads it
+exempt adr013_domain_types_hold_no_draw_state core/src/screens/usage/mod.rs:HistorySeed.section which report a fixture script seeds a load for: the key of the cache `Model.histories` is, not the tab shown

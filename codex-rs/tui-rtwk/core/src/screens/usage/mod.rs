@@ -4,12 +4,14 @@
 //! crate. Oracle: `codex-rs/tui/src/analytics*` (the pure logic of its files is
 //! carried into the modules below, each naming its file).
 //!
-//! The model holds what chooses the requests: the account, the selected
-//! section, the range per range group, the group per section, the model
-//! filter and the loads. The cursor, the detail, the scroll position and the
-//! modes (dashboard, help) are the page's widget state (R14). Every load is
-//! started with a `Stamp`; its reply settles only the load of that stamp, so a
-//! refresh, a range change or a close drops what is still in flight (R1).
+//! The model holds the facts and the requests: the account, and the reports as a cache by
+//! `ReportKey` (section, days, grouping, model filter). What the person chose (the tab, the
+//! range per range group, the group per section, the model filter, the chat sort) is the page's
+//! `UsageChoice` (`core/src/usage_choice.rs`), a value its widget state holds; it says what to load with the
+//! verb `Intent::Load(key)`. The cursor, the detail, the scroll position and the modes
+//! (dashboard, help) are the page's widget state too (R14). Every load is started with a
+//! `Stamp`; its reply settles only the load of that stamp, so a refresh, a range change or a
+//! close drops what is still in flight (R1).
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -41,10 +43,11 @@ pub mod sections;
 pub mod tokens;
 
 pub use activity::TokenActivityView;
-pub use data::{GroupName, Load, LoadError, Note, Stamp};
+pub use data::{GroupName, Load, LoadError, Note, ReportKey, Stamp};
 pub use date::NaiveDate;
 pub use models::{AccountAnalyticsHistory as History, AccountKind};
 pub use sections::{Control, RangeGroup, Section};
+pub use crate::usage_choice::{Chosen, UsageChoice, View};
 
 pub const NAME: &str = "usage";
 pub const ID: &str = "S20";
@@ -69,18 +72,15 @@ pub struct Model {
     pub model_names: Rc<BTreeMap<String, String>>,
     /// The last day every report asks for, fixed per session.
     pub end_date: NaiveDate,
-    pub section: Section,
-    /// The range per `RangeGroup`: 0 is 7 days, 1 is 30.
-    pub ranges: [usize; 3],
-    /// The group (an index of `data::GROUPINGS`) per section.
-    pub groups: [usize; Section::COUNT],
-    pub token_model: Option<String>,
     /// The models the token report knows, for the `m` control.
     pub token_models: Vec<String>,
     pub credit_groups: Vec<usize>,
     pub attributed_usage: bool,
-    pub chat_metric: usize,
-    pub histories: [Load<Rc<History>>; Section::COUNT],
+    /// The reports asked for, as a cache by what was asked.
+    pub histories: BTreeMap<ReportKey, Load<Rc<History>>>,
+    /// What the fixture script that seeded the model chose, for the page it opens (read once by
+    /// the page's state; nothing here reads it).
+    pub seeded: Option<Rc<Seed>>,
     /// The Plan section's allowance history (oracle: `plan::State::report`).
     pub plan: Load<Rc<plan::Report>>,
     /// The Chats section's listing of a business account (oracle: `chats`).
@@ -95,10 +95,6 @@ pub struct Model {
 
 impl Default for Model {
     fn default() -> Self {
-        let mut groups = [0; Section::COUNT];
-        groups[Section::Usage as usize] = 1;
-        groups[Section::Plan as usize] = 1;
-        groups[Section::Activity as usize] = 2;
         Self {
             session: 0,
             live: false,
@@ -109,15 +105,11 @@ impl Default for Model {
             hour24: false,
             model_names: Rc::default(),
             end_date: NaiveDate::from_unix_secs(0),
-            section: Section::Summary,
-            ranges: [0; 3],
-            groups,
-            token_model: None,
             token_models: Vec::new(),
             credit_groups: vec![0],
             attributed_usage: true,
-            chat_metric: 0,
-            histories: std::array::from_fn(|_| Load::Unavailable),
+            histories: BTreeMap::new(),
+            seeded: None,
             plan: Load::Unavailable,
             chats: Load::Unavailable,
             tasks: Load::Unavailable,
@@ -327,23 +319,16 @@ pub enum Intent {
     Redeem { credit_id: Option<String> },
     /// `Try again` of a failed redemption: the same key.
     Retry,
-    /// The page opened: a fresh session (oracle: `open`), on the Overview's
-    /// `view` when `/usage daily|weekly|cumulative` asked for one.
-    Open { view: Option<TokenActivityView> },
+    /// The page opened: a fresh session (oracle: `open`).
+    Open,
     /// `R`: every report again (oracle: `refresh`).
     Refresh,
     /// The page was left: pending loads are dropped (oracle: `cancel_loads`).
     Leave,
-    /// A tab (digits, Tab, a click).
-    Select(Section),
-    /// `r`: 7 or 30 days for the selected section's range group.
-    Range,
-    /// `g`: the next grouping of the selected section.
-    Group,
-    /// `m`: the next model of the token report.
-    Model,
-    /// `s`: the next chat sort metric of the `count` the page offers.
-    TaskMetric,
+    /// The report `key` is wanted, again: it is asked for, and the cache entry is `Loading`
+    /// until the answer of that ask settles it (a range, grouping or model change, a first
+    /// load of each tab).
+    Load(ReportKey),
 }
 
 impl Model {
@@ -372,65 +357,35 @@ impl Model {
     }
 
     /// A fresh session: drops every account-owned load and asks for the
-    /// account (oracle: `refresh`). `view` picks the Overview's chart.
-    fn open_session(&mut self, view: Option<TokenActivityView>) -> Vec<Ask> {
+    /// account (oracle: `refresh`).
+    fn open_session(&mut self) -> Vec<Ask> {
         self.session += 1;
         self.live = true;
-        self.histories = std::array::from_fn(|_| Load::Unavailable);
+        self.histories.clear();
         self.profile = Load::Unavailable;
         self.plan = Load::Unavailable;
         self.chats = Load::Unavailable;
         self.tasks = Load::Unavailable;
         self.reports_started = false;
-        self.token_model = None;
         self.token_models.clear();
-        if let Some(view) = view {
-            self.section = Section::Summary;
-            self.groups[Section::Summary as usize] = view.index();
-        }
         let stamp = self.next_stamp();
         self.account = Load::Loading(stamp);
         vec![self.ask(stamp, AskKind::Account)]
     }
 
-    /// Once the account is known, every visible report starts, once
-    /// (oracle: `start_reports`).
+    /// Once the account is known, the profile and the reports that are not a section's own
+    /// (plan, chats) start, once (oracle: `start_reports`); the page asks for the sections'
+    /// reports with `Intent::Load`, from its `UsageChoice`.
     fn start_reports(&mut self) -> Vec<Ask> {
         if self.reports_started || self.account.ready().is_none() {
             return Vec::new();
         }
         self.reports_started = true;
         let visible = self.visible_sections();
-        let Some(first) = visible.first() else {
+        if visible.is_empty() {
             return Vec::new();
-        };
-        if !visible.contains(&self.section) {
-            self.section = *first;
-        }
-        let usage_groups: &[usize] = if self.business() {
-            &[6, 2]
-        } else {
-            &[1, 2, 0, 3]
-        };
-        if !usage_groups.contains(&self.groups[Section::Usage as usize]) {
-            self.groups[Section::Usage as usize] =
-                if matches!(self.account_kind(), Some(AccountKind::Business)) {
-                    2
-                } else {
-                    usage_groups[0]
-                };
-        }
-        if visible.contains(&Section::Credits)
-            && !self
-                .credit_groups
-                .contains(&self.groups[Section::Credits as usize])
-        {
-            self.groups[Section::Credits as usize] = self.credit_groups[0];
         }
         let mut asks = vec![self.load_profile()];
-        for section in visible {
-            asks.extend(self.load_report(*section));
-        }
         if visible.contains(&Section::Plan) {
             let stamp = self.next_stamp();
             self.plan = Load::Loading(stamp);
@@ -455,34 +410,40 @@ impl Model {
         self.ask(stamp, AskKind::Profile)
     }
 
-    /// Starts the section's report again (oracle: `load_report`); the sections
-    /// without a report of their own start nothing.
-    fn load_report(&mut self, section: Section) -> Option<Ask> {
-        section.report()?;
+    /// Starts the report `key` again (oracle: `load_report`); a key of a section without a
+    /// report of its own starts nothing.
+    fn load_report(&mut self, key: ReportKey) -> Option<Ask> {
+        key.section.report()?;
         let stamp = self.next_stamp();
-        self.histories[section as usize] = Load::Loading(stamp);
-        let model = (section == Section::Usage)
-            .then(|| self.token_model.clone())
-            .flatten();
+        self.histories.insert(key.clone(), Load::Loading(stamp));
         Some(self.ask(
             stamp,
             AskKind::Report {
-                section,
-                days: self.days_of(section),
-                group: self.groups[section as usize],
-                model,
+                section: key.section,
+                days: key.days,
+                group: key.group,
+                model: key.model,
             },
         ))
     }
 
-    /// What every settled load checks (oracle: `poll_reports`): a consumer
-    /// account whose usage is not attributed has no per-surface groups.
+    /// What every settled load checks (oracle: `poll_reports`): a consumer account whose usage
+    /// is not attributed has no per-surface groups, so the usage report it was asked for by
+    /// one answers the ungrouped question.
     fn after_settle(&mut self) {
-        if !self.business()
-            && !self.consumer_attribution()
-            && ![0, 2].contains(&self.groups[Section::Usage as usize])
-        {
-            self.groups[Section::Usage as usize] = 0;
+        if self.business() || self.consumer_attribution() {
+            return;
+        }
+        let moved: Vec<ReportKey> = self
+            .histories
+            .keys()
+            .filter(|key| key.section == Section::Usage && ![0, 2].contains(&key.group))
+            .cloned()
+            .collect();
+        for key in moved {
+            if let Some(load) = self.histories.remove(&key) {
+                self.histories.insert(ReportKey { group: 0, ..key }, load);
+            }
         }
     }
 
@@ -512,33 +473,29 @@ impl Model {
     fn seed(&mut self, seed: Seed) {
         self.live = true;
         self.reports_started = true;
-        if let Some(account) = seed.account {
+        if let Some(account) = seed.account.clone() {
             self.settle_account(account);
-        }
-        if let Some(ranges) = seed.ranges {
-            self.ranges = ranges;
-        }
-        for GroupSeed { section, group } in seed.groups {
-            self.groups[section as usize] = group;
         }
         if let Some(attributed) = seed.attributed_usage {
             self.attributed_usage = attributed;
         }
-        self.token_models = seed.token_models;
-        self.token_model = seed.token_model;
-        for HistorySeed { section, load } in seed.histories {
-            self.histories[section as usize] = load.into_load(Rc::new);
+        self.token_models.clone_from(&seed.token_models);
+        let choice = UsageChoice::seeded(&seed, self);
+        for HistorySeed { section, load } in seed.histories.clone() {
+            if let Some(key) = choice.key(self, section) {
+                self.histories.insert(key, load.into_load(Rc::new));
+            }
         }
-        if let Some(profile) = seed.profile {
+        if let Some(profile) = seed.profile.clone() {
             self.profile = profile.into_load(Rc::new);
         }
-        if let Some(chats) = seed.chats {
+        if let Some(chats) = seed.chats.clone() {
             self.chats = chats.into_load(Rc::new);
         }
-        if let Some(tasks) = seed.tasks {
+        if let Some(tasks) = seed.tasks.clone() {
             self.tasks = tasks.into_load(Rc::new);
         }
-        if let Some(history) = seed.plan {
+        if let Some(history) = seed.plan.clone() {
             self.plan = match history {
                 SeedLoad::Ready(data) => match plan::Report::parse(data) {
                     Ok(Some(report)) => Load::Ready(Rc::new(report)),
@@ -548,12 +505,7 @@ impl Model {
                 other => other.into_load(|_: plan::Data| unreachable!("`Ready` is handled above")),
             };
         }
-        let visible = self.visible_sections();
-        self.section = seed
-            .section
-            .filter(|section| visible.contains(section))
-            .or_else(|| visible.first().copied())
-            .unwrap_or(Section::Summary);
+        self.seeded = Some(Rc::new(seed));
     }
 }
 
@@ -571,11 +523,10 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             let next = model.reset.retry();
             model.redemption_asks(next)
         }
-        Intent::Open { view } => model.open_session(view),
-        Intent::Refresh => model.open_session(None),
+        Intent::Open | Intent::Refresh => model.open_session(),
         Intent::Leave => {
             model.live = false;
-            model.histories = std::array::from_fn(|_| Load::Unavailable);
+            model.histories.clear();
             model.profile = Load::Unavailable;
             model.plan = Load::Unavailable;
             model.chats = Load::Unavailable;
@@ -583,67 +534,7 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             model.account = Load::Unavailable;
             Vec::new()
         }
-        Intent::Select(section) => {
-            if model.visible_sections().contains(&section) {
-                model.section = section;
-            }
-            Vec::new()
-        }
-        Intent::Range => {
-            if !model.control_available(Control::Range, false) {
-                return Vec::new();
-            }
-            let group = model.range_group(model.section);
-            model.ranges[group as usize] ^= 1;
-            model
-                .visible_sections()
-                .iter()
-                .filter(|section| model.range_group(**section) == group)
-                .copied()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .filter_map(|section| model.load_report(section))
-                .collect()
-        }
-        Intent::Group => {
-            if !model.control_available(Control::Group, false) {
-                return Vec::new();
-            }
-            let options = model.group_options();
-            let current = model.groups[model.section as usize];
-            let next = options
-                .iter()
-                .position(|group| *group == current)
-                .map_or(0, |index| (index + 1) % options.len());
-            model.groups[model.section as usize] = options[next];
-            model.load_report(model.section).into_iter().collect()
-        }
-        Intent::Model => {
-            if !model.control_available(Control::Model, false) {
-                return Vec::new();
-            }
-            let models = &model.token_models;
-            model.token_model = match model
-                .token_model
-                .as_ref()
-                .and_then(|current| models.iter().position(|candidate| candidate == current))
-            {
-                Some(index) => models.get(index + 1).cloned(),
-                None => models.first().cloned(),
-            };
-            model.load_report(Section::Usage).into_iter().collect()
-        }
-        Intent::TaskMetric => {
-            if model.control_available(Control::TaskMetric, false) {
-                let metrics = model.task_metrics();
-                let at = metrics
-                    .iter()
-                    .position(|metric| *metric == model.task_metric())
-                    .unwrap_or_default();
-                model.chat_metric = metrics[(at + 1) % metrics.len()].index();
-            }
-            Vec::new()
-        }
+        Intent::Load(key) => model.load_report(key).into_iter().collect(),
     }
 }
 
@@ -661,7 +552,7 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
             Vec::new()
         }
         Ev::Invalidated { session } if session == model.session && model.live => {
-            model.open_session(None)
+            model.open_session()
         }
         Ev::Invalidated { .. } => Vec::new(),
         Ev::Account {
@@ -686,9 +577,15 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
             section,
             result,
         } if session == model.session => {
-            if model.histories[section as usize].stamp() != Some(stamp) {
+            let _ = section;
+            let Some(key) = model
+                .histories
+                .iter()
+                .find(|(_, load)| load.stamp() == Some(stamp))
+                .map(|(key, _)| key.clone())
+            else {
                 return Vec::new();
-            }
+            };
             let result = result.map(|reply| {
                 if let Some(models) = reply.token_models {
                     model.token_models = models;
@@ -698,7 +595,9 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
                 }
                 reply.history.map(Rc::new)
             });
-            model.histories[section as usize].settle(stamp, result);
+            if let Some(load) = model.histories.get_mut(&key) {
+                load.settle(stamp, result);
+            }
             model.after_settle();
             Vec::new()
         }

@@ -7,7 +7,7 @@
 //! The cursor, the open detail, the zoom and the viewport are the widget's
 //! (R14) and come in as `ReportView`.
 
-use super::Model;
+use super::View;
 use super::data::{amount, compact_amount, credit_amount};
 use super::date::NaiveDate;
 use super::models::{AccountAnalyticsDay, AccountAnalyticsUnit, AccountAnalyticsValue};
@@ -221,7 +221,7 @@ pub fn tool_name(label: &str) -> String {
         .join(" ")
 }
 
-impl Model {
+impl View<'_> {
     /// The focused report of `section` for a body of `width` cells and
     /// `view.viewport` rows: the plot takes a third of the rows (2 to 10),
     /// none under 15 rows or 50 cells, then what the rest of the report
@@ -250,7 +250,8 @@ impl Model {
     /// The selected day of `section` has something to show beside its total
     /// (oracle: `day_has_details`).
     pub fn day_has_details(&self, section: Section, day_index: usize) -> bool {
-        let Some(history) = self.histories[section as usize].ready() else {
+        let history = self.history(section);
+        let Some(history) = history.ready() else {
             return false;
         };
         let date = self.section_date_range(section).start().iter_days().nth(day_index);
@@ -275,7 +276,8 @@ impl Model {
         height: usize,
         date_label: DateLabel<'_>,
     ) -> Option<Report> {
-        let history = self.histories[section as usize].ready()?;
+        let history = self.history(section);
+        let history = history.ready()?;
         if history.data.is_empty() {
             return None;
         }
@@ -289,7 +291,7 @@ impl Model {
             .collect();
         let cursor = view.cursor.min(days.len() - 1);
         let day: Option<&AccountAnalyticsDay> = days[cursor].1;
-        let group = self.groups[section as usize];
+        let group = self.group_of(section);
         let expanded = view.zoomed && view.detail.is_some();
         let mut categories = plot::categories(history);
         if matches!(section, Section::Plugins | Section::Skills) {

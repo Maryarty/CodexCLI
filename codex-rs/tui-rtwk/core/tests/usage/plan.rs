@@ -9,7 +9,7 @@ use codex_tui_core::screens::usage::plan::{
     self, Data, Dimension, Line, Note, PlanStep, Pos, Report,
 };
 use codex_tui_core::screens::usage::{
-    AccountReply, Ask, AskKind, Ev, Intent, Load, Model, Note as LoadNote, Section, settle, step,
+    AccountReply, Ask, AskKind, Ev, Intent, Load, Model, Note as LoadNote, Section, UsageChoice, View, settle, step,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -119,9 +119,16 @@ fn a_history_of_too_many_periods_is_refused() {
     );
 }
 
+/// The plan's lines as the page draws them, over the default choice.
+fn plan_view(model: &Model, pos: &Pos, zoomed: bool) -> codex_tui_core::screens::usage::plan::PlanView {
+    let mut sel = UsageChoice::opening(None);
+    sel.settled(model);
+    View::new(model, &sel).plan_view(pos, zoomed)
+}
+
 fn consumer(plan_enabled: bool, plan: PlanType) -> (Model, Vec<Ask>) {
     let mut model = Model::default();
-    let asks = step(&mut model, Intent::Open { view: None });
+    let asks = step(&mut model, Intent::Open);
     let asks = settle(
         &mut model,
         Ev::Account {
@@ -319,7 +326,7 @@ fn a_new_snapshot_starts_the_rows_over() {
     let report = next.plan.ready().map(|report| &**report);
     // The view reads the rows as reset, and the next key makes it so.
     assert!(
-        next.plan_view(&pos, true).tables[0]
+        plan_view(&next, &pos, true).tables[0]
             .iter()
             .any(|line| matches!(
                 line,
@@ -378,13 +385,13 @@ fn the_card_shows_one_period_and_the_report_all_with_the_open_details() {
             .filter(|line| matches!(line, Line::Period { .. }))
             .count()
     };
-    let card = model.plan_view(&pos, false);
+    let card = plan_view(&model, &pos, false);
     assert_eq!((periods(&card, 0), periods(&card, 1)), (1, 1));
     assert!(
         !card.tables[0].contains(&Line::Incomplete),
         "no details on a card"
     );
-    let report = model.plan_view(&pos, true);
+    let report = plan_view(&model, &pos, true);
     assert_eq!((periods(&report, 0), periods(&report, 1)), (4, 1));
     // Feature (thread source) is the Plan's group at first; the key is named.
     assert!(report.tables[0].contains(&Line::Incomplete));
@@ -395,15 +402,15 @@ fn the_card_shows_one_period_and_the_report_all_with_the_open_details() {
     // The weekly period has no breakdown; open, it says so.
     pos.step(PlanStep::Switch, model.plan.ready().map(|report| &**report));
     pos.step(PlanStep::Toggle, model.plan.ready().map(|report| &**report));
-    assert!(model.plan_view(&pos, true).tables[1].contains(&Line::NoBreakdown));
+    assert!(plan_view(&model, &pos, true).tables[1].contains(&Line::NoBreakdown));
 }
 
 /// The notes under the tables: the snapshot time and the coverage, the gaps
 /// and the approximation; the turn-start group's own note.
 #[test]
 fn the_notes_say_what_the_numbers_are() {
-    let mut model = ready(response());
-    let notes = model.plan_view(&Pos::default(), true).notes;
+    let model = ready(response());
+    let notes = plan_view(&model, &Pos::default(), true).notes;
     assert_eq!(
         notes,
         [
@@ -413,13 +420,18 @@ fn the_notes_say_what_the_numbers_are() {
             Note::Approximate
         ]
     );
-    model.groups[Section::Plan as usize] = 3;
-    assert_eq!(model.plan_view(&Pos::default(), true).notes[0], Note::Turn);
+    let mut sel = UsageChoice::opening(None);
+    sel.settled(&model);
+    sel.groups[Section::Plan as usize] = 3;
+    assert_eq!(
+        View::new(&model, &sel).plan_view(&Pos::default(), true).notes[0],
+        Note::Turn
+    );
     // Nothing is said of a history that is not shown.
     let empty = Model::default();
-    assert_eq!(empty.plan_view(&Pos::default(), true).notes, []);
+    assert_eq!(plan_view(&empty, &Pos::default(), true).notes, []);
     assert_eq!(
-        empty.plan_view(&Pos::default(), true).tables[0].last(),
+        plan_view(&empty, &Pos::default(), true).tables[0].last(),
         Some(&Line::Unavailable)
     );
 }

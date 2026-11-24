@@ -5,22 +5,22 @@
 //! Flutter's full-screen route of a `Column`: the title row, the scrolling
 //! text with `~` rows where it ends, the rule with the percent scrolled
 //! (`ListenableBuilder` over the `ScrollController`), the hint rows. The text
-//! is the ANSI text of a program (`parse_ansi`), one `Text.rich` per line; the
-//! document is the model's (`ScreenStates.transcript.pager`), read through
-//! the provider, never handed to the widget.
+//! is the ANSI text of a program (`parse_ansi`), one `Text.rich` per line. The document is the
+//! domain's directive (`transcript::Directive<PagerDoc>`), handed to the widget by whoever shows
+//! it (the presenter, a debug entry); whether the pager is open is the route's or the dialog's.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use rtwk::ansi::parse_ansi;
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{
-    BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
+    BorderType, BoxWidget, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
     Row, SizedBox, Stack,
 };
-use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::overlay::close_dialog;
-use rtwk::provider::{read, select};
+use rtwk::navigation::Navigator;
+use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow};
@@ -31,31 +31,61 @@ use codex_tui_core::keymap::actions::{
     PAGER_PAGE_DOWN, PAGER_PAGE_UP, PAGER_SCROLL_DOWN, PAGER_SCROLL_UP,
 };
 use codex_tui_core::keymap::{Keymap, fixed};
-use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::transcript::{Intent, PagerAction, PagerDoc};
+use codex_tui_core::screens::transcript::{PagerAction, PagerDoc};
 
 use super::TranscriptMode;
 use super::strings::{self, Strings};
 use crate::app::debug::{DebugEntry, EntryOpen};
-use crate::app::view::Hs;
 
-/// The static pager: over the document of the model (`ScreenStates.transcript.pager`: the debug
-/// entries, a full-screen read the model opened), or over a document it is handed (`/diff`: the
-/// wish carries the text, the pager is shown over the chat as a dialog the size of the screen).
+/// The static pager over `doc`: a dialog the size of the screen (`/diff`: the presenter shows
+/// the directive's document over the chat) or a page of a route (a debug entry).
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaticPager {
-    doc: Option<PagerDoc>,
+    doc: PagerDoc,
+    host: Host,
+}
+
+/// What the pager is shown in, so what closing it pops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Host {
+    Dialog,
+    Route,
 }
 
 impl StaticPager {
-    /// The pager over the model's document.
-    pub fn model() -> StaticPager {
-        StaticPager { doc: None }
-    }
-
     /// The pager over `doc`, in a dialog: it covers the chat, `q` closes it.
     pub fn over(doc: PagerDoc) -> StaticPager {
-        StaticPager { doc: Some(doc) }
+        StaticPager {
+            doc,
+            host: Host::Dialog,
+        }
+    }
+
+    /// The pager over `doc`, a page pushed on a navigator: `q` pops it.
+    pub fn page(doc: PagerDoc) -> StaticPager {
+        StaticPager {
+            doc,
+            host: Host::Route,
+        }
+    }
+}
+
+/// The pager the size of the screen: the alternate screen is cleared (`enter_alt_screen`), so
+/// nothing of the chat shows through the cells the pager leaves blank.
+pub fn covering(doc: PagerDoc) -> AnyWidget {
+    BoxWidget::new()
+        .style(Style::new())
+        .child(StaticPager::over(doc))
+        .into()
+}
+
+/// The dialog options of `covering`: no barrier to click away, no fade.
+pub fn cover_options() -> DialogOptions {
+    DialogOptions {
+        barrier_dismissible: false,
+        barrier_alpha: Some(0),
+        fade_in: Duration::ZERO,
+        ..DialogOptions::default()
     }
 }
 
@@ -115,14 +145,14 @@ impl State for PagerState {
             }
             Msg::Top => self.scroll.jump_to(0),
             Msg::Bottom => self.scroll.jump_to(i64::MAX),
-            // the action's effect is the opener's, a later intent of its
-            // screen; closing is the pager's
-            Msg::Close | Msg::Action if w.doc.is_some() => close_dialog::<_, ()>(cx, None),
-            Msg::Close | Msg::Action => {
-                let handlers = read::<Hs, _>(cx);
-                cx.emit(&handlers.screen, Intent::ClosePager.into());
-                Navigator::maybe_pop(cx);
-            }
+            // the action's effect is the opener's, a later verb of its feature; closing is
+            // the pager's, popping what it was shown in
+            Msg::Close | Msg::Action => match w.host {
+                Host::Dialog => close_dialog::<_, ()>(cx, None),
+                Host::Route => {
+                    Navigator::maybe_pop(cx);
+                }
+            },
         }
         Rebuild::No
     }
@@ -130,13 +160,7 @@ impl State for PagerState {
     fn build(&self, w: &StaticPager, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let table = strings::of(cx);
         let dim = crate::app::theme::Tokens::of(cx).dim();
-        let model = select::<ScreenStates, _, _>(cx, |states| states.transcript.pager.clone());
-        let doc = w.doc.clone().or(model);
-        let doc = doc.unwrap_or_else(|| PagerDoc {
-            title: String::new(),
-            text: String::new(),
-            action: None,
-        });
+        let doc = w.doc.clone();
         let action = doc.action;
         let column = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -362,16 +386,23 @@ impl TranscriptMode for Mode {
             name,
             description,
             script,
-            open: EntryOpen::Route(|_| StaticPager::model().into()),
+            open: EntryOpen::Route(|seeded| {
+                // the document the script's event queued: nobody presents it in a debug page
+                let doc = seeded
+                    .core
+                    .screens()
+                    .transcript
+                    .pending()
+                    .last()
+                    .map(|directive| directive.value.clone())
+                    .unwrap_or(PagerDoc {
+                        title: String::new(),
+                        text: String::new(),
+                        action: None,
+                    });
+                StaticPager::page(doc).into()
+            }),
         })
         .collect()
     }
-}
-
-/// `Target::Pager`: the static pager over the document the model holds (`Ev::Pager`), a page
-/// pushed over the chat; `q` pops it and tells the model the document is done. The transcript's
-/// own pager (Ctrl+T) is the session page's expanded mode (`Modes`), which the key toggles; `/diff`
-/// shows its document through its slice's presenter (`StaticPager::over`).
-pub fn open<S>(cx: &mut Cx<'_, S>) {
-    drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| StaticPager::model().into())));
 }
