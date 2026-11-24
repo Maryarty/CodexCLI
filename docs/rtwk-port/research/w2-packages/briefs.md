@@ -15,6 +15,8 @@ Paths: port paths are relative to `codex-rs/tui-rtwk/`; oracle paths are relativ
 
 **Test files.** These are edited one function at a time, through `map-full/unpend/<pkg>.txt`.
 
+**Exact fixtures from the oracle's own run** (2026-11-24, person: recorder applied once in a throwaway checkout, codex-tui untouched): `~/.cache/codexcli/oracle-gen/fixtures/<shard>/<test>.jsonl` (215 tests, `notify` steps with the exact `ServerNotification` values; `.gen.jsonl` where a hand fixture already exists). Before writing a fixture for a chat test by hand, look there; copy it into `tests/oracle/fixtures/<shard>/`, then add the `screen`/`fact` steps by hand. Log: `oracle-gen/oracle-rec-2026-11-24.log`; generator: `tools/rtwk-port/oracle-seeds/`.
+
 **Rules every brief inherits:**
 - A new behaviour is a slice (ADR-012), with one `feature_list!` line plus `RUNS`/`OPENS`. Its UI half is `FeatureView` (shown, note_words, cell, slot, actions) and, for slices that have `OPENS`, `FeatureSheet`.
 - Drawn state (cursors, search, tabs, selection) is UI State (ADR-013).
