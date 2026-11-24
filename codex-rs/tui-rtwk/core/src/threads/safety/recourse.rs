@@ -216,9 +216,9 @@ fn is_async_reply(text: &str) -> bool {
 /// prompt the oracle would keep can be withheld, never the reverse.
 fn tool_mention_in(text: &str) -> bool {
     let named = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-');
-    text.char_indices().any(|(at, c)| {
-        c == '$' && text[at + 1..].chars().next().is_some_and(named)
-    }) || ["](skill://", "](app://", "](plugin://"]
-        .iter()
-        .any(|link| text.contains(link))
+    text.char_indices()
+        .any(|(at, c)| c == '$' && text[at + 1..].chars().next().is_some_and(named))
+        || ["](skill://", "](app://", "](plugin://"]
+            .iter()
+            .any(|link| text.contains(link))
 }

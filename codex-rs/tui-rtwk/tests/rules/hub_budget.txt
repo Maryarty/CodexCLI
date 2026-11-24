@@ -43,13 +43,10 @@ enum core/src/screens/select.rs Picked 8
 # adr013-select-finish: `Menu` and the gesture intents (`Open`, `Choose`, `Secondary`, `Close`) are
 # deleted, `Intent` 33 -> 29; `Note::PermissionsFailed` (dead) goes, `Note` 37 -> 36.
 enum core/src/screens/select.rs Intent 29
-# ThreadEv 30 -> 32 (fw1-c6): `Compaction` and `Safety`, one variant each for the thread facts that have
-# their own module (`threads/compaction.rs`, `threads/safety.rs`: events, the verbs ride in `Safety`).
-enum core/src/threads.rs ThreadEv 32
+enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4
-# Intent 17 -> 18 (fw1-c6): `Safety`, the verbs of a thread's safety state (retry, rewrite, continue).
-enum core/src/app.rs Intent 18
+enum core/src/app.rs Intent 17
 enum core/src/app.rs AppEv 17
 enum core/src/app.rs Command 20
 enum core/src/app.rs AppCtx 13

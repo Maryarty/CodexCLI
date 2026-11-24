@@ -326,6 +326,13 @@ pub enum Intent {
         thread: Option<ThreadId>,
         command: String,
     },
+    /// A verb of the thread's safety state: the retry of a buffered turn, a rewrite after a
+    /// refusal, the continuation after a misalignment stop, the receipt of a request
+    /// (`threads/safety.rs`; `threads::apply` is the writer, the screen keeps nothing of it).
+    Safety {
+        thread: ThreadId,
+        verb: crate::threads::safety::Verb,
+    },
     /// A command line was answered (refused, or its words): a note of the
     /// thread shown when it was submitted, else of the screen.
     Note {
@@ -355,7 +362,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         // the app routes these to the thread (`apply_app`); the screen keeps nothing
-        Intent::Session { .. } | Intent::Shell { .. } => {}
+        Intent::Session { .. } | Intent::Shell { .. } | Intent::Safety { .. } => {}
         Intent::Note { thread: None, note } => model.notes.push(note),
         Intent::RawOutput(enabled) => model.raw_output = enabled,
         // a thread's note is an entry of its transcript (`session::note`)
@@ -684,6 +691,11 @@ pub enum ThreadEv {
     },
     Phase { turn: TurnId, phase: ActivityPhase },
     Compaction { turn: TurnId, running: bool },
+    /// The thread's own facts of a context compaction (`threads/compaction.rs`): `threads::apply`
+    /// takes it before the screen sees it, the screen keeps nothing of it.
+    Compacting(crate::threads::compaction::Ev),
+    /// The thread's safety facts (`threads/safety.rs`), taken by `threads::apply` the same way.
+    Safety(crate::threads::safety::Ev),
     Name(Option<String>),
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
     /// The server retries the turn's request: the header says so, and the
@@ -940,6 +952,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Phase { phase, .. } => part.activity = phase,
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
+        ThreadEv::Compacting(_) | ThreadEv::Safety(_) => {}
         ThreadEv::Name(name) => part.name = name,
         ThreadEv::Retry { retry, details, .. } => {
             part.retry_header = Some(retry);

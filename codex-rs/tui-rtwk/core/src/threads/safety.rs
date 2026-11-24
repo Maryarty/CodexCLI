@@ -9,7 +9,8 @@
 //! every word of them are the UI's; it reads `Safety` and says verbs (`Verb`), never gestures.
 //! The flows that need the app (the retry on a faster model, the rewrite on a verified fork) are
 //! *requests*: core validates them and records `Retry` / `Rewrite` for the app to take.
-//! The one writer is `threads::apply` (`ThreadEv::Safety`, `Intent::Safety`).
+//! The one writer is `threads::apply` (`chat::ThreadEv::Safety`, the chat's event door, so the hub's
+//! `ThreadEv` and `Intent` stay as they are; the verbs come as `chat::Intent::Safety`).
 
 pub mod recourse;
 
@@ -23,6 +24,7 @@ pub use recourse::Domain;
 use super::{Fault, Item, ThreadEv, ThreadFx, ThreadModel, TurnState, UserMessage};
 use crate::ids::{ThreadId, TurnId};
 use crate::screens::cells::Daybreak;
+use crate::screens::{ScreenThreadEv, chat};
 
 /// A finding longer than this is not kept (oracle `on_misalignment_error`).
 const MAX_FINDINGS: usize = 64 * 1024;
@@ -107,7 +109,10 @@ pub struct Review {
 impl Review {
     /// What was detected, for the findings page (markdown).
     pub fn findings(&self) -> &str {
-        self.details.detailed_explanation.as_deref().unwrap_or_default()
+        self.details
+            .detailed_explanation
+            .as_deref()
+            .unwrap_or_default()
     }
 
     /// The instruction a confirmed continuation submits; none when the server gave none (or a
@@ -236,7 +241,7 @@ pub enum Verb {
     Taken,
 }
 
-/// An event of the safety state of one thread (a variant of `ThreadEv::Safety`).
+/// An event of the safety state of one thread (a variant of `chat::ThreadEv::Safety`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
     /// `model/safetyBuffering/updated`.
@@ -253,6 +258,10 @@ pub enum Ev {
     Verb(Verb),
 }
 
+fn wrap(ev: Ev) -> ThreadEv {
+    ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Safety(ev)))
+}
+
 /// The notifications of the safety state (`threads::project` asks first).
 pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)> {
     match notification {
@@ -266,7 +275,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
             },
         ) => Some((
             ThreadId::new(thread_id),
-            ThreadEv::Safety(Ev::Buffering {
+            wrap(Ev::Buffering {
                 turn: TurnId::new(turn_id),
                 show: *show_buffering_ui,
                 faster_model: faster_model.clone(),
@@ -278,7 +287,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
             metadata,
         }) => Some((
             ThreadId::new(thread_id),
-            ThreadEv::Safety(Ev::Moderation {
+            wrap(Ev::Moderation {
                 turn: TurnId::new(turn_id),
                 metadata: metadata.clone(),
             }),
@@ -551,7 +560,10 @@ fn stop(model: &mut ThreadModel, turn: Option<TurnId>, details: Option<Misalignm
 
 fn verb_applied(model: &mut ThreadModel, verb: Verb, fx: &mut ThreadFx<'_>) {
     match verb {
-        Verb::Retry { turn, model: faster } => {
+        Verb::Retry {
+            turn,
+            model: faster,
+        } => {
             let waiting = model.is_running()
                 && model.has_writer()
                 && model.core.safety.buffering.as_ref().is_some_and(|held| {

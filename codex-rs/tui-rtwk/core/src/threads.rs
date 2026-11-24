@@ -10,8 +10,8 @@ mod activity;
 pub mod calls;
 mod cells;
 pub mod citations;
-pub mod compaction;
 mod collab;
+pub mod compaction;
 pub mod daybreak;
 pub mod decision;
 pub mod directives;
@@ -857,10 +857,6 @@ pub enum ThreadEv {
     /// turns again (oracle `AppEvent::PromptRevert`, `set_session`).
     Reverted,
     ScreenIntent(ScreenThreadIntent),
-    /// Live context compaction (`threads/compaction.rs`).
-    Compaction(compaction::Ev),
-    /// Safety buffering, recourse and the misalignment stop (`threads/safety.rs`).
-    Safety(safety::Ev),
     /// An intent for a feature slice's part of the thread (ADR-012), the one door of a
     /// change of a thread that a feature asks for.
     FeatureIntent(FeatureThreadIntent),
@@ -976,6 +972,10 @@ impl ThreadEv {
     fn is_notification(&self) -> bool {
         match self {
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
+            // what the user says to the safety state is no news of the server
+            Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(
+                safety::Ev::Verb(_),
+            ))) => false,
             Self::TurnStarted { .. }
             | Self::ItemStarted { .. }
             | Self::ItemUpsert { .. }
@@ -990,8 +990,6 @@ impl ThreadEv {
             | Self::TurnCompleted { .. }
             | Self::TurnError { .. }
             | Self::Mcp { .. }
-            | Self::Compaction(_)
-            | Self::Safety(safety::Ev::Buffering { .. } | safety::Ev::Moderation { .. })
             | Self::Screen(_) => true,
             _ => false,
         }
@@ -1905,7 +1903,11 @@ impl<'a> ThreadFx<'a> {
 
     /// The turn start of an acknowledged misalignment failure, `stamp` (epoch milliseconds) its
     /// acknowledgement. One start per step, as `start_turn`.
-    fn start_acknowledged(&mut self, message: UserMessage, stamp: i64) -> Result<Ticket, UserMessage> {
+    fn start_acknowledged(
+        &mut self,
+        message: UserMessage,
+        stamp: i64,
+    ) -> Result<Ticket, UserMessage> {
         if self.start_said() {
             return Err(message);
         }
@@ -1985,7 +1987,9 @@ impl<'a> ThreadFx<'a> {
 /// Everything the skeleton does not show maps to `None`.
 pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)> {
     // a compaction is the status header's, its cell comes with its completion
-    if let Some(projected) = compaction::project(notification).or_else(|| safety::project(notification)) {
+    if let Some(projected) =
+        compaction::project(notification).or_else(|| safety::project(notification))
+    {
         return Some(projected);
     }
     let transcript = match notification {
@@ -2360,8 +2364,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     }
     safety::observe(model, &ev);
     match ev {
-        ThreadEv::Compaction(ev) => compaction::apply(model, ev, fx),
-        ThreadEv::Safety(ev) => safety::apply(model, ev, fx),
+        // the thread's own facts ride the chat's events (`threads/compaction.rs`, `safety.rs`)
+        ThreadEv::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Compacting(ev))) => {
+            compaction::apply(model, ev, fx)
+        }
+        ThreadEv::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(ev))) => {
+            safety::apply(model, ev, fx)
+        }
         ThreadEv::Mcp { server, status } => {
             let warnings = model.slots.chat.mcp.update(server, status);
             add_startup_warnings(model, warnings, fx);
@@ -2419,9 +2428,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // thread blocks input, with nothing to continue from (`replay_thread_turns`).
             if model.transcript.is_empty()
                 && !model.is_running()
-                && turns.last().is_some_and(|latest| {
-                    matches!(latest.error, Some(Fault::Misalignment { .. }))
-                })
+                && turns
+                    .last()
+                    .is_some_and(|latest| matches!(latest.error, Some(Fault::Misalignment { .. })))
             {
                 safety::replayed(model);
             }
@@ -2483,15 +2492,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             )
         }
         // a misalignment stop rejects what starts a turn: only a new chat goes on
-        ThreadEv::Submit { .. }
-        | ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-            screens::chat::ThreadIntent::Compact
-            | screens::chat::ThreadIntent::Review(_)
-            | screens::chat::ThreadIntent::Shell(_)
-            | screens::chat::ThreadIntent::Queue(_)
-            | screens::chat::ThreadIntent::ApprovePlan(_)
-            | screens::chat::ThreadIntent::ImplementPlan,
-        )) if model.safety.blocks_input() => {}
+        ThreadEv::Submit { .. } if model.safety.blocks_input() => {}
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id

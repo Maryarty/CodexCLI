@@ -6,12 +6,14 @@
 //! ADR-013: what core keeps is the fact (`id`, the start in epoch seconds) and the completion
 //! data of a cell (`took`). The header ("Compacting context"), its details, the timer drawn from
 //! `started_at` and the cell's words are the UI's. The one writer is `threads::apply`
-//! (`ThreadEv::Compaction`).
+//! (`chat::ThreadEv::Compacting`, the chat's event door: the thread's facts need no variant of
+//! the hub's `ThreadEv`).
 
 use codex_app_server_protocol::{ServerNotification, ThreadItemPayload};
 
 use super::{Item, ItemKey, Notice, ThreadEv, ThreadFx, ThreadModel};
 use crate::ids::{ItemId, ThreadId, TurnId};
+use crate::screens::{ScreenThreadEv, chat};
 
 /// How many finished compactions keep their duration for the cells that show it.
 const KEPT: usize = 8;
@@ -98,6 +100,10 @@ pub enum Ev {
     Completed { key: ItemKey },
 }
 
+fn wrap(ev: Ev) -> ThreadEv {
+    ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Compacting(ev)))
+}
+
 /// The notifications of a context compaction (they never reach the generic item path: the cell is
 /// made on completion, not on start).
 pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)> {
@@ -105,7 +111,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
         ServerNotification::ItemStarted(n) => match &n.item.payload {
             ThreadItemPayload::ContextCompaction { id } => Some((
                 ThreadId::new(&n.thread_id),
-                ThreadEv::Compaction(Ev::Started {
+                wrap(Ev::Started {
                     turn: TurnId::new(&n.turn_id),
                     id: ItemId::new(id),
                     started_at_ms: n.started_at_ms,
@@ -116,7 +122,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
         ServerNotification::ItemCompleted(n) => match &n.item.payload {
             ThreadItemPayload::ContextCompaction { id } => Some((
                 ThreadId::new(&n.thread_id),
-                ThreadEv::Compaction(Ev::Completed {
+                wrap(Ev::Completed {
                     key: ItemKey {
                         turn: TurnId::new(&n.turn_id),
                         item: ItemId::new(id),

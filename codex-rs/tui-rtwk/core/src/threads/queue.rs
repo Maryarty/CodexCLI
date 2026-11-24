@@ -166,6 +166,20 @@ pub(super) fn apply(
     let ScreenThreadIntent::Chat(intent) = intent else {
         return Err(intent);
     };
+    // A misalignment stop rejects what starts a turn or waits for one (`rejects_misalignment_
+    // policy_op`); a plan's implementation is a submit, which the thread refuses itself.
+    if model.safety.blocks_input()
+        && matches!(
+            intent,
+            Chat::Compact
+                | Chat::Review(_)
+                | Chat::Shell(_)
+                | Chat::Queue(_)
+                | Chat::ApprovePlan(_)
+        )
+    {
+        return Ok(());
+    }
     match intent {
         // Tab: the line waits behind the running turn.
         Chat::Queue(message) => enqueue(model, message, fx),
