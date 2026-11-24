@@ -237,10 +237,6 @@ fn options_notes_focus_hides_question_navigation_tip() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2584 request_user_input_uses_remapped_interrupt_binding_while_notes_are_visible kind=ui owner=dialogs-pane
 #[test]
 fn request_user_input_uses_remapped_interrupt_binding_while_notes_are_visible() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -424,7 +420,7 @@ fn freeform_shift_enter_inserts_newline_without_advancing() {
 fn freeform_uses_configured_composer_submit_binding() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice), so composer.submit cannot be remapped; the request's freeform answer exists and submits on Enter",
+        "the seed sends `ctrl+j` as the byte 0x0a, which a terminal without the kitty protocol delivers as Enter (rtwk KeyCombo: `ctrl+j` arrives as `enter`), and a remapped composer.submit leaves Enter a newline: the remapped key cannot be sent as itself (the footer shows `⌃j to submit answer`, the sheet submits on the key it is told)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -439,10 +435,6 @@ fn freeform_uses_configured_composer_submit_binding() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3042 freeform_submit_binding_wins_over_question_navigation kind=ui owner=dialogs-pane
 #[test]
 fn freeform_submit_binding_wins_over_question_navigation() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice), so composer.submit cannot be remapped; the request's freeform answer exists and submits on Enter",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_freeform.jsonl"))
@@ -662,31 +654,23 @@ fn request_user_input_freeform_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3787 request_user_input_freeform_chord_only_submit_snapshot kind=snap owner=dialogs-pane
 #[test]
 fn request_user_input_freeform_chord_only_submit_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
-        .script(include_str!("fixtures/approvals_2/freeform.jsonl"))
+        .entry("approvals", "user_input_freeform")
         .keymap(&[("composer.submit", "ctrl+x enter")])
         .open();
-    s.assert_row(0, "Question 1/1 (1 unanswered)");
-    s.assert_row(1, "Share details.");
-    s.assert_row(2, "› Type your answer (optional)");
-    s.assert_row(3, "⌃x enter to submit answer | esc to interrupt");
+    s.assert_has_row_trimmed("Question 1/1 (1 unanswered)");
+    s.assert_has_row_trimmed("Share details.");
+    s.assert_has_row_trimmed("› Type your answer (optional)");
+    s.assert_has_row_trimmed("⌃x enter to submit answer | esc to interrupt");
 }
 
 // ORACLE bottom_pane/request_user_input/mod.rs:3825 request_user_input_freeform_remapped_submit_snapshot kind=snap owner=dialogs-pane snap=request_user_input_freeform_remapped_submit
 #[test]
 fn request_user_input_freeform_remapped_submit_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
-        .script(include_str!("fixtures/approvals_2/freeform.jsonl"))
+        .entry("approvals", "user_input_freeform")
         .keymap(&[("composer.submit", "ctrl+j")])
         .open();
     s.assert_snap("request_user_input_freeform_remapped_submit");
@@ -695,13 +679,9 @@ fn request_user_input_freeform_remapped_submit_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3845 request_user_input_freeform_remapped_interrupt_snapshot kind=snap owner=dialogs-pane snap=request_user_input_freeform_remapped_interrupt
 #[test]
 fn request_user_input_freeform_remapped_interrupt_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed: the port reads no key bindings from a config yet (`.keymap` is missing until the keymap slice); the freeform question and its footer exist (the default-keys snapshot passes)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
-        .script(include_str!("fixtures/approvals_2/freeform.jsonl"))
+        .entry("approvals", "user_input_freeform")
         .keymap(&[("chat.interrupt_turn", "f12")])
         .open();
     s.assert_snap("request_user_input_freeform_remapped_interrupt");

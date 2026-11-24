@@ -27,6 +27,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::keymap::Keymap;
+use codex_tui_core::keymap::actions::{COMPOSER_SUBMIT, LIST_ACCEPT};
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::form::{Action, Field, FieldInput, Form};
 use codex_tui_core::screens::approvals::{ElicitationPrompt, Entered, Intent, Prompt};
@@ -433,13 +434,17 @@ impl State for FormViewState {
         let footer = footer(
             s,
             &tokens,
+            &crate::keymap::keymap(cx),
             form,
             self.current,
             text_input(&field.input),
             self.fail,
         );
 
+        // The oracle clips a dialog taller than its room: so does this one (the validation line
+        // can take the row the footer needs).
         let inner = Column::new()
+            .overflow_intended(true)
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(Text::rich(progress))
@@ -568,6 +573,7 @@ fn option_rows(s: &Strings, form: &Form, input: &FieldInput) -> Vec<OptionRow> {
 fn footer(
     s: &Strings,
     tokens: &Tokens,
+    keymap: &Keymap,
     form: &Form,
     current: usize,
     text: bool,
@@ -596,7 +602,6 @@ fn footer(
         spans.push(Span::styled(line, tokens.accent().attrs(Attrs::BOLD)));
     }
     let count = form.fields.len();
-    separate(&mut spans);
     let submit = if count == 1 {
         s.tip_submit
     } else if current + 1 >= count {
@@ -604,7 +609,13 @@ fn footer(
     } else {
         s.tip_submit_answer
     };
-    key(s.key_enter, submit, &mut spans);
+    // A text field submits by the composer's key, a list by the list's accept; a key the user
+    // unbound has no tip.
+    let submit_key = crate::keymap::label(keymap, if text { COMPOSER_SUBMIT } else { LIST_ACCEPT });
+    if let Some(submit_key) = submit_key {
+        separate(&mut spans);
+        key(&submit_key, submit, &mut spans);
+    }
     if count > 1 {
         separate(&mut spans);
         if text {

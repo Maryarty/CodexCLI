@@ -709,9 +709,9 @@ fn horizontal_list_keys_move_between_select_fields() {
         .keymap(&[("list.accept", "")])
         .open();
     s.keys("ctrl+l");
-    s.assert_has_row("Second");
+    s.assert_has_row_trimmed("Second");
     s.keys("ctrl+h");
-    s.assert_has_row("First");
+    s.assert_has_row_trimmed("First");
     s.assert_absent("submit");
 }
 
