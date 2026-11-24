@@ -19,7 +19,7 @@ use codex_app_server_protocol::{
     TurnModerationMetadataNotification,
 };
 
-pub use recourse::Domain;
+pub use recourse::{Domain, Source, Topic};
 
 use super::{Fault, Item, ThreadEv, ThreadFx, ThreadModel, TurnState, UserMessage};
 use crate::ids::{ThreadId, TurnId};
@@ -64,8 +64,10 @@ struct Submitted {
 pub struct Offer {
     pub turn: TurnId,
     pub domain: Domain,
-    /// The server's explanation under the refusal's cell.
-    pub explanation: String,
+    /// What was flagged and what it concerned: the UI words the explanation under the refusal's
+    /// cell from them.
+    pub source: recourse::Source,
+    pub topic: recourse::Topic,
     /// Label and the prompt a new chat starts with.
     pub suggestions: Vec<(String, String)>,
     /// The cyber refusal's wording at the moment: `Disabled` adds the Enable Daybreak row.
@@ -495,7 +497,8 @@ fn render_failure(
     model.core.safety.offer = Some(Offer {
         turn: turn.clone(),
         domain,
-        explanation: result.explanation,
+        source: result.source,
+        topic: result.topic,
         suggestions: result.suggestions,
         daybreak,
     });

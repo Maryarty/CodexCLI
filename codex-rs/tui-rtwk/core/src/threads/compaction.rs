@@ -20,7 +20,7 @@ const KEPT: usize = 8;
 
 /// The compaction under way.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Active {
+pub struct Running {
     pub id: ItemId,
     /// When it started, epoch seconds: the status row's timer counts from here (`started_at`
     /// of the oracle's `ActiveCompaction`, restored from the server's own start time).
@@ -30,7 +30,7 @@ pub struct Active {
 /// The thread's compaction facts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Compaction {
-    active: Option<Active>,
+    running: Option<Running>,
     /// Seconds a finished live compaction took, by its item, oldest first: the completion
     /// cell reads it ("Context compacted · 1m 23s"); a compaction not in it is a plain cell.
     took: Vec<(ItemId, u64)>,
@@ -38,13 +38,13 @@ pub struct Compaction {
 
 impl Compaction {
     /// The compaction running now.
-    pub fn active(&self) -> Option<&Active> {
-        self.active.as_ref()
+    pub fn running(&self) -> Option<&Running> {
+        self.running.as_ref()
     }
 
     /// Whether one runs (the status header says so and the follow-up input must not hide it).
-    pub fn is_active(&self) -> bool {
-        self.active.is_some()
+    pub fn is_running(&self) -> bool {
+        self.running.is_some()
     }
 
     /// Seconds the live compaction `id` took; none for a replayed or unknown one.
@@ -56,17 +56,17 @@ impl Compaction {
 
     /// A repeated start of the same compaction changes nothing (the timer does not restart).
     fn start(&mut self, id: ItemId, started_at: i64) {
-        if self.active.as_ref().is_some_and(|active| active.id == id) {
+        if self.running.as_ref().is_some_and(|active| active.id == id) {
             return;
         }
-        self.active = Some(Active { id, started_at });
+        self.running = Some(Running { id, started_at });
     }
 
     /// The compaction `id` completed live: when it is the running one its duration is kept
     /// (`now` unknown, 0, keeps none) and the status goes back. Any other id is a completion that
     /// came with history: it neither contributes a duration nor ends the running one.
     fn finish(&mut self, id: &ItemId, now: i64) {
-        let Some(active) = self.active.as_ref().filter(|active| &active.id == id) else {
+        let Some(active) = self.running.as_ref().filter(|active| &active.id == id) else {
             return;
         };
         if now > 0 {
@@ -77,13 +77,13 @@ impl Compaction {
                 self.took.remove(0);
             }
         }
-        self.active = None;
+        self.running = None;
     }
 
     /// The turn ended without the item's completion, or a new one began (`clear_context_
     /// compaction`).
     pub(super) fn clear(&mut self) {
-        self.active = None;
+        self.running = None;
     }
 }
 

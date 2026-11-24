@@ -1,8 +1,8 @@
 //! Validates the desktop safety-recourse metadata contract (oracle
 //! `chatwidget/safety_recourse/metadata.rs`, carried unchanged but for the two text checks the
 //! oracle takes from crates core does not use, `tool_mention_in` and `is_async_reply`). The
-//! explanation is an English sentence of the contract, kept as data with the offers: the server
-//! words it, not the UI string tables.
+//! explanation of the oracle is made of the source and the topic kept here as data; its words are
+//! the UI's.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -49,9 +49,37 @@ struct Suggestion {
     prompt_text: String,
 }
 
+/// What the flagged content was (the contract's `source` and message kind): the explanation's
+/// lead ("with requests involving", "when content from a file involves", ...) is the UI's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    UserRequest,
+    AssistantResponse,
+    FileContent,
+    WebSearchResult,
+    OtherTool,
+}
+
+/// What it concerned (the contract's `topic` of its domain): the explanation's concern and the
+/// help offered ("access processes and safeguards") are the UI's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Topic {
+    BioAccessAndSafeguards,
+    BioGrowthOrProduction,
+    BioExperimentationOrModification,
+    BioExposureOrRelease,
+    BioRiskyActivities,
+    CyberUnauthorizedAccess,
+    CyberHighRiskTools,
+    CyberSensitiveData,
+    CyberVulnerabilities,
+    CyberRiskyActivities,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Recourse {
-    pub explanation: String,
+    pub source: Source,
+    pub topic: Topic,
     /// The offered rewrites: label and the prompt a pick starts a new chat with.
     pub suggestions: Vec<(String, String)>,
 }
@@ -69,80 +97,36 @@ pub fn parse(mut value: Value) -> Option<(Domain, Option<Recourse>)> {
     if wire.schema_version != 1 || !valid_text(&message.id, /*max_chars*/ 256) {
         return None;
     }
-    let (bio_lead, cyber_lead, bio_offer) = match (
+    let source = match (
         wire.source.as_str(),
         message.kind.as_str(),
         message.role.as_str(),
     ) {
-        ("user_request", "ordinary_message", "user") => (
-            "with requests involving ",
-            "with requests that could enable ",
-            None,
-        ),
-        ("assistant_response", "ordinary_message", "assistant") => (
-            "when a response would provide information about ",
-            "when a response could enable ",
-            None,
-        ),
+        ("user_request", "ordinary_message", "user") => Source::UserRequest,
+        ("assistant_response", "ordinary_message", "assistant") => Source::AssistantResponse,
         ("file_content", "file_tool_call", "assistant")
-        | ("file_content", "file_tool_result", "tool") => (
-            "when content from a file involves ",
-            "when content could enable ",
-            Some("You can continue without this file or ask Codex for an overview of "),
-        ),
+        | ("file_content", "file_tool_result", "tool") => Source::FileContent,
         ("web_search_result", "web_tool_call", "assistant")
-        | ("web_search_result", "web_tool_result", "tool") => (
-            "when a web search result contains information about ",
-            "when content could enable ",
-            Some("You can retry without web search or ask Codex for an overview of "),
-        ),
+        | ("web_search_result", "web_tool_result", "tool") => Source::WebSearchResult,
         ("other_tool", "other_tool_call", "assistant")
-        | ("other_tool", "other_tool_result", "tool") => {
-            ("when content involves ", "when content could enable ", None)
-        }
+        | ("other_tool", "other_tool_result", "tool") => Source::OtherTool,
         _ => return None,
     };
-    let (concern, help) = match (wire.domain, wire.topic.as_str()) {
-        (Domain::Bio, "biological_agent_access_and_safeguards") => (
-            "access to biological materials and related safety controls",
-            "access processes and safeguards",
-        ),
-        (Domain::Bio, "biological_agent_growth_or_production") => (
-            "growing or producing biological agents",
-            "the science and safety considerations",
-        ),
-        (Domain::Bio, "risky_biological_experimentation_or_modification") => (
-            "biological experimentation or modification that could pose safety risks",
-            "the research goals and safety considerations",
-        ),
-        (Domain::Bio, "harmful_biological_exposure_or_release") => (
-            "biological exposure or release that could cause harm",
-            "the risks, prevention, and response",
-        ),
-        (Domain::Bio, "risky_biological_activities") => (
-            "biological activities that could pose safety risks",
-            "biological research and safety considerations",
-        ),
-        (Domain::Cyber, "unauthorized_account_or_system_access") => (
-            "access to accounts or systems beyond permitted scope",
-            "account security and recovery",
-        ),
-        (Domain::Cyber, "high_risk_cybersecurity_tools") => (
-            "system disruption or the development of high-risk cyber tools",
-            "system protection and incident recovery",
-        ),
-        (Domain::Cyber, "sensitive_data_or_private_communications") => (
-            "sensitive data collection or private communications monitoring",
-            "data protection and privacy safeguards",
-        ),
-        (Domain::Cyber, "software_vulnerabilities_or_security_weaknesses") => (
-            "capability or technique development for bypassing security controls",
-            "safe assessment and remediation",
-        ),
-        (Domain::Cyber, "risky_cybersecurity_activities") => (
-            "cyber activities that pose security or safety risks",
-            "cybersecurity fundamentals and defensive best practices",
-        ),
+    let topic = match (wire.domain, wire.topic.as_str()) {
+        (Domain::Bio, "biological_agent_access_and_safeguards") => Topic::BioAccessAndSafeguards,
+        (Domain::Bio, "biological_agent_growth_or_production") => Topic::BioGrowthOrProduction,
+        (Domain::Bio, "risky_biological_experimentation_or_modification") => {
+            Topic::BioExperimentationOrModification
+        }
+        (Domain::Bio, "harmful_biological_exposure_or_release") => Topic::BioExposureOrRelease,
+        (Domain::Bio, "risky_biological_activities") => Topic::BioRiskyActivities,
+        (Domain::Cyber, "unauthorized_account_or_system_access") => Topic::CyberUnauthorizedAccess,
+        (Domain::Cyber, "high_risk_cybersecurity_tools") => Topic::CyberHighRiskTools,
+        (Domain::Cyber, "sensitive_data_or_private_communications") => Topic::CyberSensitiveData,
+        (Domain::Cyber, "software_vulnerabilities_or_security_weaknesses") => {
+            Topic::CyberVulnerabilities
+        }
+        (Domain::Cyber, "risky_cybersecurity_activities") => Topic::CyberRiskyActivities,
         _ => return None,
     };
     let mut prompts = HashSet::new();
@@ -175,17 +159,14 @@ pub fn parse(mut value: Value) -> Option<(Domain, Option<Recourse>)> {
         }
         suggestions.push((label.into(), prompt.into()));
     }
-    let overview = "You can ask Codex for an overview of ";
-    let (lead, offer) = match wire.domain {
-        Domain::Bio => (bio_lead, bio_offer.unwrap_or(overview)),
-        Domain::Cyber => (cyber_lead, overview),
-    };
-    let explanation = format!("We take extra caution {lead}{concern}. {offer}{help}.");
-    let result = Recourse {
-        explanation,
-        suggestions,
-    };
-    Some((wire.domain, Some(result)))
+    Some((
+        wire.domain,
+        Some(Recourse {
+            source,
+            topic,
+            suggestions,
+        }),
+    ))
 }
 
 fn valid_text(value: &str, max_chars: usize) -> bool {

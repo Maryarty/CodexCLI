@@ -12,7 +12,7 @@ use codex_tui_core::fixtures::builders::{agent_delta, turn_failed, turn_started}
 use codex_tui_core::ids::{ThreadId, Ticket, TurnId};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenIntent, chat};
-use codex_tui_core::threads::safety::{Domain, Verb};
+use codex_tui_core::threads::safety::{Domain, Source, Topic, Verb};
 use codex_tui_core::threads::{Item, Notice, UserMessage};
 use serde_json::{Value, json};
 
@@ -250,7 +250,7 @@ mod recourse {
 
     /// The refusal that comes before the end of the turn waits for it: the turn still runs and
     /// there is no row yet. The end of the turn shows the refusal's cell and offers the three
-    /// alternatives, the explanation worded by the contract.
+    /// alternatives, the explanation's parts (what was flagged, what it concerned) as data.
     #[test]
     fn the_refusal_waits_for_the_turn_and_offers_the_alternatives() {
         let mut app = refused_with_alternatives();
@@ -266,10 +266,8 @@ mod recourse {
         let offer = thread.safety().offer().expect("an offer");
         assert_eq!(offer.domain, Domain::Cyber);
         assert_eq!(
-            offer.explanation,
-            "We take extra caution with requests that could enable system disruption or the \
-             development of high-risk cyber tools. You can ask Codex for an overview of system \
-             protection and incident recovery."
+            (offer.source, offer.topic),
+            (Source::UserRequest, Topic::CyberHighRiskTools)
         );
         assert_eq!(
             offer

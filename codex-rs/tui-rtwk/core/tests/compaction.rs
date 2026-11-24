@@ -70,7 +70,7 @@ fn active(sandbox: &Sandbox) -> Option<(String, i64)> {
     let thread = sandbox.app().thread(&ThreadId::new(T)).expect("the thread");
     thread
         .compaction()
-        .active()
+        .running()
         .map(|active| (active.id.to_string(), active.started_at))
 }
 
