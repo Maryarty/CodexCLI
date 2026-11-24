@@ -397,6 +397,9 @@ async fn run(
         epoch,
         AppEv::Feature(feedback_fact(&config, startup.target).into()),
     );
+    for fact in small_facts(&config) {
+        emit(&ingress, epoch, AppEv::Feature(fact.into()));
+    }
     if !warnings.is_empty() {
         emit(
             &ingress,
@@ -756,12 +759,32 @@ fn config_write_job(
                 epoch,
                 AppEv::Feature(feedback_fact(config, startup.target).into()),
             );
+            for fact in small_facts(config) {
+                emit(&ingress, epoch, AppEv::Feature(fact.into()));
+            }
         }
         Some(AppEv::Effect {
             request,
             done: written.done,
         })
     })
+}
+
+/// What `/debug-config` and `/ide` read of the host: the config's layers and requirements as
+/// rows, and whether an IDE answers (its ipc is not carried: none does).
+fn small_facts(config: &Config) -> [codex_tui_core::features::small_cmds::Fact; 2] {
+    use codex_tui_core::features::small_cmds::Fact;
+    [
+        Fact::debug_config(
+            crate::debug_config::rows(config)
+                .into_iter()
+                .map(|row| (row.text, row.style)),
+        ),
+        Fact::ide_unavailable(
+            crate::small::OPEN_IDE_HINT.to_owned(),
+            crate::small::OPEN_IDE_HINT.to_owned(),
+        ),
+    ]
 }
 
 /// What `/plugins` reads of the config: the features it depends on, the home directory the

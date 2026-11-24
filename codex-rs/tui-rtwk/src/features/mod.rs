@@ -37,16 +37,19 @@ pub mod prompt;
 // directory does not compile: `view_dispatch!` needs its `FeatureView` impl.
 pub mod daemon;
 pub mod diff;
+pub mod copy;
 pub mod export;
 pub mod feedback;
 pub mod goal;
 pub mod mcp_inventory;
 pub mod plugins;
 pub mod processes;
+pub mod recap;
 pub mod rename;
 pub mod security_setup;
 pub mod settings;
 pub mod windows_sandbox;
+pub mod small_cmds;
 
 /// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope
 /// shows it from its own slice of the feature's state (the data of the wish is the feature's, a

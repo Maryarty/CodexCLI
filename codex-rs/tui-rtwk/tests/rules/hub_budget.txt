@@ -63,6 +63,9 @@ enum core/src/rpc.rs Answer 11
 # fw1-c1 (`/daemon`): `Ask::BackgroundServer(DaemonAsk)` / `Done::BackgroundServer(DaemonDone)` are a new HOST capability
 # (the local background server's lifecycle through `codex_app_server_daemon`: the managed-daemon probe
 # and the restart), asked through `AppCx::effect` by the daemon slice; one variant of each for both.
+# `/recap` (fw1-c4): `Ask::StructuredTurn` / `Done::Structured`, the host's ephemeral thread with one
+# structured turn (the oracle's `temporary_structured_request`); `SuggestTitle` can become its
+# second user and leave.
 enum core/src/app/effects.rs Ask 13
 enum core/src/app/effects.rs Done 12
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that

@@ -311,6 +311,21 @@ pub(super) fn session_intent(
             let intent = crate::features::export::Intent::Command { path };
             super::features::intent(app, intent.into(), fx);
         }
+        // `/copy`: the picker of what the last response holds, asked of the surface
+        // (`features/copy`).
+        S::Copy => {
+            let intent = crate::features::copy::Intent::Command { source };
+            super::features::intent(app, intent.into(), fx);
+        }
+        // `/logout`, `/ide`, `/daybreak`, `/debug-config` (`features/small_cmds`).
+        S::Logout => small(app, crate::features::small_cmds::Intent::Logout, fx),
+        S::Ide { args } => small(app, crate::features::small_cmds::Intent::Ide { args }, fx),
+        S::Daybreak => small(
+            app,
+            crate::features::small_cmds::Intent::Daybreak { source },
+            fx,
+        ),
+        S::DebugConfig => small(app, crate::features::small_cmds::Intent::DebugConfig, fx),
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).
         S::Goal { args } => {
             let intent = crate::features::goal::Intent::Command { source, args };
@@ -342,15 +357,10 @@ pub(super) fn session_intent(
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
         | S::Side { .. }
-        | S::Copy
         | S::Tui
         | S::Mcp { .. }
         | S::Apps
-        | S::Logout
-        | S::Ide { .. }
-        | S::Daybreak
         | S::Hooks
-        | S::DebugConfig
         | S::Review { args: None }
         | S::Model { .. }
         | S::Permissions { args: None }
@@ -683,6 +693,11 @@ pub(super) fn removed(
 /// the status line.
 fn working_directory(app: &CodexApp, thread: Option<&ThreadId>) -> String {
     super::features::view(app).working_directory(thread)
+}
+
+/// One verb of `features/small_cmds`, applied to its feature.
+fn small(app: &mut CodexApp, intent: crate::features::small_cmds::Intent, fx: &mut AppFx) {
+    super::features::intent(app, intent.into(), fx);
 }
 
 /// What a command line answered with (oracle `add_info_message` /

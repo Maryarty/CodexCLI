@@ -1292,7 +1292,7 @@ impl ThreadModel {
 
     /// The thread's own state and the screens' parts, read-only, for a feature (ADR-012).
     pub fn view(&self) -> ThreadView<'_> {
-        ThreadView::new(&self.core, &self.slots)
+        ThreadView::new(&self.core, &self.slots).with_parts(&self.features)
     }
 
     /// A feature's `&mut` part and everything else of the thread read-only, at once.
@@ -1478,6 +1478,11 @@ impl ThreadCore {
                 .safety
                 .buffering()
                 .is_some_and(|held| held.turn == *turn && held.waiting())
+    }
+
+    /// The transcript, for a feature's view of the thread (`ThreadView`).
+    pub(crate) fn transcript(&self) -> &Transcript {
+        &self.transcript
     }
 
     pub fn is_running(&self) -> bool {

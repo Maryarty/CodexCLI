@@ -862,7 +862,10 @@ impl CodexApp {
             | Command::ResolveRequest { key, .. }
             | Command::VerifyUser { key, .. } => key.backend,
             Command::Effect {
-                ask: effects::Ask::SuggestTitle { thread } | effects::Ask::Export { thread, .. },
+                ask:
+                    effects::Ask::SuggestTitle { thread }
+                    | effects::Ask::StructuredTurn { thread, .. }
+                    | effects::Ask::Export { thread, .. },
                 ..
             } => agents.owner_of(thread.as_str()),
             Command::StartThread { backend, .. }

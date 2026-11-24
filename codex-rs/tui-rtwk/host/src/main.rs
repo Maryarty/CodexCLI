@@ -6,6 +6,7 @@
 mod analytics;
 mod cloud;
 mod daemon;
+mod debug_config;
 mod effects;
 mod facts;
 mod gateway;
@@ -15,6 +16,7 @@ mod launch;
 mod providers;
 mod security_setup;
 mod settings;
+mod small;
 mod startup;
 mod target;
 mod update;

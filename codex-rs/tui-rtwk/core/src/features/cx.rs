@@ -5,7 +5,9 @@
 //! It never holds `&mut` of the app or of a thread's model.
 
 use super::surface::Scope;
-use super::{FeatureCommand, FeatureCtx, FeatureNote, FeatureThreadIntent, FeatureWish};
+use super::{
+    FeatureCommand, FeatureCtx, FeatureNote, FeatureThreadIntent, FeatureThreadParts, FeatureWish,
+};
 use crate::app::TranscriptText;
 use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
@@ -13,7 +15,8 @@ use crate::ids::{ThreadId, Ticket};
 use crate::screens::ScreenStates;
 use crate::screens::ThreadSlots;
 use crate::screens::select::collaboration::Mask;
-use crate::threads::{ThreadCore, ThreadFx, ThreadSet};
+use crate::threads::daybreak::Access;
+use crate::threads::{Item, ThreadCore, ThreadFx, ThreadSet};
 
 /// The app, read-only: the facts a feature decides by. It holds references to parts of the
 /// app, so a feature's own state can be `&mut` at the same time.
@@ -25,6 +28,7 @@ pub struct AppView<'a> {
     tui: &'a TuiSettings,
     modes: &'a [Mask],
     transcript: Option<&'a TranscriptText>,
+    daybreak: Option<&'a Access>,
 }
 
 impl<'a> AppView<'a> {
@@ -43,7 +47,19 @@ impl<'a> AppView<'a> {
             tui,
             modes,
             transcript,
+            daybreak: None,
         }
+    }
+
+    /// The host's Daybreak facts (the account, the model catalog) are read through this view.
+    pub(crate) fn with_daybreak(mut self, daybreak: &'a Access) -> Self {
+        self.daybreak = Some(daybreak);
+        self
+    }
+
+    /// What the host knows about Daybreak (`AppEv::Daybreak`): nothing until it said.
+    pub fn daybreak(&self) -> Access {
+        self.daybreak.cloned().unwrap_or_default()
     }
 
     /// The thread the chat shows (none before the session has started).
@@ -106,6 +122,9 @@ impl<'a> AppView<'a> {
 pub struct ThreadView<'a> {
     core: &'a ThreadCore,
     slots: &'a ThreadSlots,
+    /// The features' parts of the thread, read-only: none inside a feature's own thread step
+    /// (it holds its part `&mut` there).
+    parts: Option<&'a FeatureThreadParts>,
     /// A turn start was said in this step and the model does not hold its ticket yet: the
     /// thread is busy for whoever reads after it (ADR-012: "a feature after it sees the
     /// thread already busy").
@@ -117,8 +136,15 @@ impl<'a> ThreadView<'a> {
         Self {
             core,
             slots,
+            parts: None,
             start_said: false,
         }
+    }
+
+    /// Reads the features' parts of the thread too.
+    pub(crate) fn with_parts(mut self, parts: &'a FeatureThreadParts) -> Self {
+        self.parts = Some(parts);
+        self
     }
 
     pub fn id(&self) -> &'a ThreadId {
@@ -145,6 +171,49 @@ impl<'a> ThreadView<'a> {
     /// (`/ps`).
     pub fn terminals(&self) -> &'a [crate::threads::Terminal] {
         self.core.terminals()
+    }
+
+    /// The messages a copy can take, oldest first: an assistant message or a plan, as the server
+    /// sent it (oracle `record_agent_markdown`'s callers).
+    pub fn response_sources(&self) -> std::vec::IntoIter<&'a str> {
+        let sources: Vec<&'a str> = self
+            .core
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Agent { text, .. } | Item::Plan { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        sources.into_iter()
+    }
+
+    /// The messages of the conversation a reader sees, oldest first: what the user typed and
+    /// what the assistant said (no tools, reasoning or plans), as history draws their text.
+    pub fn conversation(&self) -> Vec<super::recap::Message> {
+        use super::recap::Message;
+        self.core
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::User(prompt) => Some(Message::User(prompt.shown().text.into_owned())),
+                Item::Agent { text, .. } => Some(Message::Assistant(text.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The Daybreak choice of the thread: what `/daybreak` saved for it, else what its metadata
+    /// holds (`Metadata::daybreak`).
+    pub fn daybreak(&self) -> Option<bool> {
+        self.parts
+            .and_then(|parts| parts.small_cmds.saved())
+            .or(self.slots.chat.daybreak)
+    }
+
+    /// The thread is not kept (`config.ephemeral`): it has no metadata to save a choice in.
+    pub fn ephemeral(&self) -> bool {
+        self.slots.chat.ephemeral
     }
 
     /// The thread's name, when it has one (`/rename`).
