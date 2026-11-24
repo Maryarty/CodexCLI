@@ -226,7 +226,7 @@ impl CopyLog {
 // its fence, the response as Markdown), not what is drawn.
 //
 // The model is a controller (Flutter's `ValueNotifier<CopyState>`), one per thread, found by the
-// finder the thread's `ThreadUi` holds (`mode_of`, as the select mode's is): the entry begins it
+// thread's `ThreadUi` (`mode_of`, as the select mode's is): the entry begins it
 // (`enter`), the page's key handler moves it (`key`), the pane gives it the targets it read of the
 // items (`read`) and shows the target by asking the selection area to select its range (`show`), as
 // it does a match of Find. The targets are a flat list in the order of the transcript; Up and Down
@@ -582,18 +582,11 @@ impl PartialEq for CopyMode {
     }
 }
 
-thread_local! {
-    static REGISTRY: RefCell<Vec<(Finder, CopyMode)>> = const { RefCell::new(Vec::new()) };
-}
-
-/// The copy mode of the thread whose finder this is (made on first ask).
+/// The copy mode of the thread whose finder this is (made on first ask, held with the thread's
+/// controllers: `ThreadUi::held`).
 pub fn mode_of(finder: &Finder) -> CopyMode {
-    REGISTRY.with(|registry| {
-        let mut registry = registry.borrow_mut();
-        if let Some((_, mode)) = registry.iter().find(|(held, _)| held == finder) {
-            return mode.clone();
-        }
-        let mode = CopyMode(Rc::new(Inner {
+    finder.held(|| {
+        CopyMode(Rc::new(Inner {
             data: RefCell::new(Data {
                 active: false,
                 placed: false,
@@ -606,9 +599,7 @@ pub fn mode_of(finder: &Finder) -> CopyMode {
                 pending: None,
             }),
             ticks: select::of(finder).listenable(),
-        }));
-        registry.push((finder.clone(), mode.clone()));
-        mode
+        }))
     })
 }
 

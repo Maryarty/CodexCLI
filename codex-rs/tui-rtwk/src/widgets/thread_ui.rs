@@ -42,6 +42,12 @@ pub struct ThreadUi {
 }
 
 impl ThreadUi {
+    /// The controller of type `T` this thread's transcript keeps (its select mode, its copy
+    /// mode), made by `make` on the first ask; it goes with the thread's controllers.
+    pub fn held<T: Clone + 'static>(&self, make: impl FnOnce() -> T) -> T {
+        self.find.held(make)
+    }
+
     /// How the transcript takes keys now: Find while it is open (editing the query or reading a
     /// match), else the mode the reader holds (`Modes::input`).
     pub fn input(&self) -> Input {
@@ -507,6 +513,33 @@ mod tests {
         assert_eq!(modes.listenable().value(), ticks);
         modes.close();
         assert_eq!(modes.input(), Input::Plain);
+    }
+
+    #[test]
+    fn a_thread_holds_the_controllers_of_its_modes_and_drops_them_with_it() {
+        #[derive(Clone)]
+        struct Probe(Rc<Cell<u32>>);
+        let made = Cell::new(0);
+        let make = || {
+            made.set(made.get() + 1);
+            Probe(Rc::new(Cell::new(0)))
+        };
+        let (one, other) = (ThreadUi::default(), ThreadUi::default());
+        let first = one.held(make);
+        first.0.set(7);
+        // the same controller on every ask, and for every clone of the thread's controllers
+        assert_eq!(one.held(make).0.get(), 7);
+        assert_eq!(one.clone().held(make).0.get(), 7);
+        assert_eq!(made.get(), 1);
+        // another thread has its own, and another type its own slot
+        assert_eq!(other.held(make).0.get(), 0);
+        assert_eq!(one.held(|| 5_u8), 5);
+        assert_eq!(one.held(|| 9_u8), 5);
+        // the controller goes with the thread
+        let weak = Rc::downgrade(&first.0);
+        drop(first);
+        drop(one);
+        assert!(weak.upgrade().is_none());
     }
 
     #[test]

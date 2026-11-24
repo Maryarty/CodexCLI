@@ -13,6 +13,7 @@
 //! in the frame the query changed: the rows are in memory and a literal scan of them is the
 //! cost of laying out one screen.
 
+use std::any::{Any, TypeId};
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
@@ -147,6 +148,8 @@ struct Inner {
     seen: RefCell<String>,
     ticks: Rc<ValueNotifier<u32>>,
     tell: Cell<bool>,
+    /// The controllers of the thread that keep pace with Find's input (`Finder::held`).
+    held: RefCell<Vec<(TypeId, Box<dyn Any>)>>,
 }
 
 /// The finder of one thread's transcript: a handle that is equal to its clones.
@@ -198,7 +201,29 @@ impl Finder {
             seen: RefCell::default(),
             ticks: Rc::new(ValueNotifier::new(0)),
             tell: Cell::new(true),
+            held: RefCell::default(),
         }))
+    }
+
+    /// A controller of this thread's transcript that begins and ends with Find's input (the
+    /// select and copy modes), made by `make` on the first ask and held as long as the finder is,
+    /// which is as long as the thread's `ThreadUi` (`ThreadUi::held`): no registry outside it.
+    pub fn held<T: Clone + 'static>(&self, make: impl FnOnce() -> T) -> T {
+        let id = TypeId::of::<T>();
+        let found = self
+            .0
+            .held
+            .borrow()
+            .iter()
+            .find(|(held, _)| *held == id)
+            .and_then(|(_, held)| held.downcast_ref::<T>().cloned());
+        if let Some(found) = found {
+            return found;
+        }
+        // `make` may ask for another controller: the borrow is over
+        let made = make();
+        self.0.held.borrow_mut().push((id, Box::new(made.clone())));
+        made
     }
 
     /// Ticks when anything the footer or the pane shows changes.

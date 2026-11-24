@@ -2,9 +2,9 @@
 //! the keyboard moves over the text of the transcript, a mark that starts a range at it, and the
 //! keys that copy the range or let it go. `leader [` (the keymap's `select_transcript`) begins it.
 //!
-//! The model is a controller (Flutter's `ValueNotifier<SelectState>`), one per thread, found by
-//! the finder the thread's `ThreadUi` holds (`of`; a thread's `ThreadUi` is another crate door's,
-//! so the registry is here until the controller is a field of it): the key action begins it, the page's key handler moves it (`key`), the pane gives
+//! The model is a controller (Flutter's `ValueNotifier<SelectState>`), one per thread, held by
+//! the thread's `ThreadUi` (`ThreadUi::held`; `of` finds it from the finder that travels with
+//! the thread's controllers): the key action begins it, the page's key handler moves it (`key`), the pane gives
 //! it the rows (`RowTexts`, the transcript as the list's selection reads it) and shows it by
 //! asking the selection area for the caret's grapheme, or the marked range (`show`), and the
 //! footer says what the keys do (`hints`). Nothing here is drawn: the area paints the range
@@ -224,21 +224,10 @@ impl Default for Select {
     }
 }
 
-thread_local! {
-    static REGISTRY: RefCell<Vec<(Finder, Select)>> = const { RefCell::new(Vec::new()) };
-}
-
-/// The select mode of the thread whose finder this is (made on first ask).
+/// The select mode of the thread whose finder this is (made on first ask, held with the thread's
+/// controllers: `ThreadUi::held`).
 pub fn of(finder: &Finder) -> Select {
-    REGISTRY.with(|registry| {
-        let mut registry = registry.borrow_mut();
-        if let Some((_, select)) = registry.iter().find(|(held, _)| held == finder) {
-            return select.clone();
-        }
-        let select = Select::default();
-        registry.push((finder.clone(), select.clone()));
-        select
-    })
+    finder.held(Select::default)
 }
 
 /// What `key` does in select mode, if it does anything (the table of `handle_select_mode_key`).
