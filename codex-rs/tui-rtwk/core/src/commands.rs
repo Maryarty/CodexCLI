@@ -686,75 +686,6 @@ pub fn parse_slash_name(line: &str) -> Option<(&str, &str, usize)> {
 /// Rows the popup shows at most (`popup_consts::MAX_POPUP_ROWS`).
 pub const MAX_POPUP_ROWS: usize = 8;
 
-/// The selection and scroll of a popup list (`scroll_state.rs`).
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct ScrollState {
-    pub selected_idx: Option<usize>,
-    pub scroll_top: usize,
-}
-
-impl ScrollState {
-    pub fn reset(&mut self) {
-        self.selected_idx = None;
-        self.scroll_top = 0;
-    }
-
-    pub fn clamp_selection(&mut self, len: usize) {
-        if self.clear_if_empty(len) {
-            return;
-        }
-        self.selected_idx = Some(self.selected_idx.unwrap_or(0).min(len - 1));
-    }
-
-    pub fn move_up_wrap(&mut self, len: usize) {
-        if self.clear_if_empty(len) {
-            return;
-        }
-        self.selected_idx = Some(match self.selected_idx {
-            Some(idx) if idx > 0 => idx - 1,
-            Some(_) => len - 1,
-            None => 0,
-        });
-    }
-
-    pub fn move_down_wrap(&mut self, len: usize) {
-        if self.clear_if_empty(len) {
-            return;
-        }
-        self.selected_idx = Some(match self.selected_idx {
-            Some(idx) if idx + 1 < len => idx + 1,
-            _ => 0,
-        });
-    }
-
-    fn clear_if_empty(&mut self, len: usize) -> bool {
-        if len != 0 {
-            return false;
-        }
-        self.selected_idx = None;
-        self.scroll_top = 0;
-        true
-    }
-
-    /// Adjusts `scroll_top` so the selection is within the window.
-    pub fn ensure_visible(&mut self, len: usize, visible_rows: usize) {
-        if len == 0 || visible_rows == 0 {
-            self.scroll_top = 0;
-            return;
-        }
-        match self.selected_idx {
-            Some(sel) if sel < self.scroll_top => self.scroll_top = sel,
-            Some(sel) => {
-                let bottom = self.scroll_top + visible_rows - 1;
-                if sel > bottom {
-                    self.scroll_top = sel + 1 - visible_rows;
-                }
-            }
-            None => self.scroll_top = 0,
-        }
-    }
-}
-
 /// A selectable item in the popup.
 pub type CommandItem = SlashCommandItem;
 
@@ -832,7 +763,6 @@ pub struct CommandPopup {
     command_filter: String,
     commands: Vec<CommandItem>,
     side_conversation_active: bool,
-    pub state: ScrollState,
     daybreak_command_description: Option<&'static str>,
 }
 
@@ -858,7 +788,6 @@ impl CommandPopup {
             command_filter: String::new(),
             commands,
             side_conversation_active: flags.side_conversation_active,
-            state: ScrollState::default(),
             daybreak_command_description: flags.daybreak_command_description,
         }
     }
@@ -866,8 +795,6 @@ impl CommandPopup {
     /// The composer text; the filter is the first token after a leading `/`.
     pub fn on_composer_text_change(&mut self, text: String) {
         let first_line = text.lines().next().unwrap_or("");
-        let previous_filter = self.command_filter.clone();
-
         if let Some(stripped) = first_line.strip_prefix('/') {
             let token = stripped.trim_start();
             let cmd_token = token.split_whitespace().next().unwrap_or("");
@@ -876,14 +803,6 @@ impl CommandPopup {
             self.command_filter.clear();
         }
 
-        if self.command_filter != previous_filter {
-            self.state.reset();
-        }
-
-        let matches_len = self.filtered().len();
-        self.state.clamp_selection(matches_len);
-        self.state
-            .ensure_visible(matches_len, MAX_POPUP_ROWS.min(matches_len));
     }
 
     /// Exact then prefix matches, each in presentation order, with the
@@ -949,37 +868,6 @@ impl CommandPopup {
                 }
             })
             .collect()
-    }
-
-    pub fn move_up(&mut self) {
-        let len = self.filtered().len();
-        for _ in 0..len {
-            self.state.move_up_wrap(len);
-            if self.selected_item().is_some() {
-                break;
-            }
-        }
-        self.state.ensure_visible(len, MAX_POPUP_ROWS.min(len));
-    }
-
-    pub fn move_down(&mut self) {
-        let len = self.filtered().len();
-        for _ in 0..len {
-            self.state.move_down_wrap(len);
-            if self.selected_item().is_some() {
-                break;
-            }
-        }
-        self.state.ensure_visible(len, MAX_POPUP_ROWS.min(len));
-    }
-
-    /// The selected command, if any and available.
-    pub fn selected_item(&self) -> Option<CommandItem> {
-        let matches = self.filtered_items();
-        self.state
-            .selected_idx
-            .and_then(|idx| matches.get(idx).cloned())
-            .filter(|item| !self.is_unavailable(item))
     }
 
     fn is_unavailable(&self, item: &CommandItem) -> bool {

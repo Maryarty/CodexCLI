@@ -325,9 +325,21 @@ pub(super) fn session_intent(
             };
             super::select::intent(app, open, fx);
         }
-        // What another chunk or a later step builds: until then the answer
-        // that says so. Every variant is named, so a new one cannot slip by.
-        S::Review { args: None } | S::Permissions { args: None } | S::VoiceControl(_) => {
+        // `/review` with no text: the presets menu, the git lists asked in the thread's working
+        // directory (`open_review_popup`).
+        S::Review { args: None } => {
+            let cwd = working_directory(app, source.as_ref());
+            super::select::intent(app, crate::screens::select::Intent::OpenReview { cwd }, fx);
+        }
+        // `/permissions` with no profile: the menu for what the thread has now
+        // (`open_permissions_popup`); the catalog is asked for when none is held.
+        S::Permissions { args: None } => {
+            use crate::screens::select::{Intent, permissions::Current};
+            let current = Current::from_facts(&app.screens.chat.status);
+            super::select::intent(app, Intent::OpenPermissions(current), fx);
+        }
+        // What another chunk or a later step builds: until then the answer that says so.
+        S::VoiceControl(_) => {
             session_note(
                 app,
                 source,
