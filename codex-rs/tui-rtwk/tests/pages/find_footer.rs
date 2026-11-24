@@ -13,7 +13,7 @@ use codex_tui_rtwk::pages::session::transcript::strings::EN;
 
 fn row(width: u16, status: Status) -> String {
     let mut t = Tester::with(Options::new().size(width, 1));
-    t.pump_widget(status_row(&EN, status, Style::new()));
+    t.pump_widget(status_row(&EN, status, Style::new(), Style::new()));
     t.screen().trim_end().to_owned()
 }
 

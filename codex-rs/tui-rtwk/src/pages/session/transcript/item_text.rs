@@ -28,3 +28,23 @@ pub fn item_text(item: &Item, env: &Env<'_>) -> Option<String> {
         Texts::Gap(Gap::Rows) => None,
     }
 }
+
+/// The text of `item` as rtwk's `SelectableList` reads its mounted row: every `Text` below the
+/// row, the gutters in their `ExcludeSelection` too (`selectable_nodes` of `selection_text.rs`
+/// walks the render tree without leaving an `ExcludeSelection` out as the area does), the parts
+/// joined by line breaks. What the list's `ItemTexts` model has to say for a range of it to land
+/// on the cells it names; `item_text` is the text that is the item's own (copy). The assistant's
+/// bullet (`bullet`) is the first part of its message.
+pub fn mounted_text(item: &Item, env: &Env<'_>, bullet: &str) -> Option<String> {
+    match texts(item, env) {
+        exact @ Texts::Exact(_) => exact.joined(true),
+        Texts::Gap(Gap::Markdown) => match item {
+            Item::Agent { text, .. } => {
+                let body = markdown_text::text(&parse_markdown(text))?;
+                Some(format!("{bullet}\n{body}"))
+            }
+            _ => None,
+        },
+        Texts::Gap(Gap::Rows) => None,
+    }
+}
