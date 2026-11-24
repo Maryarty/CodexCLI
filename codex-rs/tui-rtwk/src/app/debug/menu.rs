@@ -74,8 +74,7 @@ fn rows(lang: Lang) -> Vec<Row> {
                     entry.script,
                     if dir.id == codex_tui_core::screens::approvals::ID
                         || dir.id == codex_tui_core::screens::pets::ID
-                        // the feedback flow is a pane at the bottom edge, as the oracle draws it
-                        || dir.name == <codex_tui_core::features::feedback::Feedback as codex_tui_core::features::Feature>::NAME
+                        || matches!(entry.open, EntryOpen::Pane(_))
                     {
                         sheets::sheet_options()
                     } else {
@@ -141,7 +140,7 @@ impl State for DebugMenuState {
                                     move |_| SeededScope { script, build }.into(),
                                 )));
                             }
-                            EntryOpen::Dialog(build) => {
+                            EntryOpen::Dialog(build) | EntryOpen::Pane(build) => {
                                 drop(show_dialog::<(), _>(
                                     cx,
                                     move |_| SeededScope { script, build }.into(),

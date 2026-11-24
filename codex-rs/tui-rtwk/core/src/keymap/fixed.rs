@@ -144,6 +144,11 @@ const fn chat(name: &'static str) -> ActionId {
 pub const PLUGINS_TOGGLE: ActionId = list("plugins_toggle");
 pub const PLUGINS_REMOVE: ActionId = list("plugins_remove");
 pub const PLUGINS_UPGRADE: ActionId = list("plugins_upgrade");
+/// The /feedback note step's own keys: PageUp and PageDown scroll the disclosure above the editor,
+/// Ctrl+S saves the report to a local zip instead of sending it.
+pub const FEEDBACK_SCROLL_UP: ActionId = list("feedback_scroll_up");
+pub const FEEDBACK_SCROLL_DOWN: ActionId = list("feedback_scroll_down");
+pub const FEEDBACK_SAVE: ActionId = list("feedback_save");
 /// PageUp and PageDown turn the chat's transcript a page wherever the caret is.
 pub const TRANSCRIPT_PAGE_UP: ActionId = chat("transcript_page_up");
 pub const TRANSCRIPT_PAGE_DOWN: ActionId = chat("transcript_page_down");
@@ -776,6 +781,18 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: PLUGINS_UPGRADE,
         bindings: &[exact(Key::Char('u'), CTRL)],
+    },
+    Fixed {
+        id: FEEDBACK_SCROLL_UP,
+        bindings: &[exact(Key::PageUp, Mods::NONE)],
+    },
+    Fixed {
+        id: FEEDBACK_SCROLL_DOWN,
+        bindings: &[exact(Key::PageDown, Mods::NONE)],
+    },
+    Fixed {
+        id: FEEDBACK_SAVE,
+        bindings: &[exact(Key::Char('s'), CTRL)],
     },
 ];
 

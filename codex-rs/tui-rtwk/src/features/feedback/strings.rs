@@ -109,7 +109,10 @@ pub const HINTS_SHORT: Hints = Hints {
     cancel: "cancel",
 };
 /// The line over the hints when the disclosure scrolls.
-pub const SCROLL_HINT: (&str, &str) = ("pgup/pgdn", "scroll disclosure");
+pub const SCROLL_HINT: (&str, &str) = ("pgup/pgdn", " scroll disclosure");
+
+/// The label of the Sentry link line of the employee success cell.
+pub const SENTRY_LABEL: &str = "Sentry URL: ";
 
 /// The words of one of the feature's notes.
 pub fn note(note: &Note) -> String {
@@ -180,7 +183,7 @@ pub fn success(
             url,
             String::new(),
             format!("Sentry Feedback ID: {thread_id}"),
-            format!("Sentry URL: https://go/codex-feedback/{thread_id}"),
+            format!("{SENTRY_LABEL}https://go/codex-feedback/{thread_id}"),
         ]),
         (Some(url), Audience::External) => lines.extend([
             url,

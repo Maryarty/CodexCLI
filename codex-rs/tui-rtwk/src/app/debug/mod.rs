@@ -39,6 +39,9 @@ pub enum EntryOpen {
     /// Shown with `show_dialog` over the menu; the builder returns the whole
     /// dialog.
     Dialog(fn(&Seeded<'_>) -> AnyWidget),
+    /// Shown as `Dialog`, but at the bottom edge as a sheet is (a pane the oracle draws under the
+    /// chat).
+    Pane(fn(&Seeded<'_>) -> AnyWidget),
 }
 
 /// A registered slot.

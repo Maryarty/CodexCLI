@@ -16,7 +16,7 @@ macro_rules! entry {
             name: $name,
             description: $description,
             script: include_str!(concat!("fixtures/", $fixture)),
-            open: EntryOpen::Dialog(|_| {
+            open: EntryOpen::Pane(|_| {
                 FeedbackSheet {
                     start: $step,
                     text: $text,

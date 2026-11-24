@@ -11,10 +11,9 @@ use std::rc::Rc;
 
 use rtwk::LayoutBuilder;
 use rtwk::editing::{TextArea, TextEditingController};
-use rtwk::focus::{Focus, FocusNode, KeyPress};
+use rtwk::focus::{Focus, FocusNode};
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::overlay::Dialog;
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::style::{Attrs, Span};
 use rtwk::text::{segmenter_of, Text};
 use rtwk::{AnyWidget, Cx};
@@ -174,7 +173,7 @@ pub(super) fn build(view: NoteView, cx: &mut Cx<'_, SheetState>) -> AnyWidget {
                 let (key, words) = strings::SCROLL_HINT;
                 Text::rich(vec![
                     Span::styled(key, dim.clone()),
-                    Span::styled(format!(" {words}"), dim.clone()),
+                    Span::styled(words, dim.clone()),
                 ])
             } else {
                 Text::new(String::new())
@@ -207,12 +206,12 @@ pub(super) fn build(view: NoteView, cx: &mut Cx<'_, SheetState>) -> AnyWidget {
     let panel = BoxWidget::new().style(surface).child(body);
     let mut focus = Focus::new(Dialog::bare(panel)).can_request_focus(false);
     focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
-    focus = focus
-        .bind(KeyPress::code(KeyCode::PageUp), cx.send(Msg::Scroll(-1)))
-        .bind(KeyPress::code(KeyCode::PageDown), cx.send(Msg::Scroll(1)));
+    focus = bind_fixed(focus, fixed::FEEDBACK_SCROLL_UP, cx.send(Msg::Scroll(-1)));
+    focus = bind_fixed(focus, fixed::FEEDBACK_SCROLL_DOWN, cx.send(Msg::Scroll(1)));
     if can_save {
-        focus = focus.bind(
-            KeyPress::char('s').with_mods(Mods::CTRL),
+        focus = bind_fixed(
+            focus,
+            fixed::FEEDBACK_SAVE,
             cx.send(Msg::Submit(Destination::LocalZip)),
         );
     }

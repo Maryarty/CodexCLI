@@ -56,8 +56,8 @@ impl StatelessWidget for SuccessCell {
             )];
             if line.starts_with("http") {
                 spans.push(Span::styled(line.clone(), link.clone().link(line.as_str())));
-            } else if let Some(url) = line.strip_prefix("Sentry URL: ") {
-                spans.push(Span::new("Sentry URL: "));
+            } else if let Some(url) = line.strip_prefix(strings::SENTRY_LABEL) {
+                spans.push(Span::new(strings::SENTRY_LABEL));
                 spans.push(Span::styled(url.to_owned(), link.clone().link(url)));
             } else if let Some((before, after)) = line
                 .split_once(self.report.as_str())
