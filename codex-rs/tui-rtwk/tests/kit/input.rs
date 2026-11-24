@@ -73,6 +73,16 @@ fn shares_legacy_bytes(key: &str) -> bool {
 }
 
 impl Screen {
+    /// `text` as a terminal without bracketed paste delivers a paste (`type_burst`: a key per
+    /// char, a millisecond apart) and the burst detector's flush let to run: what the draft holds
+    /// is what the detector made of the burst, one paste (newlines kept, a tab a tab), the way
+    /// the oracle's textarea tests read it after `flush_paste_burst_if_due`.
+    pub fn burst(&mut self, text: &str) -> &mut Screen {
+        self.type_burst(text);
+        self.h.advance(100);
+        self
+    }
+
     /// One key as a terminal sends it: its own bytes where it has them, else
     /// the kitty protocol's (`super+space`, `shift+enter`).
     pub(super) fn press_key(&mut self, key: &str) {

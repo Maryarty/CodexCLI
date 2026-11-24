@@ -562,6 +562,9 @@ pub fn note(note: &Note) -> String {
             Setting::Keymap => format!("Failed to save shortcut: {error}"),
             Setting::PetSelection => format!("Failed to save pet selection: {error}"),
             Setting::PetsDisabled => format!("Failed to disable pets: {error}"),
+            Setting::RateLimitReminder => {
+                format!("Failed to save rate limit reminder preference: {error}")
+            }
         },
         Note::SkillWriteFailed { path, error } => {
             format!("Failed to update skill config for {path}: {error}")

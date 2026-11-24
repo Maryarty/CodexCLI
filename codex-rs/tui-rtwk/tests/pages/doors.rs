@@ -513,3 +513,50 @@ mod fake_turns {
         assert_eq!(interrupted(&s).as_deref(), Some("turn-1"));
     }
 }
+
+mod kit_doors_r1b {
+    use crate::kit::{Owner, Screen};
+
+    /// `Screen::stream_lost` / `stream_restored`: what the user sends while the stream is lost
+    /// waits in the queue, and goes out when the stream is back.
+    #[test]
+    fn a_lost_stream_holds_a_submit_until_it_is_restored() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 14).live().open();
+        s.stream_lost("Cloud stream ended. Reopen the conversation to reconnect.");
+        s.type_text("hello");
+        s.keys("enter");
+        s.assert_no_request("turn/start");
+        s.stream_restored();
+        s.assert_requests_of("turn/start", 1);
+    }
+
+    /// `Screen::hold_image_preparation` / `fail_image_preparation`: the turn's request is in
+    /// flight and the composer free; the failure gives the message back whole, with the words
+    /// of the host's preparation.
+    #[test]
+    fn a_failed_image_preparation_gives_the_message_back_to_the_composer() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 14).live().open();
+        let hold = s.hold_image_preparation();
+        s.attach_image_sized("shot.png", 8, 8);
+        s.type_text(" describe");
+        s.keys("enter");
+        s.assert_requests_of("turn/start", 1);
+        s.assert_absent("[Image #1] describe");
+        s.fail_image_preparation("Failed to prepare image: shot.png: gone");
+        s.assert_contains("Failed to prepare image: shot.png: gone");
+        s.assert_contains("› [Image #1] describe");
+        s.release(&hold);
+        s.assert_requests_of("turn/start", 1);
+    }
+
+    /// `Screen::burst`: a paste a terminal without bracketed paste sends as keys is one paste for
+    /// the composer: the newline is a line of the draft, not a submit.
+    #[test]
+    fn a_burst_of_keys_is_one_paste_with_its_newline() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 14).live().open();
+        s.burst("one\ntwo");
+        s.assert_contains("› one");
+        s.assert_contains("two");
+        s.assert_no_request("turn/start");
+    }
+}

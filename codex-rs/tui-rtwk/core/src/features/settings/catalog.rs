@@ -715,6 +715,9 @@ pub enum Edit {
     /// Enter on a pet of the `/pets` picker (`PetSelected`; the selector of the disabled row is
     /// `PetDisabled`): `tui.pet` is written.
     PetSelected(String),
+    /// The rate limit prompt's "Don't remind me again" (`PersistRateLimitSwitchPromptHidden`):
+    /// `notice.hide_rate_limit_model_nudge` is written, and the host sends the settings again.
+    RateLimitPromptHidden,
     /// A skill was switched (`AppEvent::SetSkillEnabled`): its id, its value.
     SkillToggled(String, bool),
     /// The skills toggle was closed (`AppEvent::ManageSkillsClosed`: the

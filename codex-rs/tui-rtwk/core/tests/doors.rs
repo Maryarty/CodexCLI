@@ -230,3 +230,92 @@ fn the_account_plan_judges_a_snapshot_that_names_none() {
     rolling(&mut app, 80);
     assert_eq!(notice(&app), Some(80));
 }
+
+/// The rate limit prompt's "Don't remind me again" is a settings write of
+/// `notice.hide_rate_limit_model_nudge`; the host reads the config again and the setting is in
+/// `TuiSettings`; a refusal of the file is said in the history with the oracle's words.
+#[test]
+fn the_rate_limit_prompt_is_hidden_by_a_persisted_notice_setting() {
+    use codex_tui_core::app::effects::{Ask, Done};
+    use codex_tui_core::app::facts::TuiSettings;
+    use codex_tui_core::app::Ingress;
+    use codex_tui_core::features::FeatureNote;
+    use codex_tui_core::features::settings::{
+        Edit, Intent as SettingsIntent, Note as SettingsNote, Setting,
+    };
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::threads::{Item, Note};
+
+    fn write_of(app: &mut CodexApp) -> (u64, Vec<(String, serde_json::Value)>) {
+        let intent = SettingsIntent::Request(Edit::RateLimitPromptHidden);
+        let fx = run(
+            app,
+            AppEv::Intent(Intent::Feature(FeatureIntent::from(intent))),
+        );
+        fx.commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Effect {
+                    request,
+                    ask: Ask::ConfigWrite { edits },
+                    ..
+                } => Some((
+                    *request,
+                    edits
+                        .iter()
+                        .map(|edit| (edit.key_path.clone(), edit.value.clone()))
+                        .collect(),
+                )),
+                _ => None,
+            })
+            .expect("the setting is a write of the config")
+    }
+    fn answered(app: &mut CodexApp, request: u64, result: Result<(), String>) {
+        let epoch = app.epoch();
+        let done = Done::Config(result);
+        app.ingest(Ingress::new(epoch, AppEv::Effect { request, done }));
+        app.assert_consistent();
+    }
+    fn said(app: &CodexApp) -> Vec<SettingsNote> {
+        app.active_thread()
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Note(Note {
+                    key: NoteKey::Feature(FeatureNote::Settings(note)),
+                    ..
+                }) => Some(note.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    let mut app = build(r#"{"step":"seed","seed":"session","thread":"thread-1"}"#)
+        .expect("plays")
+        .app;
+    assert!(!app.tui().hide_rate_limit_model_nudge);
+    let (request, edits) = write_of(&mut app);
+    assert_eq!(
+        edits,
+        [("notice.hide_rate_limit_model_nudge".to_owned(), true.into())]
+    );
+    answered(&mut app, request, Ok(()));
+    assert_eq!(said(&app), []);
+    // The host's read of the config after the write.
+    let read = TuiSettings {
+        hide_rate_limit_model_nudge: true,
+        ..TuiSettings::default()
+    };
+    run(&mut app, AppEv::Tui(read));
+    assert!(app.tui().hide_rate_limit_model_nudge);
+
+    let (request, _) = write_of(&mut app);
+    answered(&mut app, request, Err("read-only".into()));
+    assert_eq!(
+        said(&app),
+        [SettingsNote::SaveFailed {
+            setting: Setting::RateLimitReminder,
+            error: "read-only".into()
+        }]
+    );
+}

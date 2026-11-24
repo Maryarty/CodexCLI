@@ -22,6 +22,8 @@ pub enum Subject {
     Keymap,
     /// `/pets`: the pet picked (or the selector that turns pets off), `[tui].pet`.
     Pet(String),
+    /// The rate limit prompt is not shown again, `[notice].hide_rate_limit_model_nudge`.
+    RateLimitPrompt,
 }
 
 impl Subject {
@@ -38,6 +40,7 @@ impl Subject {
                 Setting::PetsDisabled
             }
             Subject::Pet(_) => Setting::PetSelection,
+            Subject::RateLimitPrompt => Setting::RateLimitReminder,
         }
     }
 }
@@ -53,6 +56,7 @@ pub enum Setting {
     Keymap,
     PetSelection,
     PetsDisabled,
+    RateLimitReminder,
 }
 
 /// One batch of the config file and what it is for.
@@ -117,6 +121,14 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
         Edit::PetSelected(selector) => Write {
             subject: Subject::Pet(selector.clone()),
             edits: vec![replace("tui.pet", serde_json::json!(selector))],
+        },
+        // `PersistRateLimitSwitchPromptHidden` (`set_hide_rate_limit_model_nudge(true)`).
+        Edit::RateLimitPromptHidden => Write {
+            subject: Subject::RateLimitPrompt,
+            edits: vec![replace(
+                "notice.hide_rate_limit_model_nudge",
+                serde_json::json!(true),
+            )],
         },
         // The keymap: `[tui.keymap.<context>] <action> = [keys]`.
         Edit::KeymapBound {
