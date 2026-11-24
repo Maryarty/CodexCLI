@@ -674,6 +674,13 @@ fn refusal_words(refusal: &Refusal) -> String {
             let (name, command) = surface(which);
             format!("Unknown {name} item '{token}'. Use {command} to see available items.")
         }
+        Refusal::AmbiguousItem {
+            surface: which,
+            token,
+        } => format!(
+            "Ambiguous {} item '{token}'. Use 'five-hour-limit' or 'weekly-limit'.",
+            surface(which).0
+        ),
         Refusal::Unexpected(argument) => format!(
             "Unexpected argument '{argument}'. Use '--reasoning=<level>' or '--speed=<tier>'."
         ),

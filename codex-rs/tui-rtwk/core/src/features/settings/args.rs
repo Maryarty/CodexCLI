@@ -8,6 +8,7 @@
 use super::items::{STATUS_LINE, TERMINAL_TITLE};
 use crate::commands::args::{ArgError, Spec, parse};
 use crate::screens::chat::StatusOverride;
+use crate::screens::status::{RateLimits, RateWindow};
 use crate::screens::select::models::{Apply, Current, Preset, Selection, warning};
 
 /// The surface an item list is for.
@@ -26,6 +27,8 @@ pub enum Refusal {
     ClearWithItems(Surface),
     /// `Unknown {surface} item '{token}'. Use {command} to see available items.`
     UnknownItem { surface: Surface, token: String },
+    /// `Ambiguous {surface} item '{token}'. Use 'five-hour-limit' or 'weekly-limit'.`
+    AmbiguousItem { surface: Surface, token: String },
     /// `Unexpected argument '{0}'. Use '--reasoning=<level>' or '--speed=<tier>'.`
     Unexpected(String),
     /// `Session is still starting; try /model again in a moment.`
@@ -54,23 +57,99 @@ impl From<ArgError> for Refusal {
     }
 }
 
-fn items(surface: Surface, known: &[&str], tokens: &[String]) -> Result<Vec<String>, Refusal> {
+/// The name a window gives the item that shows it (`rate_limit_preview_copy`): the window's
+/// label (`get_limits_duration`, within five percent of its span), else the fallback of its slot.
+fn limit_name(window: &RateWindow, secondary: bool) -> &'static str {
+    const HOUR: i64 = 60;
+    const DAY: i64 = 24 * HOUR;
+    let minutes = window.window_minutes.map(|minutes| minutes.max(0));
+    let named = minutes.and_then(|minutes| {
+        [
+            (5 * HOUR, "five-hour-limit"),
+            (DAY, "daily-limit"),
+            (7 * DAY, "weekly-limit"),
+            (30 * DAY, "monthly-limit"),
+            (365 * DAY, "annual-limit"),
+        ]
+        .into_iter()
+        .find(|(span, _)| {
+            let (minutes, span) = (minutes as f64, *span as f64);
+            minutes >= span * 0.95 && minutes <= span * 1.05
+        })
+        .map(|(_, name)| name)
+    });
+    named.unwrap_or(if secondary {
+        "secondary-usage-limit"
+    } else {
+        "usage-limit"
+    })
+}
+
+/// One item of a line (`parse_item`): the id as it is, an alias of it (`model-name`), or the name
+/// the limit item has now (`monthly-limit` for a primary window of a month: the item that shows
+/// the primary window is `five-hour-limit`, the secondary's `weekly-limit`). A name both items
+/// have is ambiguous.
+fn item(
+    surface: Surface,
+    known: &[&str],
+    token: &str,
+    rates: Option<&RateLimits>,
+) -> Result<String, Refusal> {
+    let unknown = || Refusal::UnknownItem {
+        surface,
+        token: token.to_owned(),
+    };
+    let token = if token == "model-name" { "model" } else { token };
+    if known.contains(&token) {
+        return Ok(token.to_owned());
+    }
+    let named = |window: &Option<RateWindow>, secondary: bool| {
+        window
+            .as_ref()
+            .is_some_and(|window| limit_name(window, secondary) == token)
+    };
+    let (primary, secondary) = rates.map_or((false, false), |rates| {
+        (
+            named(&rates.primary, false),
+            named(&rates.secondary, true),
+        )
+    });
+    let id = match (primary, secondary) {
+        (true, false) => "five-hour-limit",
+        (false, true) => "weekly-limit",
+        (true, true) => {
+            return Err(Refusal::AmbiguousItem {
+                surface,
+                token: token.to_owned(),
+            });
+        }
+        (false, false) => return Err(unknown()),
+    };
+    known
+        .contains(&id)
+        .then(|| id.to_owned())
+        .ok_or_else(unknown)
+}
+
+fn items(
+    surface: Surface,
+    known: &[&str],
+    tokens: &[String],
+    rates: Option<&RateLimits>,
+) -> Result<Vec<String>, Refusal> {
     tokens
         .iter()
-        .map(|token| {
-            known
-                .contains(&token.as_str())
-                .then(|| token.clone())
-                .ok_or_else(|| Refusal::UnknownItem {
-                    surface,
-                    token: token.clone(),
-                })
-        })
+        .map(|token| item(surface, known, token, rates))
         .collect()
 }
 
 /// `/title <items> | --clear`: the terminal title of this session.
 pub fn title(args: &str) -> Result<StatusOverride, Refusal> {
+    title_with(args, None)
+}
+
+/// `/title` with the limits the chat holds, which the names of the limit items are judged by.
+pub fn title_with(args: &str, rates: Option<&RateLimits>) -> Result<StatusOverride, Refusal> {
     let parsed = parse(
         args,
         Spec {
@@ -78,7 +157,7 @@ pub fn title(args: &str) -> Result<StatusOverride, Refusal> {
             ..Spec::default()
         },
     )?;
-    let items = items(Surface::Title, &TERMINAL_TITLE, &parsed.positionals)?;
+    let items = items(Surface::Title, &TERMINAL_TITLE, &parsed.positionals, rates)?;
     let clear = parsed.has_switch("--clear");
     if clear && !items.is_empty() {
         return Err(Refusal::ClearWithItems(Surface::Title));
@@ -91,6 +170,11 @@ pub fn title(args: &str) -> Result<StatusOverride, Refusal> {
 
 /// `/statusline <items> | --clear | --colors | --no-colors`: the status line of this session.
 pub fn status_line(args: &str) -> Result<StatusOverride, Refusal> {
+    status_line_with(args, None)
+}
+
+/// `/statusline` with the limits the chat holds, which the names of the limit items are judged by.
+pub fn status_line_with(args: &str, rates: Option<&RateLimits>) -> Result<StatusOverride, Refusal> {
     let parsed = parse(
         args,
         Spec {
@@ -99,7 +183,7 @@ pub fn status_line(args: &str) -> Result<StatusOverride, Refusal> {
             ..Spec::default()
         },
     )?;
-    let items = items(Surface::StatusLine, &STATUS_LINE, &parsed.positionals)?;
+    let items = items(Surface::StatusLine, &STATUS_LINE, &parsed.positionals, rates)?;
     let clear = parsed.has_switch("--clear");
     if clear && !items.is_empty() {
         return Err(Refusal::ClearWithItems(Surface::StatusLine));

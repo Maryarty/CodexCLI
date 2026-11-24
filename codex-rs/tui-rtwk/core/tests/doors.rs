@@ -286,6 +286,90 @@ fn a_bootstrap_account_read_fills_the_plan_a_snapshot_did_not_name() {
     assert_eq!(notice(&app), None);
 }
 
+/// `parse_item`: the inline status-surface commands take the `model-name` alias and the name a
+/// limit item has now, judged by the limits the chat holds; a name both limit items have is
+/// ambiguous, and one no window gives is unknown.
+#[test]
+fn the_inline_item_lists_take_the_alias_and_the_names_the_limits_give() {
+    use codex_tui_core::features::settings::args::{
+        Refusal, Surface, status_line_with, title_with,
+    };
+    use codex_tui_core::screens::status::{RateLimits, RateWindow};
+
+    const DAY: i64 = 24 * 60;
+    fn limits(primary: Option<i64>, secondary: Option<i64>) -> RateLimits {
+        let window = |window_minutes| RateWindow {
+            window_minutes,
+            used_percent: 10,
+            resets_at: None,
+        };
+        RateLimits {
+            primary: Some(window(primary)),
+            secondary: Some(window(secondary)),
+        }
+    }
+    fn line(args: &str, rates: Option<&RateLimits>) -> Result<Vec<String>, Refusal> {
+        status_line_with(args, rates).map(|set| set.status_line.unwrap_or_default())
+    }
+    fn ids(ids: &[&str]) -> Result<Vec<String>, Refusal> {
+        Ok(ids.iter().map(|id| (*id).to_owned()).collect())
+    }
+    let unknown = |token: &str| {
+        Err(Refusal::UnknownItem {
+            surface: Surface::StatusLine,
+            token: token.to_owned(),
+        })
+    };
+
+    // the alias is the item it is an alias of, on both surfaces
+    assert_eq!(line("model-name", None), ids(&["model"]));
+    assert_eq!(
+        title_with("model-name", None).unwrap().terminal_title,
+        Some(vec!["model".to_owned()])
+    );
+
+    // the item that shows the primary window is `five-hour-limit`, the secondary's
+    // `weekly-limit`; either is named after the window it shows now
+    let month_and_week = limits(Some(30 * DAY), Some(7 * DAY));
+    assert_eq!(
+        line("monthly-limit", Some(&month_and_week)),
+        ids(&["five-hour-limit"])
+    );
+    assert_eq!(
+        line("weekly-limit weekly-limit", Some(&month_and_week)),
+        ids(&["weekly-limit", "weekly-limit"])
+    );
+    assert_eq!(
+        title_with("monthly-limit", Some(&month_and_week))
+            .unwrap()
+            .terminal_title,
+        Some(vec!["five-hour-limit".to_owned()])
+    );
+    let unlabeled = limits(None, None);
+    assert_eq!(line("usage-limit", Some(&unlabeled)), ids(&["five-hour-limit"]));
+    assert_eq!(
+        line("secondary-usage-limit", Some(&unlabeled)),
+        ids(&["weekly-limit"])
+    );
+
+    // a name no window gives, and any name before the first read, is unknown
+    assert_eq!(
+        line("daily-limit", Some(&month_and_week)),
+        unknown("daily-limit")
+    );
+    assert_eq!(line("monthly-limit", None), unknown("monthly-limit"));
+
+    // a name both windows give is ambiguous
+    let days = limits(Some(DAY), Some(DAY));
+    assert_eq!(
+        line("daily-limit", Some(&days)),
+        Err(Refusal::AmbiguousItem {
+            surface: Surface::StatusLine,
+            token: "daily-limit".to_owned()
+        })
+    );
+}
+
 /// The rate limit prompt's "Don't remind me again" is a settings write of
 /// `notice.hide_rate_limit_model_nudge`; the host reads the config again and the setting is in
 /// `TuiSettings`; a refusal of the file is said in the history with the oracle's words.

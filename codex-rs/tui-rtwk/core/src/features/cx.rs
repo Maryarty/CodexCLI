@@ -40,6 +40,7 @@ pub struct AppFacts<'a> {
     access: &'a Access,
     keys: &'a Keymap,
     banner: Option<&'a BannerOccurrence>,
+    rates: Option<&'a status::RateLimits>,
 }
 
 impl<'a> AppFacts<'a> {
@@ -57,6 +58,7 @@ impl<'a> AppFacts<'a> {
             access,
             keys,
             banner: None,
+            rates: None,
         }
     }
 
@@ -65,6 +67,19 @@ impl<'a> AppFacts<'a> {
     pub(crate) fn with_banner(mut self, banner: Option<&'a BannerOccurrence>) -> Self {
         self.banner = banner;
         self
+    }
+
+    /// The limits of the account of the thread in use, as the last read or rolling update left
+    /// them (an app step; a thread's step reads none): what the names of the rate-limit items of
+    /// the status line and the title are judged by (`/statusline monthly-limit`).
+    pub(crate) fn with_rates(mut self, rates: Option<&'a status::RateLimits>) -> Self {
+        self.rates = rates;
+        self
+    }
+
+    /// The windows the account of the thread in use has now; none before the first read.
+    pub fn rate_limits(&self) -> Option<&'a status::RateLimits> {
+        self.rates
     }
 
     /// The backend banner occurrence the account of the thread in use has, shown or not: it
@@ -116,6 +131,7 @@ impl AppFacts<'static> {
             access: ACCESS.get_or_init(Access::default),
             keys: KEYS.get_or_init(Keymap::defaults),
             banner: None,
+            rates: None,
         }
     }
 }
@@ -135,6 +151,7 @@ pub struct AppView<'a> {
     access: Option<&'a Access>,
     keys: Option<&'a Keymap>,
     banner: Option<&'a BannerOccurrence>,
+    rates: Option<&'a status::RateLimits>,
     now: Now,
 }
 
@@ -157,6 +174,7 @@ impl<'a> AppView<'a> {
             access: None,
             keys: None,
             banner: None,
+            rates: None,
             now: Now::default(),
         }
     }
@@ -176,6 +194,12 @@ impl<'a> AppView<'a> {
     /// The backend banner of the thread in use is read through this view (`AppFacts::backend_banner`).
     pub(crate) fn with_banner(mut self, banner: Option<&'a BannerOccurrence>) -> Self {
         self.banner = banner;
+        self
+    }
+
+    /// The account's limits are read through this view (`AppFacts::rate_limits`).
+    pub(crate) fn with_rates(mut self, rates: Option<&'a status::RateLimits>) -> Self {
+        self.rates = rates;
         self
     }
 
@@ -201,6 +225,7 @@ impl<'a> AppView<'a> {
             self.keys.unwrap_or(unknown.keys),
         )
         .with_banner(self.banner)
+        .with_rates(self.rates)
     }
 
     /// The thread the chat shows (none before the session has started).

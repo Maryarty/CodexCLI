@@ -32,6 +32,7 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
     .with_access(&app.daybreak)
     .with_keys(&app.keymap)
     .with_banner(shown_banner(app))
+    .with_rates(shown_rates(app))
     .at(app.now)
 }
 
@@ -39,6 +40,13 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
 fn shown_banner(app: &CodexApp) -> Option<&crate::screens::chat::BannerOccurrence> {
     app.session
         .backend_banners
+        .get(&super::session::active_backend(app))
+}
+
+/// The limits the account the thread in use belongs to has now.
+fn shown_rates(app: &CodexApp) -> Option<&crate::screens::status::RateLimits> {
+    app.session
+        .rate_limits
         .get(&super::session::active_backend(app))
 }
 
@@ -61,6 +69,7 @@ pub(super) fn run(
         .with_access(&app.daybreak)
         .with_keys(&app.keymap)
         .with_banner(app.session.backend_banners.get(&backend))
+        .with_rates(app.session.rate_limits.get(&backend))
         .at(app.now);
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);

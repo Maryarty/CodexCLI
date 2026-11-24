@@ -658,8 +658,13 @@ impl State {
         let verb = match command {
             SlashCommand::Hooks => return self.open(Which::Hooks, cx),
             SlashCommand::Resume => return Self::resume(args.trim(), cx),
-            SlashCommand::Title => args::title(args).map(PublicVerb::StatusOverride),
-            SlashCommand::Statusline => args::status_line(args).map(PublicVerb::StatusOverride),
+            SlashCommand::Title => {
+                args::title_with(args, cx.view().facts().rate_limits()).map(PublicVerb::StatusOverride)
+            }
+            SlashCommand::Statusline => {
+                args::status_line_with(args, cx.view().facts().rate_limits())
+                    .map(PublicVerb::StatusOverride)
+            }
             SlashCommand::Model => {
                 let screens = cx.view().screens();
                 args::model(
