@@ -4,7 +4,10 @@
 //! menu is back and quits only when the menu is the home (`--debug-screens`),
 //! and the chat says which keys do what.
 
+use codex_tui_core::app::effects::{Ask, Done};
+use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
+use codex_tui_core::screens::transcript::diff::Report;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
 use crate::common::{Harness, start, start_debug, start_quittable};
@@ -216,9 +219,33 @@ fn diff_shows_the_pager_and_q_returns_to_the_chat() {
     let before = h.t.screen();
     h.t.type_text("/diff");
     h.press("enter");
-    h.wait_for("the pager", |s| {
-        s.contains("not inside a git repository") || s.contains("No changes detected")
+    // the fake server only records the host's asks (`Command::Effect`): the host's answer is
+    // the test's, as for the clipboard and the review lists
+    let mut asked = None;
+    h.wait_until("the diff asked of the host", |s| {
+        asked = s
+            .fake
+            .commands()
+            .into_iter()
+            .find_map(|command| match command {
+                Command::Effect {
+                    request,
+                    ask: Ask::GitDiff { .. },
+                    ..
+                } => Some(request),
+                _ => None,
+            });
+        asked.is_some()
     });
+    let request = asked.expect("asked");
+    h.inject([AppEv::Effect {
+        request,
+        done: Done::GitDiff(Ok(Report {
+            in_repo: true,
+            text: String::new(),
+        })),
+    }]);
+    h.wait_for("the pager", |s| s.contains("No changes detected"));
     h.press("q");
     h.t.pump_for(crate::common::ms(600));
     assert_eq!(h.t.screen(), before, "back on the session page");
