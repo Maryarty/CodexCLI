@@ -73,7 +73,6 @@ fn idle_chat() -> Harness {
 /// openai/codex#35599 (Ctrl+C and Ctrl+D are not recognized with a Cyrillic layout under kitty
 /// keyboard enhancement): Ctrl+D quits an idle chat, on either layout.
 #[test]
-#[ignore = "RED #35599: ctrl+d quits an idle chat on neither layout (the composer takes it as delete-forward?)"]
 fn issue_35599_ctrl_d_quits_with_a_cyrillic_layout() {
     let stayed: Vec<&str> = CTRL_D
         .into_iter()
@@ -123,6 +122,7 @@ fn issue_35599_ctrl_c_interrupts_a_running_turn_with_a_cyrillic_layout() {
         h.press("enter");
         h.wait_for("the turn to run", |s| s.contains("esc to interrupt"));
         h.t.input(bytes);
+        h.applied();
         h.advance(200);
         let interrupts = h
             .fake
