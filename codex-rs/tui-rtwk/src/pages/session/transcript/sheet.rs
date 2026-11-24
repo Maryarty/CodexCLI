@@ -26,10 +26,10 @@ use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{HistoryState, ThreadModel};
 
+use super::TranscriptMode;
 use super::history;
 use super::pager;
 use super::strings::{self, Strings};
-use super::TranscriptMode;
 use crate::app::debug::seeded::Seeded;
 use crate::app::debug::{DebugEntry, EntryOpen};
 use crate::app::view::Hs;

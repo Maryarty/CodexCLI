@@ -33,8 +33,8 @@ use codex_tui_core::keymap::{Keymap, fixed};
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::transcript::{Intent, PagerAction, PagerDoc};
 
-use super::strings::{self, Strings};
 use super::TranscriptMode;
+use super::strings::{self, Strings};
 use crate::app::debug::{DebugEntry, EntryOpen};
 use crate::app::view::Hs;
 

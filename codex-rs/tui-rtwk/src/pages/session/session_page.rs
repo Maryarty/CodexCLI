@@ -675,13 +675,7 @@ impl State for ChatState {
             ChatMsg::DebugMenu => {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
-            ChatMsg::Action(action) => action.run(
-                cx,
-                &Keyed {
-                    hs: &hs,
-                    ui: &w.ui,
-                },
-            ),
+            ChatMsg::Action(action) => action.run(cx, &Keyed { hs: &hs, ui: &w.ui }),
             ChatMsg::Escape => {
                 if self.shortcuts {
                     self.shortcuts = false;
