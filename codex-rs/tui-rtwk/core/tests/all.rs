@@ -42,6 +42,7 @@ mod feedback;
 mod goal;
 mod guardian;
 mod import;
+mod issue_proofs;
 mod keymap;
 mod limits;
 mod mcp_inventory;
