@@ -1060,6 +1060,13 @@ impl CodexApp {
             .unwrap_or_else(|| self.epoch_of(backend))
     }
 
+    /// What the lost connection of `backend` told the session: its banner and its reserve.
+    fn forget_reads_of(&mut self, backend: BackendId) {
+        let session = Rc::make_mut(&mut self.session);
+        session.backend_banners.remove(&backend);
+        session.reserve.remove(&backend);
+    }
+
     fn reset_requests(&mut self, backend: BackendId) {
         let epoch = self.request_epoch(backend).next();
         self.request_epochs.insert(backend, epoch);

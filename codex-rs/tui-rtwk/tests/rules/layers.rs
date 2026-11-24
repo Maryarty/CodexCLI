@@ -733,6 +733,7 @@ fn names_path_after(line: &str, marker: &str, feature: &str) -> bool {
 const ROOT_TESTS: &[&str] = &[
     "core/src/features/framework.rs",
     "core/src/app/features/tests.rs",
+    "core/src/app/connection/tests.rs",
 ];
 
 /// The lines of `files` that name a listed feature by path outside its own files and the two
