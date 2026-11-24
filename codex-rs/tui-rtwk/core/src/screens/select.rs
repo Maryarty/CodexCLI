@@ -15,6 +15,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod agent_picker;
 pub mod apps;
 pub mod collaboration;
 pub mod models;
@@ -362,6 +363,9 @@ impl Model {
             return;
         }
         let page = match open {
+            // `/presets` (`open_quick_dial_menu`): the shortcut menu is the composer's own drawn
+            // state; the model only decided it may open (the gate's notes are said above).
+            Open::Menu => return,
             Open::Picker(mode) => Quick::Slots { mode, dial: None },
             Open::Save(dial) => {
                 if let Err(reason) = dial.validate() {

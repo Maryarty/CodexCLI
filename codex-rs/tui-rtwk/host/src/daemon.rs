@@ -1,0 +1,32 @@
+//! The asks of the `/daemon` menu (oracle `app/daemon_menu.rs` `verify_managed_daemon`,
+//! `event_dispatch.rs` `RunDaemonRestart`): whether the connected server is a daemon this CLI
+//! manages, and its restart. Both go through the daemon crate's lifecycle commands.
+
+use codex_app_server_daemon::LifecycleCommand;
+use codex_tui_core::app::effects::{Ask, DaemonAsk, DaemonDone, Done};
+
+/// The answer to `ask`, when it is one of the daemon menu's.
+pub(crate) async fn run(ask: &Ask) -> Option<Done> {
+    match ask {
+        // A discovered socket alone does not prove it belongs to a managed daemon: the version
+        // command answers with a backend only where one is managed.
+        Ask::BackgroundServer(DaemonAsk::Verify) => {
+            Some(Done::BackgroundServer(DaemonDone::Managed(
+                codex_app_server_daemon::run(LifecycleCommand::Version)
+                    .await
+                    .is_ok_and(|output| output.backend.is_some()),
+            )))
+        }
+        Ask::BackgroundServer(DaemonAsk::Restart) => {
+            Some(Done::BackgroundServer(DaemonDone::Restarted(
+                codex_app_server_daemon::run(LifecycleCommand::Restart {
+                    feature_overrides: Default::default(),
+                })
+                .await
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}")),
+            )))
+        }
+        _ => None,
+    }
+}

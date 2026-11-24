@@ -451,14 +451,14 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
                 Outcome::Notice(Notice::ModelStartup)
             }
         }
-        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps => {
+        Presets | AutoReview | Archive | Delete | Review | Permissions | Apps => {
             open(Target::Select, command, "")
         }
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
             open(Target::Settings, command, "")
         }
         // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
-        Export | Plugins | Ps | Mcp => match target_of(command) {
+        Export | Plugins | Ps | Mcp | Diff | Daemon => match target_of(command) {
             Some(feature) => open(Target::Feature(feature), command, ""),
             None => Outcome::Notice(Notice::NotAvailable(command)),
         },
@@ -466,7 +466,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         MultiAgents => open(Target::AgentPicker, command, ""),
         Resume => open(Target::Resume, command, ""),
         Import => open(Target::Import, command, ""),
-        Diff => open(Target::Pager, command, ""),
         Status => session(command, SessionIntent::Status),
         Warnings | Feedback | Rename => open(Target::Dialogs, command, ""),
         Pets => open(Target::Pets, command, ""),

@@ -80,6 +80,26 @@ pub struct ConfigEdit {
     pub value: serde_json::Value,
 }
 
+/// What `Ask::Daemon` asks of the local background server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DaemonAsk {
+    /// Whether the connected server is a daemon this CLI manages (`LifecycleCommand::Version`
+    /// answers with a backend): `/daemon` asks before it offers a restart.
+    Verify,
+    /// Restarts the server (`LifecycleCommand::Restart`); the connection reconnects as it does
+    /// after any loss.
+    Restart,
+}
+
+/// The answer of a `DaemonAsk`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DaemonDone {
+    /// The server is a managed daemon, or is not (or could not be asked).
+    Managed(bool),
+    /// The restart is over: nothing, or the failure text.
+    Restarted(Result<(), String>),
+}
+
 /// What the host is asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
@@ -124,6 +144,10 @@ pub enum Ask {
     /// The managed worktrees of the repository `cwd` is in, each with its owner thread
     /// (oracle `worktree_browser::fetch`). Answered by `Done::Worktrees`.
     Worktrees { cwd: String },
+    /// The local background server's lifecycle (`codex_app_server_daemon::run`): the probe of
+    /// whether the connected server is a daemon this CLI manages, and the restart. Answered by
+    /// `Done::BackgroundServer`.
+    BackgroundServer(DaemonAsk),
     /// Removes the worktree at `root` (oracle `worktree_browser::remove`, `cwd` is the session's).
     WorktreeRemove { cwd: String, root: String },
 }
@@ -167,6 +191,8 @@ pub enum Done {
     Worktrees(Result<Vec<WorktreeEntry>, String>),
     /// Nothing, or why the worktree could not be removed.
     WorktreeRemoved(Result<(), String>),
+    /// The answer of a daemon ask.
+    BackgroundServer(DaemonDone),
 }
 
 impl Done {

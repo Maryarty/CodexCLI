@@ -1141,7 +1141,6 @@ fn every_screen_opening_command_names_its_target() {
         ("/experimental", Target::Settings),
         ("/agents", Target::Agents),
         ("/subagents", Target::AgentPicker),
-        ("/diff", Target::Pager),
         ("/usage", Target::Usage),
         ("/warnings", Target::Dialogs),
         ("/feedback", Target::Dialogs),

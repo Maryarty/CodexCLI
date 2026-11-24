@@ -46,6 +46,8 @@ pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 // One line per feature of `feature_list!`, written out so that rustfmt (which follows `mod` lines,
 // not macro expansions) formats the slices too. A feature of the list without its module does not
 // compile: `feature_dirs!` names `$name::$variant`.
+pub mod daemon;
+pub mod diff;
 pub mod export;
 pub mod feedback;
 pub mod goal;
@@ -274,6 +276,8 @@ macro_rules! feature_list {
             settings => Settings;
             processes => Processes;
             mcp_inventory => McpInventory;
+            diff => Diff;
+            daemon => Daemon;
         }
     };
 }
