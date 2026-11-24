@@ -6,7 +6,9 @@
 
 use rtwk::editing::TextEditingController;
 
-use super::ComposerDraft;
+use std::rc::Rc;
+
+use super::{ComposerDraft, Element};
 
 /// The URLs and the selected row.
 #[derive(Default)]
@@ -165,5 +167,65 @@ impl ComposerDraft {
         self.relabel_images(c, image);
         self.0.borrow_mut().remote.caret = c.selection().extent_offset;
         true
+    }
+
+    /// The text the external editor left replaces the draft (`apply_external_edit`): the large
+    /// pastes were expanded into the text sent to the editor, so none is kept; an image stays
+    /// only while its placeholder is in the text (as many times as it was attached) and is an
+    /// atom again; a leading `!` is shell mode; the caret goes to the end.
+    pub fn edited(&self, c: &TextEditingController, text: &str, image: impl Fn(usize) -> String) {
+        self.sync(c);
+        let mut kept: Vec<Element> = self
+            .0
+            .borrow()
+            .elements
+            .iter()
+            .filter(|e| e.image.is_some())
+            .cloned()
+            .collect();
+        kept.sort_by_key(|e| e.seq);
+        let plain = self.0.borrow().plain;
+        let (text, shell) = match text.strip_prefix('!') {
+            Some(rest) if !plain => (rest, true),
+            _ => (text, false),
+        };
+        {
+            let mut inner = self.0.borrow_mut();
+            inner.elements.clear();
+            inner.seen = None;
+            inner.shell = shell;
+            inner.vim.history = Default::default();
+        }
+        c.reset("");
+        let next = self.0.borrow().next_seq;
+        // the placeholders still in the text, in text order: each takes the first image of its
+        // label that is left, in the order they were attached
+        let mut found: Vec<(usize, Element)> = Vec::new();
+        let mut labels: Vec<Rc<str>> = kept.iter().map(|e| e.label.clone()).collect();
+        labels.sort();
+        labels.dedup();
+        for label in &labels {
+            let mut left: Vec<&Element> = kept.iter().filter(|e| e.label == *label).collect();
+            left.reverse();
+            for (at, _) in text.match_indices(&**label) {
+                if let Some(e) = left.pop() {
+                    found.push((at, e.clone()));
+                }
+            }
+        }
+        found.sort_by_key(|(at, _)| *at);
+        let mut done = 0;
+        for (at, e) in found {
+            if at < done {
+                continue;
+            }
+            c.insert(&text[done..at]);
+            self.0.borrow_mut().next_seq = e.seq;
+            self.insert_with(c, &e.label, &e.label, e.image.clone(), None);
+            done = at + e.label.len();
+        }
+        c.insert(&text[done..]);
+        self.0.borrow_mut().next_seq = next;
+        self.relabel_images(c, image);
     }
 }

@@ -52,6 +52,7 @@ pub mod editing;
 pub mod footer;
 pub mod mentions;
 pub mod plain;
+pub mod queue;
 pub mod search;
 pub mod strings;
 pub mod suggest;
@@ -210,6 +211,32 @@ pub struct Composer {
     /// turn, a draft handed over to a cloud switch); a lost connection is
     /// the composer's own to see.
     restricted: Option<Restricted>,
+    /// What the placeholder of the empty draft says instead of the usual (`set_parent_owned_thread`).
+    placeholder: Option<Placeholder>,
+    /// Input is off (`set_input_enabled(false, ..)`): the draft stays, takes no key, shows no
+    /// caret and draws this placeholder in its place.
+    off: Option<Placeholder>,
+}
+
+/// A placeholder the page chose among the composer's own words.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placeholder {
+    /// `Viewing sub-agent — direct input is disabled`.
+    ParentOwned,
+    /// `Shutting down...`.
+    ShuttingDown,
+    /// `Input disabled.`
+    Disabled,
+}
+
+impl Placeholder {
+    fn text(self, strings: &strings::Strings) -> &'static str {
+        match self {
+            Placeholder::ParentOwned => strings.parent_placeholder,
+            Placeholder::ShuttingDown => strings.shutting_down,
+            Placeholder::Disabled => strings.input_disabled,
+        }
+    }
 }
 
 impl PartialEq for Composer {
@@ -225,6 +252,8 @@ impl PartialEq for Composer {
             && self.on_too_long == other.on_too_long
             && self.shell == other.shell
             && self.restricted == other.restricted
+            && self.placeholder == other.placeholder
+            && self.off == other.off
     }
 }
 
@@ -243,6 +272,8 @@ impl Composer {
             plain: None,
             on_too_long: None,
             restricted: None,
+            placeholder: None,
+            off: None,
         }
     }
 
@@ -260,6 +291,8 @@ impl Composer {
             plain: None,
             on_too_long: None,
             restricted: None,
+            placeholder: None,
+            off: None,
         }
     }
 
@@ -275,6 +308,21 @@ impl Composer {
     #[must_use]
     pub fn restricted(mut self, mode: Restricted) -> Composer {
         self.restricted = Some(mode);
+        self
+    }
+
+    /// The empty draft says `placeholder` instead of the usual words.
+    #[must_use]
+    pub fn worded(mut self, placeholder: Placeholder) -> Composer {
+        self.placeholder = Some(placeholder);
+        self
+    }
+
+    /// Input is off: the draft is kept and hidden, no key reaches it and no caret shows; the
+    /// words of `placeholder` stand in its place (`set_input_enabled(false, ..)`).
+    #[must_use]
+    pub fn disabled(mut self, placeholder: Placeholder) -> Composer {
+        self.off = Some(placeholder);
         self
     }
 
@@ -331,6 +379,7 @@ impl StatefulWidget for Composer {
             listener: None,
             suggest: Rc::default(),
             restricted: Cell::new(false),
+            edited: Cell::new(None),
         }
     }
 }
@@ -346,6 +395,9 @@ pub struct ComposerState {
     /// Whether the last build saw a restricted composer: a change into it
     /// restricts the draft.
     restricted: Cell<bool>,
+    /// The number of the text the external editor left that this composer took last (each is
+    /// applied once).
+    edited: Cell<Option<u64>>,
 }
 
 /// What the composer's own children tell it.
@@ -406,6 +458,11 @@ pub enum ComposerMsg {
     /// The composer became restricted: what a burst holds goes in, the
     /// history search ends, the popups close and the pastes are expanded.
     Restrict,
+    /// The external editor left `text` for this composer (`apply_external_edit`).
+    Edited {
+        number: u64,
+        text: String,
+    },
 }
 
 /// The reads the history needs from the file go to the app, which asks the
@@ -803,6 +860,19 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Remote => return rtwk::Rebuild::Yes,
+            ComposerMsg::Edited { number, text } => {
+                let table = strings::of(cx);
+                w.ui.draft.edited(&w.ui.composer, &text, |n| table.image(n));
+                w.ui.sparkle.replaced(&text);
+                self.suggest.hide(w.ui.composer.text());
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                // the feature forgets the edit, so it is not applied twice
+                let hs = read::<Hs, _>(cx);
+                crate::features::taken(number, &hs, cx);
+                return rtwk::Rebuild::Yes;
+            }
             ComposerMsg::Restrict => {
                 if let Some(binding) = AppBinding::maybe_of(cx) {
                     let table = strings::of(cx);
@@ -823,6 +893,13 @@ impl State for ComposerState {
 
     fn build(&self, w: &Composer, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
+        if let Some(off) = w.off {
+            // `render_ref`: the dim `›` and the placeholder, the draft not drawn, no caret
+            let table = chat_strings::of(cx);
+            return Text::new([table.prompt, off.text(strings::of(cx))].concat())
+                .style(tokens.dim())
+                .into();
+        }
         let c = w.ui.composer.clone();
         let mut area = TextArea::new()
             .controller(c.clone())
@@ -861,6 +938,14 @@ impl State for ComposerState {
         {
             // the clipboard's image this draft asked for is in
             cx.local_sender()(ComposerMsg::ImageArrived);
+        }
+        if !w.bare && w.plain.is_none() {
+            let thread = read::<ThreadModel, _>(cx).id().clone();
+            if let Some((number, text)) = crate::features::handed(&thread, cx)
+                && self.edited.replace(Some(number)) != Some(number)
+            {
+                cx.local_sender()(ComposerMsg::Edited { number, text });
+            }
         }
         let restricted = self.mode(w, cx);
         if self.restricted.replace(restricted.is_some()) != restricted.is_some()
@@ -936,7 +1021,7 @@ impl State for ComposerState {
             // a plain paste is the field's own insert, after this returns;
             // Vim's step has to close with it, so the draft inserts it here
             if !took && draft.vim_enabled() {
-                pasted_into.insert(text);
+                vim::insert_pasted(&draft, &pasted_into, text);
                 took = true;
             }
             if took {
@@ -946,6 +1031,7 @@ impl State for ComposerState {
             took
         });
         let strings = l10n::of(cx);
+        let composer_words = table;
         let mut area = area
             .placeholder_style(tokens.dim().attrs(Attrs::DIM))
             .max_lines(6);
@@ -955,6 +1041,7 @@ impl State for ComposerState {
                 w.plain
                     .as_ref()
                     .and_then(|look| look.placeholder)
+                    .or(w.placeholder.map(|held| held.text(composer_words)))
                     .unwrap_or(strings.chat.placeholder),
             );
         }

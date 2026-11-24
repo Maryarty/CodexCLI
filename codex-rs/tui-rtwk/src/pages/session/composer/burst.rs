@@ -121,7 +121,7 @@ pub fn flush_due_with(
         }
         FlushResult::Typed(ch) => {
             if !typed_char(draft, tell, c, ch, skill_space) {
-                c.insert(&ch.to_string());
+                vim::insert_pasted(draft, c, &ch.to_string());
                 // Insert mode records it for `.`
                 vim::pasted(draft, c, &ch.to_string());
             }
@@ -159,7 +159,7 @@ pub fn apply_paste(
     text: &str,
 ) {
     if !draft.paste(c, text, |chars| (env.label)(chars), |n| (env.image)(n)) {
-        c.insert(text);
+        vim::insert_pasted(draft, c, text);
     }
     vim::pasted(draft, c, text);
     draft.burst(PasteBurst::clear_after_explicit_paste);
