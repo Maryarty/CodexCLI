@@ -993,44 +993,165 @@ fn account_change_dismisses_the_previous_app_directory_snapshot() {
 // ORACLE chatwidget/tests/quick_dials_tests.rs:8 current_settings_offer_model_permissions_and_status_layouts kind=snap owner=dialogs-pane snap=saved_quick_dials_source snap=saved_quick_dials_source_unavailable_model
 #[test]
 fn current_settings_offer_model_permissions_and_status_layouts() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature quick dials (w2-approvals, chat popups): none in the port in the port: the saved quick-dial source list (model, permissions, status) has no widget and no scripted state of the current settings",
+    let mut s = on_catalog(80, 20, "gpt-5.5", BUNDLED);
+    // the catalog is read when the picker opens (the oracle's chat holds it already)
+    s.type_text("/model").keys("enter");
+    s.keys("esc");
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project","approval_policy":"on-request","permission_profile":":workspace","terminal_title":["model-name","project","model-name"],"items":["model-name","project-root","model-name"],"colors":false}}}"#,
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 10).live().open();
-    s.assert_snap("saved_quick_dials_source");
-    // The oracle's Down and Enter send /permissions, /title and /statusline commands: the events are not drawn.
-    s.keys("down enter");
-    s.resize(80, 12);
-    s.assert_snap("saved_quick_dials_source_unavailable_model");
+    let source = |s: &mut Screen| {
+        s.type_text("/presets").keys("enter");
+        s.keys("s");
+    };
+    source(&mut s);
+    s.assert_snap_region(
+        "saved_quick_dials_source",
+        popup_row(&s, "Start preset from current settings"),
+        0,
+    );
+    // each source starts a preset with its line (the editor holds it)
+    for (down, line) in [
+        (
+            1,
+            "/permissions :workspace --approval-policy=on-request --reviewer=user",
+        ),
+        (2, "/title model project-name model"),
+        (3, "/statusline model project-name model --no-colors"),
+    ] {
+        s.keys(&"down ".repeat(down));
+        s.keys("enter");
+        s.assert_joined_rows_hold(line);
+        s.keys("esc esc esc");
+        source(&mut s);
+    }
+    s.keys("esc esc");
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","effort":"removed-effort","approval_policy":"on-request","permission_profile":":workspace","auto_review":true,"terminal_title":["removed-title-item"],"items":["model"],"colors":true}}}"#,
+    );
+    source(&mut s);
+    s.assert_snap_region(
+        "saved_quick_dials_source_unavailable_model",
+        popup_row(&s, "Start preset from current settings"),
+        0,
+    );
+    s.keys("enter");
+    s.assert_joined_rows_hold(
+        "/permissions :workspace --approval-policy=on-request --reviewer=auto_review",
+    );
+    s.keys("esc esc esc");
+    // a granular policy and a named profile
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","effort":"removed-effort","approval_granular":"{\"granular\":{\"sandbox_approval\":false,\"rules\":true,\"skill_approval\":false,\"request_permissions\":true,\"mcp_elicitations\":false}}","permission_profile":"team review","auto_review":false}}}"#,
+    );
+    source(&mut s);
+    s.keys("enter");
+    // the editor wraps at the spaces, which the joined rows lose
+    s.assert_joined_rows_hold("/permissions 'team review'");
+    s.assert_joined_rows_hold(
+        r#"--approval-policy='{"granular":{"sandbox_approval":false,"rules":true,"skill_approval":false,"request_permissions":true,"mcp_elicitations":false}}'"#,
+    );
+    s.assert_joined_rows_hold("--reviewer=user");
 }
 
 // ORACLE chatwidget/tests/quick_dials_tests.rs:141 saved_quick_dials_save_and_clear_picker_snapshots kind=snap owner=dialogs-pane snap=quick_dial_shortcuts snap=quick_dial_shortcuts_empty snap=quick_dial_shortcuts_narrow snap=saved_quick_dials_clear snap=saved_quick_dials_confirm_delete snap=saved_quick_dials_confirm_replace snap=saved_quick_dials_confirm_save snap=saved_quick_dials_editor snap=saved_quick_dials_save
 #[test]
 fn saved_quick_dials_save_and_clear_picker_snapshots() {
+    let mut s = on_catalog(100, 11, "gpt-5.5", BUNDLED);
+    s.feed(QUICK);
+    // the catalog is read when the picker opens (the oracle's chat holds it already)
+    s.type_text("/model").keys("enter");
+    s.keys("esc");
+    s.type_text("/presets");
+    s.keys("enter");
+    s.assert_snap_region("quick_dial_shortcuts_empty", popup_row(&s, "Presets"), 0);
+    s.keys("esc");
+    s.assert_absent("No presets saved");
+    s.feed(CODING_PRESET);
+    // the draft is in the composer when the menu opens (the leader's `p`), and Enter does not
+    // submit it behind the menu
+    s.type_text("Review the current changes");
+    s.keys("shift+enter");
+    s.type_text("for safety  ");
+    s.keys("ctrl+x p");
+    s.assert_contains("1 · coding");
+    let hud = s.shot();
+    s.keys("enter");
+    s.assert_same_rows(&hud);
+    s.keys("esc");
+    s.keys("ctrl+x p");
+    s.assert_same_rows(&hud);
+    s.keys("esc");
+    s.keys("ctrl+x p");
+    s.keys("n");
+    s.assert_snap_region("saved_quick_dials_editor", popup_row(&s, "New preset"), 0);
+    s.keys("enter");
+    s.resize(80, 20);
+    s.assert_snap_region("saved_quick_dials_save", popup_row(&s, "Save preset to slot"), 0);
+    s.keys("esc");
+    s.assert_snap_region("saved_quick_dials_editor", popup_row(&s, "New preset"), 0);
+    s.keys("esc");
+    s.keys("ctrl+x p");
+    s.keys("d");
+    s.assert_snap_region("saved_quick_dials_clear", popup_row(&s, "Delete a preset"), 0);
+    s.keys("esc");
+    // the preset of a slot, written over what the editor starts from
+    let replacement = "/model gpt-5.6-terra --reasoning=high --speed=fast";
+    s.keys("ctrl+x p");
+    s.keys("2");
+    s.keys(&"backspace ".repeat(60));
+    s.type_text(replacement);
+    s.keys("enter");
+    s.resize(52, 14);
+    s.assert_snap_region("saved_quick_dials_confirm_save", popup_row(&s, "Save preset 2?"), 0);
+    s.keys("esc esc");
+    s.keys("ctrl+x p");
+    s.keys("e");
+    s.keys("1");
+    s.keys(&"backspace ".repeat(60));
+    s.type_text(replacement);
+    s.keys("enter");
+    s.assert_snap_region("saved_quick_dials_confirm_replace", popup_row(&s, "Replace preset 1?"), 0);
+    s.keys("enter");
+    s.feed(CODING_PRESET);
+    s.keys("ctrl+x p");
+    s.keys("d");
+    s.keys("1");
+    s.resize(80, 10);
+    s.assert_snap_region("saved_quick_dials_confirm_delete", popup_row(&s, "Delete preset 1?"), 0);
+    s.keys("esc esc");
+    // the menu with six presets: its columns (the rows above the queued follow-up of the oracle's
+    // snapshot, which holds a recalled preset the oracle's chat never drains)
+    s.feed(MORE_PRESETS);
+    s.resize(100, 20);
+    s.keys("ctrl+x p");
+    assert_menu_head(&s, "quick_dial_shortcuts", 7);
+    s.resize(48, 20);
+    assert_menu_head(&s, "quick_dial_shortcuts_narrow", 11);
     kit::pending(
         Owner::DialogsPane,
-        "feature quick dials (w2-approvals, chat popups): none in the port in the port: the shortcut menu, the slot editor, the save, clear and replace/delete confirmations have no widget and no scripted state",
+        "preset recall (w2-commands): the oracle's snapshot holds the recalled `/model` line as a queued follow-up (its test chat never drains the queue), the port runs the recalled preset at once, so no frame has the queue block under the menu",
     );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 10)
-        .live()
-        .open();
-    s.assert_snap("quick_dial_shortcuts_empty");
-    s.resize(80, 14);
-    s.assert_snap("saved_quick_dials_editor");
-    s.assert_snap("saved_quick_dials_save");
-    s.assert_snap("saved_quick_dials_clear");
-    s.resize(52, 8);
-    s.assert_snap("saved_quick_dials_confirm_save");
-    s.assert_snap("saved_quick_dials_confirm_replace");
-    s.resize(80, 7);
-    s.assert_snap("saved_quick_dials_confirm_delete");
-    s.resize(100, 16);
-    s.assert_snap("quick_dial_shortcuts");
-    s.resize(48, 20);
-    s.assert_snap("quick_dial_shortcuts_narrow");
 }
+
+/// The first `count` rows of the oracle's snapshot `name` (the menu's block) equal ours from the
+/// menu's title.
+fn assert_menu_head(s: &Screen, name: &str, count: usize) {
+    let row = popup_row(s, "Presets");
+    assert!(row != usize::MAX, "no menu:\n{}", s.text());
+    let ours = s.rows();
+    for (at, want) in kit::snap_rows(name, "").iter().take(count).enumerate() {
+        let got = ours.get(row + at).map_or("", |r| r.trim_end());
+        assert_eq!(got, want.trim_end(), "{name}: row {at}\n{}", s.text());
+    }
+}
+
+const MORE_PRESETS: &str = r#"{"step":"presets","slots":[{"slot":1,"input":"/model gpt-5.5 --reasoning=high --speed=fast","label":"coding","origin":"user"},{"slot":2,"input":"/permissions workspace-write","origin":"user"},{"slot":3,"input":"Review the current changes and explain every important behavior change","origin":"user"},{"slot":5,"input":"/skills simplify-code","origin":"user"},{"slot":7,"input":"Plan the requested change","origin":"user"},{"slot":0,"input":"/status","origin":"user"}]}"#;
+
+const CODING_PRESET: &str = r#"{"step":"presets","slots":[{"slot":1,"input":"/model gpt-5.5 --reasoning=high --speed=fast","label":"coding","origin":"user"}]}"#;
+
+/// The chat of the quick-dial tests: a model and a project directory for the status line.
+const QUICK: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project"}}}"#;
 
 // ---- oracle: chatwidget/tests/review_picker_tests.rs (1 screen-level tests here; 0 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/review_picker_tests.rs:7 review_picker_filtered_accept_and_cancel_preserve_parent_and_draft kind=ui owner=dialogs-pane
