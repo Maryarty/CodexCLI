@@ -682,18 +682,20 @@ fn keyboard_select_mode_preserves_the_draft_and_absorbs_enter_repeat() {
 // ORACLE app/owned_transcript_tests.rs:1156 inline_transcript_search_draws_and_escape_precedes_backtrack kind=ui owner=chat-live
 #[test]
 fn inline_transcript_search_draws_and_escape_precedes_backtrack() {
-    kit::pending(
-        Owner::ChatLive,
-        "no inline transcript overlay (ctrl+t) with the '/' search line on the chat screen: the 'enter accept' hint drawn after the query, Enter accepting it, and Esc ordering against backtrack priming are not built",
-    );
+    // the transcript's find key on the chat is F3 (`find_transcript`); the oracle's `/` is the
+    // pager's own key
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/needle.jsonl"))
         .open();
-    s.keys("ctrl+t /");
+    s.keys("ctrl+t f3");
     s.paste("needle");
     s.assert_contains("enter accept");
     s.keys("enter");
+    s.assert_contains("esc latest");
+    // Esc closes the read match before it primes backtrack
+    s.keys("esc");
+    s.assert_absent("esc latest");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1208 find_owns_editor_chords_without_changing_the_composer_draft kind=ui owner=chat-live

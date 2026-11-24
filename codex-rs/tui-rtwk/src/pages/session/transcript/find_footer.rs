@@ -9,9 +9,11 @@
 //! picks the spelling (as `follow.rs`).
 
 use std::rc::Rc;
+use std::time::Duration;
 
+use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextField};
-use rtwk::focus::FocusNode;
+use rtwk::focus::{Focus, FocusNode};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::{Span, Style};
@@ -258,6 +260,12 @@ impl PartialEq for QueryField {
     }
 }
 
+/// What the field's state is told: its text changed, it is to take the focus.
+enum Edit {
+    Text,
+    Focus,
+}
+
 struct QueryState {
     back: Option<FocusNode>,
 }
@@ -274,20 +282,29 @@ impl_widget!(stateful eq QueryField);
 
 impl State for QueryState {
     type Widget = QueryField;
-    type Msg = Rc<str>;
+    type Msg = Edit;
 
     fn init_state(&mut self, _: &QueryField, cx: &mut Cx<'_, Self>) {
-        self.back = rtwk::focus::Focus::maybe_of(cx, false)
+        self.back = Focus::maybe_of(cx, false)
             .and_then(|node| node.manager())
             .and_then(|manager| manager.primary_focus());
+        // a field that mounts takes the focus only where its scope holds none, and the composer
+        // holds it: asked once the frame that built the field is done (Flutter:
+        // `addPostFrameCallback(requestFocus)`)
+        if let Some(binding) = AppBinding::maybe_of(cx) {
+            binding.add_post_frame_callback(cx.map(|_: Duration| Edit::Focus));
+        }
     }
 
     fn dispose(&mut self) {
         FocusNode::give_back(self.back.as_ref(), None);
     }
 
-    fn update(&mut self, _: Rc<str>, w: &QueryField, _: &mut Cx<'_, Self>) -> Rebuild {
-        w.finder.changed();
+    fn update(&mut self, msg: Edit, w: &QueryField, _: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            Edit::Text => w.finder.changed(),
+            Edit::Focus => w.finder.node().request_focus(),
+        }
         Rebuild::No
     }
 
@@ -298,7 +315,7 @@ impl State for QueryState {
             .focus_node(finder.node())
             .autofocus(true)
             .key_hints(false)
-            .on_changed(cx.map(|text: Rc<str>| text))
+            .on_changed(cx.map(|_: Rc<str>| Edit::Text))
             .on_paste({
                 let finder = finder.clone();
                 move |text| {
