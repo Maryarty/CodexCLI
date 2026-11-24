@@ -359,6 +359,9 @@ pub enum Command {
         ticket: Ticket,
         thread: ThreadId,
         message: UserMessage,
+        /// The acknowledgement of a misalignment failure, epoch milliseconds: the request
+        /// carries the `misalignment_override` metadata (`threads/safety.rs`).
+        misalignment_override: Option<i64>,
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
@@ -2170,6 +2173,13 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 // Before the first thread: kept in order with the messages.
                 None => app.queued_submits.push(BeforeThread::Shell(command)),
             }
+        }
+        // a verb of the thread's safety state: the thread's own, not the screen's
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety { thread, verb })) => {
+            let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Safety(
+                crate::threads::safety::Ev::Verb(verb),
+            )));
+            apply_thread(app, &thread, ev, fx);
         }
         Intent::Screen(ScreenIntent::Select(intent)) => {
             select::intent(app, intent, fx);

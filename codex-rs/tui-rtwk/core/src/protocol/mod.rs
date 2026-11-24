@@ -75,12 +75,21 @@ pub fn client_request(
             },
         }),
         Command::StartTurn {
-            thread, message, ..
+            thread,
+            message,
+            misalignment_override,
+            ..
         } => Some(ClientRequest::TurnStart {
             request_id,
             params: TurnStartParams {
                 thread_id: thread.to_string(),
                 input: turn_input(message),
+                responsesapi_client_metadata: misalignment_override.map(|timestamp| {
+                    std::collections::HashMap::from([(
+                        "misalignment_override".to_owned(),
+                        serde_json::json!({ "timestamp": timestamp }).to_string(),
+                    )])
+                }),
                 ..TurnStartParams::default()
             },
         }),

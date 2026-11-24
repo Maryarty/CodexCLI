@@ -11,6 +11,7 @@ pub mod calls;
 mod cells;
 pub mod citations;
 mod collab;
+pub mod compaction;
 pub mod daybreak;
 pub mod decision;
 pub mod directives;
@@ -24,6 +25,7 @@ mod note;
 pub mod processes;
 pub mod queue;
 pub mod replay;
+pub mod safety;
 pub mod status;
 pub mod stream_preview;
 mod user_prompt;
@@ -492,7 +494,7 @@ impl Transcript {
 
     /// The error row of a turn, once per message.
     fn report_error(&mut self, turn: &TurnId, fault: &Fault, daybreak: Daybreak) {
-        if !self.holds_error(turn, fault) {
+        if !matches!(fault, Fault::Misalignment { .. }) && !self.holds_error(turn, fault) {
             let key = self.mint(turn.clone());
             self.upsert(key, fault.item(daybreak));
         }
@@ -650,6 +652,7 @@ impl Transcript {
             }
             // The turn's own error follows its items (oracle `thread_transcript`).
             if let Some(fault) = error
+                && !matches!(fault, Fault::Misalignment { .. })
                 && !order.iter().chain(older.iter()).any(|key| {
                     key.turn == turn && stored.get(key).is_some_and(|held| fault.is(held))
                 })
@@ -812,6 +815,9 @@ pub enum ThreadCtx {
     StartTurn {
         interrupt: bool,
         message: UserMessage,
+        /// The instruction a misalignment failure's review was acknowledged for: its failure
+        /// words nothing of the message (`safety::Verb::Continue`).
+        acknowledged: bool,
     },
     Interrupt {
         turn: TurnId,
@@ -968,6 +974,10 @@ impl ThreadEv {
     fn is_notification(&self) -> bool {
         match self {
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
+            // what the user says to the safety state is no news of the server
+            Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(
+                safety::Ev::Verb(_),
+            ))) => false,
             Self::TurnStarted { .. }
             | Self::ItemStarted { .. }
             | Self::ItemUpsert { .. }
@@ -1101,6 +1111,10 @@ pub struct ThreadCore {
     history_ask: HistoryAsk,
     /// The thread's goal (`thread/goal/updated|cleared`, the answers of `thread/goal/get|set`).
     goal: Option<Goal>,
+    /// Live context compaction: the running one and how long the finished ones took.
+    compaction: compaction::Compaction,
+    /// Safety buffering, recourse and the misalignment stop.
+    safety: safety::Safety,
     writer: Writer,
 }
 
@@ -1262,6 +1276,8 @@ impl ThreadModel {
                 hooks: Vec::new(),
                 last_error: None,
                 goal: None,
+                compaction: compaction::Compaction::default(),
+                safety: safety::Safety::default(),
                 last_ended: None,
                 finished_turns: Rc::default(),
                 authoritative_turns: Rc::default(),
@@ -1443,6 +1459,25 @@ impl ThreadCore {
     /// The background terminals (unified-exec sessions still running), oldest first.
     pub fn terminals(&self) -> &[Terminal] {
         self.processes.terminals()
+    }
+
+    /// The thread's context compaction facts.
+    pub fn compaction(&self) -> &compaction::Compaction {
+        &self.compaction
+    }
+
+    /// The thread's safety facts: buffering, recourse and the misalignment stop.
+    pub fn safety(&self) -> &safety::Safety {
+        &self.safety
+    }
+
+    /// Whether the buffered `turn` can still be retried (it runs, nothing of its answer came).
+    pub fn can_retry_safety(&self, turn: &TurnId) -> bool {
+        self.is_running()
+            && self
+                .safety
+                .buffering()
+                .is_some_and(|held| held.turn == *turn && held.waiting())
     }
 
     pub fn is_running(&self) -> bool {
@@ -1863,12 +1898,42 @@ impl<'a> ThreadFx<'a> {
             ThreadCtx::StartTurn {
                 interrupt: false,
                 message: message.clone(),
+                acknowledged: false,
             },
         ));
         self.out.commands.push(Command::StartTurn {
             ticket,
             thread: self.thread.clone(),
             message,
+            misalignment_override: None,
+        });
+        Ok(ticket)
+    }
+
+    /// The turn start of an acknowledged misalignment failure, `stamp` (epoch milliseconds) its
+    /// acknowledgement. One start per step, as `start_turn`.
+    fn start_acknowledged(
+        &mut self,
+        message: UserMessage,
+        stamp: i64,
+    ) -> Result<Ticket, UserMessage> {
+        if self.start_said() {
+            return Err(message);
+        }
+        let ticket = self.mint.next();
+        self.registered.push((
+            ticket,
+            ThreadCtx::StartTurn {
+                interrupt: false,
+                message: message.clone(),
+                acknowledged: true,
+            },
+        ));
+        self.out.commands.push(Command::StartTurn {
+            ticket,
+            thread: self.thread.clone(),
+            message,
+            misalignment_override: Some(stamp),
         });
         Ok(ticket)
     }
@@ -1930,6 +1995,12 @@ impl<'a> ThreadFx<'a> {
 /// The one projection from protocol notifications to thread events (R4).
 /// Everything the skeleton does not show maps to `None`.
 pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)> {
+    // a compaction is the status header's, its cell comes with its completion
+    if let Some(projected) =
+        compaction::project(notification).or_else(|| safety::project(notification))
+    {
+        return Some(projected);
+    }
     let transcript = match notification {
         ServerNotification::TurnStarted(n) => Some((
             ThreadId::new(&n.thread_id),
@@ -2138,6 +2209,12 @@ pub enum Fault {
     CyberPolicy,
     /// A request refused for biology safety (oracle `is_bio_policy_error`).
     SafetyAccessBlock,
+    /// A stop as a precaution (`codexErrorInfo: MisalignmentPolicyViolation`): no row, the
+    /// thread blocks input (`threads/safety.rs`).
+    Misalignment {
+        message: String,
+        details: Option<codex_app_server_protocol::MisalignmentErrorDetails>,
+    },
 }
 
 const LEGACY_SAFETY_ACCESS_BLOCK_PREFIX: &str =
@@ -2165,7 +2242,12 @@ impl Fault {
         use codex_app_server_protocol::CodexErrorInfo;
         // The oracle's order (`handle_non_retry_error`): cyber policy, biology policy, then the
         // overload that said nothing.
-        if error.codex_error_info == Some(CodexErrorInfo::CyberPolicy) {
+        if error.codex_error_info == Some(CodexErrorInfo::MisalignmentPolicyViolation) {
+            Fault::Misalignment {
+                message: error.message.clone(),
+                details: error.misalignment.clone(),
+            }
+        } else if error.codex_error_info == Some(CodexErrorInfo::CyberPolicy) {
             Fault::CyberPolicy
         } else if is_bio_policy_error(&error.message) {
             Fault::SafetyAccessBlock
@@ -2189,6 +2271,10 @@ impl Fault {
             Fault::HighLoad => Item::HighLoad,
             Fault::CyberPolicy => Item::Notice(Notice::CyberPolicy(daybreak)),
             Fault::SafetyAccessBlock => Item::Notice(Notice::SafetyAccessBlock),
+            // never a row (`safety::on_completed` takes it first)
+            Fault::Misalignment { message, .. } => Item::Error {
+                message: message.clone(),
+            },
         }
     }
 
@@ -2292,7 +2378,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     if ev.is_notification() {
         model.slots.chat.clear_retry();
     }
+    safety::observe(model, &ev);
     match ev {
+        // the thread's own facts ride the chat's events (`threads/compaction.rs`, `safety.rs`)
+        ThreadEv::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Compacting(ev))) => {
+            compaction::apply(model, ev, fx)
+        }
+        ThreadEv::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(ev))) => {
+            safety::apply(model, ev, fx)
+        }
         ThreadEv::Mcp { server, status } => {
             let warnings = model.slots.chat.mcp.update(server, status);
             add_startup_warnings(model, warnings, fx);
@@ -2346,6 +2440,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             next,
             submissions,
         } => {
+            // The latest turn of a thread read for the first time stopped as a precaution: the
+            // thread blocks input, with nothing to continue from (`replay_thread_turns`).
+            if model.transcript.is_empty()
+                && !model.is_running()
+                && turns
+                    .last()
+                    .is_some_and(|latest| matches!(latest.error, Some(Fault::Misalignment { .. })))
+            {
+                safety::replayed(model);
+            }
             for snapshot in &turns {
                 if snapshot.end.is_some() {
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
@@ -2403,6 +2507,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 fx,
             )
         }
+        // a misalignment stop rejects what starts a turn: only a new chat goes on
+        ThreadEv::Submit { .. } if model.safety.blocks_input() => {}
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id
@@ -2480,7 +2586,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     },
                     fx,
                 ),
-                (ThreadCtx::StartTurn { interrupt, .. }, Answer::TurnStarted { turn, .. }) => {
+                (
+                    ThreadCtx::StartTurn {
+                        interrupt, message, ..
+                    },
+                    Answer::TurnStarted { turn, .. },
+                ) => {
+                    model.core.safety.submitted(turn.clone(), message);
                     // After a `Lagged` gap the end of this turn can have been
                     // seen before this reply: nothing will end it again, so
                     // the next queued message goes out now.
@@ -2506,6 +2618,18 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 (ThreadCtx::StartTurn { message, .. }, Answer::Failed(RpcError::Prepare(text))) => {
                     model.last_error = Some(Failure::Message(text));
                     recover(model, message);
+                }
+                // an RPC diagnostic can hold the instruction: the failure is worded without it
+                (
+                    ThreadCtx::StartTurn {
+                        acknowledged: true, ..
+                    },
+                    Answer::Failed(_),
+                ) => {
+                    model.last_error = Some(Failure::Message(
+                        "Couldn’t continue this chat. Review its latest status before trying again."
+                            .to_owned(),
+                    ));
                 }
                 (ThreadCtx::StartTurn { .. }, Answer::Failed(error)) => {
                     if !model.is_running() {
@@ -2680,6 +2804,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             append_history(model);
         }
         ThreadEv::TurnError { turn, fault } => {
+            // A refusal that alternatives are prepared for waits for the turn's own end.
+            if safety::defer(model, &turn, &fault) {
+                return;
+            }
+            // The precaution of a misalignment stop drops the queue before the turn is finalized.
+            safety::misalignment(model, &turn, &fault);
             // Oracle `on_error`: the turn is finalized, then the error row, then
             // the next queued input; the failed turn's own completion is a no-op.
             end_turn(model, turn.clone(), TurnEnd::Failed, fx);
@@ -2816,6 +2946,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             let timing = live_timing(model, &turn, end, timing, fx.now());
             model.transcript.remember_timings([(turn.clone(), timing)]);
+            let error = safety::on_completed(model, &turn, end == TurnEnd::Failed, error, fx);
             if let Some(fault) = &error {
                 model.transcript.report_error(&turn, fault, fx.daybreak());
             }
@@ -2923,6 +3054,8 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
         .retain(|ctx| !matches!(ctx, ThreadCtx::Interrupt { turn: target, .. } if *target == turn));
     if ends_running {
         model.turn = TurnState::Idle;
+        model.core.safety.turn_ended();
+        model.core.compaction.clear();
         // `maybe_prompt_plan_implementation`: nothing waits to be sent behind the turn.
         let waiting = !model.queue.is_empty()
             || !model.pending_steers.is_empty()
@@ -3272,6 +3405,7 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
     if model.finished_turns.contains(&turn) {
         return;
     }
+    model.core.safety.turn_started(&turn);
     match &model.turn {
         TurnState::Idle => {
             model.slots.chat.begin_turn();
