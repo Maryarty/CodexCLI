@@ -104,10 +104,12 @@ impl Step {
         {
             return refuse(app, Refusal::NotIdle, fx);
         }
-        if app
-            .outgoing
-            .any(|ctx| matches!(ctx, AppCtx::Worktree { .. } | AppCtx::NewConversation { .. }))
-        {
+        if app.outgoing.any(|ctx| {
+            matches!(
+                ctx,
+                AppCtx::Worktree { .. } | AppCtx::NewConversation { .. }
+            )
+        }) {
             return refuse(app, Refusal::Pending, fx);
         }
         let has_history = model
@@ -161,9 +163,7 @@ impl Step {
                 let cwd = Some(checkout.cwd.clone());
                 let ask = match &chat {
                     Some(Chat {
-                        source,
-                        fork: true,
-                        ..
+                        source, fork: true, ..
                     }) => ThreadAsk::ForkAt {
                         thread: source.to_string(),
                         cwd,
@@ -207,12 +207,7 @@ impl Step {
                 let root = checkout.root;
                 return finish(app, chat, Said::Retained { root, reason }, fx);
             }
-            (
-                Self::Binding {
-                    thread, chat, ..
-                },
-                Answer::WorktreeBound(Ok(())),
-            ) => {
+            (Self::Binding { thread, chat, .. }, Answer::WorktreeBound(Ok(()))) => {
                 let agents = &mut Rc::make_mut(&mut app.screens).agents;
                 agents.observe(backend, thread.as_str());
                 agents.display(backend);
@@ -268,7 +263,10 @@ impl Step {
 /// How a creation ended badly: the host's own words, or a checkout that stays on disk.
 enum Said {
     Failed(String),
-    Retained { root: String, reason: RetainedReason },
+    Retained {
+        root: String,
+        reason: RetainedReason,
+    },
 }
 
 /// The line that says so: in the transcript of the thread the chat asked from, or the notice of
@@ -286,5 +284,10 @@ fn finish(app: &mut CodexApp, chat: Option<Chat>, said: Said, fx: &mut AppFx) {
         Said::Failed(error) => select::Note::WorktreeFailed(error),
         Said::Retained { root, reason } => select::Note::WorktreeRetained { root, reason },
     };
-    session_note(app, Some(chat.source), Note::from(NoteKey::Select(note)), fx);
+    session_note(
+        app,
+        Some(chat.source),
+        Note::from(NoteKey::Select(note)),
+        fx,
+    );
 }

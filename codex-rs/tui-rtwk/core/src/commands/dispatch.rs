@@ -247,7 +247,6 @@ pub enum SessionIntent {
         args: Option<String>,
     },
     Daybreak,
-    ElevateSandbox,
     Hooks,
     DebugConfig,
     Ps,
@@ -458,7 +457,7 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
             open(Target::Settings, command, "")
         }
         // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
-        Export | Plugins => match target_of(command) {
+        Export | Plugins | ElevateSandbox => match target_of(command) {
             Some(feature) => open(Target::Feature(feature), command, ""),
             None => Outcome::Notice(Notice::NotAvailable(command)),
         },
@@ -508,7 +507,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Vim => session(command, SessionIntent::Vim),
         Ide => session(command, SessionIntent::Ide { args: None }),
         Daybreak => session(command, SessionIntent::Daybreak),
-        ElevateSandbox => session(command, SessionIntent::ElevateSandbox),
         Hooks => session(command, SessionIntent::Hooks),
         DebugConfig => session(command, SessionIntent::DebugConfig),
         Ps => session(command, SessionIntent::Ps),

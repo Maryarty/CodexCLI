@@ -10,23 +10,20 @@ pub mod strings;
 
 use rtwk::Cx;
 
-use codex_tui_core::features::Never;
-use codex_tui_core::features::windows_sandbox::{Note, WindowsSandbox};
+use codex_tui_core::features::windows_sandbox::{Intent, Note, Sheet, WindowsSandbox};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
 use super::FeatureView;
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for WindowsSandbox {
-    /// No command opens a sheet of its own: `/setup-default-sandbox` is a verb.
-    type Args = Never<Self>;
+    /// `/setup-default-sandbox` opens no sheet: it is the verb.
+    type Args = ();
 
-    fn args(target: Never<Self>, _cwd: Cwd, _thread: Option<ThreadId>) -> Never<Self> {
-        target.absurd()
-    }
+    fn args(_target: Sheet, _cwd: Cwd, _thread: Option<ThreadId>) {}
 
-    fn open<S: 'static>(_cx: &mut Cx<'_, S>, args: Never<Self>) {
-        args.absurd()
+    fn open<S: 'static>(cx: &mut Cx<'_, S>, _args: ()) {
+        super::verb(cx, Intent::Elevate);
     }
 
     fn note_words(note: &Note, _words: &SessionStrings) -> String {

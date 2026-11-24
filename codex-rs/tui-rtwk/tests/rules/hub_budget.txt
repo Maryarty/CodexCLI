@@ -15,7 +15,8 @@
 # is not any more: the card is a cell of the thread's transcript, ADR-003) for the oracle's
 # slash list, which stays `SessionIntent`'s; `Target::Status` went (that enum has no budget).
 # The slash list has no generic `Feature` variant yet: a Need of the ADR-012 owner.
-enum core/src/commands/dispatch.rs SessionIntent 43
+# fw1-c8: `ElevateSandbox` is `features/windows_sandbox` (`Feature::OPENS`, `Target::Feature`): 43 -> 42.
+enum core/src/commands/dispatch.rs SessionIntent 42
 enum core/src/screens/select.rs Note 36
 enum core/src/screens/select.rs Picked 8
 # ADR-013 (select, the page stack leaves core family by family): `Menu::Confirm` and `Menu::Review`

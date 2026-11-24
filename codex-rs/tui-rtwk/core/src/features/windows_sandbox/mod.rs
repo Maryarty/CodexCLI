@@ -16,6 +16,7 @@ use codex_app_server_protocol::{
 use codex_protocol::config_types::WindowsSandboxLevel;
 
 use super::{AppCx, Feature, Never};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
@@ -24,6 +25,11 @@ use crate::threads::Tone;
 pub struct WindowsSandbox;
 
 pub type Mode = WindowsSandboxSetupMode;
+
+/// What `/setup-default-sandbox` names (`Feature::OPENS`, `Target::Feature`): no sheet is shown,
+/// the view's `open` says the verb `Intent::Elevate`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sheet;
 
 /// Where the session's executors are (oracle `WindowsSandboxHost`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -55,8 +61,7 @@ impl Config {
             .additional
             .get("windows")
             .and_then(|windows| windows.get("sandbox"));
-        let mxc_selected = configured
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
+        let mxc_selected = configured.and_then(|value| serde_json::from_value(value.clone()).ok())
             == Some(WindowsSandboxImplementation::Mxc);
         let from_features = || {
             let features = config.config.additional.get("features")?;
@@ -437,10 +442,11 @@ impl State {
 
 impl Feature for WindowsSandbox {
     const NAME: &'static str = "windows_sandbox";
+    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::ElevateSandbox, Sheet));
 
     type State = State;
     type ThreadPart = ();
-    type Target = Never<Self>;
+    type Target = Sheet;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
     type Command = Wanted;

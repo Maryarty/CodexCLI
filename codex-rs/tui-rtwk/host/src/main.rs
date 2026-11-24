@@ -12,12 +12,12 @@ mod import;
 mod in_process;
 mod launch;
 mod providers;
+mod security_setup;
 mod settings;
 mod startup;
 mod target;
 mod update;
 mod viewer;
-mod security_setup;
 mod windows_sandbox;
 mod workspace;
 

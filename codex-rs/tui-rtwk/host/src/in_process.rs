@@ -639,7 +639,11 @@ fn sandbox_job(
     ids: &Ids,
     handle: &AppServerRequestHandle,
 ) -> Boxed<Option<AppEv>> {
-    let (cwd, ids, handle) = (config.cwd.display().to_string(), ids.clone(), handle.clone());
+    let (cwd, ids, handle) = (
+        config.cwd.display().to_string(),
+        ids.clone(),
+        handle.clone(),
+    );
     Box::pin(async move {
         crate::windows_sandbox::fetch(cwd, remote_workspace, &ids, sender(handle)).await
     })

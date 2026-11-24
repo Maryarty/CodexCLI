@@ -69,7 +69,11 @@ where
     Some(AppEv::Feature(
         Fact::Environment {
             config,
-            host: if remote_workspace { Host::Remote } else { Host::Local },
+            host: if remote_workspace {
+                Host::Remote
+            } else {
+                Host::Local
+            },
             local_server: !remote_workspace,
             elevated_ready,
         }

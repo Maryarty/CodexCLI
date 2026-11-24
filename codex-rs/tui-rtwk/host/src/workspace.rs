@@ -10,21 +10,21 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use codex_app_server_client::AppServerRequestHandle;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_core::config::load_config_toml_with_layer_stack;
-use codex_app_server_client::AppServerRequestHandle;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::ids::ThreadId;
-use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::select::worktree::{Entry, Owner, Thread};
 use codex_tui_rtwk::services::agents::workspace::Boxed;
 use codex_tui_rtwk::services::agents::workspace::Checkout;
 use codex_tui_rtwk::services::agents::workspace::Workspace;
+use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_worktree::CreateWorktree;
 use codex_worktree::WorktreeManager;
 use codex_worktree::WorktreeSettings;
@@ -115,25 +115,33 @@ pub(crate) fn job(
     ids: Ids,
     handle: AppServerRequestHandle,
 ) -> Option<Boxed<Option<AppEv>>> {
-    let done = match ask.clone() {
-        Ask::Worktrees { cwd } => Box::pin(async move {
-            let read = |thread: String| {
-                let send = crate::in_process::sender(handle.clone());
-                let id = ids.next();
-                async move {
-                    send(codex_tui_core::screens::select::worktree::owner_request(&thread, id))
+    let done =
+        match ask.clone() {
+            Ask::Worktrees { cwd } => Box::pin(async move {
+                let read = |thread: String| {
+                    let send = crate::in_process::sender(handle.clone());
+                    let id = ids.next();
+                    async move {
+                        send(codex_tui_core::screens::select::worktree::owner_request(
+                            &thread, id,
+                        ))
                         .await
                         .map_err(|error| error.message)
-                }
-            };
-            Done::Worktrees(list_worktrees(codex_home, cwd, read).await)
-        }) as Boxed<Done>,
-        Ask::WorktreeRemove { cwd, root } => Box::pin(async move {
-            Done::WorktreeRemoved(remove_worktree(codex_home, cwd, root).await)
-        }),
-        _ => return None,
-    };
-    Some(Box::pin(async move { Some(AppEv::Effect { request, done: done.await }) }))
+                    }
+                };
+                Done::Worktrees(list_worktrees(codex_home, cwd, read).await)
+            }) as Boxed<Done>,
+            Ask::WorktreeRemove { cwd, root } => Box::pin(async move {
+                Done::WorktreeRemoved(remove_worktree(codex_home, cwd, root).await)
+            }),
+            _ => return None,
+        };
+    Some(Box::pin(async move {
+        Some(AppEv::Effect {
+            request,
+            done: done.await,
+        })
+    }))
 }
 
 /// The directory of the archived rollouts (`codex_rollout::ARCHIVED_SESSIONS_SUBDIR`).
@@ -160,7 +168,10 @@ fn owner_of(id: ThreadId, value: &serde_json::Value, archive: &Path) -> Option<O
         .filter(|line| !line.trim().is_empty());
     let title = named.or(preview).unwrap_or("Untitled conversation");
     let title = if title.chars().count() > TITLE_LIMIT {
-        format!("{}…", title.chars().take(TITLE_LIMIT - 1).collect::<String>())
+        format!(
+            "{}…",
+            title.chars().take(TITLE_LIMIT - 1).collect::<String>()
+        )
     } else {
         title.to_owned()
     };
