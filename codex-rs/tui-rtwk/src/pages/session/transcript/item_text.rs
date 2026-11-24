@@ -5,9 +5,9 @@
 //! The cells keep their own texts (`cells::text`); a Markdown body is the
 //! `Gap` they declare, and this file fills it with [`markdown_text`] over the
 //! blocks the cell draws (`citation::blocks_of`, `widgets::markdown::view`):
-//! the assistant's message, the reasoning summary, the proposed plan, a
+//! the assistant's message, a prompt with markup, the reasoning summary, the proposed plan, a
 //! delegated message and the session card's tip. What is still a gap (a tool
-//! call, a patch, the plan update and the collab rows) answers `None`: such an
+//! call, a patch, a status or a decision, which draw by room) answers `None`: such an
 //! item has no text here, and a reader of this function treats it as it does
 //! an item that is not selectable.
 
@@ -111,6 +111,23 @@ fn markdown_parts(item: &Item, reading: &Reading<'_>) -> Option<Vec<Part>> {
     let env = reading.env;
     let strings = env.cells;
     match item {
+        // a prompt with markup: the labels of its images, a blank row, the prompt mark (a gutter)
+        // and the body as the Markdown view draws it (`cells::user::texts` leaves it a gap)
+        Item::User(prompt) => {
+            let shown = prompt.shown();
+            let body = drawn(crate::widgets::markdown::view(shown.text.trim_end()))?;
+            let mut parts: Vec<Part> = prompt
+                .images
+                .iter()
+                .map(|number| Part::text(strings.label(strings.image_label, &number.to_string())))
+                .collect();
+            if !parts.is_empty() {
+                parts.push(Part::gap());
+            }
+            parts.push(Part::gutter(env.chat.prompt.trim_end()));
+            parts.push(Part::text(body));
+            Some(parts)
+        }
         Item::Agent { text, .. } => {
             let body = body_of(text, reading)?;
             Some(vec![Part::gutter(reading.bullet), Part::text(body)])
@@ -161,6 +178,20 @@ fn markdown_parts(item: &Item, reading: &Reading<'_>) -> Option<Vec<Part>> {
             Some(parts)
         }
         _ => None,
+    }
+}
+
+/// The blocks the cell of a message or a plan draws, whose code and quotes the copy mode selects.
+pub fn drawn_blocks(item: &Item, reading: &Reading<'_>) -> Vec<Block> {
+    match item {
+        Item::Agent { text, .. } | Item::Plan { text } => blocks_of(
+            text,
+            false,
+            reading.cwd,
+            reading.env.cells,
+            reading.rendering,
+        ),
+        _ => Vec::new(),
     }
 }
 

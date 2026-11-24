@@ -20,6 +20,7 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use super::copy;
 use super::find::{self, Finder, Mode};
 use super::select;
 use super::strings::{self, Strings};
@@ -93,6 +94,7 @@ pub fn navigation_spans(table: &Strings, line: &str, key: &Style, dim: &Style) -
     // select mode's words come first where one ends in another (`copy & latest`)
     let actions = [
         "copy & latest",
+        "select",
         "move",
         "ends",
         "page",
@@ -182,6 +184,14 @@ pub fn slot<S>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWid
         bold.clone(),
         dim.clone(),
     );
+    let normal = copy_footer(
+        table,
+        &copy::mode_of(&finder),
+        &select::of(&finder),
+        normal,
+        bold.clone(),
+        dim.clone(),
+    );
     ListenableBuilder::new(finder.listenable(), move |_, _| {
         let mode = finder.mode();
         if mode == Mode::Closed {
@@ -242,6 +252,57 @@ fn select_hints(
             row(Text::rich_line(navigation_spans(table, &text, &key, &dim))
                 .overflow(TextOverflow::Clip)
                 .into())
+        })
+        .into()
+    })
+    .into()
+}
+
+/// The footer of copy mode in the place of `normal` while the mode is on: what the cursor is on
+/// (`Copy code block`, bold) and the keys, the first spelling that fits (`footer_with_navigation`).
+fn copy_footer(
+    table: &'static Strings,
+    mode: &copy::CopyMode,
+    ticks: &select::Select,
+    normal: AnyWidget,
+    key: Style,
+    dim: Style,
+) -> AnyWidget {
+    let mode = mode.clone();
+    ListenableBuilder::new(ticks.listenable(), move |_, _| {
+        if !mode.active() {
+            return normal.clone();
+        }
+        let label = mode.label().unwrap_or(table.copy_whole);
+        let title = table.copy_title.replace("{target}", label);
+        let (key, dim) = (key.clone(), dim.clone());
+        LayoutBuilder::new(move |cx, constraints| {
+            let segmenter = segmenter_of(cx);
+            let fits = |text: &&&str| {
+                i32::try_from(segmenter.width(text)).unwrap_or(i32::MAX) <= constraints.max_width
+            };
+            let hints = table
+                .copy_hints
+                .iter()
+                .find(fits)
+                .or(table.copy_hints.last())
+                .copied()
+                .unwrap_or_default();
+            Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(row(Text::rich_line(vec![Span::styled(
+                    title.clone(),
+                    key.clone(),
+                )])
+                .overflow(TextOverflow::Clip)
+                .into()))
+                .child(row(Text::rich_line(navigation_spans(
+                    table, hints, &key, &dim,
+                ))
+                .overflow(TextOverflow::Clip)
+                .into()))
+                .into()
         })
         .into()
     })

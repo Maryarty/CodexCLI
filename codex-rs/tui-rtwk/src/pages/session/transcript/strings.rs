@@ -178,6 +178,14 @@ pub struct Strings {
     /// `{copy}` is the copy chord's label.
     pub select_hints: [&'static str; 4],
     pub select_marked_hints: [&'static str; 4],
+    /// Copy mode's footer (`transcript_view/footer.rs`): the first row (`{target}` is what the
+    /// cursor is on, one of the four that follow, as the oracle lowercases them) and the keys.
+    pub copy_title: &'static str,
+    pub copy_user: &'static str,
+    pub copy_whole: &'static str,
+    pub copy_code: &'static str,
+    pub copy_quote: &'static str,
+    pub copy_hints: [&'static str; 2],
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -337,6 +345,15 @@ pub const EN: Strings = Strings {
         "arrows/hjkl move · o swap · y/{copy} copy · enter copy & latest · esc clear · q close",
         "y/{copy} copy · enter copy & latest · esc clear · q close",
         "enter copy · q close",
+    ],
+    copy_title: "Copy {target}",
+    copy_user: "user message",
+    copy_whole: "whole response",
+    copy_code: "code block",
+    copy_quote: "blockquote",
+    copy_hints: [
+        "↑/↓/j/k select · g/G ends · enter copy · esc close",
+        "↑/↓ select · enter copy · esc close",
     ],
 };
 

@@ -17,6 +17,7 @@ use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::live::provider_error;
+use crate::pages::session::transcript::copy::{self as copying, Step as CopyStep};
 use crate::pages::session::transcript::select::{self as caret, Step};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript::{self, find};
@@ -75,6 +76,33 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             && let Some(taken) = find::key(finder.mode(), &key)
             && finder.take(taken)
         {
+            return KeyEventResult::Handled;
+        }
+        // copy mode (`/copy`): its keys are the only ones there are, whatever the composer holds
+        // (`handle_copy_mode_key`: a key that is none of its own does nothing)
+        let copier = copying::mode_of(&finder);
+        if copier.active()
+            && !finder.active()
+            && let Some(step) = copier.key(&key)
+        {
+            match step {
+                CopyStep::Moved => {}
+                CopyStep::Copy => {
+                    // the target is what the area selects: the copy sends it, and the target's
+                    // own source where it has one (`copying` keeps it for that copy)
+                    copier.copying();
+                    send(ChatMsg::Selection(SelectionKey::CopyAndFollow));
+                    modes.borrow().hold(Input::Plain);
+                }
+                CopyStep::Exit => {
+                    copier.end(&selection.borrow());
+                    if let Some(follow) = copier.reader() {
+                        follow.jump_to_latest();
+                    }
+                    modes.borrow().hold(Input::Plain);
+                }
+                CopyStep::Page(pages) => send(ChatMsg::Page(pages)),
+            }
             return KeyEventResult::Handled;
         }
         // select mode: the caret's keys come before the field's, while Find is not asking

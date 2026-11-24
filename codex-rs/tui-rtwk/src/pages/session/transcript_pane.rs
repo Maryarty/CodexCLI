@@ -30,6 +30,7 @@ use super::cells::strings as cells_strings;
 use super::cells::text::Env;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
+use super::transcript::copy::{self as copying, Targets};
 use super::transcript::find::{Finder, RowTexts};
 use super::transcript::item_text::{Reading, mounted_parts};
 use super::transcript::select::{self, Pos, Select};
@@ -81,6 +82,9 @@ pub(super) struct ViewportState {
     /// The texts of the rows Find reads, kept while they are the same so that what the selection
     /// area was asked to select stays named by the same model.
     texts: RefCell<Option<Rc<RowTexts>>>,
+    /// What copy mode can copy of those rows, kept while the rows are the same ones (it parses the
+    /// messages' Markdown).
+    targets: RefCell<Option<(Rc<RowTexts>, Rc<Targets>)>>,
 }
 
 /// A one-shot listener on a controller: the move to where its reader was, made when its list
@@ -243,6 +247,38 @@ impl ViewportState {
         let listener: VoidCallback = Rc::new(move || send(Msg::Find));
         select.listenable().add_listener(listener.clone());
         *held = Some((select.clone(), listener));
+    }
+
+    /// What copy mode can copy of `texts`' rows: the prompts, the messages' code blocks and quotes
+    /// and the last response. Kept while the rows are the same.
+    fn targets_of(
+        &self,
+        texts: &Rc<RowTexts>,
+        thread: &ThreadModel,
+        rows: &[Row],
+        header: bool,
+        reading: &Reading<'_>,
+        (table, cutter): (&'static transcript_strings::Strings, &copying::Cutter),
+    ) -> Rc<Targets> {
+        if let Some((held, targets)) = self.targets.borrow().as_ref()
+            && Rc::ptr_eq(held, texts)
+        {
+            return targets.clone();
+        }
+        let transcript = thread.transcript();
+        let lead = usize::from(header);
+        let mut targets = Targets::default();
+        for (at, row) in rows.iter().enumerate() {
+            let Some((_, item)) = transcript.get(row.range.start) else {
+                continue;
+            };
+            if let Some(parts) = mounted_parts(item, reading) {
+                targets.add(lead + at, item, &parts, reading, table, cutter);
+            }
+        }
+        let targets = Rc::new(targets);
+        *self.targets.borrow_mut() = Some((texts.clone(), targets.clone()));
+        targets
     }
 
     /// The rows of the list as text, what Find reads and the selection area selects its match in:
@@ -429,6 +465,7 @@ impl StatefulWidget for Pane {
             finding: RefCell::default(),
             selecting: RefCell::default(),
             texts: RefCell::default(),
+            targets: RefCell::default(),
         }
     }
 }
@@ -568,11 +605,12 @@ impl State for ViewportState {
         let search = widget.find.clone();
         self.listen(&search, cx.local_sender());
         let caret = select::of(&search);
+        let copier = copying::mode_of(&search);
         self.listen_select(&caret, cx.local_sender());
         // while Find is open or select mode is on the list reads its rows as text: the scan runs
         // over them, and the match it found (or the caret, or the range marked) is scrolled to and
         // selected, which is how the oracle draws it (REVERSED)
-        let texts = (search.active() || caret.active()).then(|| {
+        let (texts, targets) = if search.active() || caret.active() || copier.active() {
             let env = Env {
                 cells,
                 chat: table,
@@ -587,8 +625,21 @@ impl State for ViewportState {
                 raw,
                 raw_reasoning: show_raw_reasoning,
             };
-            self.row_texts(&thread, &rows, header.is_some(), reverse, &reading)
-        });
+            let texts = self.row_texts(&thread, &rows, header.is_some(), reverse, &reading);
+            let targets = copier.cutter().filter(|_| copier.active()).map(|cutter| {
+                self.targets_of(
+                    &texts,
+                    &thread,
+                    &rows,
+                    header.is_some(),
+                    &reading,
+                    (folds, &cutter),
+                )
+            });
+            (Some(texts), targets)
+        } else {
+            (None, None)
+        };
         if let Some(texts) = &texts {
             // the caret goes where an accepted match is, and Find is done (`accept_search_into_select_mode`)
             if caret.read(texts) && search.reading() {
@@ -614,6 +665,17 @@ impl State for ViewportState {
                         hit.range.start,
                         hit.range.end,
                     );
+                }
+            } else if copier.active() {
+                if let Some(targets) = &targets {
+                    copier.read(targets);
+                }
+                copier.show(texts, &widget.selection);
+                if let Some(row) = copier.reveal() {
+                    widget
+                        .follow
+                        .scroll()
+                        .ensure_index_visible(texts.index_of(row));
                 }
             } else if caret.active() {
                 caret.show(texts, &widget.selection);

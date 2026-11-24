@@ -30,6 +30,74 @@ pub fn drawn(blocks: &[Block]) -> Option<String> {
     text_of(blocks, true)
 }
 
+/// What a block of a message is for the copy mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Code,
+    Quote,
+}
+
+/// A block the copy mode can select: where its text is in the text of the blocks ([`drawn`]) and
+/// what that text is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub kind: Kind,
+    pub range: std::ops::Range<usize>,
+    pub text: String,
+}
+
+/// The code blocks and the top-level quotes of drawn `blocks` (a quote's own code blocks too, a
+/// list item's), in the order of the text, with their place in it. The blocks of the text are
+/// laid in order, so each is looked for after the one before it.
+pub fn found(blocks: &[Block]) -> Vec<Found> {
+    let Some(body) = drawn(blocks) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    walk(blocks, &body, &mut 0, &mut out);
+    out
+}
+
+fn walk(blocks: &[Block], body: &str, cursor: &mut usize, out: &mut Vec<Found>) {
+    for block in blocks {
+        let Some(text) = block_text(block, true).filter(|text| !text.is_empty()) else {
+            continue;
+        };
+        let Some(at) = body[*cursor..].find(&text).map(|at| at + *cursor) else {
+            continue;
+        };
+        let range = at..at + text.len();
+        match &**block {
+            MdBlock::CodeBlock(_) => {
+                if !text.trim().is_empty() {
+                    out.push(Found {
+                        kind: Kind::Code,
+                        range: range.clone(),
+                        text,
+                    });
+                }
+            }
+            MdBlock::BlockQuote(children) => {
+                out.push(Found {
+                    kind: Kind::Quote,
+                    range: range.clone(),
+                    text,
+                });
+                *cursor = at;
+                walk(children, body, cursor, out);
+            }
+            MdBlock::List(list) => {
+                *cursor = at;
+                for item in &list.items {
+                    walk(&item.children, body, cursor, out);
+                }
+            }
+            _ => {}
+        }
+        *cursor = range.end;
+    }
+}
+
 fn text_of(blocks: &[Block], marked: bool) -> Option<String> {
     let mut out = Vec::with_capacity(blocks.len());
     for block in blocks {
