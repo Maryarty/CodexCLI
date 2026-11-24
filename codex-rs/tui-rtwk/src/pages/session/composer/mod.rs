@@ -211,6 +211,32 @@ pub struct Composer {
     /// turn, a draft handed over to a cloud switch); a lost connection is
     /// the composer's own to see.
     restricted: Option<Restricted>,
+    /// What the placeholder of the empty draft says instead of the usual (`set_parent_owned_thread`).
+    placeholder: Option<Placeholder>,
+    /// Input is off (`set_input_enabled(false, ..)`): the draft stays, takes no key, shows no
+    /// caret and draws this placeholder in its place.
+    off: Option<Placeholder>,
+}
+
+/// A placeholder the page chose among the composer's own words.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placeholder {
+    /// `Viewing sub-agent — direct input is disabled`.
+    ParentOwned,
+    /// `Shutting down...`.
+    ShuttingDown,
+    /// `Input disabled.`
+    Disabled,
+}
+
+impl Placeholder {
+    fn text(self, strings: &strings::Strings) -> &'static str {
+        match self {
+            Placeholder::ParentOwned => strings.parent_placeholder,
+            Placeholder::ShuttingDown => strings.shutting_down,
+            Placeholder::Disabled => strings.input_disabled,
+        }
+    }
 }
 
 impl PartialEq for Composer {
@@ -226,6 +252,8 @@ impl PartialEq for Composer {
             && self.on_too_long == other.on_too_long
             && self.shell == other.shell
             && self.restricted == other.restricted
+            && self.placeholder == other.placeholder
+            && self.off == other.off
     }
 }
 
@@ -244,6 +272,8 @@ impl Composer {
             plain: None,
             on_too_long: None,
             restricted: None,
+            placeholder: None,
+            off: None,
         }
     }
 
@@ -261,6 +291,8 @@ impl Composer {
             plain: None,
             on_too_long: None,
             restricted: None,
+            placeholder: None,
+            off: None,
         }
     }
 
@@ -276,6 +308,21 @@ impl Composer {
     #[must_use]
     pub fn restricted(mut self, mode: Restricted) -> Composer {
         self.restricted = Some(mode);
+        self
+    }
+
+    /// The empty draft says `placeholder` instead of the usual words.
+    #[must_use]
+    pub fn worded(mut self, placeholder: Placeholder) -> Composer {
+        self.placeholder = Some(placeholder);
+        self
+    }
+
+    /// Input is off: the draft is kept and hidden, no key reaches it and no caret shows; the
+    /// words of `placeholder` stand in its place (`set_input_enabled(false, ..)`).
+    #[must_use]
+    pub fn disabled(mut self, placeholder: Placeholder) -> Composer {
+        self.off = Some(placeholder);
         self
     }
 
@@ -846,6 +893,13 @@ impl State for ComposerState {
 
     fn build(&self, w: &Composer, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
+        if let Some(off) = w.off {
+            // `render_ref`: the dim `›` and the placeholder, the draft not drawn, no caret
+            let table = chat_strings::of(cx);
+            return Text::new(format!("{}{}", table.prompt, off.text(strings::of(cx))))
+                .style(tokens.dim())
+                .into();
+        }
         let c = w.ui.composer.clone();
         let mut area = TextArea::new()
             .controller(c.clone())
@@ -977,6 +1031,7 @@ impl State for ComposerState {
             took
         });
         let strings = l10n::of(cx);
+        let composer_words = table;
         let mut area = area
             .placeholder_style(tokens.dim().attrs(Attrs::DIM))
             .max_lines(6);
@@ -986,6 +1041,7 @@ impl State for ComposerState {
                 w.plain
                     .as_ref()
                     .and_then(|look| look.placeholder)
+                    .or(w.placeholder.map(|held| held.text(composer_words)))
                     .unwrap_or(strings.chat.placeholder),
             );
         }
