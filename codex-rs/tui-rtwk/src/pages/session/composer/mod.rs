@@ -20,7 +20,7 @@ use rtwk::layout::{
     Shadow, SizedBox,
 };
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
-use rtwk::provider::{read, select, watch};
+use rtwk::provider::{Provider, read, select, watch};
 use rtwk::style::{Attrs, Style, Theme};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
@@ -28,6 +28,8 @@ use rtwk_core::presenter::CursorShape;
 
 use codex_tui_core::app::{ConnectionState, SessionSlice};
 use codex_tui_core::data::history::Lookup;
+use codex_tui_core::features::FeatureStates;
+use codex_tui_core::features::external_editor::Intent as ExternalEditorIntent;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::screens::composer;
@@ -331,6 +333,7 @@ impl StatefulWidget for Composer {
             listener: None,
             suggest: Rc::default(),
             restricted: Cell::new(false),
+            edited: Cell::new(None),
         }
     }
 }
@@ -346,6 +349,9 @@ pub struct ComposerState {
     /// Whether the last build saw a restricted composer: a change into it
     /// restricts the draft.
     restricted: Cell<bool>,
+    /// The edit of the external editor this composer took last (`State::edited` is applied
+    /// once).
+    edited: Cell<Option<u64>>,
 }
 
 /// What the composer's own children tell it.
@@ -406,6 +412,11 @@ pub enum ComposerMsg {
     /// The composer became restricted: what a burst holds goes in, the
     /// history search ends, the popups close and the pastes are expanded.
     Restrict,
+    /// The external editor left `text` for this composer (`apply_external_edit`).
+    Edited {
+        seq: u64,
+        text: String,
+    },
 }
 
 /// The reads the history needs from the file go to the app, which asks the
@@ -803,6 +814,19 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Remote => return rtwk::Rebuild::Yes,
+            ComposerMsg::Edited { seq, text } => {
+                let table = strings::of(cx);
+                w.ui.draft.edited(&w.ui.composer, &text, |n| table.image(n));
+                w.ui.sparkle.replaced(&text);
+                self.suggest.hide(w.ui.composer.text());
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                // the feature forgets the edit, so it is not applied twice
+                let hs = read::<Hs, _>(cx);
+                crate::features::verb_by(cx, &hs, ExternalEditorIntent::Applied { seq });
+                return rtwk::Rebuild::Yes;
+            }
             ComposerMsg::Restrict => {
                 if let Some(binding) = AppBinding::maybe_of(cx) {
                     let table = strings::of(cx);
@@ -861,6 +885,28 @@ impl State for ComposerState {
         {
             // the clipboard's image this draft asked for is in
             cx.local_sender()(ComposerMsg::ImageArrived);
+        }
+        if !w.bare && w.plain.is_none() {
+            let thread = read::<ThreadModel, _>(cx).id().clone();
+            let edited = if Provider::<FeatureStates>::maybe_of(cx, false).is_some() {
+                select::<FeatureStates, _, _>(cx, move |states| {
+                    states
+                        .external_editor
+                        .edited
+                        .clone()
+                        .filter(|edited| edited.thread == thread)
+                })
+            } else {
+                None
+            };
+            if let Some(edited) = edited
+                && self.edited.replace(Some(edited.seq)) != Some(edited.seq)
+            {
+                cx.local_sender()(ComposerMsg::Edited {
+                    seq: edited.seq,
+                    text: edited.text,
+                });
+            }
         }
         let restricted = self.mode(w, cx);
         if self.restricted.replace(restricted.is_some()) != restricted.is_some()
