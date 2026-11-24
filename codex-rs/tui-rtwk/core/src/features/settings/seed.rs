@@ -14,7 +14,7 @@ use crate::screens::SeedError;
 /// `rows`; `theme_picker` with `themes` and the `current` one;
 /// `status_line` with `use_theme_colors`, the `selected` ids in order, the
 /// `catalogue` and the runtime `values`; `title` the same without the colour
-/// preference; `keymap` with its `tabs`; `memories` with its two switches;
+/// preference; `keymap` with its `tabs` (`keymap_default`: those of the built-in keymap); `memories` with its two switches;
 /// `facts` with `memories`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -47,6 +47,8 @@ enum SeedEv {
     Keymap {
         tabs: Vec<KeymapTab>,
     },
+    /// The picker of the built-in keymap (what the host offers with no config).
+    KeymapDefault,
     Skills {
         items: Vec<SkillSeed>,
     },
@@ -198,6 +200,10 @@ pub fn seed(value: serde_json::Value) -> Result<Fact, SeedError> {
                 .collect(),
             values: BTreeMap::new(),
         }),
+        SeedEv::KeymapDefault => Offer::Keymap(super::keymap::picker(
+            &crate::keymap::Keymap::defaults(),
+            super::keymap::Filter::default(),
+        )),
         SeedEv::Keymap { tabs } => {
             if tabs.is_empty() {
                 return Err(SeedError::Bad("no tabs".into()));

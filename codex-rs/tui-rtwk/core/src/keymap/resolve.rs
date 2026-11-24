@@ -7,7 +7,7 @@
 //! over the catalogue's rows, with the same rules and the same error texts.
 
 use std::collections::HashMap;
-use std::fmt::{self, Write as _};
+use std::fmt;
 use std::sync::OnceLock;
 
 use super::catalogue::{
@@ -26,24 +26,271 @@ const LEADER: &str = "leader ";
 
 const DOCS: &str = "See the Codex keymap documentation for supported actions and examples.";
 
-/// Why a config does not make a keymap; the text names the config path and
-/// the next step, as the oracle's does.
+/// What was wrong with a binding written in the config.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shape {
+    /// `leader ...` that is not `leader` and one key.
+    Leader,
+    /// Two words that are not a two-stroke chord.
+    Chord,
+    /// One word that is not a key.
+    Single,
+}
+
+/// Why a config does not make a keymap; [`Display`](fmt::Display) names the config path and
+/// the next step, as the oracle's text does. The variants carry what the text is made of (the
+/// action, the key, the action that holds it) so a caller can tell the causes apart.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct KeymapError(String);
+pub enum KeymapError {
+    /// A binding that does not parse (`parse_configured`).
+    Invalid {
+        id: ActionId,
+        raw: String,
+        shape: Shape,
+    },
+    /// `tui.keymap.global.leader` with more than one key.
+    LeaderNotSingle,
+    /// A leader that does not parse.
+    LeaderInvalid { raw: String },
+    /// A leader that would take plain text input.
+    LeaderPlainText { label: String },
+    /// A leader of ctrl-z.
+    LeaderCtrlZ { label: String },
+    /// A leader the app reserves.
+    LeaderReserved {
+        label: String,
+        reserved: &'static str,
+    },
+    /// More leader chords than `MAX_LEADER_CHORDS`.
+    TooManyLeaderChords,
+    /// A printable key on an action that sits where text is typed.
+    PrintableReserved(ActionId),
+    /// Ctrl-z on an action, which suspends the terminal.
+    CtrlZReserved(ActionId),
+    /// An AltGr character on `global.open_agents`.
+    OpenAgentsAltGr,
+    /// A key of the agents list that is for editing.
+    AgentsEditing { name: &'static str },
+    /// Ctrl-z on an action of the agents list.
+    AgentsCtrlZ { name: &'static str },
+    /// A key the app or the transcript takes for itself.
+    ReservedKey {
+        scope: &'static str,
+        id: ActionId,
+        reserved: &'static str,
+    },
+    /// Two actions of a scope on one key.
+    Ambiguous {
+        scope: &'static str,
+        bare: bool,
+        shadows: bool,
+        first: ActionId,
+        second: ActionId,
+    },
+    /// A chord whose prefix is AltGr text input.
+    ChordAltGr { id: ActionId, text: String },
+    /// A chord whose prefix is plain text input.
+    ChordPlainPrefix { id: ActionId, text: String },
+    /// A chord that uses plain `esc`.
+    ChordEsc { id: ActionId, text: String },
+    /// A chord of the command center that starts with backspace.
+    ChordBackspace { id: ActionId, text: String },
+    /// A chord that uses ctrl-z.
+    ChordCtrlZ { id: ActionId, text: String },
+    /// A chord that uses a key the app reserves.
+    ChordReserved {
+        id: ActionId,
+        text: String,
+        reserved: &'static str,
+    },
+    /// A chord that repeats the leader.
+    ChordLeaderRepeat { id: ActionId, text: String },
+    /// A chord whose prefix is a single key of another action.
+    ChordShadows {
+        id: ActionId,
+        text: String,
+        shadowed: ActionId,
+    },
+    /// A chord another action already has.
+    ChordTaken {
+        id: ActionId,
+        text: String,
+        previous: ActionId,
+    },
+}
 
 impl KeymapError {
-    fn new(message: impl Into<String>) -> KeymapError {
-        KeymapError(message.into())
-    }
-
-    pub fn message(&self) -> &str {
-        &self.0
+    /// The text the user is shown.
+    pub fn message(&self) -> String {
+        self.to_string()
     }
 }
 
 impl fmt::Display for KeymapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        match self {
+            KeymapError::Invalid { id, raw, shape } => {
+                let path = id.config_path();
+                match shape {
+                    Shape::Leader => write!(
+                        f,
+                        "Invalid `{path}` = `{raw}`. Use `leader` followed by one key, such as \
+`leader c`."
+                    ),
+                    Shape::Chord => write!(
+                        f,
+                        "Invalid `{path}` = `{raw}`. Use a single key such as `ctrl-a` or a \
+two-stroke chord such as `ctrl-x ctrl-t`."
+                    ),
+                    Shape::Single => write!(
+                        f,
+                        "Invalid `{path}` = `{raw}`. Use values like `ctrl-a`, `shift-enter`, \
+or `page-down`. {DOCS}"
+                    ),
+                }
+            }
+            KeymapError::LeaderNotSingle => {
+                f.write_str("Invalid `tui.keymap.global.leader`: use a single prefix key.")
+            }
+            KeymapError::LeaderInvalid { raw } => write!(
+                f,
+                "Invalid `tui.keymap.global.leader` = `{raw}`. Use values like \
+`ctrl-a`, `shift-enter`, or `page-down`. {DOCS}"
+            ),
+            KeymapError::LeaderPlainText { label } => write!(
+                f,
+                "Invalid `tui.keymap.global.leader` = `{label}`: use ctrl, alt, super, or a \
+non-character key so ordinary text input is not intercepted. Ctrl-alt characters may be AltGr \
+input on Windows."
+            ),
+            KeymapError::LeaderCtrlZ { label } => write!(
+                f,
+                "Invalid `tui.keymap.global.leader` = `{label}`: ctrl-z is reserved for \
+suspending the terminal on Unix."
+            ),
+            KeymapError::LeaderReserved { label, reserved } => write!(
+                f,
+                "Invalid `tui.keymap.global.leader` = `{label}`: this key is reserved by \
+`{reserved}`."
+            ),
+            KeymapError::TooManyLeaderChords => write!(
+                f,
+                "Too many leader shortcut combinations (maximum {MAX_LEADER_CHORDS}). \
+Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
+            ),
+            KeymapError::PrintableReserved(id) => write!(
+                f,
+                "{}: printable keys are reserved for text input",
+                id.config_path()
+            ),
+            KeymapError::CtrlZReserved(id) => {
+                write!(f, "{}: ctrl-z is reserved for suspend", id.config_path())
+            }
+            KeymapError::OpenAgentsAltGr => f.write_str(
+                "tui.keymap.global.open_agents: AltGr characters are reserved for text input",
+            ),
+            KeymapError::AgentsEditing { name } => write!(
+                f,
+                "tui.keymap.agents.{name}: AltGr and backspace are reserved for editing"
+            ),
+            KeymapError::AgentsCtrlZ { name } => write!(
+                f,
+                "tui.keymap.agents.{name}: ctrl-z is reserved for suspend"
+            ),
+            KeymapError::ReservedKey {
+                scope,
+                id,
+                reserved,
+            } => write!(
+                f,
+                "Ambiguous `tui.keymap.{scope}` bindings: `{}` uses a key reserved by \
+`{reserved}`. Set a different key in `~/.codex/config.toml` and retry. {DOCS}",
+                if *scope == "agents" || *scope == "pager" {
+                    id.name.to_owned()
+                } else {
+                    short_name(*id)
+                }
+            ),
+            KeymapError::Ambiguous {
+                scope,
+                bare,
+                shadows,
+                first,
+                second,
+            } => {
+                let name = |id: ActionId| {
+                    if *bare {
+                        id.name.to_owned()
+                    } else {
+                        short_name(id)
+                    }
+                };
+                let (first, second) = (name(*first), name(*second));
+                write!(f, "Ambiguous `tui.keymap.{scope}` bindings: ")?;
+                if *shadows {
+                    write!(f, "`{first}` shadows `{second}` with the same key")?;
+                } else {
+                    write!(f, "`{first}` and `{second}` use the same key")?;
+                }
+                write!(
+                    f,
+                    ". Set unique keys in `~/.codex/config.toml` and retry. {DOCS}"
+                )
+            }
+            KeymapError::ChordAltGr { id, text } => write!(
+                f,
+                "Invalid `{}` = `{text}`: a ctrl-alt character prefix may be AltGr text \
+input on Windows. Choose a different chord and retry.",
+                id.config_path()
+            ),
+            KeymapError::ChordPlainPrefix { id, text } => write!(
+                f,
+                "Invalid `{}` = `{text}`: a chord prefix outside Vim or the command center \
+must use ctrl, alt, super, or a non-character key so ordinary text input is not intercepted.",
+                id.config_path()
+            ),
+            KeymapError::ChordEsc { id, text } => write!(
+                f,
+                "Ambiguous `{}` = `{text}`: plain `esc` is reserved for cancelling a pending chord.",
+                id.config_path()
+            ),
+            KeymapError::ChordBackspace { id, text } => write!(
+                f,
+                "Invalid `{}` = `{text}`: `backspace` is reserved for editing task input.",
+                id.config_path()
+            ),
+            KeymapError::ChordCtrlZ { id, text } => write!(
+                f,
+                "Ambiguous `{}` = `{text}`: `ctrl-z` is reserved for suspending the terminal \
+on Unix. Choose a different chord and retry.",
+                id.config_path()
+            ),
+            KeymapError::ChordReserved { id, text, reserved } => write!(
+                f,
+                "Ambiguous `{}` = `{text}`: the chord uses the key reserved by \
+`{reserved}`. Choose a different chord and retry.",
+                id.config_path()
+            ),
+            KeymapError::ChordLeaderRepeat { id, text } => write!(
+                f,
+                "Ambiguous `{}` = `{text}`: repeating the leader is reserved for cancellation.",
+                id.config_path()
+            ),
+            KeymapError::ChordShadows { id, text, shadowed } => write!(
+                f,
+                "Ambiguous `{}` = `{text}`: its prefix shadows `{}`. Unbind or remap the \
+existing shortcut before using it as a chord prefix.",
+                id.config_path(),
+                shadowed.config_path()
+            ),
+            KeymapError::ChordTaken { id, text, previous } => write!(
+                f,
+                "Ambiguous `{}` = `{text}`: the same chord is already assigned to \
+`{}`. Choose a unique chord and retry.",
+                id.config_path(),
+                previous.config_path()
+            ),
+        }
     }
 }
 
@@ -170,6 +417,45 @@ impl Keymap {
             .unwrap_or_default()
     }
 
+    /// The bindings of an action as the config writes them, each once (the oracle's
+    /// `active_binding_specs`): the text the user wrote for a configured one (`leader p`),
+    /// else the canonical spec of each default single key, and the chords as they were
+    /// declared. A leader chord some leader key cannot complete (another action holds it) is
+    /// written as the chord it is, so the spec means what it is bound to.
+    pub fn specs(&self, id: ActionId) -> Vec<String> {
+        let Some(slot) = self.slot(id) else {
+            return Vec::new();
+        };
+        let mut specs: Vec<String> = Vec::new();
+        for bound in &slot.bound {
+            let spec = match bound.binding {
+                Binding::Single(_) if slot.configured => bound.spec.clone(),
+                Binding::Single(stroke) => stroke.spec(),
+                Binding::Chord { prefix, completion } if bound.is_leader() => {
+                    let whole = self.leaders.iter().all(|leader| {
+                        slot.bound.iter().any(|other| {
+                            other.binding
+                                == Binding::Chord {
+                                    prefix: *leader,
+                                    completion,
+                                }
+                        })
+                    });
+                    if whole {
+                        bound.spec.clone()
+                    } else {
+                        format!("{} {}", prefix.spec(), completion.spec())
+                    }
+                }
+                Binding::Chord { .. } => bound.spec.clone(),
+            };
+            if !specs.contains(&spec) {
+                specs.push(spec);
+            }
+        }
+        specs
+    }
+
     /// Whether the user set the action (an empty list is a setting: unbound).
     pub fn is_configured(&self, id: ActionId) -> bool {
         self.slot(id).is_some_and(|slot| slot.configured)
@@ -239,10 +525,7 @@ impl Keymap {
             .collect();
         let leaders = resolve_leaders(spec, &explicit_prefixes, strict)?;
         if leader_items.len().saturating_mul(leaders.len()) > MAX_LEADER_CHORDS {
-            return Err(KeymapError::new(format!(
-                "Too many leader shortcut combinations (maximum {MAX_LEADER_CHORDS}). \
-Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
-            )));
+            return Err(KeymapError::TooManyLeaderChords);
         }
         for (row, completion, text) in leader_items {
             for prefix in &leaders {
@@ -400,19 +683,13 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
             if self.singles_of(*id).iter().any(|key| {
                 key.is_plain_text() || matches!(key.key, Key::Char(_)) && key.mods.is_altgr()
             }) {
-                return Err(KeymapError::new(format!(
-                    "{}: printable keys are reserved for text input",
-                    id.config_path()
-                )));
+                return Err(KeymapError::PrintableReserved(*id));
             }
         }
         let ctrl_z = Stroke::new(Key::Char('z'), Mods::CTRL);
         for id in CTRL_Z_RESERVED {
             if self.singles_of(*id).contains(&ctrl_z) {
-                return Err(KeymapError::new(format!(
-                    "{}: ctrl-z is reserved for suspend",
-                    id.config_path()
-                )));
+                return Err(KeymapError::CtrlZReserved(*id));
             }
         }
         let open_agents = ActionId::new(Context::Global, "open_agents");
@@ -421,9 +698,7 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
             .iter()
             .any(|key| matches!(key.key, Key::Char(_)) && key.mods.is_altgr())
         {
-            return Err(KeymapError::new(
-                "tui.keymap.global.open_agents: AltGr characters are reserved for text input",
-            ));
+            return Err(KeymapError::OpenAgentsAltGr);
         }
 
         // The keys the app and the transcript's backtrack take for themselves.
@@ -452,15 +727,11 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
                     || id == ActionId::new(Context::Agents, "search")
                         && *reserved_action == "fixed.slash_command";
                 if !allowed {
-                    return Err(KeymapError::new(format!(
-                        "Ambiguous `tui.keymap.{scope}` bindings: `{}` uses a key reserved by \
-`{reserved_action}`. Set a different key in `~/.codex/config.toml` and retry. {DOCS}",
-                        if scope == "agents" || scope == "pager" {
-                            id.name.to_owned()
-                        } else {
-                            short_name(id)
-                        }
-                    )));
+                    return Err(KeymapError::ReservedKey {
+                        scope,
+                        id,
+                        reserved: reserved_action,
+                    });
                 }
             }
         }
@@ -474,14 +745,10 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
                 key.key == Key::Backspace && key.mods.is_empty() && name != "delete"
                     || matches!(key.key, Key::Char(_)) && key.mods.is_altgr()
             }) {
-                return Err(KeymapError::new(format!(
-                    "tui.keymap.agents.{name}: AltGr and backspace are reserved for editing"
-                )));
+                return Err(KeymapError::AgentsEditing { name });
             }
             if self.singles_of(id).contains(&ctrl_z) {
-                return Err(KeymapError::new(format!(
-                    "tui.keymap.agents.{name}: ctrl-z is reserved for suspend"
-                )));
+                return Err(KeymapError::AgentsCtrlZ { name });
             }
         }
 
@@ -520,44 +787,45 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
             let Binding::Chord { prefix, completion } = bound.binding else {
                 continue;
             };
-            let path = id.config_path();
-            let text = &bound.spec;
+            let text = || bound.spec.clone();
             if matches!(prefix.key, Key::Char(_))
                 && prefix.mods.is_altgr()
                 && !id.context.allows_plain_chord_prefix()
             {
-                return Err(KeymapError::new(format!(
-                    "Invalid `{path}` = `{text}`: a ctrl-alt character prefix may be AltGr text \
-input on Windows. Choose a different chord and retry."
-                )));
+                return Err(KeymapError::ChordAltGr {
+                    id: *id,
+                    text: text(),
+                });
             }
             if matches!(prefix.key, Key::Char(_))
                 && prefix.is_plain_text()
                 && !id.context.allows_plain_chord_prefix()
                 && id.context != Context::Agents
             {
-                return Err(KeymapError::new(format!(
-                    "Invalid `{path}` = `{text}`: a chord prefix outside Vim or the command center \
-must use ctrl, alt, super, or a non-character key so ordinary text input is not intercepted."
-                )));
+                return Err(KeymapError::ChordPlainPrefix {
+                    id: *id,
+                    text: text(),
+                });
             }
             let esc = Stroke::new(Key::Esc, Mods::NONE);
             if prefix == esc || completion == esc {
-                return Err(KeymapError::new(format!(
-                    "Ambiguous `{path}` = `{text}`: plain `esc` is reserved for cancelling a pending chord."
-                )));
+                return Err(KeymapError::ChordEsc {
+                    id: *id,
+                    text: text(),
+                });
             }
             if id.context == Context::Agents && prefix == Stroke::new(Key::Backspace, Mods::NONE) {
-                return Err(KeymapError::new(format!(
-                    "Invalid `{path}` = `{text}`: `backspace` is reserved for editing task input."
-                )));
+                return Err(KeymapError::ChordBackspace {
+                    id: *id,
+                    text: text(),
+                });
             }
             let ctrl_z = Stroke::new(Key::Char('z'), Mods::CTRL);
             if prefix == ctrl_z || completion == ctrl_z {
-                return Err(KeymapError::new(format!(
-                    "Ambiguous `{path}` = `{text}`: `ctrl-z` is reserved for suspending the terminal \
-on Unix. Choose a different chord and retry."
-                )));
+                return Err(KeymapError::ChordCtrlZ {
+                    id: *id,
+                    text: text(),
+                });
             }
             let (reserved, list) = match id.context {
                 Context::Pager => (TRANSCRIPT_RESERVED, false),
@@ -571,10 +839,11 @@ on Unix. Choose a different chord and retry."
                 key == Some(prefix) || key == Some(completion) && (!list || key == Some(ctrl_c))
             });
             if let Some((reserved_action, _)) = hit {
-                return Err(KeymapError::new(format!(
-                    "Ambiguous `{path}` = `{text}`: the chord uses the key reserved by \
-`{reserved_action}`. Choose a different chord and retry."
-                )));
+                return Err(KeymapError::ChordReserved {
+                    id: *id,
+                    text: text(),
+                    reserved: reserved_action,
+                });
             }
             if completion == prefix
                 && (self.leaders.contains(&prefix) && id.context.overlaps(Context::Global)
@@ -584,9 +853,10 @@ on Unix. Choose a different chord and retry."
                             && chord_overlaps(true, *other, *id)
                     }))
             {
-                return Err(KeymapError::new(format!(
-                    "Ambiguous `{path}` = `{text}`: repeating the leader is reserved for cancellation."
-                )));
+                return Err(KeymapError::ChordLeaderRepeat {
+                    id: *id,
+                    text: text(),
+                });
             }
             let leader = bound.is_leader();
             if let Some(shadowed) = ROWS.iter().zip(&self.slots).find(|(row, slot)| {
@@ -597,11 +867,11 @@ on Unix. Choose a different chord and retry."
                             .is_some_and(|single| single.same_key(&prefix))
                     })
             }) {
-                return Err(KeymapError::new(format!(
-                    "Ambiguous `{path}` = `{text}`: its prefix shadows `{}`. Unbind or remap the \
-existing shortcut before using it as a chord prefix.",
-                    shadowed.0.id.config_path()
-                )));
+                return Err(KeymapError::ChordShadows {
+                    id: *id,
+                    text: text(),
+                    shadowed: shadowed.0.id,
+                });
             }
             for (previous_id, previous) in &all[..index] {
                 let find_pair = [*previous_id, *id]
@@ -613,11 +883,11 @@ existing shortcut before using it as a chord prefix.",
                     && previous.binding == bound.binding
                     && !find_pair
                 {
-                    return Err(KeymapError::new(format!(
-                        "Ambiguous `{path}` = `{text}`: the same chord is already assigned to \
-`{}`. Choose a unique chord and retry.",
-                        previous_id.config_path()
-                    )));
+                    return Err(KeymapError::ChordTaken {
+                        id: *id,
+                        text: text(),
+                        previous: *previous_id,
+                    });
                 }
             }
         }
@@ -635,36 +905,13 @@ fn short_name(id: ActionId) -> String {
 }
 
 fn ambiguous(scope: &Scope, first: ActionId, second: ActionId) -> KeymapError {
-    let name = |id: ActionId| {
-        if scope.bare {
-            id.name.to_owned()
-        } else {
-            short_name(id)
-        }
-    };
-    // A config diagnostic, as the oracle words it: typed errors and a strings
-    // table are the debt of `KeymapError` (parity/keymap.md).
-    let mut relation = String::new();
-    let _ = if scope.shadowed.is_none() {
-        write!(
-            relation,
-            "`{}` and `{}` use the same key",
-            name(first),
-            name(second)
-        )
-    } else {
-        write!(
-            relation,
-            "`{}` shadows `{}` with the same key",
-            name(first),
-            name(second)
-        )
-    };
-    KeymapError::new(format!(
-        "Ambiguous `tui.keymap.{}` bindings: {relation}. Set unique keys in \
-`~/.codex/config.toml` and retry. {DOCS}",
-        scope.name
-    ))
+    KeymapError::Ambiguous {
+        scope: scope.name,
+        bare: scope.bare,
+        shadows: scope.shadowed.is_some(),
+        first,
+        second,
+    }
 }
 
 fn overlap_allowed(a: ActionId, b: ActionId, key: &Stroke) -> bool {
@@ -727,23 +974,17 @@ fn parse_configured(spec: &KeymapSpec, strict: bool) -> Result<Vec<Parsed>, Keym
                 Ok(Spec::Leader(completion)) => Item::Leader(completion),
                 Err(_) if !strict => continue,
                 Err(_) => {
-                    let path = entry.id.config_path();
-                    return Err(KeymapError::new(if raw.starts_with(LEADER) {
-                        format!(
-                            "Invalid `{path}` = `{raw}`. Use `leader` followed by one key, such as \
-`leader c`."
-                        )
-                    } else if raw.contains(' ') {
-                        format!(
-                            "Invalid `{path}` = `{raw}`. Use a single key such as `ctrl-a` or a \
-two-stroke chord such as `ctrl-x ctrl-t`."
-                        )
-                    } else {
-                        format!(
-                            "Invalid `{path}` = `{raw}`. Use values like `ctrl-a`, `shift-enter`, \
-or `page-down`. {DOCS}"
-                        )
-                    }));
+                    return Err(KeymapError::Invalid {
+                        id: entry.id,
+                        raw: raw.clone(),
+                        shape: if raw.starts_with(LEADER) {
+                            Shape::Leader
+                        } else if raw.contains(' ') {
+                            Shape::Chord
+                        } else {
+                            Shape::Single
+                        },
+                    });
                 }
             };
             items.push((item, raw.clone()));
@@ -763,9 +1004,7 @@ fn resolve_leaders(
     let default = Stroke::parse(DEFAULT_LEADER).unwrap_or(Stroke::new(Key::Char('x'), Mods::CTRL));
     let configured = spec.get("global", "leader");
     if configured.is_some_and(|specs| specs.iter().any(|s| s.contains(' '))) {
-        return Err(KeymapError::new(
-            "Invalid `tui.keymap.global.leader`: use a single prefix key.",
-        ));
+        return Err(KeymapError::LeaderNotSingle);
     }
     let leaders: Vec<Stroke> = match configured {
         Some(specs) => {
@@ -773,10 +1012,7 @@ fn resolve_leaders(
             for raw in specs {
                 let Some(stroke) = Stroke::parse(raw) else {
                     if strict {
-                        return Err(KeymapError::new(format!(
-                            "Invalid `tui.keymap.global.leader` = `{raw}`. Use values like \
-`ctrl-a`, `shift-enter`, or `page-down`. {DOCS}"
-                        )));
+                        return Err(KeymapError::LeaderInvalid { raw: raw.clone() });
                     }
                     continue;
                 };
@@ -801,26 +1037,19 @@ fn resolve_leaders(
             if matches!(prefix.key, Key::Char(_))
                 && (prefix.is_plain_text() || prefix.mods.is_altgr())
             {
-                return Err(KeymapError::new(format!(
-                    "Invalid `tui.keymap.global.leader` = `{label}`: use ctrl, alt, super, or a \
-non-character key so ordinary text input is not intercepted. Ctrl-alt characters may be AltGr \
-input on Windows."
-                )));
+                return Err(KeymapError::LeaderPlainText { label });
             }
             if *prefix == Stroke::new(Key::Char('z'), Mods::CTRL) {
-                return Err(KeymapError::new(format!(
-                    "Invalid `tui.keymap.global.leader` = `{label}`: ctrl-z is reserved for \
-suspending the terminal on Unix."
-                )));
+                return Err(KeymapError::LeaderCtrlZ { label });
             }
             if let Some((reserved_action, _)) = MAIN_RESERVED
                 .iter()
                 .find(|(_, reserved)| Stroke::parse(reserved) == Some(*prefix))
             {
-                return Err(KeymapError::new(format!(
-                    "Invalid `tui.keymap.global.leader` = `{label}`: this key is reserved by \
-`{reserved_action}`."
-                )));
+                return Err(KeymapError::LeaderReserved {
+                    label,
+                    reserved: reserved_action,
+                });
             }
         }
     }

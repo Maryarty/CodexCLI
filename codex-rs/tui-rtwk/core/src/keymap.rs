@@ -16,5 +16,5 @@ mod spec;
 
 pub use catalogue::{ActionId, Context};
 pub use key::{Binding, Key, Mods, Stroke};
-pub use resolve::{Keymap, KeymapError};
+pub use resolve::{Keymap, KeymapError, Shape};
 pub use spec::KeymapSpec;

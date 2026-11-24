@@ -1,0 +1,4 @@
+# The keymap editor over the built-in keymap (no config): 153 actions, 5 unbound.
+# Oracle data: keymap_setup/picker_tests.rs (build_keymap_picker_params over the default RuntimeKeymap)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"keymap_default"}}
