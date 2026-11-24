@@ -184,7 +184,10 @@ pub enum Note {
 impl Note {
     /// Whether the oracle says it with `add_info_message`.
     pub fn is_info(&self) -> bool {
-        matches!(self, Note::ExperimentalUnavailable | Note::TuiModeSaved { .. })
+        matches!(
+            self,
+            Note::ExperimentalUnavailable | Note::TuiModeSaved { .. }
+        )
     }
 }
 
@@ -306,12 +309,7 @@ impl State {
 
     /// A page of the experimental features arrived: the next one is asked for, or the listing
     /// is over (a cursor that repeats, or more pages than `MAX_PAGES`, is a failed listing).
-    fn features_page(
-        &mut self,
-        mut ctx: Ctx,
-        result: Result<Reply, RpcError>,
-        cx: &mut AppCx<'_>,
-    ) {
+    fn features_page(&mut self, mut ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
         let Ctx::FeaturesPage {
             generation,
             after,
@@ -336,7 +334,8 @@ impl State {
             match next {
                 None => Ok(None),
                 Some(cursor)
-                    if cursors.contains(&cursor) || cursors.len() >= usize::from(wire::MAX_PAGES) =>
+                    if cursors.contains(&cursor)
+                        || cursors.len() >= usize::from(wire::MAX_PAGES) =>
                 {
                     Err(format!("repeated cursor {cursor}"))
                 }
@@ -632,7 +631,14 @@ impl super::Feature for Settings {
     /// The config file's answer to a write of a dialog: the session follows what it saved, or
     /// stays as it was and says why.
     fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        if let (Ctx::FeaturesWrite { generation, updates }, Done::Config(result)) = (&ctx, &done) {
+        if let (
+            Ctx::FeaturesWrite {
+                generation,
+                updates,
+            },
+            Done::Config(result),
+        ) = (&ctx, &done)
+        {
             match result {
                 Ok(()) => {
                     // The write is read back: the config may hold another value than the one
@@ -659,7 +665,12 @@ impl super::Feature for Settings {
         match result {
             Ok(()) => {
                 if let persist::Subject::TuiMode(fullscreen) = &subject {
-                    cx.note(None, Note::TuiModeSaved { fullscreen: *fullscreen });
+                    cx.note(
+                        None,
+                        Note::TuiModeSaved {
+                            fullscreen: *fullscreen,
+                        },
+                    );
                 }
                 state.saved(subject);
             }
@@ -710,7 +721,12 @@ impl super::Feature for Settings {
                 ),
             },
             Ctx::HookWrite { key, enabled } => {
-                state.hook_enabled_set(key, enabled, result.map(|_| ()).map_err(|error| text(&error)), cx);
+                state.hook_enabled_set(
+                    key,
+                    enabled,
+                    result.map(|_| ()).map_err(|error| text(&error)),
+                    cx,
+                );
             }
             Ctx::HookTrust { many } => {
                 if let Err(error) = result {

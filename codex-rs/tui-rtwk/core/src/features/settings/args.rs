@@ -54,11 +54,7 @@ impl From<ArgError> for Refusal {
     }
 }
 
-fn items(
-    surface: Surface,
-    known: &[&str],
-    tokens: &[String],
-) -> Result<Vec<String>, Refusal> {
+fn items(surface: Surface, known: &[&str], tokens: &[String]) -> Result<Vec<String>, Refusal> {
     tokens
         .iter()
         .map(|token| {

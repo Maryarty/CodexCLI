@@ -158,7 +158,10 @@ fn hook(entry: &wire::HookMetadata) -> Option<Hook> {
         "source_path",
         wire.get("sourcePath").cloned().unwrap_or_default(),
     );
-    put("plugin_id", wire.get("pluginId").cloned().unwrap_or_default());
+    put(
+        "plugin_id",
+        wire.get("pluginId").cloned().unwrap_or_default(),
+    );
     put(
         "environment_id",
         wire.get("environmentId").cloned().unwrap_or_default(),

@@ -344,7 +344,11 @@ pub(super) fn session_intent(
             super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
         }
         // `/hooks`: the browser's catalogue is read from the server (`features/settings`).
-        S::Hooks => settings(app, settings_intent::Intent::Open(settings_intent::Which::Hooks), fx),
+        S::Hooks => settings(
+            app,
+            settings_intent::Intent::Open(settings_intent::Which::Hooks),
+            fx,
+        ),
         // `/tui`: the mode picker is the page's (`Edit::TuiMode` writes its answer).
         S::Tui => {}
         // `/title <items>` and `/statusline <items>`: this session only (`StatusOverride`); a

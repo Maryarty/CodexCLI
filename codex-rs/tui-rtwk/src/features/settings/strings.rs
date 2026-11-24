@@ -498,7 +498,11 @@ pub fn note(note: &Note) -> String {
             "Experimental features are unavailable until startup completes.".to_string()
         }
         Note::TuiModeSaved { fullscreen } => {
-            let mode = if *fullscreen { "Fullscreen" } else { "Scrollback" };
+            let mode = if *fullscreen {
+                "Fullscreen"
+            } else {
+                "Scrollback"
+            };
             format!("Saved TUI mode: {mode}. Restart Codex to apply; launch overrides still apply.")
         }
         Note::Refused(refusal) => refusal_words(refusal),
@@ -512,7 +516,9 @@ fn refusal_words(refusal: &Refusal) -> String {
         Surface::StatusLine => ("status-line", "/statusline"),
     };
     match refusal {
-        Refusal::Args(ArgError::Quoting) => "Invalid command arguments. Check the quoting.".to_string(),
+        Refusal::Args(ArgError::Quoting) => {
+            "Invalid command arguments. Check the quoting.".to_string()
+        }
         Refusal::Args(ArgError::NeedsValue(name)) => {
             format!("Command setting `{name}` requires a value.")
         }
@@ -529,7 +535,10 @@ fn refusal_words(refusal: &Refusal) -> String {
         Refusal::ClearWithItems(which) => {
             format!("Cannot combine --clear with {} items.", surface(which).0)
         }
-        Refusal::UnknownItem { surface: which, token } => {
+        Refusal::UnknownItem {
+            surface: which,
+            token,
+        } => {
             let (name, command) = surface(which);
             format!("Unknown {name} item '{token}'. Use {command} to see available items.")
         }
@@ -544,10 +553,18 @@ fn refusal_words(refusal: &Refusal) -> String {
         Refusal::ModelUnavailable(model) => {
             format!("Model '{model}' is unavailable. Use /model to see available models.")
         }
-        Refusal::EffortUnavailable { model, effort, available } => format!(
+        Refusal::EffortUnavailable {
+            model,
+            effort,
+            available,
+        } => format!(
             "Reasoning level '{effort}' is unavailable for {model}. Available: {available}."
         ),
-        Refusal::SpeedUnavailable { model, speed, available } => {
+        Refusal::SpeedUnavailable {
+            model,
+            speed,
+            available,
+        } => {
             format!("Speed '{speed}' is unavailable for {model}. Available: {available}.")
         }
     }
