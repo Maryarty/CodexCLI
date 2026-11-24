@@ -43,6 +43,15 @@ const fn row(no: &'static str, change: Change, code: &'static str) -> PreviewRow
     PreviewRow { no, change, code }
 }
 
+/// A choice editor of the configuration panel (`config_panel/render.rs`): a title, the line
+/// under it and the names of its rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Choice {
+    pub title: &'static str,
+    pub subtitle: &'static str,
+    pub items: [&'static str; 3],
+}
+
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Strings {
@@ -232,6 +241,30 @@ pub struct Strings {
     pub keymap_bound: &'static str,
     /// bottom_pane/list_selection_view.rs: the marker of the current row.
     pub current_marker: &'static str,
+    // config_panel/mod.rs: why a row is unavailable (its description while it is).
+    pub reason_notifications: &'static str,
+    pub reason_notify_when: &'static str,
+    pub reason_deselect: &'static str,
+    /// The line under the title after a save (`ConfigPanelUpdate::notice`).
+    pub notice_could_not_save: Msg<1>,
+    pub notice_new_composers: &'static str,
+    pub notice_test_scheduled: &'static str,
+    pub notice_test_already: &'static str,
+    // config_panel/render.rs: the editors of the rows.
+    pub editor_notify_when: Choice,
+    pub editor_copy_on_select: Choice,
+    pub editor_right_click_paste: Choice,
+    pub editor_session_layout: Choice,
+    pub editor_resume_directory: Choice,
+    pub effects_title: &'static str,
+    pub effects_subtitle: &'static str,
+    pub effects_animations: &'static str,
+    pub effects_animations_description: &'static str,
+    pub effects_stars: &'static str,
+    pub effects_stars_description: &'static str,
+    pub effects_stars_reason: &'static str,
+    pub effects_hint: &'static str,
+    pub resume_current_reason: &'static str,
 }
 
 /// English: the oracle's text.
@@ -464,6 +497,47 @@ pub const EN: Strings = Strings {
     keymap_unbound: "-",
     keymap_bound: " ",
     current_marker: " (current)",
+    reason_notifications: "Event-specific notifications are configured in config.toml",
+    reason_notify_when: "Turn on notifications to choose when they appear",
+    reason_deselect: "Turn on Copy on select to deselect after copying",
+    notice_could_not_save: msg!("Could not save: {0}"),
+    notice_new_composers: "Saved \u{b7} applies to new composers",
+    notice_test_scheduled: "Test scheduled in 5s \u{b7} switch apps",
+    notice_test_already: "Test already scheduled \u{b7} switch apps",
+    editor_notify_when: Choice {
+        title: "Notify when",
+        subtitle: "Notify only while you are away or while this terminal is focused too",
+        items: ["Unfocused", "Always", ""],
+    },
+    editor_copy_on_select: Choice {
+        title: "Copy on select",
+        subtitle: "Copy transcript, footer, and composer selections on release; Auto follows terminal defaults",
+        items: ["Auto (default)", "On", "Off"],
+    },
+    editor_right_click_paste: Choice {
+        title: "Right-click paste",
+        subtitle: "Paste when nothing is selected, with Auto following platform defaults and On also enabling macOS",
+        items: ["Auto (default)", "On", "Off"],
+    },
+    editor_session_layout: Choice {
+        title: "Session picker layout",
+        subtitle: "Choose tighter rows or a roomier list when resuming and forking conversations",
+        items: ["Dense", "Comfortable", ""],
+    },
+    editor_resume_directory: Choice {
+        title: "Resume directory",
+        subtitle: "Choose the working directory when resuming, with --cd taking precedence for this session",
+        items: ["Ask", "Current directory", "Session directory"],
+    },
+    effects_title: "Effects",
+    effects_subtitle: "Configure visual effects",
+    effects_animations: "Animations",
+    effects_animations_description: "Animate the welcome screen, working indicator, and transitions",
+    effects_stars: "Composer stars",
+    effects_stars_description: "Show stars briefly for new Astra tasks",
+    effects_stars_reason: "Turn on Animations to show Astra task stars",
+    effects_hint: "enter toggle \u{b7} esc back",
+    resume_current_reason: "Requires --cd for remote sessions",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -625,6 +699,11 @@ pub fn title(lang: Lang) -> &'static str {
 }
 
 impl Strings {
+    /// "Could not save: permission denied".
+    pub fn could_not_save<'a>(&'a self, error: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.notice_could_not_save, [Arg::Text(error)], &self.num)
+    }
+
     /// "Automatic ›".
     pub fn choice<'a>(&'a self, label: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.value_choice, [Arg::Text(label)], &self.num)
