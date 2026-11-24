@@ -13,6 +13,7 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 mod copy_feedback;
+pub mod find_footer;
 pub mod follow;
 pub mod history;
 pub mod item_text;
