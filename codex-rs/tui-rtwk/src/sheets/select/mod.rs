@@ -3,6 +3,7 @@
 //! (`shown`), and the generic lists of the debug entries; a pick returns to the model as a verb.
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
+pub(crate) mod agent_picker;
 mod app_link;
 mod apps;
 mod confirm;

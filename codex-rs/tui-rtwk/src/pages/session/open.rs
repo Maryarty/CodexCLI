@@ -46,7 +46,7 @@ pub fn note_opened(target: Target) {
 /// stays below, with its transcript and its composer's text; Esc returns to it. A feature's own
 /// sheet is opened by its UI half with typed arguments (`features::open`), the select and
 /// settings sheets by the presenter for the show the model made.
-pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
+pub fn open<S: 'static>(cx: &mut Cx<'_, S>, target: Target) {
     match target {
         Target::Resume => push(cx, resume::route()),
         Target::Agents => push(cx, agents::route()),
