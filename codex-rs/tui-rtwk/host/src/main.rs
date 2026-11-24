@@ -18,6 +18,7 @@ mod settings;
 mod startup;
 mod target;
 mod update;
+mod usage;
 mod viewer;
 mod windows_sandbox;
 mod workspace;

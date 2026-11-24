@@ -12,6 +12,7 @@ pub mod facts;
 pub(crate) mod features;
 mod mentions;
 mod notices;
+mod reset;
 mod select;
 mod session;
 mod transcript_text;
@@ -1152,6 +1153,19 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             if *backend == origin && read.folds_into_a_read_in_flight())
                     });
                     install_rates(app, origin, note.rate_limits.clone().into());
+                    // a rolling update warns like a read does, but never writes the buckets
+                    let sample = crate::screens::status::Sample::of(&note.rate_limits);
+                    let read_out = app.outgoing.any(|ctx| {
+                        matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                    });
+                    let warnings = Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .entry(origin)
+                        .or_default()
+                        .rolling(&sample, read_out);
+                    if active_backend(app) == origin {
+                        reset::warn(app, warnings, fx);
+                    }
                     // never reuse the permission from before a new hard stop
                     // (`invalidate_ordinary_usage_recovery`)
                     if (note.rate_limits.rate_limit_reached_type.is_some()
@@ -1201,6 +1215,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .get_mut(&origin)
                     {
                         store.clear();
+                    }
+                    if active_backend(app) == origin {
+                        reset::clear(app);
                     }
                     app.outgoing.retain(|ctx| {
                         !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin)
@@ -1466,12 +1483,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
-                    refresh_rates(
-                        app,
-                        active_backend(app),
-                        status::RateLimitOrigin::Startup,
-                        fx,
-                    );
+                    reset::startup(app, fx);
+                }
+                // The answer to a redemption: a reset reads the credits again.
+                ScreenEv::Usage(screens::usage::Ev::Redeemed { key, result }) => {
+                    reset::redeemed(app, key, result.clone(), fx);
+                    return;
                 }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
@@ -1785,6 +1802,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend, origin } => {
+                let credits = match &answer {
+                    Answer::RateLimits { read, .. } => Ok(read.reset_credits.clone()),
+                    _ => Err(()),
+                };
+                reset::read_done(app, origin, credits, fx);
                 if let Answer::RateLimits {
                     limits,
                     banner,
@@ -1797,13 +1819,21 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         .insert(backend, reserve);
                     install_rates(app, backend, limits);
                     let now = app.screens.status.now;
-                    Rc::make_mut(&mut app.session)
+                    let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
                         .entry(backend)
                         .or_default()
                         .install(*read, now);
+                    if active_backend(app) == backend {
+                        reset::warn(app, warnings, fx);
+                    }
                     install_banner(app, backend, banner.map(|banner| *banner));
                     banners::fallback(app, backend, fx);
+                } else if let Some(store) = Rc::make_mut(&mut app.session)
+                    .rate_snapshots
+                    .get_mut(&backend)
+                {
+                    store.limits_mut().read_failed();
                 }
                 // The card that asked ends with what the app holds now: the new
                 // read, or the cache when the read failed.
@@ -2046,6 +2076,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 }
             }
         }
+        Intent::Screen(ScreenIntent::Usage(intent)) if reset::intent(app, &intent, fx) => {}
         Intent::Screen(ScreenIntent::Usage(crate::screens::usage::Intent::RefreshRateLimits)) => {
             refresh_rates(
                 app,
