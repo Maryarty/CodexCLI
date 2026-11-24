@@ -274,6 +274,10 @@ pub struct StatusCard {
     /// The 24-hour clock is the user's preference (reset times).
     #[serde(default)]
     pub hour24: bool,
+    /// The number of the `/status` that made the card (the request number of its refresh, when
+    /// it has one): what the card's thread usage is kept under (`UsageInterest::Card`).
+    #[serde(default)]
+    pub number: u64,
 }
 
 impl StatusCard {

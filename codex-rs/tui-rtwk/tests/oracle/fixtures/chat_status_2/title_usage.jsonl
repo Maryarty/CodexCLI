@@ -1,0 +1,6 @@
+# A Business thread with no status line whose terminal title is the credits and the cost
+# (status_and_layout.rs:3453).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"business"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[],"terminal_title":["thread-credits","estimated-thread-cost"]}}}
+{"step":"respond","method":"account/usage/read","result":{"summary":{"lifetimeTokens":null,"peakDailyTokens":null,"longestRunningTurnSec":null,"currentStreakDays":null,"longestStreakDays":null},"dailyUsageBuckets":null,"threadUsage":{"threadId":"thread-1","estimatedUsageCreditsMicros":5200000,"estimatedUsageUsdMicros":210000,"groups":[]}}}

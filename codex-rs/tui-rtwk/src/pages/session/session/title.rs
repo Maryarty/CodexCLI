@@ -2,12 +2,13 @@
 //! a turn runs or compacts, and the action-required prefix.
 
 use rtwk::binding::TerminalTitle;
+use rtwk::layout::SizedBox;
 use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::RequestQueue;
 
-use crate::pages::session::status_surfaces::TitleInputs;
+use crate::pages::session::status_surfaces::{self, TitleInputs};
 use crate::pages::session::window_title;
 
 use super::ChatState;
@@ -36,5 +37,13 @@ pub(super) fn titles(cx: &mut Cx<'_, ChatState>, frame: &Frame) -> Vec<AnyWidget
     {
         titles.push(TerminalTitle::new(title.text(None), window_title::empty()).into());
     }
+    // a title that names the credits or the cost wants them, whether or not it shows them yet
+    let wanted = status_surfaces::title_interests(facts);
+    if wanted.is_empty() {
+        return titles;
+    }
+    let spare = || -> AnyWidget { SizedBox::new(Some(0), Some(0), None).into() };
+    let child = titles.pop().unwrap_or_else(spare);
+    titles.push(status_surfaces::raise(wanted, child));
     titles
 }

@@ -4,6 +4,7 @@
 //! again. Pure: the clock (`Now`, milliseconds), the plan and the items the status line shows are
 //! facts the caller passes; the request and its RPC are the caller's (`Request`), the figure the
 //! status card and the status line show is read through [`State::estimate`]. Nothing is drawn.
+//! The slice (`super`) drives it: the RPC, the clock and the interests are its.
 
 use codex_app_server_protocol::ThreadUsage;
 use codex_protocol::account::PlanType;
@@ -76,14 +77,7 @@ pub struct Finished {
     pub request: Option<Request>,
 }
 
-/// ENT26 is billed directly in dollars; a missing native usage is not a zero estimate.
-pub fn thread_cost_micros(usage: &ThreadUsage, plan: Option<PlanType>) -> Option<i64> {
-    if plan == Some(PlanType::Ent26) {
-        usage.native_usage_usd_micros
-    } else {
-        usage.estimated_usage_usd_micros
-    }
-}
+pub use crate::screens::status::thread_cost_micros;
 
 /// Whether a plan's account has a thread usage to read at all.
 pub fn supported(plan: Option<PlanType>) -> bool {
@@ -126,6 +120,16 @@ impl State {
         self.estimate.as_ref()
     }
 
+    /// The account has no thread usage to read (an answer without one).
+    pub fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    /// The thread the figure and the requests are for.
+    pub fn thread(&self) -> Option<&str> {
+        self.thread.as_deref()
+    }
+
     /// Nothing of another thread's stays (`clear_thread_usage_state`); request numbers go on.
     fn clear(&mut self) {
         *self = Self { next_request: self.next_request, ..Self::default() };
@@ -140,6 +144,11 @@ impl State {
 
     fn available(&self, thread: Option<&str>, ctx: &Ctx) -> bool {
         ctx.backend_auth && !self.disabled && thread.is_some() && supported(ctx.plan)
+    }
+
+    /// Whether `thread`'s account has a usage to read now (`thread_usage_is_available`).
+    pub fn is_available(&self, thread: &str, ctx: &Ctx) -> bool {
+        self.available(Some(thread), ctx)
     }
 
     /// When the earliest request that is due is, for the caller's timer (the early redraw).
@@ -201,15 +210,17 @@ impl State {
         if !settlement && !retry {
             return None;
         }
-        if !ctx.is_selected() {
-            self.cancel_polling();
-            return None;
-        }
+        // What fired is spent whether or not a request follows: a moment that stayed would be
+        // woken for again and again.
         if settlement {
             self.settlement_due = None;
         }
         if retry {
             self.retry_due = None;
+        }
+        if !ctx.is_selected() {
+            self.cancel_polling();
+            return None;
         }
         self.request(thread, ctx)
     }

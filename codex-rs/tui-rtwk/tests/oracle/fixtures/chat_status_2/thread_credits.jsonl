@@ -1,0 +1,6 @@
+# A Business thread whose status line is `thread-credits`; the backend estimates 5.24 credits
+# (status_and_layout.rs:3343).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"business"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"items":["thread-credits"]}}}
+{"step":"respond","method":"account/usage/read","result":{"summary":{"lifetimeTokens":null,"peakDailyTokens":null,"longestRunningTurnSec":null,"currentStreakDays":null,"longestStreakDays":null},"dailyUsageBuckets":null,"threadUsage":{"threadId":"thread-1","estimatedUsageCreditsMicros":5240000,"estimatedUsageUsdMicros":210000,"groups":[]}}}

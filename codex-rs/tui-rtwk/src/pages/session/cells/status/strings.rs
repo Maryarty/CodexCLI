@@ -13,9 +13,10 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::screens::status::{
-    Account, Approval, ApprovalLabel, CreditsText, ModelDetail, PermissionsLabel, PlanLabel,
-    ResetTime, RowLabel, SandboxKind, SandboxText, WindowName,
+    Account, Approval, ApprovalLabel, CreditsText, Effort, ModelDetail, PermissionsLabel,
+    PlanLabel, ResetTime, RowLabel, SandboxKind, SandboxText, Slot, Speed, BilledTokens, WindowName,
 };
 
 use crate::l10n::Lang;
@@ -127,6 +128,24 @@ pub struct Strings {
     pub space: &'static str,
     /// Between a label and its value when a row flows as a paragraph.
     pub gap: &'static str,
+    // ---- the thread's billing rows (`status/thread_usage.rs`)
+    pub thread_usage: &'static str,
+    pub usage_models: &'static str,
+    pub usage_reasoning: &'static str,
+    pub usage_speed: &'static str,
+    pub usage_billed: &'static str,
+    pub usage_credits: Msg<1>,
+    /// Between the credits and the dollars.
+    pub usage_dot: &'static str,
+    pub usage_share: Msg<2>,
+    pub usage_input: Msg<1>,
+    pub usage_cached: Msg<1>,
+    pub usage_output: Msg<1>,
+    pub usage_plus: &'static str,
+    /// The efforts, in the order of `Effort` up to `Other`.
+    pub usage_efforts: [&'static str; 9],
+    /// The speeds, in the order of `Speed` up to `Other`.
+    pub usage_speeds: [&'static str; 4],
 }
 
 /// English: the oracle's text.
@@ -246,6 +265,30 @@ pub const EN: Strings = Strings {
     policy_on_request: "on-request",
     space: " ",
     gap: "  ",
+    thread_usage: "Thread usage:",
+    usage_models: "  Models:",
+    usage_reasoning: "  Reasoning:",
+    usage_speed: "  Speed:",
+    usage_billed: "  Billed tokens:",
+    usage_credits: msg!("{0} credits"),
+    usage_dot: " · ",
+    usage_share: msg!("{0} {1}%"),
+    usage_input: msg!("{0} input"),
+    usage_cached: msg!("({0} cached)"),
+    usage_output: msg!("{0} output"),
+    usage_plus: "+",
+    usage_efforts: [
+        "None",
+        "Minimal",
+        "Light",
+        "Medium",
+        "High",
+        "Extra High",
+        "Max",
+        "Ultra",
+        "Other",
+    ],
+    usage_speeds: ["Fast mode", "Ultrafast", "Standard", "Other"],
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -426,6 +469,89 @@ impl Strings {
             }
             None => time,
         }
+    }
+
+    /// `5.2 credits`.
+    pub fn usage_credits(&self, credits: &str) -> String {
+        Fmt::new(self.usage_credits, [Arg::Text(credits)], &self.num).to_string()
+    }
+
+    /// The label of a row of the thread's billing.
+    pub fn slot(&self, slot: Slot) -> &'static str {
+        match slot {
+            Slot::Usage => self.thread_usage,
+            Slot::Models => self.usage_models,
+            Slot::Reasoning => self.usage_reasoning,
+            Slot::Speed => self.usage_speed,
+            Slot::BilledTokens => self.usage_billed,
+        }
+    }
+
+    /// The name of a reasoning effort of the breakdown.
+    pub fn effort(&self, effort: &Effort) -> String {
+        match effort {
+            Effort::Named(name) => name.clone(),
+            other => self.usage_efforts[match other {
+                Effort::None => 0,
+                Effort::Minimal => 1,
+                Effort::Light => 2,
+                Effort::Medium => 3,
+                Effort::High => 4,
+                Effort::ExtraHigh => 5,
+                Effort::Max => 6,
+                Effort::Ultra => 7,
+                Effort::Other | Effort::Named(_) => 8,
+            }]
+            .to_string(),
+        }
+    }
+
+    /// The name of a speed of the breakdown.
+    pub fn speed(&self, speed: &Speed) -> String {
+        match speed {
+            Speed::Named(name) => name.clone(),
+            Speed::Fast => self.usage_speeds[0].to_string(),
+            Speed::Ultrafast => self.usage_speeds[1].to_string(),
+            Speed::Standard => self.usage_speeds[2].to_string(),
+            Speed::Other => self.usage_speeds[3].to_string(),
+        }
+    }
+
+    /// `GPT-5.4 80%, GPT-5 Mini 20%`: the shares, each as its name and percent.
+    pub fn shares(&self, shares: impl IntoIterator<Item = (String, i64)>) -> String {
+        shares
+            .into_iter()
+            .map(|(name, percent)| {
+                Fmt::new(
+                    self.usage_share,
+                    [Arg::Text(&name), Arg::Int(percent.max(0).unsigned_abs())],
+                    &self.num,
+                )
+                .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join(self.details_separator)
+    }
+
+    /// `120 input (25 cached) + 50 output`.
+    pub fn billed(&self, tokens: &BilledTokens) -> String {
+        let one = |msg: Msg<1>, count: i64| {
+            Fmt::new(msg, [Arg::Text(&format_tokens_compact(count))], &self.num).to_string()
+        };
+        let mut parts = Vec::new();
+        if let Some(input) = tokens.input {
+            parts.push(one(self.usage_input, input));
+            if let Some(cached) = tokens.cached {
+                parts.push(one(self.usage_cached, cached));
+            }
+        }
+        if let Some(output) = tokens.output {
+            if !parts.is_empty() {
+                parts.push(self.usage_plus.to_string());
+            }
+            parts.push(one(self.usage_output, output));
+        }
+        parts.join(self.space)
     }
 
     pub fn plan(&self, plan: PlanLabel) -> &'static str {

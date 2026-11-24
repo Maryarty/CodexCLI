@@ -69,8 +69,11 @@ fn status_command(app: &mut CodexApp, source: Option<ThreadId>, fx: &mut AppFx) 
     let backend = app.screens.agents.owner_of(id.as_str());
     let prefetch =
         app.screens.chat.status.account_usage && app.screens.status.has_chatgpt_account();
-    let request = prefetch.then(|| Rc::make_mut(&mut app.screens).status.take_request());
-    let card = status_card(app, &thread, backend, request.is_some());
+    // every card has a number; a card that refreshes limits has it as the request's
+    let number = Rc::make_mut(&mut app.screens).status.take_request();
+    let request = prefetch.then_some(number);
+    let mut card = status_card(app, &thread, backend, request.is_some());
+    card.number = number;
     let item = Item::Status {
         card: Arc::new(card),
         request,

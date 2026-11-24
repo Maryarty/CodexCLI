@@ -8,10 +8,14 @@ use std::rc::Rc;
 use rtwk::Cx;
 use rtwk::provider::{read, select, watch};
 
+use codex_protocol::account::PlanType;
 use codex_tui_core::app::{ConnectionState, SessionSlice};
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::kit::history::SearchStatus;
+use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat;
+use codex_tui_core::screens::status::{Account, Figure};
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme::Tokens;
@@ -43,6 +47,10 @@ pub(super) struct Frame {
     /// was, and the keys are the notice's.
     pub provider: Option<provider_error::Lock>,
     pub can_continue: bool,
+    /// What the backend estimates the thread cost (`estimated_thread_usage`).
+    pub cost: Option<Figure>,
+    /// The plan of the account the server is signed in to.
+    pub plan: Option<PlanType>,
 }
 
 impl Frame {
@@ -65,6 +73,15 @@ impl Frame {
             .provider_error()
             .and_then(|error| provider_error::Lock::of(&serde_json::to_value(error).ok()?));
         let can_continue = thread.screen_slots().chat.path.is_some();
+        let id = thread.id().clone();
+        let cost = select::<FeatureStates, Option<Figure>, _>(cx, move |features| {
+            features.thread_usage.figure_of(&id)
+        });
+        let plan =
+            select::<ScreenStates, Option<PlanType>, _>(cx, |states| match states.status.account {
+                Some(Account::ChatGpt { plan, .. }) => plan,
+                Some(Account::ApiKey) | None => None,
+            });
         Frame {
             tokens,
             thread,
@@ -79,6 +96,8 @@ impl Frame {
             forking,
             provider,
             can_continue,
+            cost,
+            plan,
         }
     }
 
@@ -96,6 +115,8 @@ impl Frame {
             chat: &self.drawn.facts,
             raw_output: self.drawn.raw_output,
             usage_pending: chat::facts::usage_pending(slots),
+            cost: self.cost.as_ref(),
+            plan: self.plan,
         }
     }
 }

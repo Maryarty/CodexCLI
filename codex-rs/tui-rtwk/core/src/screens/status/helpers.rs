@@ -173,3 +173,55 @@ pub fn reset_time(at: i64, captured_at: i64, utc_offset_secs: i32) -> ResetTime 
             .then_some(ResetDate { day, month }),
     }
 }
+
+/// Credits as `1.5K`, `12M` (oracle `status/thread_usage.rs` `format_credit_micros`): what the
+/// status line, the terminal title and the card spell a figure of credits with.
+pub fn format_credit_micros(micros: i64) -> String {
+    let micros = i128::from(micros.max(0));
+    let (unit_micros, suffix) = [
+        (1_000_000_000_000_000_000_i128, "T"),
+        (1_000_000_000_000_000_i128, "B"),
+        (1_000_000_000_000_i128, "M"),
+        (1_000_000_000_i128, "K"),
+    ]
+    .into_iter()
+    .find(|(unit, _)| micros >= *unit)
+    .unwrap_or((1_000_000, ""));
+    let tenths = (micros * 10 + unit_micros / 2) / unit_micros;
+    let whole = tenths / 10;
+    let fraction = tenths % 10;
+    if fraction == 0 {
+        format!("{whole}{suffix}")
+    } else {
+        format!("{whole}.{fraction}{suffix}")
+    }
+}
+
+/// Dollars as `~$0.0123` (oracle `format_estimated_usd_micros`); none for a negative figure.
+pub fn format_estimated_usd_micros(micros: i64) -> Option<String> {
+    if micros < 0 {
+        return None;
+    }
+    if micros > 0 && micros < 100 {
+        return Some(format!("~$0.{micros:06}"));
+    }
+    if micros > 0 && micros < 10_000 {
+        let ten_thousandths = micros.saturating_add(50) / 100;
+        return Some(format!("~$0.{ten_thousandths:04}"));
+    }
+    let cents = micros.saturating_add(5_000) / 10_000;
+    Some(format!("~${}.{:02}", cents / 100, cents % 100))
+}
+
+/// ENT26 is billed directly in dollars; a missing native usage is not a zero estimate (oracle
+/// `status/thread_usage.rs` `thread_cost_micros`).
+pub fn thread_cost_micros(
+    usage: &codex_app_server_protocol::ThreadUsage,
+    plan: Option<PlanType>,
+) -> Option<i64> {
+    if plan == Some(PlanType::Ent26) {
+        usage.native_usage_usd_micros
+    } else {
+        usage.estimated_usage_usd_micros
+    }
+}
