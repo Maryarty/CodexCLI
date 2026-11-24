@@ -12,12 +12,14 @@
 //! reference-only to the model: the policy and the boundary go in as `thread/inject_items`
 //! (`Command::Boundary`), and a `/btw` prompt is sent once they are in (`State::take_ready`).
 //!
-//! The words are `src/features/side/strings.rs`; the footer label (`Side from main thread · ...`)
-//! is made by `label` from the facts here.
+//! The words are `src/features/side/strings.rs`; the footer label 
+//! is data here (`Footer`) and words in the view.
 
 mod policy;
 
 use std::collections::BTreeMap;
+
+use serde::Deserialize;
 
 use codex_app_server_protocol::{
     ClientRequest, RequestId, ServerNotification, ServerRequest, ThreadInjectItemsParams,
@@ -36,7 +38,8 @@ pub struct Side;
 
 /// A parent thread's condition that changed while its side conversation is shown
 /// (`SideParentStatus`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ParentStatus {
     NeedsInput,
     NeedsApproval,
@@ -191,37 +194,48 @@ impl State {
         std::mem::take(&mut self.ready)
     }
 
-    /// The footer's label while `shown` is displayed (`sync_side_thread_ui`): over a side
-    /// conversation `Side from main thread · main finished · ctrl + / to switch · ctrl + c to
-    /// close`, over a parent that has one `ctrl + / for side`. `parent_label` words a parent that
-    /// is not the main thread; `switch` is the label of the toggle key's first binding.
-    pub fn label(
+    /// What the footer says while `shown` is displayed (`sync_side_thread_ui`): over a side
+    /// conversation its parent and the parent's status, over a parent that has one the key that
+    /// switches. `parent_label` words a parent that is not the main thread; `switch` is the label
+    /// of the toggle key's first binding. The words are the view's (`src/features/side`).
+    pub fn footer(
         &self,
         shown: &ThreadId,
         parent_is_main: bool,
         parent_label: &str,
         switch: Option<&str>,
-    ) -> Option<String> {
+    ) -> Option<Footer> {
         let Some(link) = self.links.get(shown) else {
             return switch
                 .filter(|_| self.side_of(shown).is_some())
-                .map(|key| format!("{key} for side"));
+                .map(|key| Footer::Parent {
+                    switch: key.to_owned(),
+                });
         };
-        let mut parts = Vec::new();
-        if parent_is_main {
-            parts.push("from main thread".to_owned());
-        } else {
-            parts.push(format!("from parent thread ({parent_label})"));
-        }
-        if let Some(status) = link.status {
-            parts.push(status.label(parent_is_main).to_owned());
-        }
-        if let Some(key) = switch {
-            parts.push(format!("{key} to switch"));
-        }
-        parts.push("ctrl + c to close".to_owned());
-        Some(format!("Side {}", parts.join(" · ")))
+        Some(Footer::Side {
+            parent_is_main,
+            parent_label: parent_label.to_owned(),
+            status: link.status,
+            switch: switch.map(str::to_owned),
+        })
     }
+}
+
+/// What the footer shows of side conversations: data; its words are `src/features/side/strings.rs`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Footer {
+    /// The shown thread has a side conversation: `ctrl + / for side`.
+    Parent { switch: String },
+    /// The shown thread is a side conversation.
+    Side {
+        parent_is_main: bool,
+        /// The parent's name when it is not the main thread.
+        parent_label: String,
+        status: Option<ParentStatus>,
+        /// The toggle key's label.
+        switch: Option<String>,
+    },
 }
 
 /// What the user or the app says of side conversations.
@@ -440,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn the_label_follows_the_thread_shown() {
+    fn the_footer_follows_the_thread_shown() {
         let mut state = State::default();
         state.links.insert(
             id("side"),
@@ -450,14 +464,45 @@ mod tests {
             },
         );
         assert_eq!(
-            state.label(&id("side"), true, "", Some("ctrl + /")).as_deref(),
-            Some("Side from main thread · main finished · ctrl + / to switch · ctrl + c to close")
+            state.footer(&id("side"), true, "", Some("ctrl + /")),
+            Some(Footer::Side {
+                parent_is_main: true,
+                parent_label: String::new(),
+                status: Some(ParentStatus::Finished),
+                switch: Some("ctrl + /".to_owned()),
+            })
         );
         assert_eq!(
-            state.label(&id("main"), true, "", Some("ctrl + /")).as_deref(),
-            Some("ctrl + / for side")
+            state.footer(&id("main"), true, "", Some("ctrl + /")),
+            Some(Footer::Parent {
+                switch: "ctrl + /".to_owned()
+            })
         );
-        assert_eq!(state.label(&id("other"), true, "", Some("ctrl + /")), None);
+        assert_eq!(state.footer(&id("other"), true, "", Some("ctrl + /")), None);
+    }
+
+    #[test]
+    fn the_fork_is_ephemeral_and_carries_the_side_policy() {
+        let ask = crate::threads::ThreadAsk::ForkAt {
+            thread: "main".to_owned(),
+            cwd: None,
+            side: true,
+        };
+        let ClientRequest::ThreadFork { params, .. } = ask.wire(RequestId::Integer(1)) else {
+            panic!("not a fork");
+        };
+        assert!(params.ephemeral && params.exclude_turns);
+        let instructions = params.developer_instructions.expect("the side policy");
+        assert!(instructions.contains("You are in a side conversation, not the main thread."));
+        let plain = crate::threads::ThreadAsk::ForkAt {
+            thread: "main".to_owned(),
+            cwd: None,
+            side: false,
+        };
+        let ClientRequest::ThreadFork { params, .. } = plain.wire(RequestId::Integer(2)) else {
+            panic!("not a fork");
+        };
+        assert!(!params.ephemeral && params.developer_instructions.is_none());
     }
 
     #[test]

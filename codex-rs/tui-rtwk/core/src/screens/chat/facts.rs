@@ -141,6 +141,9 @@ pub enum Ev {
     /// The side conversation's footer label, or none (`set_side_conversation_context_label`:
     /// `Side from main thread · …`, `ctrl-/ for side`).
     SideLabel(Option<String>),
+    /// What the footer says of the side conversations, as data (the view words it): the app's
+    /// fact (`features::side`), where `SideLabel` is a made label (a seed).
+    Side(Option<crate::features::side::Footer>),
     /// The viewed agent's footer label, or none (`set_active_agent_label`).
     AgentLabel(Option<String>),
     /// The empty-prompt `←` opens the agents page (`enable_agents_navigation`).
@@ -170,6 +173,7 @@ struct Headline {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Facts {
     pub side_label: Option<String>,
+    pub side: Option<crate::features::side::Footer>,
     pub agent_label: Option<String>,
     pub agents_navigation: bool,
     pub shutting_down: bool,
@@ -184,6 +188,7 @@ impl Default for Facts {
     fn default() -> Self {
         Self {
             side_label: None,
+            side: None,
             agent_label: None,
             // the oracle's chat is built with agents navigation on
             agents_navigation: true,
@@ -241,6 +246,7 @@ impl Facts {
                 }
             }
             Ev::SideLabel(label) => self.side_label = label,
+            Ev::Side(side) => self.side = side,
             Ev::AgentLabel(label) => self.agent_label = label,
             Ev::AgentsNavigation(on) => self.agents_navigation = on,
             Ev::ShuttingDown(on) => self.shutting_down = on,
@@ -478,6 +484,7 @@ pub struct Footer {
     pub plan_indicator: bool,
     pub side_active: bool,
     pub side_label: Option<String>,
+    pub side: Option<crate::features::side::Footer>,
     pub agent_label: Option<String>,
     pub agents_navigation: bool,
     /// The resumed thread has no token usage yet: the footer hides `Context 100% left` and the
@@ -512,6 +519,7 @@ pub fn footer(chat: &Model, slots: &ThreadSlots) -> Footer {
         plan_indicator: modes && mode == ModeKind::Plan,
         side_active: chat.flags.side_conversation_active,
         side_label: chat.facts.side_label.clone(),
+        side: chat.facts.side.clone(),
         agent_label: chat.facts.agent_label.clone(),
         agents_navigation: chat.facts.agents_navigation,
         usage_pending: usage_pending(slots),

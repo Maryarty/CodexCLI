@@ -54,6 +54,7 @@ mod select;
 mod select_live;
 mod selection;
 mod settings;
+mod side;
 mod sparkle;
 mod status;
 mod status_data;

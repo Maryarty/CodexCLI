@@ -4,7 +4,7 @@
 //! this file forks the thread (`ThreadAsk::ForkAt { side: true }`, an ephemeral fork that starts
 //! empty on the screen), shows the parent again and drops a side conversation the user returned
 //! from (`discard_side_thread`: its turn is interrupted, the server stops holding it, the app
-//! forgets it), keeps what the screen reads in step with the thread shown (the footer label and
+//! forgets it), keeps what the screen reads in step with the thread shown (the footer's facts and
 //! the flag that gates the commands a side conversation lacks), and carries the parent's status
 //! to its side conversation (`apply_side_parent_status_change`).
 
@@ -196,12 +196,12 @@ pub(super) fn released(app: &mut CodexApp, fx: &mut AppFx) {
 }
 
 /// What the screen reads of the thread shown (`sync_side_thread_ui`): whether it is a side
-/// conversation (the commands it lacks are gated by it) and the footer's label.
+/// conversation (the commands it lacks are gated by it) and the footer's facts.
 pub(super) fn sync(app: &mut CodexApp, fx: &mut AppFx) {
     let shown = app.session.active.clone();
     let side = &app.features.side;
     let active = shown.as_ref().is_some_and(|id| side.is_side(id));
-    let label = shown.as_ref().and_then(|id| {
+    let footer = shown.as_ref().and_then(|id| {
         let parent = side.link(id).map(|link| &link.parent);
         let is_main = parent.is_none_or(|parent| {
             !app.threads
@@ -220,7 +220,7 @@ pub(super) fn sync(app: &mut CodexApp, fx: &mut AppFx) {
             })
             .unwrap_or_default();
         let switch = app.keymap.label(GLOBAL_TOGGLE_SIDE_CONVERSATION);
-        side.label(id, is_main, &parent_label, switch.as_deref())
+        side.footer(id, is_main, &parent_label, switch.as_deref())
     });
     if app.screens.chat.flags.side_conversation_active != active {
         std::rc::Rc::make_mut(&mut app.screens)
@@ -228,8 +228,8 @@ pub(super) fn sync(app: &mut CodexApp, fx: &mut AppFx) {
             .flags
             .side_conversation_active = active;
     }
-    if app.screens.chat.facts.side_label != label {
+    if app.screens.chat.facts.side != footer {
         let chat = &mut std::rc::Rc::make_mut(&mut app.screens).chat;
-        chat::apply(chat, chat::Ev::Facts(facts::Ev::SideLabel(label)), fx);
+        chat::apply(chat, chat::Ev::Facts(facts::Ev::Side(footer)), fx);
     }
 }

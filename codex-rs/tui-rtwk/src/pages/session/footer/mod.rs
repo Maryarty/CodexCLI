@@ -246,7 +246,15 @@ impl Footer {
             // (`show_cycle = can_type && !is_task_running`)
             show_cycle: !running,
             goal,
-            side: facts.side_label.map(|label| (label, facts.side_active)),
+            side: facts
+                .side_label
+                .or_else(|| {
+                    facts
+                        .side
+                        .as_ref()
+                        .map(crate::features::side::strings::footer)
+                })
+                .map(|label| (label, facts.side_active)),
             agent_label: facts.agent_label,
             context_pending: facts.usage_pending,
             status_line_enabled,
