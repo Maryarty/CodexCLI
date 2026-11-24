@@ -263,8 +263,11 @@ fn the_page_keys_are_the_transcripts_with_a_multiline_draft() {
     s.type_text("second");
     s.keys("pageup");
     s.assert_contains("↓ Back to bottom");
-    // the caret stays where it was: the keys were not the field's
-    s.assert_contains("› second");
+    // the draft is the two lines of `ctrl+j` and the caret stays after the second: the keys were
+    // not the field's
+    s.assert_contains("› first");
+    s.assert_row(9, "  second");
+    s.assert_cursor(8, 9);
     s.keys("pagedown");
     s.keys("pagedown");
     s.assert_absent("Back to bottom");

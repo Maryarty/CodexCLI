@@ -609,7 +609,13 @@ and the sources) and the guides (`docs/guide/`); do not edit it:
   it is public at, the file and line it is defined at, the first line of its
   rustdoc, the Rust that builds it as the gallery's Code tab shows it, and the
   options.
-- `references/guides/`: the guides (`cli.md`, `markdown.md`, `state.md`).
+- `references/guides/`: the guides, each a page of `docs/guide/`: `getting-started.md`,
+  `layout.md`, `input-and-focus.md`, `theming.md`, `screen-modes.md`, `state.md`,
+  `testing.md`, `running.md`, `recipes.md`, `widgets-by-need.md`, `cli.md`,
+  `markdown.md`, `localization.md` (the words rtwk writes itself, in another
+  language), `performance.md` (what to narrow, what to measure),
+  `coming-from-flutter.md` (the names and units that differ) and `details.md` (how
+  an app runs, the tester, the debug aids and the pitfalls).
 
 Before writing a widget, look at a working one in the gallery. Its Code-tab
 snippet is under the widget's `### Code` in `references/widgets/<group>.md`; the
@@ -639,7 +645,7 @@ Flutter or application name, or a method a macro writes). The to-do app above
 is `crates/rtwk-gallery/tests/skill_todo.rs`: edit the fence and that file
 together.
 
-<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 5583c142); do not edit. -->
+<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk c953f062); do not edit. -->
 
 <!-- not rtwk: MaterialApp AppBar Card TextStyle Colors FontWeight TextSpan MediaQuery BuildContext RawKeyboardListener ValueKey Layout Constraint Ratio Fill List Rect Margin Clear Block Paragraph Line ListState ScrollState ScrollbarState Tabs KeyCode KeyEvent UnicodeWidthStr FrameRequester Instant Buffer AppEvent CodexCLI RenderFlex Intent Msg Picker Gxx -->
 

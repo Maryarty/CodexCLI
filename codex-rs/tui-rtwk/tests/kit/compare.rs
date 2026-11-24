@@ -53,6 +53,18 @@ pub fn assert_snap(grid: &Grid, want: &Want<'_>) {
     assert_frame(grid, want, frame, want.at);
 }
 
+/// `assert_snap` (or `assert_dialog`) for a snapshot the test glued of several renders under
+/// labels of its own: the frame is read by `oracle_snap::frame_labelled`.
+pub fn assert_labelled(grid: &Grid, want: &Want<'_>, labels: &[&str], dialog: bool) {
+    let frame = oracle_snap::frame_labelled(&oracle_snap::find(want.name), labels, want.frame);
+    if dialog {
+        let (frame, at) = dialog_region(grid, frame);
+        assert_frame(grid, want, frame, at);
+    } else {
+        assert_frame(grid, want, frame, want.at);
+    }
+}
+
 /// `assert_snap` for a frame the oracle drew into the whole area (spare rows
 /// above its footer on the last row) where ours is a dialog as tall as its
 /// content (`dialog_region`).

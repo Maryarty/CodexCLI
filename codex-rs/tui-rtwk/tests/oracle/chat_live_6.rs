@@ -6,6 +6,76 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// A ChatGPT account (the usage menu's `Redeem reset` row is for one), and the status facts that
+/// make the app read the account's limits at startup.
+const CHATGPT: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+"#;
+const STARTUP_CHECK: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}
+"#;
+
+/// The step that makes the fake backend answer the account's limits read with `credits` (the
+/// `rateLimitResetCredits` of the answer) from now on.
+fn limits_answer(credits: &serde_json::Value) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "respond", "method": "account/rateLimits/read", "result": {"rateLimits": {}, "rateLimitResetCredits": credits}})
+    )
+}
+
+/// A live chat of a ChatGPT account whose startup check found `credits` (none: the read is out).
+fn usage_chat(width: u16, credits: Option<&serde_json::Value>) -> Screen {
+    usage_chat_in(width, "twenty_four_hour", credits)
+}
+
+/// `usage_chat` with the viewer's clock in UTC, 12- or 24-hour (the oracle takes the machine's
+/// zone for its credits' dates; the kit's clock is UTC, so the dates do not depend on it).
+fn usage_chat_in(width: u16, clock: &str, credits: Option<&serde_json::Value>) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive).size(width, 24).live().open();
+    let answer = credits.map(limits_answer).unwrap_or_default();
+    let clock = serde_json::json!({"step": "screen", "dir": "cells", "ev": {"kind": "clock", "format": clock, "utc_offset": 0}});
+    s.feed(&format!("{clock}\n{CHATGPT}{answer}{STARTUP_CHECK}"));
+    s
+}
+
+/// 2026-06-18 09:39 UTC, the first expiry of the oracle's credits (`expiry_timestamp(18, 9, 39)`).
+const FIRST_EXPIRY: i64 = 1_781_775_540;
+const DAY: i64 = 86_400;
+/// 2026-09-20 12:00 UTC, the moment of the oracle's usage notice tests.
+const NOTICE_NOW: i64 = 1_789_905_600;
+
+/// One available credit of the account's limits (the oracle's `reset_credit`).
+fn credit(id: &str, expires_at: Option<i64>, title: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "id": id, "resetType": "codexRateLimits", "status": "available", "grantedAt": 0,
+        "expiresAt": expires_at, "title": title, "description": null,
+    })
+}
+
+/// `rateLimitResetCredits` with the credits' details.
+fn detailed(count: i64, credits: Vec<serde_json::Value>) -> serde_json::Value {
+    serde_json::json!({"availableCount": count, "credits": credits})
+}
+
+/// What the backend answers a redemption with, from now on.
+fn consume_answer(outcome: &str) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "respond", "method": "account/rateLimitResetCredit/consume", "result": {"outcome": outcome}})
+    )
+}
+
+/// `/usage`, Down, Enter: the menu's `Redeem reset` row, which opens the credits (and waits for
+/// the list: Enter on the loading page does nothing).
+fn open_resets(s: &mut Screen) {
+    s.type_text("/usage").keys("enter down enter");
+    s.wait_for("available.");
+}
+
+/// `{"availableCount": n}`: the count without the credits' details.
+fn count(n: i64) -> serde_json::Value {
+    serde_json::json!({"availableCount": n})
+}
+
 // ---- oracle: chatwidget/tests/usage.rs (26 screen-level tests here; 8 state tests left to chat-live)
 // ORACLE chatwidget/tests/usage.rs:17 usage_menu_opens_analytics kind=ui owner=chat-live
 #[test]
@@ -19,15 +89,11 @@ fn usage_menu_opens_analytics() {
 // ORACLE chatwidget/tests/usage.rs:115 usage_command_opens_menu_when_reset_is_available_snapshot kind=snap owner=chat-live snap=usage_command_menu snap=usage_command_menu_narrow
 #[test]
 fn usage_command_opens_menu_when_reset_is_available_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: the startup reset check with 2 reset credits is not seeded, and /usage draws no menu with a Redeem reset row",
-    );
     // The bottom popup is bottom-anchored: its 8 rows end on row 23 of a 24-row screen.
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = usage_chat(80, Some(&count(2)));
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu", 16, 0);
-    let mut s = Screen::build(Owner::ChatLive).size(40, 24).live().open();
+    let mut s = usage_chat(40, Some(&count(2)));
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu_narrow", 16, 0);
     // The oracle's last check, Enter emits AppEvent::OpenAnalytics, is not drawn: not asserted.
@@ -36,11 +102,7 @@ fn usage_command_opens_menu_when_reset_is_available_snapshot() {
 // ORACLE chatwidget/tests/usage.rs:140 usage_command_disables_reset_after_cached_zero_snapshot kind=snap owner=chat-live snap=usage_command_menu_without_resets
 #[test]
 fn usage_command_disables_reset_after_cached_zero_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: the startup reset check with 0 reset credits is not seeded, so the Redeem reset row is not drawn as None available",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = usage_chat(80, Some(&count(0)));
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu_without_resets", 16, 0);
     // The oracle's RefreshRateLimits event and the OpenAnalytics event are not drawn: not asserted.
@@ -58,11 +120,12 @@ fn usage_menu_refresh_enables_newly_available_reset() {
 // ORACLE chatwidget/tests/usage.rs:196 usage_menu_refresh_failure_preserves_disabled_known_zero kind=ui owner=chat-live
 #[test]
 fn usage_menu_refresh_failure_preserves_disabled_known_zero() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no startup reset check seeded with 0 credits and no usage-menu refresh that can fail (backend unavailable) as a script step",
+    let mut s = usage_chat(80, Some(&count(0)));
+    // The menu reads the limits again for a count known to be zero; the backend is unavailable.
+    s.feed(
+        r#"{"step":"respond","method":"account/rateLimits/read","error":{"message":"backend unavailable"}}
+"#,
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("/usage").keys("enter");
     s.assert_contains("None available");
     // The oracle's OpenAnalytics event after Enter is not drawn: not asserted.
@@ -71,15 +134,13 @@ fn usage_menu_refresh_failure_preserves_disabled_known_zero() {
 // ORACLE chatwidget/tests/usage.rs:258 usage_command_can_check_reset_availability_before_startup_refresh_finishes_snapshot kind=snap owner=chat-live snap=usage_command_menu_before_reset_refresh
 #[test]
 fn usage_command_can_check_reset_availability_before_startup_refresh_finishes_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: /usage while the startup reset check is still in flight draws no menu, no Check availability row",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // The startup check is still out: the count is not known yet.
+    let mut s = usage_chat(80, None);
     s.type_text("/usage").keys("enter");
     s.assert_snap_region("usage_command_menu_before_reset_refresh", 16, 0);
-    // Down then Enter: the oracle emits AppEvent::OpenRateLimitResetCredits (not drawn, not asserted).
+    // Down then Enter opens the reset flow (the oracle emits AppEvent::OpenRateLimitResetCredits).
     s.keys("down enter");
+    s.assert_contains("Checking your available resets...");
 }
 
 // ORACLE chatwidget/tests/usage.rs:275 usage_command_can_check_reset_availability_for_workspace_accounts kind=ui owner=chat-live
@@ -137,44 +198,54 @@ fn rate_limit_reset_popup_states_snapshot() {
 // ORACLE chatwidget/tests/usage.rs:417 rate_limit_reset_picker_wraps_expiry_details_snapshot kind=snap owner=chat-live snap=rate_limit_reset_picker_narrow
 #[test]
 fn rate_limit_reset_picker_wraps_expiry_details_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset credits with expiries (12-hour clock) seeded for the reset picker at 44 columns",
+    let credits = detailed(
+        2,
+        vec![
+            credit("credit-2", None, None),
+            credit("credit-1", Some(FIRST_EXPIRY), None),
+        ],
     );
+    let mut s = usage_chat_in(44, "twelve_hour", Some(&credits));
+    open_resets(&mut s);
     // The picker is bottom-anchored: its 10 rows end on row 23 of a 24-row screen.
-    let mut s = Screen::build(Owner::ChatLive).size(44, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
     s.assert_snap_region("rate_limit_reset_picker_narrow", 14, 0);
 }
 
 // ORACLE chatwidget/tests/usage.rs:441 rate_limit_reset_confirmation_uses_backend_copy_snapshot kind=snap owner=chat-live snap=rate_limit_reset_confirmation
 #[test]
 fn rate_limit_reset_confirmation_uses_backend_copy_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset credit with a backend title and description seeded, so the confirmation with Expires 09:39 on 18 Jun 2026 is not drawn",
+    let mut weekly = credit(
+        "weekly-credit",
+        Some(FIRST_EXPIRY),
+        Some("Full reset (Weekly + 5 hr)"),
     );
-    // The confirmation is bottom-anchored: its 9 rows end on row 23 of a 24-row screen.
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    weekly["description"] = serde_json::json!("Reset your weekly and 5-hour usage limits.");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![weekly])));
+    open_resets(&mut s);
     s.keys("enter");
     // The oracle's OpenRateLimitResetConfirmation event carries the same fields: not asserted here.
-    s.assert_snap_region("rate_limit_reset_confirmation", 15, 0);
+    // The snapshot is `render_bottom_popup`, the popup alone in a bottom pane; here the
+    // confirmation is a dialog centred on the frame (`ViewPresentation::Centered`), over the
+    // picker, so its rows are asserted where they are, not as a region.
+    for row in [
+        "Use this reset?",
+        "Full reset (Weekly + 5 hr) · Expires 09:39 on 18 Jun 2026",
+        "1. Yes, use reset  Reset your weekly and 5-hour usage limits.",
+        "› 2. No, go back     Choose a different reset",
+        "enter confirm · esc back",
+    ] {
+        s.assert_contains(row);
+    }
 }
 
 // ORACLE chatwidget/tests/usage.rs:501 rate_limit_reset_confirmation_no_and_escape_return_to_picker kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_confirmation_no_and_escape_return_to_picker() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with one credit, so there is no picker to return to from the confirmation",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
     let picker = s.shot();
+    // Enter opens the confirmation, whose default row is `No, go back`.
     s.keys("enter enter");
-    // The oracle's second Enter opens the confirmation, and the event is not asserted.
-    s.keys("enter");
     s.assert_same_rows(&picker);
     s.keys("enter");
     s.keys("esc");
@@ -187,27 +258,34 @@ fn rate_limit_reset_confirmation_no_and_escape_return_to_picker() {
 // ORACLE chatwidget/tests/usage.rs:530 reset_picker_allows_only_one_pending_confirmation kind=ui owner=chat-live
 #[test]
 fn reset_picker_allows_only_one_pending_confirmation() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with two titled credits (First reset, Second reset)",
+    let credits = detailed(
+        2,
+        vec![
+            credit("credit-1", Some(FIRST_EXPIRY), Some("First reset")),
+            credit("credit-2", None, Some("Second reset")),
+        ],
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    s.keys("enter down enter");
-    // The first confirmation is open; the oracle asserts no consume event yet (not drawn).
-    s.keys("enter enter");
+    let mut s = usage_chat(80, Some(&credits));
+    open_resets(&mut s);
+    // One confirmation is open at a time (the oracle's gate): `No, go back` returns to the
+    // picker, whose next row opens the second.
+    s.keys("enter");
+    s.assert_contains("Use this reset?");
+    s.keys("enter");
+    s.assert_absent("Use this reset?");
+    s.keys("down enter");
     s.assert_contains("Second reset · Does not expire");
 }
 
 // ORACLE chatwidget/tests/usage.rs:561 rate_limit_reset_picker_starts_with_soonest_expiries_and_keeps_all_rows_reachable kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_picker_starts_with_soonest_expiries_and_keeps_all_rows_reachable() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with nine credits (one per day from 18 Jun 2026 09:39)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let credits = (0..9)
+        .rev()
+        .map(|i| credit(&format!("credit-{i}"), Some(FIRST_EXPIRY + i * DAY), None))
+        .collect();
+    let mut s = usage_chat(80, Some(&detailed(9, credits)));
+    open_resets(&mut s);
     s.assert_contains("Expires 09:39 on 18 Jun 2026");
     s.assert_absent("Full reset (");
     // Eight Downs reach the ninth credit; Enter opens its confirmation.
@@ -218,17 +296,14 @@ fn rate_limit_reset_picker_starts_with_soonest_expiries_and_keeps_all_rows_reach
 // ORACLE chatwidget/tests/usage.rs:610 rate_limit_reset_confirmation_can_use_reset kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_confirmation_can_use_reset() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no reset picker seeded with one credit, and the redemption (consume) answer that closes the popup is a seed step the script does not have",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    s.feed(&consume_answer("nothingToReset"));
+    open_resets(&mut s);
     s.keys("enter");
     s.assert_contains("Use this reset?");
-    // Up then Enter confirms the reset: the oracle emits ConsumeRateLimitResetCredit (not drawn).
+    // Up then Enter confirms the reset: the backend says there is nothing to reset.
     s.keys("up enter");
-    // The consume outcome is NothingToReset (seed step); Esc closes the popup.
+    s.wait_for("Your usage does not need a reset right now.");
     s.keys("esc");
     s.assert_absent("Use this reset?");
     s.assert_absent("Usage limit resets");
@@ -246,14 +321,19 @@ fn rate_limit_reset_retry_reuses_idempotency_key() {
 // ORACLE chatwidget/tests/usage.rs:690 no_credit_outcome_disables_reset_entry_in_usage_menu kind=ui owner=chat-live
 #[test]
 fn no_credit_outcome_disables_reset_entry_in_usage_menu() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption that answers NoCredit (seed step), no stale selected credit to consume, no That reset is no longer available. notice",
+    let mut s = usage_chat(
+        80,
+        Some(&detailed(1, vec![credit("stale-credit", None, None)])),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    s.assert_contains("That reset is no longer available.");
-    // The oracle's later events (RefreshRateLimits, OpenAnalytics, OpenRateLimitResetCredits) are not drawn: not asserted.
+    s.feed(&consume_answer("noCredit"));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("That reset is no longer available.");
+    // The count is dropped: the entry asks to check again.
+    s.keys("esc");
+    s.type_text("/usage").keys("enter");
+    s.assert_contains("Check availability");
+    s.assert_absent("1 available");
 }
 
 // ORACLE chatwidget/tests/usage.rs:738 rate_limit_reset_redemption_cannot_be_dismissed_while_in_flight kind=ui owner=chat-live
@@ -261,29 +341,43 @@ fn no_credit_outcome_disables_reset_entry_in_usage_menu() {
 fn rate_limit_reset_redemption_cannot_be_dismissed_while_in_flight() {
     kit::pending(
         Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption in flight (Using a reset...) and no Refreshing... state after a Reset outcome (seed steps)",
+        "the Refreshing... half: the kit's respond table answers every limits read at once, so the state between the Reset outcome and the post-consume read cannot be held (see reset_redemption_in_flight_ignores_escape for the first half)",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("Using a reset...");
     s.keys("esc");
     s.assert_contains("Using a reset...");
-    // The redemption answers Reset (seed step); Esc while refreshing.
+    // The redemption answers Reset; Esc while refreshing.
+    s.feed(&consume_answer("reset"));
     s.keys("esc");
     s.assert_contains("Refreshing...");
-    // The post-consume refresh lands (seed step); Esc closes it.
+    // The post-consume refresh lands; Esc closes it.
     s.keys("esc");
     s.assert_absent("Refreshing...");
+}
+
+/// The first half of the oracle test above: while the redemption is in flight Esc does not close
+/// the popup (the backend does not answer: no `respond` step for the consume).
+#[test]
+fn reset_redemption_in_flight_ignores_escape() {
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("Using a reset...");
+    s.keys("esc");
+    s.assert_contains("Using a reset...");
 }
 
 // ORACLE chatwidget/tests/usage.rs:765 rate_limit_reset_redemption_allows_ctrl_c_to_quit_while_in_flight kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_redemption_allows_ctrl_c_to_quit_while_in_flight() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption in flight (Using a reset...) to stay on screen while Ctrl+C quits",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
+    // The backend does not answer the redemption: `Using a reset...` stays on screen.
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    open_resets(&mut s);
+    s.keys("enter up enter");
+    s.wait_for("Using a reset...");
     s.keys("ctrl+c");
     // The oracle's AppEvent::Exit(ShutdownFirst) is not drawn: not asserted.
     s.assert_contains("Using a reset...");
@@ -292,25 +386,37 @@ fn rate_limit_reset_redemption_allows_ctrl_c_to_quit_while_in_flight() {
 // ORACLE chatwidget/tests/usage.rs:776 already_redeemed_is_an_idempotent_success kind=ui owner=chat-live
 #[test]
 fn already_redeemed_is_an_idempotent_success() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no redemption answering AlreadyRedeemed and no post-consume refresh with 0 resets (seed steps)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    // AlreadyRedeemed and the refresh with 0 resets arrive (seed steps).
-    s.assert_contains("Usage reset. You have 0 usage limit resets left.");
+    let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
+    s.feed(&consume_answer("alreadyRedeemed"));
+    open_resets(&mut s);
+    // The post-consume refresh finds 0 resets left.
+    s.feed(&limits_answer(&count(0)));
+    s.keys("enter up enter");
+    s.wait_for("Usage reset. You have 0 usage limit resets left.");
 }
 
 // ORACLE chatwidget/tests/usage.rs:798 failed_post_consume_refresh_does_not_keep_stale_reset_count kind=ui owner=chat-live
 #[test]
 fn failed_post_consume_refresh_does_not_keep_stale_reset_count() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no startup check with 2 credits, no Reset outcome followed by a failed refresh (seed steps)",
+    let mut s = usage_chat(
+        80,
+        Some(&detailed(
+            2,
+            vec![
+                credit("credit-1", None, None),
+                credit("credit-2", None, None),
+            ],
+        )),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // The redemption answers Reset and the post-consume refresh fails (seed steps).
+    s.feed(&consume_answer("reset"));
+    open_resets(&mut s);
+    // The post-consume refresh fails.
+    s.feed(
+        r#"{"step":"respond","method":"account/rateLimits/read","error":{"message":"backend unavailable"}}
+"#,
+    );
+    s.keys("enter up enter");
+    s.wait_for("Usage reset.");
     s.keys("esc");
     s.type_text("/usage").keys("enter");
     s.assert_contains("Check availability");
@@ -369,11 +475,10 @@ fn account_change_dismisses_reset_popup_beneath_overlay() {
 // ORACLE chatwidget/tests/usage.rs:974 startup_check_shows_available_reset_hint_snapshot kind=snap owner=chat-live snap=rate_limit_reset_available_hint
 #[test]
 fn startup_check_shows_available_reset_hint_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rate-limit reset flow in the chat: the startup reset check with 2 available is not seeded, so the Run /usage to use one hint is not drawn",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // The startup check found 2 resets: the hint is one history line (the oracle's snapshot is
+    // that cell alone).
+    let mut s = usage_chat(80, Some(&count(2)));
+    s.wait_for("Run /usage to use one.");
     s.assert_contains("• You have 2 usage limit resets available. Run /usage to use one.");
 }
 
@@ -395,33 +500,113 @@ fn startup_reset_hint_waits_for_active_output_snapshot() {
 }
 
 // ---- oracle: chatwidget/thread_usage_tests.rs (5 screen-level tests here; 12 state tests left to chat-live)
+/// The account on Business, the status line asking for `items`, and the backend's answer to the
+/// thread usage read: a refusal (`None`) or `credits` and `usd` micros.
+fn billing_feed(items: &str, answer: Option<(u64, u64)>) -> String {
+    let account = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"business"}}}}"#;
+    format!(
+        "{account}\n{}\n{}\n",
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project","account_usage":true,"items":ITEMS}}}"#
+            .replace("ITEMS", items),
+        billing_answer(answer),
+    )
+}
+
+/// The `respond` step of the thread usage read.
+fn billing_answer(answer: Option<(u64, u64)>) -> String {
+    match answer {
+        None => r#"{"step":"respond","method":"account/usage/read","error":{"message":"thread usage temporarily unavailable"}}"#.to_string(),
+        Some((credits, usd)) => format!(
+            r#"{{"step":"respond","method":"account/usage/read","result":{{"summary":{{"lifetimeTokens":null,"peakDailyTokens":null,"longestRunningTurnSec":null,"currentStreakDays":null,"longestStreakDays":null}},"dailyUsageBuckets":null,"threadUsage":{{"threadId":"thread-1","estimatedUsageCreditsMicros":{credits},"estimatedUsageUsdMicros":{usd},"nativeUsageUsdMicros":750000,"groups":[]}}}}}}"#
+        ),
+    }
+}
+
 // ORACLE chatwidget/thread_usage_tests.rs:104 status_history_survives_exhausted_billing_retries kind=ui owner=chat-live
 #[test]
 fn status_history_survives_exhausted_billing_retries() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread billing in the chat: no estimated-thread-cost status line item, no thread usage refresh that fails with retries (seed steps), and no /status Thread usage row",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(90, 60).live().open();
+    let clock = |millis: i64| format!("{{\"step\":\"clock\",\"millis\":{millis}}}\n");
+    let mut now = 1_000_000_000_000_i64;
+    s.feed(&clock(now));
+    s.feed(&billing_feed(r#"["estimated-thread-cost"]"#, None));
     s.type_text("/status").keys("enter");
-    // The billing refreshes fail up to the retry bound, then the retry answers (seed steps).
+    // The refreshes fail up to the retry bound (5 s, 15 s, 60 s apart).
+    for delay in [5_000, 15_000, 60_000] {
+        let before = s.requests_of("account/usage/read");
+        now += delay + 1;
+        s.feed(&clock(now));
+        s.wait(300);
+        s.assert_requests_of("account/usage/read", before + 1);
+    }
+    // No retry is left: the clock moves on and nothing is asked.
+    let spent = s.requests_of("account/usage/read");
+    s.feed(&clock(now + 600_000));
+    s.wait(300);
+    s.assert_requests_of("account/usage/read", spent);
+    // A fresh card asks again; the answer lands in both cards.
+    s.feed(&billing_answer(Some((50_000_000, 2_100_000))));
     s.type_text("/status").keys("enter");
-    s.assert_contains("50 credits · ~$2.10");
+    s.wait_for("50 credits · ~$2.10");
+    s.assert_rows_with("Thread usage:        50 credits · ~$2.10", 2);
 }
 
 // ORACLE chatwidget/thread_usage_tests.rs:169 status_history_updates_again_after_billing_settles kind=ui owner=chat-live
 #[test]
 fn status_history_updates_again_after_billing_settles() {
-    // The oracle loops over three status-line selections (estimated-thread-cost, thread-credits,
-    // estimated-thread-cost) with stale then settled billing; each run ends on the settled card.
-    for _case in 0..3 {
-        kit::pending(
-            Owner::ChatLive,
-            "no thread billing in the chat: no status line item to select (estimated-thread-cost or thread-credits), no settlement refresh with stale then settled billing (seed steps)",
+    // The oracle loops over three status-line selections with a stale figure after a turn and the
+    // settled one 15 s later; the /status card made in between ends on the settled figure.
+    let turn = |status: &str| {
+        let turn = format!(
+            r#"{{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"{status}","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}"#
         );
-        let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+        let method = if status == "inProgress" {
+            "turn/started"
+        } else {
+            "turn/completed"
+        };
+        format!(
+            r#"{{"step":"notify","message":{{"method":"{method}","params":{{"threadId":"thread-1","turn":{turn}}}}}}}
+"#
+        )
+    };
+    for (items, stale, stale_figure) in [
+        (
+            r#"["estimated-thread-cost"]"#,
+            (40_000_000, 1_820_000),
+            "40 credits · ~$1.82",
+        ),
+        (r#"["thread-credits"]"#, (50_000_000, 1_820_000), ""),
+        (r#"["estimated-thread-cost"]"#, (40_000_000, 2_100_000), ""),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive).size(90, 60).live().open();
+        let mut now = 1_000_000_000_000_i64;
+        s.feed(&format!("{{\"step\":\"clock\",\"millis\":{now}}}\n"));
+        s.feed(&billing_feed(items, Some((40_000_000, 1_820_000))));
+        // The turn ends: the refresh after it brings the stale figure; the card is made then.
+        s.feed(&format!("{}\n", billing_answer(Some(stale))));
+        s.feed(&turn("inProgress"));
+        s.feed(&turn("completed"));
+        // The kit answers a request the moment it is made, so a card cannot be made while the
+        // read after the turn is in flight (the oracle's order). A stale figure that is above the
+        // baseline in the one selected item (credits 50 > 40, cost 2.10 > 1.82) settles at the
+        // stale answer, and the card made after it asks for itself: the backend has settled then.
+        let settled = billing_answer(Some((50_000_000, 2_100_000)));
+        if stale_figure.is_empty() {
+            s.feed(&format!("{settled}\n"));
+        }
         s.type_text("/status").keys("enter");
-        s.assert_contains("50 credits · ~$2.10");
+        if !stale_figure.is_empty() {
+            s.wait_for(&format!("Thread usage:        {stale_figure}"));
+            // The settled figure, asked for 15 s after the turn.
+            s.feed(&format!("{settled}\n"));
+            now += 15_001;
+            s.feed(&format!("{{\"step\":\"clock\",\"millis\":{now}}}\n"));
+        }
+        s.wait_for("Thread usage:        50 credits · ~$2.10");
+        if !stale_figure.is_empty() {
+            s.assert_absent(&format!("Thread usage:        {stale_figure}"));
+        }
     }
 }
 
@@ -429,21 +614,41 @@ fn status_history_updates_again_after_billing_settles() {
 #[test]
 fn billing_surfaces_render_for_every_supported_enterprise_plan() {
     // The oracle loops over Business, EnterpriseCbpUsageBased, EnterpriseCbpAutomation and Ent26.
-    for _plan in 0..4 {
-        kit::pending(
-            Owner::ChatLive,
-            "no thread billing in the chat: no plan-gated thread-credits and estimated-thread-cost status line and terminal title items, no shared billing request (seed steps)",
-        );
-        let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    for plan in [
+        "business",
+        "enterprise_cbp_usage_based",
+        "enterprise_cbp_automation",
+        "ent26",
+    ] {
+        let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+        // the account on the plan, the status line and the title of the two billing items
+        let items = r#"["thread-credits","estimated-thread-cost"]"#;
+        // the thread's usage: Ent26 has no credits and no estimate, and a native usage of 0.75 USD
+        let (credits, usd) = if plan == "ent26" {
+            (0, 0)
+        } else {
+            (5_200_000, 210_000)
+        };
+        s.feed(&format!(
+            r#"{{"step":"screen","dir":"status","ev":{{"kind":"account","account":{{"chat_gpt":{{"email":"user@example.com","plan":"{plan}"}}}}}}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.5","cwd":"/tmp/project","account_usage":true,"items":{items},"terminal_title":{items}}}}}}}
+{{"step":"respond","method":"account/usage/read","result":{{"summary":{{"lifetimeTokens":null,"peakDailyTokens":null,"longestRunningTurnSec":null,"currentStreakDays":null,"longestStreakDays":null}},"dailyUsageBuckets":null,"threadUsage":{{"threadId":"thread-1","estimatedUsageCreditsMicros":{credits},"estimatedUsageUsdMicros":{usd},"nativeUsageUsdMicros":750000,"groups":[]}}}}}}"#
+        ));
+        // the status line and the title ask for the figure once between them
+        s.wait_for("~$");
+        s.assert_requests_of("account/usage/read", 1);
+        if plan == "ent26" {
+            // Ent26 (no credits, native usage 0.75 USD): the status line and the title show ~$0.75.
+            s.assert_has_row_trimmed("~$0.75");
+            s.assert_title("~$0.75");
+            // The /status card's Thread usage row.
+            s.type_text("/status").keys("enter");
+            s.assert_contains("Thread usage:        ~$0.75");
+            continue;
+        }
         // Business and the enterprise plans: the status line and the terminal title show 5.2 credits · ~$0.21.
-        s.assert_contains("5.2 credits · ~$0.21");
+        s.assert_has_row_trimmed("5.2 credits · ~$0.21");
         s.assert_title("5.2 credits | ~$0.21");
-        // Ent26 (no credits, native usage 0.75 USD): the status line and the title show ~$0.75.
-        s.assert_contains("~$0.75");
-        s.assert_title("~$0.75");
-        // The /status card's Thread usage row.
-        s.type_text("/status").keys("enter");
-        s.assert_contains("Thread usage:        ~$0.75");
     }
 }
 
@@ -469,20 +674,61 @@ fn early_draw_rearms_thread_usage_settlement_after_immediate_redraw() {
 // ORACLE chatwidget/usage_notice_tests.rs:30 notice_details_fit_without_truncating_the_warning kind=snap owner=chat-live snap=usage_notice_widths snap=weekly_usage_notice_widths
 #[test]
 fn notice_details_fit_without_truncating_the_warning() {
-    kit::pending(
-        Owner::ChatLive,
-        "no usage notice in the chat: no rate-limit warning line (5h limit at 8% left, resets in an hour; weekly at 2% left) in the footer at each width",
-    );
-    // The oracle draws each width's section from one notice state; each width is one screen.
-    for width in [98, 97, 58, 57, 38, 37, 12, 11, 0] {
-        let s = Screen::build(Owner::ChatLive)
-            .size(width.max(1), 24)
+    // The oracle draws each width's line from one notice state, `width` being the room the
+    // line gets; on the screen the row keeps two cells free (`composer_hint`), and the line sits
+    // one cell from the right edge. A width the line does not fit shows nothing.
+    let fits = |width: u16, window: serde_json::Value, expected: &str, absent: &str| {
+        let screen = width + 2;
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(screen, 24)
             .live()
             .open();
-        s.assert_snap_section("usage_notice_widths", &format!("{width} columns"));
+        let clock = serde_json::json!({"step": "screen", "dir": "cells", "ev": {"kind": "clock", "format": "twelve_hour", "utc_offset": 0}});
+        let now = serde_json::json!({"step": "clock", "secs": NOTICE_NOW, "utc_offset": 0});
+        let update = serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": window}}});
+        s.feed(&format!("{clock}\n{now}\n{update}\n"));
+        if expected.is_empty() {
+            // (the warning's own cell has a mark too)
+            s.assert_absent("⚠ 5h");
+            s.assert_absent("⚠ weekly");
+            return;
+        }
+        let pad = usize::from(screen) - 1 - expected.chars().count();
+        s.assert_has_row(&format!("{}{expected}", " ".repeat(pad)));
+        s.assert_absent(absent);
+    };
+    let hour = serde_json::json!({"primary": {"usedPercent": 92, "windowDurationMins": 300, "resetsAt": NOTICE_NOW + 3_600}});
+    for (width, expected, absent) in [
+        (
+            98,
+            "⚠ 5h limit: 8% left · resets at 1:00 PM · /status",
+            "\u{0}",
+        ),
+        (97, "⚠ 5h limit: 8% left · /status", "resets at"),
+        (58, "⚠ 5h limit: 8% left · /status", "resets at"),
+        (57, "⚠ 5h limit: 8% left", " · /status"),
+        (38, "⚠ 5h limit: 8% left", " · /status"),
+        (37, "⚠ 5h 8% left", "limit:"),
+        (12, "⚠ 5h 8% left", "limit:"),
+        (11, "", ""),
+    ] {
+        fits(width, hour.clone(), expected, absent);
     }
-    for width in [138, 137, 76, 75, 56, 55, 16, 15] {
-        let s = Screen::build(Owner::ChatLive).size(width, 24).live().open();
-        s.assert_snap_section("weekly_usage_notice_widths", &format!("{width} columns"));
+    let weekly = serde_json::json!({"secondary": {"usedPercent": 98, "windowDurationMins": 10080, "resetsAt": NOTICE_NOW + DAY}});
+    for (width, expected, absent) in [
+        (
+            138,
+            "⚠ weekly limit: only 2% left · resets at 12:00 PM on 21 Sep · /status",
+            "\u{0}",
+        ),
+        (137, "⚠ weekly limit: only 2% left · /status", "resets at"),
+        (76, "⚠ weekly limit: only 2% left · /status", "resets at"),
+        (75, "⚠ weekly limit: only 2% left", " · /status"),
+        (56, "⚠ weekly limit: only 2% left", " · /status"),
+        (55, "⚠ weekly 2% left", "limit:"),
+        (16, "⚠ weekly 2% left", "limit:"),
+        (15, "", ""),
+    ] {
+        fits(width, weekly.clone(), expected, absent);
     }
 }

@@ -329,13 +329,14 @@ fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
 fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
     kit::pending(
         Owner::ChatLive,
-        "the Implement-this-plan prompt exists; no fixture yet for the 92% rate-limit snapshot before the turn completes and the rate-limit switch prompt does not take precedence over the plan prompt (chunk-popups owns the rate-limit prompt)",
+        "feature rate-limit switch prompt (w2-status): the `Approaching rate limits` prompt (a lower-cost model offered at 90% used) is not in the port, so the plan prompt is the only one; the 92% snapshot is seeded by fixtures/kit/rate_limit_92.jsonl",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_UPDATE)
         .open();
-    // The rate-limit snapshot step (92%) is not scripted yet.
+    // The 92% snapshot comes in before the turn completes.
+    s.feed(include_str!("fixtures/kit/rate_limit_92.jsonl"));
     s.feed(TURN_DONE);
     s.assert_contains("Approaching rate limits");
     s.assert_absent(PLAN_TITLE);

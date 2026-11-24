@@ -66,7 +66,6 @@ fn modelled(source: &str) -> Option<String> {
             phase: None,
         },
         &env(),
-        BULLET,
     )
 }
 
@@ -143,5 +142,5 @@ fn an_item_with_rows_of_its_own_has_no_text_yet() {
         summary: "thinking".into(),
         with_raw: None,
     };
-    assert_eq!(item_text(&reasoning, &env(), BULLET), None);
+    assert_eq!(item_text(&reasoning, &env()), None);
 }

@@ -304,6 +304,39 @@ fn header(
 /// `---- x ----`, `N columns:`, `width=N..`, `height=N`, `80x24`, a bare label such as
 /// `before scroll:`, a label above a `Buffer {` dump); one without is a single frame with an empty name.
 pub fn frames(rel: &str) -> Vec<Frame> {
+    frames_with(rel, &header)
+}
+
+/// What a header reader answers for a line: the frame's name and the row the header line also is.
+type Header = Option<(String, Option<String>)>;
+
+/// A header reader: the line, the line before it and the line after it.
+type HeaderOf<'a> = dyn Fn(&str, Option<&String>, Option<&String>) -> Header + 'a;
+
+/// The frames of a snapshot whose headers are the lines `labels` name: a snapshot the test glued
+/// of several renders under labels of its own (`Compact` / `Full`, `Full height:` / `Clipped:`,
+/// `Resume 118x30`, `empty (48 columns):`, `Before account change:`), which no rule of `frames`
+/// can tell from a row of a screen. A label is matched as the line's text, a trailing colon of
+/// either one aside; the frame is named by the label as given, without the colon. A `---` line
+/// above a label is the test's `join("\n---\n")`. Only the labels are headers.
+pub fn frames_labelled(rel: &str, labels: &[&str]) -> Vec<Frame> {
+    let bare = |l: &str| l.trim_end().trim_end_matches(':').to_string();
+    let labels: Vec<(String, String)> = labels.iter().map(|l| (bare(l), bare(l))).collect();
+    frames_with(rel, &move |line, _, _| {
+        let at = bare(line);
+        labels
+            .iter()
+            .find(|(label, _)| *label == at)
+            .map(|(_, name)| (name.clone(), None))
+    })
+}
+
+/// The frame of a snapshot glued under `labels` (`frames_labelled`) called `name`.
+pub fn frame_labelled(rel: &str, labels: &[&str], name: &str) -> Frame {
+    pick(rel, frames_labelled(rel, labels), name)
+}
+
+fn frames_with(rel: &str, header_of: &HeaderOf<'_>) -> Vec<Frame> {
     let body = body(rel);
     let mut chunks: Vec<(String, Vec<String>)> = Vec::new();
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -312,11 +345,11 @@ pub fn frames(rel: &str) -> Vec<Frame> {
         if line == "---"
             && body
                 .get(i + 1)
-                .is_some_and(|next| header(next, Some(line), body.get(i + 2)).is_some())
+                .is_some_and(|next| header_of(next, Some(line), body.get(i + 2)).is_some())
         {
             continue;
         }
-        if let Some((name, inline)) = header(
+        if let Some((name, inline)) = header_of(
             line,
             i.checked_sub(1).and_then(|j| body.get(j)),
             body.get(i + 1),
@@ -343,7 +376,20 @@ pub fn frames(rel: &str) -> Vec<Frame> {
 /// The frame of the snapshot called `name` (`frames`); the only frame of a
 /// snapshot of one when `name` is empty.
 pub fn frame(rel: &str, name: &str) -> Frame {
-    let all = frames(rel);
+    pick(rel, frames(rel), name)
+}
+
+/// A frame's name as a test may write it: the colon of a bare label (`before scroll:`) is the
+/// label's punctuation, in front of a `#2` as well.
+fn same_name(frame: &str, wanted: &str) -> bool {
+    let bare = |n: &str| match n.split_once('#') {
+        Some((head, tail)) => format!("{}#{tail}", head.trim_end_matches(':')),
+        None => n.trim_end_matches(':').to_string(),
+    };
+    frame == wanted || bare(frame) == bare(wanted)
+}
+
+fn pick(rel: &str, all: Vec<Frame>, name: &str) -> Frame {
     if name.is_empty() {
         assert!(
             all.len() == 1,
@@ -354,7 +400,7 @@ pub fn frame(rel: &str, name: &str) -> Frame {
     }
     let names: Vec<String> = all.iter().map(|f| f.name.clone()).collect();
     all.into_iter()
-        .find(|f| f.name == name)
+        .find(|f| same_name(&f.name, name))
         .unwrap_or_else(|| panic!("{rel}: no frame `{name}`; its frames: {names:?}"))
 }
 

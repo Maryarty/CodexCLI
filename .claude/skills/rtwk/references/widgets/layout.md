@@ -21,7 +21,7 @@ let theme = Theme::of(cx);
 let panel = BoxWidget::new()
     .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
     .padding(EdgeInsets::all(1))
-    .child(Text::new("Compiling 14 libraries…\nlib/src/layout    0.4 s\nlib/src/render    0.9 s"))
+    .child(Text::new("Compiling 14 crates…\nrtwk-layout     0.4 s\nrtwk-render     0.9 s"))
     .titles([
         BorderTitle::new(" build ")
             .style(theme.text.merge(&Style::new().attrs(Attrs::BOLD)))
@@ -40,7 +40,7 @@ SizedBox::new(Some(36), Some(8), Some(panel.into()))
 | border | single, rounded, double, heavy, ascii, none | rounded |
 | sides | all, top bottom, top left, left | all |
 | titles | false, true | true |
-| title at | topLeft, topCenter, topRight, bottomLeft, bottomCenter | topLeft |
+| title at | TOP_LEFT, TOP_CENTER, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_CENTER | TOP_LEFT |
 | padding | 0, 1, 2 | 1 |
 | surface | false, true | false |
 
@@ -74,7 +74,7 @@ DecoratedBox::new(decoration, ColoredBox::new(theme.selection.bg.unwrap_or(Color
 
 ## Container
 
-Align, Padding, a color or a decoration, a size and a margin put together around one child, as Flutter's Container puts them.
+Align, Padding, a color or a decoration, a size and a margin put together around one child.
 
 - `rtwk::layout::Container` (struct) in `crates/rtwk-widgets/src/layout/container.rs:408`: The layout widgets with one child, put together as Flutter's `Container` puts them, from the inside out (twk's `Container`): `child`, or without one a box as big as the constraints allow (as small along an unbounded axis); Align by `alignment`; Padding by `padding`; ColoredBox in `color`; DecoratedBox with `decoration`, then with `foreground_decoration` over it all; ConstrainedBox within `constraints`, tightened to `width` and `height`; Padding by `margin`.
 
@@ -99,7 +99,7 @@ Container::new()
 | option | values | starts at |
 | --- | --- | --- |
 | fill | decoration, color | decoration |
-| alignment | none, topLeft, center, bottomRight | center |
+| alignment | None, TOP_LEFT, CENTER, BOTTOM_RIGHT | CENTER |
 | width | none, 24, 30, 36 | 30 |
 | height | none, 5, 7, 9 | 7 |
 | padding | 0, 1, 2 | 1 |
@@ -217,7 +217,7 @@ let room = |title: &str, child: AnyWidget| SizedBox::new(
 let aligned = Align::new(Alignment::new(1, 1), Text::new("aligned"));
 let centred = Center::new(Text::new("centred"));
 column![
-    room(".bottomRight", aligned.into()),
+    room("Alignment::BOTTOM_RIGHT", aligned.into()),
     room("Center", centred.into()),
 ]
 .main_axis_size(MainAxisSize::Min)
@@ -235,7 +235,7 @@ column![
 
 ## SizedBox
 
-A child of a size: SizedBox.expand fills the room, SizedBox.shrink takes none.
+A child of a size: SizedBox::expand fills the room, SizedBox::shrink takes none.
 
 - `rtwk::layout::SizedBox` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:273`: Makes its child width wide and height tall, as far as the constraints allow; along an axis left none, the child is as long as it wants (twk's `SizedBox`, over a `RenderConstrainedBox` with tight constraints).
 
@@ -315,7 +315,7 @@ SizedBox::new(Some(30), Some(5), Some(panel.into()))
 | option | values | starts at |
 | --- | --- | --- |
 | widget | OverflowBox, SizedOverflowBox, LimitedBox | OverflowBox |
-| alignment | centerLeft, center, centerRight | center |
+| alignment | CENTER_LEFT, CENTER, CENTER_RIGHT | CENTER |
 
 ## FractionallySizedBox
 
@@ -346,7 +346,7 @@ SizedBox::new(Some(40), Some(9), Some(panel.into()))
 | --- | --- | --- |
 | width factor | ¼, ½, ¾, 1 | ½ |
 | height factor | ¼, ½, ¾, 1 | ½ |
-| alignment | center, topLeft, bottomRight | center |
+| alignment | CENTER, TOP_LEFT, BOTTOM_RIGHT | CENTER |
 | room | 16 cells, 17 cells, 18 cells, 19 cells, 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells | 40 cells |
 
 ## IntrinsicWidth/Height
@@ -402,6 +402,14 @@ Children one after another along an axis, aligned along and across it.
 
 ```rust
 let theme = Theme::of(cx);
+let chip = |label, color: &Style, padding| -> AnyWidget {
+    let reversed = color.merge(&Style::new().attrs(Attrs::REVERSE));
+    BoxWidget::new()
+        .style(reversed.clone())
+        .padding(padding)
+        .child(Text::new(label).style(reversed))
+        .into()
+};
 let one = chip("one", &theme.primary, EdgeInsets::x(1));
 let two = chip("two", &theme.accent, EdgeInsets::all(1));
 let three = chip("three", &theme.success, EdgeInsets::x(1));
@@ -429,7 +437,7 @@ SizedBox::new(
 | option | values | starts at |
 | --- | --- | --- |
 | direction | row, column | row |
-| main axis | start, end, center, spaceBetween, spaceAround, spaceEvenly | spaceBetween |
+| main axis | Start, End, Center, SpaceBetween, SpaceAround, SpaceEvenly | SpaceBetween |
 | cross axis | start, end, center, stretch | center |
 | spacing | 0, 1, 2 | 1 |
 | main axis size | max, min | max |
@@ -505,7 +513,7 @@ ConstrainedBox::new(
 
 ## Transform
 
-A child shown moved by whole cells, laid out where it was: Transform.translate, the one transform a terminal has.
+A child shown moved by whole cells, laid out where it was: Transform::translate, the one transform a terminal has.
 
 - `rtwk::layout::Transform` (struct) in `crates/rtwk-widgets/src/layout/overflow.rs:638`: Moves where its child is drawn, by `offset` cells, without changing its layout (twk's `Transform.translate`): the box is as big as the child and the child is drawn `offset` away from it, cut off at the edges of what the parent draws.
 
@@ -518,15 +526,17 @@ const OFFSETS: [(i32, i32); 12] = [
     (-9, 1), (-10, 0), (-9, -1), (-5, -2),
 ];
 
-let theme = Theme::of(cx);
-// In State::build, step is elapsed milliseconds / 200.
-let (dx, dy) = OFFSETS[(self.step % 12) as usize];
-let content = Center::new(BoxWidget::new().style(theme.selection.clone())
-    .padding(EdgeInsets::x(1)).child(Text::new("moved")));
-let panel = BoxWidget::new()
-    .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-    .child(Transform::translate(dx, dy, content));
-SizedBox::new(Some(32), Some(7), Some(panel.into()))
+fn moved(step: u64, cx: &mut Cx<'_>) -> impl Into<AnyWidget> {
+    let theme = Theme::of(cx);
+    // step is the elapsed milliseconds / 200.
+    let (dx, dy) = OFFSETS[(step % 12) as usize];
+    let content = Center::new(BoxWidget::new().style(theme.selection.clone())
+        .padding(EdgeInsets::x(1)).child(Text::new("moved")));
+    let panel = BoxWidget::new()
+        .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
+        .child(Transform::translate(dx, dy, content));
+    SizedBox::new(Some(32), Some(7), Some(panel.into()))
+}
 ```
 
 ### Options
@@ -581,35 +591,73 @@ Sections that fold under their headers: Enter, Space or a click opens one, Right
 ### Code
 
 ```rust
-// State holds verify = true and last = None.
-// SectionMsg::Verify(value) stores the checkbox value.
-// SectionMsg::Changed(index, expanded) records opened/closed for that section.
-let theme = Theme::of(cx);
-let section = |index, title, subtitle, child: AnyWidget, open| {
-    let tile = ExpansionTile::new(Text::new(title), child)
-        .initially_expanded(open)
-        .duration(Duration::from_millis(150))
-        .on_expansion_changed(cx.map(move |value| SectionMsg::Changed(index, value)));
-    let tile = tile.subtitle(Text::new(subtitle));
-    tile
-};
-let tiles = [
-    section(0, "General", "Name and theme", Text::new("Name: twk\nTheme: dark").into(), true),
-    section(1, "Network", "Proxy and timeouts", Text::new("Proxy: none\nTimeout: 30 s").into(), false),
-    section(2, "Security", "TLS and certificates", column![
-        Text::new("TLS: 1.3"),
-        Checkbox::new(self.verify).label("verify certificates")
-            .on_changed(cx.map(SectionMsg::Verify)),
-    ].main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).into(), false),
-];
-let sections: AnyWidget = Accordion::new(tiles).allow_multiple(false).into();
-let last = self.last.as_deref().unwrap_or("nothing");
-column![
-    SizedBox::new(Some(40), None, Some(sections)),
-    Text::rich([Span::styled("did: ", theme.muted.clone()),
-        if self.last.is_some() { Span::new(last.to_owned()) }
-        else { Span::styled(last.to_owned(), theme.muted.clone()) }]),
-].main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).spacing(1)
+struct Sections;
+
+struct SectionsState {
+    verify: bool,
+    last: Option<String>,
+}
+
+#[derive(Clone, PartialEq)]
+enum Msg {
+    Verify(bool),
+    Changed(&'static str, bool),
+}
+
+impl StatefulWidget for Sections {
+    type State = SectionsState;
+    fn create_state(&self) -> SectionsState {
+        SectionsState { verify: true, last: None }
+    }
+}
+
+impl State for SectionsState {
+    type Widget = Sections;
+    type Msg = Msg;
+
+    fn update(&mut self, msg: Msg, _: &Sections, _: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            Msg::Verify(value) => self.verify = value,
+            Msg::Changed(title, expanded) => {
+                let verb = if expanded { "opened" } else { "closed" };
+                self.last = Some(format!("{verb} {title}"));
+            }
+        }
+        Rebuild::Yes
+    }
+
+    fn build(&self, _: &Sections, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let theme = Theme::of(cx);
+        let section = |title: &'static str, subtitle: &'static str, child: AnyWidget, open| {
+            let tile = ExpansionTile::new(Text::new(title), child)
+                .initially_expanded(open)
+                .duration(Duration::from_millis(150))
+                .on_expansion_changed(cx.map(move |value| Msg::Changed(title, value)));
+            let tile = tile.subtitle(Text::new(subtitle));
+            tile
+        };
+        let tiles = [
+            section("General", "Name and theme", Text::new("Name: rtwk\nTheme: dark").into(), true),
+            section("Network", "Proxy and timeouts", Text::new("Proxy: none\nTimeout: 30 s").into(), false),
+            section("Security", "TLS and certificates", column![
+                Text::new("TLS: 1.3"),
+                Checkbox::new(self.verify).label("verify certificates")
+                    .on_changed(cx.map(Msg::Verify)),
+            ].main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).into(), false),
+        ];
+        let sections: AnyWidget = Accordion::new(tiles).allow_multiple(false).into();
+        let last = self.last.as_deref().unwrap_or("nothing");
+        column![
+            SizedBox::new(Some(40), None, Some(sections)),
+            Text::rich([Span::styled("did: ", theme.muted.clone()),
+                if self.last.is_some() { Span::new(last.to_owned()) }
+                else { Span::styled(last.to_owned(), theme.muted.clone()) }]),
+        ].main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).spacing(1)
+        .into()
+    }
+}
+impl_widget!(stateful Sections);
+
 ```
 
 ### Options
@@ -639,11 +687,11 @@ let grid = Grid::new()
     .columns([GridTrack::fixed(12), GridTrack::fr(1), GridTrack::content()])
     .rows([GridTrack::content(), GridTrack::fr(1), GridTrack::content()])
     .column_gap(1).row_gap(0)
-    .child(GridPlacement::new(cell("header · columnSpan: 3")).span(1, 3))
+    .child(GridPlacement::new(cell("header · span(1, 3)")).span(1, 3))
     .child(cell("fixed(12)"))
     .child(cell("fr(1)"))
     .child(cell("content()"))
-    .child(GridPlacement::new(cell("columnSpan: 2")).at(2, 1).span(1, 2));
+    .child(GridPlacement::new(cell("span(1, 2)")).at(2, 1).span(1, 2));
 SizedBox::new(Some(44), Some(12), Some(grid.into()))
 ```
 
@@ -674,10 +722,10 @@ let wrap = Wrap::new()
     .run_alignment(WrapAlignment::Start)
     .cross_axis_alignment(WrapCrossAlignment::Center)
     .spacing(1).run_spacing(0)
-    .child(Badge::new("dart"))
+    .child(Badge::new("rust"))
     .child(Badge::new("terminal").kind(StatusKind::Info))
     .child(BoxWidget::new().border(rounded()).child(Text::new("a box")))
-    .child(Badge::new("twk").kind(StatusKind::Success))
+    .child(Badge::new("rtwk").kind(StatusKind::Success))
     .child(Badge::new("日本語").kind(StatusKind::Warning))
     .child(Badge::new("layout"))
     .child(Badge::new("runs").kind(StatusKind::Info));
@@ -692,8 +740,8 @@ SizedBox::new(Some(width), Some(11), Some(panel.into()))
 | width | 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells | 36 cells |
 | narrowing | false, true | false |
 | direction | horizontal, vertical | horizontal |
-| alignment | start, end, center, spaceBetween, spaceAround, spaceEvenly | start |
-| run alignment | start, end, center, spaceBetween, spaceAround, spaceEvenly | start |
+| alignment | Start, End, Center, SpaceBetween, SpaceAround, SpaceEvenly | Start |
+| run alignment | Start, End, Center, SpaceBetween, SpaceAround, SpaceEvenly | Start |
 | cross axis | start, end, center | center |
 | spacing | 0, 1, 2 | 1 |
 | run spacing | 0, 1 | 0 |
@@ -730,22 +778,24 @@ impl CellPainter for Wave {
     }
 }
 
-let theme = Theme::of(cx);
-// In State::build, step is elapsed milliseconds / 100.
-let phase = (self.step % 24) as i32;
-let wave = Wave { phase, style: theme.primary.clone() };
-let label = Text::new("cells of its own")
-    .style(theme.text.merge(&Style::new().attrs(Attrs::BOLD)));
-CustomPaint::new()
-    .painter(wave)
-    .child(SizedBox::new(Some(36), Some(6), Some(Center::new(label).into())))
+fn waves(step: u64, cx: &mut Cx<'_>) -> impl Into<AnyWidget> {
+    let theme = Theme::of(cx);
+    // step is the elapsed milliseconds / 100.
+    let phase = (step % 24) as i32;
+    let wave = Wave { phase, style: theme.primary.clone() };
+    let label = Text::new("cells of its own")
+        .style(theme.text.merge(&Style::new().attrs(Attrs::BOLD)));
+    CustomPaint::new()
+        .painter(wave)
+        .child(SizedBox::new(Some(36), Some(6), Some(Center::new(label).into())))
+}
 ```
 
 ### Options
 
 | option | values | starts at |
 | --- | --- | --- |
-| painter | painter, foregroundPainter | painter |
+| painter | painter, foreground_painter | painter |
 | moving | false, true | true |
 | style | primary, accent, success | primary |
 
@@ -753,41 +803,65 @@ CustomPaint::new()
 
 Panes the mouse or the arrows resize by their dividers; Tab focuses one. The last one collapses.
 
-- `rtwk::layout::SplitView` (struct) in `crates/rtwk-widgets/src/layout/split_view.rs:44`: Panes separated by dividers that respond to the mouse and keys.
+- `rtwk::layout::SplitView` (struct) in `crates/rtwk-widgets/src/layout/split_view.rs:48`: Panes separated by dividers that respond to the mouse and keys.
 
 ### Code
 
 ```rust
-// State owns split = SplitController::new().with_fractions([1.0, 2.0, 1.0]).
-let theme = Theme::of(cx);
-let pane = |title, text, collapsible| SplitPane::new(
-    BoxWidget::new()
-        .border(Border::all(theme.border.clone()).kind(BorderType::Rounded).merge(true))
-        .title(BorderTitle::new(title).style(theme.muted.clone()))
-        .padding(EdgeInsets::only(1, 0, 0, 0)).child(Text::new(text)),
-).min_size(8).collapsible(collapsible);
-let split = SplitView::new([
-    pane("files", "box.dart\nflex.dart\ngrid.dart\nwrap.dart", false),
-    pane("editor", "Drag a divider, or Tab to one and press the arrows.", false),
-    pane("outline", "Drag its divider to the edge.", true),
-]).controller(&self.split)
-  .direction(Axis::Horizontal).share_edges(true).kind(BorderType::Single)
-  .style(theme.border.clone());
+use rtwk::layout::Axis;
 
-let controller = self.split.clone();
-let fractions = ListenableBuilder::new(self.split.listenable(), move |_, _| {
-    let fractions = controller.fractions().iter().map(|f| format!("{f:.2}"))
-        .collect::<Vec<_>>().join("  ");
-    let mut spans = vec![Span::styled("fractions: ", theme.muted.clone()), Span::new(fractions)];
-    let collapsed = controller.collapsed();
-    if !collapsed.is_empty() {
-        spans.push(Span::styled("  collapsed: ", theme.muted.clone()));
-        spans.push(Span::new(format!("{collapsed:?}")));
+struct Panes;
+
+struct PanesState {
+    split: SplitController,
+}
+
+impl StatefulWidget for Panes {
+    type State = PanesState;
+    fn create_state(&self) -> PanesState {
+        PanesState { split: SplitController::new().with_fractions([1.0, 2.0, 1.0]) }
     }
-    Text::rich(spans).into()
-});
-column![Flexible::new(1, SizedBox::new(Some(48), Some(11), Some(split.into()))), fractions]
-    .main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).spacing(1)
+}
+
+impl State for PanesState {
+    type Widget = Panes;
+    type Msg = ();
+
+    fn build(&self, _: &Panes, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let theme = Theme::of(cx);
+        let pane = |title, text, collapsible| SplitPane::new(
+            BoxWidget::new()
+                .border(Border::all(theme.border.clone()).kind(BorderType::Rounded).merge(true))
+                .title(BorderTitle::new(title).style(theme.muted.clone()))
+                .padding(EdgeInsets::only(1, 0, 0, 0)).child(Text::new(text)),
+        ).min_size(8).collapsible(collapsible);
+        let split = SplitView::new([
+            pane("files", "box.rs\nflex.rs\ngrid.rs\nwrap.rs", false),
+            pane("editor", "Drag a divider, or Tab to one and press the arrows.", false),
+            pane("outline", "Drag its divider to the edge.", true),
+        ]).controller(&self.split)
+          .direction(Axis::Horizontal).share_edges(true).kind(BorderType::Single)
+          .style(theme.border.clone());
+
+        let controller = self.split.clone();
+        let fractions = ListenableBuilder::new(self.split.listenable(), move |_, _| {
+            let fractions = controller.fractions().iter().map(|f| format!("{f:.2}"))
+                .collect::<Vec<_>>().join("  ");
+            let mut spans = vec![Span::styled("fractions: ", theme.muted.clone()), Span::new(fractions)];
+            let collapsed = controller.collapsed();
+            if !collapsed.is_empty() {
+                spans.push(Span::styled("  collapsed: ", theme.muted.clone()));
+                spans.push(Span::new(format!("{collapsed:?}")));
+            }
+            Text::rich(spans).into()
+        });
+        column![Flexible::new(1, SizedBox::new(Some(48), Some(11), Some(split.into()))), fractions]
+            .main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).spacing(1)
+        .into()
+    }
+}
+impl_widget!(stateful Panes);
+
 ```
 
 ### Options
@@ -813,25 +887,61 @@ fn docked() -> DockLayout {
     ], [1.0, 2.0]);
     DockLayout::new(Some(root.into()), [DockWindow::new("log").at(23, 4).sized(26, 6)])
 }
-// State owns DockController::new(docked()) and count = 0.
-// DockMsg::Reset calls self.controller.set_layout(docked()).
-// DockMsg::Add increments self.count and rebuilds.
-let theme = Theme::of(cx);
-let panel = |id, title, child: AnyWidget| DockPanel::new(id, title, Padding::new(EdgeInsets::x(1), child));
-let clicks = column![
-    Text::rich([Span::styled("count: ", theme.muted.clone()), Span::new(self.count.to_string())]),
-    Button::new("Add one").on_pressed(cx.send(DockMsg::Add)),
-].cross_axis_alignment(CrossAxisAlignment::Start);
-let area = DockArea::new(&self.controller, [
-    panel("files", "Files", Text::new("Drag a tab onto a target to dock it there.").into()),
-    panel("find", "Find", Text::new("Find in files.").into()),
-    panel("editor", "Editor", clicks.into()),
-    panel("log", "Log", Text::new("Drop a tab off the targets to float it.").into()),
-]).tab_strip(true);
-column![
-    SizedBox::new(Some(50), Some(10), Some(area.into())),
-    Button::new("Dock them as they were").on_pressed(cx.send(DockMsg::Reset)),
-].main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).spacing(1)
+
+struct Docks;
+
+struct DocksState {
+    controller: DockController,
+    count: u32,
+}
+
+#[derive(Clone, PartialEq)]
+enum Msg {
+    Reset,
+    Add,
+}
+
+impl StatefulWidget for Docks {
+    type State = DocksState;
+    fn create_state(&self) -> DocksState {
+        DocksState { controller: DockController::new(docked()), count: 0 }
+    }
+}
+
+impl State for DocksState {
+    type Widget = Docks;
+    type Msg = Msg;
+
+    fn update(&mut self, msg: Msg, _: &Docks, _: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            Msg::Reset => self.controller.set_layout(docked()),
+            Msg::Add => self.count += 1,
+        }
+        Rebuild::Yes
+    }
+
+    fn build(&self, _: &Docks, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let theme = Theme::of(cx);
+        let panel = |id, title, child: AnyWidget| DockPanel::new(id, title, Padding::new(EdgeInsets::x(1), child));
+        let clicks = column![
+            Text::rich([Span::styled("count: ", theme.muted.clone()), Span::new(self.count.to_string())]),
+            Button::new("Add one").on_pressed(cx.send(Msg::Add)),
+        ].cross_axis_alignment(CrossAxisAlignment::Start);
+        let area = DockArea::new(&self.controller, [
+            panel("files", "Files", Text::new("Drag a tab onto a target to dock it there.").into()),
+            panel("find", "Find", Text::new("Find in files.").into()),
+            panel("editor", "Editor", clicks.into()),
+            panel("log", "Log", Text::new("Drop a tab off the targets to float it.").into()),
+        ]).tab_strip(true);
+        column![
+            SizedBox::new(Some(50), Some(10), Some(area.into())),
+            Button::new("Dock them as they were").on_pressed(cx.send(Msg::Reset)),
+        ].main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start).spacing(1)
+        .into()
+    }
+}
+impl_widget!(stateful Docks);
+
 ```
 
 ### Options
@@ -850,37 +960,73 @@ An app's frame: a header, a sidebar beside the body, a status bar and the key hi
 ### Code
 
 ```rust
-// Retained in State, with inbox = true, archive = false and notes = 3.
-// controller: ScaffoldController::new().initial_sidebar_width(14)
-#[derive(Clone, PartialEq)]
-enum NotesMsg { Inbox(bool), Archive(bool), New }
-// In State::update:
-match msg {
-    NotesMsg::Inbox(value) => self.inbox = value,
-    NotesMsg::Archive(value) => self.archive = value,
-    NotesMsg::New => self.notes += 1,
+struct Notes;
+
+struct NotesState {
+    inbox: bool,
+    archive: bool,
+    notes: u32,
+    controller: ScaffoldController,
 }
-// In State::build:
-let theme = Theme::of(cx);
-let sidebar = column![
-    Checkbox::new(self.inbox).label("inbox").on_changed(cx.map(NotesMsg::Inbox)),
-    Checkbox::new(self.archive).label("archive").on_changed(cx.map(NotesMsg::Archive)),
-].cross_axis_alignment(CrossAxisAlignment::Start);
-let body = column![
-    Button::new("New note").on_pressed(cx.send(NotesMsg::New)),
-    Text::rich([Span::styled("notes: ", theme.muted.clone()), Span::new(self.notes.to_string())]),
-].cross_axis_alignment(CrossAxisAlignment::Start).spacing(1);
-let scaffold = Scaffold::new(Padding::new(EdgeInsets::all(1), body))
-    .controller(&self.controller)
-    .sidebar(Padding::new(EdgeInsets::all(1), sidebar))
-    .sidebar_side(SidebarSide::Left)
-    .resizable_sidebar(true)
-    .key_hints(true)
-    .header(Text::new("notes"))
-    .status_bar(StatusBar::new()
-        .left(Text::new(format!("{} notes", self.notes))).right(Text::new("saved")))
-    .collapsed_below(40);
-SizedBox::new(Some(48), Some(12), Some(scaffold.into()))
+
+#[derive(Clone, PartialEq)]
+enum Msg {
+    Inbox(bool),
+    Archive(bool),
+    New,
+}
+
+impl StatefulWidget for Notes {
+    type State = NotesState;
+    fn create_state(&self) -> NotesState {
+        NotesState {
+            inbox: true,
+            archive: false,
+            notes: 3,
+            controller: ScaffoldController::new().initial_sidebar_width(14),
+        }
+    }
+}
+
+impl State for NotesState {
+    type Widget = Notes;
+    type Msg = Msg;
+
+    fn update(&mut self, msg: Msg, _: &Notes, _: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            Msg::Inbox(value) => self.inbox = value,
+            Msg::Archive(value) => self.archive = value,
+            Msg::New => self.notes += 1,
+        }
+        Rebuild::Yes
+    }
+
+    fn build(&self, _: &Notes, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let theme = Theme::of(cx);
+        let sidebar = column![
+            Checkbox::new(self.inbox).label("inbox").on_changed(cx.map(Msg::Inbox)),
+            Checkbox::new(self.archive).label("archive").on_changed(cx.map(Msg::Archive)),
+        ].cross_axis_alignment(CrossAxisAlignment::Start);
+        let body = column![
+            Button::new("New note").on_pressed(cx.send(Msg::New)),
+            Text::rich([Span::styled("notes: ", theme.muted.clone()), Span::new(self.notes.to_string())]),
+        ].cross_axis_alignment(CrossAxisAlignment::Start).spacing(1);
+        let scaffold = Scaffold::new(Padding::new(EdgeInsets::all(1), body))
+            .controller(&self.controller)
+            .sidebar(Padding::new(EdgeInsets::all(1), sidebar))
+            .sidebar_side(SidebarSide::Left)
+            .resizable_sidebar(true)
+            .key_hints(true)
+            .header(Text::new("notes"))
+            .status_bar(StatusBar::new()
+                .left(Text::new(format!("{} notes", self.notes))).right(Text::new("saved")))
+            .collapsed_below(40);
+        SizedBox::new(Some(48), Some(12), Some(scaffold.into()))
+        .into()
+    }
+}
+impl_widget!(stateful Notes);
+
 ```
 
 ### Options

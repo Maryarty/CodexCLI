@@ -79,13 +79,27 @@ command_opens! {
     slash_agents_opens_the_agents: "/agents" => "agents";
     slash_resume_opens_the_picker: "/resume" => "resume";
     slash_import_opens_the_import: "/import" => "import";
-    slash_usage_opens_the_usage_dashboard: "/usage" => "usage";
+    slash_usage_daily_opens_the_usage_dashboard: "/usage daily" => "usage";
     slash_usage_weekly_opens_the_usage_dashboard: "/usage weekly" => "usage";
     slash_warnings_opens_the_dialogs: "/warnings" => "dialogs";
     slash_feedback_opens_the_flow: "/feedback" => "feedback";
     slash_pets_opens_the_pets: "/pets" => "pets";
     slash_pet_alias_opens_the_pets: "/pet" => "pets";
     slash_test_approval_opens_the_approvals: "/test-approval" => "approvals";
+}
+
+/// A bare `/usage` is the feature's own sheet (`features/usage_menu`): the usage menu over the chat,
+/// Esc gives it up. The analytics page is its first row (`/usage weekly` opens the page directly).
+#[test]
+fn slash_usage_shows_the_usage_menu() {
+    let mut h = chat();
+    let before = h.t.screen();
+    run_command(&mut h, "/usage");
+    h.wait_for("the usage menu", |s| s.contains("Redeem reset"));
+    h.t.pump_for(ms(800));
+    let screen = h.t.screen();
+    assert!(screen.contains("View analytics"), "{screen}");
+    escape_closes(&mut h, &before);
 }
 
 /// `/rename` is the feature's own prompt (`features/rename`): the feature wishes it, the presenter
@@ -122,8 +136,9 @@ fn a_command_picked_in_the_popup_opens_its_screen() {
     h.t.type_text("/usag");
     h.t.pump_for(ms(100));
     h.press("enter");
-    wait_shows(&mut h, "/usag + enter", "usage");
-    assert!(shows(&h, "usage"), "{}", h.t.screen());
+    // a bare `/usage` is the usage menu over the chat (`features/usage_menu`)
+    h.wait_for("the usage menu", |s| s.contains("Redeem reset"));
+    h.t.pump_for(ms(800));
     escape_closes(&mut h, &before);
     assert_chat_back(&h, None, &before);
 }

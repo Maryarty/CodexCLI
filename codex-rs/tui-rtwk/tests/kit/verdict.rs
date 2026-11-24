@@ -26,6 +26,9 @@ pub enum Owner {
     StartupFlow,
     StartupPrompts,
     Onboarding,
+    /// The host's doors, feeds and public verbs (`host_capability_list!`, `host_feed_list!`,
+    /// `PublicVerb`): what a feature asks of the host or of another owner.
+    FwHubsC,
 }
 
 impl Owner {
@@ -42,6 +45,7 @@ impl Owner {
             Owner::StartupFlow => "startup-flow",
             Owner::StartupPrompts => "startup-prompts",
             Owner::Onboarding => "onboarding",
+            Owner::FwHubsC => "fw-hubs-c",
         }
     }
 }

@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 5583c142; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk c953f062; do not edit. -->
 
 # Testing API: rtwk_test
 
@@ -6,7 +6,7 @@
 
 ## Tester
 
-- `rtwk_test::Tester` (struct, `crates/rtwk-test/src/tester.rs:368`) Runs an app under test: the real binding on a terminal in memory (`terminal`), the real parser decoding the bytes of the input, an emulator reconstructing the screen from the bytes of the frames.
+- `rtwk_test::Tester` (struct, `crates/rtwk-test/src/tester.rs:384`) Runs an app under test: the real binding on a terminal in memory (`terminal`), the real parser decoding the bytes of the input, an emulator reconstructing the screen from the bytes of the frames.
 
 #### `Tester`: constructors and associated functions
 
@@ -120,6 +120,8 @@
 - `pub fn size(mut self, width: u16, height: u16) -> Options` - The terminal is `width` × `height` cells.
 - `pub fn kitty_keyboard(mut self, on: bool) -> Options` - The terminal has the kitty keyboard protocol on (`Tester::press` then sends what such a terminal sends).
 - `pub fn background_rgb(mut self, rgb: u32) -> Options` - The terminal's default background, `0xRRGGBB` (unknown by default).
+- `pub fn foreground_rgb(mut self, rgb: u32) -> Options` - The terminal's default text color, `0xRRGGBB` (unknown by default; twk's `pumpWidget(foregroundRgb:)`).
+- `pub fn cursor_rgb(mut self, rgb: u32) -> Options` - The terminal's cursor color, `0xRRGGBB` (unknown by default; twk's `pumpWidget(cursorRgb:)`).
 - `pub fn max_fps(mut self, fps: u32) -> Options` - The most frames a second the app draws (60 by default; 0 for no cap).
 - `pub fn exit_on_ctrl_c(mut self, on: bool) -> Options` - Whether Ctrl+C quits the app (it does by default).
 - `pub fn clear_inline_on_exit(mut self, on: bool) -> Options` - Whether an inline app erases its live region, prompt included, when it quits, leaving the cursor where the region began, and keeps what it committed to the history (twk's `pumpWidget(clearInlineOnExit:)`, ...

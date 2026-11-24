@@ -1,6 +1,6 @@
 //! The text of an item of the transcript as it is mounted, written from the
 //! item: what find, the select mode and copy read of an item that is scrolled
-//! out of the list (rtwk `ItemTexts::text`).
+//! out of the list (what the list's `ListView::item_text` is given).
 //!
 //! The cells keep their own texts (`cells::text`); a message's Markdown is
 //! the `Gap` they declare, and [`markdown_text`] fills it for the assistant's
@@ -15,20 +15,14 @@ use rtwk_rich::markdown::parse_markdown;
 use super::markdown_text;
 use crate::pages::session::cells::text::{Env, Gap, Texts, texts};
 
-/// The text of `item`, `bullet` the mark the assistant's message is drawn
-/// with (its first part: a gutter the area selects until it can leave it out).
-pub fn item_text(item: &Item, env: &Env<'_>, bullet: &str) -> Option<String> {
+/// The text of `item` as a `SelectionArea` over its mounted cell selects it:
+/// the marks the cells draw as gutters (the assistant's bullet too) are in an
+/// `ExcludeSelection` and not in it.
+pub fn item_text(item: &Item, env: &Env<'_>) -> Option<String> {
     match texts(item, env) {
         exact @ Texts::Exact(_) => exact.as_mounted(),
         Texts::Gap(Gap::Markdown) => match item {
-            Item::Agent { text, .. } => {
-                let body = markdown_text::text(&parse_markdown(text))?;
-                Some(if crate::pages::session::cells::text::GUTTERS_SELECTED {
-                    format!("{bullet}\n{body}")
-                } else {
-                    body
-                })
-            }
+            Item::Agent { text, .. } => markdown_text::text(&parse_markdown(text)),
             _ => None,
         },
         Texts::Gap(Gap::Rows) => None,

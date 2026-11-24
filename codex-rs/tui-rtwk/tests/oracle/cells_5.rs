@@ -8,7 +8,7 @@ use crate::kit::{self, Owner, Screen};
 
 const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws the agent exec cell's `display_lines` (command under `  │ `, output under `  └ ` with its stderr tail); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Ran <first line> …` and the last three output rows), which the port's exec cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
-const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
+const PLAN_FRAMES: &str = "feature plan cell Full frame (w2-cells, gap G49): the `Compact` frame equals the oracle's (`Snap::labelled`, region at the cell's row); after `+ Show details` the screen has no `• Updated Plan` row to place the `Full` frame at, and the page test records G49 (no break after a slash) in the Full rows (tests/pages/cells.rs plan_update::the_oracle_snapshot_full_rows)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
 const WARNING_CELL: &str = "the visible usage warning is the rate-limit snapshot's (rate_limits.rs `new_visible_warning_event`), which the port does not derive from `account/rateLimits/updated` yet; a `warning` notification is the hidden diagnostic (WarningCell, Ctrl+T only), while the kit feeds one and expects it on the chat screen";
 
@@ -290,9 +290,27 @@ fn plan_update_with_note_and_wrapping_snapshot() {
             "fixtures/cells_5/plan_update_with_note_and_wrapping_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap_section("plan_update_with_note_and_wrapping_snapshot", "Compact");
+    // the oracle test joined the two renders under its own labels
+    let labels = ["Compact", "Full"];
+    let cell_row = |s: &Screen| {
+        s.rows()
+            .iter()
+            .position(|row| row.starts_with("• Updated Plan"))
+            .unwrap_or(usize::MAX)
+    };
+    let at = cell_row(&s);
+    s.snap("plan_update_with_note_and_wrapping_snapshot")
+        .labelled(&labels)
+        .frame("Compact")
+        .at(at, 0)
+        .assert();
     s.click_text("+ Show details");
-    s.assert_snap_section("plan_update_with_note_and_wrapping_snapshot", "Full");
+    let at = cell_row(&s);
+    s.snap("plan_update_with_note_and_wrapping_snapshot")
+        .labelled(&labels)
+        .frame("Full")
+        .at(at, 0)
+        .assert();
 }
 
 // ORACLE history_cell/tests.rs:2684 plan_update_without_note_snapshot kind=snap owner=chat-live snap=plan_update_without_note_snapshot

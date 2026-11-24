@@ -588,7 +588,7 @@ fn model_picker_refresh_dismisses_empty_choices() {
 fn skills_menu_default_mentions_shortcut_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no skills menu in the port (`/skills`): the default skills list with its mention shortcut has no widget and no seed",
+        "feature skills menu (w2-approvals, chat popups): none in the port in the port (`/skills`): the default skills list with its mention shortcut has no widget and no scripted state",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
     s.type_text("/skills");
@@ -909,7 +909,7 @@ fn feedback_selection_popup_snapshot() {
 fn feedback_stops_before_collecting_a_note_when_no_destination_is_available() {
     kit::pending(
         Owner::DialogsPane,
-        "no /feedback flow in the port: with no upload destination the flow stops before the note and prints the two unavailable notices; no widget and no seed",
+        "feature /feedback flow (w2-approvals, chat popups): none in the port in the port: with no upload destination the flow stops before the note and prints the two unavailable notices; no widget and no scripted state",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.assert_contains("• Feedback is unavailable in Cloud threads.");
@@ -923,7 +923,7 @@ fn feedback_stops_before_collecting_a_note_when_no_destination_is_available() {
 fn feedback_upload_consent_popup_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the proxy connectivity diagnostics: feedback_consent and feedback_consent_windows carry the doctor report and no proxy headline",
+        "entry to register (w2-commands, feedback consent): the entry with the proxy connectivity diagnostics: feedback_consent and feedback_consent_windows carry the doctor report and no proxy headline",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 22).live().open();
     s.assert_snap("feedback_upload_consent_popup");
@@ -934,7 +934,7 @@ fn feedback_upload_consent_popup_snapshot() {
 fn feedback_good_result_consent_popup_includes_connectivity_diagnostics_filename() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the good-result consent and its connectivity diagnostics filename: the port consent entries carry no proxy headline",
+        "entry to register (w2-commands, feedback consent): the entry with the good-result consent and its connectivity diagnostics filename: the port consent entries carry no proxy headline",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 17).live().open();
     s.assert_snap("feedback_good_result_consent_popup");
@@ -995,7 +995,7 @@ fn account_change_dismisses_the_previous_app_directory_snapshot() {
 fn current_settings_offer_model_permissions_and_status_layouts() {
     kit::pending(
         Owner::DialogsPane,
-        "no quick dials in the port: the saved quick-dial source list (model, permissions, status) has no widget and no seed of the current settings",
+        "feature quick dials (w2-approvals, chat popups): none in the port in the port: the saved quick-dial source list (model, permissions, status) has no widget and no scripted state of the current settings",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 10).live().open();
     s.assert_snap("saved_quick_dials_source");
@@ -1010,7 +1010,7 @@ fn current_settings_offer_model_permissions_and_status_layouts() {
 fn saved_quick_dials_save_and_clear_picker_snapshots() {
     kit::pending(
         Owner::DialogsPane,
-        "no quick dials in the port: the shortcut menu, the slot editor, the save, clear and replace/delete confirmations have no widget and no seed",
+        "feature quick dials (w2-approvals, chat popups): none in the port in the port: the shortcut menu, the slot editor, the save, clear and replace/delete confirmations have no widget and no scripted state",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(100, 10)
@@ -1364,7 +1364,7 @@ fn provider_switch_blocks_cached_choices_in_old_and_new_chats() {
 fn manage_skills_summary_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no manage-skills summary in the port: the one-line skill summaries of the fixture skills have no widget and no seed",
+        "feature manage-skills summary (w2-approvals, chat popups): none in the port in the port: the one-line skill summaries of the fixture skills have no widget and no scripted state",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 4).live().open();
     s.assert_snap("manage_skills_summary");

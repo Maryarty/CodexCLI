@@ -6,6 +6,19 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The status facts that make the app read the account's limits (a ChatGPT login and the
+/// `account_usage` fact).
+const ACCOUNT_USAGE: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#;
+
+/// `account/rateLimits/updated` with `snapshot`.
+fn rolling(snapshot: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": snapshot}}})
+}
+
+/// The usage warnings the transcript holds begin `Heads up, you have less than ..`.
+const WARNING: &str = "Heads up, you have less than";
+
 // ---- oracle: chatwidget/tests/computer_activity_tests.rs (4 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE chatwidget/tests/computer_activity_tests.rs:30 computer_activity_live_and_replay_group_identically kind=snap owner=ui-pane
 #[test]
@@ -338,28 +351,70 @@ fn completed_plan_table_tail_skips_provisional_history_insert() {
 // ORACLE chatwidget/tests/status_and_layout.rs:839 rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated kind=snap owner=ui-pane
 #[test]
 fn rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated() {
-    kit::pending(
-        Owner::UiPane,
-        "no rate-limit warning history cells on the chat screen",
-    );
-    // oracle: per plan type, an early 5h warning at 50% on Plus and Team only, and once per threshold (75, 90, 95).
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: rate-limit snapshots (49% then 50%) per plan type
-    s.assert_contains("Heads up, you have less than 50% of your 5h limit left.");
+    for (plan, minutes, early) in [
+        (Some("plus"), Some(300), true),
+        (Some("team"), Some(299), true),
+        (Some("pro"), Some(300), false),
+        (Some("business"), Some(300), false),
+        (Some("self_serve_business_prolite"), Some(300), false),
+        (None, Some(300), false),
+        (Some("plus"), Some(10080), false),
+        (Some("team"), None, false),
+    ] {
+        // the account read (49% used, the plan learned there), then rolling updates without a plan
+        let snapshot = |used: i32, plan: Option<&str>| {
+            serde_json::json!({"limitId": "codex", "planType": plan,
+                "primary": {"usedPercent": used, "windowDurationMins": minutes, "resetsAt": null}})
+        };
+        let read = serde_json::json!({"step": "respond", "method": "account/rateLimits/read",
+            "result": {"rateLimits": snapshot(49, plan)}});
+        let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+        s.feed(&format!("{read}\n{ACCOUNT_USAGE}\n"));
+        s.assert_requests_of("account/rateLimits/read", 1);
+        s.assert_rows_with(WARNING, 0);
+        let roll = |s: &mut Screen, used: i32| {
+            s.feed(&format!("{}\n", rolling(&snapshot(used, None))));
+        };
+        // the 50% crossing warns on the early-threshold plans only
+        roll(&mut s, 50);
+        let seen = usize::from(early);
+        s.assert_rows_with(WARNING, seen);
+        if early {
+            s.assert_has_row(
+                "⚠ Heads up, you have less than 50% of your 5h limit left. Run /status for a",
+            );
+            s.assert_has_row("  breakdown.");
+        }
+        roll(&mut s, 50);
+        s.assert_rows_with(WARNING, seen);
+        // each further threshold warns once, however often it is repeated
+        for (n, used) in [75, 90, 95].into_iter().enumerate() {
+            roll(&mut s, used);
+            s.assert_rows_with(WARNING, seen + n + 1);
+            roll(&mut s, used);
+            s.assert_rows_with(WARNING, seen + n + 1);
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:906 rate_limit_duration_labels_only_render_supported_windows kind=ui owner=ui-pane
 #[test]
 fn rate_limit_duration_labels_only_render_supported_windows() {
-    kit::pending(
-        Owner::UiPane,
-        "no rate-limit window labels (daily, annual) on the status card or warnings yet",
-    );
-    // oracle: a 2-hour window has no label; 24 hours is "daily"; 365 days is "annual".
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: rate-limit windows of 2 h, 24 h and 365 days
-    s.assert_contains("daily");
-    s.assert_contains("annual");
+    // oracle: a 2-hour window has no label (the generic `usage`); 24 hours is "daily"; 365 days is
+    // "annual". The labels are the warning's: each window crosses 75% used on a screen of its own.
+    for (minutes, label) in [
+        (120, "usage"),
+        (24 * 60, "daily"),
+        (365 * 24 * 60, "annual"),
+    ] {
+        let mut s = Screen::build(Owner::UiPane).size(120, 24).live().open();
+        let snapshot = serde_json::json!({"limitId": "codex",
+            "primary": {"usedPercent": 75, "windowDurationMins": minutes, "resetsAt": null}});
+        s.feed(&format!("{ACCOUNT_USAGE}\n{}\n", rolling(&snapshot)));
+        s.assert_contains(&format!(
+            "Heads up, you have less than 25% of your {label} limit left."
+        ));
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:1550 rate_limit_switch_prompt_clears_when_account_usage_recovers kind=snap owner=ui-pane snap=rate_limit_switch_prompt_recovered

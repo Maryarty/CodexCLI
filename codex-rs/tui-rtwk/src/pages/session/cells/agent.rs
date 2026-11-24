@@ -4,9 +4,11 @@
 //! column free at the right. The Markdown is `citation::view` (directives,
 //! stream preview) in the transcript's theme.
 //!
-//! Flutter: `Row[Text("• "), Expanded(MarkdownBody)]` with a right padding.
+//! Flutter: `Row[SelectionContainer.disabled(Text("• ")), Expanded(MarkdownBody)]` with a right
+//! padding: the bullet is a gutter, not part of what a selection copies.
 
 use rtwk::AnyWidget;
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{CrossAxisAlignment, EdgeInsets, Expanded, Padding, Row};
 use rtwk::style::Style;
 use rtwk::widgets::Text;
@@ -35,7 +37,9 @@ pub fn message(source: &str, live: bool, cwd: Option<&str>, look: &Look<'_>) -> 
         .spacing(1)
         // narrower than the bullet, the bullet is cut (the oracle draws the prefix alone)
         .overflow_intended(true)
-        .child(Text::new(look.bullet.to_owned()).style(look.bullet_style.clone()))
+        .child(ExcludeSelection::new(
+            Text::new(look.bullet.to_owned()).style(look.bullet_style.clone()),
+        ))
         // one column of the text stays free (oracle `right_reserve`)
         .child(Expanded::new(
             1,

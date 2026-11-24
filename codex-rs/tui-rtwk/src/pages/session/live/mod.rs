@@ -3,6 +3,7 @@
 //! `chatwidget` draws only while a turn runs.
 
 pub(super) mod browse;
+pub(super) mod limits;
 pub(super) mod plan_mode;
 pub(super) mod provider_error;
 mod restore;

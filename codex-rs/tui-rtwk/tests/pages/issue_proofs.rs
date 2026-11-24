@@ -94,7 +94,6 @@ fn issue_35599_ctrl_d_quits_with_a_cyrillic_layout() {
 
 /// openai/codex#35599: Ctrl+C quits an idle chat, on either layout.
 #[test]
-#[ignore = "RED #35599: a Cyrillic ctrl+c (kitty base-layout key) does not quit"]
 fn issue_35599_ctrl_c_quits_an_idle_chat_with_a_cyrillic_layout() {
     let stayed: Vec<&str> = CTRL_C
         .into_iter()
@@ -115,7 +114,6 @@ fn issue_35599_ctrl_c_quits_an_idle_chat_with_a_cyrillic_layout() {
 
 /// openai/codex#35599: Ctrl+C interrupts a running turn and keeps the app, on either layout.
 #[test]
-#[ignore = "RED #35599: a Cyrillic ctrl+c does not interrupt a running turn"]
 fn issue_35599_ctrl_c_interrupts_a_running_turn_with_a_cyrillic_layout() {
     for (layout, bytes) in CTRL_C {
         let mut h = idle_chat();

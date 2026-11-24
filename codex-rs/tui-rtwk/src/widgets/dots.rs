@@ -5,6 +5,7 @@
 //! `TextPainter` says the text overflows; here `LayoutBuilder` +
 //! `segmenter_of(cx)` (`width`, `cut_head_cells`) + `Row[SizedBox(clipped Text), Text("…")]`.
 
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{Row, SizedBox};
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
@@ -33,7 +34,9 @@ pub fn dots_end(text: String, style: Style) -> AnyWidget {
                 Some(1),
                 Some(line.into()),
             ))
-            .child(Text::line("\u{2026}").style(style.clone()))
+            .child(ExcludeSelection::new(
+                Text::line("\u{2026}").style(style.clone()),
+            ))
             .into()
     })
     .into()
@@ -69,7 +72,7 @@ pub fn dots_spans(spans: Vec<Span>) -> AnyWidget {
                 Some(1),
                 Some(line.into()),
             ))
-            .child(Text::line("\u{2026}").style(style))
+            .child(ExcludeSelection::new(Text::line("\u{2026}").style(style)))
             .into()
     })
     .into()

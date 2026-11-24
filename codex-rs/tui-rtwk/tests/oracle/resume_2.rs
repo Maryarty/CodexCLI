@@ -537,19 +537,37 @@ fn loading_overlay_clears_inherited_selection_colors_and_reversal() {
 // ORACLE resume_picker_color_tests.rs:154 compact_picker_keeps_metadata_and_labeled_primary_actions kind=snap owner=routes-lists snap=codex_tui__resume_picker__color_tests__compact_picker_keeps_metadata_and_labeled_primary_actions
 #[test]
 fn compact_picker_keeps_metadata_and_labeled_primary_actions() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the kit names the frames of a joined snapshot by `--- x ---`, `N columns:`, `width=N` headers or a label above a `Buffer {` dump, not by the oracle's plain `{action} {W}x{H}` lines (tests/oracle_snap, not this area); the page test of the same name (tests/pages/resume.rs) splits the frames itself and compares every one with the snapshot",
-    );
-    // The oracle's own assertions at the first size.
-    let s = Screen::build(Owner::RoutesLists)
-        .size(118, 30)
-        .entry("resume", "compact_six_rows")
-        .open();
-    s.assert_contains(" fcoury/contrast");
-    s.assert_contains("now");
-    s.assert_contains("enter resume");
-    s.assert_contains("esc start new");
+    // The oracle joined the frames of four sizes under its own `{action} {W}x{H}` lines.
+    let labels = [
+        "Resume 118x30",
+        "Resume 70x12",
+        "Resume 38x12",
+        "Fork 38x12",
+    ];
+    for (label, width, height, entry) in [
+        ("Resume 118x30", 118, 30, "compact_six_rows"),
+        ("Resume 70x12", 70, 12, "compact_six_rows"),
+        ("Resume 38x12", 38, 12, "compact_six_rows"),
+        ("Fork 38x12", 38, 12, "compact_six_rows_fork"),
+    ] {
+        let s = Screen::build(Owner::RoutesLists)
+            .size(width, height)
+            .entry("resume", entry)
+            .open();
+        // The oracle's own assertions at each size (all four are below its footer's wide breakpoint).
+        s.assert_contains(" fcoury/contrast");
+        s.assert_contains("now");
+        s.assert_contains(if label.starts_with("Fork") {
+            "enter fork"
+        } else {
+            "enter resume"
+        });
+        s.assert_contains("esc new");
+        s.snap("compact_picker_keeps_metadata_and_labeled_primary_actions")
+            .labelled(&labels)
+            .frame(label)
+            .assert();
+    }
 }
 
 // ORACLE resume_picker_color_tests.rs:263 narrow_toolbar_keeps_keyboard_focused_control_visible kind=snap owner=routes-lists snap=codex_tui__resume_picker__color_tests__narrow_toolbar_keeps_keyboard_focused_control_visible

@@ -11,70 +11,72 @@ A Code is the body of the gallery's preview: it names widgets by the last segmen
 
 The styles of an app by what they are for, which the widgets below it draw in: a preset, or the terminal's own colors.
 
-- `rtwk::style::Theme` (struct) in `crates/rtwk-widgets/src/style/theme.rs:861`: The theme of the widgets below it (Theme::of) (twk's `Theme`): `data`, or with Theme::adaptive the `dark` or the `light` theme by the brightness of the terminal (TerminalBrightness), or with Theme::terminal the terminal's own colors.
+- `rtwk::style::Theme` (struct) in `crates/rtwk-widgets/src/style/theme.rs:894`: The theme of the widgets below it (Theme::of) (twk's `Theme`): `data`, or with Theme::adaptive the `dark` or the `light` theme by the brightness of the terminal (TerminalBrightness), or with Theme::terminal the terminal's own colors.
 
 ### Code
 
 ```rust
-fn swatch_card(
-    theme: &ThemeData,
-    named: Option<(&str, AnyWidget)>,
-) -> SizedBox {
-    let swatches = |entries: &[(&str, &Style)]| {
-        Text::rich(entries.iter()
-            .map(|(name, style)| Span::styled(format!("{name}  "), (*style).clone()))
-            .collect::<Vec<_>>())
-    };
-    let mut sample = column![
-        swatches(&[("text", &theme.text), ("muted", &theme.muted), ("primary", &theme.primary),
-            ("accent", &theme.accent), ("border", &theme.border)]),
-        swatches(&[("error", &theme.error), ("warning", &theme.warning),
-            ("success", &theme.success), ("info", &theme.info)]),
-        SizedBox::new(None, Some(1), None),
-        BoxWidget::new()
-            .style(theme.surface.clone())
+fn themed(on_pressed: Handler<()>, checked: bool, on_checked: Handler<bool>, on: bool, on_switched: Handler<bool>) -> impl Into<AnyWidget> {
+    fn swatch_card(
+        theme: &ThemeData,
+        named: Option<(&str, AnyWidget)>,
+    ) -> SizedBox {
+        let swatches = |entries: &[(&str, &Style)]| {
+            Text::rich(entries.iter()
+                .map(|(name, style)| Span::styled(format!("{name}  "), (*style).clone()))
+                .collect::<Vec<_>>())
+        };
+        let mut sample = column![
+            swatches(&[("text", &theme.text), ("muted", &theme.muted), ("primary", &theme.primary),
+                ("accent", &theme.accent), ("border", &theme.border)]),
+            swatches(&[("error", &theme.error), ("warning", &theme.warning),
+                ("success", &theme.success), ("info", &theme.info)]),
+            SizedBox::new(None, Some(1), None),
+            BoxWidget::new()
+                .style(theme.surface.clone())
+                .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
+                .titles([BorderTitle::new(" surface ").style(theme.muted.clone())])
+                .padding(EdgeInsets::x(1))
+                .child(Text::rich([
+                    Span::new("a panel, with "),
+                    Span::styled(" selection ", theme.selection.clone()),
+                    Span::new(" in it"),
+                ])),
+        ]
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch);
+        let mut card = BoxWidget::new()
+            .style(theme.background.merge(&theme.text))
             .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-            .titles([BorderTitle::new(" surface ").style(theme.muted.clone())])
-            .padding(EdgeInsets::x(1))
-            .child(Text::rich([
-                Span::new("a panel, with "),
-                Span::styled(" selection ", theme.selection.clone()),
-                Span::new(" in it"),
-            ])),
-    ]
-    .main_axis_size(MainAxisSize::Min)
-    .cross_axis_alignment(CrossAxisAlignment::Stretch);
-    let mut card = BoxWidget::new()
-        .style(theme.background.merge(&theme.text))
-        .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-        .padding(EdgeInsets::x(2));
-    if let Some((name, controls)) = named {
-        sample = sample
-            .child(SizedBox::new(None, Some(1), None))
-            .child(controls)
-            .child(SizedBox::new(None, Some(1), None))
-            .child(row![
-                StatusMessage::new("Saved").kind(StatusKind::Success),
-                Expanded::new(1, LineGauge::new(0.6)
-                    .unfilled_style(Style::new().attrs(Attrs::DIM))),
-            ].spacing(2));
-        card = card.titles([BorderTitle::new(format!(" {name} "))
-            .style(theme.text.merge(&Style::new().attrs(Attrs::BOLD)))]);
+            .padding(EdgeInsets::x(2));
+        if let Some((name, controls)) = named {
+            sample = sample
+                .child(SizedBox::new(None, Some(1), None))
+                .child(controls)
+                .child(SizedBox::new(None, Some(1), None))
+                .child(row![
+                    StatusMessage::new("Saved").kind(StatusKind::Success),
+                    Expanded::new(1, LineGauge::new(0.6)
+                        .unfilled_style(Style::new().attrs(Attrs::DIM))),
+                ].spacing(2));
+            card = card.titles([BorderTitle::new(format!(" {name} "))
+                .style(theme.text.merge(&Style::new().attrs(Attrs::BOLD)))]);
+        }
+        SizedBox::new(Some(46), None, Some(card.child(sample).into()))
     }
-    SizedBox::new(Some(46), None, Some(card.child(sample).into()))
-}
 
-let (name, data) = ("nord", ThemeData::NORD);
-// The values and the handlers are kept by the application.
-let controls = row![
-    Button::new("Button").on_pressed(on_pressed),
-    Checkbox::new(checked).label("Checkbox").on_changed(on_checked),
-    Switch::new(on).label("Switch").on_changed(on_switched),
-].spacing(3);
-let controls = AnyWidget::from(controls);
-Theme::new(data, LayoutBuilder::new(move |cx, _| {
-    swatch_card(&Theme::of(cx), Some((name, controls.clone()))).into()
-}))
+    let (name, data) = ("nord", ThemeData::NORD);
+    // The values and the handlers are kept by the application.
+    let controls = row![
+        Button::new("Button").on_pressed(on_pressed),
+        Checkbox::new(checked).label("Checkbox").on_changed(on_checked),
+        Switch::new(on).label("Switch").on_changed(on_switched),
+    ].spacing(3);
+    let controls = AnyWidget::from(controls);
+    Theme::new(data, LayoutBuilder::new(move |cx, _| {
+        swatch_card(&Theme::of(cx), Some((name, controls.clone()))).into()
+    }))
+}
 ```
 
 ### Options
@@ -87,9 +89,9 @@ Theme::new(data, LayoutBuilder::new(move |cx, _| {
 
 ## TerminalBrightness
 
-Whether the terminal is dark or light, as it reports it; Theme.adaptive picks a dark or a light theme by it.
+Whether the terminal is dark or light, as it reports it; Theme::adaptive picks a dark or a light theme by it.
 
-- `rtwk::style::TerminalBrightness` (struct) in `crates/rtwk-widgets/src/style/theme.rs:1008`: Whether the terminal's colors are dark or light, for the widgets below it (TerminalBrightness::of) (twk's `TerminalBrightness`); Theme::adaptive picks its theme by it.
+- `rtwk::style::TerminalBrightness` (struct) in `crates/rtwk-widgets/src/style/theme.rs:1038`: Whether the terminal's colors are dark or light, for the widgets below it (TerminalBrightness::of) (twk's `TerminalBrightness`); Theme::adaptive picks its theme by it.
 
 ### Code
 
@@ -145,7 +147,7 @@ fn swatch_card(
 let adaptive = LayoutBuilder::new(|cx, _| {
     let (brightness, name) = match TerminalBrightness::of(cx) {
         Brightness::Dark => ("dark", "nord"),
-        Brightness::Light => ("light", "catppuccinLatte"),
+        Brightness::Light => ("light", "catppuccin latte"),
     };
     let card = LayoutBuilder::new(|cx, _| swatch_card(&Theme::of(cx), None).into());
     column![
@@ -157,7 +159,7 @@ let adaptive = LayoutBuilder::new(|cx, _| {
         .cross_axis_alignment(CrossAxisAlignment::Start).into()
 });
 // Use the brightness reported by the application's terminal.
-adaptive.into()
+AnyWidget::from(adaptive)
 ```
 
 ### Options
@@ -177,20 +179,23 @@ A background whose color changes from cell to cell, along the columns or down th
 ### Code
 
 ```rust
-// Redraw from the application clock while the gradient flows.
-let theme = Theme::of(cx);
-let colors = [Color::rgb(0xff, 0x5f, 0x6d), Color::rgb(0xff, 0xc3, 0x71)];
-let gradient = Gradient::new(colors)
-    .direction(Axis::Horizontal)
-    .phase(f64::from(i32::try_from(elapsed_ms.rem_euclid(4_000)).unwrap()) / 4_000.0);
+fn flowing(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    // Redraw from the application clock while the gradient flows.
+    use rtwk::style::Axis;
+    let theme = Theme::of(cx);
+    let colors = [Color::rgb(0xff, 0x5f, 0x6d), Color::rgb(0xff, 0xc3, 0x71)];
+    let gradient = Gradient::new(colors)
+        .direction(Axis::Horizontal)
+        .phase(f64::from(i32::try_from(elapsed_ms.rem_euclid(4_000)).unwrap()) / 4_000.0);
 
-let card = BoxWidget::new()
-    .style(theme.surface.clone())
-    .padding(EdgeInsets::only(2, 1, 2, 1))
-    .child(Text::new("a box over a gradient"));
-let center = Center::new(card);
-let backdrop = SizedBox::new(Some(44), Some(9), Some(center.into()));
-GradientBackground::new(gradient, Some(backdrop.into())).into()
+    let card = BoxWidget::new()
+        .style(theme.surface.clone())
+        .padding(EdgeInsets::only(2, 1, 2, 1))
+        .child(Text::new("a box over a gradient"));
+    let center = Center::new(card);
+    let backdrop = SizedBox::new(Some(44), Some(9), Some(center.into()));
+    GradientBackground::new(gradient, Some(backdrop.into())).into()
+}
 ```
 
 ### Options
@@ -211,24 +216,27 @@ Text whose color changes from glyph to glyph along each line, or from line to li
 ### Code
 
 ```rust
-// Redraw from the application clock while the gradient flows.
-let theme = Theme::of(cx);
-let colors = [theme.primary.fg.unwrap_or(Color::DEFAULT), theme.accent.fg.unwrap_or(Color::DEFAULT)];
-let gradient = Gradient::new(colors)
-    .direction(Axis::Horizontal)
-    .phase(f64::from(i32::try_from(elapsed_ms.rem_euclid(4_000)).unwrap()) / 4_000.0);
+fn flowing(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    // Redraw from the application clock while the gradient flows.
+    use rtwk::style::Axis;
+    let theme = Theme::of(cx);
+    let colors = [theme.primary.fg.unwrap_or(Color::DEFAULT), theme.accent.fg.unwrap_or(Color::DEFAULT)];
+    let gradient = Gradient::new(colors)
+        .direction(Axis::Horizontal)
+        .phase(f64::from(i32::try_from(elapsed_ms.rem_euclid(4_000)).unwrap()) / 4_000.0);
 
-column![
-    GradientForeground::new(gradient.clone(), Some(Text::new("████████╗██╗   ██╗██╗\n╚══██╔══╝██║   ██║██║\n   ██║   ██║   ██║██║\n   ██║   ██║   ██║██║\n   ██║   ╚██████╔╝██║\n   ╚═╝    ╚═════╝ ╚═╝\n\nColors that change from glyph to glyph\nalong each line, or down the rows.").into())),
-    Text::rich([
-        Span::styled("a span: ", theme.muted.clone()),
-        Span::gradient("Span.gradient, glyph by glyph", gradient),
-    ]),
-]
-.main_axis_size(MainAxisSize::Min)
-.cross_axis_alignment(CrossAxisAlignment::Start)
-.spacing(1)
-.into()
+    column![
+        GradientForeground::new(gradient.clone(), Some(Text::new("████████╗██╗   ██╗██╗\n╚══██╔══╝██║   ██║██║\n   ██║   ██║   ██║██║\n   ██║   ██║   ██║██║\n   ██║   ╚██████╔╝██║\n   ╚═╝    ╚═════╝ ╚═╝\n\nColors that change from glyph to glyph\nalong each line, or down the rows.").into())),
+        Text::rich([
+            Span::styled("a span: ", theme.muted.clone()),
+            Span::gradient("Span.gradient, glyph by glyph", gradient),
+        ]),
+    ]
+    .main_axis_size(MainAxisSize::Min)
+    .cross_axis_alignment(CrossAxisAlignment::Start)
+    .spacing(1)
+    .into()
+}
 ```
 
 ### Options

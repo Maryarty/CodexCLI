@@ -27,7 +27,7 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
     column![]
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .gap(1)
+        .spacing(1)
         .children(tasks.map(|task| {
             row![
                 Spinner::new()
@@ -36,7 +36,7 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
                 Text::new(task),
             ]
             .main_axis_size(MainAxisSize::Min)
-            .gap(1)
+            .spacing(1)
             .into()
         }))
         .into()
@@ -75,7 +75,7 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
             Text::new("Compiling…"),
         ]
         .main_axis_size(MainAxisSize::Min)
-        .gap(1),
+        .spacing(1),
     )
     .into()
 }
@@ -114,7 +114,7 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
             .child(ProgressBar::new(value.map(|v| f64::from(v) / 100.0)).style(style),)
     ]
     .main_axis_size(MainAxisSize::Min)
-    .gap(1);
+    .spacing(1);
     if let Some(value) = value {
         row = row.child(Text::new(format!("{value:>3}%")));
     }
@@ -135,7 +135,7 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
 
 Many tasks at once, a row each: its mark, a bar, how much is done, its rate and the time it has left, from a ProgressTracker the work counts on.
 
-- `rtwk::animation::ProgressList` (struct) in `crates/rtwk-animation/src/progress_list.rs:1080`: The tasks of a tracker, a row each, with the columns it is given: the mark of each task's TaskItemStatus, its label, a bar as a ProgressBar draws it — sweeping while the task runs without a total — and how far it has got, how fast it goes and the time it has left (twk's `ProgressList`):
+- `rtwk::animation::ProgressList` (struct) in `crates/rtwk-animation/src/progress_list.rs:1103`: The tasks of a tracker, a row each, with the columns it is given: the mark of each task's TaskItemStatus, its label, a bar as a ProgressBar draws it — sweeping while the task runs without a total — and how far it has got, how fast it goes and the time it has left (twk's `ProgressList`):
 
 ### Code
 
@@ -149,10 +149,10 @@ use rtwk::animation::{
     ProgressBarShape, ProgressColumn, ProgressList, ProgressTracker, ProgressUnit,
 };
 use rtwk::binding::AppBinding;
+use rtwk::clock::Clock;
 use rtwk::layout::SizedBox;
 use rtwk::style::SpinnerFrames;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_core::app::Clock;
 
 const DOWNLOADS: [(&str, f64, f64); 3] = [
     ("assets.zip", 3_400_000.0, 170_000.0),
@@ -391,8 +391,8 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
                         Skeletonize::new(
                             loading,
                             column![
-                                Text::new("user@twk").style(theme.primary.clone()),
-                                Text::new("Maintains twk and its gallery."),
+                                Text::new("user@rtwk").style(theme.primary.clone()),
+                                Text::new("Maintains rtwk and its gallery."),
                                 Text::new("Joined 19 October 2026").style(theme.muted.clone()),
                             ]
                             .main_axis_size(MainAxisSize::Min)
@@ -406,11 +406,11 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
             SizedBox::new(Some(40), None, None).child(Skeleton::text().lines(3)),
             row![Skeleton::new().width(8), Skeleton::new().width(12)]
                 .main_axis_size(MainAxisSize::Min)
-                .gap(1),
+                .spacing(1),
         ]
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .gap(1),
+        .spacing(1),
     )
     .glyph("░")
     .band(8)
@@ -551,7 +551,7 @@ pub fn build() -> AnyWidget {
 
 | option | values | starts at |
 | --- | --- | --- |
-| curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
+| curve | LINEAR, EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_OUT_SLOW_IN, DECELERATE, BOUNCE_OUT, ELASTIC_OUT | EASE_IN_OUT |
 | reverse | false, true | true |
 | duration | 1 s, 2 s, 4 s | 2 s |
 
@@ -564,38 +564,40 @@ A builder run again at each tick of an animation, the part that does not change 
 ### Code
 
 ```rust
-const DURATION: u64 = 2;
-const REVERSE: bool = true;
-const CURVE: Curve = Curves::EASE_IN_OUT;
-// Store and dispose the controller with the owning State.
-let controller = AnimationController::new(cx).with_duration(Duration::from_secs(DURATION));
-controller.repeat(REVERSE, None, cx);
-let animated = AnimatedBuilder::new(controller, |controller, child| {
-    let x = (CURVE.transform(controller.value()) * 35.0).round() as i32;
-    row![
-        SizedBox::new(Some(x.max(0)), None, None),
-        child.expect("the stable child").clone(),
-    ]
-    .into()
-})
-.child(
-    BoxWidget::new()
-        .style(theme.selection.clone())
-        .padding(EdgeInsets::x(1))
-        .child(Text::new("twk")),
-);
-SizedBox::new(Some(42), None, None).child(
-    BoxWidget::new()
-        .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-        .child(animated),
-)
+fn pulse<S: State>(cx: &mut Cx<'_, S>, theme: &ThemeData) -> SizedBox {
+    const DURATION: u64 = 2;
+    const REVERSE: bool = true;
+    const CURVE: Curve = Curves::EASE_IN_OUT;
+    // Store and dispose the controller with the owning State.
+    let controller = AnimationController::new(cx).with_duration(Duration::from_secs(DURATION));
+    controller.repeat(REVERSE, None, cx);
+    let animated = AnimatedBuilder::new(controller, |controller, child| {
+        let x = (CURVE.transform(controller.value()) * 34.0).round() as i32;
+        row![
+            SizedBox::new(Some(x.max(0)), None, None),
+            child.expect("the stable child").clone(),
+        ]
+        .into()
+    })
+    .child(
+        BoxWidget::new()
+            .style(theme.selection.clone())
+            .padding(EdgeInsets::x(1))
+            .child(Text::new("rtwk")),
+    );
+    SizedBox::new(Some(42), None, None).child(
+        BoxWidget::new()
+            .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
+            .child(animated),
+    )
+}
 ```
 
 ### Options
 
 | option | values | starts at |
 | --- | --- | --- |
-| curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
+| curve | LINEAR, EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_OUT_SLOW_IN, DECELERATE, BOUNCE_OUT, ELASTIC_OUT | EASE_IN_OUT |
 | reverse | false, true | true |
 | duration | 1 s, 2 s, 4 s | 2 s |
 
@@ -609,46 +611,48 @@ A child that runs to the place its alignment or its padding gives it, a cell at 
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-let duration = Duration::from_millis(600);
-// Rebuild at 1.2 s intervals from when cycling starts.
-let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
-let selected = (0 + step % 4) % 4;
-let curve = Curves::EASE_IN_OUT;
+fn cycling(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    let theme = Theme::of(cx);
+    let duration = Duration::from_millis(600);
+    // Rebuild at 1.2 s intervals from when cycling starts.
+    let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
+    let selected = (0 + step % 4) % 4;
+    let curve = Curves::EASE_IN_OUT;
 
-{
-    let alignment = [
-        Alignment::CENTER_LEFT,
-        Alignment::CENTER,
-        Alignment::CENTER_RIGHT,
-        Alignment::BOTTOM_RIGHT,
-    ][selected];
-    SizedBox::fixed(34, 7)
-        .child(
-            BoxWidget::new()
-                .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-                .child(
-                    column![
-                        Expanded::new(
-                            1,
-                            AnimatedAlign::new(
-                                alignment,
+    {
+        let alignment = [
+            Alignment::CENTER_LEFT,
+            Alignment::CENTER,
+            Alignment::CENTER_RIGHT,
+            Alignment::BOTTOM_RIGHT,
+        ][selected];
+        SizedBox::fixed(34, 7)
+            .child(
+                BoxWidget::new()
+                    .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
+                    .child(
+                        column![
+                            Expanded::new(
+                                1,
+                                AnimatedAlign::new(
+                                    alignment,
+                                    duration,
+                                    Text::new("◆ aligned").style(theme.primary.clone()),
+                                )
+                                .curve(curve.clone()),
+                            ),
+                            AnimatedPadding::new(
+                                EdgeInsets::only(alignment.x * 10 + 10, 0, 0, 0),
                                 duration,
-                                Text::new("◆ aligned").style(theme.primary.clone()),
+                                Text::new("◇ padded").style(theme.accent.clone()),
                             )
-                            .curve(curve.clone()),
-                        ),
-                        AnimatedPadding::new(
-                            EdgeInsets::only(alignment.x * 10 + 10, 0, 0, 0),
-                            duration,
-                            Text::new("◇ padded").style(theme.accent.clone()),
-                        )
-                        .curve(curve),
-                    ]
-                    .cross_axis_alignment(CrossAxisAlignment::Start),
-                ),
-        )
-        .into()
+                            .curve(curve),
+                        ]
+                        .cross_axis_alignment(CrossAxisAlignment::Start),
+                    ),
+            )
+            .into()
+    }
 }
 ```
 
@@ -656,8 +660,8 @@ let curve = Curves::EASE_IN_OUT;
 
 | option | values | starts at |
 | --- | --- | --- |
-| alignment | centerLeft, center, centerRight, bottomRight | centerLeft |
-| curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
+| alignment | CENTER_LEFT, CENTER, CENTER_RIGHT, BOTTOM_RIGHT | CENTER_LEFT |
+| curve | LINEAR, EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_OUT_SLOW_IN, DECELERATE, BOUNCE_OUT, ELASTIC_OUT | EASE_IN_OUT |
 | cycle | false, true | true |
 
 ## AnimatedPositioned
@@ -669,43 +673,45 @@ A child pinned in a stack that runs to the edges it is pinned to.
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-let duration = Duration::from_millis(600);
-// Rebuild at 1.2 s intervals from when cycling starts.
-let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
-let selected = (0 + step % 5) % 5;
-let curve = Curves::EASE_IN_OUT;
+fn cycling(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    let theme = Theme::of(cx);
+    let duration = Duration::from_millis(600);
+    // Rebuild at 1.2 s intervals from when cycling starts.
+    let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
+    let selected = (0 + step % 5) % 5;
+    let curve = Curves::EASE_IN_OUT;
 
-{
-    let (left, top, width, height) = [
-        (1, 1, 12, 1),
-        (1, 5, 12, 1),
-        (21, 5, 12, 1),
-        (21, 1, 12, 1),
-        (1, 1, 32, 5),
-    ][selected];
-    let pinned = AnimatedPositioned::new(
-        BoxWidget::new()
-            .style(theme.selection.clone())
-            .child(Center::new(Text::new("▣ pinned"))),
-        duration,
-    )
-    .left(left)
-    .top(top)
-    .width(width)
-    .height(height)
-    .curve(curve);
-    SizedBox::fixed(34, 7)
-        .child(
-            Stack::new()
-                .fit(StackFit::Expand)
-                .child(
-                    BoxWidget::new()
-                        .border(Border::all(theme.border.clone()).kind(BorderType::Rounded)),
-                )
-                .child(pinned),
+    {
+        let (left, top, width, height) = [
+            (1, 1, 12, 1),
+            (1, 5, 12, 1),
+            (21, 5, 12, 1),
+            (21, 1, 12, 1),
+            (1, 1, 32, 5),
+        ][selected];
+        let pinned = AnimatedPositioned::new(
+            BoxWidget::new()
+                .style(theme.selection.clone())
+                .child(Center::new(Text::new("▣ pinned"))),
+            duration,
         )
-        .into()
+        .left(left)
+        .top(top)
+        .width(width)
+        .height(height)
+        .curve(curve);
+        SizedBox::fixed(34, 7)
+            .child(
+                Stack::new()
+                    .fit(StackFit::Expand)
+                    .child(
+                        BoxWidget::new()
+                            .border(Border::all(theme.border.clone()).kind(BorderType::Rounded)),
+                    )
+                    .child(pinned),
+            )
+            .into()
+    }
 }
 ```
 
@@ -713,8 +719,8 @@ let curve = Curves::EASE_IN_OUT;
 
 | option | values | starts at |
 | --- | --- | --- |
-| pinned | topLeft, bottomLeft, bottomRight, topRight, fill | topLeft |
-| curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
+| pinned | TOP_LEFT, BOTTOM_LEFT, BOTTOM_RIGHT, TOP_RIGHT, fill | TOP_LEFT |
+| curve | LINEAR, EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_OUT_SLOW_IN, DECELERATE, BOUNCE_OUT, ELASTIC_OUT | EASE_IN_OUT |
 | cycle | false, true | true |
 
 ## AnimatedBox
@@ -726,50 +732,52 @@ A box whose size, padding, background and border colors run to the new ones; a b
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-let duration = Duration::from_millis(600);
-// Rebuild at 1.2 s intervals from when cycling starts.
-let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
-let selected = (0 + step % 2) % 2;
-let curve = Curves::EASE_IN_OUT;
+fn cycling(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    let theme = Theme::of(cx);
+    let duration = Duration::from_millis(600);
+    // Rebuild at 1.2 s intervals from when cycling starts.
+    let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
+    let selected = (0 + step % 2) % 2;
+    let curve = Curves::EASE_IN_OUT;
 
-{
-    let big = selected != 0;
-    let (width, height, fill, border, edge, padding) = if big {
-        (
-            34,
-            7,
-            theme.selection.clone(),
-            BorderType::Double,
-            theme.accent.clone(),
-            EdgeInsets::only(4, 1, 0, 0),
-        )
-    } else {
-        (
-            16,
-            3,
-            theme.surface.clone(),
-            BorderType::Rounded,
-            theme.border.clone(),
-            EdgeInsets::default(),
-        )
-    };
-    let animated = AnimatedBox::new(duration)
-        .width(width)
-        .height(height)
-        .style(fill)
-        .border(Border::all(edge).kind(border))
-        .padding(padding)
-        .curve(curve.clone())
-        .child(Text::new("a box"));
-    let (room_width, room_height) = if curve == Curves::ELASTIC_OUT {
-        (39, 8)
-    } else {
-        (34, 7)
-    };
-    SizedBox::fixed(room_width, room_height)
-        .child(Align::new(Alignment::TOP_LEFT, animated))
-        .into()
+    {
+        let big = selected != 0;
+        let (width, height, fill, border, edge, padding) = if big {
+            (
+                34,
+                7,
+                theme.selection.clone(),
+                BorderType::Double,
+                theme.accent.clone(),
+                EdgeInsets::only(4, 1, 0, 0),
+            )
+        } else {
+            (
+                16,
+                3,
+                theme.surface.clone(),
+                BorderType::Rounded,
+                theme.border.clone(),
+                EdgeInsets::default(),
+            )
+        };
+        let animated = AnimatedBox::new(duration)
+            .width(width)
+            .height(height)
+            .style(fill)
+            .border(Border::all(edge).kind(border))
+            .padding(padding)
+            .curve(curve.clone())
+            .child(Text::new("a box"));
+        let (room_width, room_height) = if curve == Curves::ELASTIC_OUT {
+            (39, 8)
+        } else {
+            (34, 7)
+        };
+        SizedBox::fixed(room_width, room_height)
+            .child(Align::new(Alignment::TOP_LEFT, animated))
+            .into()
+    }
 }
 ```
 
@@ -778,7 +786,7 @@ let curve = Curves::EASE_IN_OUT;
 | option | values | starts at |
 | --- | --- | --- |
 | big | false, true | false |
-| curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
+| curve | LINEAR, EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_OUT_SLOW_IN, DECELERATE, BOUNCE_OUT, ELASTIC_OUT | EASE_IN_OUT |
 | cycle | false, true | true |
 
 ## AnimatedOpacity, Opacity
@@ -791,46 +799,48 @@ A child shown at an opacity, mixed cell by cell with what is under it; the one o
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-let duration = Duration::from_millis(600);
-// Rebuild at 1.2 s intervals from when cycling starts.
-let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
-let selected = (2 + step % 5) % 5;
+fn cycling(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    let theme = Theme::of(cx);
+    let duration = Duration::from_millis(600);
+    // Rebuild at 1.2 s intervals from when cycling starts.
+    let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
+    let selected = (2 + step % 5) % 5;
 
-{
-    let opacity = [0.0, 0.25, 0.5, 0.75, 1.0][selected];
-    let over = |child: AnyWidget, name| {
-        column![
-            BoxWidget::new()
-                .style(theme.surface.clone())
-                .padding(EdgeInsets::all(1))
-                .child(
-                    Stack::new()
-                        .child(Text::new("under it, under it").style(theme.muted.clone()))
-                        .child(child),
-                ),
-            Text::new(name).style(theme.muted.clone()),
+    {
+        let opacity = [0.0, 0.25, 0.5, 0.75, 1.0][selected];
+        let over = |child: AnyWidget, name| {
+            column![
+                BoxWidget::new()
+                    .style(theme.surface.clone())
+                    .padding(EdgeInsets::all(1))
+                    .child(
+                        Stack::new()
+                            .child(Text::new("under it, under it").style(theme.muted.clone()))
+                            .child(child),
+                    ),
+                Text::new(name).style(theme.muted.clone()),
+            ]
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .spacing(1)
+        };
+        let shown = BoxWidget::new()
+            .style(theme.selection.clone())
+            .padding(EdgeInsets::x(1))
+            .child(Text::new("the child").style(theme.text.clone()));
+        row![
+            over(
+                AnimatedOpacity::new(opacity, duration)
+                    .child(shown.clone())
+                    .into(),
+                "AnimatedOpacity",
+            ),
+            over(Opacity::new(opacity).child(shown).into(), "Opacity"),
         ]
         .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .spacing(1)
-    };
-    let shown = BoxWidget::new()
-        .style(theme.selection.clone())
-        .padding(EdgeInsets::x(1))
-        .child(Text::new("the child").style(theme.text.clone()));
-    row![
-        over(
-            AnimatedOpacity::new(opacity, duration)
-                .child(shown.clone())
-                .into(),
-            "AnimatedOpacity",
-        ),
-        over(Opacity::new(opacity).child(shown).into(), "Opacity"),
-    ]
-    .main_axis_size(MainAxisSize::Min)
-    .spacing(2)
-    .into()
+        .spacing(2)
+        .into()
+    }
 }
 ```
 
@@ -850,29 +860,31 @@ The style of the text below it, its colors running to the new ones.
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-let duration = Duration::from_millis(600);
-// Rebuild at 1.2 s intervals from when cycling starts.
-let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
-let selected = (0 + step % 3) % 3;
-let bold = false;
+fn cycling(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    let theme = Theme::of(cx);
+    let duration = Duration::from_millis(600);
+    // Rebuild at 1.2 s intervals from when cycling starts.
+    let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
+    let selected = (0 + step % 3) % 3;
+    let bold = false;
 
-{
-    let mut style = [&theme.primary, &theme.error, &theme.success][selected].clone();
-    if bold {
-        style = style.merge(&Style::new().attrs(Attrs::BOLD));
+    {
+        let mut style = [&theme.primary, &theme.error, &theme.success][selected].clone();
+        if bold {
+            style = style.merge(&Style::new().attrs(Attrs::BOLD));
+        }
+        AnimatedDefaultTextStyle::new(
+            style,
+            duration,
+            column![
+                Text::new("Text in the style above it,"),
+                Text::new("and a second Text, in step."),
+            ]
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Start),
+        )
+        .into()
     }
-    AnimatedDefaultTextStyle::new(
-        style,
-        duration,
-        column![
-            Text::new("Text in the style above it,"),
-            Text::new("and a second Text, in step."),
-        ]
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start),
-    )
-    .into()
 }
 ```
 
@@ -893,50 +905,52 @@ As big as its child, running to the new size when the child grows or shrinks.
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-let duration = Duration::from_millis(600);
-// Rebuild at 1.2 s intervals from when cycling starts.
-let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
-let selected = (0 + step % 3) % 3;
-let curve = Curves::EASE_IN_OUT;
-let alignment = Alignment::TOP_LEFT;
+fn cycling(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    let theme = Theme::of(cx);
+    let duration = Duration::from_millis(600);
+    // Rebuild at 1.2 s intervals from when cycling starts.
+    let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
+    let selected = (0 + step % 3) % 3;
+    let curve = Curves::EASE_IN_OUT;
+    let alignment = Alignment::TOP_LEFT;
 
-{
-    let lines = [
-        "one line",
-        "a second, longer line",
-        "a third",
-        "a fourth, the longest of them",
-        "and a fifth",
-    ];
-    let count = [1, 3, 5][selected];
-    let animated = AnimatedSize::new(duration)
-        .alignment(alignment)
-        .curve(curve.clone())
-        .child(
-            column![]
-                .main_axis_size(MainAxisSize::Min)
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .children(
-                    lines[..count]
-                        .iter()
-                        .copied()
-                        .map(|line| Text::new(line).into()),
-                ),
-        );
-    let (width, height) = if curve == Curves::ELASTIC_OUT {
-        (36, 8)
-    } else {
-        (31, 7)
-    };
-    SizedBox::fixed(width, height)
-        .child(Align::new(
-            Alignment::TOP_LEFT,
-            BoxWidget::new()
-                .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-                .child(animated),
-        ))
-        .into()
+    {
+        let lines = [
+            "one line",
+            "a second, longer line",
+            "a third",
+            "a fourth, the longest of them",
+            "and a fifth",
+        ];
+        let count = [1, 3, 5][selected];
+        let animated = AnimatedSize::new(duration)
+            .alignment(alignment)
+            .curve(curve.clone())
+            .child(
+                column![]
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .children(
+                        lines[..count]
+                            .iter()
+                            .copied()
+                            .map(|line| Text::new(line).into()),
+                    ),
+            );
+        let (width, height) = if curve == Curves::ELASTIC_OUT {
+            (36, 8)
+        } else {
+            (31, 7)
+        };
+        SizedBox::fixed(width, height)
+            .child(Align::new(
+                Alignment::TOP_LEFT,
+                BoxWidget::new()
+                    .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
+                    .child(animated),
+            ))
+            .into()
+    }
 }
 ```
 
@@ -945,8 +959,8 @@ let alignment = Alignment::TOP_LEFT;
 | option | values | starts at |
 | --- | --- | --- |
 | lines | 1, 3, 5 | 1 |
-| alignment | topLeft, center, bottomRight | topLeft |
-| curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
+| alignment | TOP_LEFT, CENTER, BOTTOM_RIGHT | TOP_LEFT |
+| curve | LINEAR, EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_OUT_SLOW_IN, DECELERATE, BOUNCE_OUT, ELASTIC_OUT | EASE_IN_OUT |
 | cycle | false, true | true |
 
 ## TweenAnimationBuilder
@@ -958,25 +972,27 @@ Builds with a value that runs to the one it is given, through the tweens it make
 ### Code
 
 ```rust
-const TARGET: f64 = 0.5;
-const CURVE: Curve = Curves::EASE_IN_OUT;
-const CYCLE: bool = true;
-// With cycle enabled, update the target option every 1,200 ms.
-let target = if CYCLE { cycle_target } else { TARGET };
-let style = theme.accent.merge(&Style { bg: theme.surface.bg, ..Style::new() });
-TweenAnimationBuilder::new(target, Duration::from_millis(600), move |value, _| {
-    let bar = ProgressBar::new(Some(*value)).style(style.clone());
-    let text = Text::new(format!("{:.0}%", (value * 100.0).round()));
-    row![
-        SizedBox::new(Some(30), None, Some(bar.into())),
-        SizedBox::new(Some(4), None, Some(text.into())),
-    ]
-    .main_axis_size(MainAxisSize::Min)
-    .spacing(1)
-    .into()
-})
-.from(0.0)
-.curve(CURVE)
+fn tween(cycle_target: f64, theme: &ThemeData) -> TweenAnimationBuilder<f64> {
+    const TARGET: f64 = 0.5;
+    const CURVE: Curve = Curves::EASE_IN_OUT;
+    const CYCLE: bool = true;
+    // With cycle enabled, update the target option every 1,200 ms.
+    let target = if CYCLE { cycle_target } else { TARGET };
+    let style = theme.accent.merge(&Style { bg: theme.surface.bg, ..Style::new() });
+    TweenAnimationBuilder::new(target, Duration::from_millis(600), move |value, _| {
+        let bar = ProgressBar::new(Some(*value)).style(style.clone());
+        let text = Text::new(format!("{:.0}%", (value * 100.0).round()));
+        row![
+            SizedBox::new(Some(30), None, Some(bar.into())),
+            SizedBox::new(Some(4), None, Some(text.into())),
+        ]
+        .main_axis_size(MainAxisSize::Min)
+        .spacing(1)
+        .into()
+    })
+    .from(0.0)
+    .curve(CURVE)
+}
 ```
 
 ### Options
@@ -984,7 +1000,7 @@ TweenAnimationBuilder::new(target, Duration::from_millis(600), move |value, _| {
 | option | values | starts at |
 | --- | --- | --- |
 | value | 0, ¼, ½, ¾, 1 | ½ |
-| curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
+| curve | LINEAR, EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_OUT_SLOW_IN, DECELERATE, BOUNCE_OUT, ELASTIC_OUT | EASE_IN_OUT |
 | cycle | false, true | true |
 
 ## AnimatedSwitcher
@@ -996,29 +1012,31 @@ A child that gives way to another as the transition shows them: faded, slid or d
 ### Code
 
 ```rust
-let theme = Theme::of(cx);
-let duration = Duration::from_millis(600);
-// Rebuild at 1.2 s intervals from when cycling starts.
-let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
-let selected = (0 + step % 3) % 3;
-let transition = SwitcherTransition::FADE;
+fn cycling(elapsed_ms: i64, cx: &mut Cx<'_>) -> AnyWidget {
+    let theme = Theme::of(cx);
+    let duration = Duration::from_millis(600);
+    // Rebuild at 1.2 s intervals from when cycling starts.
+    let step = usize::try_from(elapsed_ms / 1_200).unwrap_or(0);
+    let selected = (0 + step % 3) % 3;
+    let transition = SwitcherTransition::FADE;
 
-{
-    let text = ["the first child", "and now the second one", "a third"][selected];
-    let child = AnyWidget::from(SizedBox::fixed(32, 3).child(Center::new(Text::new(text))))
-        .with_key(Key::value(text));
-    SizedBox::fixed(34, 5)
-        .child(
-            BoxWidget::new()
-                .style(theme.surface.clone())
-                .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-                .child(
-                    AnimatedSwitcher::new(duration)
-                        .transition(transition)
-                        .child(child),
-                ),
-        )
-        .into()
+    {
+        let text = ["the first child", "and now the second one", "a third"][selected];
+        let child = AnyWidget::from(SizedBox::fixed(32, 3).child(Center::new(Text::new(text))))
+            .with_key(Key::value(text));
+        SizedBox::fixed(34, 5)
+            .child(
+                BoxWidget::new()
+                    .style(theme.surface.clone())
+                    .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
+                    .child(
+                        AnimatedSwitcher::new(duration)
+                            .transition(transition)
+                            .child(child),
+                    ),
+            )
+            .into()
+    }
 }
 ```
 
@@ -1040,26 +1058,28 @@ What the transitions are made of: a share of the cells of a child, and a child m
 ### Code
 
 ```rust
-const SHARE: f64 = 0.5;
-const RUN: bool = true;
-const INVERSE: bool = false;
-// In a running preview, value comes from a repeating controller.
-let share = if RUN { controller.value() } else { SHARE };
-let shown = BoxWidget::new()
-    .style(theme.selection.clone())
-    .padding(EdgeInsets::x(1))
-    .child(Text::new("a child, its cells shown or moved"));
-let shifted = share - 1.0;
-let qualifier = if INVERSE { ", inverse: true" } else { "" };
-column![
-    Text::new(format!("Dissolve(shown: {share:.2}{qualifier})")).style(theme.muted.clone()),
-    Dissolve::new(share).inverse(INVERSE).child(shown.clone()),
-    SizedBox::new(None, Some(1), None),
-    Text::new(format!("FractionalTranslation(x: {shifted:.2})")).style(theme.muted.clone()),
-    FractionalTranslation::new(shifted, 0.0).child(shown),
-]
-.main_axis_size(MainAxisSize::Min)
-.cross_axis_alignment(CrossAxisAlignment::Start)
+fn dissolve(controller: &AnimationController, theme: &ThemeData) -> Column {
+    const SHARE: f64 = 0.5;
+    const RUN: bool = true;
+    const INVERSE: bool = false;
+    // In a running preview, value comes from a repeating controller.
+    let share = if RUN { controller.value() } else { SHARE };
+    let shown = BoxWidget::new()
+        .style(theme.selection.clone())
+        .padding(EdgeInsets::x(1))
+        .child(Text::new("a child, its cells shown or moved"));
+    let shifted = share - 1.0;
+    let qualifier = if INVERSE { ", inverse: true" } else { "" };
+    column![
+        Text::new(format!("Dissolve(shown: {share:.2}{qualifier})")).style(theme.muted.clone()),
+        Dissolve::new(share).inverse(INVERSE).child(shown.clone()),
+        SizedBox::new(None, Some(1), None),
+        Text::new(format!("FractionalTranslation(x: {shifted:.2})")).style(theme.muted.clone()),
+        FractionalTranslation::new(shifted, 0.0).child(shown),
+    ]
+    .main_axis_size(MainAxisSize::Min)
+    .cross_axis_alignment(CrossAxisAlignment::Start)
+}
 ```
 
 ### Options
@@ -1079,33 +1099,35 @@ A child shown through an effect over its cells, run on the app's clock: recolore
 ### Code
 
 ```rust
-const CYCLE: bool = true;
-let selected = CellEffect::sweep().with_duration(Duration::from_millis(600));
-// With cycle enabled, the caller supplies the next effect every 1,200 ms.
-let effect = if CYCLE { cycle_effect } else { selected };
-let subtree = SizedBox::new(Some(32), Some(3), None).child(column![
-    Text::new("Effects over a subtree").style(theme.primary.clone()),
-    row![Spinner::new().style(theme.accent.clone()), Text::new("repainting underneath")]
-        .spacing(1),
-    Text::new("the cells it paints, filtered").style(theme.muted.clone()),
-]
-.cross_axis_alignment(CrossAxisAlignment::Start));
-let shown = AnyWidget::from(Effect::new(effect).child(subtree)).with_key(runs);
-column![
-    BoxWidget::new()
-        .style(theme.surface.clone())
-        .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
-        .child(shown),
-    row![
-        Button::new("Again").on_pressed(on_again),
-        Text::new("a new key runs it from its start").style(theme.muted.clone()),
+fn effect(cycle_effect: CellEffect, theme: &ThemeData, runs: u64, on_again: Handler<()>) -> Column {
+    const CYCLE: bool = true;
+    let selected = CellEffect::sweep().with_duration(Duration::from_millis(600));
+    // With cycle enabled, the caller supplies the next effect every 1,200 ms.
+    let effect = if CYCLE { cycle_effect } else { selected };
+    let subtree = SizedBox::new(Some(32), Some(3), None).child(column![
+        Text::new("Effects over a subtree").style(theme.primary.clone()),
+        row![Spinner::new().style(theme.accent.clone()), Text::new("repainting underneath")]
+            .spacing(1),
+        Text::new("the cells it paints, filtered").style(theme.muted.clone()),
+    ]
+    .cross_axis_alignment(CrossAxisAlignment::Start));
+    let shown = AnyWidget::from(Effect::new(effect).child(subtree)).with_key(runs);
+    column![
+        BoxWidget::new()
+            .style(theme.surface.clone())
+            .border(Border::all(theme.border.clone()).kind(BorderType::Rounded))
+            .child(shown),
+        row![
+            Button::new("Again").on_pressed(on_again),
+            Text::new("a new key runs it from its start").style(theme.muted.clone()),
+        ]
+        .main_axis_size(MainAxisSize::Min)
+        .spacing(2),
     ]
     .main_axis_size(MainAxisSize::Min)
-    .spacing(2),
-]
-.main_axis_size(MainAxisSize::Min)
-.cross_axis_alignment(CrossAxisAlignment::Start)
-.spacing(1)
+    .cross_axis_alignment(CrossAxisAlignment::Start)
+    .spacing(1)
+}
 ```
 
 ### Options

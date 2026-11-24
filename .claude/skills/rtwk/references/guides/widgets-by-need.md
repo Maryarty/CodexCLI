@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 5583c142; do not edit. Source: tools/rtwk-port/skill/widgets-by-need.src.md. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk c953f062; do not edit. Source: tools/rtwk-port/skill/widgets-by-need.src.md. -->
 # Which rtwk widget for which codex-tui need
 
 The rows are what the oracle (`codex-rs/tui`, ratatui) draws or does, and the rtwk widget that carries it

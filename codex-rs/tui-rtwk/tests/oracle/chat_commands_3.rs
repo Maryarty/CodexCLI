@@ -808,7 +808,7 @@ fn startup_submission_waits_for_session_and_sends_exactly_once() {
 fn startup_submission_escape_restores_editing_without_submitting() {
     kit::pending(
         Owner::ChatNavPane,
-        "the startup draft (keep the draft, cursor 4) and the rejected-startup Disconnected restricted input are not seedable black-box",
+        "feature startup draft (w2-composer, startup): not in the port (keep the draft, cursor 4) and the rejected-startup Disconnected restricted input are not reachable black-box",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("keep the draft");
@@ -865,7 +865,7 @@ fn owned_startup_keeps_the_live_bottom_geometry() {
 fn new_startup_decoration_tracks_draft_and_session_action() {
     kit::pending(
         Owner::ChatNavPane,
-        "the startup blossom decoration per draft and session action is not seedable black-box; the kit has no any-braille-glyph assertion (kit gap)",
+        "feature startup blossom decoration (w2-composer, startup): not in the port per draft and session action is not reachable black-box; the kit has no any-braille-glyph assertion (kit gap)",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 32).live().open();
     s.type_text(" ");
@@ -890,7 +890,7 @@ fn configured_welcome_opt_out_disables_blossom_and_clicks() {
 fn startup_draft_renders_full_empty_and_multiline_composer_frames() {
     kit::pending(
         Owner::ChatNavPane,
-        "the pre-session startup draft (session actions New, Resume, Fork; a 18-column narrow frame) is not seedable black-box",
+        "feature pre-session startup draft (w2-composer, startup): not in the port (session actions New, Resume, Fork; a 18-column narrow frame) is not reachable black-box",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(48, 24).live().open();
     s.assert_snap_section("startup_draft_full_frames", "empty (48 columns)");
@@ -907,7 +907,7 @@ fn startup_draft_renders_full_empty_and_multiline_composer_frames() {
 fn terminal_app_ssh_fallback_renders_inline_startup() {
     kit::pending(
         Owner::ChatNavPane,
-        "the terminal-app-over-ssh inline startup (alt screen off) is not seedable black-box",
+        "feature terminal-app-over-ssh inline startup (w2-composer, startup): not in the port (alt screen off) is not reachable black-box",
     );
     let s = Screen::build(Owner::ChatNavPane).size(48, 16).live().open();
     s.assert_snap("terminal_app_ssh_startup");
@@ -918,7 +918,7 @@ fn terminal_app_ssh_fallback_renders_inline_startup() {
 fn startup_draft_clears_loading_status_when_starting_fresh() {
     kit::pending(
         Owner::ChatNavPane,
-        "the startup draft's loading status and its fresh-session transitions (resume and fork lookups, picker cancellation) are not seedable black-box",
+        "feature startup draft (w2-composer, startup): not in the port's loading status and its fresh-session transitions (resume and fork lookups, picker cancellation) are not reachable black-box",
     );
     let s = Screen::build(Owner::ChatNavPane).size(48, 24).live().open();
     s.assert_snap_section(
@@ -944,7 +944,7 @@ fn startup_draft_clears_loading_status_when_starting_fresh() {
 fn startup_draft_hydrates_its_header_without_moving_the_composer() {
     kit::pending(
         Owner::ChatNavPane,
-        "the startup header's directory line (loading, then the configured cwd) is not seedable black-box",
+        "feature startup header (w2-composer, startup): not in the port's directory line (loading, then the configured cwd) is not reachable black-box",
     );
     let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.assert_contains("directory: loading");
@@ -956,7 +956,7 @@ fn startup_draft_hydrates_its_header_without_moving_the_composer() {
 fn startup_draft_applies_super_editor_keymap_without_inserting_pending_newline() {
     kit::pending(
         Owner::ChatNavPane,
-        "the startup draft with a super-z editor keymap and the F12 chord guide need the keymap seed (not registered) and the startup draft",
+        "feature startup draft (w2-composer, startup): not in the port with a super-z editor keymap and the F12 chord guide need the keymap seed (not registered) and the startup draft",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("draft");
@@ -974,7 +974,7 @@ fn startup_draft_applies_super_editor_keymap_without_inserting_pending_newline()
 fn startup_draft_waits_for_onboarding_before_accepting_input() {
     kit::pending(
         Owner::ChatNavPane,
-        "the startup draft held behind onboarding (first login, search override, existing history) is not seedable black-box",
+        "feature startup draft (w2-composer, startup): not in the port held behind onboarding (first login, search override, existing history) is not reachable black-box",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.keys("x");

@@ -48,8 +48,9 @@ impl StatelessWidget for NoteCell {
     }
 }
 
-/// The row's text as the cell shows it (the bullet is a gutter of the
-/// info row; the error row's `■ ` is part of its text, as `error::line`).
+/// The row's text as the cell shows it: one `Text.rich`, so the mark in front
+/// (the info bullet, the done check, the error row's `■ `) is the first span of
+/// the row's own text and part of it (as `error::line`).
 pub fn texts(
     note: &Note,
     chat: &crate::pages::session::strings::Strings,
@@ -57,20 +58,8 @@ pub fn texts(
 ) -> Vec<Part> {
     let message = chat.note(&note.key);
     match note.tone {
-        Tone::Info => vec![
-            Part {
-                text: cells.bullet.to_owned(),
-                gutter: true,
-            },
-            Part::text(message),
-        ],
-        Tone::Done => vec![
-            Part {
-                text: cells.check.to_owned(),
-                gutter: true,
-            },
-            Part::text(message),
-        ],
+        Tone::Info => vec![Part::text([cells.bullet, &message].concat())],
+        Tone::Done => vec![Part::text([cells.check, &message].concat())],
         Tone::Error => vec![Part::text(cells.error_line.replace("{}", &message))],
     }
 }
