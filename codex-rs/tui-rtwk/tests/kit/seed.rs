@@ -397,7 +397,10 @@ fn feed(h: &mut Harness, text: &str) {
                 h.fake.inject(epoch, AppEv::Clock(now));
             }
             step @ (Step::Note { .. } | Step::Presets { .. }) => {
-                match step.event().expect("a `note` or `presets` step is an event") {
+                match step
+                    .event()
+                    .expect("a `note` or `presets` step is an event")
+                {
                     Ok(ev) => h.fake.inject(epoch, ev),
                     Err(err) => panic!("script line {line}: {err}"),
                 }

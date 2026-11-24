@@ -14,7 +14,10 @@ impl Screen {
     /// Windows sandbox setup runs and has no end yet (`Input disabled until setup completes.`,
     /// the draft stays, no key is taken). The live chat only.
     pub fn input_disabled(&mut self) -> &mut Screen {
-        assert!(!self.entry, "the setup runs in the live app, not in an entry's model");
+        assert!(
+            !self.entry,
+            "the setup runs in the live app, not in an entry's model"
+        );
         answer(
             &mut self.h,
             "windowsSandbox/setupStart".to_string(),
@@ -45,7 +48,12 @@ impl Screen {
     /// Attaches a PNG of `width` x `height` pixels at the caret (`attach_image` with the size a
     /// thumbnail is laid out for): the file is a solid image `name` in a directory of this test
     /// process. Returns its path.
-    pub fn attach_image_sized(&mut self, name: &str, width: u32, height: u32) -> std::path::PathBuf {
+    pub fn attach_image_sized(
+        &mut self,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> std::path::PathBuf {
         let path = super::image_file_sized(name, width, height);
         self.paste(&path.to_string_lossy());
         self.keys("backspace");

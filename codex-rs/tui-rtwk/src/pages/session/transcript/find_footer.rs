@@ -21,9 +21,9 @@ use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use super::find::{self, Finder, Mode};
-pub use crate::widgets::finder::{Progress, Status};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
+pub use crate::widgets::finder::{Progress, Status};
 
 /// The spellings of the status row, the widest first (`status_line`).
 pub fn candidates(table: &Strings, status: &Status) -> Vec<String> {

@@ -217,7 +217,11 @@ mod kit_seeds {
     /// `Open::side()` is the live chat inside `/side`; Ctrl+C over its empty composer returns.
     #[test]
     fn the_side_seed_opens_a_side_conversation_that_ctrl_c_closes() {
-        let mut s = Screen::build(Owner::ChatLive).size(100, 12).live().side().open();
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(100, 12)
+            .live()
+            .side()
+            .open();
         s.assert_contains("to switch");
         assert!(!s.side_closed());
         s.keys("ctrl+c");
@@ -362,13 +366,22 @@ mod kit_snapshots {
                 "../oracle/fixtures/cells_5/user_history_cell_wraps_long_urls_inside_the_message_gutter.jsonl"
             ))
             .open();
-        let cells = s.grid().locate_cells(url).expect("the url is on the screen");
+        let cells = s
+            .grid()
+            .locate_cells(url)
+            .expect("the url is on the screen");
         let rows: BTreeSet<usize> = cells.iter().map(|&(_, y)| y).collect();
         assert_eq!(rows.len(), 3, "{}", s.text());
         assert_eq!(cells.len(), url.len());
         // a text of one row is still found as it was
-        let one = s.grid().locate_cells("I just reprocessed").expect("one row");
-        assert_eq!(one.iter().map(|&(_, y)| y).collect::<BTreeSet<_>>().len(), 1);
+        let one = s
+            .grid()
+            .locate_cells("I just reprocessed")
+            .expect("one row");
+        assert_eq!(
+            one.iter().map(|&(_, y)| y).collect::<BTreeSet<_>>().len(),
+            1
+        );
     }
 
     const APPS: &str = r#"{"step":"respond","method":"app/list","result":{"data":[{"id":"notion","name":"Notion","description":"Workspace docs","installUrl":"https://example.test/notion","isAccessible":true,"isEnabled":false,"pluginDisplayNames":[]}],"nextCursor":null}}"#;
@@ -395,10 +408,11 @@ mod kit_snapshots {
     /// A `presets` step is what the host sends once the config is read: `/presets` opens its menu.
     #[test]
     fn a_presets_step_tells_the_app_the_saved_presets() {
-        let mut s = Screen::build(Owner::DialogsPane).size(100, 20).live().open();
-        s.feed(
-            r#"{"step":"presets","slots":[{"slot":1,"input":"/status","label":"Status"}]}"#,
-        );
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(100, 20)
+            .live()
+            .open();
+        s.feed(r#"{"step":"presets","slots":[{"slot":1,"input":"/status","label":"Status"}]}"#);
         s.type_text("/presets");
         s.keys("enter");
         s.assert_contains("n · new   s · from settings   e · edit   d · delete   esc · close");

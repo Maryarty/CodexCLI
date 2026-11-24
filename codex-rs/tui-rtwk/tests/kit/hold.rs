@@ -21,14 +21,4 @@ impl Screen {
         self.h.advance(100);
         self
     }
-
-    /// How many requests of wire `method` the app has made.
-    pub fn requests_of(&self, method: &str) -> usize {
-        self.h
-            .fake
-            .requests()
-            .iter()
-            .filter(|request| request["method"].as_str() == Some(method))
-            .count()
-    }
 }

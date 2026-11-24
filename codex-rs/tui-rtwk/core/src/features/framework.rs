@@ -304,8 +304,9 @@ use probe_list::{
     FeatureNote, FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha,
     answered, apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode,
     effect_done, names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact,
-    on_interest, on_interrupted, on_limits, on_resumed, on_shown, on_turn_end, project, project_request,
-    runs_of, seed_note, structured_done, thread_opened, thread_wakes_due, wakes_due, wire,
+    on_interest, on_interrupted, on_limits, on_resumed, on_shown, on_turn_end, project,
+    project_request, runs_of, seed_note, structured_done, thread_opened, thread_wakes_due,
+    wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -571,7 +572,10 @@ fn a_note_is_seeded_by_the_feature_that_says_it() {
         Err(SeedError::Bad(_))
     ));
     assert_eq!(seed_note("beta", json!("error")), Err(SeedError::NoSeeds));
-    assert_eq!(seed_note("gamma", json!("error")), Err(SeedError::UnknownDir));
+    assert_eq!(
+        seed_note("gamma", json!("error")),
+        Err(SeedError::UnknownDir)
+    );
 }
 
 #[test]
@@ -703,8 +707,14 @@ fn the_limits_reach_every_feature_in_list_order() {
         [
             ("alpha", Hook::Limits(Source::Read, true)),
             ("beta", Hook::Limits(Source::Read, true)),
-            ("alpha", Hook::Limits(Source::Rolling { read_out: true }, false)),
-            ("beta", Hook::Limits(Source::Rolling { read_out: true }, false)),
+            (
+                "alpha",
+                Hook::Limits(Source::Rolling { read_out: true }, false)
+            ),
+            (
+                "beta",
+                Hook::Limits(Source::Rolling { read_out: true }, false)
+            ),
         ]
     );
 }

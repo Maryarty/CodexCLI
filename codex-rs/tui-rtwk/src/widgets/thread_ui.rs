@@ -16,8 +16,8 @@ use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::backtrack::{Backtrack, Chosen as Selection, EscStep, Targets};
 
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::finder::Finder;
 use crate::widgets::composer_sparkle::SparkleController;
+use crate::widgets::finder::Finder;
 
 /// The controllers of one thread.
 #[derive(Clone, Default, PartialEq)]

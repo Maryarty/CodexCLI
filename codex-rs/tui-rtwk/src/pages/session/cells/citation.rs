@@ -19,8 +19,8 @@ use std::sync::Arc;
 use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
-    Block, Definitions, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock, MdCodeBlock, MdInline,
-    MdList, MdListItem, MdTable,
+    Block, Definitions, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock, MdCodeBlock,
+    MdInline, MdList, MdListItem, MdTable,
 };
 
 use codex_tui_core::app::facts::{Rendering, TuiSettings};

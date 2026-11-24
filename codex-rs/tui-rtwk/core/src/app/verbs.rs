@@ -85,4 +85,3 @@ mod tests {
         assert!(app.screens().chat.notes.is_empty(), "no line is said");
     }
 }
-
