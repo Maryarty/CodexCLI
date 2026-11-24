@@ -475,6 +475,7 @@ impl State for UserInputViewState {
             Msg::Clear if in_options => {
                 let state = &mut self.questions[self.current];
                 state.selected = false;
+                state.options.clear();
                 state.committed = false;
                 state.notes_open = false;
                 state.notes.clear();

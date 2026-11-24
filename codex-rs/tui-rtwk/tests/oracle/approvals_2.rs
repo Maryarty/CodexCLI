@@ -344,10 +344,6 @@ fn esc_drops_committed_answers() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2824 backspace_in_options_clears_selection kind=ui owner=dialogs-pane
 #[test]
 fn backspace_in_options_clears_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "`src/widgets/options.rs` (not this slice's file) has no empty-cursor state: the sheet clears its selection (core: no answer) but `Options` always draws a `› ` row; wanted: an Options cursor that can be none",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
