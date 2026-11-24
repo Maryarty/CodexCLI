@@ -68,7 +68,7 @@ fn reason(reason: Reason) -> &'static str {
     }
 }
 
-fn row(state: &RowState) -> Item {
+fn row(state: RowState) -> Item {
     let (id, name) = match state.row {
         Row::Update(Source::PublicStable) => (INSTALL_STABLE, "Install latest public stable"),
         Row::Update(Source::ThisCli) => (USE_THIS_CLI, "Use this CLI build"),
@@ -119,7 +119,7 @@ pub fn menu(menu: Menu, page: &Page, cli: Option<&Cli>) -> List {
             if let Some(why) = page.guidance {
                 header.push(line(guidance(why), Role::Dim));
             }
-            (header, page.rows.iter().map(row).collect())
+            (header, page.rows.iter().copied().map(row).collect())
         }
         Menu::ConfirmRestart => (
             vec![

@@ -103,22 +103,15 @@ fn slash_rename_shows_the_features_name_prompt() {
 
 /// Item 8: `/subagents` is the picker of this session's subagents (oracle:
 /// `slash_dispatch.rs:412`, `AppEvent::OpenAgentPicker`), not the command
-/// center; the picker is not built, so the sheet says so.
+/// center: a sheet titled `Subagents` with the main thread's row.
 #[test]
 fn slash_subagents_opens_the_agent_picker_not_the_command_center() {
     let mut h = chat();
     run_command(&mut h, "/subagents");
-    h.wait_for("the sheet", |s| {
-        s.contains("Not implemented yet: subagent picker")
-    });
+    h.wait_for("the sheet", |s| s.contains("Main [default]"));
     h.t.pump_for(ms(800));
     assert_eq!(open::last_opened(), Some(Target::AgentPicker));
-    assert!(
-        h.t.screen()
-            .contains("Not implemented yet: subagent picker"),
-        "{}",
-        h.t.screen()
-    );
+    assert!(h.t.screen().contains("Subagents"), "{}", h.t.screen());
 }
 
 /// The command typed in the popup and picked with Enter, not typed in full.
