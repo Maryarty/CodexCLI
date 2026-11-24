@@ -35,6 +35,9 @@ pub(super) fn carry(app: &mut CodexApp, lifecycle: Lifecycle, fx: &mut AppFx) {
             let draft = ScreenThreadIntent::Chat(chat::ThreadIntent::Draft(text));
             apply_thread(app, &thread, ThreadEv::ScreenIntent(draft), fx);
         }
+        Lifecycle::QuietInterrupts { thread, quiet } => {
+            apply_thread(app, &thread, ThreadEv::QuietInterrupts(quiet), fx);
+        }
     }
 }
 

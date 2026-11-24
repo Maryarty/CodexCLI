@@ -876,6 +876,9 @@ pub enum CommandEv {
 pub enum ThreadEv {
     /// A startup draft was accepted while an attached thread is pending.
     DeferredSubmit,
+    /// The thread tells (`false`) or does not tell (`true`) its transcript that a turn was
+    /// interrupted: a side conversation keeps it out (`InterruptedTurnNoticeMode::Suppress`).
+    QuietInterrupts(bool),
     ConnectionLost,
     /// The thread's event stream was lost while the connection stands (the server's `thread
     /// stream disconnected`): what the user sends waits in the queue until it is restored
@@ -1135,6 +1138,8 @@ pub struct ThreadCore {
     /// Esc with steers pending: the interrupt that follows sends them as one
     /// message (`submit_pending_steers_after_interrupt`).
     steers_after_interrupt: bool,
+    /// An interrupted turn leaves no notice in the transcript (`QuietInterrupts`).
+    quiet_interrupts: bool,
     /// The last messages given back to the composer.
     restore: Option<Restore>,
     /// A message went back to the composer while others wait (a refused image
@@ -1327,6 +1332,7 @@ impl ThreadModel {
                 pending_steers: Vec::new(),
                 rejected_steers: Vec::new(),
                 steers_after_interrupt: false,
+                quiet_interrupts: false,
                 restore: None,
                 recovered: false,
                 processes: processes::Processes::default(),
@@ -3058,6 +3064,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Draft(
             text,
         ))) => give_back(model, vec![UserMessage::text(text)], true),
+        ThreadEv::QuietInterrupts(quiet) => model.quiet_interrupts = quiet,
         ThreadEv::FeatureIntent(intent) => with_features(model, fx, |parts, cx| {
             features::apply_thread_intent(parts, intent, cx);
         }),
@@ -3402,7 +3409,9 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
     } else {
         Notice::Interrupted
     };
-    apply_appended(model, Some(turn.clone()), Item::Notice(notice));
+    if !model.quiet_interrupts {
+        apply_appended(model, Some(turn.clone()), Item::Notice(notice));
+    }
     if submit && !mine.is_empty() {
         let merged = merge_messages(mine.into_iter().map(|steer| steer.message).collect());
         if let Err(merged) = fx.start_turn(merged) {

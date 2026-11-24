@@ -458,3 +458,64 @@ fn the_rate_limit_prompt_is_hidden_by_a_persisted_notice_setting() {
         }]
     );
 }
+
+/// `turn/completed` of an interrupted turn (the fixtures' builders have none).
+fn turn_interrupted(thread: &str, turn_id: &str) -> BackendEv {
+    use codex_app_server_protocol::{
+        ServerNotification, Turn, TurnCompletedNotification, TurnItemsView, TurnStatus,
+    };
+    BackendEv::Notification(Box::new(ServerNotification::TurnCompleted(
+        TurnCompletedNotification {
+            thread_id: thread.to_string(),
+            turn: Turn {
+                id: turn_id.to_string(),
+                root_turn_id: None,
+                items: Vec::new(),
+                items_view: TurnItemsView::NotLoaded,
+                status: TurnStatus::Interrupted,
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+            },
+        },
+    )))
+}
+
+/// A thread that was told to be quiet about interruptions (a side conversation's own thread)
+/// leaves no notice in its transcript when a turn is interrupted, and tells it again once the
+/// flag is off; the thread beside it is untouched.
+#[test]
+fn a_quiet_thread_leaves_no_interruption_notice() {
+    use codex_tui_core::app::apply_thread;
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_core::threads::{Item, Notice, ThreadEv};
+
+    fn notices(app: &CodexApp) -> usize {
+        app.active_thread()
+            .transcript()
+            .iter()
+            .filter(|(_, item)| matches!(item, Item::Notice(Notice::Interrupted)))
+            .count()
+    }
+    fn interrupted(app: &mut CodexApp, turn: &str) {
+        run(app, AppEv::Backend(turn_started("thread-1", turn)));
+        run(app, AppEv::Backend(turn_interrupted("thread-1", turn)));
+    }
+
+    let mut app = codex_tui_core::fixtures::script::build(
+        r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+    )
+    .expect("plays")
+    .app;
+    let thread = ThreadId::new("thread-1");
+    interrupted(&mut app, "turn-1");
+    assert_eq!(notices(&app), 1, "the default says it");
+    let mut fx = AppFx::default();
+    apply_thread(&mut app, &thread, ThreadEv::QuietInterrupts(true), &mut fx);
+    interrupted(&mut app, "turn-2");
+    assert_eq!(notices(&app), 1, "a quiet thread says nothing");
+    apply_thread(&mut app, &thread, ThreadEv::QuietInterrupts(false), &mut fx);
+    interrupted(&mut app, "turn-3");
+    assert_eq!(notices(&app), 2, "and says it again when it is told to");
+}

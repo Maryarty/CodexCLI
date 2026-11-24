@@ -76,4 +76,7 @@ pub enum Lifecycle {
     },
     /// Text that could not go is given back to `thread`'s composer.
     GiveBack { thread: ThreadId, text: String },
+    /// `thread` leaves no notice in its transcript when a turn is interrupted (`quiet`), or
+    /// does again: the flag is the thread's (a side conversation sets it on its own thread).
+    QuietInterrupts { thread: ThreadId, quiet: bool },
 }

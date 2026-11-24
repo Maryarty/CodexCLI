@@ -541,6 +541,16 @@ impl<'a> AppCx<'a> {
         }));
     }
 
+    /// Whether `thread` keeps the notice of an interrupted turn out of its transcript: a side
+    /// conversation says it of its own thread (`set_interrupted_turn_notice_mode`). The
+    /// thread's own, until it is told again; the default is to show it.
+    pub fn quiet_interrupts(&mut self, thread: &ThreadId, quiet: bool) {
+        self.out.push(Out::Lifecycle(Lifecycle::QuietInterrupts {
+            thread: thread.clone(),
+            quiet,
+        }));
+    }
+
     /// Says what the chat reads of the thread in use (a side conversation's flag and footer).
     pub fn chat_facts(&mut self, facts: ChatFacts) {
         self.out.push(Out::Chat(facts));

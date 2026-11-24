@@ -789,6 +789,27 @@ fn a_turn_error_is_reworded_by_the_first_feature_that_has_words() {
     assert_eq!(words("the server's own"), None);
 }
 
+/// A feature says its own thread is quiet about interruptions (a side conversation): the door
+/// is one lifecycle step the app carries out (`ThreadEv::QuietInterrupts`).
+#[test]
+fn a_feature_makes_its_thread_quiet_about_interruptions() {
+    let (threads, screens, tui) = (
+        ThreadSet::default(),
+        ScreenStates::default(),
+        TuiSettings::default(),
+    );
+    let mut cx = AppCx::new(AppView::new(None, &threads, &screens, &tui, &[], None));
+    let thread = ThreadId::new("side-1");
+    cx.quiet_interrupts(&thread, true);
+    assert_eq!(
+        cx.into_out(),
+        [Out::Lifecycle(super::Lifecycle::QuietInterrupts {
+            thread,
+            quiet: true
+        })]
+    );
+}
+
 /// A user message of an unnamed thread reaches every feature, in list order.
 #[test]
 fn a_user_message_reaches_every_feature_in_list_order() {
