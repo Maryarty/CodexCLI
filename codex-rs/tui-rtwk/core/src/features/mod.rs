@@ -46,11 +46,23 @@ pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 // One line per feature of `feature_list!`, written out so that rustfmt (which follows `mod` lines,
 // not macro expansions) formats the slices too. A feature of the list without its module does not
 // compile: `feature_dirs!` names `$name::$variant`.
+pub mod copy;
+pub mod daemon;
+pub mod diff;
 pub mod export;
+pub mod external_editor;
+pub mod feedback;
 pub mod goal;
+pub mod mcp_inventory;
 pub mod plugins;
+pub mod processes;
+pub mod recap;
 pub mod rename;
+pub mod security_setup;
 pub mod settings;
+pub mod side;
+pub mod small_cmds;
+pub mod windows_sandbox;
 
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
@@ -266,8 +278,20 @@ macro_rules! feature_list {
             goal => Goal;
             rename => Rename;
             export => Export;
+            feedback => Feedback;
             plugins => Plugins;
             settings => Settings;
+            processes => Processes;
+            mcp_inventory => McpInventory;
+            diff => Diff;
+            daemon => Daemon;
+            security_setup => SecuritySetup;
+            windows_sandbox => WindowsSandbox;
+            copy => Copier;
+            small_cmds => SmallCmds;
+            recap => Recap;
+            external_editor => ExternalEditor;
+            side => Side;
         }
     };
 }

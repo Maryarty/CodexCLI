@@ -237,6 +237,7 @@ pub enum SessionIntent {
         path: String,
     },
     Pwd,
+    /// `/mcp verbose` and `/mcp login <server>` (a bare `/mcp` is the feature's, `Feature::OPENS`).
     Mcp {
         args: Option<String>,
     },
@@ -247,10 +248,8 @@ pub enum SessionIntent {
         args: Option<String>,
     },
     Daybreak,
-    ElevateSandbox,
     Hooks,
     DebugConfig,
-    Ps,
     Stop,
     Rollout,
     App,
@@ -451,14 +450,14 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
                 Outcome::Notice(Notice::ModelStartup)
             }
         }
-        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps => {
+        Presets | AutoReview | Archive | Delete | Review | Permissions | Apps => {
             open(Target::Select, command, "")
         }
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
             open(Target::Settings, command, "")
         }
         // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
-        Export | Plugins => match target_of(command) {
+        Export | Plugins | Ps | Mcp | Diff | Daemon | ElevateSandbox => match target_of(command) {
             Some(feature) => open(Target::Feature(feature), command, ""),
             None => Outcome::Notice(Notice::NotAvailable(command)),
         },
@@ -466,7 +465,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         MultiAgents => open(Target::AgentPicker, command, ""),
         Resume => open(Target::Resume, command, ""),
         Import => open(Target::Import, command, ""),
-        Diff => open(Target::Pager, command, ""),
         Status => session(command, SessionIntent::Status),
         Warnings | Feedback | Rename => open(Target::Dialogs, command, ""),
         Pets => open(Target::Pets, command, ""),
@@ -503,15 +501,12 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
             },
         ),
         Pwd => session(command, SessionIntent::Pwd),
-        Mcp => session(command, SessionIntent::Mcp { args: None }),
         Logout => session(command, SessionIntent::Logout),
         Vim => session(command, SessionIntent::Vim),
         Ide => session(command, SessionIntent::Ide { args: None }),
         Daybreak => session(command, SessionIntent::Daybreak),
-        ElevateSandbox => session(command, SessionIntent::ElevateSandbox),
         Hooks => session(command, SessionIntent::Hooks),
         DebugConfig => session(command, SessionIntent::DebugConfig),
-        Ps => session(command, SessionIntent::Ps),
         Stop => session(command, SessionIntent::Stop),
         Rollout => session(command, SessionIntent::Rollout),
         MemoryDrop | MemoryUpdate => session(command, SessionIntent::MemoryMaintenance),

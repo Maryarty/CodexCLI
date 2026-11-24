@@ -53,6 +53,9 @@ pub struct Model {
     /// `/raw`: the transcript is shown as text for terminal selection
     /// (`raw_output_mode`). The rendering reads it.
     pub raw_output: bool,
+    /// What `/title` and `/statusline` set for this session: it outlives the host's facts, which
+    /// replace the status whole.
+    pub status_override: StatusOverride,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
     /// The footer's and the status line's other facts: the workspace probes, the side and
@@ -275,6 +278,7 @@ impl Default for Model {
             signed_in: true,
             notes: Vec::new(),
             raw_output: false,
+            status_override: StatusOverride::default(),
             status: Rc::default(),
             facts: Facts::default(),
         }
@@ -326,6 +330,13 @@ pub enum Intent {
         thread: Option<ThreadId>,
         command: String,
     },
+    /// A verb of the thread's safety state: the retry of a buffered turn, a rewrite after a
+    /// refusal, the continuation after a misalignment stop, the receipt of a request
+    /// (`threads/safety.rs`; `threads::apply` is the writer, the screen keeps nothing of it).
+    Safety {
+        thread: ThreadId,
+        verb: crate::threads::safety::Verb,
+    },
     /// A command line was answered (refused, or its words): a note of the
     /// thread shown when it was submitted, else of the screen.
     Note {
@@ -334,6 +345,39 @@ pub enum Intent {
     },
     /// `/raw`: the render mode of the transcript (`set_raw_output_mode`).
     RawOutput(bool),
+    /// `/title` and `/statusline` with items: session-only, nothing is written to the config.
+    StatusOverride(StatusOverride),
+}
+
+/// The status surfaces a command set for this session (`StatusSurfaceOverrides`): what is none
+/// is the config's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StatusOverride {
+    pub terminal_title: Option<Vec<String>>,
+    pub status_line: Option<Vec<String>>,
+    pub status_line_colors: Option<bool>,
+}
+
+impl StatusOverride {
+    /// What `later` changes on top of this.
+    fn merge(&mut self, later: StatusOverride) {
+        self.terminal_title = later.terminal_title.or(self.terminal_title.take());
+        self.status_line = later.status_line.or(self.status_line.take());
+        self.status_line_colors = later.status_line_colors.or(self.status_line_colors);
+    }
+
+    /// The facts with the overrides on them.
+    fn on(&self, facts: &mut StatusFacts) {
+        if let Some(items) = &self.terminal_title {
+            facts.terminal_title = Some(items.clone());
+        }
+        if let Some(items) = &self.status_line {
+            facts.items = Some(items.clone());
+        }
+        if let Some(colors) = self.status_line_colors {
+            facts.colors = colors;
+        }
+    }
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -342,7 +386,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Flags(flags) => model.flags = flags,
         Ev::ServiceTiers(tiers) => model.service_tiers = tiers,
         Ev::SignedIn(on) => model.signed_in = on,
-        Ev::Status(facts) => model.status = Rc::from(facts),
+        Ev::Status(mut facts) => {
+            model.status_override.on(&mut facts);
+            model.status = Rc::from(facts);
+        }
         Ev::Facts(ev) => model.facts.apply(ev),
         // the thread owns it (`apply_app` routes it)
         Ev::Details { .. } | Ev::Pending { .. } | Ev::ProviderError { .. } => {}
@@ -355,9 +402,13 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         // the app routes these to the thread (`apply_app`); the screen keeps nothing
-        Intent::Session { .. } | Intent::Shell { .. } => {}
+        Intent::Session { .. } | Intent::Shell { .. } | Intent::Safety { .. } => {}
         Intent::Note { thread: None, note } => model.notes.push(note),
         Intent::RawOutput(enabled) => model.raw_output = enabled,
+        Intent::StatusOverride(set) => {
+            model.status_override.merge(set);
+            model.status_override.on(Rc::make_mut(&mut model.status));
+        }
         // a thread's note is an entry of its transcript (`session::note`)
         Intent::Note { .. } => {}
     }
@@ -684,6 +735,11 @@ pub enum ThreadEv {
     },
     Phase { turn: TurnId, phase: ActivityPhase },
     Compaction { turn: TurnId, running: bool },
+    /// The thread's own facts of a context compaction (`threads/compaction.rs`): `threads::apply`
+    /// takes it before the screen sees it, the screen keeps nothing of it.
+    Compacting(crate::threads::compaction::CompactionEv),
+    /// The thread's safety facts (`threads/safety.rs`), taken by `threads::apply` the same way.
+    Safety(crate::threads::safety::SafetyEv),
     Name(Option<String>),
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
     /// The server retries the turn's request: the header says so, and the
@@ -730,7 +786,7 @@ pub(crate) fn plan_progress(turn: &TurnId, update: &crate::threads::PlanUpdate) 
 
 /// `thread_blocks_direct_input`: the server's word when it gives one, else a
 /// spawned sub-agent's thread.
-fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) -> bool {
+pub(crate) fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) -> bool {
     use codex_app_server_protocol::SessionSource;
     use codex_protocol::protocol::SubAgentSource;
     thread.can_accept_direct_input.map_or_else(
@@ -940,6 +996,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Phase { phase, .. } => part.activity = phase,
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
+        ThreadEv::Compacting(_) | ThreadEv::Safety(_) => {}
         ThreadEv::Name(name) => part.name = name,
         ThreadEv::Retry { retry, details, .. } => {
             part.retry_header = Some(retry);

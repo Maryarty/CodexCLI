@@ -18,6 +18,7 @@ mod compose;
 mod helpers;
 mod limits;
 mod rates;
+mod warnings;
 
 pub use card::{
     Account, ApprovalLabel, ModelDetail, Permissions, PermissionsLabel, Reasoning, Remote,
@@ -32,6 +33,7 @@ pub use limits::{
     Snapshot, SpendLimit, SpendUsed, Window, WindowName, window_name,
 };
 
+pub use warnings::{Limits as WarningLimits, Sample, Source, Used, Warning, warning_threshold};
 pub use compose::{CardFacts, CatalogModel, Inputs, ThreadFacts};
 pub use rates::{
     Bucket, CreditStatus, RateLimitOrigin, RateLimitStore, RateRead, ResetCredit, ResetCredits,

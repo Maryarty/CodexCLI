@@ -626,7 +626,7 @@ fn row_model(menu: &ModelMenu, row: &Choice) -> Option<String> {
     }
 }
 
-fn warning(current: Option<&Current>, effort: Option<&Effort>) -> Option<usize> {
+pub fn warning(current: Option<&Current>, effort: Option<&Effort>) -> Option<usize> {
     let threads = current?.threads?;
     (effort == Some(&Effort::Ultra) && threads >= ULTRA_WARNING_THREADS).then_some(threads)
 }

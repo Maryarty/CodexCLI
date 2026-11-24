@@ -208,6 +208,12 @@ impl HookRun {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
     ContextCompacted,
+    /// The thread is a fork (oracle `emit_forked_thread_event`, `ForkedThreadHistoryCell`):
+    /// the thread it was forked from, and that thread's name when it has one.
+    ForkedThread {
+        from: String,
+        title: Option<String>,
+    },
     EnteredReview(String),
     ExitedReview(String),
     /// Esc or Ctrl+C ended the turn (`new_interruption_notice`).
@@ -224,6 +230,17 @@ pub enum Notice {
     AddCreditsNudge {
         nudge: crate::screens::chat::Nudge,
         outcome: crate::screens::chat::NudgeOutcome,
+    },
+    /// The startup check found usage-limit resets to use (oracle
+    /// `set_rate_limit_reset_available_hint`): how many.
+    ResetAvailable {
+        count: i64,
+    },
+    /// A limit of the account is close (oracle `new_visible_warning_event` of
+    /// `RateLimitWarningState`): the share that is left and the window's name.
+    RateLimitWarning {
+        remaining_percent: i32,
+        window: crate::screens::status::WindowName,
     },
     /// A request refused for biology safety (oracle `new_safety_access_block_event`).
     SafetyAccessBlock,

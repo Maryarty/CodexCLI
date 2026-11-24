@@ -43,6 +43,8 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ItemGuardianApprovalReviewStarted(n) => &n.thread_id,
         N::ItemGuardianApprovalReviewCompleted(n) => &n.thread_id,
         N::GuardianWarning(n) => &n.thread_id,
+        N::ModelSafetyBufferingUpdated(n) => &n.thread_id,
+        N::TurnModerationMetadata(n) => &n.thread_id,
         _ => return None,
     })
 }

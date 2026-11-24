@@ -43,6 +43,8 @@ type Terminal = Arc<dyn Fn(&str) + Send + Sync>;
 pub(crate) struct Effects {
     services: Services,
     terminal: Terminal,
+    /// The config the external editor's runner reads (the codex home, the sandbox policy).
+    config: Option<Arc<Config>>,
 }
 
 /// Copy on release unless a direct terminal is known to forward its default copy shortcut
@@ -189,13 +191,18 @@ impl Effects {
         Self {
             services,
             terminal: Arc::new(write_osc52),
+            config: Some(Arc::new(config.clone())),
         }
     }
 
     /// With the terminal's writer of a test.
     #[cfg(test)]
     fn with(services: Services, terminal: Terminal) -> Self {
-        Self { services, terminal }
+        Self {
+            services,
+            terminal,
+            config: None,
+        }
     }
 
     /// The history file and the mention usage window, read when the first thread is there.
@@ -225,6 +232,52 @@ impl Effects {
                 Some(AppEv::Effect {
                     request,
                     done: git_list(ask).await?,
+                })
+            }));
+        }
+        if let Command::Effect {
+            request,
+            ask: ask @ Ask::BackgroundServer(_),
+            ..
+        } = command
+        {
+            let (request, ask) = (*request, ask.clone());
+            return Some(Box::pin(async move {
+                Some(AppEv::Effect {
+                    request,
+                    done: crate::daemon::run(&ask).await?,
+                })
+            }));
+        }
+        // The external editor is the host's own: it reads the config and runs a program.
+        if let Command::Effect {
+            request,
+            ask: Ask::Editor { draft, cwd },
+            ..
+        } = command
+        {
+            let (request, draft, cwd) = (*request, draft.clone(), cwd.clone());
+            let config = self.config.clone();
+            return Some(Box::pin(async move {
+                let done = match config {
+                    Some(config) => {
+                        let policy = config.permissions.file_system_sandbox_policy();
+                        codex_tui_rtwk::services::editor::ask(
+                            config.codex_home.as_path(),
+                            &policy,
+                            config.cwd.as_path(),
+                            draft,
+                            cwd,
+                        )
+                        .await
+                    }
+                    None => Err(codex_tui_core::app::effects::EditorFailure::Failed(
+                        "no config to read the sandbox policy from".to_owned(),
+                    )),
+                };
+                Some(AppEv::Effect {
+                    request,
+                    done: Done::Editor(done),
                 })
             }));
         }

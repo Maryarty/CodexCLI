@@ -160,44 +160,25 @@ pub(super) fn session_intent(
 ) {
     use crate::commands::SessionIntent as S;
     match intent {
-        S::New { name } | S::Clear { name } | S::Fork { name } => {
-            if app
-                .outgoing
-                .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
-            {
-                return;
-            }
-            let ticket = app.mint.next();
-            let backend = source.as_ref().map_or(app.screens.agents.displayed, |id| {
-                app.screens.agents.owner_of(id.as_str())
-            });
-            let request = if matches!(command, crate::commands::SlashCommand::Fork) {
-                let Some(thread) = &source else {
-                    return;
-                };
-                Command::Screen {
-                    ticket,
-                    thread: ThreadId::default(),
-                    command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Fork {
-                        thread: thread.to_string(),
-                    })),
-                }
+        // `/clear` starts the conversation where the session is; `/new` and `/fork` first ask
+        // where it runs where a local repository offers a new checkout
+        // (`show_session_checkout_picker`), and the pick comes back through `begin_conversation`.
+        S::Clear { name } => begin_conversation(app, source, command, name, fx),
+        S::New { name } | S::Fork { name } => {
+            use crate::screens::select::{Intent, worktree::Conversation};
+            let mode = if matches!(command, crate::commands::SlashCommand::Fork) {
+                Conversation::Fork
             } else {
-                super::start_thread(app, ticket, backend)
+                Conversation::New
             };
-            // `/new <name>`: the new thread is named once it has started (`features/rename`).
-            let then = name.map(|name| crate::features::rename::ThreadIntent::Set(name).into());
-            app.outgoing.insert(
-                ticket,
-                AppCtx::NewConversation {
-                    source,
-                    backend,
-                    then,
-                    plan: None,
-                    draft: None,
-                },
-            );
-            fx.commands.push(request);
+            let open = Intent::OpenCheckout {
+                mode,
+                name,
+                available: app.screens.chat.flags.worktrees_enabled,
+                cwd: working_directory(app, source.as_ref()),
+                thread: source,
+            };
+            super::select::intent(app, open, fx);
         }
         // The provider-error notice's continue key: a fresh chat whose composer
         // holds the text (the view's words); only a refused chat that was saved.
@@ -225,6 +206,7 @@ pub(super) fn session_intent(
                     then: None,
                     plan: None,
                     draft: Some(message),
+                    side: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));
@@ -245,6 +227,11 @@ pub(super) fn session_intent(
         // `/rename`: the name prompt, or the rename itself (`features/rename`).
         S::Rename { name } => {
             let intent = crate::features::rename::Intent::Command { source, name };
+            super::features::intent(app, intent.into(), fx);
+        }
+        // `/side` and `/btw`: the slice decides, the app forks (`features/side`, `app/side.rs`).
+        S::Side { prompt } => {
+            let intent = crate::features::side::Intent::Start { source, prompt };
             super::features::intent(app, intent.into(), fx);
         }
         S::Status => status_command(app, source, fx),
@@ -330,6 +317,21 @@ pub(super) fn session_intent(
             let intent = crate::features::export::Intent::Command { path };
             super::features::intent(app, intent.into(), fx);
         }
+        // `/copy`: the picker of what the last response holds, asked of the surface
+        // (`features/copy`).
+        S::Copy => {
+            let intent = crate::features::copy::Intent::Command { source };
+            super::features::intent(app, intent.into(), fx);
+        }
+        // `/logout`, `/ide`, `/daybreak`, `/debug-config` (`features/small_cmds`).
+        S::Logout => small(app, crate::features::small_cmds::Intent::Logout, fx),
+        S::Ide { args } => small(app, crate::features::small_cmds::Intent::Ide { args }, fx),
+        S::Daybreak => small(
+            app,
+            crate::features::small_cmds::Intent::Daybreak { source },
+            fx,
+        ),
+        S::DebugConfig => small(app, crate::features::small_cmds::Intent::DebugConfig, fx),
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).
         S::Goal { args } => {
             let intent = crate::features::goal::Intent::Command { source, args };
@@ -342,8 +344,15 @@ pub(super) fn session_intent(
             let current = Current::from_facts(&app.screens.chat.status);
             super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
         }
+        // `/hooks`, `/title <items>`, `/statusline <items>`, `/model <name> ..`, `/resume <name>`: the settings
+        // feature checks the arguments and answers.
+        S::Hooks => slash(app, source, command, String::new(), fx),
+        S::Title { args } | S::Statusline { args } | S::Model { args } => {
+            slash(app, source, command, args.unwrap_or_default(), fx);
+        }
+        S::ResumeNamed { name } => slash(app, source, command, name, fx),
         // `/vim`: modal editing of the draft is UI state (the page toggles it and says so).
-        S::Vim => {}
+        S::Vim | S::Tui => {}
         // `/worktree`: the sheet of the worktree pickers (`show_managed_worktree_picker`), over
         // the thread's working directory. A local Git repository is what the host knows (the
         // flag that lists the command stands for it until the host says).
@@ -360,31 +369,33 @@ pub(super) fn session_intent(
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
-        | S::Side { .. }
-        | S::Copy
-        | S::Tui
         | S::Mcp { .. }
         | S::Apps
-        | S::Logout
-        | S::Ide { .. }
-        | S::Daybreak
-        | S::ElevateSandbox
-        | S::Hooks
-        | S::DebugConfig
-        | S::Ps
         | S::Review { args: None }
-        | S::Model { .. }
         | S::Permissions { args: None }
-        | S::Title { .. }
-        | S::Statusline { .. }
-        | S::VoiceControl(_)
-        | S::ResumeNamed { .. } => session_note(
+        | S::VoiceControl(_) => session_note(
             app,
             source,
             Note::from(crate::commands::Notice::NotAvailable(command)),
             fx,
         ),
     }
+}
+
+/// A slash command of the settings feature, with its arguments.
+fn slash(
+    app: &mut CodexApp,
+    thread: Option<ThreadId>,
+    command: crate::commands::SlashCommand,
+    args: String,
+    fx: &mut AppFx,
+) {
+    let intent = crate::features::settings::Intent::Slash {
+        command,
+        args,
+        thread,
+    };
+    super::features::intent(app, intent.into(), fx);
 }
 
 /// `/plan` (`apply_plan_slash_command`): the thread goes on in the Plan preset of the server's
@@ -438,6 +449,63 @@ fn plan(
     if let Some(prompt) = prompt {
         super::submit(app, &thread, UserMessage::text(prompt), fx);
     }
+}
+
+/// The new conversation of `/new`, `/clear` and `/fork`, in the working directory of the session:
+/// a fork of `source` (`/fork`), or a fresh thread; the new thread takes the screen
+/// (`AppCtx::NewConversation`) and is named once it has started.
+pub(super) fn begin_conversation(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    command: crate::commands::SlashCommand,
+    name: Option<String>,
+    fx: &mut AppFx,
+) {
+    if app
+        .outgoing
+        .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+    {
+        return;
+    }
+    let ticket = app.mint.next();
+    let backend = source.as_ref().map_or(app.screens.agents.displayed, |id| {
+        app.screens.agents.owner_of(id.as_str())
+    });
+    let request = if matches!(command, crate::commands::SlashCommand::Fork) {
+        let Some(thread) = &source else {
+            return;
+        };
+        Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Fork {
+                thread: thread.to_string(),
+            })),
+        }
+    } else {
+        super::start_thread(app, ticket, backend)
+    };
+    // `/new <name>`: the new thread is named once it has started (`features/rename`).
+    let then = name.map(|name| crate::features::rename::ThreadIntent::Set(name).into());
+    app.outgoing.insert(
+        ticket,
+        AppCtx::NewConversation {
+            source,
+            backend,
+            then,
+            plan: None,
+            draft: None,
+            side: None,
+        },
+    );
+    fx.commands.push(request);
+}
+
+/// `/new <name>`, `/fork <name>` made in a new worktree: the thread is named once it has started
+/// (`features/rename`).
+pub(super) fn name_started(app: &mut CodexApp, thread: &ThreadId, name: String, fx: &mut AppFx) {
+    let intent = crate::features::rename::ThreadIntent::Set(name).into();
+    apply_thread(app, thread, ThreadEv::FeatureIntent(intent), fx);
 }
 
 /// `review/start` inline on the thread: the review runs as a turn of it.
@@ -509,6 +577,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         ThreadAsk::ForkAt {
             thread: thread.to_string(),
             cwd,
+            temporary: None,
         }
     } else {
         ThreadAsk::Start { cwd }
@@ -523,6 +592,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
             then: None,
             plan: None,
             draft: None,
+            side: None,
         },
     );
     fx.commands.push(Command::Screen {
@@ -650,6 +720,11 @@ fn working_directory(app: &CodexApp, thread: Option<&ThreadId>) -> String {
     super::features::view(app).working_directory(thread)
 }
 
+/// One verb of `features/small_cmds`, applied to its feature.
+fn small(app: &mut CodexApp, intent: crate::features::small_cmds::Intent, fx: &mut AppFx) {
+    super::features::intent(app, intent.into(), fx);
+}
+
 /// What a command line answered with (oracle `add_info_message` /
 /// `add_error_message`): an entry of the thread it was submitted in, so it
 /// stays in the transcript; with no thread yet, a note of the chat screen.
@@ -719,6 +794,7 @@ pub(super) fn plan_answer(
                     then: None,
                     plan: Some(markdown),
                     draft: None,
+                    side: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));

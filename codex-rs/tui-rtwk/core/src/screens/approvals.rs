@@ -74,6 +74,11 @@ pub struct ExecPrompt {
     /// What a `writeStdin` request sends to the terminal (shown as `Input:`
     /// instead of the command).
     pub input: Option<String>,
+    /// The terminal a `writeStdin` request sends to: the third word of its command
+    /// (`write_stdin --session-id 42 '…'`, the oracle's `request.command.get(2)`), which the
+    /// title names (`Would you like to send input to terminal 42?`). None: the command has no
+    /// third word, and the title says `the existing terminal`.
+    pub process: Option<String>,
     pub decisions: Vec<Decision>,
 }
 
@@ -665,6 +670,9 @@ fn exec_prompt(params: &serde_json::Value) -> ExecPrompt {
         thread_label: None,
         reason: text("reason"),
         input: write_stdin.then(|| split_words(&raw).pop().unwrap_or_default()),
+        process: write_stdin
+            .then(|| split_words(&raw).into_iter().nth(2))
+            .flatten(),
         command,
         environment: text("environmentId"),
         network_host,
@@ -806,7 +814,7 @@ fn question_of(value: &serde_json::Value) -> Question {
 
 /// `strip_bash_lc_and_escape` of the oracle (`tui/src/exec_command.rs:17`),
 /// over a command string: `bash -lc '<script>'` is its script.
-fn strip_shell_wrapper(command: &str) -> String {
+pub(crate) fn strip_shell_wrapper(command: &str) -> String {
     let words = split_words(command);
     if let [shell, flag, script] = words.as_slice()
         && matches!(flag.as_str(), "-lc" | "-c")

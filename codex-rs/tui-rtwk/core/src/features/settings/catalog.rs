@@ -570,6 +570,13 @@ pub struct Facts {
     /// (`config.memories`); none: it is off and `/memories` offers to turn it
     /// on (that prompt is not built).
     pub memories: Option<MemoryFacts>,
+    /// The rows of the configuration panel as the config reads now; none: the host builds none
+    /// (the panel keeps the catalogue it was offered).
+    pub config_rows: Vec<Row>,
+    /// The tabs of the keymap picker as the resolved keymap reads now (`keymap::picker`).
+    pub keymap_tabs: Vec<KeymapTab>,
+    /// The `[tui.keymap]` the user wrote: what a captured shortcut is applied to.
+    pub keymap_spec: crate::keymap::KeymapSpec,
 }
 
 /// `config.memories`: the two switches of the memories dialog.
@@ -617,6 +624,18 @@ pub const BUILTIN_THEMES: [&str; 32] = [
 ];
 
 impl Facts {
+    /// The panel `/config` opens, when the host sent its rows.
+    pub fn config_panel(&self) -> Option<ConfigPanel> {
+        (!self.config_rows.is_empty()).then(|| ConfigPanel::new(self.config_rows.clone()))
+    }
+
+    /// The picker `/keymap` opens, when the host sent its tabs.
+    pub fn keymap_picker(&self) -> Option<KeymapPicker> {
+        (!self.keymap_tabs.is_empty()).then(|| KeymapPicker {
+            tabs: self.keymap_tabs.clone(),
+        })
+    }
+
     /// The picker `/theme` opens: the bundled names and the custom files,
     /// sorted together case-insensitively (`list_available_themes`).
     pub fn theme_picker(&self) -> ThemePicker {
@@ -664,6 +683,15 @@ pub enum Edit {
     FeaturesSave(Vec<(String, bool)>),
     /// An action was picked in the keymap picker.
     KeymapPicked(String),
+    /// The `/tui` picker was answered: fullscreen (`true`) or scrollback, for the next launch.
+    TuiMode(bool),
+    /// A shortcut was captured for an action of the keymap picker: the context and action as
+    /// the config names them, and the keys now bound (none: unbound).
+    KeymapBound {
+        context: String,
+        action: String,
+        keys: Vec<String>,
+    },
     /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
     MemoriesSaved {
         use_memories: bool,

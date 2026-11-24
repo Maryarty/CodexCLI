@@ -80,6 +80,26 @@ pub struct ConfigEdit {
     pub value: serde_json::Value,
 }
 
+/// What `Ask::Daemon` asks of the local background server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DaemonAsk {
+    /// Whether the connected server is a daemon this CLI manages (`LifecycleCommand::Version`
+    /// answers with a backend): `/daemon` asks before it offers a restart.
+    Verify,
+    /// Restarts the server (`LifecycleCommand::Restart`); the connection reconnects as it does
+    /// after any loss.
+    Restart,
+}
+
+/// The answer of a `DaemonAsk`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DaemonDone {
+    /// The server is a managed daemon, or is not (or could not be asked).
+    Managed(bool),
+    /// The restart is over: nothing, or the failure text.
+    Restarted(Result<(), String>),
+}
+
 /// What the host is asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
@@ -93,6 +113,15 @@ pub enum Ask {
     /// The diff of the working directory `cwd` (`None`: the process's own): the host runs the
     /// `diff::Diff` machine through its workspace executor.
     GitDiff { cwd: Option<String> },
+    /// A structured turn of an ephemeral thread started from `thread`'s model, provider and
+    /// directory, with no tools: `prompt` is the only input and the answer is the model's last
+    /// message, which follows `schema` (oracle `temporary_structured_request`: the recap). Answered
+    /// by `Done::Structured`.
+    StructuredTurn {
+        thread: ThreadId,
+        prompt: String,
+        schema: serde_json::Value,
+    },
     /// A title for `thread`: an ephemeral thread with a structured turn, then unsubscribed.
     SuggestTitle { thread: ThreadId },
     /// The transcript of `thread`, as the Markdown the asker rendered from the cells' text,
@@ -124,8 +153,17 @@ pub enum Ask {
     /// The managed worktrees of the repository `cwd` is in, each with its owner thread
     /// (oracle `worktree_browser::fetch`). Answered by `Done::Worktrees`.
     Worktrees { cwd: String },
+    /// The local background server's lifecycle (`codex_app_server_daemon::run`): the probe of
+    /// whether the connected server is a daemon this CLI manages, and the restart. Answered by
+    /// `Done::BackgroundServer`.
+    BackgroundServer(DaemonAsk),
     /// Removes the worktree at `root` (oracle `worktree_browser::remove`, `cwd` is the session's).
     WorktreeRemove { cwd: String, root: String },
+    /// The external editor (oracle `external_editor::run_editor`): `draft` is written to a
+    /// temporary file, `$VISUAL` / `$EDITOR` runs on it with the terminal handed over, and the
+    /// file's text comes back. `cwd` is the thread's directory (the sandbox policy is read
+    /// against it). Answered by `Done::Editor`.
+    Editor { draft: String, cwd: String },
 }
 
 impl Ask {
@@ -145,6 +183,8 @@ pub enum Done {
     /// The delivery status, or the host's failure text (oracle: `Failed to copy ...: {error}`).
     Copy(Result<CopyStatus, String>),
     GitDiff(Result<diff::Report, diff::Failure>),
+    /// The structured turn's response text, or why there is none.
+    Structured(Result<String, String>),
     /// The suggested title; none when nothing came out.
     Title(Option<String>),
     /// The path written, or the host's failure text.
@@ -167,6 +207,21 @@ pub enum Done {
     Worktrees(Result<Vec<WorktreeEntry>, String>),
     /// Nothing, or why the worktree could not be removed.
     WorktreeRemoved(Result<(), String>),
+    /// The answer of a daemon ask.
+    BackgroundServer(DaemonDone),
+    /// What the editor left in the file, or why it could not run.
+    Editor(Result<String, EditorFailure>),
+}
+
+/// Why the external editor did not give a text back (oracle `EditorError` and the failures of
+/// `run_editor`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EditorFailure {
+    /// Neither `VISUAL` nor `EDITOR` is set.
+    Missing,
+    /// The host's reason: a command that does not parse, a file that could not be written or
+    /// read, an editor that exited with a failure.
+    Failed(String),
 }
 
 impl Done {

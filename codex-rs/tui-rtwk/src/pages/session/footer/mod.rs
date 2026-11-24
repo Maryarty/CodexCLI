@@ -246,7 +246,10 @@ impl Footer {
             // (`show_cycle = can_type && !is_task_running`)
             show_cycle: !running,
             goal,
-            side: facts.side_label.map(|label| (label, facts.side_active)),
+            side: facts
+                .side_label
+                .or_else(|| facts.side.as_ref().map(strings::side_footer))
+                .map(|label| (label, facts.side_active)),
             agent_label: facts.agent_label,
             context_pending: facts.usage_pending,
             status_line_enabled,
@@ -420,7 +423,11 @@ impl Spec {
             ));
         }
         if let Some((label, active)) = &self.side {
-            let kind = if *active { Kind::Side } else { Kind::SideNav };
+            let kind = if *active {
+                Kind::SideActive
+            } else {
+                Kind::SideNav
+            };
             out.push((kind, indicators::side(self, label, width)));
         }
         if !self.status_line_enabled

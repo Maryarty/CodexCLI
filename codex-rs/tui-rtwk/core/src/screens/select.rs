@@ -15,6 +15,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod agent_picker;
 pub mod apps;
 pub mod collaboration;
 pub mod models;
@@ -203,14 +204,8 @@ pub enum Note {
     /// Restart the app server and TUI to refresh /model.` after a provider write, or `Saving the
     /// default provider. Try /model after the save finishes.` while it runs.
     ModelPickerUnavailable(Provider),
-    /// `Managed worktrees require a local Git repository.` (an error).
-    WorktreesUnavailable,
-    /// `Cannot list managed worktrees: {error}` (an error).
-    WorktreeListFailed(String),
-    /// `Removed worktree at {root}. Thread history was kept.`
-    WorktreeRemoved { root: String },
-    /// `Could not remove worktree at {root}: {error}` (an error).
-    WorktreeRemoveFailed { root: String, error: String },
+    /// A line of the worktree pickers and of the conversation started in a worktree.
+    Worktree(worktree::WorktreeLine),
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
@@ -251,9 +246,6 @@ impl Note {
             Note::ModelsNotLoaded
             | Note::SaveFailed { .. }
             | Note::AppsFailed(_)
-            | Note::WorktreesUnavailable
-            | Note::WorktreeListFailed(_)
-            | Note::WorktreeRemoveFailed { .. }
             | Note::PresetsUnavailable
             | Note::PresetInvalid(_)
             | Note::PresetBroken { .. }
@@ -261,6 +253,7 @@ impl Note {
             | Note::PresetFailed { .. }
             | Note::PermissionArgs(_)
             | Note::PermissionRefused(_) => Tone::Error,
+            Note::Worktree(line) if line.error() => Tone::Error,
             _ => Tone::Info,
         }
     }
@@ -362,6 +355,9 @@ impl Model {
             return;
         }
         let page = match open {
+            // `/presets` (`open_quick_dial_menu`): the shortcut menu is the composer's own drawn
+            // state; the model only decided it may open (the gate's notes are said above).
+            Open::Menu => return,
             Open::Picker(mode) => Quick::Slots { mode, dial: None },
             Open::Save(dial) => {
                 if let Err(reason) = dial.validate() {
@@ -772,14 +768,14 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         // replaces itself with the browser, or closes; a failure is said unless it was given up.
         Ev::Worktrees { request, result } => {
             if let Some(error) = model.worktree.answered(request, result) {
-                model.notes.push(Note::WorktreeListFailed(error));
+                model.notes.push(Note::Worktree(worktree::WorktreeLine::ListFailed(error)));
             }
         }
         Ev::WorktreeRemoved { request, result } => {
             if let Some(root) = model.worktree.removed(request) {
                 model.notes.push(match result {
-                    Ok(()) => Note::WorktreeRemoved { root },
-                    Err(error) => Note::WorktreeRemoveFailed { root, error },
+                    Ok(()) => Note::Worktree(worktree::WorktreeLine::Removed { root }),
+                    Err(error) => Note::Worktree(worktree::WorktreeLine::RemoveFailed { root, error }),
                 });
             }
         }
@@ -936,7 +932,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.worktree.open(cwd, thread);
                 model.shows.push(Opening::Worktree(worktree::Menu::Worktrees));
             } else {
-                model.notes.push(Note::WorktreesUnavailable);
+                model.notes.push(Note::Worktree(worktree::WorktreeLine::Unavailable));
             }
         }
         // What a page of `/review` settled on (`Picked::Review`), and the list a page asks of the

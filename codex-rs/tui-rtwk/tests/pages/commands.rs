@@ -119,13 +119,12 @@ fn a_path_is_a_message_not_a_command() {
 
 #[test]
 fn a_command_that_needs_the_session_says_it_is_not_available_yet() {
-    for line in ["/copy", "/mcp"] {
-        let mut h = chat();
-        send(&mut h, line);
-        let name = line.trim_start_matches('/');
-        let message = format!("'/{name}' is not available yet.");
-        h.wait_for(&message, |s| s.contains(&message));
-    }
+    // `/copy` and `/mcp` are features now; `/recap`'s session intent is still answered by
+    // `Notice::NotAvailable` (the recap feature is reached by its own intent only).
+    let mut h = chat();
+    send(&mut h, "/recap");
+    let message = "'/recap' is not available yet.";
+    h.wait_for(message, |s| s.contains(message));
 }
 
 #[test]

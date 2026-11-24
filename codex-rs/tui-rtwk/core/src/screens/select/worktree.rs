@@ -84,6 +84,52 @@ impl Entry {
     }
 }
 
+/// The `thread/read` that tells who owns a worktree (`worktree_browser::fetch` reads the thread
+/// of each recorded owner): the host sends it for every entry the pool names an owner of.
+pub fn owner_request(
+    thread: &str,
+    id: codex_app_server_protocol::RequestId,
+) -> codex_app_server_protocol::ClientRequest {
+    crate::threads::ThreadAsk::Read { thread: thread.to_owned() }.wire(id)
+}
+
+/// Why no worktree is made for the conversation (`start_managed_worktree`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// Not an idle primary session without queued input.
+    NotIdle,
+    /// A creation (or a new conversation) is already under way.
+    Pending,
+    /// A fork needs saved history.
+    HistoryNotSaved,
+}
+
+/// What the worktree pickers and the chat flow say in the history (`select::Note::Worktree`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WorktreeLine {
+    /// `Managed worktrees require a local Git repository.` (an error).
+    Unavailable,
+    /// `Cannot list managed worktrees: {error}` (an error).
+    ListFailed(String),
+    /// A worktree for the conversation was not started (`start_managed_worktree`; an error).
+    Refused(Refusal),
+    /// The worktree could not be made (an error): the host's words.
+    Failed(String),
+    /// The conversation did not start in the new worktree, which stays on disk (an error).
+    Retained { root: String, reason: crate::app::worktree::RetainedReason },
+    /// `Removed worktree at {root}. Thread history was kept.`
+    Removed { root: String },
+    /// `Could not remove worktree at {root}: {error}` (an error).
+    RemoveFailed { root: String, error: String },
+}
+
+impl WorktreeLine {
+    /// The oracle says it as an error.
+    pub fn error(&self) -> bool {
+        !matches!(self, WorktreeLine::Removed { .. })
+    }
+}
+
 /// How long ago a worktree's owner thread was updated (`worktree_updated_ago`); the view words it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ago {

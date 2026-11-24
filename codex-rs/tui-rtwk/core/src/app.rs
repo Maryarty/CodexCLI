@@ -12,8 +12,10 @@ pub mod facts;
 pub(crate) mod features;
 mod mentions;
 mod notices;
+mod reset;
 mod select;
 mod session;
+mod side;
 mod transcript_text;
 pub use transcript_text::TranscriptText;
 
@@ -359,6 +361,9 @@ pub enum Command {
         ticket: Ticket,
         thread: ThreadId,
         message: UserMessage,
+        /// The acknowledgement of a misalignment failure, epoch milliseconds: the request
+        /// carries the `misalignment_override` metadata (`threads/safety.rs`).
+        misalignment_override: Option<i64>,
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
@@ -519,6 +524,8 @@ enum AppCtx {
         plan: Option<String>,
         /// A text for the new thread's composer (the provider-error notice's continue key).
         draft: Option<String>,
+        /// The thread is a side conversation of this parent (`/side`, `app/side.rs`).
+        side: Option<side::Opening>,
     },
     /// `thread/archive` or `thread/delete` of the thread the chat shows
     /// (`/archive`, `/delete` after their confirmation).
@@ -858,7 +865,10 @@ impl CodexApp {
             | Command::ResolveRequest { key, .. }
             | Command::VerifyUser { key, .. } => key.backend,
             Command::Effect {
-                ask: effects::Ask::SuggestTitle { thread } | effects::Ask::Export { thread, .. },
+                ask:
+                    effects::Ask::SuggestTitle { thread }
+                    | effects::Ask::StructuredTurn { thread, .. }
+                    | effects::Ask::Export { thread, .. },
                 ..
             } => agents.owner_of(thread.as_str()),
             Command::StartThread { backend, .. }
@@ -1149,6 +1159,19 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             if *backend == origin && read.folds_into_a_read_in_flight())
                     });
                     install_rates(app, origin, note.rate_limits.clone().into());
+                    // a rolling update warns like a read does, but never writes the buckets
+                    let sample = crate::screens::status::Sample::of(&note.rate_limits);
+                    let read_out = app.outgoing.any(|ctx| {
+                        matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                    });
+                    let warnings = Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .entry(origin)
+                        .or_default()
+                        .rolling(&sample, read_out);
+                    if active_backend(app) == origin {
+                        reset::warn(app, warnings, fx);
+                    }
                     // never reuse the permission from before a new hard stop
                     // (`invalidate_ordinary_usage_recovery`)
                     if (note.rate_limits.rate_limit_reached_type.is_some()
@@ -1198,6 +1221,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .get_mut(&origin)
                     {
                         store.clear();
+                    }
+                    if active_backend(app) == origin {
+                        reset::clear(app);
                     }
                     app.outgoing.retain(|ctx| {
                         !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin)
@@ -1263,6 +1289,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     fx,
                 );
             }
+            side::observe(app, &notification, fx);
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
             if let ServerNotification::ServerRequestResolved(resolved) = &*notification {
@@ -1360,6 +1387,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::Backend(BackendEv::Request(request)) => {
             let (method, thread) = targets::request_target(&request);
+            side::observe_request(app, &request, thread, fx);
             let key = targets::request_key(origin, app.request_epoch(origin), thread, request.id());
             if !app.requests.contains(&key) {
                 app.effects.verifications.note(key.clone(), &request);
@@ -1463,12 +1491,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
-                    refresh_rates(
-                        app,
-                        active_backend(app),
-                        status::RateLimitOrigin::Startup,
-                        fx,
-                    );
+                    reset::startup(app, fx);
+                }
+                // The answer to a redemption: a reset reads the credits again.
+                ScreenEv::Usage(screens::usage::Ev::Redeemed { key, result }) => {
+                    reset::redeemed(app, key, result.clone(), fx);
+                    return;
                 }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
@@ -1719,6 +1747,7 @@ fn open_session(app: &mut CodexApp, fx: &mut AppFx) {
         Action::Fork => ThreadAsk::ForkAt {
             thread,
             cwd: opening.cwd,
+            temporary: None,
         },
     };
     fx.commands.push(Command::Screen {
@@ -1782,6 +1811,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend, origin } => {
+                let credits = match &answer {
+                    Answer::RateLimits { read, .. } => Ok(read.reset_credits.clone()),
+                    _ => Err(()),
+                };
+                reset::read_done(app, origin, credits, fx);
                 if let Answer::RateLimits {
                     limits,
                     banner,
@@ -1792,15 +1826,31 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     Rc::make_mut(&mut app.session)
                         .reserve
                         .insert(backend, reserve);
-                    install_rates(app, backend, limits);
+                    // a read a rolling update overtook does not replace the summary it wrote
+                    let overtaken = app
+                        .session
+                        .rate_snapshots
+                        .get(&backend)
+                        .is_some_and(|store| store.limits().next_read_is_stale());
+                    if !overtaken {
+                        install_rates(app, backend, limits);
+                    }
                     let now = app.screens.status.now;
-                    Rc::make_mut(&mut app.session)
+                    let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
                         .entry(backend)
                         .or_default()
                         .install(*read, now);
+                    if active_backend(app) == backend {
+                        reset::warn(app, warnings, fx);
+                    }
                     install_banner(app, backend, banner.map(|banner| *banner));
                     banners::fallback(app, backend, fx);
+                } else if let Some(store) = Rc::make_mut(&mut app.session)
+                    .rate_snapshots
+                    .get_mut(&backend)
+                {
+                    store.limits_mut().read_failed();
                 }
                 // The card that asked ends with what the app holds now: the new
                 // read, or the cache when the read failed.
@@ -1847,6 +1897,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 then,
                 plan,
                 draft,
+                side,
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread, sources } => Ok((thread, None, sources)),
@@ -1870,10 +1921,17 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         if let Some(intent) = then {
                             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
                         }
+                        // A side conversation is linked to its parent before it is shown, and
+                        // starts empty: the forked history is the model's, not the screen's.
+                        if let Some(opening) = side {
+                            side::linked(app, &thread, opening, fx);
+                        }
                         if app.session.active == source {
                             show_held_thread(app, thread.clone(), fx);
                         }
-                        fetch_history(app, &thread, fx);
+                        if !app.features.side.is_side(&thread) {
+                            fetch_history(app, &thread, fx);
+                        }
                         if let Some(markdown) = plan {
                             apply_thread(
                                 app,
@@ -1897,7 +1955,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     }
                     Err(error) => {
                         if let Some(source) = source {
-                            apply_thread(app, &source, ThreadEv::Failure(error.into()), fx);
+                            if side.is_some() {
+                                side::start_failed(app, source, error, fx);
+                            } else {
+                                apply_thread(app, &source, ThreadEv::Failure(error.into()), fx);
+                            }
                         }
                     }
                 }
@@ -2043,6 +2105,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 }
             }
         }
+        Intent::Screen(ScreenIntent::Usage(intent)) if reset::intent(app, &intent, fx) => {}
         Intent::Screen(ScreenIntent::Usage(crate::screens::usage::Intent::RefreshRateLimits)) => {
             refresh_rates(
                 app,
@@ -2170,6 +2233,13 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 // Before the first thread: kept in order with the messages.
                 None => app.queued_submits.push(BeforeThread::Shell(command)),
             }
+        }
+        // a verb of the thread's safety state: the thread's own, not the screen's
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety { thread, verb })) => {
+            let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Safety(
+                crate::threads::safety::SafetyEv::Verb(verb),
+            )));
+            apply_thread(app, &thread, ev, fx);
         }
         Intent::Screen(ScreenIntent::Select(intent)) => {
             select::intent(app, intent, fx);
@@ -2874,6 +2944,7 @@ fn attach_thread_with_metadata(
             ThreadEv::Screen(ScreenThreadEv::Chat(chat::metadata(details))),
             fx,
         );
+        notices::forked_line(app, thread, details, fx);
     }
     Rc::make_mut(&mut app.screens)
         .agents
@@ -2928,6 +2999,7 @@ fn show_held_thread(app: &mut CodexApp, id: ThreadId, fx: &mut AppFx) {
     let session = Rc::make_mut(&mut app.session);
     session.active = Some(id);
     session.status = Session::Ready;
+    side::sync(app, fx);
     if switched {
         select::event(app, screens::select::Ev::ScopeChanged, fx);
     }

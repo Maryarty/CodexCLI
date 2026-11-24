@@ -976,7 +976,11 @@ fn usage_views_open_the_requested_summary_mode() {
 fn slash_mcp_requests_inventory_and_verbose_and_login() {
     assert_eq!(
         dispatch("/mcp", &cx()),
-        session(SlashCommand::Mcp, SessionIntent::Mcp { args: None })
+        open(
+            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Mcp).unwrap()),
+            SlashCommand::Mcp,
+            ""
+        )
     );
     assert_eq!(
         dispatch("/mcp verbose", &cx()),
@@ -1137,7 +1141,6 @@ fn every_screen_opening_command_names_its_target() {
         ("/experimental", Target::Settings),
         ("/agents", Target::Agents),
         ("/subagents", Target::AgentPicker),
-        ("/diff", Target::Pager),
         ("/usage", Target::Usage),
         ("/warnings", Target::Dialogs),
         ("/feedback", Target::Dialogs),
@@ -2098,7 +2101,8 @@ mod directory {
             asks(&fx),
             [ThreadAsk::ForkAt {
                 thread: T.to_string(),
-                cwd: Some("/tmp".to_string())
+                cwd: Some("/tmp".to_string()),
+                temporary: None,
             }]
         );
         assert_eq!(notes_of(&app.active_thread()), []);

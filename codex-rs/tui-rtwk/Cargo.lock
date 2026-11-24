@@ -3938,6 +3938,7 @@ dependencies = [
  "codex-tui-core",
  "codex-utils-elapsed",
  "codex-utils-path",
+ "dunce",
  "futures",
  "image",
  "libc",

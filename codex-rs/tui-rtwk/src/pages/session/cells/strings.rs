@@ -202,6 +202,15 @@ pub struct Strings {
     pub interrupted: &'static str,
     pub interrupted_for_steer: &'static str,
     pub goal_budget_reached: &'static str,
+    /// `You have {n} usage limit reset(s) available. Run /usage to use one.`: before the count,
+    /// the noun for one and for more, after it.
+    pub reset_available: (&'static str, &'static str, &'static str, &'static str),
+    /// `Heads up, you have less than {n}% of your {window} limit left. Run /status for a
+    /// breakdown.`: before the share, between it and the window, after it.
+    pub rate_limit_warning: (&'static str, &'static str, &'static str),
+    /// The window's name in that line (`limit_label_for_window`): 5h, daily, weekly, monthly,
+    /// annual, and the two generic ones.
+    pub warning_windows: [&'static str; 7],
     /// `NO_PREVIOUS_MESSAGE_TO_EDIT` (`app_backtrack.rs`).
     pub no_previous_message: &'static str,
     pub review_started: (&'static str, &'static str),
@@ -246,6 +255,11 @@ pub struct Strings {
     pub interaction_rest: &'static str,
     // history_cell/notices.rs ThreadRecapLoadingCell
     pub recap_loading: (&'static str, &'static str),
+    /// `emit_forked_thread_event`: `• Thread forked from {name} ({id})`.
+    pub forked_from: &'static str,
+    /// The thread's id after its name: ` (`, and its end.
+    pub forked_id_open: &'static str,
+    pub forked_id_close: &'static str,
     // history_cell/request_user_input.rs
     pub questions_title: &'static str,
     pub questions_count: &'static str,
@@ -440,6 +454,26 @@ pub const EN: Strings = Strings {
     interrupted: "■ Conversation interrupted - use /feedback if something went wrong",
     interrupted_for_steer: "Model interrupted to submit steer instructions.",
     goal_budget_reached: "Goal budget reached - the turn was stopped.",
+    rate_limit_warning: (
+        "Heads up, you have less than ",
+        "% of your ",
+        " limit left. Run /status for a breakdown.",
+    ),
+    warning_windows: [
+        "5h",
+        "daily",
+        "weekly",
+        "monthly",
+        "annual",
+        "usage",
+        "secondary usage",
+    ],
+    reset_available: (
+        "You have ",
+        " usage limit reset",
+        " usage limit resets",
+        " available. Run /usage to use one.",
+    ),
     no_previous_message: "No previous message to edit.",
     review_started: (">> Code review started: ", " <<"),
     review_finished: ("<< Code review finished: ", " >>"),
@@ -477,6 +511,9 @@ pub const EN: Strings = Strings {
     interaction_first: "  └ ",
     interaction_rest: "    ",
     recap_loading: ("Generating conversation recap", "…"),
+    forked_from: "Thread forked from ",
+    forked_id_open: " (",
+    forked_id_close: ")",
     questions_title: "Questions",
     questions_count: " {0}/{1} answered",
     questions_interrupted: " (interrupted)",

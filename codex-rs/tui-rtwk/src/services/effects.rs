@@ -189,12 +189,22 @@ impl Services {
             // (`generate_thread_title`); until that is built the answer is the oracle's for a
             // server-owned session: no suggestion, and the prompt keeps the name it has.
             Ask::SuggestTitle { .. } => (Done::Title(None), None),
+            // The recap's ephemeral thread and structured turn are the title's facility too, not
+            // built yet: the failure the recap words as `Could not generate a recap`.
+            Ask::StructuredTurn { .. } => (
+                Done::Structured(Err(
+                    "temporary structured turns are not built yet".to_owned()
+                )),
+                None,
+            ),
             // The git lists of `/review` are the host's (it carries `codex-git-utils`).
             Ask::ConfigWrite { .. }
             | Ask::GitBranches { .. }
             | Ask::GitLog { .. }
             | Ask::Worktrees { .. }
-            | Ask::WorktreeRemove { .. } => return None,
+            | Ask::WorktreeRemove { .. }
+            | Ask::BackgroundServer(_)
+            | Ask::Editor { .. } => return None,
         })
     }
 

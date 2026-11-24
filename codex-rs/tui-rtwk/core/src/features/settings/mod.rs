@@ -16,17 +16,23 @@
 //! arrive as facts. The oracle's facts after a write (the status line items, the theme) are the
 //! host's: it reloads the config once the file has the edit and sends them again.
 
+pub mod args;
+pub mod capture;
 mod catalog;
 pub mod hooks;
 pub mod items;
+pub mod keymap;
+mod keymap_actions;
 pub mod persist;
+pub mod resume;
 mod seed;
+pub mod wire;
 
 use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Never};
+use super::AppCx;
 use crate::app::effects::{Ask, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -35,6 +41,18 @@ use crate::threads::Tone;
 
 pub use catalog::*;
 pub use persist::Setting;
+pub use wire::{Command, Reply, Skill};
+
+/// What the server said, as the notes quote it.
+fn text(error: &RpcError) -> String {
+    match error {
+        RpcError::Remote(message) | RpcError::Malformed(message) | RpcError::Prepare(message) => {
+            message.clone()
+        }
+        RpcError::Mismatch => String::from("unexpected answer"),
+        RpcError::Provider(error) => format!("{error:?}"),
+    }
+}
 
 /// The screen map's id of the dialogs (S15), and what they are: sheets over the session page.
 pub const ID: &str = "S15";
@@ -56,6 +74,46 @@ pub enum Intent {
     /// What a dialog asks of the app (`AppEvent`s of the oracle): recorded, and written to the
     /// config file when it is a write.
     Request(Edit),
+    /// `/hooks`, `/title`, `/statusline` or `/model` with what followed the name: the
+    /// arguments are checked here; what they ask is a wish for the page's presenter (the chat's
+    /// status override, a model pick for this session), what they cannot be is a note.
+    Slash {
+        command: crate::commands::SlashCommand,
+        args: String,
+        thread: Option<ThreadId>,
+    },
+    /// A shortcut was captured for an action of the keymap picker: the key as the config
+    /// writes it, and what it is for. The feature applies it to the config the host read,
+    /// checks that the keymap still resolves, and writes it (`Edit::KeymapBound`'s write).
+    KeymapCaptured {
+        context: String,
+        action: String,
+        key: String,
+        intent: capture::Intent,
+    },
+}
+
+/// What a command with arguments asks of the page (ADR-013: a one-shot signal the surface's
+/// presenter shows once).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Wish {
+    /// `/title` or `/statusline` items: this session only, nothing is written to the config.
+    Status(crate::screens::chat::StatusOverride),
+    /// `/model <name>`: the model and effort picked for this session. A `--speed` is checked
+    /// by the arguments and not carried (the pick has no tier).
+    Model(crate::screens::select::models::Selection),
+    /// `/resume <name or id>` found the session: the surface opens it (`OpenThread`, the one
+    /// door of ADR-003).
+    OpenThread(ThreadId),
+    /// The captured key cannot be bound: the keymap with it does not resolve (the conflict
+    /// sheet: pick another key, or cancel).
+    KeymapConflict {
+        context: String,
+        action: String,
+        key: String,
+        intent: capture::Intent,
+        error: String,
+    },
 }
 
 /// What the host tells the feature unasked, and what a script seeds.
@@ -97,6 +155,7 @@ impl Fact {
                 use_memories,
                 generate_memories,
             }),
+            ..Facts::default()
         })
     }
 }
@@ -105,6 +164,55 @@ impl Fact {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Write(persist::Subject),
+    /// The experimental features were written; the listing that follows is read back.
+    FeaturesWrite {
+        generation: u64,
+        updates: Vec<(String, bool)>,
+    },
+    /// A page of the experimental features: what the pages before it gave and the cursors
+    /// they were read with.
+    FeaturesPage {
+        generation: u64,
+        after: After,
+        found: Vec<catalog::Feature>,
+        cursors: Vec<String>,
+    },
+    Skills,
+    SkillWrite {
+        path: String,
+        enabled: bool,
+    },
+    Hooks,
+    HookWrite {
+        key: String,
+        enabled: bool,
+    },
+    HookTrust {
+        many: bool,
+    },
+    /// A captured shortcut was written: what the session says once the file has it.
+    KeymapWrite {
+        saved: Note,
+    },
+    /// A page of the listing `/resume <label>` looks the label up in.
+    Resume {
+        lookup: resume::Lookup,
+        thread: Option<ThreadId>,
+    },
+    /// The read of the session `/resume <id>` names.
+    ResumeId {
+        name: String,
+        thread: Option<ThreadId>,
+    },
+}
+
+/// What a listing of the experimental features is for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum After {
+    /// The dialog was opened: the features are its catalogue.
+    Open,
+    /// A write was answered: the values it set, as the server reads them again.
+    Readback(Vec<(String, bool)>),
 }
 
 /// What the feature says in the history: a write the config file refused.
@@ -112,6 +220,68 @@ pub enum Ctx {
 pub enum Note {
     /// `Failed to save {setting}: {error}`.
     SaveFailed { setting: Setting, error: String },
+    /// `Failed to update skill config for {path}: {error}`.
+    SkillWriteFailed { path: String, error: String },
+    /// What a visit of `/skills` changed: `Enabled {enabled} skill(s)` and/or `disabled
+    /// {disabled} skill(s)`.
+    SkillsChanged { enabled: usize, disabled: usize },
+    /// `Failed to load skills: {error}` (the listing failed).
+    SkillsFailed { error: String },
+    /// `Failed to update hook config: {error}`.
+    HookWriteFailed { error: String },
+    /// `Failed to trust hook: {error}` / `Failed to trust hooks: {error}`.
+    HookTrustFailed { many: bool, error: String },
+    /// `Failed to load hooks: {error}`.
+    HooksFailed { error: String },
+    /// `/experimental` before the session has a thread to list the features for.
+    ExperimentalUnavailable,
+    /// `Saved TUI mode: {mode}. Restart Codex to apply; launch overrides still apply.`
+    TuiModeSaved { fullscreen: bool },
+    /// The arguments of `/title`, `/statusline` or `/model` do not pass.
+    Refused(args::Refusal),
+    /// `No saved chat found matching '{name}'.`
+    NoSavedChat { name: String },
+    /// `Multiple sessions match '{name}' (including {first} and {second}); use a session UUID to
+    /// disambiguate.`
+    AmbiguousSession {
+        name: String,
+        first: String,
+        second: String,
+    },
+    /// `Cannot verify a unique session label across server pages; matching session UUID: {id}.
+    /// Use it only if this is the session you want.`
+    UnverifiedSession { id: String },
+    /// `Failed to list sessions while resolving session label: {error}`.
+    ResumeFailed { error: String },
+    /// What a captured shortcut did (`Remapped`, `Added`, `Replaced`, `No change`).
+    KeymapEdited {
+        context: String,
+        action: String,
+        key: String,
+        said: capture::Said,
+    },
+    /// `Unknown keymap action `{context}.{action}`. Reopen /keymap and choose an action.`
+    KeymapUnknown { context: String, action: String },
+    /// `` `{context}.{action}` no longer uses `{old_key}`. Reopen /keymap and choose a binding
+    /// again.``
+    KeymapStale {
+        context: String,
+        action: String,
+        old_key: String,
+    },
+}
+
+impl Note {
+    /// Whether the oracle says it with `add_info_message`.
+    pub fn is_info(&self) -> bool {
+        matches!(
+            self,
+            Note::ExperimentalUnavailable
+                | Note::TuiModeSaved { .. }
+                | Note::KeymapEdited { .. }
+                | Note::SkillsChanged { .. }
+        )
+    }
 }
 
 /// The app-scoped state of the feature, changed only by the steps of `Feature`. The dialogs are
@@ -129,6 +299,13 @@ pub struct State {
     pub syntax_theme: Option<String>,
     /// The requests the dialogs left, in order.
     pub edits: Vec<Edit>,
+    /// The last open of the experimental dialog: what an answer is checked against.
+    pub generation: u64,
+    /// The hook switches on their way, by key: what was asked for while one was in flight
+    /// (`pending_hook_enabled_writes`: only the last value is sent, and after the answer).
+    pub hook_writes: BTreeMap<String, Option<bool>>,
+    /// The skills' switches when `/skills` was opened, by path: what its summary compares to.
+    pub skills_opened: BTreeMap<String, bool>,
 }
 
 impl State {
@@ -155,10 +332,22 @@ impl State {
             self.syntax_theme = facts.syntax_theme.clone();
         }
         self.facts = facts;
+        // A dialog that is offered follows the config (the oracle refreshes the panel after a
+        // save).
+        if self.offers.contains_key(&Which::Config)
+            && let Some(panel) = self.facts.config_panel()
+        {
+            self.offers.insert(Which::Config, Offer::Config(panel));
+        }
+        if self.offers.contains_key(&Which::Keymap)
+            && let Some(picker) = self.facts.keymap_picker()
+        {
+            self.offers.insert(Which::Keymap, Offer::Keymap(picker));
+        }
     }
 
     /// The catalogue of the dialog of kind `which`, built from what the app holds.
-    fn open(&mut self, which: Which, cx: &AppCx<'_>) {
+    fn open(&mut self, which: Which, cx: &mut AppCx<'_>) {
         let offer = match which {
             Which::Theme => Offer::Theme(self.facts.theme_picker()),
             Which::Memories => match self.facts.memories {
@@ -170,11 +359,434 @@ impl State {
             },
             Which::StatusLine => Offer::Setup(items::status_line(&cx.view().screens().chat.status)),
             Which::Title => Offer::Setup(items::title(&cx.view().screens().chat.status)),
-            Which::Config | Which::Skills | Which::Keymap | Which::Experimental | Which::Hooks => {
+            Which::Experimental => return self.open_features(cx),
+            Which::Skills => {
+                cx.ask(
+                    None,
+                    Command::Skills {
+                        cwd: cx.view().working_directory(None),
+                    },
+                    Ctx::Skills,
+                );
                 return;
             }
+            Which::Hooks => {
+                cx.ask(
+                    None,
+                    Command::Hooks {
+                        cwd: cx.view().working_directory(None),
+                    },
+                    Ctx::Hooks,
+                );
+                return;
+            }
+            // The host's catalogues, as the facts have them (none yet: what was offered stays).
+            Which::Config => match self.facts.config_panel() {
+                Some(panel) => Offer::Config(panel),
+                None => return,
+            },
+            Which::Keymap => match self.facts.keymap_picker() {
+                Some(picker) => Offer::Keymap(picker),
+                None => return,
+            },
         };
         self.offer(offer);
+    }
+
+    /// `/experimental`: the dialog opens loading and the first page is asked for the active
+    /// thread (the server computes the enablement from that thread's config); with none the
+    /// dialog is not offered.
+    fn open_features(&mut self, cx: &mut AppCx<'_>) {
+        let Some(thread) = cx.view().active().cloned() else {
+            self.offers.remove(&Which::Experimental);
+            cx.note(None, Note::ExperimentalUnavailable);
+            return;
+        };
+        self.generation += 1;
+        let generation = self.generation;
+        self.offer(Offer::Experimental(Experimental::new(
+            Vec::new(),
+            true,
+            generation,
+        )));
+        cx.ask(
+            Some(&thread),
+            Command::Features { cursor: None },
+            Ctx::FeaturesPage {
+                generation,
+                after: After::Open,
+                found: Vec::new(),
+                cursors: Vec::new(),
+            },
+        );
+    }
+
+    /// A page of the experimental features arrived: the next one is asked for, or the listing
+    /// is over (a cursor that repeats, or more pages than `MAX_PAGES`, is a failed listing).
+    fn features_page(&mut self, mut ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+        let Ctx::FeaturesPage {
+            generation,
+            after,
+            found,
+            cursors,
+        } = &mut ctx
+        else {
+            return;
+        };
+        let (generation, after) = (*generation, after.clone());
+        let page = match result {
+            Ok(Reply::Features { features, next }) => Ok((features, next)),
+            Ok(_) => Err("unexpected answer".to_owned()),
+            Err(error) => Err(text(&error)),
+        };
+        let outcome = page.and_then(|(features, next)| {
+            for feature in features {
+                if !found.iter().any(|known| known.key == feature.key) {
+                    found.push(feature);
+                }
+            }
+            match next {
+                None => Ok(None),
+                Some(cursor)
+                    if cursors.contains(&cursor)
+                        || cursors.len() >= usize::from(wire::MAX_PAGES) =>
+                {
+                    Err(cursor)
+                }
+                Some(cursor) => Ok(Some(cursor)),
+            }
+        });
+        match outcome {
+            Ok(Some(cursor)) => {
+                cursors.push(cursor.clone());
+                let thread = cx.view().active().cloned();
+                cx.ask(
+                    thread.as_ref(),
+                    Command::Features {
+                        cursor: Some(cursor),
+                    },
+                    ctx,
+                );
+            }
+            Ok(None) => {
+                let Ctx::FeaturesPage { found, .. } = ctx else {
+                    return;
+                };
+                match after {
+                    After::Open => self.features_discovered(generation, Some(found)),
+                    After::Readback(updates) => {
+                        let features = updates
+                            .iter()
+                            .filter_map(|(key, _)| {
+                                found
+                                    .iter()
+                                    .find(|feature| &feature.key == key)
+                                    .map(|feature| (key.clone(), feature.enabled))
+                            })
+                            .collect();
+                        self.features_saved(
+                            generation,
+                            Ok(Written {
+                                features,
+                                warning: None,
+                            }),
+                        );
+                    }
+                }
+            }
+            Err(error) => match after {
+                After::Open => self.features_discovered(generation, None),
+                After::Readback(_) => self.features_saved(generation, Err(error)),
+            },
+        }
+    }
+
+    /// The skills the server listed are the checklist of `/skills`.
+    fn skills_listed(&mut self, skills: Vec<Skill>) {
+        self.skills_opened = skills
+            .iter()
+            .map(|skill| (skill.path.clone(), skill.enabled))
+            .collect();
+        let items = skills
+            .into_iter()
+            .map(|skill| SetupItem {
+                id: skill.path,
+                label: skill.display_name,
+                description: skill.description,
+                enabled: skill.enabled,
+                orderable: false,
+                section_break_after: false,
+                placeholder: skill.name,
+            })
+            .collect();
+        self.offer(Offer::Setup(Setup {
+            kind: SetupKind::Skills,
+            items,
+            values: BTreeMap::new(),
+        }));
+    }
+
+    /// `handle_manage_skills_closed`: how many skills the visit switched on and off (a skill
+    /// put back as it was counts for nothing); none, no line.
+    fn skills_summary(&self, cx: &mut AppCx<'_>) {
+        let Some(Offer::Setup(setup)) = self.offers.get(&Which::Skills) else {
+            return;
+        };
+        let (mut enabled, mut disabled) = (0, 0);
+        for item in &setup.items {
+            match self.skills_opened.get(&item.id) {
+                Some(was) if *was != item.enabled => {
+                    if item.enabled {
+                        enabled += 1;
+                    } else {
+                        disabled += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if enabled + disabled > 0 {
+            cx.note(None, Note::SkillsChanged { enabled, disabled });
+        }
+    }
+
+    /// A skill was switched on the server: the checklist the dialogs are offered follows.
+    fn skill_written(&mut self, path: &str, enabled: bool) {
+        if let Some(Offer::Setup(setup)) = self.offers.get_mut(&Which::Skills)
+            && let Some(item) = setup.items.iter_mut().find(|item| item.id == path)
+        {
+            item.enabled = enabled;
+        }
+    }
+
+    /// `set_hook_enabled`: one write per hook at a time; what was asked while it was on its
+    /// way is the next one.
+    fn hook_enabled(&mut self, key: String, enabled: bool, cx: &mut AppCx<'_>) {
+        if let Some(queued) = self.hook_writes.get_mut(&key) {
+            *queued = Some(enabled);
+            return;
+        }
+        self.hook_writes.insert(key.clone(), None);
+        Self::send_hook_enabled(key, enabled, cx);
+    }
+
+    fn send_hook_enabled(key: String, enabled: bool, cx: &mut AppCx<'_>) {
+        let value = serde_json::json!({ key.clone(): { "enabled": enabled } });
+        cx.ask(
+            None,
+            Command::HooksWrite { value },
+            Ctx::HookWrite { key, enabled },
+        );
+    }
+
+    /// `HookEnabledSet`: a value queued behind the answer is sent when it differs from what was
+    /// written or the write failed; else the answer is the end of it (and an error is said).
+    fn hook_enabled_set(
+        &mut self,
+        key: String,
+        enabled: bool,
+        result: Result<(), String>,
+        cx: &mut AppCx<'_>,
+    ) {
+        let queued = self.hook_writes.get_mut(&key).and_then(Option::take);
+        match queued {
+            Some(queued) if result.is_err() || queued != enabled => {
+                Self::send_hook_enabled(key, queued, cx);
+            }
+            _ => {
+                self.hook_writes.remove(&key);
+                if let Err(error) = result {
+                    cx.note(None, Note::HookWriteFailed { error });
+                }
+            }
+        }
+    }
+
+    fn hook_trust(&mut self, updates: Vec<(String, String)>, many: bool, cx: &mut AppCx<'_>) {
+        let value = serde_json::Value::Object(
+            updates
+                .into_iter()
+                .map(|(key, hash)| (key, serde_json::json!({ "trusted_hash": hash })))
+                .collect(),
+        );
+        cx.ask(None, Command::HooksWrite { value }, Ctx::HookTrust { many });
+    }
+
+    /// A slash command with arguments.
+    fn slash(
+        &mut self,
+        command: crate::commands::SlashCommand,
+        args: &str,
+        thread: Option<ThreadId>,
+        cx: &mut AppCx<'_>,
+    ) {
+        use crate::commands::SlashCommand;
+        let scope = thread.clone().unwrap_or_default();
+        let wish = match command {
+            SlashCommand::Hooks => return self.open(Which::Hooks, cx),
+            SlashCommand::Resume => return Self::resume(args.trim(), thread, cx),
+            SlashCommand::Title => args::title(args).map(Wish::Status),
+            SlashCommand::Statusline => args::status_line(args).map(Wish::Status),
+            SlashCommand::Model => {
+                let screens = cx.view().screens();
+                args::model(
+                    args,
+                    thread.is_some(),
+                    &crate::screens::select::models::Current::from_facts(&screens.chat.status),
+                    &screens.select.catalog.presets,
+                )
+                .map(|pick| Wish::Model(pick.selection))
+            }
+            _ => return,
+        };
+        match wish {
+            Ok(wish) => cx.wish(scope, wish),
+            Err(refusal) => cx.note(None, Note::Refused(refusal)),
+        }
+    }
+
+    /// `/resume <name or id>`: an id is read, a label is looked for in the listing.
+    fn resume(name: &str, thread: Option<ThreadId>, cx: &mut AppCx<'_>) {
+        if name.is_empty() {
+            return;
+        }
+        if resume::is_session_id(name) {
+            cx.ask(
+                None,
+                Command::Session {
+                    id: name.to_owned(),
+                },
+                Ctx::ResumeId {
+                    name: name.to_owned(),
+                    thread,
+                },
+            );
+        } else {
+            cx.ask(
+                None,
+                Command::Sessions { cursor: None },
+                Ctx::Resume {
+                    lookup: resume::Lookup::new(name),
+                    thread,
+                },
+            );
+        }
+    }
+
+    /// A page of the listing arrived: the next one is asked for, or the lookup ends.
+    fn resume_page(
+        mut lookup: resume::Lookup,
+        thread: Option<ThreadId>,
+        result: Result<Reply, RpcError>,
+        cx: &mut AppCx<'_>,
+    ) {
+        let step = match result {
+            Ok(Reply::Sessions { rows, next }) => lookup.page(&rows, next),
+            Ok(_) => return,
+            Err(error) => {
+                let error = text(&error);
+                return cx.note(None, Note::ResumeFailed { error });
+            }
+        };
+        match step {
+            resume::Step::Next(cursor) => cx.ask(
+                None,
+                Command::Sessions {
+                    cursor: Some(cursor),
+                },
+                Ctx::Resume { lookup, thread },
+            ),
+            resume::Step::Done(verdict) => Self::resumed(&lookup.name, thread, verdict, cx),
+        }
+    }
+
+    /// How the lookup ended: the thread to open, or the line saying why not.
+    fn resumed(name: &str, thread: Option<ThreadId>, verdict: resume::Verdict, cx: &mut AppCx<'_>) {
+        match verdict {
+            resume::Verdict::Found(id) => cx.wish(
+                thread.unwrap_or_default(),
+                Wish::OpenThread(ThreadId::new(id)),
+            ),
+            resume::Verdict::Missing => cx.note(
+                None,
+                Note::NoSavedChat {
+                    name: name.to_owned(),
+                },
+            ),
+            resume::Verdict::Ambiguous { first, second } => cx.note(
+                None,
+                Note::AmbiguousSession {
+                    name: name.to_owned(),
+                    first,
+                    second,
+                },
+            ),
+            resume::Verdict::Paginated(id) => cx.note(None, Note::UnverifiedSession { id }),
+        }
+    }
+
+    /// A key was captured for `context.action`: the edit it makes of the config, checked
+    /// against the keymap it would give, then written; a refusal is the line or the conflict
+    /// sheet saying why.
+    fn keymap_captured(
+        &mut self,
+        context: String,
+        action: String,
+        key: String,
+        intent: capture::Intent,
+        cx: &mut AppCx<'_>,
+    ) {
+        let said = |said| Note::KeymapEdited {
+            context: context.clone(),
+            action: action.clone(),
+            key: key.clone(),
+            said,
+        };
+        match capture::captured(&self.facts.keymap_spec, &context, &action, &key, &intent) {
+            Ok(capture::Outcome::Unchanged) => cx.note(None, said(capture::Said::Unchanged)),
+            Ok(capture::Outcome::Updated {
+                spec: _,
+                keys,
+                said: done,
+            }) => {
+                let edit = Edit::KeymapBound {
+                    context: context.clone(),
+                    action: action.clone(),
+                    keys,
+                };
+                if let Some(write) = persist::write_of(&edit) {
+                    cx.effect(
+                        Ask::ConfigWrite { edits: write.edits },
+                        Ctx::KeymapWrite { saved: said(done) },
+                    );
+                }
+                self.edits.push(edit);
+            }
+            Err(capture::Failure::UnknownAction) => {
+                cx.note(None, Note::KeymapUnknown { context, action });
+            }
+            Err(capture::Failure::NoLongerUses { old_key }) => cx.note(
+                None,
+                Note::KeymapStale {
+                    context,
+                    action,
+                    old_key,
+                },
+            ),
+            Err(capture::Failure::Conflict(error)) => {
+                let scope = cx.view().active().cloned().unwrap_or_default();
+                cx.wish(
+                    scope,
+                    Wish::KeymapConflict {
+                        context,
+                        action,
+                        key,
+                        intent,
+                        error,
+                    },
+                );
+            }
+        }
     }
 
     /// A request of a dialog: the state it changes at once, then the write it stands for.
@@ -189,7 +801,47 @@ impl State {
                     dialog.unconfirmed = updates.iter().map(|(key, _)| key.clone()).collect();
                     dialog.status = FeaturesStatus::Saving;
                 }
+                let edits = updates
+                    .iter()
+                    .map(|(key, enabled)| crate::app::effects::ConfigEdit {
+                        key_path: ["features.", key.as_str()].concat(),
+                        value: serde_json::json!(enabled),
+                    })
+                    .collect();
+                cx.effect(
+                    Ask::ConfigWrite { edits },
+                    Ctx::FeaturesWrite {
+                        generation: self.generation,
+                        updates: updates.clone(),
+                    },
+                );
             }
+            Edit::SkillToggled(path, enabled) => cx.ask(
+                None,
+                Command::SkillWrite {
+                    path: path.clone(),
+                    enabled: *enabled,
+                },
+                Ctx::SkillWrite {
+                    path: path.clone(),
+                    enabled: *enabled,
+                },
+            ),
+            Edit::SkillsClosed => {
+                self.skills_summary(cx);
+                cx.ask(
+                    None,
+                    Command::Skills {
+                        cwd: cx.view().working_directory(None),
+                    },
+                    Ctx::Skills,
+                );
+            }
+            Edit::HookEnabled { key, enabled } => self.hook_enabled(key.clone(), *enabled, cx),
+            Edit::HookTrusted { key, current_hash } => {
+                self.hook_trust(vec![(key.clone(), current_hash.clone())], false, cx);
+            }
+            Edit::HooksTrusted(updates) => self.hook_trust(updates.clone(), true, cx),
             _ => {}
         }
         if let Some(write) = persist::write_of(&edit) {
@@ -206,6 +858,7 @@ impl State {
         match subject {
             persist::Subject::Theme(name) => self.facts.syntax_theme = Some(name),
             persist::Subject::Memories(memories) => self.facts.memories = Some(memories),
+            persist::Subject::TuiMode(_) | persist::Subject::Keymap => {}
             // The chat's status facts hold these: the host sends them again.
             persist::Subject::StatusLine { .. } | persist::Subject::Title(_) => {}
         }
@@ -275,16 +928,16 @@ impl super::Feature for Settings {
 
     type State = State;
     type ThreadPart = ();
-    type Target = Never<Self>;
+    type Target = super::Never<Self>;
     type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
+    type ThreadIntent = super::Never<Self>;
+    type Command = Command;
+    type Reply = Reply;
     type Ctx = Ctx;
     type Note = Note;
     type Fact = Fact;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
+    type Wish = Wish;
+    type Interest = super::Never<Self>;
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
@@ -293,17 +946,79 @@ impl super::Feature for Settings {
                 state.syntax_theme = theme.or_else(|| state.facts.syntax_theme.clone());
             }
             Intent::Request(edit) => state.request(edit, cx),
+            Intent::Slash {
+                command,
+                args,
+                thread,
+            } => state.slash(command, &args, thread, cx),
+            Intent::KeymapCaptured {
+                context,
+                action,
+                key,
+                intent,
+            } => state.keymap_captured(context, action, key, intent, cx),
         }
     }
 
     /// The config file's answer to a write of a dialog: the session follows what it saved, or
     /// stays as it was and says why.
     fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+        if let (
+            Ctx::FeaturesWrite {
+                generation,
+                updates,
+            },
+            Done::Config(result),
+        ) = (&ctx, &done)
+        {
+            match result {
+                Ok(()) => {
+                    // The write is read back: the config may hold another value than the one
+                    // asked for.
+                    let thread = cx.view().active().cloned();
+                    cx.ask(
+                        thread.as_ref(),
+                        Command::Features { cursor: None },
+                        Ctx::FeaturesPage {
+                            generation: *generation,
+                            after: After::Readback(updates.clone()),
+                            found: Vec::new(),
+                            cursors: Vec::new(),
+                        },
+                    );
+                }
+                Err(error) => state.features_saved(*generation, Err(error.clone())),
+            }
+            return;
+        }
+        if let (Ctx::KeymapWrite { saved }, Done::Config(result)) = (&ctx, &done) {
+            match result {
+                Ok(()) => cx.note(None, saved.clone()),
+                Err(error) => cx.note(
+                    None,
+                    Note::SaveFailed {
+                        setting: Setting::Keymap,
+                        error: error.clone(),
+                    },
+                ),
+            }
+            return;
+        }
         let (Ctx::Write(subject), Done::Config(result)) = (ctx, done) else {
             return;
         };
         match result {
-            Ok(()) => state.saved(subject),
+            Ok(()) => {
+                if let persist::Subject::TuiMode(fullscreen) = &subject {
+                    cx.note(
+                        None,
+                        Note::TuiModeSaved {
+                            fullscreen: *fullscreen,
+                        },
+                    );
+                }
+                state.saved(subject);
+            }
             Err(error) => {
                 state.refused(&subject);
                 cx.note(
@@ -317,8 +1032,77 @@ impl super::Feature for Settings {
         }
     }
 
-    fn note_tone(_note: &Note) -> Tone {
-        Tone::Error
+    fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+        match ctx {
+            Ctx::FeaturesPage { .. } => state.features_page(ctx, result, cx),
+            Ctx::Skills => match result {
+                Ok(Reply::Skills(skills)) => state.skills_listed(skills),
+                Ok(_) => {}
+                Err(error) => cx.note(
+                    None,
+                    Note::SkillsFailed {
+                        error: text(&error),
+                    },
+                ),
+            },
+            Ctx::SkillWrite { path, enabled } => match result {
+                Ok(_) => state.skill_written(&path, enabled),
+                Err(error) => cx.note(
+                    None,
+                    Note::SkillWriteFailed {
+                        path,
+                        error: text(&error),
+                    },
+                ),
+            },
+            Ctx::Hooks => match result {
+                Ok(Reply::Hooks(hooks)) => state.offer(Offer::Hooks(hooks)),
+                Ok(_) => {}
+                Err(error) => cx.note(
+                    None,
+                    Note::HooksFailed {
+                        error: text(&error),
+                    },
+                ),
+            },
+            Ctx::HookWrite { key, enabled } => {
+                state.hook_enabled_set(
+                    key,
+                    enabled,
+                    result.map(|_| ()).map_err(|error| text(&error)),
+                    cx,
+                );
+            }
+            Ctx::HookTrust { many } => {
+                if let Err(error) = result {
+                    cx.note(
+                        None,
+                        Note::HookTrustFailed {
+                            many,
+                            error: text(&error),
+                        },
+                    );
+                }
+            }
+            Ctx::Resume { lookup, thread } => State::resume_page(lookup, thread, result, cx),
+            // An id the server does not read is no saved chat (`thread/read` failed: none).
+            Ctx::ResumeId { name, thread } => {
+                let verdict = match result {
+                    Ok(Reply::Session(listed)) => resume::Verdict::Found(listed.id),
+                    _ => resume::Verdict::Missing,
+                };
+                State::resumed(&name, thread, verdict, cx);
+            }
+            Ctx::Write(_) | Ctx::FeaturesWrite { .. } | Ctx::KeymapWrite { .. } => {}
+        }
+    }
+
+    fn note_tone(note: &Note) -> Tone {
+        if note.is_info() {
+            Tone::Info
+        } else {
+            Tone::Error
+        }
     }
 
     fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {
@@ -333,11 +1117,11 @@ impl super::Feature for Settings {
         }
     }
 
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
+    fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
+        wire::request(command, thread, id)
     }
 
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
+    fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
+        wire::decode(command, result).map_err(RpcError::Malformed)
     }
 }

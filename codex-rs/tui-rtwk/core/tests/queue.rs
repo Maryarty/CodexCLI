@@ -319,3 +319,97 @@ fn a_queued_line_is_dispatched_as_a_live_one_but_arguments_for_a_bare_command_ar
         QueueDrain::Continue
     );
 }
+
+/// `item/started` of a command the user (`!`) or the model ran, in `turn-1`.
+fn command_started(source: &str, id: &str) -> BackendEv {
+    let notification = serde_json::from_value(serde_json::json!({
+        "method": "item/started",
+        "params": {
+            "item": {
+                "type": "commandExecution",
+                "id": id,
+                "command": "echo hi",
+                "cwd": "/tmp",
+                "processId": null,
+                "source": source,
+                "status": "inProgress",
+                "commandActions": [],
+                "aggregatedOutput": null,
+                "exitCode": null,
+                "durationMs": null
+            },
+            "threadId": T,
+            "turnId": "turn-1",
+            "startedAtMs": 0
+        }
+    }))
+    .expect("an item/started notification");
+    BackendEv::Notification(Box::new(notification))
+}
+
+fn submit(app: &mut CodexApp, text: &str) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::Submit {
+            thread: Some(ThreadId::new(T)),
+            message: UserMessage::text(text),
+        }),
+    )
+}
+
+fn steered(fx: &AppFx) -> bool {
+    fx.commands().iter().any(|c| {
+        matches!(
+            c,
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Steer { .. }),
+                ..
+            }
+        )
+    })
+}
+
+/// `only_user_shell_commands_running`: while only the user's own `!` command runs, Enter on a
+/// message waits for the turn (it is queued) where it would steer a model's turn.
+#[test]
+fn a_message_typed_while_only_the_users_shell_command_runs_waits_for_the_turn() {
+    let mut app = running();
+    notify(&mut app, command_started("userShell", "shell-1"));
+    let fx = submit(&mut app, "and then this");
+    assert!(!steered(&fx));
+    assert!(started_texts(&fx).is_empty());
+    assert_eq!(queued(&app), ["and then this"]);
+    let fx = notify(&mut app, turn_completed(T, "turn-1"));
+    assert_eq!(started_texts(&fx), ["and then this"]);
+}
+
+#[test]
+fn a_message_typed_while_the_model_runs_a_command_steers_the_turn() {
+    let mut app = running();
+    notify(&mut app, command_started("agent", "exec-1"));
+    let fx = submit(&mut app, "wait, not that");
+    assert!(steered(&fx));
+    assert_eq!(queued(&app), Vec::<String>::new());
+    // one command of the model among the user's: the turn is the model's
+    let mut app = running();
+    notify(&mut app, command_started("userShell", "shell-1"));
+    notify(&mut app, command_started("agent", "exec-1"));
+    let fx = submit(&mut app, "wait, not that");
+    assert!(steered(&fx));
+}
+
+/// The queue holds while the thread is refused or a settings pick failed (`submissions_paused`,
+/// `suppress_queue_autosend`): the turn's end sends nothing until the user sends again.
+#[test]
+fn a_held_queue_sends_nothing_at_the_turn_end_and_goes_on_when_the_user_sends() {
+    let mut app = running();
+    tab(&mut app, "waits", false);
+    intent(&mut app, chat::ThreadIntent::HoldQueue);
+    assert!(thread(&app).queue_held());
+    let fx = notify(&mut app, turn_completed(T, "turn-1"));
+    assert!(started_texts(&fx).is_empty());
+    assert_eq!(queued(&app), ["waits"]);
+    // the user sends: the line goes behind nothing, the held one stays for the next end
+    let fx = submit(&mut app, "now");
+    assert_eq!(started_texts(&fx), ["now"]);
+}
