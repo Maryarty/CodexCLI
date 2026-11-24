@@ -46,6 +46,12 @@ Every range you will need again goes into your checkpoint's `read:` lines.
   `tools/rtwk-port/<name>/` (python3 -I, stdlib) with a README line, committed
   with its result; hand-edit only what it leaves. Example:
   `tools/rtwk-port/unit-tests/move.py`. Name it in the deliverable.
+- Registration lists are generated from the files by build.rs (`feature_list!`, core mod lines,
+  `sheet_list!`, `action_list!`, `mode_list!`, `cell_list!`, core/tests/all.rs): a new file is a
+  new entry, never a hand line. A cell file needs one head line in its first 15 lines,
+  `// cell: <Item pattern>` (e.g. `// cell: Item::Error { .. } | Item::HighLoad`); no other
+  file needs one. A slice's `impl Feature` is `feature! { .. }`. Generated modules and
+  `feature!{}` bodies are formatted by `tools/rtwk-port/registry/fmt.sh`.
 - Commit on your worktree branch, staging by path, messages `<alias>: …`.
   WIP commits are fine, so a hand-off loses nothing.
 
