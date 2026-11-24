@@ -53,6 +53,9 @@ pub struct Model {
     /// `/raw`: the transcript is shown as text for terminal selection
     /// (`raw_output_mode`). The rendering reads it.
     pub raw_output: bool,
+    /// What `/title` and `/statusline` set for this session: it outlives the host's facts, which
+    /// replace the status whole.
+    pub status_override: StatusOverride,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
     /// The footer's and the status line's other facts: the workspace probes, the side and
@@ -275,6 +278,7 @@ impl Default for Model {
             signed_in: true,
             notes: Vec::new(),
             raw_output: false,
+            status_override: StatusOverride::default(),
             status: Rc::default(),
             facts: Facts::default(),
         }
@@ -334,6 +338,39 @@ pub enum Intent {
     },
     /// `/raw`: the render mode of the transcript (`set_raw_output_mode`).
     RawOutput(bool),
+    /// `/title` and `/statusline` with items: session-only, nothing is written to the config.
+    StatusOverride(StatusOverride),
+}
+
+/// The status surfaces a command set for this session (`StatusSurfaceOverrides`): what is none
+/// is the config's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StatusOverride {
+    pub terminal_title: Option<Vec<String>>,
+    pub status_line: Option<Vec<String>>,
+    pub status_line_colors: Option<bool>,
+}
+
+impl StatusOverride {
+    /// What `later` changes on top of this.
+    fn merge(&mut self, later: StatusOverride) {
+        self.terminal_title = later.terminal_title.or(self.terminal_title.take());
+        self.status_line = later.status_line.or(self.status_line.take());
+        self.status_line_colors = later.status_line_colors.or(self.status_line_colors);
+    }
+
+    /// The facts with the overrides on them.
+    fn on(&self, facts: &mut StatusFacts) {
+        if let Some(items) = &self.terminal_title {
+            facts.terminal_title = Some(items.clone());
+        }
+        if let Some(items) = &self.status_line {
+            facts.items = Some(items.clone());
+        }
+        if let Some(colors) = self.status_line_colors {
+            facts.colors = colors;
+        }
+    }
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -342,7 +379,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Flags(flags) => model.flags = flags,
         Ev::ServiceTiers(tiers) => model.service_tiers = tiers,
         Ev::SignedIn(on) => model.signed_in = on,
-        Ev::Status(facts) => model.status = Rc::from(facts),
+        Ev::Status(mut facts) => {
+            model.status_override.on(&mut facts);
+            model.status = Rc::from(facts);
+        }
         Ev::Facts(ev) => model.facts.apply(ev),
         // the thread owns it (`apply_app` routes it)
         Ev::Details { .. } | Ev::Pending { .. } | Ev::ProviderError { .. } => {}
@@ -358,6 +398,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Session { .. } | Intent::Shell { .. } => {}
         Intent::Note { thread: None, note } => model.notes.push(note),
         Intent::RawOutput(enabled) => model.raw_output = enabled,
+        Intent::StatusOverride(set) => {
+            model.status_override.merge(set);
+            model.status_override.on(Rc::make_mut(&mut model.status));
+        }
         // a thread's note is an entry of its transcript (`session::note`)
         Intent::Note { .. } => {}
     }

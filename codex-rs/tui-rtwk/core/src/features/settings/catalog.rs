@@ -664,6 +664,15 @@ pub enum Edit {
     FeaturesSave(Vec<(String, bool)>),
     /// An action was picked in the keymap picker.
     KeymapPicked(String),
+    /// The `/tui` picker was answered: fullscreen (`true`) or scrollback, for the next launch.
+    TuiMode(bool),
+    /// A shortcut was captured for an action of the keymap picker: the context and action as
+    /// the config names them, and the keys now bound (none: unbound).
+    KeymapBound {
+        context: String,
+        action: String,
+        keys: Vec<String>,
+    },
     /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
     MemoriesSaved {
         use_memories: bool,

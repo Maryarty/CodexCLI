@@ -13,6 +13,8 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::commands::args::ArgError;
+use codex_tui_core::features::settings::args::{Refusal, Surface};
 use codex_tui_core::features::settings::{Note, Setting};
 
 use crate::l10n::Lang;
@@ -475,12 +477,79 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
 /// The words of a note of the feature (`add_error_message` of `app/event_dispatch.rs`,
 /// `app/config_persistence.rs`): the oracle's English until the catalog has these entries.
 pub fn note(note: &Note) -> String {
-    let Note::SaveFailed { setting, error } = note;
-    match setting {
-        Setting::Theme => format!("Failed to save theme: {error}"),
-        Setting::StatusLine => format!("Failed to save status line settings: {error}"),
-        Setting::Title => format!("Failed to save terminal title items: {error}"),
-        Setting::Memories => format!("Failed to save memory settings: {error}"),
+    match note {
+        Note::SaveFailed { setting, error } => match setting {
+            Setting::Theme => format!("Failed to save theme: {error}"),
+            Setting::StatusLine => format!("Failed to save status line settings: {error}"),
+            Setting::Title => format!("Failed to save terminal title items: {error}"),
+            Setting::Memories => format!("Failed to save memory settings: {error}"),
+            Setting::TuiMode => format!("Failed to save TUI mode: {error}"),
+            Setting::Keymap => format!("Failed to save keymap: {error}"),
+        },
+        Note::SkillWriteFailed { path, error } => {
+            format!("Failed to update skill config for {path}: {error}")
+        }
+        Note::SkillsFailed { error } => format!("Failed to load skills: {error}"),
+        Note::HookWriteFailed { error } => format!("Failed to update hook config: {error}"),
+        Note::HookTrustFailed { many: false, error } => format!("Failed to trust hook: {error}"),
+        Note::HookTrustFailed { many: true, error } => format!("Failed to trust hooks: {error}"),
+        Note::HooksFailed { error } => format!("Failed to load hooks: {error}"),
+        Note::ExperimentalUnavailable => {
+            "Experimental features are unavailable until startup completes.".to_string()
+        }
+        Note::TuiModeSaved { fullscreen } => {
+            let mode = if *fullscreen { "Fullscreen" } else { "Scrollback" };
+            format!("Saved TUI mode: {mode}. Restart Codex to apply; launch overrides still apply.")
+        }
+        Note::Refused(refusal) => refusal_words(refusal),
+    }
+}
+
+/// The lines of `status_surface_commands.rs` and `model_command.rs`.
+fn refusal_words(refusal: &Refusal) -> String {
+    let surface = |surface: &Surface| match surface {
+        Surface::Title => ("terminal-title", "/title"),
+        Surface::StatusLine => ("status-line", "/statusline"),
+    };
+    match refusal {
+        Refusal::Args(ArgError::Quoting) => "Invalid command arguments. Check the quoting.".to_string(),
+        Refusal::Args(ArgError::NeedsValue(name)) => {
+            format!("Command setting `{name}` requires a value.")
+        }
+        Refusal::Args(ArgError::TakesNoValue(name)) => {
+            format!("Command setting `{name}` does not take a value.")
+        }
+        Refusal::Args(ArgError::OnlyOne(name)) => {
+            format!("Specify only one of --{name} or --no-{name}.")
+        }
+        Refusal::Args(ArgError::Repeated(name)) => {
+            format!("Command setting `{name}` was provided more than once.")
+        }
+        Refusal::Args(ArgError::Unknown(name)) => format!("Unknown command setting `{name}`."),
+        Refusal::ClearWithItems(which) => {
+            format!("Cannot combine --clear with {} items.", surface(which).0)
+        }
+        Refusal::UnknownItem { surface: which, token } => {
+            let (name, command) = surface(which);
+            format!("Unknown {name} item '{token}'. Use {command} to see available items.")
+        }
+        Refusal::Unexpected(argument) => format!(
+            "Unexpected argument '{argument}'. Use '--reasoning=<level>' or '--speed=<tier>'."
+        ),
+        Refusal::Starting => "Session is still starting; try /model again in a moment.".to_string(),
+        Refusal::Reserve => {
+            "Model arguments are unavailable while using Reserve. Use /model to adjust effort."
+                .to_string()
+        }
+        Refusal::ModelUnavailable(model) => {
+            format!("Model '{model}' is unavailable. Use /model to see available models.")
+        }
+        Refusal::EffortUnavailable { model, effort, available } => format!(
+            "Reasoning level '{effort}' is unavailable for {model}. Available: {available}."
+        ),
+        Refusal::SpeedUnavailable { model, speed, available } => {
+            format!("Speed '{speed}' is unavailable for {model}. Available: {available}.")
+        }
     }
 }
 

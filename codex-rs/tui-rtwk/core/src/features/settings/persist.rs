@@ -17,6 +17,9 @@ pub enum Subject {
     },
     Title(Vec<String>),
     Memories(MemoryFacts),
+    /// `/tui`: fullscreen transcript on or off.
+    TuiMode(bool),
+    Keymap,
 }
 
 impl Subject {
@@ -27,6 +30,8 @@ impl Subject {
             Subject::StatusLine { .. } => Setting::StatusLine,
             Subject::Title(_) => Setting::Title,
             Subject::Memories(_) => Setting::Memories,
+            Subject::TuiMode(_) => Setting::TuiMode,
+            Subject::Keymap => Setting::Keymap,
         }
     }
 }
@@ -38,6 +43,8 @@ pub enum Setting {
     StatusLine,
     Title,
     Memories,
+    TuiMode,
+    Keymap,
 }
 
 /// One batch of the config file and what it is for.
@@ -89,6 +96,26 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
         } => Write {
             subject: Subject::Title(items.clone()),
             edits: vec![replace("tui.terminal_title", serde_json::json!(items))],
+        },
+        // `save_fullscreen_transcript`: `[tui].fullscreen_transcript`.
+        Edit::TuiMode(enabled) => Write {
+            subject: Subject::TuiMode(*enabled),
+            edits: vec![replace(
+                "tui.fullscreen_transcript",
+                serde_json::json!(enabled),
+            )],
+        },
+        // The keymap: `[tui.keymap.<context>] <action> = [keys]`.
+        Edit::KeymapBound {
+            context,
+            action,
+            keys,
+        } => Write {
+            subject: Subject::Keymap,
+            edits: vec![replace(
+                &format!("tui.keymap.{context}.{action}"),
+                serde_json::json!(keys),
+            )],
         },
         // `build_memory_settings_edits`.
         Edit::MemoriesSaved {
