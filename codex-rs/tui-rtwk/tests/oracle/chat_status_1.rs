@@ -374,13 +374,20 @@ fn rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated() {
         s.feed(&format!("{read}\n{ACCOUNT_USAGE}\n"));
         s.assert_requests_of("account/rateLimits/read", 1);
         assert_eq!(warnings(&s), 0, "{plan:?} {minutes:?}");
-        let mut roll = |s: &mut Screen, used: i32| {
+        let roll = |s: &mut Screen, used: i32| {
             s.feed(&format!("{}\n", rolling(&snapshot(used, None))));
         };
         roll(&mut s, 50);
-        assert_eq!(warnings(&s) == 1, early, "{plan:?} {minutes:?}:\n{}", s.text());
+        assert_eq!(
+            warnings(&s) == 1,
+            early,
+            "{plan:?} {minutes:?}:\n{}",
+            s.text()
+        );
         if early {
-            s.assert_has_row("⚠ Heads up, you have less than 50% of your 5h limit left. Run /status for a");
+            s.assert_has_row(
+                "⚠ Heads up, you have less than 50% of your 5h limit left. Run /status for a",
+            );
             s.assert_has_row("  breakdown.");
         }
         let seen = warnings(&s);
@@ -390,7 +397,11 @@ fn rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated() {
             roll(&mut s, used);
             assert_eq!(warnings(&s), seen + n + 1, "{plan:?} {minutes:?} at {used}");
             roll(&mut s, used);
-            assert_eq!(warnings(&s), seen + n + 1, "{plan:?} {minutes:?} again at {used}");
+            assert_eq!(
+                warnings(&s),
+                seen + n + 1,
+                "{plan:?} {minutes:?} again at {used}"
+            );
         }
     }
 }
@@ -400,7 +411,11 @@ fn rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated() {
 fn rate_limit_duration_labels_only_render_supported_windows() {
     // oracle: a 2-hour window has no label (the generic `usage`); 24 hours is "daily"; 365 days is
     // "annual". The labels are the warning's: each window crosses 75% used on a screen of its own.
-    for (minutes, label) in [(120, "usage"), (24 * 60, "daily"), (365 * 24 * 60, "annual")] {
+    for (minutes, label) in [
+        (120, "usage"),
+        (24 * 60, "daily"),
+        (365 * 24 * 60, "annual"),
+    ] {
         let mut s = Screen::build(Owner::UiPane).size(120, 24).live().open();
         let snapshot = serde_json::json!({"limitId": "codex",
             "primary": {"usedPercent": 75, "windowDurationMins": minutes, "resetsAt": null}});

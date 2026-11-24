@@ -7,8 +7,8 @@
 //! alone, the compact one. The row is half the width, or as wide as the compact spelling needs;
 //! a banner or a limit that stops the account takes its place (`usage_notice`).
 
-use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::l10n::{Arg, Fmt};
+use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::provider::select;
 use rtwk::style::Attrs;
 use rtwk::text::segmenter_of;

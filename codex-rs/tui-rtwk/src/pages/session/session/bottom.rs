@@ -97,12 +97,11 @@ pub(super) fn body(
         // above the draft takes the rows before it does
         body.child({
             // the usage notice takes the row while the reader is at the end (`composer_hint`)
-            let model = thread
-                .screen_slots()
-                .chat
+            let model = thread.screen_slots().chat.model.as_deref().or(frame
+                .drawn
+                .status
                 .model
-                .as_deref()
-                .or(frame.drawn.status.model.as_deref());
+                .as_deref());
             let notice = limits::notice_of(session, frame.drawn.owner, model).map(AnyWidget::from);
             let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice);
             let mentions = w.ui.draft.mentions();

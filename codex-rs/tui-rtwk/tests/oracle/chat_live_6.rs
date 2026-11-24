@@ -579,7 +579,10 @@ fn notice_details_fit_without_truncating_the_warning() {
     // one cell from the right edge. A width the line does not fit shows nothing.
     let fits = |width: u16, window: serde_json::Value, expected: &str, absent: &str| {
         let screen = width + 2;
-        let mut s = Screen::build(Owner::ChatLive).size(screen, 24).live().open();
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(screen, 24)
+            .live()
+            .open();
         let clock = serde_json::json!({"step": "screen", "dir": "cells", "ev": {"kind": "clock", "format": "twelve_hour", "utc_offset": 0}});
         let now = serde_json::json!({"step": "clock", "secs": NOTICE_NOW, "utc_offset": 0});
         let update = serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": window}}});
@@ -596,7 +599,11 @@ fn notice_details_fit_without_truncating_the_warning() {
     };
     let hour = serde_json::json!({"primary": {"usedPercent": 92, "windowDurationMins": 300, "resetsAt": NOTICE_NOW + 3_600}});
     for (width, expected, absent) in [
-        (98, "⚠ 5h limit: 8% left · resets at 1:00 PM · /status", "\u{0}"),
+        (
+            98,
+            "⚠ 5h limit: 8% left · resets at 1:00 PM · /status",
+            "\u{0}",
+        ),
         (97, "⚠ 5h limit: 8% left · /status", "resets at"),
         (58, "⚠ 5h limit: 8% left · /status", "resets at"),
         (57, "⚠ 5h limit: 8% left", " · /status"),
@@ -609,7 +616,11 @@ fn notice_details_fit_without_truncating_the_warning() {
     }
     let weekly = serde_json::json!({"secondary": {"usedPercent": 98, "windowDurationMins": 10080, "resetsAt": NOTICE_NOW + DAY}});
     for (width, expected, absent) in [
-        (138, "⚠ weekly limit: only 2% left · resets at 12:00 PM on 21 Sep · /status", "\u{0}"),
+        (
+            138,
+            "⚠ weekly limit: only 2% left · resets at 12:00 PM on 21 Sep · /status",
+            "\u{0}",
+        ),
         (137, "⚠ weekly limit: only 2% left · /status", "resets at"),
         (76, "⚠ weekly limit: only 2% left · /status", "resets at"),
         (75, "⚠ weekly limit: only 2% left", " · /status"),
