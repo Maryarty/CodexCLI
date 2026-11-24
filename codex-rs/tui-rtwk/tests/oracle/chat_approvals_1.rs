@@ -676,7 +676,9 @@ fn interrupt_preserves_unified_exec_processes() {
     // oracle: after the turn is interrupted, /ps still lists both running processes.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/chat_approvals_1/interrupt_preserves_unified_exec_processes.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_approvals_1/interrupt_preserves_unified_exec_processes.jsonl"
+        ))
         .open();
     s.type_text("/ps");
     s.keys("enter");
@@ -704,7 +706,9 @@ fn turn_complete_keeps_unified_exec_processes() {
     // oracle: after the turn completes, /ps still lists both running processes.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/chat_approvals_1/turn_complete_keeps_unified_exec_processes.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_approvals_1/turn_complete_keeps_unified_exec_processes.jsonl"
+        ))
         .open();
     s.type_text("/ps");
     s.keys("enter");

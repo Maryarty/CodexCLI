@@ -55,6 +55,12 @@ pub const TOOLS_LABEL: &str = "Tools: ";
 pub const RESOURCES_LABEL: &str = "Resources: ";
 pub const TEMPLATES_LABEL: &str = "Resource templates: ";
 pub const NONE: &str = "(none)";
+/// Between the loading mark and its words, and between a resource and its uri.
+pub const GAP: &str = " ";
+/// Between a server's name and its state.
+pub const STATE_SEP: &str = ": ";
+/// Between the entries of a resource list.
+pub const ENTRY_SEP: &str = ", ";
 
 /// `(N tools)` after a server's state.
 pub fn tool_count(count: usize) -> String {

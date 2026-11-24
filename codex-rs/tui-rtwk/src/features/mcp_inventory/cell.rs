@@ -14,10 +14,10 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 use codex_tui_core::features::mcp_inventory::{Connection, Entry, Inventory, Note, Server};
 
 use super::strings::{
-    AUTH_LABEL, COMMAND, DETAIL_MARK, DOCS_AFTER, DOCS_BEFORE, DOCS_LINK, DOCS_URL, LOADING_DOTS,
-    LOADING_MARK, LOADING_WORDS, NO_SERVERS, NO_TOOLS, NONE, RESOURCES_LABEL, SERVER_MARK,
-    TEMPLATES_LABEL, TITLE, TITLE_MARK, TOOLS_LABEL, VERBOSE_HINT, auth, connection, tool_count,
-    uri,
+    AUTH_LABEL, COMMAND, DETAIL_MARK, DOCS_AFTER, DOCS_BEFORE, DOCS_LINK, DOCS_URL, ENTRY_SEP,
+    GAP, LOADING_DOTS, LOADING_MARK, LOADING_WORDS, NO_SERVERS, NO_TOOLS, NONE, RESOURCES_LABEL,
+    SERVER_MARK, STATE_SEP, TEMPLATES_LABEL, TITLE, TITLE_MARK, TOOLS_LABEL, VERBOSE_HINT, auth,
+    connection, tool_count, uri,
 };
 use crate::app::theme::Tokens;
 
@@ -55,7 +55,7 @@ impl StatelessWidget for LoadingCell {
         let tokens = Tokens::of(cx);
         Text::rich(vec![
             Span::styled(LOADING_MARK, tokens.dim().attrs(Attrs::DIM)),
-            Span::new(" "),
+            Span::new(GAP),
             Span::styled(LOADING_WORDS, tokens.bold()),
             Span::styled(LOADING_DOTS, tokens.dim().attrs(Attrs::DIM)),
         ])
@@ -152,7 +152,7 @@ impl<'a> Rows<'a> {
         self.push(vec![
             Span::styled(SERVER_MARK, state.clone()),
             Span::styled(server.name.clone(), self.tokens.bold()),
-            Span::new(": "),
+            Span::new(STATE_SEP),
             Span::styled(connection(server.connection), state),
             Span::styled(tool_count(server.tools.len()), dim),
         ]);
@@ -187,10 +187,10 @@ impl<'a> Rows<'a> {
         }
         for (index, entry) in entries.iter().enumerate() {
             if index > 0 {
-                spans.push(Span::new(", "));
+                spans.push(Span::new(ENTRY_SEP));
             }
             spans.push(Span::new(entry.label.clone()));
-            spans.push(Span::new(" "));
+            spans.push(Span::new(GAP));
             spans.push(Span::styled(
                 uri(&entry.uri),
                 self.tokens.dim().attrs(Attrs::DIM),
