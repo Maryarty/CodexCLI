@@ -6,7 +6,8 @@
 
 use crate::kit::{self, Owner, Screen};
 
-const NO_PARENT: &str = "no seed for a parent-owned thread: the chat screen has no sub-agent view, so the composer never draws its `Viewing sub-agent — direct input is disabled` placeholder";
+const NO_PARENT: &str = "feature composer placeholder of a thread that takes no direct input (w2-composer): the chat draws its own `Ask Codex to do anything` where the oracle's composer reads `Viewing sub-agent — direct input is disabled` (the seed is fixtures/chat_commands_3/parent_owned.jsonl, canAcceptDirectInput false); the oracle's frame is the bare composer, so its footer is a region compare once the placeholder exists";
+const PARENT_OWNED: &str = include_str!("fixtures/chat_commands_3/parent_owned.jsonl");
 const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed sets the esc backtrack hint, the quit shortcut hint, queue submissions, the status line or the shortcut overlay, and the footer draws none of them";
 const NO_FILES: &str = "the oracle draws these with `Feature::MentionsV2` off, where `@` opens the legacy file popup (a bare `loading...` list under the draft); the port is the default mode (V2 on: the unified popup with its header and tabs) and does not carry the legacy popup (decided: MentionsV2 off is not ported)";
 
@@ -78,8 +79,12 @@ fn unbound_left_of_bound() -> Screen {
 #[test]
 fn parent_owned_thread_placeholder_snapshot() {
     kit::pending(Owner::ChatLive, NO_PARENT);
-    // The oracle draws the bare composer at 100 x 9 with a parent-owned thread set.
-    let s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    // The oracle draws the bare composer at 100 x 9 with a parent-owned thread set (the server
+    // says the thread takes no direct input).
+    let s = Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .script(PARENT_OWNED)
+        .open();
     s.assert_snap("parent_owned_thread_placeholder");
 }
 

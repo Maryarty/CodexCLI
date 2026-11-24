@@ -33,12 +33,13 @@ fn configured_list_cancel_aborts_exec_approval() {
 fn configured_list_cancel_cancels_mcp_elicitation() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed (`.keymap` is missing until the port reads key bindings) and no entry with make_elicitation_request (server test-server, message Need more information)",
+        "feature configured list.cancel on the MCP elicitation prompt (w2-approvals): the prompt is seeded by fixtures/kit/mcp_elicitation.jsonl and `.keymap(list.cancel = q)`, and `q` does nothing there (esc is the only cancel); the form-mode elicitation also draws Allow/Deny/Cancel where the oracle's overlay is the plain approval",
     );
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("approvals", "elicitation_need_more_info")
+        .script(include_str!("fixtures/kit/mcp_elicitation.jsonl"))
         .keymap(&[("list.cancel", "q")])
         .open();
+    s.assert_contains("Need more information");
     s.keys("q");
     // The oracle's ResolveElicitation(Cancel) is an event, not drawn; the visible half is the closed form.
     s.assert_absent("Need more information");
@@ -360,17 +361,28 @@ fn enter_sets_last_selected_index_without_dismissing() {
 fn clipped_exec_approval_opens_the_complete_command() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed for open_fullscreen (ctrl+g, then unbound): the hint shows the default `⌃a` (entry approvals/exec_clipped; sheet tests `a_header_taller_than_the_pane_is_cut_with_its_line_count` and `a_cut_header_gives_up_its_rows_to_the_options_and_the_hint_last` hold the oracle's four bound frames with ⌃a), and ctrl+g opens no pager yet (the transcript chunk's static pager hook)",
+        "feature configured approval.open_fullscreen chord (w2-approvals): the clipped header's `[… N lines] ⌃a view all` row draws the fixed `⌃a` where the oracle shows the configured `⌃g` (`.keymap(..)` is seeded, the frame is read by `Snap::labelled`: the rows equal the oracle's otherwise); the other seven frames (40x10, 40x8, 40x7 and the unbound ones) are not written yet",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 14)
         .entry("approvals", "exec_clipped")
         .keymap(&[("approval.open_fullscreen", "ctrl+g")])
         .open();
-    s.assert_snap_section(
-        "codex_tui__bottom_pane__approval_overlay__clipping_tests__clipped_exec_approval_opens_the_complete_command",
+    // the oracle test joined its frames under `bound={bool} {W}x{H}` lines
+    let labels = [
         "bound=true 80x14",
-    );
+        "bound=true 40x10",
+        "bound=true 40x8",
+        "bound=true 40x7",
+        "bound=false 80x14",
+        "bound=false 40x10",
+        "bound=false 40x8",
+        "bound=false 40x7",
+    ];
+    s.snap("codex_tui__bottom_pane__approval_overlay__clipping_tests__clipped_exec_approval_opens_the_complete_command")
+        .labelled(&labels)
+        .frame("bound=true 80x14")
+        .assert();
     s.assert_contains("⌃g view all");
     s.assert_absent("destructive_suffix");
     s.assert_absent("reason_suffix");
@@ -435,7 +447,7 @@ fn arrival_preserves_vim_undo_and_navigation_flushes_buffered_input() {
 fn long_prompt_keeps_the_active_input_visible() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with a question whose title is the 30-times repeated A lengthy prompt. and a pasted answer visible answer (the slice registers it as approvals/user_input_long_prompt)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with a question whose title is the 30-times repeated A lengthy prompt. and a pasted answer visible answer (the slice registers it as approvals/user_input_long_prompt)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 8)
@@ -451,7 +463,7 @@ fn long_prompt_keeps_the_active_input_visible() {
 fn wrapped_question_url_keeps_its_complete_destination() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with a second question titled Review this change (https://github.com/openai/codex/pull/12345?diff=split)? (the slice registers it as approvals/user_input_wrapped_url)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with a second question titled Review this change (https://github.com/openai/codex/pull/12345?diff=split)? (the slice registers it as approvals/user_input_wrapped_url)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 12)
@@ -471,7 +483,7 @@ fn wrapped_question_url_keeps_its_complete_destination() {
 fn markdown_question_preserves_formatting_and_link_destinations() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the markdown question Run **this command** with a sh fence and a [diagnostics] link (the slice registers it as approvals/user_input_markdown)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with the markdown question Run **this command** with a sh fence and a [diagnostics] link (the slice registers it as approvals/user_input_markdown)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(60, 15)
@@ -487,7 +499,7 @@ fn markdown_question_preserves_formatting_and_link_destinations() {
 fn selected_other_renders_as_a_dim_placeholder() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with two questions (First, Second with the option Named) and a long second title; the other placeholder is drawn once a draft is typed then cleared (the slice registers it as approvals/user_input_other)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with two questions (First, Second with the option Named) and a long second title; the other placeholder is drawn once a draft is typed then cleared (the slice registers it as approvals/user_input_other)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(50, 10)
@@ -504,7 +516,7 @@ fn selected_other_renders_as_a_dim_placeholder() {
 fn question_choice_remaps_paging_and_inline_feedback() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed (list.move_down x, list.accept f9, list.jump_top 7) and no entry with twelve long options (Option 1 .. Option 12 is long enough to wrap) (the slice registers it as approvals/user_input_twelve)",
+        "entry to register (w2-approvals, src/sheets/approvals): `user_input_twelve`, twelve options (the keymap is seeded by `.keymap(..)`: list.move_down x, list.accept f9, list.jump_top 7), twelve long options (Option 1 .. Option 12 is long enough to wrap) (the slice registers it as approvals/user_input_twelve)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(50, 12)
@@ -527,7 +539,7 @@ fn question_choice_remaps_paging_and_inline_feedback() {
 fn question_inline_history_search() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with twelve options Option 1 .. Option 12, a replayed history entry earlier answer and a pasted original answer (the slice registers it as approvals/user_input_history)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with twelve options Option 1 .. Option 12, a replayed history entry earlier answer and a pasted original answer (the slice registers it as approvals/user_input_history)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(50, 12)
@@ -544,7 +556,7 @@ fn question_inline_history_search() {
 fn question_other_remains_visible_at_nine_columns_and_distinguishes_named_other() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with a question whose only option is Other and a pasted other draft (the slice registers it as approvals/user_input_named_other)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with a question whose only option is Other and a pasted other draft (the slice registers it as approvals/user_input_named_other)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(50, 12)
@@ -561,15 +573,23 @@ fn question_other_remains_visible_at_nine_columns_and_distinguishes_named_other(
 fn question_options_reserve_wrapped_height_at_the_width_boundary() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with options abcdefgh *ijklmno* and pqrstuvw xyzabcd at width 24; the joined snapshot labels Full height: and Clipped: are not frame headers the kit reads yet (oracle_snap header(), kit call missing)",
+        "entry to register (w2-approvals, src/sheets/approvals): `user_input_wrap_boundary`, a question with the options abcdefgh *ijklmno* and pqrstuvw xyzabcd at width 24; the glued snapshot's frames are read by `Snap::labelled`",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(24, 12)
         .entry("approvals", "user_input_wrap_boundary")
         .open();
-    s.assert_snap_section("question_options_width_boundary", "Full height:");
+    // the oracle test joined the two renders under its own labels
+    let labels = ["Full height:", "Clipped:"];
+    s.snap("question_options_width_boundary")
+        .labelled(&labels)
+        .frame("Full height:")
+        .assert();
     s.resize(24, 4);
-    s.assert_snap_section("question_options_width_boundary", "Clipped:");
+    s.snap("question_options_width_boundary")
+        .labelled(&labels)
+        .frame("Clipped:")
+        .assert();
 }
 
 // ORACLE bottom_pane/async_questions/state_tests.rs:410 question_other_excludes_clipped_options_at_the_width_boundary kind=snap owner=dialogs-pane snap=question_other_clipped_width_boundary
@@ -577,7 +597,7 @@ fn question_options_reserve_wrapped_height_at_the_width_boundary() {
 fn question_other_excludes_clipped_options_at_the_width_boundary() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with options abcdefgh ijklmno and pqrstuvw xyzabcd with Other selected in a 20 by 2 region (the slice registers it as approvals/user_input_other_clipped)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with options abcdefgh ijklmno and pqrstuvw xyzabcd with Other selected in a 20 by 2 region (the slice registers it as approvals/user_input_other_clipped)",
     );
     Screen::build(Owner::DialogsPane)
         .size(20, 2)
@@ -591,7 +611,7 @@ fn question_other_excludes_clipped_options_at_the_width_boundary() {
 fn question_wrapped_options_and_other_share_the_text_indent() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the wrapped suggested answer A suggested answer that is long enough to wrap across multiple rows, plus a second wrapped option (the slice registers it as approvals/user_input_wrapped_options)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with the wrapped suggested answer A suggested answer that is long enough to wrap across multiple rows, plus a second wrapped option (the slice registers it as approvals/user_input_wrapped_options)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(36, 16)
@@ -612,7 +632,7 @@ fn question_wrapped_options_and_other_share_the_text_indent() {
 fn question_wrapped_other_shares_the_text_indent() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the wrapped suggested answer and a pasted wrapping Other answer, then a long draft of a thousand lines (the slice registers it as approvals/user_input_wrapped_other)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with the wrapped suggested answer and a pasted wrapping Other answer, then a long draft of a thousand lines (the slice registers it as approvals/user_input_wrapped_other)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(36, 16)
@@ -630,7 +650,7 @@ fn question_wrapped_other_shares_the_text_indent() {
 fn existing_cross_context_keymaps_load_without_misleading_submit_hints() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed for chat.interrupt_turn, chat.edit_queued_message and list.accept bound to f12, and no second question to navigate to",
+        "entry to register (w2-approvals, src/sheets/approvals): `user_input_two_questions` (the keymap is seeded by `.keymap(..)`: chat.interrupt_turn, chat.edit_queued_message and list.accept on f12); a second question to navigate to",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(100, 24)
@@ -652,7 +672,7 @@ fn existing_cross_context_keymaps_load_without_misleading_submit_hints() {
 fn question_navigation_resets_history_recall() {
     kit::pending(
         Owner::DialogsPane,
-        "no seed for the composer history (older, newer replayed user messages) on a question prompt (the slice registers it as approvals/user_input_history_recall)",
+        "feature composer history in the question prompt (w2-approvals): was: no scripted state for the composer history (older, newer replayed user messages) on a question prompt (the slice registers it as approvals/user_input_history_recall)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("approvals", "user_input_history_recall")
@@ -670,7 +690,7 @@ fn question_navigation_resets_history_recall() {
 fn named_choices_share_selection_while_other_keeps_its_inline_cursor() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the named option *Named* [guide](https://example.com) and a linked g at widths 40 and 80 (the slice registers it as approvals/user_input_linked_option)",
+        "entry to register (w2-approvals, src/sheets/approvals): the sheet entry with the named option *Named* [guide](https://example.com) and a linked g at widths 40 and 80 (the slice registers it as approvals/user_input_linked_option)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 16)

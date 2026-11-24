@@ -545,31 +545,43 @@ fn empty_enter_during_task_does_not_queue() {
 // ORACLE chatwidget/tests/composer_submission.rs:1987 output_free_esc_interrupt_keeps_prompt_and_opens_blank_composer kind=ui owner=chat-nav-pane
 #[test]
 fn output_free_esc_interrupt_keeps_prompt_and_opens_blank_composer() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a running turn with no output (submit, then turn-1 started); the Esc interrupt's Op::Interrupt is not reachable by the kit",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(SESSION)
+        .open();
     s.type_text("revise this prompt");
     s.keys("enter");
+    s.assert_turn_texts(&["revise this prompt"]);
+    // the server starts the turn: it has no output yet
+    s.feed(RUNNING);
     s.keys("esc");
-    s.assert_contains("revise this prompt");
-    s.assert_contains("Conversation interrupted");
+    s.assert_interrupts(1);
+    s.feed(INTERRUPTED);
+    s.assert_has_row("› revise this prompt");
+    s.assert_has_row("■ Conversation interrupted - use /feedback if something went wrong");
+    s.assert_composer("");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:2023 output_free_ctrl_c_interrupt_keeps_prompt_and_opens_blank_composer kind=snap owner=chat-nav-pane
 #[test]
 fn output_free_ctrl_c_interrupt_keeps_prompt_and_opens_blank_composer() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a running turn with no output (submit, then turn-1 started) interrupted by ctrl+c; the oracle's history dump (its .snap) is not a screen region yet",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(SESSION)
+        .open();
     s.type_text("revise this prompt");
     s.keys("enter");
+    s.assert_turn_texts(&["revise this prompt"]);
+    s.feed(RUNNING);
     s.keys("ctrl+c");
-    // The oracle's snapshot: history, then the prompt row and the interrupt notice.
-    s.assert_in_order(&["› revise this prompt", "■ Conversation interrupted"]);
+    s.assert_interrupts(1);
+    s.feed(INTERRUPTED);
+    // The oracle's snapshot: history (the prompt, a blank line, the notice), then an empty composer.
+    s.assert_in_order(&[
+        "› revise this prompt",
+        "■ Conversation interrupted - use /feedback if something went wrong",
+    ]);
+    s.assert_composer("");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:2049 pending_steer_esc_does_not_steal_vim_insert_escape kind=ui owner=chat-nav-pane

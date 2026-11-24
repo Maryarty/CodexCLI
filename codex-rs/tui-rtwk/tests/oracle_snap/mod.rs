@@ -310,6 +310,9 @@ pub fn frames(rel: &str) -> Vec<Frame> {
 /// What a header reader answers for a line: the frame's name and the row the header line also is.
 type Header = Option<(String, Option<String>)>;
 
+/// A header reader: the line, the line before it and the line after it.
+type HeaderOf<'a> = dyn Fn(&str, Option<&String>, Option<&String>) -> Header + 'a;
+
 /// The frames of a snapshot whose headers are the lines `labels` name: a snapshot the test glued
 /// of several renders under labels of its own (`Compact` / `Full`, `Full height:` / `Clipped:`,
 /// `Resume 118x30`, `empty (48 columns):`, `Before account change:`), which no rule of `frames`
@@ -333,10 +336,7 @@ pub fn frame_labelled(rel: &str, labels: &[&str], name: &str) -> Frame {
     pick(rel, frames_labelled(rel, labels), name)
 }
 
-fn frames_with(
-    rel: &str,
-    header_of: &dyn Fn(&str, Option<&String>, Option<&String>) -> Header,
-) -> Vec<Frame> {
+fn frames_with(rel: &str, header_of: &HeaderOf<'_>) -> Vec<Frame> {
     let body = body(rel);
     let mut chunks: Vec<(String, Vec<String>)> = Vec::new();
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();

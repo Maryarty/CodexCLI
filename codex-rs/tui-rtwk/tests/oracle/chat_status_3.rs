@@ -23,7 +23,7 @@ fn bottom_popup(command: &str, snap: &str) -> Screen {
 fn thread_color_preview_matches_footer() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline popup in the ported chat; no seed for a named thread with a thread color",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; no scripted state for a named thread with a thread color",
     );
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
     s.type_text("/statusline");
@@ -39,7 +39,7 @@ fn thread_color_preview_matches_footer() {
 fn status_surface_preview_lines_live_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline or /title setup popup in the ported chat; no seed for project root, branch, thread name and plan progress",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; no scripted state for project root, branch, thread name and plan progress",
     );
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
@@ -69,7 +69,7 @@ fn status_line_setup_popup_live_only_snapshot() {
 fn status_surface_preview_lines_hardcoded_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline or /title setup popup in the ported chat; the hardcoded preview items have no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the hardcoded preview items have no scripted state",
     );
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
@@ -89,7 +89,7 @@ fn status_surface_preview_lines_hardcoded_only_snapshot() {
 fn status_line_setup_popup_hardcoded_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline popup in the ported chat; the status-line items (profile, provider) have no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the status-line items (profile, provider) have no scripted state",
     );
     bottom_popup("/statusline", "status_line_setup_popup_hardcoded_only");
 }
@@ -99,7 +99,7 @@ fn status_line_setup_popup_hardcoded_only_snapshot() {
 fn status_line_setup_popup_workspace_headline_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline popup in the ported chat; the workspace headline has no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the workspace headline has no scripted state",
     );
     bottom_popup("/statusline", "status_line_setup_popup_workspace_headline");
 }
@@ -109,7 +109,7 @@ fn status_line_setup_popup_workspace_headline_snapshot() {
 fn status_surface_preview_lines_mixed_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline or /title setup popup in the ported chat; no seed for the mixed live and hardcoded items",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; no scripted state for the mixed live and hardcoded items",
     );
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
@@ -163,7 +163,7 @@ fn status_surface_preview_lines_thread_usage_snapshot() {
 fn status_line_setup_popup_rate_limits_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline popup in the ported chat; the rate-limit snapshot (35% and 50% used) has no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the rate-limit snapshot (35% and 50% used) has no scripted state",
     );
     bottom_popup("/statusline", "status_line_setup_popup_rate_limits");
 }
@@ -173,7 +173,7 @@ fn status_line_setup_popup_rate_limits_snapshot() {
 fn status_line_setup_popup_mixed_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /statusline popup in the ported chat; the account, the daybreak feature and the status-line items have no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the account, the daybreak feature and the status-line items have no scripted state",
     );
     bottom_popup("/statusline", "status_line_setup_popup_mixed");
 }
@@ -183,7 +183,7 @@ fn status_line_setup_popup_mixed_snapshot() {
 fn terminal_title_setup_popup_live_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /title popup in the ported chat; the terminal-title items and the live branch and plan progress have no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the terminal-title items and the live branch and plan progress have no scripted state",
     );
     bottom_popup("/title", "terminal_title_setup_popup_live_only");
 }
@@ -193,7 +193,7 @@ fn terminal_title_setup_popup_live_only_snapshot() {
 fn terminal_title_setup_popup_hardcoded_only_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /title popup in the ported chat; the terminal-title items have no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the terminal-title items have no scripted state",
     );
     bottom_popup("/title", "terminal_title_setup_popup_hardcoded_only");
 }
@@ -203,7 +203,7 @@ fn terminal_title_setup_popup_hardcoded_only_snapshot() {
 fn terminal_title_setup_popup_mixed_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /title popup in the ported chat; the account, the daybreak feature and the terminal-title items have no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the account, the daybreak feature and the terminal-title items have no scripted state",
     );
     bottom_popup("/title", "terminal_title_setup_popup_mixed");
 }
@@ -213,7 +213,7 @@ fn terminal_title_setup_popup_mixed_snapshot() {
 fn terminal_title_setup_popup_rate_limits_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /title popup in the ported chat; the rate-limit snapshot has no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the rate-limit snapshot has no scripted state",
     );
     bottom_popup("/title", "terminal_title_setup_popup_rate_limits");
 }
@@ -223,7 +223,7 @@ fn terminal_title_setup_popup_rate_limits_snapshot() {
 fn terminal_title_setup_popup_thread_usage_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no /title popup in the ported chat; the thread-credits and estimated-cost items have no seed",
+        "feature /statusline and /title setup popups (w2-status): the chat has none in the ported chat; the thread-credits and estimated-cost items have no scripted state",
     );
     bottom_popup("/title", "terminal_title_setup_popup_thread_usage");
 }
@@ -367,7 +367,7 @@ fn thread_identity_renders_names_and_fallbacks_on_both_surfaces() {
 fn image_result_live_and_replay_render_in_the_owning_call() {
     kit::pending(
         Owner::UiPane,
-        "the chat has no MCP tool call with an image result, live or replayed: no seed script for either path",
+        "feature image result of an MCP tool call (w2-cells): the chat has none, live or replayed: no scripted state script for either path",
     );
     // The oracle renders the one call's cell live and by replay; both equal the same snapshot.
     // The cell's row on the transcript is set by ui-pane with the seed.
