@@ -421,7 +421,8 @@ impl Vim {
         }
         let kept = cursor == prefix_len
             && self.commands.replace_steps.last_mut().is_some_and(|step| {
-                let own = step.cursor_before == 0 && step.start == 0 && step.inserted_len == prefix_len;
+                let own =
+                    step.cursor_before == 0 && step.start == 0 && step.inserted_len == prefix_len;
                 if own {
                     step.inserted_len = 0;
                 }

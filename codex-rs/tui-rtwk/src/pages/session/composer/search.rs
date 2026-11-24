@@ -65,13 +65,24 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     } else if pressed(&data.keymap, SEARCH_ERASE, key) {
         draft.search_edit(c, store, &mut asks, |query| {
             edited(query, |q| {
-                editing_key(q, KeyPress::BACKSPACE, &|t| q.insert(t), &StoredStops, false, None);
+                editing_key(
+                    q,
+                    KeyPress::BACKSPACE,
+                    &|t| q.insert(t),
+                    &StoredStops,
+                    false,
+                    None,
+                );
             });
         });
     } else if pressed(&data.keymap, SEARCH_CLEAR, key) {
-        draft.search_edit(c, store, &mut asks, |query| edited(query, TextEditingController::clear));
+        draft.search_edit(c, store, &mut asks, |query| {
+            edited(query, TextEditingController::clear)
+        });
     } else if let Some(text) = key.as_text() {
-        draft.search_edit(c, store, &mut asks, |query| edited(query, |q| q.insert(text)));
+        draft.search_edit(c, store, &mut asks, |query| {
+            edited(query, |q| q.insert(text))
+        });
     } else if pressed(&data.keymap, DEBUG_KEY, key) {
         // the port's own hidden debug key is not the oracle's to swallow
         return false;

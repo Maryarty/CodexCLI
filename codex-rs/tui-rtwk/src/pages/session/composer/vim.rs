@@ -587,6 +587,13 @@ pub fn insert(
             run(data, c, |v, host| v.type_text(host, "\n"));
             Some(true)
         }
+        Resolved::Edit {
+            edit: Edit::Yank, ..
+        } if !c.selection().is_collapsed() && !draft.register().text.is_empty() => {
+            // a selected range is what the yank replaces (`apply_vim_insert_action`)
+            insert_pasted(draft, c, &draft.register().text);
+            Some(true)
+        }
         Resolved::Edit { edit, .. } => {
             let action = edit.action()?;
             run(data, c, |v, host| v.insert_action(host, action)).then_some(true)
@@ -652,7 +659,12 @@ pub fn paste_into_query(draft: &ComposerDraft, text: &str) -> bool {
 /// Puts a paste (or a flushed burst) into the text: Replace mode overwrites what it covers, the
 /// other modes insert it at the selection.
 pub fn insert_pasted(draft: &ComposerDraft, c: &TextEditingController, text: &str) {
-    if draft.vim_enabled() && mode(draft).replace {
+    if draft.vim_enabled() && mode(draft).replace && !c.selection().is_collapsed() {
+        // a pointer's selection is replaced whole, and no command repeats it
+        // (`insert_str_at_target`)
+        draft.with_vim(Vim::forget_commands);
+        c.insert(text);
+    } else if draft.vim_enabled() && mode(draft).replace {
         let mut host = VimHost::new(c, draft);
         draft.with_vim(|v| v.insert_pasted(&mut host, text));
     } else {

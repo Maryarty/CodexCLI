@@ -132,19 +132,74 @@ impl ComposerDraft {
     }
 
     /// The elements the register holds go back where its text was pasted,
-    /// from `start`.
+    /// from `start`: a pasted placeholder and an attached image take the
+    /// next number of their kind, as a new one does (`vim_register::sync`,
+    /// `RegisterEvent::Pasted`); a mention keeps its label.
     fn paste_register_elements(&self, c: &TextEditingController, start: usize) {
         self.sync(c);
-        let mut inner = self.0.borrow_mut();
-        let held = inner.kill.as_ref().map(|k| k.1.clone()).unwrap_or_default();
+        let held = self
+            .0
+            .borrow()
+            .kill
+            .as_ref()
+            .map(|k| k.1.clone())
+            .unwrap_or_default();
+        // what the new labels added to the text before the next element
+        let mut shift = 0isize;
         for e in held {
+            let from = start.saturating_add_signed(shift) + e.start;
+            let to = from + (e.end - e.start);
+            let (label, payload) = if e.binding.is_some() {
+                (e.label.clone(), e.payload.clone())
+            } else if e.image.is_some() {
+                let images = self
+                    .elements(c)
+                    .iter()
+                    .filter(|other| other.image.is_some())
+                    .count();
+                let label: Rc<str> =
+                    Rc::from(renumbered(&e.label, self.remote_count() + images + 1));
+                (label.clone(), label)
+            } else {
+                let base = e
+                    .label
+                    .rsplit_once(" #")
+                    .filter(|(_, n)| n.parse::<usize>().is_ok())
+                    .map_or(&*e.label, |(base, _)| base);
+                (Rc::from(self.next_label(c, base)), e.payload.clone())
+            };
+            let delta = label.len() as isize - (to - from) as isize;
+            if delta != 0 || *label != *e.label {
+                let caret = c.selection().extent_offset;
+                c.replace(from, to, &label);
+                let caret = if caret >= to {
+                    caret.saturating_add_signed(delta)
+                } else {
+                    caret
+                };
+                c.set_selection(TextSelection::collapsed(caret.min(c.text().len())));
+            }
+            let mut inner = self.0.borrow_mut();
+            for other in &mut inner.elements {
+                if other.start >= to {
+                    other.start = other.start.saturating_add_signed(delta);
+                    other.end = other.end.saturating_add_signed(delta);
+                }
+            }
+            inner.seen = Some(c.buffer());
+            let seq = inner.next_seq;
+            inner.next_seq += 1;
             inner.elements.push(Element {
-                start: start + e.start,
-                end: start + e.end,
+                start: from,
+                end: from + label.len(),
+                label,
+                payload,
+                seq,
                 ..e
             });
+            inner.elements.sort_by_key(|other| other.start);
+            shift += delta;
         }
-        inner.elements.sort_by_key(|e| e.start);
     }
 
     /// The whole draft now.
@@ -388,5 +443,16 @@ impl VimText for VimHost<'_> {
 
     fn editor(&mut self, action: EditorAction) -> bool {
         (self.editor)(action)
+    }
+}
+
+/// `label` (an `[Image #1]`) with its number `n`.
+fn renumbered(label: &str, n: usize) -> String {
+    match label.rsplit_once('#') {
+        Some((before, after)) => {
+            let rest = after.trim_start_matches(|c: char| c.is_ascii_digit());
+            format!("{before}#{n}{rest}")
+        }
+        None => label.to_owned(),
     }
 }
