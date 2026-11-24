@@ -137,7 +137,7 @@ mod copy_mode {
     use codex_tui_rtwk::features::copy::begins_mode;
     use codex_tui_rtwk::widgets::thread_ui::Input;
 
-    use crate::kit::{Owner, Screen, pending};
+    use crate::kit::{Owner, Screen};
 
     const NAV: &str = include_str!("../oracle/fixtures/transcript_view_2/copy_nav.jsonl");
     const VIM: &str = include_str!("../oracle/fixtures/transcript_view_2/user_vim.jsonl");
@@ -336,12 +336,8 @@ mod copy_mode {
     /// `Text`s joined by one line break; the model joins them by a blank line), so a piece after
     /// the first block lands late.
     #[test]
+    #[ignore = "pending(chat-live): the mounted ItemTexts model of a Markdown row is its blocks joined by a blank line; the row's cells are joined by one line break, so a range after the first block lands late"]
     fn the_cursor_is_the_reversed_text_of_its_piece() {
-        pending(
-            Owner::ChatLive,
-            "the mounted ItemTexts model of a Markdown row is its blocks joined by a blank line; \
-             the row's cells are joined by one line break, so a range after the first block lands late",
-        );
         let mut s = chat(NAV, 80);
         begin(&mut s);
         s.assert_text_style("Latest plan", "reversed");

@@ -480,12 +480,12 @@ fn analytics_day_navigation_keeps_geometry_and_legend() {
             let mut previous: Option<Geometry> = None;
             for _ in 0..7 {
                 let now = geometry(&s);
-                assert!(!now.0.is_empty(), "no bars drawn:\n{}", s.text());
+                s.assert_drawn(now.0.len(), "bars");
                 if let Some(previous) = &previous {
-                    assert!(
-                        *previous == now,
-                        "the geometry moved at width {width} (expanded {expanded}):\n{}",
-                        s.text()
+                    s.assert_same_frame(
+                        previous,
+                        &now,
+                        &format!("width {width} (expanded {expanded})"),
                     );
                 }
                 previous = Some(now);

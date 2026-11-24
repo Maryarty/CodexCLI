@@ -648,6 +648,17 @@ impl Screen {
         );
     }
 
+    /// The oracle compares a measured frame (cells and styles it read off the grid) with the one
+    /// it measured before: all equal.
+    pub fn assert_same_frame<T: PartialEq>(&self, before: &T, now: &T, why: &str) {
+        assert!(before == now, "{why}: the frame moved:\n{}", self.text());
+    }
+
+    /// The oracle asserts a measured frame holds `count` > 0 cells of `what`.
+    pub fn assert_drawn(&self, count: usize, what: &str) {
+        assert!(count > 0, "no {what} drawn:\n{}", self.text());
+    }
+
     /// The oracle asserts the screen changed.
     pub fn assert_rows_differ(&self, before: &Shot) {
         assert!(
