@@ -145,6 +145,20 @@ impl Screen {
         );
     }
 
+    /// The first row that holds `anchor` also holds every text of `holds` and none of `lacks`.
+    pub fn assert_row_of(&self, anchor: &str, holds: &[&str], lacks: &[&str]) {
+        let rows = self.rows();
+        let Some(row) = rows.iter().find(|row| row.contains(anchor)) else {
+            panic!("no row holds `{anchor}`:\n{}", self.text());
+        };
+        for text in holds {
+            assert!(row.contains(text), "the row of `{anchor}` lacks `{text}`: {row}");
+        }
+        for text in lacks {
+            assert!(!row.contains(text), "the row of `{anchor}` holds `{text}`: {row}");
+        }
+    }
+
     /// The first row that is not empty reads `text` (blanks at both ends cut).
     pub fn assert_first_row(&self, text: &str) {
         let rows = self.rows();
@@ -184,7 +198,7 @@ impl Screen {
 
     /// The row that reads `row` is followed by exactly the rows `following`.
     pub fn assert_row_then(&self, row: &str, following: &[&str]) {
-        let rows = self.rows();
+        let rows = self.grid().rows(false);
         let Some(at) = rows.iter().position(|r| r == row.trim_end()) else {
             panic!("no `{row}` row:\n{}", self.text());
         };
@@ -230,12 +244,37 @@ impl Screen {
         }
     }
 
+    /// The rows, each trimmed and all joined without a separator, hold `text` (a text the
+    /// width wrapped stays whole in them).
+    pub fn assert_joined_rows_hold(&self, text: &str) {
+        let joined: String = self.grid().rows(false).iter().map(|row| row.trim()).collect();
+        assert!(joined.contains(text), "`{text}` is lost: {joined}");
+    }
+
+    /// Every row that ends with `suffix` has `text` at column `x`, and `n` rows do.
+    pub fn assert_rows_ending_have_text_at(&self, suffix: &str, x: usize, text: &str, n: usize) {
+        let mut seen = 0;
+        for (y, row) in self.rows().iter().enumerate() {
+            if row.trim_end().ends_with(suffix) {
+                self.assert_text_at(x, y, text);
+                seen += 1;
+            }
+        }
+        assert_eq!(seen, n, "rows ending `{suffix}`:\n{}", self.text());
+    }
+
     // ---- the window title ------------------------------------------------------------
 
     /// The window title the app wrote last ends with `tail`.
     pub fn assert_title_ends_with(&self, tail: &str) {
         let title = self.title().expect("a title");
         assert!(title.ends_with(tail), "the title is {title:?}, not ..{tail}");
+    }
+
+    /// The window title the app wrote last holds no `part`.
+    pub fn assert_title_lacks(&self, part: &str) {
+        let title = self.title().expect("a title");
+        assert!(!title.contains(part), "the title is {title:?}, with ..{part}..");
     }
 
     /// The window title the app wrote last holds `part`.
@@ -255,6 +294,29 @@ impl Screen {
             .collect();
         let got: Vec<&str> = found.iter().map(String::as_str).collect();
         pretty_assertions::assert_eq!(got, targets, "link targets:\n{}", self.text());
+    }
+
+    /// The cells that carry a link, read in order, spell `url`, and every link goes to it.
+    pub fn assert_links_spell(&self, url: &str) {
+        let grid = self.grid();
+        let mut spelled = String::new();
+        let mut destinations = Vec::new();
+        for y in 0..grid.height {
+            for x in 0..grid.width {
+                let cell = grid.cell(x, y);
+                if let Some(link) = &cell.link {
+                    if !cell.tail {
+                        spelled.push_str(&cell.text);
+                    }
+                    destinations.push(link.clone());
+                }
+            }
+        }
+        pretty_assertions::assert_eq!(spelled, url, "the linked cells:\n{}", grid.text());
+        assert!(
+            !destinations.is_empty() && destinations.iter().all(|d| d == url),
+            "links {destinations:?}"
+        );
     }
 
     /// `len` cells from `from` columns after the start of `anchor` (the first row that holds it)

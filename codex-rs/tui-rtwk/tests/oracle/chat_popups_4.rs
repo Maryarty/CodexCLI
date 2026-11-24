@@ -43,7 +43,7 @@ fn apps_popup_shows_disabled_status_for_installed_but_disabled_apps() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2970 apps_refresh_preserves_toggled_enabled_state kind=ui owner=dialogs-pane
 #[test]
 fn apps_refresh_preserves_toggled_enabled_state() {
-    use crate::chat_popups_3::{apps_answer, apps_asked};
+    use crate::chat_popups_3::apps_answer;
     // the config takes the write of the switch
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -54,7 +54,7 @@ fn apps_refresh_preserves_toggled_enabled_state() {
         .open();
     s.type_text("/apps");
     s.keys("enter");
-    let asked = apps_asked(&s);
+    let asked = s.asked_apps();
     s.answer_request(
         &asked[0],
         apps_answer(&[("connector_1", "Notion", "Workspace docs")]),
@@ -71,8 +71,8 @@ fn apps_refresh_preserves_toggled_enabled_state() {
     // the directory is read again and still says the app is on: the switch stays
     s.type_text("/apps");
     s.keys("enter");
-    let asked = apps_asked(&s);
-    assert_eq!(asked.len(), 2, "{asked:?}");
+    s.assert_apps_asked(2);
+    let asked = s.asked_apps();
     s.answer_request(
         &asked[1],
         apps_answer(&[("connector_1", "Notion", "Workspace docs")]),
@@ -302,22 +302,9 @@ fn on_startup_catalog(
 }
 
 /// The `model/list` the app has asked last, still unanswered.
-fn last_model_list(s: &Screen) -> codex_tui_core::app::Command {
-    use codex_tui_core::app::Command;
-    use codex_tui_core::screens::ScreenCommand;
-    use codex_tui_core::screens::select;
-    s.commands()
-        .into_iter()
-        .rev()
-        .find(|c| {
-            matches!(
-                c,
-                Command::Screen {
-                    command: ScreenCommand::Select(select::Command::Models { .. }),
-                    ..
-                }
-            )
-        })
+fn last_model_list(s: &Screen) -> kit::Ask {
+    s.asked_models()
+        .pop()
         .expect("the app asked for the model list")
 }
 
@@ -785,17 +772,9 @@ fn reasoning_up_shortcuts_reach_max_in_default_and_plan_modes() {
                 if plan_mode { "plan" } else { "default" },
             ));
             s.keys(key);
-            let sent = s.request_params("thread/settings/update");
-            let sent = sent
-                .last()
-                .expect("the shortcut asks the server for the effort")
-                .to_string();
-            assert!(
-                sent.contains(r#""max""#),
-                "{key} in plan={plan_mode} sent {sent}"
-            );
+            s.assert_last_request_has("thread/settings/update", r#""max""#);
             // Plan mode steps the Plan override: the mode rides with the effort
-            assert_eq!(sent.contains(r#""plan""#), plan_mode, "{key}: {sent}");
+            s.assert_last_request_mentions("thread/settings/update", r#""plan""#, plan_mode);
             // the server answers with the settings it took; the footer reads them
             s.feed(&settings_updated(
                 "gpt-5.5",
@@ -841,7 +820,7 @@ fn reasoning_up_shortcut_does_not_silently_enter_ultra() {
         s.keys("enter");
         s.keys("esc");
         s.feed(&settings_updated(model, "max", "default"));
-        let before = s.request_params("thread/settings/update").len();
+        let before = s.requests_of("thread/settings/update");
         s.keys("alt+.");
         // The oracle's inline literal "• Ultra is available under /model → <model path> → More reasoning…".
         let path = if model.starts_with("codex-auto-") {
@@ -853,7 +832,7 @@ fn reasoning_up_shortcut_does_not_silently_enter_ultra() {
             "• Ultra is available under /model → {path} → More reasoning…"
         ));
         // and nothing was asked of the server
-        assert_eq!(s.request_params("thread/settings/update").len(), before);
+        s.assert_requests_of("thread/settings/update", before);
     }
 }
 
@@ -898,10 +877,7 @@ fn advanced_only_reasoning_option_requires_explicit_selection() {
     s.keys("enter");
     // the only option is advanced: the list waits for an explicit selection
     s.assert_snap("advanced_only_reasoning_selection_popup");
-    assert!(
-        s.request_params("thread/settings/update").is_empty(),
-        "nothing is applied before the selection"
-    );
+    s.assert_no_request("thread/settings/update");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4288 auto_model_advertising_advanced_effort_opens_reasoning_picker kind=ui owner=dialogs-pane
@@ -980,10 +956,9 @@ fn reasoning_popup_escape_returns_to_model_popup() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4422 account_change_dismisses_the_previous_app_directory_snapshot kind=snap owner=dialogs-pane snap=connector_scope_invalidation
 #[test]
 fn account_change_dismisses_the_previous_app_directory_snapshot() {
-    use crate::chat_popups_3::apps_asked;
     let mut s = Screen::build(Owner::DialogsPane).size(80, 16).live().open();
     s.type_text("/apps").keys("enter");
-    let asked = apps_asked(&s);
+    let asked = s.asked_apps();
     s.answer_request(
         &asked[0],
         serde_json::json!({"data": [
@@ -1061,82 +1036,32 @@ fn saved_quick_dials_save_and_clear_picker_snapshots() {
 // ORACLE chatwidget/tests/review_picker_tests.rs:7 review_picker_filtered_accept_and_cancel_preserve_parent_and_draft kind=ui owner=dialogs-pane
 #[test]
 fn review_picker_filtered_accept_and_cancel_preserve_parent_and_draft() {
-    use codex_tui_core::app::Command;
-    use codex_tui_core::app::effects::{Ask, Done};
-    use codex_tui_core::screens::ScreenCommand;
-    use codex_tui_core::screens::chat;
-    use codex_tui_core::screens::select::review::Commit;
-    use codex_tui_core::threads::ReviewTarget;
-
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
         .live()
         .open();
-    let commits = || {
-        Done::GitLog(vec![
-            Commit {
-                sha: "1111111".into(),
-                subject: "First commit".into(),
-            },
-            Commit {
-                sha: "abcdef2".into(),
-                subject: "Selected commit".into(),
-            },
-        ])
-    };
+    let commits = [("1111111", "First commit"), ("abcdef2", "Selected commit")];
     // the oracle's draft is in the composer before the popup opens; here the command that opens
     // it takes the composer, so the draft is what the line left: nothing
     s.type_text("/review");
     s.keys("enter");
     s.assert_contains("Select a review preset");
     s.keys("down down f3");
-    let asked = |s: &Screen| {
-        s.commands()
-            .into_iter()
-            .filter(|c| {
-                matches!(
-                    c,
-                    Command::Effect {
-                        ask: Ask::GitLog { .. },
-                        ..
-                    }
-                )
-            })
-            .collect::<Vec<_>>()
-    };
-    let asks = asked(&s);
-    assert_eq!(asks.len(), 1, "{asks:?}");
-    s.answer_effect(&asks[0], commits());
+    s.assert_git_logs_asked(1);
+    let asks = s.asked_git_logs();
+    s.answer_git_log(&asks[0], &commits);
     s.assert_contains("Select a commit to review");
     s.keys("a f2");
-    let parent = s.text();
-    assert!(parent.contains("› 3. Review a commit"), "{parent}");
-    assert!(parent.contains("f3 select · f2 back"), "{parent}");
+    s.assert_contains("› 3. Review a commit");
+    s.assert_contains("f3 select · f2 back");
     s.keys("f3");
-    let asks = asked(&s);
-    assert_eq!(asks.len(), 2, "{asks:?}");
-    s.answer_effect(&asks[1], commits());
+    s.assert_git_logs_asked(2);
+    let asks = s.asked_git_logs();
+    s.answer_git_log(&asks[1], &commits);
     s.type_text("abcdef2");
     s.keys("f3");
-    let started: Vec<_> = s
-        .commands()
-        .into_iter()
-        .filter_map(|c| match c {
-            Command::Screen {
-                command: ScreenCommand::Chat(chat::Command::Review(target)),
-                ..
-            } => Some(target),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        started,
-        [ReviewTarget::Commit {
-            sha: "abcdef2".into(),
-            title: Some("Selected commit".into())
-        }]
-    );
+    s.assert_review_of_commit("abcdef2", "Selected commit");
     s.assert_absent("Select a commit to review");
     s.assert_absent("Select a review preset");
     s.assert_composer("");
@@ -1250,7 +1175,7 @@ fn provider_switch_blocks_cached_choices_in_old_and_new_chats() {
     s.assert_absent("Select Reasoning Level");
     s.assert_absent("Select Model");
     // `/model` is blocked with the restart notice and asks nothing of the server
-    let asked = s.commands().len();
+    let asked = s.command_count();
     s.type_text("/model");
     s.keys("enter");
     // (the notice wraps at 80 columns)
@@ -1262,19 +1187,7 @@ fn provider_switch_blocks_cached_choices_in_old_and_new_chats() {
     // the composer is free again: no dialog stays over it
     s.type_text("hello");
     s.assert_contains("hello");
-    let new = s.commands().split_off(asked);
-    assert!(
-        new.iter().all(|c| !matches!(
-            c,
-            codex_tui_core::app::Command::Screen {
-                command: codex_tui_core::screens::ScreenCommand::Select(
-                    codex_tui_core::screens::select::Command::Models { .. }
-                ),
-                ..
-            }
-        )),
-        "no model list is asked while blocked: {new:?}"
-    );
+    s.assert_no_models_asked_since(asked);
 }
 
 // ---- oracle: chatwidget/tests/skills_summary_tests.rs (1 screen-level tests here; 0 state tests left to dialogs-pane)

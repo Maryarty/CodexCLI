@@ -44,12 +44,7 @@ fn tight_item_with_soft_break() {
         ))
         .open();
     // The oracle's two lines, the item's bullet then its indent, one under the other.
-    let rows = s.grid().rows(false);
-    let at = rows
-        .iter()
-        .position(|row| row == "• item line1")
-        .unwrap_or_else(|| panic!("no `• item line1` row:\n{}", s.text()));
-    assert_eq!(rows.get(at + 1).map(String::as_str), Some("  item line2"));
+    s.assert_row_then("• item line1", &["  item line2"]);
 }
 
 // ORACLE markdown_render_tests.rs:723 deeply_nested_mixed_three_levels kind=ui owner=chat-live

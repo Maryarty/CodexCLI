@@ -931,10 +931,7 @@ fn incremental_raw_render_preserves_blank_lines() {
         .open();
     s.keys("alt+r");
     s.feed(&answer_chunks(&["alpha\n", "\n", "beta\n", "\n"]));
-    let rows: Vec<String> = s.rows().iter().map(|r| r.trim_end().to_string()).collect();
-    let at = rows.iter().position(|r| r == "alpha").expect("alpha row");
-    assert_eq!(rows[at + 1], "");
-    assert_eq!(rows[at + 2], "beta");
+    s.assert_row_then("alpha", &["", "beta"]);
 }
 
 // ORACLE streaming/render_tests.rs:205 compact_list_spacing_keeps_incremental_and_full_renders_aligned kind=ui owner=chat-live

@@ -21,10 +21,6 @@ fn limits(used: u8) -> String {
 }
 
 /// How many rows of the screen say `text`.
-fn rows_with(s: &Screen, text: &str) -> usize {
-    s.rows().iter().filter(|row| row.contains(text)).count()
-}
-
 // ---- oracle: chatwidget/tests/status_and_layout.rs (47 screen-level tests here; 40 state tests left to ui-pane)
 // ORACLE chatwidget/tests/status_and_layout.rs:3171 unsupported_code_mode_warning_renders_as_warning_history_cell kind=snap owner=ui-pane
 #[test]
@@ -73,11 +69,7 @@ fn status_line_hostname_renders_current_machine_hostname() {
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_2/hostname.jsonl"))
         .open();
-    assert!(
-        s.rows().iter().any(|row| row.trim() == "devbox.local"),
-        "the status line is the hostname\n{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("devbox.local");
     s.assert_absent("invalid");
 }
 
@@ -88,12 +80,7 @@ fn status_line_context_used_renders_labeled_percent() {
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_2/context_used.jsonl"))
         .open();
-    assert!(
-        s.rows().iter().any(|row| row.trim() == "Context 0% used"),
-        "the status line is `Context 0% used`
-{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("Context 0% used");
     s.assert_absent("invalid");
 }
 
@@ -106,12 +93,7 @@ fn status_line_context_remaining_renders_labeled_percent() {
             "fixtures/chat_status_2/context_remaining.jsonl"
         ))
         .open();
-    assert!(
-        s.rows().iter().any(|row| row.trim() == "Context 100% left"),
-        "the status line is `Context 100% left`
-{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("Context 100% left");
     s.assert_absent("invalid");
 }
 
@@ -122,12 +104,7 @@ fn status_line_legacy_context_usage_renders_context_used_percent() {
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_2/context_usage.jsonl"))
         .open();
-    assert!(
-        s.rows().iter().any(|row| row.trim() == "Context 0% used"),
-        "the status line is `Context 0% used`
-{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("Context 0% used");
     s.assert_absent("invalid");
 }
 
@@ -187,14 +164,7 @@ fn status_line_workspace_headline_renders_cached_value() {
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_2/headline.jsonl"))
         .open();
-    assert!(
-        s.rows()
-            .iter()
-            .any(|row| row.trim() == "Workspace maintenance starts at 5pm"),
-        "the status line is `Workspace maintenance starts at 5pm`
-{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("Workspace maintenance starts at 5pm");
     s.assert_absent("invalid");
 }
 
@@ -238,11 +208,7 @@ fn status_line_processing_tier_updates_with_selection() {
         )
     };
     let line = |s: &Screen, text: &str| {
-        assert!(
-            s.rows().iter().any(|row| row.trim() == text),
-            "the status line is `{text}`\n{}",
-            s.text()
-        );
+        s.assert_has_row_trimmed(text);
     };
     let mut s = Screen::build(Owner::UiPane)
         .size(100, 24)
@@ -300,11 +266,7 @@ fn status_line_and_terminal_title_reasoning_render_only_effort() {
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_2/reasoning_only.jsonl"))
         .open();
-    assert!(
-        s.rows().iter().any(|row| row.trim() == "xhigh"),
-        "the status line is the effort\n{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("xhigh");
     s.assert_title("xhigh");
 }
 
@@ -349,21 +311,9 @@ fn status_line_model_with_reasoning_speed_footer_snapshots() {
     s.assert_title("gpt-5.4 xhigh Ultrafast");
     s.assert_snap("status_line_model_with_reasoning_ultrafast_footer");
     s.feed(&status("flex", r#"["model-with-reasoning"]"#));
-    assert!(
-        s.rows()
-            .iter()
-            .any(|row| row.trim() == "gpt-5.4 xhigh flex"),
-        "the flex tier\n{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("gpt-5.4 xhigh flex");
     s.feed(&status("low_latency", r#"["model-with-reasoning"]"#));
-    assert!(
-        s.rows()
-            .iter()
-            .any(|row| row.trim() == "gpt-5.4 xhigh low latency"),
-        "the low latency tier\n{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed("gpt-5.4 xhigh low latency");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4583 status_line_model_with_reasoning_context_remaining_footer_snapshot kind=snap owner=ui-pane snap=status_line_model_with_reasoning_context_remaining_footer
@@ -769,7 +719,7 @@ fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth
     s.assert_contains("Model:");
     s.assert_absent("refreshing limits");
     // the account's limits are asked once for it, and the card shows what came back
-    assert_eq!(s.requests_of("account/rateLimits/read") - startup, 1);
+    s.assert_requests_of("account/rateLimits/read", startup + 1);
     s.wait_for("8% left");
 }
 
@@ -778,14 +728,14 @@ fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth
 fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
     // tall enough for both cards: the first card's `8% left` stays on the screen
     let mut s = Screen::build(Owner::UiPane)
-        .size(crate::common::WIDTH, 60)
+        .height(60)
         .live()
         .open();
     s.feed(CHATGPT).feed(&limits(92));
     s.type_text("/status");
     s.keys("enter");
     s.wait_for("8% left");
-    assert_eq!(rows_with(&s, "8% left"), 1);
+    s.assert_rows_with("8% left", 1);
     // the refresh updated the cache: the next card shows the limits as they are now
     s.feed(&limits(50));
     s.type_text("/status");
@@ -859,9 +809,9 @@ fn status_command_overlapping_refreshes_update_matching_cells_only() {
     s.keys("enter");
     // each card has its own refresh; no card is left waiting for a reply that went to the other
     s.assert_absent("refreshing limits");
-    assert_eq!(s.requests_of("account/rateLimits/read") - startup, 2);
+    s.assert_requests_of("account/rateLimits/read", startup + 2);
     s.wait_for("8% left");
-    assert_eq!(rows_with(&s, "8% left"), 2);
+    s.assert_rows_with("8% left", 2);
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:214 status_command_renders_immediately_and_updates_first_card_without_status_line kind=snap owner=ui-pane snap=status_command_estimated_thread_usage

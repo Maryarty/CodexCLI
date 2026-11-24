@@ -455,21 +455,11 @@ fn label_only_web_links_keep_targets_after_prose_and_table_wrapping() {
             // The oracle collects the targets of the rendered lines: a label that wraps
             // (width 12) still carries its target on every row.
             let s = hyperlink_chat(width, 24, &markdown);
-            let grid = s.grid();
-            let targets: std::collections::BTreeSet<String> = (0..grid.height)
-                .flat_map(|y| (0..grid.width).map(move |x| (x, y)))
-                .filter_map(|(x, y)| grid.cell(x, y).link.as_deref().map(str::to_string))
-                .collect();
-            assert_eq!(
-                targets.iter().map(String::as_str).collect::<Vec<_>>(),
-                [
+            s.assert_link_targets(&[
                     "https://example.com/code",
                     "https://example.com/html",
                     "https://example.com/plain"
-                ],
-                "width {width}, {markdown}:\n{}",
-                s.text()
-            );
+                ]);
             s.assert_absent("https://");
         }
     }
@@ -503,17 +493,12 @@ fn label_only_and_fallback_presentations_snapshot() {
     );
     // Row 0 reads `plain plain code code`: the first word is prose, the second the label, and
     // likewise the code words (the oracle's snapshot has the link on the labelled ones).
-    let grid = s.grid();
-    let (x, _, y) = grid
-        .locate("plain plain code code")
-        .unwrap_or_else(|| panic!("no label-only row:\n{}", s.text()));
-    let linked = |from: usize, len: usize| {
-        (from..from + len).all(|c| grid.cell(c, y).link.as_deref() == Some("https://example.com"))
-    };
-    assert!(!linked(x, 5), "the prose `plain` links");
-    assert!(linked(x + 6, 5), "the label `plain` has no link");
-    assert!(!linked(x + 12, 4), "the prose `code` links");
-    assert!(linked(x + 17, 4), "the code label has no link");
+    let row = "plain plain code code";
+    let url = "https://example.com";
+    s.assert_span_linked(row, 0, 5, url, false);
+    s.assert_span_linked(row, 6, 5, url, true);
+    s.assert_span_linked(row, 12, 4, url, false);
+    s.assert_span_linked(row, 17, 4, url, true);
     s.assert_link("docs", "https://example.com/docs");
 }
 
@@ -586,12 +571,7 @@ fn paragraph_single() {
 fn paragraph_soft_break() {
     let s = chat(80, 24, "Hello\nWorld");
     // The oracle's two lines, one under the other.
-    let rows = s.grid().rows(false);
-    let at = rows
-        .iter()
-        .position(|row| row == "Hello")
-        .unwrap_or_else(|| panic!("no `Hello` row:\n{}", s.text()));
-    assert_eq!(rows.get(at + 1).map(String::as_str), Some("World"));
+    s.assert_row_then("Hello", &["World"]);
 }
 
 // ORACLE markdown_render_tests.rs:166 paragraph_multiple kind=ui owner=chat-live
@@ -958,13 +938,7 @@ fn ordered_list_markers_use_terminal_palette_snapshot() {
     );
     s.assert_text_style("1. ", "fg=LightBlue");
     // `plain` stands twice (the text, then the link's label): the label is the second.
-    let grid = s.grid();
-    let (x, _, y) = grid
-        .locate("plain plain")
-        .expect("the two words on the screen");
-    for x in x + "plain ".len()..x + "plain plain".len() {
-        assert_eq!(grid.cell(x, y).link.as_deref(), Some("https://example.com"));
-    }
+    s.assert_span_linked("plain plain", "plain ".len(), "plain".len(), "https://example.com", true);
     s.assert_no_link("1. plain");
 }
 

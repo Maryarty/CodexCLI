@@ -105,32 +105,7 @@ fn status_uses_server_provider_id_and_auth_requirement() {
             .size(width, 60)
             .entry("status", "server_auth_required")
             .open();
-        let grid = s.grid();
-        let mut fragments = String::new();
-        let mut destinations = Vec::new();
-        for y in 0..grid.height {
-            for x in 0..grid.width {
-                let cell = grid.cell(x, y);
-                if let Some(link) = &cell.link {
-                    if !cell.tail {
-                        fragments.push_str(&cell.text);
-                    }
-                    destinations.push(link.clone());
-                }
-            }
-        }
-        assert_eq!(
-            fragments,
-            "https://chatgpt.com/settings/usage",
-            "width {width}\n{}",
-            grid.text()
-        );
-        assert!(!destinations.is_empty());
-        assert!(
-            destinations
-                .iter()
-                .all(|destination| destination == "https://chatgpt.com/settings/usage")
-        );
+        s.assert_links_spell("https://chatgpt.com/settings/usage");
     }
 }
 
@@ -275,20 +250,8 @@ fn status_wraps_long_paths_and_session_ids_without_losing_text() {
             .size(width, 400)
             .entry("status", "long_path")
             .open();
-        let joined = s
-            .grid()
-            .rows(false)
-            .iter()
-            .map(|row| row.trim().to_string())
-            .collect::<String>();
-        assert!(
-            joined.contains("/workspace/projects/界界/ｶﾞﾞ/a-very-long-directory-name/codex"),
-            "path lost at width {width}: {joined}"
-        );
-        assert!(
-            joined.contains("00000000-0000-0000-0000-000000000123"),
-            "session lost at width {width}: {joined}"
-        );
+        s.assert_joined_rows_hold("/workspace/projects/界界/ｶﾞﾞ/a-very-long-directory-name/codex");
+        s.assert_joined_rows_hold("00000000-0000-0000-0000-000000000123");
     }
 }
 

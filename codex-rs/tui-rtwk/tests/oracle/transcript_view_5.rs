@@ -472,8 +472,7 @@ fn terminal_output_disclosure_counts_only_revealable_lines() {
             ],
         ),
     ];
-    let mut wrong = Vec::new();
-    for (name, command, output, width, streamed, frame) in cases {
+    for (_name, command, output, width, streamed, frame) in cases {
         let command = format!("bash -lc {}", shell_quote(command));
         let mut item = command_item("output-test", &command);
         let mut lines = Vec::new();
@@ -497,22 +496,9 @@ fn terminal_output_disclosure_counts_only_revealable_lines() {
         }
         let s = live_plain(width, 14, &lines);
         let top = row_of(&s, if streamed { "• Running" } else { "• Ran" });
-        let rows = s.rows();
-        let got: Vec<&str> = rows
-            .iter()
-            .skip(top)
-            .take(frame.len())
-            .map(String::as_str)
-            .collect();
-        if got != frame {
-            wrong.push(format!("{name}: {got:?} != {frame:?}"));
-        }
+        let got: Vec<String> = s.rows().into_iter().skip(top).take(frame.len()).collect();
+        kit::assert_rows_are(&got, frame);
     }
-    assert!(
-        wrong.is_empty(),
-        "frames that differ:\n{}",
-        wrong.join("\n")
-    );
 }
 
 /// `text` as one shell word.

@@ -675,12 +675,7 @@ fn file_citation_after_local_link_soft_break_starts_a_new_line_snapshot() {
         .cwd(cwd)
         .open();
     // The citation starts a new line after the link: the two rows follow each other.
-    let rows = s.grid().rows(false);
-    let at = rows
-        .iter()
-        .position(|row| row == "first (first.txt)")
-        .unwrap_or_else(|| panic!("no `first (first.txt)` row:\n{}", s.text()));
-    assert_eq!(rows.get(at + 1).map(String::as_str), Some("second.txt"));
+    s.assert_row_then("first (first.txt)", &["second.txt"]);
 }
 
 // ORACLE markdown_render/file_citations_tests.rs:201 generic_markdown_keeps_assistant_directives_literal kind=ui owner=chat-live
