@@ -30,7 +30,11 @@ pub fn list(rows: &[Row], initial: Option<usize>) -> List {
                 prefix_spans: vec![
                     Span {
                         text: "\u{2022}".to_owned(),
-                        role: if row.closed { Role::Plain } else { Role::Success },
+                        role: if row.closed {
+                            Role::Plain
+                        } else {
+                            Role::Success
+                        },
                     },
                     Span {
                         text: " ".to_owned(),

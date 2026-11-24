@@ -52,10 +52,7 @@ impl StatefulWidget for AgentPicker {
 impl_widget!(stateful eq AgentPicker);
 
 /// The rows now: the agents screen's threads, the thread in use, the requests waiting.
-fn current<S: 'static>(
-    cx: &mut Cx<'_, S>,
-    watching: bool,
-) -> (Vec<Row>, Option<ThreadId>) {
+fn current<S: 'static>(cx: &mut Cx<'_, S>, watching: bool) -> (Vec<Row>, Option<ThreadId>) {
     let (facts, active, waiting) = if watching {
         (
             select::<ScreenStates, Facts, _>(cx, facts_of),
@@ -134,10 +131,10 @@ impl State for AgentPickerState {
     fn build(&self, _w: &AgentPicker, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let (list, active) = current(cx, true);
         let on: Handler<Event> = cx.map(Msg::Picked);
-        let initial = list
-            .iter()
-            .position(|row| row.needs_approval)
-            .or_else(|| list.iter().position(|row| Some(&row.thread) == active.as_ref()));
+        let initial = list.iter().position(|row| row.needs_approval).or_else(|| {
+            list.iter()
+                .position(|row| Some(&row.thread) == active.as_ref())
+        });
         Picker::new(Rc::new(strings::list(&list, initial)), on).into()
     }
 }
