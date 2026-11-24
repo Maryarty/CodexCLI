@@ -121,7 +121,7 @@ where
         // the thread's own colour on its name (`thread_color`), with the colours on
         let style = match thread {
             Some(color) if colors && matches!(id.as_ref(), "thread-name" | "thread-title") => {
-                Style::new().fg(color)
+                item_style(id.as_ref(), colors, tokens).fg(color)
             }
             _ => item_style(id.as_ref(), colors, tokens),
         };

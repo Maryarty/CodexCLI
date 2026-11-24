@@ -74,7 +74,13 @@ pub(super) fn body(
         body = body.child(panel);
     }
     let context = frame.context();
-    let thread_color = thread_color(cx, session.active.as_ref().map(|id| id.as_str()));
+    let thread_color = thread_color(
+        cx,
+        session
+            .active
+            .as_ref()
+            .map(codex_tui_core::ids::ThreadId::as_str),
+    );
     let line = status_spans(
         context.items_for(facts),
         facts.colors,

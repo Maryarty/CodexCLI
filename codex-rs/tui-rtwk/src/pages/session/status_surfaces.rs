@@ -507,7 +507,11 @@ fn limit_label(window: &status::RateWindow, secondary: bool) -> &'static str {
     window
         .window_minutes
         .and_then(limit_duration)
-        .unwrap_or(if secondary { "secondary usage" } else { "usage" })
+        .unwrap_or(if secondary {
+            "secondary usage"
+        } else {
+            "usage"
+        })
 }
 
 fn has_label(window: &status::RateWindow, label: &str) -> bool {

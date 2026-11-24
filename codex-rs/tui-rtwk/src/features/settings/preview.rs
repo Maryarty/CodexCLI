@@ -53,7 +53,7 @@ pub(super) fn live<S: 'static>(cx: &mut Cx<'_, S>, mut setup: Setup) -> Setup {
 /// The colour of the active thread, which its name takes in the preview.
 pub(super) fn thread<S: 'static>(cx: &mut Cx<'_, S>) -> Option<Color> {
     let session = rtwk::provider::read::<SessionSlice, _>(cx);
-    thread_color(cx, session.active.as_ref().map(|id| id.as_str()))
+    thread_color(cx, session.active.as_ref().map(codex_tui_core::ids::ThreadId::as_str))
 }
 
 /// The preview row under the list: the status line as the footer draws it (the accent of each
