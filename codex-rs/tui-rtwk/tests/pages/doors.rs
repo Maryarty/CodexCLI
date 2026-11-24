@@ -579,3 +579,75 @@ mod kit_doors_r1b {
         s.assert_absent("Working");
     }
 }
+
+mod copy_on_an_owned_transcript {
+    use codex_tui_core::app::facts::TuiSettings;
+
+    use crate::kit::{Owner, Screen};
+
+    const RESPONSE: &str = include_str!("../oracle/fixtures/transcript_view_4/sm_entry_1.jsonl");
+
+    fn after_copy(owned: bool) -> Screen {
+        let settings = TuiSettings {
+            transcript_owned: owned,
+            ..TuiSettings::default()
+        };
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(100, 24)
+            .script(RESPONSE)
+            .tui(settings)
+            .open();
+        s.type_text("/copy").keys("enter");
+        s
+    }
+
+    /// `show_copy_picker`: where the chat owns its transcript `/copy` begins copy mode over it
+    /// (the presenter asks `features::copy::begins_mode`); the picker is the other mode's way.
+    #[test]
+    fn slash_copy_begins_copy_mode_only_where_the_transcript_is_owned() {
+        let owned = after_copy(true);
+        owned.assert_contains("enter copy · esc close");
+        owned.assert_absent("Whole response");
+        let terminal = after_copy(false);
+        terminal.assert_contains("Whole response");
+        terminal.assert_absent("enter copy · esc close");
+    }
+
+    /// The copy the page sends after Enter is the piece as the target copies it (`shape`): the
+    /// whole response is its Markdown source, not the text the area selected.
+    #[test]
+    fn enter_on_the_whole_response_copies_its_markdown_source() {
+        use codex_tui_core::app::Command;
+        use codex_tui_core::app::effects::{Ask, CopyFormat};
+
+        let settings = TuiSettings {
+            transcript_owned: true,
+            ..TuiSettings::default()
+        };
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 40)
+            .script(include_str!(
+                "../oracle/fixtures/transcript_view_2/copy_nav.jsonl"
+            ))
+            .tui(settings)
+            .open();
+        s.type_text("/copy").keys("enter");
+        s.assert_contains("Copy whole response");
+        s.keys("enter");
+        s.wait(50);
+        let sent: Vec<(String, CopyFormat)> = s
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Effect {
+                    ask: Ask::Copy { text, format, .. },
+                    ..
+                } => Some((text, format)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sent.len(), 1, "{}", s.text());
+        assert_eq!(sent[0].1, CopyFormat::Markdown);
+        assert!(sent[0].0.contains("Latest **plan**"), "{:?}", sent[0].0);
+    }
+}

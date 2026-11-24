@@ -48,6 +48,11 @@ pub struct TuiSettings {
     /// `notice.hide_rate_limit_model_nudge`: the rate limit prompt that offers a cheaper model
     /// is not shown (oracle `local_settings.notices`).
     pub hide_rate_limit_model_nudge: bool,
+    /// The chat owns its transcript (oracle `local_settings.transcript_mode.is_owned()`:
+    /// `tui.fullscreen_transcript` on an alternate screen): `/copy` begins copy mode over it
+    /// instead of opening the picker. Off is the oracle's Terminal mode, where the history lives
+    /// in the terminal's scrollback and the picker is the way.
+    pub transcript_owned: bool,
 }
 
 impl Default for TuiSettings {
@@ -60,6 +65,7 @@ impl Default for TuiSettings {
             deselect_after_copy: false,
             vim_mode_default: false,
             hide_rate_limit_model_nudge: false,
+            transcript_owned: false,
         }
     }
 }

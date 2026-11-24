@@ -13,7 +13,7 @@ use codex_tui_core::threads::ThreadModel;
 use crate::app::view::Hs;
 use crate::pages::session::backtrack;
 use crate::pages::session::live::browse::{self, Browse};
-use crate::pages::session::transcript::copy::CopyJob;
+use crate::pages::session::transcript::copy::{self, CopyJob};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript_pane::Pane;
 
@@ -29,7 +29,13 @@ pub(super) fn selected(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, key: Selec
     }
     let text = selection.text();
     if !text.is_empty() {
-        let job = CopyJob::selected(text, true, &read::<TuiSettings, _>(cx));
+        // a copy mode that ended on Enter keeps what its target copies as is (a response's
+        // Markdown source, a code block): the copy of the selection it left is that
+        let job = copy::mode_of(&w.ui.find).shape(CopyJob::selected(
+            text,
+            true,
+            &read::<TuiSettings, _>(cx),
+        ));
         let job = if key == SelectionKey::CopyAndFollow {
             job.following()
         } else {

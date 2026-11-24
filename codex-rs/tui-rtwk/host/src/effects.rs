@@ -118,6 +118,8 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
         show_tooltips: config.show_tooltips,
         vim_mode_default: config.tui_vim_mode_default,
         hide_rate_limit_model_nudge: config.notices.hide_rate_limit_model_nudge.unwrap_or(false),
+        transcript_owned: config.tui_fullscreen_transcript
+            && config.tui_alternate_screen != codex_config::types::AltScreenMode::Never,
         rendering: Rendering {
             mermaid: rendering.mermaid,
             math: rendering.math,
