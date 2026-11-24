@@ -13,7 +13,7 @@
 //! thread that is no longer the one in use is dropped (oracle: `current_displayed_thread_id`),
 //! and so is one of a request that a later `/mcp` replaced.
 
-mod wire;
+mod rpcs;
 
 use std::collections::BTreeMap;
 
@@ -25,7 +25,7 @@ use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
 
-pub use wire::{Command, Reply, server};
+pub use rpcs::{Command, Reply, server};
 
 /// The marker type of the feature.
 pub struct McpInventory;
@@ -72,15 +72,8 @@ pub enum Connection {
     Unknown,
 }
 
-/// How a server authenticates (oracle `McpAuthStatus`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Auth {
-    Unknown,
-    Unsupported,
-    NotLoggedIn,
-    BearerToken,
-    OAuth,
-}
+/// How a server authenticates: the protocol's own `McpAuthStatus` (`core::data::wire`).
+pub use crate::data::wire::McpAuthStatus as Auth;
 
 /// A resource or a resource template: its title, else its name, and its uri (template).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -279,11 +272,11 @@ impl Feature for McpInventory {
     }
 
     fn wire(command: &Command, _thread: &ThreadId, id: RequestId) -> ClientRequest {
-        wire::request(command, id)
+        command.request(id)
     }
 
     fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-        wire::reply(command, result)
+        command.reply(result)
     }
 }
 

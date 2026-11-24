@@ -11,7 +11,7 @@ use super::catalog::{
     self, Action, Catalog, Config, Detail, Kind, Part, RowKey, SectionError, Sections, Tab, Target,
     Toggle,
 };
-use super::wire::{AuthApp, Found, Want, Wanted, add_source};
+use super::rpcs::{AuthApp, Found, Want, Wanted, add_source};
 use super::{Ctx, Intent, Say, SetupEnd, Wish};
 use crate::app::effects::Ask;
 use crate::features::{AppCx, Remote};

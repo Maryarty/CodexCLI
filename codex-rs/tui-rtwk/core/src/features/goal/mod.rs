@@ -17,7 +17,7 @@
 
 mod model;
 mod note;
-mod wire;
+mod rpcs;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
@@ -31,7 +31,7 @@ pub use model::{
     CommandsHint, Ctx, Draft, Flow, Mode, confirms_replace, edited_status, offers_resume,
 };
 pub use note::{Action, Failure, Note, UsageHint};
-pub use wire::{Ask, Reply};
+pub use rpcs::{Ask, Reply};
 
 /// The marker type of the feature.
 pub struct Goal;
@@ -332,10 +332,10 @@ impl Feature for Goal {
     }
 
     fn wire(command: &Ask, thread: &ThreadId, id: RequestId) -> ClientRequest {
-        wire::request(command, thread, id)
+        command.request(thread, id)
     }
 
     fn decode(command: &Ask, result: serde_json::Value) -> Result<Reply, RpcError> {
-        wire::reply(command, result)
+        command.reply(result)
     }
 }

@@ -21,11 +21,12 @@
 //! the agents' rename of another thread.
 
 pub mod title;
-mod wire;
 
 use std::collections::BTreeMap;
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
+use codex_app_server_protocol::{
+    ClientRequest, RequestId, ThreadSetNameParams, ThreadSetNameResponse,
+};
 
 use super::{
     AppCx, Feature, Never, Remote, Slash, StructuredFailure, StructuredKind, StructuredTurn,
@@ -38,7 +39,20 @@ use crate::threads::{Item, MessagePhase, Tone};
 use codex_protocol::openai_models::ReasoningEffort;
 use title::Said;
 
-pub use wire::{Command, Reply};
+/// What it answered with: nothing the feature reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reply {
+    Ack,
+}
+
+crate::rpc_list! {
+    /// The one ask.
+    pub enum Command => Reply, request thread: &ThreadId;
+    /// `thread/name/set` of the thread the ask is about.
+    SetName(String), Self::SetName(name)
+        => ThreadSetName(ThreadSetNameParams { thread_id: thread.to_string(), name: name.clone() })
+        -> ThreadSetNameResponse, |_| Reply::Ack;
+}
 
 /// The thread's name, when it has one.
 pub fn name<'a>(thread: ThreadView<'a>) -> Option<&'a str> {
@@ -314,10 +328,10 @@ impl Feature for Rename {
     }
 
     fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-        wire::request(command, thread, id)
+        command.request(thread, id)
     }
 
     fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-        wire::reply(command, result)
+        command.reply(result)
     }
 }

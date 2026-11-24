@@ -4,28 +4,16 @@
 //! schemas, which the cell never reads).
 
 use codex_app_server_protocol::{
-    ClientRequest, ListMcpServerStatusParams, ListMcpServerStatusResponse, McpAuthStatus,
-    McpServerConnectionStatus, McpServerStatus, McpServerStatusDetail, RequestId,
+    ListMcpServerStatusParams, ListMcpServerStatusResponse, McpServerConnectionStatus,
+    McpServerStatus, McpServerStatusDetail,
 };
 
-use super::{Auth, Connection, Entry, Server};
+use super::{Connection, Entry, Server};
+use crate::data::wire::McpAuthStatus;
 use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 
 /// Servers asked for per page (oracle: `limit: Some(100)`).
 const PAGE: u32 = 100;
-
-/// The one ask.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {
-    /// `mcpServerStatus/list`: the page after `cursor`, with or without the resources.
-    List {
-        /// The thread whose MCP connection is reused; none for the app's own.
-        thread: Option<ThreadId>,
-        full: bool,
-        cursor: Option<String>,
-    },
-}
 
 /// What a page answered with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,15 +24,17 @@ pub enum Reply {
     },
 }
 
-pub(super) fn request(command: &Command, request_id: RequestId) -> ClientRequest {
-    let Command::List {
-        thread,
-        full,
-        cursor,
-    } = command;
-    ClientRequest::McpServerStatusList {
-        request_id,
-        params: ListMcpServerStatusParams {
+crate::rpc_list! {
+    /// The one ask.
+    pub enum Command => Reply;
+    /// `mcpServerStatus/list`: the page after `cursor`, with or without the resources.
+    List {
+        /// The thread whose MCP connection is reused; none for the app's own.
+        thread: Option<ThreadId>,
+        full: bool,
+        cursor: Option<String>,
+    }, Self::List { thread, full, cursor }
+        => McpServerStatusList(ListMcpServerStatusParams {
             cursor: cursor.clone(),
             limit: Some(PAGE),
             detail: Some(if *full {
@@ -54,17 +44,11 @@ pub(super) fn request(command: &Command, request_id: RequestId) -> ClientRequest
             }),
             thread_id: thread.as_ref().map(ToString::to_string),
             server_name: None,
-        },
-    }
-}
-
-pub(super) fn reply(_command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let page = serde_json::from_value::<ListMcpServerStatusResponse>(result)
-        .map_err(|error| RpcError::Malformed(error.to_string()))?;
-    Ok(Reply::Page {
-        servers: page.data.iter().map(server).collect(),
-        next_cursor: page.next_cursor,
-    })
+        })
+        -> ListMcpServerStatusResponse, |page| Reply::Page {
+            servers: page.data.iter().map(server).collect(),
+            next_cursor: page.next_cursor,
+        };
 }
 
 /// One server, as the cell reads it: the connection the cell names (a server with no runtime
@@ -86,19 +70,12 @@ pub fn server(status: &McpServerStatus) -> Server {
         }
         None => Connection::Unknown,
     };
-    let auth = match status.auth_status {
-        McpAuthStatus::Unknown => Auth::Unknown,
-        McpAuthStatus::Unsupported => Auth::Unsupported,
-        McpAuthStatus::NotLoggedIn => Auth::NotLoggedIn,
-        McpAuthStatus::BearerToken => Auth::BearerToken,
-        McpAuthStatus::OAuth => Auth::OAuth,
-    };
     let mut tools: Vec<String> = status.tools.keys().cloned().collect();
     tools.sort();
     Server {
         name: status.name.clone(),
         connection,
-        auth,
+        auth: status.auth_status,
         tools,
         resources: status
             .resources
