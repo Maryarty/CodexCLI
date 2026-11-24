@@ -450,3 +450,35 @@ mod kit_states {
         s.assert_snap("empty");
     }
 }
+
+mod fake_turns {
+    use codex_tui_core::app::Command;
+
+    use crate::kit::{Owner, Screen};
+
+    fn interrupted(s: &Screen) -> Option<String> {
+        s.commands().into_iter().find_map(|command| match command {
+            Command::InterruptTurn { turn, .. } => Some(turn.as_str().to_owned()),
+            _ => None,
+        })
+    }
+
+    /// `Open::fake_turn_ids()`: the turn the app starts is `fake-turn-1`, apart from a script's
+    /// own `turn-1`; without it the fake keeps its `turn-1`.
+    #[test]
+    fn the_fake_mints_its_own_turn_ids_when_asked() {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 12)
+            .fake_turn_ids()
+            .live()
+            .open();
+        s.type_text("hello");
+        s.keys("enter ctrl+c");
+        assert_eq!(interrupted(&s).as_deref(), Some("fake-turn-1"));
+
+        let mut s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
+        s.type_text("hello");
+        s.keys("enter ctrl+c");
+        assert_eq!(interrupted(&s).as_deref(), Some("turn-1"));
+    }
+}

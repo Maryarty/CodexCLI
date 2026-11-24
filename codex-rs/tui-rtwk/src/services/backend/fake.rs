@@ -74,6 +74,9 @@ pub(crate) struct Shared {
     hold_thread_start: bool,
     /// The requests of these methods are answered only once their hold is released.
     held: BTreeMap<String, Hold>,
+    /// The words before a turn's number in the id the fake mints (`mint_turns_as`); `turn-`
+    /// without one.
+    turn_prefix: Option<String>,
 }
 
 /// A request the fake holds in flight (`FakeBackend::hold_request`): it is logged when the app
@@ -324,6 +327,15 @@ impl FakeHandle {
         }
     }
 
+    /// Mints the ids of the turns it starts as `{prefix}{n}` (`fake-turn-1`) instead of `turn-{n}`:
+    /// a script's own turns are `turn-1`.., and a turn the app started under the same id would be
+    /// the script's turn, not another. Set before the first turn.
+    pub fn mint_turns_as(&self, prefix: &str) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.turn_prefix = Some(prefix.to_string());
+        }
+    }
+
     /// Holds every request of wire `method` (`account/rateLimits/read`) in flight: the app has
     /// sent it (it is in `requests`) and gets its answer only after `hold.release()`, as the
     /// responder says it then. The state of a screen waiting on one request (`Refreshing...`,
@@ -490,7 +502,11 @@ async fn run_as(
             match &command {
                 Command::StartTurn { .. } => {
                     guard.started_turns += 1;
-                    Some((guard.started_turns, guard.turns.pop_front()))
+                    Some((
+                        guard.started_turns,
+                        guard.turns.pop_front(),
+                        guard.turn_prefix.clone(),
+                    ))
                 }
                 _ => None,
             }
@@ -530,8 +546,8 @@ async fn run_as(
                 message,
                 ..
             } => {
-                let (n, events) = scripted.unwrap_or((0, None));
-                let turn_id = format!("turn-{n}");
+                let (n, events, prefix) = scripted.unwrap_or((0, None, None));
+                let turn_id = format!("{}{n}", prefix.as_deref().unwrap_or("turn-"));
                 emit(AppEv::Reply(
                     ticket,
                     Reply::turn_started(thread.clone(), TurnId::new(&turn_id)),

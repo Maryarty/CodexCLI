@@ -46,6 +46,8 @@ pub struct Open {
     pub(super) early: bool,
     pub(super) first_frame: bool,
     pub(super) held_start: bool,
+    /// The fake mints `fake-turn-{n}` for the turns the app starts (`Open::fake_turn_ids`).
+    pub(super) fake_turns: bool,
     /// The chat starts inside a `/side` conversation (`Open::side`).
     pub(super) side: bool,
     pub(super) gutter: usize,
@@ -67,6 +69,7 @@ impl Screen {
             early: false,
             first_frame: false,
             held_start: false,
+            fake_turns: false,
             side: false,
             gutter: 0,
             keymap: None,
@@ -121,6 +124,14 @@ impl Open {
     /// key (an animation's frame 0, the oracle's first draw).
     pub fn first_frame(mut self) -> Open {
         self.first_frame = true;
+        self
+    }
+
+    /// The turns the app starts get the ids `fake-turn-1`.. (the fake's own), not `turn-1`..,
+    /// which a script's events use for turns of their own: a turn the test starts by keys is then
+    /// told apart from the script's.
+    pub fn fake_turn_ids(mut self) -> Open {
+        self.fake_turns = true;
         self
     }
 
@@ -184,7 +195,11 @@ impl Open {
 
     /// The app on a terminal made as the env seeds say.
     fn driven(&self, debug: bool) -> Harness {
-        crate::common::start_driven_with(debug, self.env.options(self.width, self.height))
+        let h = crate::common::start_driven_with(debug, self.env.options(self.width, self.height));
+        if self.fake_turns {
+            h.fake.mint_turns_as("fake-turn-");
+        }
+        h
     }
 
     fn live_harness(&self) -> Harness {
