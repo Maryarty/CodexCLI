@@ -55,7 +55,7 @@
 | `live-turn-sweep` — живой ход: баннеры, backtrack, plan mode, review/fork при MCP startup; chat_live_1-6 | W2 | 2 | ≈1300 | 2 | 46 | fw-ui-registry |
 | `voice` — voice/realtime: /voice, F8, voice strip, настройки, split-flap, session lock | W3 | 3 | ≈1900 | 5 | 1 | fw-ui-registry, fw-core-hubs (Ask::Audio) |
 | `sidebar` — sidebar: документы, файлы, ссылки, chooser, анимация | W3 | 2 | ≈1300 | 1 | 0 | fw-ui-registry |
-| `inline-mode` — inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen | W3 | 3+ | ≈2500 | 6 | 12 | rtwk, fw-core-hubs (Ask::ScreenMode) |
+| `inline-mode` — inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen (rtwk уже умеет inline) | W3 | 2 | ≈1500 | 6 | 12 | fw-core-hubs (Ask::ScreenMode) |
 | `ui-tree-viz` — ui_tree и inline visualization | W3 | 2 | ≈1100 | 1 | 0 | fw-core-hubs |
 | `pets-ambient` — pets: ambient-питомец, asset pack, протоколы изображений | W3 | 2 | ≈1200 | 4 | 0 | rtwk |
 | `startup-rest` — запуск и onboarding: хвосты S01-S06 и startup-шарды, daemon recovery, startup error, cloud environment, провайдеры | W3 | 2 | ≈1300 | 6 | 13 | rtwk для G48-G55; остальное не зависит |
@@ -413,12 +413,12 @@
 
 ### `inline-mode`
 
-- **Что:** inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen. **Волна:** W3; **размер:** 3+ прогонов, ≈2500 строк.
+- **Что:** inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen. **Волна:** W3; **размер:** 2 прогона, ≈1500 строк (человек 2026-11-24: rtwk уже поддерживает inline).
 - **Файлы (владеет):** `src/app/run.rs`, `src/app/mod.rs`, `src/app/screen_mode/**`, `src/app/scrollback/**`, `src/services/transcript_file.rs`.
 - **Oracle:** tui.rs, insert_history.rs, app/resize_reflow.rs, custom_terminal*, transcript_reflow.rs, app/native_history.rs.
 - **UI:** ScreenMode из `tui.fullscreen_transcript`, committed scrollback, снимки cells_4/5 и transcript_view_3 (34 n/a).
-- **Первый шаг:** rtwk: G1 (вход/выход alt-screen во время работы), G2 (повторная раскладка committed-строк при resize), G5 (Windows Terminal), G7 (OSC 8 и картинки в committed-строках).
-- **Зависит:** rtwk, fw-core-hubs (Ask::ScreenMode).
+- **Первый шаг:** взять готовое из rtwk: `ScreenMode::Inline` (rtwk-core/src/presenter/modes.rs:63), `binding::Static` — готовый вывод над приложением, в истории терминала (rtwk docs/widgets/app/static.md), образец inline-агента `rtwk-e2e/src/agent.rs:624 inline_agent_app` и `rtwk-e2e/src/modes.rs:74`. Чего в rtwk нет (бывшие G1/G2/G5/G7: смена alt-screen на ходу, reflow committed-строк, OSC 8/картинки в них) — проверить по этим образцам одной строкой разрыва, без rtwk-работы вперёд.
+- **Зависит:** fw-core-hubs (Ask::ScreenMode).
 - **Строки (6):** Ячейка MCP-вызова (running/ok/failed, результат); Inline-режим (без alt-screen); Inline viewport; Вставка завершённых строк в scrollback; Resize reflow; Временный alt-screen для оверлеев.
 - **Тесты:** 12 pending (список — `tools/rtwk-port/map-full/unpend/inline-mode.txt`).
 
@@ -655,7 +655,7 @@
 | /config | ❌ | `Which::Config` → пустой слот «settings (S15)» (`Shown::Other`), вида нет; то же для `/tui` | config_panel/, chatwidget/tui_mode_picker.rs | src/features/settings/ (нет config_panel) | ядро: fw1-c3 (идёт); `ui-config-panel` |
 | /recap | ❌ | NotAvailable; ячейка recap | daybreak.rs, ide_context.rs, app/recap.rs, debug_config.rs | core/src/commands/dispatch.rs | ядро: fw1-c4, fw1-c9 (идёт); `ui-feedback-cmds` |
 | Пробел: /recap и предложение имени треда — заглушки | ❌ | GAP (arch-pillars, человек 2026-11-24: исправить): src/services/effects.rs:188-199 — Ask::StructuredTurn всегда Err, Ask::SuggestTitle -> Done::Title(None); /recap всегда «Could not generate a recap», имя не предлагается. Дверь временного структурированного хода — fw-hubs-b (P5) | temporary_structured_request.rs, app/recap.rs, app/thread_title.rs | core/src/features/recap, core/src/features/rename, src/services/effects.rs | `fix-recap-title` (после fw-hubs-b) |
-| Пробел: потеря/восстановление потока треда | ❌ | GAP (arch-pillars, человек 2026-11-24: исправить): host/src/in_process.rs:504 и host/src/cloud.rs:132 отбрасывают ThreadStreamDisconnected/Reconnected; у оракула — строка ошибки, очередь ввода, history_may_be_incomplete, отправка очереди при восстановлении, переподключение простаивающего облачного треда. Факт «поток потерян» и блокировка очереди в core — fw-hubs-b (P8) | app/app_server_events.rs:130-170, chatwidget/input_flow.rs | host/src/in_process.rs, host/src/cloud.rs, core/src/threads | `fix-stream-lost` (после fw-hubs-b) |
+| Пробел: потеря/восстановление потока треда | ✅ | fix-stream-lost 78e957dcf: host/src/cloud.rs шлёт BackendEv::StreamLost{thread,error}/StreamRestored; простой тред — Command::ReconnectIdleThread, в ходе — строка Error, очередь держится; восстановление: history_may_be_incomplete + отправка очереди; открытие потерянного треда перечитывает его. Остаток: restore_reconnected_input (steer до эха) -> live-turn; AppEv::ShuttingDown без отправителя (нет on_stop в rtwk, потребителя нет) | app/app_server_events.rs:130-170, chatwidget/input_flow.rs | host/src/in_process.rs, host/src/cloud.rs, core/src/threads | `fix-stream-lost` (после fw-hubs-b) |
 | /plan [prompt] | ✅ | маска из каталога, уведомления disabled/unavailable | slash_command.rs, chatwidget/slash_dispatch.rs | core/src/commands/dispatch.rs, core/src/app/session.rs | — |
 | /voice | ❌ | bare /voice, mute, stop → NotAvailable (`VoiceControl`); F8 и fallback-ветка open.rs → пустой sheet voice | chatwidget/realtime*.rs, bottom_pane/voice_strip.rs | src/sheets/voice/ | `voice` |
 | /goal [цель/pause/resume/clear] | 🟡 | команда и модель (features/goal) ✅; батч 9 (features-trait): у цели своя UI-половина `src/features/goal/` (sheet.rs: меню цели и edit prompt, общий вид prompt `features/prompt.rs`), `Target::Feature`; снимки меню и edit prompt не включены | chatwidget/goal_menu.rs, goal_status.rs, goal_display.rs | src/features/goal/ | `dialogs-sweep` |
@@ -864,7 +864,7 @@
 
 | Функция | Статус | Чего нет | Oracle | Порт | Пакет |
 |---|---|---|---|---|---|
-| Inline viewport | ❌ | S27: нижний viewport со своим scrollback; нужны rtwk G1, G2, G5 | tui.rs, custom_terminal.rs, tui/frame_requester.rs | — | `inline-mode` |
+| Inline viewport | ❌ | S27: нижний viewport со своим scrollback; rtwk ScreenMode::Inline + Static | tui.rs, custom_terminal.rs, tui/frame_requester.rs | — | `inline-mode` |
 | Вставка завершённых строк в scrollback | ❌ | DECSTBM/native scrollback, OSC 8 и картинки в committed-строках (G7) | insert_history.rs, tui/scrollback.rs, tui/history_tail.rs | — | `inline-mode` |
 | Resize reflow | ❌ | пересборка committed-строк из исходных ячеек при resize (G2) | app/resize_reflow.rs, transcript_reflow.rs, resize_reflow_cap.rs | — | `inline-mode` |
 | Fullscreen (alt-screen + мышь) | ✅ | — | tui/alternate_screen.rs | rtwk host (`App::run`), src/app/run.rs | — |

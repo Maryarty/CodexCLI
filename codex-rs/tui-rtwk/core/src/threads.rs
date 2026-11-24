@@ -881,8 +881,13 @@ pub enum ThreadEv {
     /// stream disconnected`): what the user sends waits in the queue until it is restored
     /// (oracle `thread_stream_disconnected`, `chatwidget/input_flow.rs`).
     StreamLost,
-    /// The thread's event stream is back: the queue goes on if no turn runs.
-    StreamRestored,
+    /// The thread's event stream is back: the queue goes on if no turn runs. `read` is false when
+    /// the host brought it back (what the gap held is unread, the history may be incomplete) and
+    /// true when the thread was attached again and its history read (oracle: a resume of a thread
+    /// whose stream was lost or came back).
+    StreamRestored {
+        read: bool,
+    },
     /// An app-scoped error for this thread.
     Failure(Failure),
     /// The user sent `message`; `apply` refuses it while a turn runs or starts.
@@ -910,11 +915,13 @@ pub enum ThreadEv {
         reply: Reply,
     },
     /// A page of the thread's history (`thread/turns/list`, newest page
-    /// first): the entries go before what the transcript has.
+    /// first): the entries go before what the transcript has. A `replace`ing page first drops
+    /// what is held (the thread is read again: a revert, a gap).
     HistoryPage {
         turns: Vec<HistoryTurn>,
         next: Option<String>,
         submissions: Vec<replay::Submission>,
+        replace: bool,
     },
     /// The app asked for the next older page (`HistoryState::Loading` until it answers).
     HistoryRequested,
@@ -1157,6 +1164,10 @@ pub struct ThreadCore {
     /// The thread's event stream was lost and has not come back (`ThreadEv::StreamLost`): what
     /// the user sends waits in the queue (oracle `thread_stream_disconnected`).
     stream_lost: bool,
+    /// The stream is back but nothing read what it missed (`ThreadEv::StreamRestored`; oracle
+    /// `history_may_be_incomplete`): opening the thread again reads its history from the server
+    /// instead of showing what is held.
+    history_may_be_incomplete: bool,
     writer: Writer,
 }
 
@@ -1321,6 +1332,7 @@ impl ThreadModel {
                 compaction: compaction::Compaction::default(),
                 safety: safety::Safety::default(),
                 stream_lost: false,
+                history_may_be_incomplete: false,
                 last_ended: None,
                 finished_turns: Rc::default(),
                 authoritative_turns: Rc::default(),
@@ -1511,6 +1523,12 @@ impl ThreadModel {
     pub fn can_interrupt(&self) -> bool {
         self.has_writer() && (self.is_running() || self.outgoing.any(is_start_turn))
     }
+
+    /// A user turn is running or its start is in flight, or a review runs (oracle
+    /// `is_user_turn_pending_or_running`).
+    pub fn user_turn_in_flight(&self) -> bool {
+        self.busy() || self.slots.chat.review_mode()
+    }
 }
 
 impl ThreadCore {
@@ -1559,6 +1577,11 @@ impl ThreadCore {
     /// The thread's event stream was lost and has not come back.
     pub fn stream_lost(&self) -> bool {
         self.stream_lost
+    }
+
+    /// The stream came back after a loss and the history it missed was not read.
+    pub fn history_may_be_incomplete(&self) -> bool {
+        self.history_may_be_incomplete
     }
 
     /// The turn that runs, if one does (`ThreadCx::interrupt`).
@@ -2524,6 +2547,18 @@ pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<Stri
         turns,
         next,
         submissions,
+        replace: false,
+    }
+}
+
+/// The page that drops the transcript and the history cursor, for a thread that is read again:
+/// the pages of the server follow.
+pub fn history_reset() -> ThreadEv {
+    ThreadEv::HistoryPage {
+        turns: Vec::new(),
+        next: None,
+        submissions: Vec::new(),
+        replace: true,
     }
 }
 
@@ -2569,6 +2604,18 @@ fn item_upsert(
     ))
 }
 
+/// The retained turns are not trusted (a revert, an unread gap): the transcript starts again and
+/// the server's page is applied over it.
+fn reset_history(model: &mut ThreadModel) {
+    model.transcript.reset();
+    model.history_next = None;
+    model.history_ask = HistoryAsk::Idle;
+    Rc::make_mut(&mut model.finished_turns).clear();
+    Rc::make_mut(&mut model.authoritative_turns).clear();
+    model.completed_items.clear();
+    model.last_ended = None;
+}
+
 /// Applies one event to one thread's model. Events are tolerant of order
 /// (R9): a delta may come before its item, a started turn twice.
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
@@ -2602,6 +2649,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::DeferredSubmit => model.last_submit = Some(fx.mint()),
         ThreadEv::ConnectionLost if model.has_writer() => {
             model.writer = Writer::Detached;
+            // the stream went with the connection: an attach again starts a live one
+            model.core.stream_lost = false;
             model.outgoing = Pending::default();
             model.turn = TurnState::Idle;
             // A steer in flight will never be echoed: it goes back to the
@@ -2618,8 +2667,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::ConnectionLost => {}
         ThreadEv::StreamLost => model.core.stream_lost = true,
-        ThreadEv::StreamRestored => {
+        ThreadEv::StreamRestored { read } => {
             model.core.stream_lost = false;
+            model.core.history_may_be_incomplete = !read;
             if !model.is_running() && !model.outgoing.any(is_start_turn) {
                 send_next(model, fx);
             }
@@ -2631,13 +2681,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 ScreenThreadEv::Backtrack(screens::backtrack::ThreadEv::Reverted),
                 fx,
             );
-            model.transcript.reset();
-            model.history_next = None;
-            model.history_ask = HistoryAsk::Idle;
-            Rc::make_mut(&mut model.finished_turns).clear();
-            Rc::make_mut(&mut model.authoritative_turns).clear();
-            model.completed_items.clear();
-            model.last_ended = None;
+            reset_history(model);
         }
         ThreadEv::Failure(error) => model.last_error = Some(error),
         ThreadEv::Goal(goal, budget_turn) => {
@@ -2650,7 +2694,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             turns,
             next,
             submissions,
+            replace,
         } => {
+            if replace {
+                reset_history(model);
+            }
             // The latest turn of a thread read for the first time stopped as a precaution: the
             // thread blocks input, with nothing to continue from (`replay_thread_turns`).
             if model.transcript.is_empty()

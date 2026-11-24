@@ -499,11 +499,19 @@ async fn run(
                 Some(AppServerEvent::ServerRequest(request)) => {
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Request(request)));
                 }
-                // Cloud streams: this app has no cloud backend.
-                Some(
-                    AppServerEvent::ThreadStreamDisconnected(_)
-                    | AppServerEvent::ThreadStreamReconnected(_),
-                ) => {}
+                // Only a Cloud client has streams per thread. This one is not: the oracle's handler
+                // marks nothing and shows the error as the thread's line, and a stream that was
+                // never marked has nothing to restore (`app_server_events.rs`).
+                Some(AppServerEvent::ThreadStreamDisconnected(error)) => {
+                    emit(
+                        &ingress,
+                        epoch,
+                        AppEv::Backend(BackendEv::Notification(Box::new(
+                            codex_app_server_protocol::ServerNotification::Error(*error),
+                        ))),
+                    );
+                }
+                Some(AppServerEvent::ThreadStreamReconnected(_)) => {}
             },
             command = commands.recv() => match command {
                 None => break,

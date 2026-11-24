@@ -118,7 +118,8 @@ pub fn client_request(
         | Command::Popovers { .. }
         | Command::Usage { .. }
         | Command::Effect { .. }
-        | Command::VerifyUser { .. } => None,
+        | Command::VerifyUser { .. }
+        | Command::ReconnectIdleThread { .. } => None,
     }
 }
 
@@ -238,7 +239,8 @@ pub fn reply(
         | Command::Popovers { .. }
         | Command::Usage { .. }
         | Command::Effect { .. }
-        | Command::VerifyUser { .. } => None,
+        | Command::VerifyUser { .. }
+        | Command::ReconnectIdleThread { .. } => None,
     }
 }
 
