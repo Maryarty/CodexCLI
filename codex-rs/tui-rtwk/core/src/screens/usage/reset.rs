@@ -148,7 +148,7 @@ pub enum Listing {
 
 /// Where a redemption stands (oracle: the consuming popup, its refresh, its end).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Step {
+pub enum Progress {
     /// `Using a reset...`: the host's ask is out, and nothing can dismiss it.
     Asking,
     /// `Usage reset. Checking your remaining resets...`: the reset happened; the credits are read
@@ -178,7 +178,7 @@ pub enum Settled {
 pub struct Redemption {
     pub key: String,
     pub credit_id: Option<String>,
-    pub step: Step,
+    pub step: Progress,
 }
 
 /// What the app does after a step: the reads and asks are the app's.
@@ -202,7 +202,7 @@ pub struct State {
     pub listing: Listing,
     pub redemption: Option<Redemption>,
     /// The usage menu's availability read that is out (its request number).
-    menu_check: Option<u64>,
+    availability_read: Option<u64>,
     /// The startup check for the hint that is out.
     hint_check: Option<u64>,
     next_request: u64,
@@ -235,7 +235,7 @@ impl State {
         matches!(
             self.redemption,
             Some(Redemption {
-                step: Step::Asking | Step::Refreshing,
+                step: Progress::Asking | Progress::Refreshing,
                 ..
             })
         )
@@ -249,16 +249,16 @@ impl State {
             return None;
         }
         let request = self.request();
-        self.menu_check = Some(request);
+        self.availability_read = Some(request);
         Some(request)
     }
 
     /// The availability read of the menu ended: the count, when the read carried one.
     pub fn menu_read(&mut self, request: u64, result: Result<Option<ResetCredits>, ()>) {
-        if self.menu_check != Some(request) {
+        if self.availability_read != Some(request) {
             return;
         }
-        self.menu_check = None;
+        self.availability_read = None;
         if let Ok(Some(credits)) = result {
             self.available = Some(credits.available_count);
         }
@@ -303,11 +303,11 @@ impl State {
             return Next::Nothing;
         }
         self.next_key = self.next_key.wrapping_add(1);
-        let key = format!("reset-{:x}-{}", self.next_request, self.next_key);
+        let key = [self.next_request.to_string(), self.next_key.to_string()].join("-");
         self.redemption = Some(Redemption {
             key: key.clone(),
             credit_id: credit_id.clone(),
-            step: Step::Asking,
+            step: Progress::Asking,
         });
         Next::Redeem { key, credit_id }
     }
@@ -318,11 +318,11 @@ impl State {
         match &mut self.redemption {
             Some(
                 redemption @ Redemption {
-                    step: Step::Settled(Settled::Failed),
+                    step: Progress::Settled(Settled::Failed),
                     ..
                 },
             ) => {
-                redemption.step = Step::Asking;
+                redemption.step = Progress::Asking;
                 Next::Redeem {
                     key: redemption.key.clone(),
                     credit_id: redemption.credit_id.clone(),
@@ -339,13 +339,13 @@ impl State {
         let Some(redemption) = self
             .redemption
             .as_mut()
-            .filter(|redemption| redemption.key == key && redemption.step == Step::Asking)
+            .filter(|redemption| redemption.key == key && redemption.step == Progress::Asking)
         else {
             return Next::Nothing;
         };
         let settled = match result {
             Ok(Outcome::Reset | Outcome::AlreadyRedeemed) => {
-                redemption.step = Step::Refreshing;
+                redemption.step = Progress::Refreshing;
                 self.available = None;
                 return Next::Read;
             }
@@ -360,7 +360,7 @@ impl State {
             }
             Err(_) => Settled::Failed,
         };
-        redemption.step = Step::Settled(settled);
+        redemption.step = Progress::Settled(settled);
         Next::Nothing
     }
 
@@ -370,7 +370,7 @@ impl State {
         let Some(redemption) = self
             .redemption
             .as_mut()
-            .filter(|redemption| redemption.step == Step::Refreshing)
+            .filter(|redemption| redemption.step == Progress::Refreshing)
         else {
             return;
         };
@@ -381,7 +381,7 @@ impl State {
         if left.is_some() {
             self.available = left;
         }
-        redemption.step = Step::Settled(Settled::Reset { left });
+        redemption.step = Progress::Settled(Settled::Reset { left });
     }
 
     /// The startup check for the reset hint begins: the request number of the read.

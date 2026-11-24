@@ -87,7 +87,7 @@ pub(super) fn clear(app: &mut CodexApp) {
 /// and the sample is not taken, so they come with the next one a thread can show.
 pub(super) fn warn(
     app: &mut CodexApp,
-    warnings: Vec<crate::threads::limits::Warning>,
+    warnings: Vec<crate::screens::status::Warning>,
     fx: &mut AppFx,
 ) {
     let Some(thread) = app.session.active.clone() else {

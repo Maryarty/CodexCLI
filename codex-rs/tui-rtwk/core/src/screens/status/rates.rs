@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use codex_app_server_protocol as protocol;
 
 use super::limits::{Credits, Snapshot, SpendLimit, Window};
-use crate::threads::limits::{self, Sample, Source, Warning};
+use super::warnings::{self, Sample, Source, Warning};
 
 /// Why a read was asked; the app keeps it with the read's ticket and the
 /// answer goes where the origin says.
@@ -209,7 +209,7 @@ fn reset_credits(summary: &protocol::RateLimitResetCreditsSummary) -> ResetCredi
 pub struct RateLimitStore {
     snapshots: BTreeMap<String, Snapshot>,
     reset_credits: Option<ResetCredits>,
-    limits: limits::Limits,
+    limits: warnings::Limits,
 }
 
 impl RateLimitStore {
@@ -232,17 +232,17 @@ impl RateLimitStore {
 
     /// A rolling update of the codex bucket arrived: the warnings that became due with it. It
     /// never writes the buckets.
-    pub fn rolling(&mut self, sample: &Sample) -> Vec<Warning> {
-        self.limits.take(sample, Source::Rolling)
+    pub fn rolling(&mut self, sample: &Sample, read_out: bool) -> Vec<Warning> {
+        self.limits.take(sample, Source::Rolling { read_out })
     }
 
     /// The facts of the warnings and the composer's notice.
-    pub fn limits(&self) -> &limits::Limits {
+    pub fn limits(&self) -> &warnings::Limits {
         &self.limits
     }
 
-    /// A read is sent, or failed.
-    pub fn limits_mut(&mut self) -> &mut limits::Limits {
+    /// A read failed.
+    pub fn limits_mut(&mut self) -> &mut warnings::Limits {
         &mut self.limits
     }
 

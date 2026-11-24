@@ -6,7 +6,7 @@
 
 use codex_tui_core::screens::status::{CreditStatus, ResetCredit, ResetCredits, ResetKind};
 use codex_tui_core::screens::usage::reset::{
-    MenuEntry, Next, Outcome, Settled, State, Step, options,
+    MenuEntry, Next, Outcome, Progress, Settled, State, options,
 };
 
 fn credit(id: &str, status: CreditStatus, expires_at: Option<i64>) -> ResetCredit {
@@ -28,7 +28,7 @@ fn credits(count: i64) -> ResetCredits {
     }
 }
 
-fn step(state: &State) -> Step {
+fn step(state: &State) -> Progress {
     state
         .redemption
         .as_ref()
@@ -49,7 +49,7 @@ fn a_retry_reuses_the_idempotency_key_and_a_new_confirmation_makes_a_new_one() {
     let mut state = State::default();
     let key = key_of(state.redeem(Some("c1".into())));
     assert_eq!(state.redeemed(&key, Err("boom".into())), Next::Nothing);
-    assert_eq!(step(&state), Step::Settled(Settled::Failed));
+    assert_eq!(step(&state), Progress::Settled(Settled::Failed));
     assert_eq!(
         state.retry(),
         Next::Redeem {
@@ -57,7 +57,7 @@ fn a_retry_reuses_the_idempotency_key_and_a_new_confirmation_makes_a_new_one() {
             credit_id: Some("c1".into())
         }
     );
-    assert_eq!(step(&state), Step::Asking);
+    assert_eq!(step(&state), Progress::Asking);
     state.redeemed(&key, Err("boom".into()));
     let fresh = key_of(state.redeem(None));
     assert_ne!(fresh, key);
@@ -70,16 +70,16 @@ fn a_redemption_in_flight_is_not_started_twice_and_a_wrong_key_changes_nothing()
     assert_eq!(state.redeem(None), Next::Nothing);
     assert_eq!(state.retry(), Next::Nothing);
     assert_eq!(state.redeemed("another", Ok(Outcome::Reset)), Next::Nothing);
-    assert_eq!(step(&state), Step::Asking);
+    assert_eq!(step(&state), Progress::Asking);
     assert!(state.redeeming());
     assert_eq!(
         state.redeemed(&key, Ok(Outcome::NothingToReset)),
         Next::Nothing
     );
-    assert_eq!(step(&state), Step::Settled(Settled::NothingToReset));
+    assert_eq!(step(&state), Progress::Settled(Settled::NothingToReset));
     // an answer that is not waited for any more is dropped
     assert_eq!(state.redeemed(&key, Ok(Outcome::Reset)), Next::Nothing);
-    assert_eq!(step(&state), Step::Settled(Settled::NothingToReset));
+    assert_eq!(step(&state), Progress::Settled(Settled::NothingToReset));
 }
 
 #[test]
@@ -87,12 +87,12 @@ fn a_reset_reads_the_credits_again_and_tells_the_count_that_is_left() {
     let mut state = State::default();
     let key = key_of(state.redeem(None));
     assert_eq!(state.redeemed(&key, Ok(Outcome::Reset)), Next::Read);
-    assert_eq!(step(&state), Step::Refreshing);
+    assert_eq!(step(&state), Progress::Refreshing);
     assert_eq!(state.available, None);
     state.after_reset_read(Ok(Some(credits(2))));
     assert_eq!(
         step(&state),
-        Step::Settled(Settled::Reset { left: Some(2) })
+        Progress::Settled(Settled::Reset { left: Some(2) })
     );
     assert_eq!(state.available, Some(2));
 }
@@ -106,7 +106,10 @@ fn a_reset_whose_count_cannot_be_read_still_says_it_happened() {
         Next::Read
     );
     state.after_reset_read(Err(()));
-    assert_eq!(step(&state), Step::Settled(Settled::Reset { left: None }));
+    assert_eq!(
+        step(&state),
+        Progress::Settled(Settled::Reset { left: None })
+    );
     assert_eq!(state.available, None);
 }
 
@@ -116,12 +119,12 @@ fn no_credit_is_stale_for_a_chosen_credit_and_zero_for_the_default_one() {
     state.available = Some(1);
     let key = key_of(state.redeem(Some("c1".into())));
     state.redeemed(&key, Ok(Outcome::NoCredit));
-    assert_eq!(step(&state), Step::Settled(Settled::Stale));
+    assert_eq!(step(&state), Progress::Settled(Settled::Stale));
     assert_eq!(state.available, None);
 
     let key = key_of(state.redeem(None));
     state.redeemed(&key, Ok(Outcome::NoCredit));
-    assert_eq!(step(&state), Step::Settled(Settled::NoCredit));
+    assert_eq!(step(&state), Progress::Settled(Settled::NoCredit));
     assert_eq!(state.available, Some(0));
 }
 

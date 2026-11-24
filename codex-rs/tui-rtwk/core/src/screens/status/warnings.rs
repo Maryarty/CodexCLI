@@ -84,8 +84,11 @@ impl Sample {
 pub enum Source {
     /// A full read of the account (`account/rateLimits/read`).
     Read,
-    /// `account/rateLimits/updated`: sparse, it keeps what the last read learned.
-    Rolling,
+    /// `account/rateLimits/updated`: sparse, it keeps what the last read learned. `read_out` is
+    /// whether a read of the account is in flight: it started before this update and is the
+    /// older, so its answer cannot confirm a recovery. (Of several in flight only the first is
+    /// taken as overtaken.)
+    Rolling { read_out: bool },
 }
 
 /// A warning that is due: the share that is left at the threshold passed, and the window's name.
@@ -121,20 +124,13 @@ pub struct Limits {
     primary: Option<Used>,
     secondary: Option<Used>,
     notice_credits: Option<bool>,
-    /// Reads started, and answered; reads of one backend answer in the order they started.
-    started: u64,
+    /// Reads answered, in the order they were sent; a read up to `stale_through` was overtaken by
+    /// a rolling update and is too old to confirm a recovery.
     answered: u64,
-    /// The last read started when a rolling update arrived: a read up to it is too old to confirm
-    /// a recovery.
     stale_through: Option<u64>,
 }
 
 impl Limits {
-    /// A read of the limits is sent (oracle `start_usage_notice_read`).
-    pub fn read_started(&mut self) {
-        self.started += 1;
-    }
-
     /// A read was answered, or failed: the next in line is over.
     fn read_ended(&mut self) -> bool {
         self.answered += 1;
@@ -158,8 +154,8 @@ impl Limits {
     pub fn take(&mut self, sample: &Sample, source: Source) -> Vec<Warning> {
         let stale = match source {
             Source::Read => self.read_ended(),
-            Source::Rolling => {
-                self.stale_through = Some(self.started);
+            Source::Rolling { read_out } => {
+                self.stale_through = Some(self.answered + u64::from(read_out));
                 false
             }
         };
@@ -178,7 +174,7 @@ impl Limits {
         // a rolling update without credits is judged by the credits the last read saw
         let credits = match source {
             Source::Read => sample.credits_usable,
-            Source::Rolling => sample.credits_usable.or(self.credits_usable),
+            Source::Rolling { .. } => sample.credits_usable.or(self.credits_usable),
         };
         if source == Source::Read {
             self.credits_usable = sample.credits_usable;
@@ -228,7 +224,7 @@ impl Limits {
         if source == Source::Read && stale {
             return;
         }
-        let rolling = source == Source::Rolling;
+        let rolling = matches!(source, Source::Rolling { .. });
         let plan = self.plan;
         for (current, incoming) in [
             (&mut self.primary, sample.primary),

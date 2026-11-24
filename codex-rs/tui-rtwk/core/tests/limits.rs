@@ -7,9 +7,10 @@
 
 use codex_app_server_protocol::ThreadUsage;
 use codex_protocol::account::PlanType;
-use codex_tui_core::screens::status::WindowName;
+use codex_tui_core::screens::status::{
+    Sample, Source, Used, Warning, WarningLimits as Notices, WindowName, warning_threshold,
+};
 use codex_tui_core::screens::usage::thread::{Ctx, Outcome, Selected, State};
-use codex_tui_core::threads::limits::{Limits, Sample, Source, Used, Warning, warning_threshold};
 
 const FIVE_HOURS: i64 = 300;
 const WEEK: i64 = 7 * 24 * 60;
@@ -41,7 +42,7 @@ fn remaining(warnings: &[Warning]) -> Vec<i32> {
 
 #[test]
 fn a_threshold_warns_once_and_only_the_highest_one_passed_at_a_time() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     assert!(
         limits
             .take(&sample(Some(used(60, FIVE_HOURS)), None), Source::Read)
@@ -53,7 +54,10 @@ fn a_threshold_warns_once_and_only_the_highest_one_passed_at_a_time() {
     assert_eq!(due[0].window, WindowName::FiveHours);
     assert!(
         limits
-            .take(&sample(Some(used(80, FIVE_HOURS)), None), Source::Rolling)
+            .take(
+                &sample(Some(used(80, FIVE_HOURS)), None),
+                Source::Rolling { read_out: false }
+            )
             .is_empty()
     );
     // a jump over two thresholds says the highest
@@ -72,7 +76,7 @@ fn a_threshold_warns_once_and_only_the_highest_one_passed_at_a_time() {
 
 #[test]
 fn the_two_windows_warn_apart_and_the_secondary_one_first() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     let due = limits.take(
         &sample(Some(used(92, FIVE_HOURS)), Some(used(76, WEEK))),
         Source::Read,
@@ -95,7 +99,7 @@ fn plus_and_team_warn_earlier_on_the_five_hour_window_only() {
     assert_eq!(warning_threshold(Some(PlanType::Plus), Some(WEEK)), 75);
     assert_eq!(warning_threshold(Some(PlanType::Pro), Some(FIVE_HOURS)), 75);
     assert_eq!(warning_threshold(Some(PlanType::Plus), None), 75);
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     let mut plus = sample(Some(used(55, FIVE_HOURS)), None);
     plus.plan = Some(PlanType::Plus);
     assert_eq!(remaining(&limits.take(&plus, Source::Read)), [50]);
@@ -103,7 +107,7 @@ fn plus_and_team_warn_earlier_on_the_five_hour_window_only() {
 
 #[test]
 fn a_window_at_a_hundred_percent_or_credits_that_can_be_spent_do_not_warn() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     assert!(
         limits
             .take(
@@ -123,20 +127,23 @@ fn a_window_at_a_hundred_percent_or_credits_that_can_be_spent_do_not_warn() {
 
 #[test]
 fn a_rolling_update_without_credits_is_judged_by_the_credits_the_last_read_saw() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     let mut read = sample(Some(used(10, FIVE_HOURS)), None);
     read.credits_usable = Some(true);
     limits.take(&read, Source::Read);
     assert!(
         limits
-            .take(&sample(Some(used(96, FIVE_HOURS)), None), Source::Rolling)
+            .take(
+                &sample(Some(used(96, FIVE_HOURS)), None),
+                Source::Rolling { read_out: false }
+            )
             .is_empty()
     );
 }
 
 #[test]
 fn a_snapshot_of_another_bucket_neither_warns_nor_changes_the_notice() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     let mut other = sample(Some(used(96, FIVE_HOURS)), None);
     other.codex = false;
     assert!(limits.take(&other, Source::Read).is_empty());
@@ -145,7 +152,7 @@ fn a_snapshot_of_another_bucket_neither_warns_nor_changes_the_notice() {
 
 #[test]
 fn the_notice_names_the_window_with_the_least_left_and_gives_way_to_credits() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     limits.take(
         &sample(Some(used(80, FIVE_HOURS)), Some(used(90, WEEK))),
         Source::Read,
@@ -165,9 +172,12 @@ fn the_notice_names_the_window_with_the_least_left_and_gives_way_to_credits() {
 
 #[test]
 fn a_rolling_update_does_not_lower_a_window_that_was_past_its_threshold() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     limits.take(&sample(Some(used(90, FIVE_HOURS)), None), Source::Read);
-    limits.take(&sample(Some(used(10, FIVE_HOURS)), None), Source::Rolling);
+    limits.take(
+        &sample(Some(used(10, FIVE_HOURS)), None),
+        Source::Rolling { read_out: false },
+    );
     assert_eq!(limits.notice().map(|(window, _)| window.percent), Some(90));
     // a full read does
     limits.take(&sample(Some(used(10, FIVE_HOURS)), None), Source::Read);
@@ -176,25 +186,29 @@ fn a_rolling_update_does_not_lower_a_window_that_was_past_its_threshold() {
 
 #[test]
 fn a_read_that_a_rolling_update_overtook_does_not_replace_the_notice() {
-    let mut limits = Limits::default();
-    limits.read_started();
-    limits.take(&sample(Some(used(90, FIVE_HOURS)), None), Source::Rolling);
+    let mut limits = Notices::default();
+    limits.take(
+        &sample(Some(used(90, FIVE_HOURS)), None),
+        Source::Rolling { read_out: true },
+    );
     limits.take(&sample(Some(used(10, FIVE_HOURS)), None), Source::Read);
     assert_eq!(limits.notice().map(|(window, _)| window.percent), Some(90));
     // the next read is the newer one
-    limits.read_started();
     limits.take(&sample(Some(used(10, FIVE_HOURS)), None), Source::Read);
     assert_eq!(limits.notice(), None);
 }
 
 #[test]
 fn a_reached_limit_blocks_the_notice_until_a_read_says_otherwise() {
-    let mut limits = Limits::default();
+    let mut limits = Notices::default();
     let mut reached = sample(Some(used(100, FIVE_HOURS)), None);
     reached.reached = Some(false);
-    limits.take(&reached, Source::Rolling);
+    limits.take(&reached, Source::Rolling { read_out: false });
     assert!(limits.blocked());
-    limits.take(&sample(Some(used(20, FIVE_HOURS)), None), Source::Rolling);
+    limits.take(
+        &sample(Some(used(20, FIVE_HOURS)), None),
+        Source::Rolling { read_out: false },
+    );
     assert!(
         limits.blocked(),
         "a sparse update keeps what the read learned"
@@ -210,7 +224,7 @@ fn ctx(now: i64) -> Ctx {
         now,
         plan: Some(PlanType::Business),
         backend_auth: true,
-        selected: Selected {
+        status_items: Selected {
             credits: true,
             estimated_cost: false,
         },

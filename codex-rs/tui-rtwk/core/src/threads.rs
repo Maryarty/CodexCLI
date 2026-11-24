@@ -17,7 +17,6 @@ pub mod directives;
 pub mod followups;
 pub mod goal;
 pub mod inline_vis;
-pub mod limits;
 pub mod local_links;
 mod message;
 mod note;

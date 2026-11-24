@@ -39,7 +39,7 @@ pub struct Ctx {
     pub plan: Option<PlanType>,
     /// The session signed in with the Codex backend's own auth (`has_codex_backend_auth`).
     pub backend_auth: bool,
-    pub selected: Selected,
+    pub status_items: Selected,
 }
 
 impl Ctx {
@@ -47,8 +47,8 @@ impl Ctx {
     /// dollars.
     fn selected(&self) -> Selected {
         Selected {
-            credits: self.selected.credits && self.plan != Some(PlanType::Ent26),
-            estimated_cost: self.selected.estimated_cost,
+            credits: self.status_items.credits && self.plan != Some(PlanType::Ent26),
+            estimated_cost: self.status_items.estimated_cost,
         }
     }
 
@@ -131,7 +131,7 @@ impl State {
         *self = Self { next_request: self.next_request, ..Self::default() };
     }
 
-    fn follow(&mut self, thread: &str) {
+    fn switch_to(&mut self, thread: &str) {
         if self.thread.as_deref() != Some(thread) {
             self.clear();
             self.thread = Some(thread.to_owned());
@@ -149,7 +149,7 @@ impl State {
 
     /// The thread is shown (oracle `ensure_thread_usage_requested`): its usage is asked once.
     pub fn ensure_requested(&mut self, thread: &str, ctx: &Ctx) -> Option<Request> {
-        self.follow(thread);
+        self.switch_to(thread);
         if self.requested {
             return None;
         }
@@ -186,7 +186,7 @@ impl State {
         if !self.available(Some(thread), ctx) {
             return None;
         }
-        self.follow(thread);
+        self.switch_to(thread);
         self.cards.push(card);
         self.status_requested = true;
         self.retry_attempts = 0;

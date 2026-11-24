@@ -1151,12 +1151,15 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     });
                     install_rates(app, origin, note.rate_limits.clone().into());
                     // a rolling update warns like a read does, but never writes the buckets
-                    let sample = crate::threads::limits::Sample::of(&note.rate_limits);
+                    let sample = crate::screens::status::Sample::of(&note.rate_limits);
+                    let read_out = app.outgoing.any(|ctx| {
+                        matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                    });
                     let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
                         .entry(origin)
                         .or_default()
-                        .rolling(&sample);
+                        .rolling(&sample, read_out);
                     if active_backend(app) == origin {
                         reset::warn(app, warnings, fx);
                     }

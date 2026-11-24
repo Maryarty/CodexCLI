@@ -46,12 +46,6 @@ pub(super) fn refresh_rates(
     {
         return;
     }
-    Rc::make_mut(&mut app.session)
-        .rate_snapshots
-        .entry(backend)
-        .or_default()
-        .limits_mut()
-        .read_started();
     let ticket = app.mint.next();
     app.outgoing
         .insert(ticket, AppCtx::RateLimits { backend, origin });
