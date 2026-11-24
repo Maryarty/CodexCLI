@@ -7,9 +7,10 @@ use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
 
 use rtwk::foundation::{Listenable, VoidCallback};
+use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
-use rtwk::scroll::{ListView, ScrollController, ScrollNotification};
+use rtwk::scroll::{ItemTexts, ListView, ScrollController, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -26,8 +27,11 @@ use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::cells::strings as cells_strings;
+use super::cells::text::Env;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
+use super::transcript::find::{self, Finder, RowTexts};
+use super::transcript::item_text::item_text;
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
@@ -65,6 +69,12 @@ pub(super) struct ViewportState {
     left: Vec<(Follow, i64)>,
     /// The restore a thread's list waits to make once it knows its extents.
     restoring: Option<Restore>,
+    /// The finder of the thread shown, and what it told this list to listen with: the list
+    /// builds again when Find moves.
+    finding: RefCell<Option<(Finder, VoidCallback)>>,
+    /// The texts of the rows Find reads, kept while they are the same so that what the selection
+    /// area was asked to select stays named by the same model.
+    texts: RefCell<Option<Rc<RowTexts>>>,
 }
 
 /// A one-shot listener on a controller: the move to where its reader was, made when its list
@@ -125,6 +135,8 @@ struct Shown {
 pub(super) enum Msg {
     Load(ThreadId),
     Toggle(Vec<ItemKey>),
+    /// Find moved: its footer and its match are drawn from the list's build.
+    Find,
 }
 
 impl ViewportState {
@@ -193,6 +205,56 @@ impl ViewportState {
             shown: shown.clone(),
         });
         shown
+    }
+}
+
+impl ViewportState {
+    /// The list builds again when `finder` moves (its footer and its match are drawn from the
+    /// build): one listener, on the finder of the thread shown.
+    fn listen(&self, finder: &Finder, send: Rc<dyn Fn(Msg)>) {
+        let mut held = self.finding.borrow_mut();
+        if held.as_ref().is_some_and(|(held, _)| held == finder) {
+            return;
+        }
+        if let Some((old, listener)) = held.take() {
+            old.listenable().remove_listener(&listener);
+        }
+        let listener: VoidCallback = Rc::new(move || send(Msg::Find));
+        finder.listenable().add_listener(listener.clone());
+        *held = Some((finder.clone(), listener));
+    }
+
+    /// The rows of the list as text, what Find reads and the selection area selects its match in:
+    /// the same model while the texts are the same.
+    fn row_texts(
+        &self,
+        thread: &ThreadModel,
+        rows: &[Row],
+        header: bool,
+        reverse: bool,
+        env: &Env<'_>,
+    ) -> Rc<RowTexts> {
+        let transcript = thread.transcript();
+        let mut texts: Vec<String> = Vec::with_capacity(rows.len() + usize::from(header));
+        if header {
+            texts.push(String::new());
+        }
+        texts.extend(rows.iter().map(|row| {
+            transcript
+                .get(row.range.start)
+                .and_then(|(_, item)| item_text(item, env))
+                .unwrap_or_default()
+        }));
+        let fresh = RowTexts::new(texts, reverse, transcript.layout_revision());
+        let mut kept = self.texts.borrow_mut();
+        if let Some(old) = kept.as_ref()
+            && **old == fresh
+        {
+            return old.clone();
+        }
+        let fresh = Rc::new(fresh);
+        *kept = Some(fresh.clone());
+        fresh
     }
 }
 
@@ -318,6 +380,8 @@ impl StatefulWidget for Pane {
             tail: None,
             left: Vec::new(),
             restoring: None,
+            finding: RefCell::default(),
+            texts: RefCell::default(),
         }
     }
 }
@@ -358,6 +422,9 @@ impl State for ViewportState {
         if let Some(restore) = self.restoring.take() {
             restore.disarm();
         }
+        if let Some((finder, listener)) = self.finding.get_mut().take() {
+            finder.listenable().remove_listener(&listener);
+        }
     }
 
     fn did_change_dependencies(&mut self, widget: &Pane, cx: &mut Cx<'_, Self>) {
@@ -394,6 +461,7 @@ impl State for ViewportState {
                 self.opened += 1;
                 Rebuild::Yes
             }
+            Msg::Find => Rebuild::Yes,
         }
     }
 
@@ -446,6 +514,33 @@ impl State for ViewportState {
         );
         let cells = cells_strings::of(cx);
         let folds = transcript_strings::of(cx);
+        let search = find::finder(&thread_id);
+        self.listen(&search, cx.local_sender());
+        // while Find is open the list reads its rows as text: the scan runs over them, and the
+        // match it found is scrolled to and selected, which is how the oracle draws it (REVERSED)
+        let texts = search.active().then(|| {
+            let env = Env {
+                cells,
+                chat: table,
+                detailed,
+                expanded: false,
+            };
+            self.row_texts(&thread, &rows, header.is_some(), reverse, &env)
+        });
+        if let Some(texts) = &texts {
+            if let Some(hit) = search.advance(&**texts) {
+                let index = texts.index_of(hit.row);
+                widget.follow.scroll().ensure_index_visible(index);
+                widget.selection.controller().select(
+                    SelectionTarget::of(texts),
+                    index,
+                    hit.range.start,
+                    hit.range.end,
+                );
+            }
+        } else {
+            *self.texts.borrow_mut() = None;
+        }
         let toggled = cx.map(Msg::Toggle);
         let open = self.open.clone();
         let control = tokens.dim().attrs(Attrs::DIM);
@@ -593,6 +688,12 @@ impl State for ViewportState {
         .controller(widget.follow.scroll())
         .stick_to_bottom(!reverse)
         .reverse(reverse);
+        let list: AnyWidget = match &texts {
+            Some(texts) => list
+                .selection_text(texts.clone() as Rc<dyn ItemTexts>)
+                .into(),
+            None => list.into(),
+        };
         let send = cx.local_sender();
         let follow = widget.follow.clone();
         // every thread owns its reader (#57499; Flutter's `PageStorageKey` per list): the list of

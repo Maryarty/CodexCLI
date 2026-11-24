@@ -15,7 +15,7 @@ use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::live::provider_error;
-use crate::pages::session::transcript;
+use crate::pages::session::transcript::{self, find};
 
 use super::frame::Frame;
 use super::{ChatMsg, ChatState};
@@ -48,6 +48,14 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     let (banner, blocked) = (state.banner.clone(), state.banner_blocked.clone());
     let keymap = state.keymap.clone();
     state.node.set_on_key_event(Some(Rc::new(move |_, key| {
+        // a match being read (Find accepted): `Ctrl+P`, `Ctrl+N`, Enter (swallowed), Esc and
+        // `Ctrl+C` are Find's (`handle_search_key`), whatever the composer holds
+        if let Some(finder) = find::reading(&selection.borrow())
+            && let Some(taken) = find::key(finder.mode(), &key)
+            && finder.take(taken)
+        {
+            return KeyEventResult::Handled;
+        }
         // browsing the prompts: its keys come first, any other key ends it
         // and goes on to the field
         if modes.borrow().browsing() {
