@@ -28,9 +28,14 @@ fn row_starting(s: &Screen, text: &str) -> usize {
 const NO_DISCOVERY: &str = "the discovery menus (loading, the server's catalog, failure with Retry, empty) are built (core `select::permissions`, entries `permission_discovery_*`, the 30 state tests of core/tests/permissions.rs, the sheet tests) but `/permissions` does not open them: the opener (src/pages/session) and the app's `permissionProfile/list` + `configRequirements/read` routing are other owners' files (parity/popups.md, Needs); the wait behind a covering modal is the app's hold, not the picker's";
 const NO_AUTO_PICK: &str = "the Ask for approval pick does not lead to the Windows enable prompt: a pick, the prompt, then the preset applied once the setup ends (`Pending::preset`) is not wired between the /permissions sheet and the windows_sandbox slice";
 const NO_HEADER_LINK: &str = "the Learn more url is plain text: a Picker header run is a `Span { text, role }` with no hyperlink (the oracle writes the `<url>` as an OSC 8 link over its wrapped lines); a `link` on `picker::list::Span` is another owner's brick (src/widgets/picker, Needs)";
-const NO_FULL_ACCESS: &str = "the confirmation's rows are built (`Enable full access?`, Yes, continue anyway / Cancel, the cyber text) but its header is plain subtitle text (the oracle's header is a Paragraph: bold title, the caution sentence in red) and its Centered presentation over the retained composer (`› As` / `GP` at the left edge) is not in the Picker brick; the live open waits on the /permissions opener (parity/popups.md, Needs)";
-const NO_HISTORY: &str = "the /permissions selection history cells (`Permissions updated to ...`) are not built: no transcript cell comes from a permissions pick";
+const NO_HISTORY: &str = "the oracle's chat has no thread, so its legacy list says `Permissions updated to X` at once (the row the config has too); the port's `/permissions` runs on a thread and says `Permission selection requested: X` once the server took the update, and nothing for the row the thread already has";
 const NO_AUTO_REVIEW: &str = "the Approve for me row, its feature gate and its (current) marker are built (core `select::permissions`, `Current.guardian`/`reviewer`, entry `permissions_unnamed_server_profile`) but `/permissions` does not open the menu: the opener (src/pages/session) reads the thread's policy and the feature gate (parity/popups.md, Needs)";
+/// The server's answers to a `/permissions` read and a pick: no requirements, the three built-in
+/// profiles, the thread's update taken.
+const PERMISSION_CATALOG: &str = r#"{"step":"respond","method":"configRequirements/read","result":{"requirements":null}}
+{"step":"respond","method":"permissionProfile/list","result":{"data":[{"id":":read-only","description":null,"allowed":true},{"id":":workspace","description":null,"allowed":true},{"id":":danger-full-access","description":null,"allowed":true}],"nextCursor":null}}
+{"step":"respond","method":"thread/settings/update","result":{}}"#;
+
 const NO_QUEUE: &str =
     "the queued-input recovery after a cancelled /permissions picker is not built";
 
@@ -84,15 +89,23 @@ fn cancelled_permissions_command_does_not_apply_after_later_modal() {
 // ORACLE chatwidget/tests/permissions.rs:153 permissions_command_preserves_full_access_confirmation kind=ui owner=dialogs-pane
 #[test]
 fn permissions_command_preserves_full_access_confirmation() {
-    kit::pending(Owner::DialogsPane, NO_FULL_ACCESS);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/permissions danger-full-access --reviewer=auto_review")
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(PERMISSION_CATALOG)
+        .open();
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"permissions":{"guardian":true,"auto_available":true}}}}"#,
+    );
+    s.type_text("/permissions :danger-full-access --reviewer=auto_review")
         .keys("enter");
     s.assert_contains("Enable full access?");
     // Cancel returns to the picker.
     s.keys("down enter");
     s.assert_contains("Update Model Permissions");
     s.keys("esc");
+    s.assert_absent("Update Model Permissions");
+    kit::pending(Owner::DialogsPane, NO_QUEUE);
     s.assert_contains("follow-up");
 }
 
@@ -287,12 +300,20 @@ fn approvals_selection_popup_snapshot_windows_degraded_sandbox() {
 // ORACLE chatwidget/tests/permissions.rs:890 full_access_confirmation_popup_snapshot kind=snap owner=dialogs-pane snap=full_access_confirmation_popup
 #[test]
 fn full_access_confirmation_popup_snapshot() {
-    kit::pending(Owner::DialogsPane, NO_FULL_ACCESS);
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .entry("select", "permissions_menu")
         .open();
     s.keys("down enter");
+    s.assert_contains("Enable full access?");
+    s.assert_contains("When Codex runs with full access, it can edit any file on your computer");
+    s.assert_contains("leaks, or unexpected behavior.");
+    s.assert_contains("› 1. Yes, continue anyway  Apply full access for this session");
+    s.assert_contains("  2. Cancel                Go back without enabling full access");
+    kit::pending(
+        Owner::DialogsPane,
+        "the confirmation is a bottom dialog at the screen's edge with its header in one paragraph; the oracle's is indented four columns over the retained composer (`› As` / `GP` at the left edge) with the title, the warning and the caution as three paragraphs (a Centered presentation the select sheet has no option for)",
+    );
     s.assert_snap_region(
         "full_access_confirmation_popup",
         row_of(&s, "Enable full access?"),
@@ -463,11 +484,19 @@ fn approvals_popup_navigation_skips_disabled() {
 // ORACLE chatwidget/tests/permissions.rs:1413 permissions_selection_emits_history_cell_when_selection_changes kind=ui owner=dialogs-pane
 #[test]
 fn permissions_selection_emits_history_cell_when_selection_changes() {
-    kit::pending(Owner::DialogsPane, NO_HISTORY);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(PERMISSION_CATALOG)
+        .open();
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"permissions":{"guardian":true,"auto_available":true}}}}"#,
+    );
     s.type_text("/permissions").keys("enter");
     s.keys("down enter");
-    s.assert_contains("Permissions updated to");
+    // the oracle's legacy list says `Permissions updated to ..` (`NO_HISTORY`): the thread's
+    // pick says what was requested of the server
+    s.assert_contains("Permission selection requested: Approve for me");
 }
 
 // ORACLE chatwidget/tests/permissions.rs:1438 permissions_selection_history_snapshot_after_mode_switch kind=snap owner=dialogs-pane snap=permissions_selection_history_after_mode_switch
@@ -489,10 +518,21 @@ fn permissions_selection_history_snapshot_after_mode_switch() {
 // ORACLE chatwidget/tests/permissions.rs:1474 permissions_selection_history_snapshot_full_access_to_default kind=snap owner=dialogs-pane snap=permissions_selection_history_full_access_to_default
 #[test]
 fn permissions_selection_history_snapshot_full_access_to_default() {
-    kit::pending(Owner::DialogsPane, NO_HISTORY);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(PERMISSION_CATALOG)
+        .open();
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"approval_policy":"never","profile":"full","permission_profile":":danger-full-access"}}}"#,
+    );
     s.type_text("/permissions").keys("enter");
     s.keys("up enter");
+    s.assert_contains("Permission selection requested: Ask for approval");
+    kit::pending(
+        Owner::DialogsPane,
+        "the oracle's chat has no thread, so its legacy list says `Permissions updated to Ask for approval` at once; the port's `/permissions` runs on a thread and says `Permission selection requested: Ask for approval` once the server took the update",
+    );
     s.assert_snap_region(
         "permissions_selection_history_full_access_to_default",
         row_of(&s, "Permissions updated to"),
@@ -592,14 +632,21 @@ fn permissions_selection_sends_approvals_reviewer_in_override_turn_context() {
 // ORACLE chatwidget/tests/permissions.rs:1823 permissions_full_access_history_cell_emitted_only_after_confirmation kind=ui owner=dialogs-pane
 #[test]
 fn permissions_full_access_history_cell_emitted_only_after_confirmation() {
-    kit::pending(Owner::DialogsPane, NO_FULL_ACCESS);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(PERMISSION_CATALOG)
+        .open();
     s.type_text("/permissions").keys("enter");
     s.keys("down enter");
     s.assert_contains("Enable full access?");
     s.assert_absent("Permissions updated to");
     s.keys("enter");
-    s.assert_contains("Permissions updated to Full Access");
+    // The oracle's chat has no thread (the legacy list says `Permissions updated to ..` at
+    // once); the port's `/permissions` runs on a thread and says so once the server took the
+    // update.
+    s.assert_contains("Permission selection requested: Full Access");
+    s.assert_absent("Enable full access?");
 }
 
 // ORACLE chatwidget/tests/permissions.rs:1888 windows_sandbox_unelevated_policy_hides_admin_setup kind=snap owner=dialogs-pane snap=windows_sandbox_unelevated_policy
