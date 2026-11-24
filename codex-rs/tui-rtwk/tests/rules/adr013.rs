@@ -53,6 +53,11 @@ fn ratchet_file() -> String {
 /// What the violations `found` (one key each) say against the rule's lines of `file`:
 /// `ratchet <rule> <key> <count>` is today's count, `exempt <rule> <key>` a named exception.
 fn report(rule: &str, found: &[String], file: &str) -> Vec<String> {
+    report_in(rule, found, file, RATCHETS)
+}
+
+/// `report` for another ratchet file, named `list` in the messages (`holes.rs` has its own).
+pub(crate) fn report_in(rule: &str, found: &[String], file: &str, list: &str) -> Vec<String> {
     let mut budget: BTreeMap<String, usize> = BTreeMap::new();
     let mut exempt: BTreeSet<String> = BTreeSet::new();
     for line in file.lines() {
@@ -85,7 +90,7 @@ fn report(rule: &str, found: &[String], file: &str) -> Vec<String> {
                 "{key}: {current} found, {allowed} allowed: a new violation (the list only shrinks)"
             )),
             std::cmp::Ordering::Less => out.push(format!(
-                "{key}: {current} found, {allowed} allowed: lower its line in {RATCHETS} to {current} (delete it at 0)"
+                "{key}: {current} found, {allowed} allowed: lower its line in {list} to {current} (delete it at 0)"
             )),
             std::cmp::Ordering::Equal => {}
         }
@@ -283,7 +288,7 @@ fn raw_string_hashes(chars: &[char], at: usize) -> Option<usize> {
 }
 
 /// The code of `text` as tokens: identifiers (and numbers) whole, everything else one character.
-fn code_tokens(text: &str) -> Vec<String> {
+pub(crate) fn code_tokens(text: &str) -> Vec<String> {
     let chars: Vec<char> = cleaned(text).chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -311,12 +316,12 @@ fn is_ident(token: &str) -> bool {
         .is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
-fn at(tokens: &[String], i: usize) -> &str {
+pub(crate) fn at(tokens: &[String], i: usize) -> &str {
     tokens.get(i).map_or("", String::as_str)
 }
 
 /// The tokens from `i` start with the words `pattern`.
-fn starts(tokens: &[String], i: usize, pattern: &[&str]) -> bool {
+pub(crate) fn starts(tokens: &[String], i: usize, pattern: &[&str]) -> bool {
     pattern
         .iter()
         .enumerate()
@@ -324,7 +329,7 @@ fn starts(tokens: &[String], i: usize, pattern: &[&str]) -> bool {
 }
 
 /// The index of the token that closes the `(`, `[` or `{` at `open`.
-fn matching(tokens: &[String], open: usize) -> usize {
+pub(crate) fn matching(tokens: &[String], open: usize) -> usize {
     let mut depth = 0i32;
     for (i, token) in tokens.iter().enumerate().skip(open) {
         match token.as_str() {
@@ -636,6 +641,12 @@ const DRAW_WORDS: &[&str] = &[
     "menu",
     "shown",
     "open",
+    // what the first scan missed (core-review-c R1, R2): the tab of `/usage` (`section`), its sort
+    // (`metric`), the transcript's overlay (`pager`) and a render mode (`raw`)
+    "section",
+    "metric",
+    "pager",
+    "raw",
 ];
 
 /// What the old `core_screen_models_hold_no_ui_state_fields` also denied of a screen's `Model`, by
@@ -836,7 +847,7 @@ fn the_draw_state_scan_bites() {
         ),
         file(
             "core/src/screens/foo.rs",
-            "pub struct Model {\n    /// the first row on screen\n    pub scroll_top: usize,\n    pub cursor: usize,\n    pub next_cursor: Option<String>,\n    pub cursor_token: Option<String>,\n    pub selected: Vec<String>,\n    pub rows: Vec<Row>,\n    pub pane: Pane,\n    pub is_open: bool,\n    pub query: String,\n    pub draft: String,\n    pub ctl: ListController,\n}\npub struct Pane { #[allow(x)] pub(crate) expanded: bool, pub name: String, pub draft: String }\npub enum Step { Pick { highlight: usize, id: u8 }, Done(bool) }\npub struct Unreached { pub cursor: usize }\n",
+            "pub struct Model {\n    /// the first row on screen\n    pub scroll_top: usize,\n    pub cursor: usize,\n    pub next_cursor: Option<String>,\n    pub cursor_token: Option<String>,\n    pub selected: Vec<String>,\n    pub rows: Vec<Row>,\n    pub pane: Pane,\n    pub is_open: bool,\n    pub query: String,\n    pub draft: String,\n    pub ctl: ListController,\n    pub section: Section,\n    pub chat_metric: Metric,\n    pub pager: Option<PagerDoc>,\n    pub raw_output: bool,\n    pub sections_total: usize,\n}\npub struct Pane { #[allow(x)] pub(crate) expanded: bool, pub name: String, pub draft: String }\npub enum Step { Pick { highlight: usize, id: u8 }, Done(bool) }\npub struct Unreached { pub cursor: usize }\n",
         ),
         file(
             "core/src/threads.rs",
@@ -860,6 +871,10 @@ fn the_draw_state_scan_bites() {
             "core/src/screens/foo.rs:Model.draft",
             "core/src/screens/foo.rs:Model.is_open",
             "core/src/screens/foo.rs:Model.scroll_top",
+            "core/src/screens/foo.rs:Model.section",
+            "core/src/screens/foo.rs:Model.chat_metric",
+            "core/src/screens/foo.rs:Model.pager",
+            "core/src/screens/foo.rs:Model.raw_output",
             "core/src/screens/foo.rs:Pane.expanded",
             "core/src/screens/foo.rs:Step::Pick.highlight",
             "core/src/screens/other.rs:Row.selected",
@@ -1283,13 +1298,37 @@ const GESTURES: &[&str] = &[
     "End",
 ];
 
-/// `file:Enum::Variant` of every variant of an enum of core named `*Intent` whose name is a gesture.
+/// Gesture words that name a family of variants (`ToggleDensity`, `CycleGrouping`, `ClosePager`,
+/// `ClearQuery`, `ReleasePreview`, `Change`, `Paste`): the word whole, or followed by a CamelCase part.
+const GESTURE_PREFIXES: &[&str] = &[
+    "Toggle", "Cycle", "Close", "Clear", "Dismiss", "Release", "Change", "Paste",
+];
+
+/// The types a payload names a direction by: the widget moves, the domain never takes an arrow.
+const DIRECTION_TYPES: &[&str] = &["Dir", "Direction"];
+
+fn is_gesture_name(name: &str) -> bool {
+    GESTURES.contains(&name)
+        || GESTURE_PREFIXES.iter().any(|prefix| {
+            name.strip_prefix(prefix)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_uppercase))
+        })
+}
+
+/// `file:Enum::Variant` of every variant of an enum of core named `*Intent` whose name is a gesture
+/// or whose payload is a direction (once per variant).
 fn gesture_intents(core: &Files) -> Vec<String> {
     let mut found = Vec::new();
     for def in domain_defs(core) {
         if def.is_enum && def.name.ends_with("Intent") {
             for variant in &def.variants {
-                if GESTURES.contains(&variant.name.as_str()) {
+                let direction = variant.fields.iter().any(|field| {
+                    field
+                        .ty
+                        .iter()
+                        .any(|t| DIRECTION_TYPES.contains(&t.as_str()))
+                });
+                if is_gesture_name(&variant.name) || direction {
                     found.push(format!("{}:{}::{}", def.file, def.name, variant.name));
                 }
             }
@@ -1312,7 +1351,7 @@ fn adr013_core_intents_name_no_gesture() {
 fn the_gesture_scan_bites() {
     let files = vec![(
         "core/src/screens/foo.rs".to_owned(),
-        "pub enum Intent {\n    Submit(String),\n    Choose(usize),\n    #[allow(x)]\n    Toggle { id: u8 },\n    Close,\n    // Back\n    Ended,\n}\nenum PageIntent { Tab(u8), Search { query: String } }\nenum Outcome { Close, Back }\n".to_owned(),
+        "pub enum Intent {\n    Submit(String),\n    Choose(usize),\n    #[allow(x)]\n    Toggle { id: u8 },\n    Close,\n    // Back\n    Ended,\n}\nenum PageIntent { Tab(u8), Search { query: String } }\nenum Outcome { Close, Back }\nenum NavIntent { CycleGrouping, ClearQuery, ClosePager, Paste(String), Change(Control, Dir), Step(Option<Direction>), Changed, Cleared, Pastry }\n".to_owned(),
     )];
     assert_eq!(
         gesture_intents(&files),
@@ -1320,6 +1359,12 @@ fn the_gesture_scan_bites() {
             "core/src/screens/foo.rs:Intent::Choose",
             "core/src/screens/foo.rs:Intent::Close",
             "core/src/screens/foo.rs:Intent::Toggle",
+            "core/src/screens/foo.rs:NavIntent::Change",
+            "core/src/screens/foo.rs:NavIntent::ClearQuery",
+            "core/src/screens/foo.rs:NavIntent::ClosePager",
+            "core/src/screens/foo.rs:NavIntent::CycleGrouping",
+            "core/src/screens/foo.rs:NavIntent::Paste",
+            "core/src/screens/foo.rs:NavIntent::Step",
             "core/src/screens/foo.rs:PageIntent::Tab",
         ]
     );

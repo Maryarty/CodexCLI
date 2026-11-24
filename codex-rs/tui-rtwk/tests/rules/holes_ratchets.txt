@@ -1,0 +1,96 @@
+# Ratchets of the rules in tests/rules/holes.rs (tier A3 of the core review). The format is
+# adr013_ratchets.txt's:
+#   ratchet <rule> <key> <count>      today's count of the key
+#   exempt  <rule> <key> <why...>     a named exception, not counted
+# A count that rises is a new violation; one that falls is written down here (a line at 0 is
+# deleted): the numbers only go down.
+
+# holes_core_prose: a string literal with words in core, per file: an argument of format!/write!/writeln!/concat!/write_str (also over many lines), or a sentence made owned by to_owned/into/to_string/String::from (core-review-b H1, core-review-a F10). Failures are typed values (a `Failure` variant); the words are the UI string tables'.
+ratchet holes_core_prose core/src/app/effects/capability.rs 1
+ratchet holes_core_prose core/src/app/transcript_text.rs 1
+ratchet holes_core_prose core/src/features/feedback/mod.rs 2
+ratchet holes_core_prose core/src/features/mcp_inventory/mod.rs 1
+ratchet holes_core_prose core/src/features/mod.rs 1
+ratchet holes_core_prose core/src/features/plugins/catalog.rs 1
+ratchet holes_core_prose core/src/features/settings/keymap.rs 1
+ratchet holes_core_prose core/src/fixtures/script.rs 2
+ratchet holes_core_prose core/src/keymap/resolve.rs 29
+ratchet holes_core_prose core/src/kit/mentions/session.rs 1
+ratchet holes_core_prose core/src/protocol/agents.rs 4
+ratchet holes_core_prose core/src/protocol/mod.rs 1
+ratchet holes_core_prose core/src/screens/agents/refresh.rs 2
+ratchet holes_core_prose core/src/screens/agents/sources.rs 1
+ratchet holes_core_prose core/src/screens/approvals.rs 1
+ratchet holes_core_prose core/src/screens/backtrack.rs 1
+ratchet holes_core_prose core/src/screens/chat.rs 2
+ratchet holes_core_prose core/src/screens/onboarding.rs 1
+ratchet holes_core_prose core/src/screens/onboarding/auth.rs 4
+ratchet holes_core_prose core/src/screens/onboarding/provider/wire.rs 3
+ratchet holes_core_prose core/src/screens/onboarding/session.rs 1
+ratchet holes_core_prose core/src/screens/resume.rs 1
+ratchet holes_core_prose core/src/screens/select/quick_dials.rs 1
+ratchet holes_core_prose core/src/screens/startup/cwd.rs 2
+ratchet holes_core_prose core/src/screens/startup/launch.rs 1
+ratchet holes_core_prose core/src/threads.rs 1
+ratchet holes_core_prose core/src/threads/activity.rs 1
+exempt holes_core_prose core/src/features/side/policy.rs a model prompt (the words are the model's, not the user's)
+exempt holes_core_prose core/src/features/rename/title.rs a model prompt (the words are the model's, not the user's)
+
+# holes_string_ids: `thread`/`turn`/`parent` as String in core (any struct, enum variant or parameter), and sets and maps of String in the screens, as `file:field` (core-review-c R4). The non-id sets and maps are the exempt lines.
+ratchet holes_string_ids core/src/app/structured.rs:thread 1
+ratchet holes_string_ids core/src/app/structured.rs:turn 3
+ratchet holes_string_ids core/src/features/thread_usage/mod.rs:thread 2
+ratchet holes_string_ids core/src/features/thread_usage/model.rs:thread 2
+ratchet holes_string_ids core/src/screens/agents/mod.rs:hidden 1
+ratchet holes_string_ids core/src/screens/agents/mod.rs:overlay 1
+ratchet holes_string_ids core/src/screens/agents/mod.rs:removed 1
+ratchet holes_string_ids core/src/screens/agents/mod.rs:thread 16
+ratchet holes_string_ids core/src/screens/agents/mod.rs:turn 1
+ratchet holes_string_ids core/src/screens/agents/mod.rs:unread 1
+ratchet holes_string_ids core/src/screens/agents/mod.rs:usage 1
+ratchet holes_string_ids core/src/screens/agents/update.rs:thread 2
+ratchet holes_string_ids core/src/screens/approvals/guardian.rs:turn 1
+ratchet holes_string_ids core/src/screens/cells.rs:turn 1
+ratchet holes_string_ids core/src/screens/chat.rs:thread 6
+ratchet holes_string_ids core/src/screens/dialogs.rs:thread 2
+ratchet holes_string_ids core/src/screens/popovers.rs:thread 1
+ratchet holes_string_ids core/src/screens/resume.rs:seen 1
+ratchet holes_string_ids core/src/screens/select.rs:thread 2
+ratchet holes_string_ids core/src/screens/select/agent_picker.rs:hidden 1
+ratchet holes_string_ids core/src/screens/select/agent_picker.rs:removed 1
+ratchet holes_string_ids core/src/screens/select/apps.rs:thread 1
+ratchet holes_string_ids core/src/screens/startup.rs:thread 1
+ratchet holes_string_ids core/src/threads.rs:thread 21
+ratchet holes_string_ids core/src/threads.rs:turn 2
+exempt holes_string_ids core/src/screens/agents/mod.rs:dirs keyed by cwd, not by thread
+exempt holes_string_ids core/src/screens/agents/mod.rs:dirs_asked cwds, not thread ids
+exempt holes_string_ids core/src/screens/chat/mcp.rs:last MCP server names
+exempt holes_string_ids core/src/screens/chat/mcp.rs:round MCP server names
+exempt holes_string_ids core/src/screens/dialogs.rs:dismissed texts of dismissed warnings
+exempt holes_string_ids core/src/screens/dialogs.rs:fallback_models model names
+exempt holes_string_ids core/src/screens/dialogs.rs:startup_config config warning texts
+exempt holes_string_ids core/src/screens/select/permissions.rs:profiles permission profile names the server names
+exempt holes_string_ids core/src/screens/startup/launch.rs:seen migration notice keys (model names)
+exempt holes_string_ids core/src/screens/status/rates.rs:snapshots rate-limit ids the server names
+exempt holes_string_ids core/src/screens/usage/mod.rs:model_names model slugs to display names
+exempt holes_string_ids core/src/screens/usage/report_data.rs:credit_usage_credits wire report keys (the server names them)
+exempt holes_string_ids core/src/screens/usage/report_data.rs:dimensions wire report keys (the server names them)
+exempt holes_string_ids core/src/screens/usage/report_data.rs:product_surface_usage_values wire report keys (the server names them)
+exempt holes_string_ids core/src/screens/usage/report_data.rs:values wire report keys (the server names them)
+
+# holes_action_id_new: `ActionId::new(` outside keymap/{catalogue,actions,fixed}.rs (core-review-b K3): the `actions::` constants are the names.
+ratchet holes_action_id_new core/src/keymap/resolve.rs 8
+
+# holes_thread_rpcs: a thread RPC built outside its home in THREAD_RPCS, or one that table does not know, as `file:Name` (core-review-b H3). side/mod.rs builds `ThreadInjectItems` (the boundary note), which is no slice RPC of the table yet.
+ratchet holes_thread_rpcs core/src/features/side/mod.rs:ThreadInjectItems 1
+
+# holes_fixture_only_events: the sites naming an event only a fixture script sends, per file (core-review-a F9): the live `apply` arm and the script decoder. `AppEv::Seed` replaces them: they go to 0 with it.
+ratchet holes_fixture_only_events core/src/app.rs:agents::Ev::Current 1
+ratchet holes_fixture_only_events core/src/app.rs:approvals::Ev::Presented 1
+ratchet holes_fixture_only_events core/src/app.rs:chat::Ev::Pending 1
+ratchet holes_fixture_only_events core/src/app.rs:status::Ev::Card 1
+ratchet holes_fixture_only_events core/src/protocol/agents.rs:agents::Ev::Current 1
+ratchet holes_fixture_only_events core/src/screens/agents/refresh.rs:agents::Ev::Current 1
+ratchet holes_fixture_only_events core/src/screens/approvals.rs:approvals::Ev::Presented 2
+ratchet holes_fixture_only_events core/src/screens/chat.rs:chat::Ev::Pending 2
+ratchet holes_fixture_only_events core/src/screens/status.rs:status::Ev::Card 2

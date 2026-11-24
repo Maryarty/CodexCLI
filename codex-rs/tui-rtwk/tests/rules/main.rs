@@ -7,6 +7,7 @@ mod adr013;
 mod carried;
 mod feature_sheet;
 mod fixtures;
+mod holes;
 mod layers;
 mod pin;
 mod registration;

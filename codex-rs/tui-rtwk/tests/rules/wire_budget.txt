@@ -1,0 +1,10 @@
+# The hand-written requests of the feature slices, per file (tests/rules/wire.rs, rule
+# `wire_is_generated`; ADR-012 "the wire is generated"): `ClientRequest::` made outside an
+# `rpc_list!`, comment lines left out. A count that rises is a new hand-made request (write it as a
+# line of `rpc_list!`); one that falls is written down here; a file at 0 is deleted from the list.
+#
+#   hand <file> <count>
+hand core/src/features/feedback/mod.rs 4
+hand core/src/features/framework.rs 2
+hand core/src/features/side/mod.rs 1
+hand core/src/features/windows_sandbox/mod.rs 1
