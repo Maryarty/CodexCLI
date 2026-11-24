@@ -587,7 +587,11 @@ fn plugin_detail_unmaterialized_default_uses_remote_install_path() {
     s.assert_contains("Install this plugin now");
     s.keys("down enter");
     // the install is asked of the remote marketplace, by the plugin's id
-    seed::assert_install_remote(&s, "workspace-shared-with-me-private", "plugins~Plugin_linear");
+    seed::assert_install_remote(
+        &s,
+        "workspace-shared-with-me-private",
+        "plugins~Plugin_linear",
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:922 plugin_detail_remote_uninstall_uses_remote_plugin_id kind=ui owner=dialogs-pane

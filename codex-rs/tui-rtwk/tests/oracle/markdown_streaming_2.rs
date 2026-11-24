@@ -4,9 +4,7 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::app::facts::Rendering;
-
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, Owner, Renderers, Screen};
 
 /// The live chat draws an agent message as its plain text: no markdown renderer yet.
 /// The chat draws math as its source text: no unicode math renderer yet.
@@ -45,9 +43,9 @@ fn chat(width: u16, height: u16, markdown: &str) -> Screen {
     s
 }
 
-/// `chat` with one `tui.rendering` renderer off: `Rendering` with the field `off` named false.
+/// `chat` with one `tui.rendering` renderer off: `Renderers` with the field `off` named false.
 fn chat_without(off: &str, width: u16, height: u16, markdown: &str) -> Screen {
-    let rendering = Rendering {
+    let rendering = Renderers {
         mermaid: off != "mermaid",
         math: off != "math",
         tables: off != "tables",
@@ -456,10 +454,10 @@ fn label_only_web_links_keep_targets_after_prose_and_table_wrapping() {
             // (width 12) still carries its target on every row.
             let s = hyperlink_chat(width, 24, &markdown);
             s.assert_link_targets(&[
-                    "https://example.com/code",
-                    "https://example.com/html",
-                    "https://example.com/plain"
-                ]);
+                "https://example.com/code",
+                "https://example.com/html",
+                "https://example.com/plain",
+            ]);
             s.assert_absent("https://");
         }
     }
@@ -938,7 +936,13 @@ fn ordered_list_markers_use_terminal_palette_snapshot() {
     );
     s.assert_text_style("1. ", "fg=LightBlue");
     // `plain` stands twice (the text, then the link's label): the label is the second.
-    s.assert_span_linked("plain plain", "plain ".len(), "plain".len(), "https://example.com", true);
+    s.assert_span_linked(
+        "plain plain",
+        "plain ".len(),
+        "plain".len(),
+        "https://example.com",
+        true,
+    );
     s.assert_no_link("1. plain");
 }
 

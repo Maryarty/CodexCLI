@@ -5,8 +5,8 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use codex_tui_core::app::effects::{Ask as Effect, Done};
 use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::{Ask as Effect, Done};
 use codex_tui_core::data::mention::ToolMention;
 use codex_tui_core::screens::select::review::Commit;
 use codex_tui_core::screens::{ScreenCommand, agents, chat, select};
@@ -152,10 +152,16 @@ impl Screen {
             panic!("no row holds `{anchor}`:\n{}", self.text());
         };
         for text in holds {
-            assert!(row.contains(text), "the row of `{anchor}` lacks `{text}`: {row}");
+            assert!(
+                row.contains(text),
+                "the row of `{anchor}` lacks `{text}`: {row}"
+            );
         }
         for text in lacks {
-            assert!(!row.contains(text), "the row of `{anchor}` holds `{text}`: {row}");
+            assert!(
+                !row.contains(text),
+                "the row of `{anchor}` holds `{text}`: {row}"
+            );
         }
     }
 
@@ -192,7 +198,11 @@ impl Screen {
 
     /// `n` rows read exactly `text` (trailing blanks aside).
     pub fn assert_row_count(&self, text: &str, n: usize) {
-        let got = self.rows().iter().filter(|row| *row == text.trim_end()).count();
+        let got = self
+            .rows()
+            .iter()
+            .filter(|row| *row == text.trim_end())
+            .count();
         pretty_assertions::assert_eq!(got, n, "rows reading `{text}`:\n{}", self.text());
     }
 
@@ -247,7 +257,12 @@ impl Screen {
     /// The rows, each trimmed and all joined without a separator, hold `text` (a text the
     /// width wrapped stays whole in them).
     pub fn assert_joined_rows_hold(&self, text: &str) {
-        let joined: String = self.grid().rows(false).iter().map(|row| row.trim()).collect();
+        let joined: String = self
+            .grid()
+            .rows(false)
+            .iter()
+            .map(|row| row.trim())
+            .collect();
         assert!(joined.contains(text), "`{text}` is lost: {joined}");
     }
 
@@ -268,19 +283,28 @@ impl Screen {
     /// The window title the app wrote last ends with `tail`.
     pub fn assert_title_ends_with(&self, tail: &str) {
         let title = self.title().expect("a title");
-        assert!(title.ends_with(tail), "the title is {title:?}, not ..{tail}");
+        assert!(
+            title.ends_with(tail),
+            "the title is {title:?}, not ..{tail}"
+        );
     }
 
     /// The window title the app wrote last holds no `part`.
     pub fn assert_title_lacks(&self, part: &str) {
         let title = self.title().expect("a title");
-        assert!(!title.contains(part), "the title is {title:?}, with ..{part}..");
+        assert!(
+            !title.contains(part),
+            "the title is {title:?}, with ..{part}.."
+        );
     }
 
     /// The window title the app wrote last holds `part`.
     pub fn assert_title_has(&self, part: &str) {
         let title = self.title().expect("a title");
-        assert!(title.contains(part), "the title is {title:?}, not ..{part}..");
+        assert!(
+            title.contains(part),
+            "the title is {title:?}, not ..{part}.."
+        );
     }
 
     // ---- links ------------------------------------------------------------------------
@@ -321,14 +345,22 @@ impl Screen {
 
     /// `len` cells from `from` columns after the start of `anchor` (the first row that holds it)
     /// are all linked to `url`, or all not (`linked`).
-    pub fn assert_span_linked(&self, anchor: &str, from: usize, len: usize, url: &str, linked: bool) {
+    pub fn assert_span_linked(
+        &self,
+        anchor: &str,
+        from: usize,
+        len: usize,
+        url: &str,
+        linked: bool,
+    ) {
         let grid = self.grid();
         let (x, _, y) = grid
             .locate(anchor)
             .unwrap_or_else(|| panic!("no `{anchor}` row:\n{}", self.text()));
         let all = (x + from..x + from + len).all(|c| grid.cell(c, y).link.as_deref() == Some(url));
         assert_eq!(
-            all, linked,
+            all,
+            linked,
             "the {len} cells {from} after `{anchor}` are {}linked to {url}",
             if linked { "not " } else { "" }
         );
@@ -566,13 +598,20 @@ impl Screen {
                 ScreenCommand::Chat(chat::Command::Shell(_) | chat::Command::Compact)
             )
         });
-        assert!(!sent, "a shell or compact command went out: {:?}", self.commands());
+        assert!(
+            !sent,
+            "a shell or compact command went out: {:?}",
+            self.commands()
+        );
     }
 
     /// No command of the chat whose Debug text holds `Shell` went out.
     pub fn assert_no_shell_command(&self) {
         assert!(
-            !self.commands().iter().any(|c| format!("{c:?}").contains("Shell")),
+            !self
+                .commands()
+                .iter()
+                .any(|c| format!("{c:?}").contains("Shell")),
             "{:?}",
             self.commands()
         );
@@ -669,7 +708,12 @@ impl Screen {
     /// A dot of the starfield is on the screen exactly when `shown`.
     pub fn assert_dots(&self, shown: bool) {
         let on = self.text().chars().any(|c| SPARKLE_DOTS.contains(&c));
-        assert_eq!(on, shown, "the starfield dots (want shown: {shown}):\n{}", self.text());
+        assert_eq!(
+            on,
+            shown,
+            "the starfield dots (want shown: {shown}):\n{}",
+            self.text()
+        );
     }
 }
 

@@ -251,7 +251,10 @@ fn parent_owned_thread_blocks_settings_shortcuts() {
         .open();
     s.keys("shift+tab alt+. alt+,");
     // The snapshot of the oracle is the three rows it inserted, one per shortcut.
-    s.assert_row_count("■ This sub-agent is controlled by its parent. Direct input is disabled.", 3);
+    s.assert_row_count(
+        "■ This sub-agent is controlled by its parent. Direct input is disabled.",
+        3,
+    );
     // and neither the mode nor the effort was asked for
     s.assert_no_request("thread/settings/update");
 }

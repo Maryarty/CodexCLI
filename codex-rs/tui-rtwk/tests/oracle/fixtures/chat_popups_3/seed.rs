@@ -194,7 +194,10 @@ pub fn assert_upgraded(s: &Screen, names: &[Option<&str>]) {
 
 /// The marketplaces the app asked to remove, in order, are `names`.
 pub fn assert_removed(s: &Screen, names: &[&str]) {
-    let got: Vec<Want> = wants(s).into_iter().filter(|w| Kind::Remove.is(w)).collect();
+    let got: Vec<Want> = wants(s)
+        .into_iter()
+        .filter(|w| Kind::Remove.is(w))
+        .collect();
     let want: Vec<Want> = names
         .iter()
         .map(|name| Want::Remove {
@@ -206,7 +209,10 @@ pub fn assert_removed(s: &Screen, names: &[&str]) {
 
 /// The plugin switches the app asked for, in order, are `(id, enabled)`.
 pub fn assert_enables(s: &Screen, asks: &[(&str, bool)]) {
-    let got: Vec<Want> = wants(s).into_iter().filter(|w| Kind::Enable.is(w)).collect();
+    let got: Vec<Want> = wants(s)
+        .into_iter()
+        .filter(|w| Kind::Enable.is(w))
+        .collect();
     let want: Vec<Want> = asks
         .iter()
         .map(|(id, enabled)| Want::Enable {

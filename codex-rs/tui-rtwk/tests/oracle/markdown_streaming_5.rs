@@ -4,9 +4,7 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::app::facts::Rendering;
-
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, Owner, Renderers, Screen};
 
 /// A table draws as its plain text: no table renderer (separators, wrapping, held tail).
 const TABLE: &str = "the chat draws a table as its plain text: the table renderer (box separators, cell wrapping at the width, the mutable tail held until the table is stable, the no-outer-pipes and fenced forms) is not in the transcript yet";
@@ -60,7 +58,7 @@ fn chat_chunks(width: u16, height: u16, chunks: &[&str]) -> Screen {
 }
 
 /// `chat_chunks` with the `tui.rendering` preferences set before the answer streams.
-fn chat_chunks_under(rendering: Rendering, width: u16, height: u16, chunks: &[&str]) -> Screen {
+fn chat_chunks_under(rendering: Renderers, width: u16, height: u16, chunks: &[&str]) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .markdown(width, height)
         .live()
@@ -1168,19 +1166,19 @@ fn lists_match_incremental_and_emitted_responses() {
     ];
     // the oracle's `lists` preference on and off: the streamed screen is the whole one
     for lists in [true, false] {
-        let rendering = Rendering {
+        let rendering = Renderers {
             lists,
-            ..Rendering::default()
+            ..Renderers::default()
         };
         let s = chat_chunks_under(rendering, 80, 24, &chunks);
         s.assert_same_rows(&chat_chunks_under(rendering, 80, 24, &[&chunks.concat()]).shot());
     }
     // the preference changes the drawing: a task's box is its source text only while lists are off
-    let on = chat_chunks_under(Rendering::default(), 80, 24, &chunks);
+    let on = chat_chunks_under(Renderers::default(), 80, 24, &chunks);
     let off = chat_chunks_under(
-        Rendering {
+        Renderers {
             lists: false,
-            ..Rendering::default()
+            ..Renderers::default()
         },
         80,
         24,
@@ -1189,10 +1187,10 @@ fn lists_match_incremental_and_emitted_responses() {
     on.assert_rows_differ(&off.shot());
     off.assert_has_row("• [ ] First task with enough words to wrap");
     // turning the preference off redraws a message that is already on the screen
-    let mut flipped = chat_chunks_under(Rendering::default(), 80, 24, &chunks);
-    flipped.rendering(Rendering {
+    let mut flipped = chat_chunks_under(Renderers::default(), 80, 24, &chunks);
+    flipped.rendering(Renderers {
         lists: false,
-        ..Rendering::default()
+        ..Renderers::default()
     });
     flipped.assert_same_rows(&off.shot());
 }
@@ -1211,7 +1209,7 @@ fn rendering_preferences_match_incremental_final_and_emitted_responses() {
     ];
     // the oracle's eight combinations of mermaid, math and tables
     for bits in 0..8u8 {
-        let rendering = Rendering {
+        let rendering = Renderers {
             mermaid: bits & 1 != 0,
             math: bits & 2 != 0,
             tables: bits & 4 != 0,

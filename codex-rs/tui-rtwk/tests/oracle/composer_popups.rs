@@ -827,7 +827,10 @@ fn scrolling_mentions_shifts_rendered_window_snapshot() {
     // ninth row; ours starts on the first row
     s.keys(&times("down", 8));
     let top = row_starting(&s, "↑");
-    s.assert_snap_rows_at("codex_tui__bottom_pane__skill_popup__tests__skill_popup_scrolled", top);
+    s.assert_snap_rows_at(
+        "codex_tui__bottom_pane__skill_popup__tests__skill_popup_scrolled",
+        top,
+    );
     // the cursor row is bold and reversed, the tag and the description dim
     s.assert_style(0, top + 8, "bold reversed");
     s.assert_style(14, top + 8, "reversed !bold");

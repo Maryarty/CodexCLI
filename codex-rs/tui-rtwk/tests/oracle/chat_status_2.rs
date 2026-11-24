@@ -727,10 +727,7 @@ fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth
 #[test]
 fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
     // tall enough for both cards: the first card's `8% left` stays on the screen
-    let mut s = Screen::build(Owner::UiPane)
-        .height(60)
-        .live()
-        .open();
+    let mut s = Screen::build(Owner::UiPane).height(60).live().open();
     s.feed(CHATGPT).feed(&limits(92));
     s.type_text("/status");
     s.keys("enter");

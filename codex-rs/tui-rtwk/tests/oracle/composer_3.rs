@@ -268,7 +268,8 @@ fn history_navigation_restores_remote_only_submissions() {
     s.keys("enter");
     s.wait_for("› Ask Codex to do anything");
     s.assert_sole_turn(
-        kit::Turn::text("").remote_images(&["https://example.com/one.png", "https://example.com/two.png"]),
+        kit::Turn::text("")
+            .remote_images(&["https://example.com/one.png", "https://example.com/two.png"]),
     );
     // oracle: Up restores it: the text is empty and the remote images come back
     s.keys("up");
