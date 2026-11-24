@@ -26,7 +26,8 @@ use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
 use crate::app::{AppFx, Now};
 use crate::commands::SlashCommand;
-use crate::ids::{ThreadId, TicketMint};
+use crate::ids::{BackendId, ThreadId, TicketMint};
+use crate::screens::status::RateRead;
 use crate::rpc::RpcError;
 use crate::screens::{ScreenStates, SeedError};
 use crate::threads::{Origin, ThreadEv, ThreadFx, ThreadSet, UserMessage};
@@ -42,6 +43,8 @@ enum Hook {
     Connection(Connection),
     Opened(&'static str, Result<ThreadId, Refusal>),
     Structured(&'static str, Result<String, StructuredFailure>),
+    Message(ThreadId, String),
+    Rates(BackendId),
 }
 
 thread_local! {
@@ -157,6 +160,28 @@ macro_rules! probe {
                     _cx: &mut AppCx<'_>,
                 ) {
                     log($name, Hook::Structured(ctx.0, result));
+                }
+
+                fn on_user_message(
+                    _state: &mut u32,
+                    thread: &ThreadId,
+                    text: &str,
+                    _cx: &mut AppCx<'_>,
+                ) {
+                    log($name, Hook::Message(thread.clone(), text.to_owned()));
+                }
+
+                fn on_rate_limits_read(
+                    _state: &mut u32,
+                    backend: BackendId,
+                    _read: &RateRead,
+                    _cx: &mut AppCx<'_>,
+                ) {
+                    log($name, Hook::Rates(backend));
+                }
+
+                fn structured_wanted(_state: &u32, ctx: &Ctx, _view: &AppView<'_>) -> bool {
+                    ctx.0 != "stale"
                 }
 
                 fn on_shown(_state: &mut u32, thread: &ThreadId, _cx: &mut AppCx<'_>) {
@@ -298,8 +323,8 @@ use probe_list::{
     FeatureNote, FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha,
     answered, apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode,
     effect_done, names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact,
-    on_interest, on_interrupted, on_resumed, on_shown, on_turn_end, project, project_request,
-    runs_of, seed_note, structured_done, thread_opened, thread_wakes_due, wakes_due, wire,
+    on_interest, on_interrupted, on_rate_limits_read, on_resumed, on_shown, on_user_message, on_turn_end, project, project_request,
+    runs_of, seed_note, structured_done, structured_wanted, thread_opened, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -703,6 +728,53 @@ fn a_structured_answer_reaches_the_feature_that_asked() {
                 "beta",
                 Hook::Structured("b", Err(StructuredFailure::TimedOut))
             ),
+        ]
+    );
+}
+
+/// The feature that asked is asked once more before the turn starts: a feature says no by its
+/// own ctx, and one that says nothing wants it.
+#[test]
+fn a_structured_turn_is_asked_whether_it_is_still_wanted() {
+    let states = FeatureStates::default();
+    let (threads, screens, tui) = (
+        ThreadSet::default(),
+        ScreenStates::default(),
+        TuiSettings::default(),
+    );
+    let view = AppView::new(None, &threads, &screens, &tui, &[], None);
+    let wanted = |ctx: FeatureCtx| structured_wanted(&states, &ctx, &view);
+    assert!(wanted(FeatureCtx::from(alpha::Ctx("fresh"))));
+    assert!(!wanted(FeatureCtx::from(alpha::Ctx("stale"))));
+    assert!(!wanted(FeatureCtx::from(beta::Ctx("stale"))));
+}
+
+/// What a read of the account's limits said reaches every feature, in list order, with the
+/// backend that was read.
+#[test]
+fn a_rate_limits_read_reaches_every_feature_in_list_order() {
+    let mut states = FeatureStates::default();
+    logged();
+    let backend = BackendId::default();
+    app_step(|cx| on_rate_limits_read(&mut states, backend, &RateRead::default(), cx));
+    assert_eq!(
+        logged(),
+        [("alpha", Hook::Rates(backend)), ("beta", Hook::Rates(backend))]
+    );
+}
+
+/// A user message of an unnamed thread reaches every feature, in list order.
+#[test]
+fn a_user_message_reaches_every_feature_in_list_order() {
+    let mut states = FeatureStates::default();
+    logged();
+    let thread = ThreadId::new("t1");
+    app_step(|cx| on_user_message(&mut states, &thread, "fix the build", cx));
+    assert_eq!(
+        logged(),
+        [
+            ("alpha", Hook::Message(thread.clone(), "fix the build".into())),
+            ("beta", Hook::Message(thread, "fix the build".into())),
         ]
     );
 }

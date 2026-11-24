@@ -22,6 +22,26 @@ pub struct Shown<'a> {
     pub elements: &'a [Range<usize>],
 }
 
+/// The marker the prompt of a request with context carries before the user's own words
+/// (`PROMPT_REQUEST_BEGIN`).
+const PROMPT_REQUEST_BEGIN: &str = "## My request for Codex:";
+
+/// What the user asked in a message: its text inputs joined by a space, each without the context
+/// before the request marker (`extract_prompt_request_with_offset`); what a title is made from.
+pub fn request_text(content: &[UserInput]) -> String {
+    content
+        .iter()
+        .filter_map(|input| match input {
+            UserInput::Text { text, .. } => Some(
+                text.rsplit_once(PROMPT_REQUEST_BEGIN)
+                    .map_or(text.as_str(), |(_, request)| request.trim()),
+            ),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 impl UserPrompt {
     /// The prompt as history draws it (`sanitize_user_text`, oracle
     /// history_cell/messages.rs): CSI sequences and control characters

@@ -450,6 +450,23 @@ pub(super) fn permissions_pick(
     selection: permissions::Selection,
     fx: &mut AppFx,
 ) {
+    // The sandbox of a Windows host is the missing piece of an Auto pick: the enable prompt
+    // opens and the pick waits for the setup (`approval_preset_actions`).
+    if app.features.windows_sandbox.pick_needs_setup(&selection) {
+        let ask = crate::features::windows_sandbox::Intent::Prompt(selection);
+        super::features::intent(app, crate::features::FeatureIntent::from(ask), fx);
+        return;
+    }
+    permissions_apply(app, selection, fx);
+}
+
+/// A permissions pick that is applied at once: the sheet's own, or the one the Windows sandbox
+/// setup held back and now lets go (`PublicVerb::PickPermissions`).
+pub(super) fn permissions_apply(
+    app: &mut CodexApp,
+    selection: permissions::Selection,
+    fx: &mut AppFx,
+) {
     let label = match &selection {
         permissions::Selection::Preset { preset, reviewer } => permissions::Label::Mode {
             preset: *preset,

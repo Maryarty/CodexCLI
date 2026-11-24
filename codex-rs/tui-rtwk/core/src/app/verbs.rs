@@ -13,7 +13,7 @@ pub(super) fn carry(app: &mut CodexApp, verb: PublicVerb, fx: &mut AppFx) {
             apply_app(app, AppEv::Intent(intent), fx);
         }
         PublicVerb::PickModel(selection) => select::model_pick(app, selection, fx),
-        PublicVerb::PickPermissions(selection) => select::permissions_pick(app, selection, fx),
+        PublicVerb::PickPermissions(selection) => select::permissions_apply(app, selection, fx),
         PublicVerb::OverrideTurn { model, effort } => {
             select::turn_override(app, model, effort, fx);
         }

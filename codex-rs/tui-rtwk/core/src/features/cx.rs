@@ -19,6 +19,7 @@ use crate::ids::{ThreadId, Ticket};
 use crate::keymap::{ActionId, Keymap};
 use crate::screens::ScreenStates;
 use crate::screens::ThreadSlots;
+use crate::screens::chat::BannerOccurrence;
 use crate::screens::chat::facts::SideFooter;
 use crate::screens::select::collaboration::Mask;
 use crate::screens::status;
@@ -38,6 +39,7 @@ pub struct AppFacts<'a> {
     status: &'a status::Model,
     access: &'a Access,
     keys: &'a Keymap,
+    banner: Option<&'a BannerOccurrence>,
 }
 
 impl<'a> AppFacts<'a> {
@@ -54,7 +56,22 @@ impl<'a> AppFacts<'a> {
             status,
             access,
             keys,
+            banner: None,
         }
+    }
+
+    /// The backend banner of the thread in use is read through these facts (an app step; a
+    /// thread's step reads none).
+    pub(crate) fn with_banner(mut self, banner: Option<&'a BannerOccurrence>) -> Self {
+        self.banner = banner;
+        self
+    }
+
+    /// The backend banner occurrence the account of the thread in use has, shown or not: it
+    /// shows while `BannerOccurrence::is_visible(model in use)` says so (oracle
+    /// `has_applicable_backend_banner`, which the limit prompts wait for).
+    pub fn backend_banner(&self) -> Option<&'a BannerOccurrence> {
+        self.banner
     }
 
     /// The moment the shell last told the app (`AppEv::Clock`); the default one until it did.
@@ -98,6 +115,7 @@ impl AppFacts<'static> {
             status: STATUS.get_or_init(status::Model::default),
             access: ACCESS.get_or_init(Access::default),
             keys: KEYS.get_or_init(Keymap::defaults),
+            banner: None,
         }
     }
 }
@@ -116,6 +134,7 @@ pub struct AppView<'a> {
     transcript: Option<&'a TranscriptText>,
     access: Option<&'a Access>,
     keys: Option<&'a Keymap>,
+    banner: Option<&'a BannerOccurrence>,
     now: Now,
 }
 
@@ -137,6 +156,7 @@ impl<'a> AppView<'a> {
             transcript,
             access: None,
             keys: None,
+            banner: None,
             now: Now::default(),
         }
     }
@@ -150,6 +170,12 @@ impl<'a> AppView<'a> {
     /// The key bindings are read through this view (`AppFacts::key_label`).
     pub(crate) fn with_keys(mut self, keys: &'a Keymap) -> Self {
         self.keys = Some(keys);
+        self
+    }
+
+    /// The backend banner of the thread in use is read through this view (`AppFacts::backend_banner`).
+    pub(crate) fn with_banner(mut self, banner: Option<&'a BannerOccurrence>) -> Self {
+        self.banner = banner;
         self
     }
 
@@ -174,6 +200,7 @@ impl<'a> AppView<'a> {
             self.access.unwrap_or(unknown.access),
             self.keys.unwrap_or(unknown.keys),
         )
+        .with_banner(self.banner)
     }
 
     /// The thread the chat shows (none before the session has started).

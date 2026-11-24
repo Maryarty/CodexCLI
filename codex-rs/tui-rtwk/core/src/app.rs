@@ -40,6 +40,7 @@ use std::rc::Rc;
 use codex_app_server_protocol::ErrorNotification;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
+use codex_app_server_protocol::ThreadItemPayload;
 
 use crate::features::AppFacts;
 use crate::ids::BackendId;
@@ -1444,7 +1445,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if let Some((thread, ev)) = threads::project(&notification) {
                 if app.threads.contains(&thread) {
                     let reverted = matches!(ev, ThreadEv::Reverted);
+                    // a user message of a thread with no name (`automatic_title_user_message`)
+                    let unnamed = unnamed_request(app, &thread, &notification);
                     apply_thread(app, &thread, ev, fx);
+                    if let Some(text) = unnamed {
+                        features::on_user_message(app, &thread, &text, fx);
+                    }
                     if reverted {
                         // the retained turns are the server's: read them again
                         fetch_history(app, &thread, fx);
@@ -1884,6 +1890,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     Rc::make_mut(&mut app.session)
                         .reserve
                         .insert(backend, reserve);
+                    let told = (*read).clone();
                     // a read a rolling update overtook does not replace the summary it wrote
                     let overtaken = app
                         .session
@@ -1904,6 +1911,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     }
                     install_banner(app, backend, banner.map(|banner| *banner));
                     banners::fallback(app, backend, fx);
+                    features::on_rate_limits_read(app, backend, &told, fx);
                 } else if let Some(store) = Rc::make_mut(&mut app.session)
                     .rate_snapshots
                     .get_mut(&backend)
@@ -2327,6 +2335,27 @@ fn finish_status_cells(
             fx,
         );
     }
+}
+
+/// What the user asked, when `notification` completes a user message of `thread` that has no
+/// name yet and says something.
+fn unnamed_request(
+    app: &CodexApp,
+    thread: &ThreadId,
+    notification: &ServerNotification,
+) -> Option<String> {
+    let ServerNotification::ItemCompleted(done) = notification else {
+        return None;
+    };
+    let ThreadItemPayload::UserMessage { content, .. } = &done.item.payload else {
+        return None;
+    };
+    let unnamed = app
+        .threads
+        .get(thread)
+        .is_some_and(|model| model.screen_slots().chat.name.is_none());
+    let text = threads::request_text(content);
+    (unnamed && !text.trim().is_empty()).then_some(text)
 }
 
 fn install_rates(app: &mut CodexApp, backend: BackendId, limits: status::RateLimits) {

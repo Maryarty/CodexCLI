@@ -51,7 +51,7 @@ pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Ton
 pub use processes::{Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
-pub use user_prompt::{Shown, UserPrompt};
+pub use user_prompt::{Shown, UserPrompt, request_text};
 
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};

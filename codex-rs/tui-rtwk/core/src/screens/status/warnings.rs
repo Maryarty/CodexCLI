@@ -44,6 +44,8 @@ pub struct Sample {
     /// The kind of limit that was reached: `Some(true)` one of the workspace's, `Some(false)`
     /// any other, none when no limit was reached.
     pub reached: Option<bool>,
+    /// The kind itself (`rate_limit_reached_type`), for what decides by it.
+    pub reached_type: Option<protocol::RateLimitReachedType>,
 }
 
 impl Sample {
@@ -67,6 +69,7 @@ impl Sample {
                 .as_ref()
                 .map(|credits| credits.unlimited || credits.has_credits),
             spend_control_reached: snapshot.spend_control_reached,
+            reached_type: snapshot.rate_limit_reached_type,
             reached: snapshot.rate_limit_reached_type.map(|kind| {
                 matches!(
                     kind,

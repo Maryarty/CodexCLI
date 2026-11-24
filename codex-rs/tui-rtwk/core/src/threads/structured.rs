@@ -71,6 +71,9 @@ pub enum Why {
     TimedOut,
     /// The connection was lost while the turn ran.
     Lost,
+    /// The feature that asked did not want the turn any more when its thread had started
+    /// (`Feature::structured_wanted`): the turn never started.
+    Unwanted,
 }
 
 /// The ephemeral thread to start (`start_temporary_thread`): what `thread/start` carries.

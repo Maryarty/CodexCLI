@@ -33,9 +33,10 @@ use codex_app_server_protocol::ServerRequest;
 use crate::app::Now;
 use crate::app::effects::Done;
 use crate::commands::SlashCommand;
-use crate::ids::ThreadId;
+use crate::ids::{BackendId, ThreadId};
 use crate::rpc::RpcError;
 use crate::screens::SeedError;
+use crate::screens::status::RateRead;
 use crate::threads::{Tone, TurnEnd};
 
 mod cx;
@@ -425,6 +426,39 @@ pub trait Feature: 'static {
         cx: &mut AppCx<'_>,
     ) {
         let _ = (state, ctx, result, cx);
+    }
+
+    /// Whether the structured turn the feature asked for is still wanted: asked once the
+    /// ephemeral thread has started and before its turn does (the oracle's `request_is_fresh`
+    /// of `handle_recap_started`). A feature that says no is told `StructuredFailure::Unwanted`
+    /// through `structured_done`, the thread is let go and its turn never starts.
+    fn structured_wanted(state: &Self::State, ctx: &Self::Ctx, view: &AppView<'_>) -> bool {
+        let _ = (state, ctx, view);
+        true
+    }
+
+    /// The server completed a user message of `thread` while the thread had no name (the
+    /// oracle's `automatic_title_user_message`): asked after the thread took the message in,
+    /// for every such message until a name is saved, so a feature that names the thread by its
+    /// first message keeps its own record of what it asked. `text` is what the user asked: the
+    /// text inputs joined by a space, each without the prompt-request context prefix; a message
+    /// with no text is not told.
+    fn on_user_message(state: &mut Self::State, thread: &ThreadId, text: &str, cx: &mut AppCx<'_>) {
+        let _ = (state, thread, text, cx);
+    }
+
+    /// The account's limits of `backend` were read (`account/rateLimits/read`: the startup read, a
+    /// refresh, a `/status` card's), after the app took the answer in. The rolling
+    /// `account/rateLimits/updated` notifications are `project`'s; the answer of a read is on no
+    /// stream, so this is how a feature learns what only a read tells. `read.codex` is the plan's
+    /// own bucket.
+    fn on_rate_limits_read(
+        state: &mut Self::State,
+        backend: BackendId,
+        read: &RateRead,
+        cx: &mut AppCx<'_>,
+    ) {
+        let _ = (state, backend, read, cx);
     }
 
     /// The thread in use is now `thread` (the app showed it, whether it was held or just opened).
@@ -821,6 +855,44 @@ macro_rules! feature_dirs {
                     <$name::$variant as Feature>::structured_done(&mut states.$name, ctx, result, cx)
                 })*
             }
+        }
+
+        /// Whether the feature that asked for a structured turn still wants it (before its turn
+        /// starts), read from the app as a view.
+        #[allow(unused_variables)]
+        pub fn structured_wanted(
+            states: &FeatureStates,
+            ctx: &FeatureCtx,
+            view: &$crate::features::AppView<'_>,
+        ) -> bool {
+            match ctx {
+                $(FeatureCtx::$variant(ctx) => {
+                    <$name::$variant as Feature>::structured_wanted(&states.$name, ctx, view)
+                })*
+            }
+        }
+
+        /// A user message of the unnamed thread `thread` was completed: every feature's hook, in
+        /// list order.
+        #[allow(unused_variables)]
+        pub fn on_user_message(
+            states: &mut FeatureStates,
+            thread: &ThreadId,
+            text: &str,
+            cx: &mut AppCx<'_>,
+        ) {
+            $(<$name::$variant as Feature>::on_user_message(&mut states.$name, thread, text, cx);)*
+        }
+
+        /// The account's limits were read: every feature's hook, in list order.
+        #[allow(unused_variables)]
+        pub fn on_rate_limits_read(
+            states: &mut FeatureStates,
+            backend: $crate::ids::BackendId,
+            read: &$crate::screens::status::RateRead,
+            cx: &mut AppCx<'_>,
+        ) {
+            $(<$name::$variant as Feature>::on_rate_limits_read(&mut states.$name, backend, read, cx);)*
         }
 
         /// The thread in use is `thread`: every feature's hook, in list order.

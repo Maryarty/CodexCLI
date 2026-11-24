@@ -230,6 +230,11 @@ fn started(app: &mut CodexApp, id: u64, thread: String, as_asked: bool, fx: &mut
         tell(app, ThreadAsk::Unsubscribe { thread }, fx);
         return finish(app, id, Err(Why::NotReadOnly), fx);
     }
+    // The feature may have gone stale while the thread started: the turn never starts.
+    if !features::structured_wanted(app, &run.ctx) {
+        tell(app, ThreadAsk::Unsubscribe { thread }, fx);
+        return finish(app, id, Err(Why::Unwanted), fx);
+    }
     let backend = run.backend;
     let turn = ThreadAsk::StructuredTurn {
         thread: thread.clone(),

@@ -11,7 +11,8 @@ use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
 use crate::features::{ChatFacts, Connection, FeatureStates, Out, Refusal};
-use crate::ids::ThreadId;
+use crate::ids::{BackendId, ThreadId};
+use crate::screens::status::RateRead;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::chat::facts;
 use crate::screens::{ScreenThreadIntent, chat};
@@ -30,7 +31,15 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
     )
     .with_access(&app.daybreak)
     .with_keys(&app.keymap)
+    .with_banner(shown_banner(app))
     .at(app.now)
+}
+
+/// The backend banner occurrence of the account the thread in use belongs to.
+fn shown_banner(app: &CodexApp) -> Option<&crate::screens::chat::BannerOccurrence> {
+    app.session
+        .backend_banners
+        .get(&super::session::active_backend(app))
 }
 
 /// Runs one step of the features with the app as a view, then carries out what it said.
@@ -39,6 +48,7 @@ pub(super) fn run(
     fx: &mut AppFx,
     step: impl FnOnce(&mut FeatureStates, &mut AppCx<'_>),
 ) {
+    let backend = super::session::active_backend(app);
     let out = {
         let view = AppView::new(
             app.session.active.as_ref(),
@@ -50,6 +60,7 @@ pub(super) fn run(
         )
         .with_access(&app.daybreak)
         .with_keys(&app.keymap)
+        .with_banner(app.session.backend_banners.get(&backend))
         .at(app.now);
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);
@@ -278,6 +289,30 @@ pub(super) fn structured_done(
 ) {
     run(app, fx, |states, cx| {
         features::structured_done(states, ctx, result, cx)
+    });
+}
+
+/// The account's limits were read (`AppCtx::RateLimits`): every feature's `on_rate_limits_read`.
+pub(super) fn on_rate_limits_read(
+    app: &mut CodexApp,
+    backend: BackendId,
+    read: &RateRead,
+    fx: &mut AppFx,
+) {
+    run(app, fx, |states, cx| {
+        features::on_rate_limits_read(states, backend, read, cx)
+    });
+}
+
+/// The feature that asked for a structured turn still wants it (`Feature::structured_wanted`).
+pub(super) fn structured_wanted(app: &CodexApp, ctx: &FeatureCtx) -> bool {
+    features::structured_wanted(&app.features, ctx, &view(app))
+}
+
+/// A user message of `thread` completed while it had no name: every feature's `on_user_message`.
+pub(super) fn on_user_message(app: &mut CodexApp, thread: &ThreadId, text: &str, fx: &mut AppFx) {
+    run(app, fx, |states, cx| {
+        features::on_user_message(states, thread, text, cx)
     });
 }
 

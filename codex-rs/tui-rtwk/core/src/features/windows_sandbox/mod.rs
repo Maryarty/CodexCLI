@@ -17,7 +17,7 @@ use codex_protocol::config_types::WindowsSandboxLevel;
 
 use super::{AppCx, PublicVerb, Scope};
 use crate::screens::SeedError;
-use crate::screens::select::permissions::Selection;
+use crate::screens::select::permissions::{Preset, Reviewer, Selection};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -270,6 +270,11 @@ pub enum Intent {
     /// applied (`PublicVerb::PickPermissions`), when it fails or is refused nothing is. The
     /// fallback prompt after an elevated failure keeps the pick for its own choice.
     BeginThen { mode: Mode, then: Selection },
+    /// `/permissions` picked a preset the sandbox is the missing piece of
+    /// (`State::pick_needs_setup`; oracle `OpenWindowsSandboxEnablePrompt { preset }`): the
+    /// enable prompt is due and the pick waits on it. The prompt's own `Begin(mode)` then sets
+    /// the sandbox up and the pick is applied when it ends well, as `BeginThen` does.
+    Prompt(Selection),
 }
 
 /// What an ask was for.
@@ -386,6 +391,28 @@ impl State {
         self.last
     }
 
+    /// A `/permissions` pick is the sandbox's to hold until the sandbox is set up (oracle
+    /// `approval_preset_actions`): the Auto preset on a Windows host that is `Mixed` or
+    /// `Unknown`, or a local one with no sandbox when the approvals go to the user; a remote
+    /// host owns its pick. Not Windows (the environment was never read), nothing is held.
+    pub fn pick_needs_setup(&self, selection: &Selection) -> bool {
+        let Selection::Preset {
+            preset: Preset::Auto,
+            reviewer,
+        } = selection
+        else {
+            return false;
+        };
+        let Some(config) = &self.config else {
+            return false;
+        };
+        match self.host {
+            Host::Mixed | Host::Unknown => true,
+            Host::Remote => false,
+            Host::Local => *reviewer == Reviewer::User && !config.is_enabled(),
+        }
+    }
+
     /// The permissions pick that is applied when the setup ends well.
     pub fn then(&self) -> Option<&Selection> {
         self.then.as_ref()
@@ -433,7 +460,20 @@ impl State {
 
     fn maybe_prompt(&mut self) {
         if self.setup_required() {
+            // the startup prompt is for no pick: an old one that was closed is let go
+            self.then = None;
             self.due = Some(Prompt::Enable);
+        }
+    }
+
+    /// The prompt that is due is the surface's to show, once.
+    fn wish_due(&mut self, cx: &mut AppCx<'_>) {
+        if let Some(prompt) = self.due
+            && self.wished != Some(prompt)
+        {
+            let thread = cx.view().active().cloned().unwrap_or_default();
+            cx.wish(Scope::Thread(thread), Wish::Prompt(prompt));
+            self.wished = Some(prompt);
         }
     }
 
@@ -523,8 +563,15 @@ feature! {
                     // nothing (oracle: "guard anyway").
                     Intent::Elevate => {
                         if state.degraded() {
+                            state.then = None;
                             state.begin(Mode::Elevated, None, cx);
                         }
+                    }
+                    Intent::Prompt(then) => {
+                        state.then = Some(then);
+                        state.due = Some(Prompt::Enable);
+                        state.wished = None;
+                        state.wish_due(cx);
                     }
                     Intent::Begin(mode) => state.begin(mode, None, cx),
                     Intent::BeginThen { mode, then } => state.begin(mode, Some(then), cx),
@@ -586,13 +633,7 @@ feature! {
                     }
                 }
                 // The prompt that fell due is the surface's to show, once.
-                if let Some(prompt) = state.due
-                    && state.wished != Some(prompt)
-                {
-                    let thread = cx.view().active().cloned().unwrap_or_default();
-                    cx.wish(Scope::Thread(thread), Wish::Prompt(prompt));
-                    state.wished = Some(prompt);
-                }
+                state.wish_due(cx);
             }
 
             fn note_tone(note: &Note) -> Tone {
