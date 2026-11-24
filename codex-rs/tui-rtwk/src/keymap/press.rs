@@ -98,9 +98,12 @@ pub fn is_escape(key: &KeyPress) -> bool {
     key.code == KeyCode::Escape && key.mods == Mods::NONE
 }
 
-/// Ctrl+C.
+/// Ctrl+C: the key typed, or the key it is on a US layout (a Cyrillic layout's Ctrl+с is Ctrl+C,
+/// as `keymap::holds` reads a press).
 pub fn is_ctrl_c(key: &KeyPress) -> bool {
-    key.code == KeyCode::Char && key.ch == Some('c') && key.mods == Mods::CTRL
+    key.code == KeyCode::Char
+        && (key.ch == Some('c') || key.layout_char() == Some('c'))
+        && key.mods == Mods::CTRL
 }
 
 /// The code of a key press as the inspector's raw event names it.
