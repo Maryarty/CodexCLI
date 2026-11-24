@@ -13,6 +13,7 @@ use crate::ids::{ThreadId, Ticket};
 use crate::screens::ScreenStates;
 use crate::screens::ThreadSlots;
 use crate::screens::select::collaboration::Mask;
+use crate::threads::daybreak::Access;
 use crate::threads::{Item, ThreadCore, ThreadFx, ThreadSet};
 
 /// The app, read-only: the facts a feature decides by. It holds references to parts of the
@@ -25,6 +26,7 @@ pub struct AppView<'a> {
     tui: &'a TuiSettings,
     modes: &'a [Mask],
     transcript: Option<&'a TranscriptText>,
+    daybreak: Option<&'a Access>,
 }
 
 impl<'a> AppView<'a> {
@@ -43,7 +45,19 @@ impl<'a> AppView<'a> {
             tui,
             modes,
             transcript,
+            daybreak: None,
         }
+    }
+
+    /// The host's Daybreak facts (the account, the model catalog) are read through this view.
+    pub(crate) fn with_daybreak(mut self, daybreak: &'a Access) -> Self {
+        self.daybreak = Some(daybreak);
+        self
+    }
+
+    /// What the host knows about Daybreak (`AppEv::Daybreak`): nothing until it said.
+    pub fn daybreak(&self) -> Access {
+        self.daybreak.cloned().unwrap_or_default()
     }
 
     /// The thread the chat shows (none before the session has started).
@@ -154,6 +168,11 @@ impl<'a> ThreadView<'a> {
             })
             .collect();
         sources.into_iter()
+    }
+
+    /// The Daybreak choice the thread's metadata holds (`Metadata::daybreak`).
+    pub fn daybreak(&self) -> Option<bool> {
+        self.slots.chat.daybreak
     }
 
     /// The thread's name, when it has one (`/rename`).

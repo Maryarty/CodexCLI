@@ -52,6 +52,7 @@ pub mod goal;
 pub mod plugins;
 pub mod rename;
 pub mod settings;
+pub mod small_cmds;
 
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
@@ -270,6 +271,7 @@ macro_rules! feature_list {
             plugins => Plugins;
             settings => Settings;
             copy => Copy;
+            small_cmds => SmallCmds;
         }
     };
 }

@@ -195,6 +195,11 @@ impl Services {
             | Ask::GitLog { .. }
             | Ask::Worktrees { .. }
             | Ask::WorktreeRemove { .. } => return None,
+            // The account, the IDE, the thread's metadata and the config are the host's own
+            // (`host/src/small.rs`): they need the app server's handle or the loaded config.
+            Ask::Logout | Ask::IdeContext { .. } | Ask::DaybreakSave { .. } | Ask::DebugConfig => {
+                return None;
+            }
         })
     }
 

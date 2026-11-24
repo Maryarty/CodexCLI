@@ -26,6 +26,7 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
         &app.modes,
         app.transcript_text.as_ref(),
     )
+    .with_daybreak(&app.daybreak)
 }
 
 /// Runs one step of the features with the app as a view, then carries out what it said.
@@ -42,7 +43,8 @@ pub(super) fn run(
             &app.tui,
             &app.modes,
             app.transcript_text.as_ref(),
-        );
+        )
+        .with_daybreak(&app.daybreak);
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);
         cx.into_out()

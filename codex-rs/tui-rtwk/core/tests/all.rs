@@ -53,6 +53,7 @@ mod select;
 mod select_live;
 mod selection;
 mod settings;
+mod small_cmds;
 mod sparkle;
 mod status;
 mod status_data;

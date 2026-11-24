@@ -33,6 +33,34 @@ pub struct Access {
     pub models: Vec<ModelAccess>,
 }
 
+impl Access {
+    /// Oracle `daybreak::available`: some model of the catalog advertises Daybreak.
+    pub fn available(&self) -> bool {
+        self.models
+            .iter()
+            .any(|entry| entry.programs.is_some_and(|programs| programs.daybreak))
+    }
+
+    /// Oracle `daybreak::availability`: missing or empty program lists do not establish that
+    /// the account lacks access (`None`).
+    pub fn availability(&self) -> Option<bool> {
+        if self.available() {
+            return Some(true);
+        }
+        if self.models.is_empty() {
+            return None;
+        }
+        self.models
+            .iter()
+            .all(|entry| {
+                entry
+                    .programs
+                    .is_some_and(|programs| programs.standard || programs.daybreak)
+            })
+            .then_some(false)
+    }
+}
+
 /// The models whose Standard-only listing the oracle words as `Astra`.
 const ASTRA: [&str; 2] = ["gpt-6-astra", "gpt-6-astra-wm"];
 
