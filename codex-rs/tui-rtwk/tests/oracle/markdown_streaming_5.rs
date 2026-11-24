@@ -929,7 +929,7 @@ fn incremental_raw_render_preserves_blank_lines() {
         .open();
     s.keys("alt+r");
     s.feed(&answer_chunks(&["alpha\n", "\n", "beta\n", "\n"]));
-    s.assert_row_then("alpha", &["", "beta"]);
+    s.assert_screen_row_then("alpha", &["", "beta"]);
 }
 
 // ORACLE streaming/render_tests.rs:205 compact_list_spacing_keeps_incremental_and_full_renders_aligned kind=ui owner=chat-live
