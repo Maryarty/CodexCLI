@@ -1,0 +1,2 @@
+{"id":"S13","title":"resize storm: 40 sizes in 2 s after a streamed answer, 3 s rest","kind":"resize","size":[120,40],"hold":0.5,"timeout":30,"stream_timeout":60,"prompt":"go",
+ "mock":{"deltas":600,"pace":0.0005,"words":12,"begin":"BEGIN-S13","sentinel":"END-S13"},"ready":{"oracle":"›","rtwk":"Ask Codex to do anything"}}
