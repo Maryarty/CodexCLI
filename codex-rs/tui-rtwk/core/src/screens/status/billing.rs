@@ -23,6 +23,30 @@ const REASONING_ORDER: [&str; 8] = [
 ];
 const SPEED_ORDER: [&str; 3] = ["Fast mode", "Ultrafast", "Standard"];
 
+/// What the backend estimates a thread cost, as the views read it: through the methods and
+/// `slots`/`usage` below, never the protocol record behind it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Figure(ThreadUsage);
+
+impl From<ThreadUsage> for Figure {
+    fn from(usage: ThreadUsage) -> Self {
+        Self(usage)
+    }
+}
+
+impl Figure {
+    /// The credits the thread used, in millionths.
+    pub fn credits_micros(&self) -> i64 {
+        self.0.estimated_usage_credits_micros
+    }
+
+    /// The thread's cost in millionths of a dollar for an account of `plan`: the native usage on
+    /// Ent26, the estimate on the others.
+    pub fn cost_micros(&self, plan: Option<PlanType>) -> Option<i64> {
+        thread_cost_micros(&self.0, plan)
+    }
+}
+
 /// The rows a card's label column is made for (`push_labels`): the oracle sizes it by the rows a
 /// figure will have, so it does not move when a figure arrives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,7 +60,7 @@ pub enum Slot {
 
 /// The labels the rows of `estimate` have, and (`reserve`) the one a card that waits for a figure
 /// holds back so its column keeps its width.
-pub fn slots(estimate: Option<&ThreadUsage>, reserve: bool) -> Vec<Slot> {
+pub fn slots(estimate: Option<&Figure>, reserve: bool) -> Vec<Slot> {
     let mut slots = Vec::new();
     let mut put = |slot: Slot| {
         if !slots.contains(&slot) {
@@ -46,7 +70,7 @@ pub fn slots(estimate: Option<&ThreadUsage>, reserve: bool) -> Vec<Slot> {
     if reserve {
         put(Slot::BilledTokens);
     }
-    let Some(estimate) = estimate else {
+    let Some(Figure(estimate)) = estimate else {
         return slots;
     };
     put(Slot::Usage);
@@ -132,7 +156,7 @@ pub enum Usage {
 
 /// The rows of `estimate` for an account of `plan` (`StatusThreadUsage::lines`); none when the
 /// estimate has nothing to show.
-pub fn usage(estimate: &ThreadUsage, plan: Option<PlanType>) -> Option<Usage> {
+pub fn usage(Figure(estimate): &Figure, plan: Option<PlanType>) -> Option<Usage> {
     if plan == Some(PlanType::Ent26) {
         return thread_cost_micros(estimate, plan)
             .and_then(format_estimated_usd_micros)
@@ -297,7 +321,8 @@ fn model_name(model: &str) -> String {
     }
     let mut segments = remainder.split('-');
     let first = segments.next().unwrap_or_default();
-    let mut name = format!("GPT-{first}");
+    let mut name = String::from("GPT-");
+    name.push_str(first);
     let numeric = first.chars().next().is_some_and(|c| c.is_ascii_digit());
     for segment in segments {
         name.push(if numeric { ' ' } else { '-' });

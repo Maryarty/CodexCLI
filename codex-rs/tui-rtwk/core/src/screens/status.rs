@@ -22,7 +22,7 @@ mod rates;
 mod warnings;
 
 pub use billing::{
-    Billing, BilledTokens, Effort, Share, Slot, Speed, Usage, slots as billing_slots, usage as billing_usage,
+    Billing, BilledTokens, Effort, Figure, Share, Slot, Speed, Usage, slots as billing_slots, usage as billing_usage,
 };
 pub use card::{
     Account, ApprovalLabel, ModelDetail, Permissions, PermissionsLabel, Reasoning, Remote,

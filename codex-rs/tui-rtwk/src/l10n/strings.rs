@@ -33,6 +33,8 @@ pub struct Chat {
     pub context_remaining: Msg<1>,
     pub context_used: Msg<1>,
     pub quota_remaining: Msg<2>,
+    /// The credits a thread used, in the status line and the title (`thread-credits`).
+    pub thread_credits: Msg<1>,
     pub usage_limit_title: &'static str,
     pub usage_limit_detail: &'static str,
     /// The backend stopped (`Failure::Stopped`).
@@ -114,6 +116,7 @@ pub const EN: Shared = Shared {
         context_remaining: msg!("Context {0}% left"),
         context_used: msg!("Context {0}% used"),
         quota_remaining: msg!("{0} {1}% left"),
+        thread_credits: msg!("{0} credits"),
         usage_limit_title: "Usage limit reached",
         usage_limit_detail: "Your included usage is exhausted. Choose an option below to continue.",
         server_stopped: "error: the app-server stopped",
@@ -248,6 +251,10 @@ impl Shared {
             (self.chat.context_remaining, left)
         };
         Fmt::new(message, [Arg::Int(percent)], &self.num).to_string()
+    }
+
+    pub(crate) fn status_credits(&self, credits: &str) -> String {
+        Fmt::new(self.chat.thread_credits, [Arg::Text(credits)], &self.num).to_string()
     }
 
     pub(crate) fn status_quota(&self, label: &str, percent: u64) -> String {

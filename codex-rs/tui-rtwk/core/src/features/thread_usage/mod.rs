@@ -27,7 +27,7 @@ use super::{AppCx, AppView, Feature, Never};
 use crate::app::Now;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
-use crate::screens::status::{Account, UsageInterest};
+use crate::screens::status::{Account, Figure, UsageInterest};
 use codex_app_server_protocol::{GetAccountTokenUsageResponse, ServerNotification, ThreadUsage};
 
 pub use model::{Outcome, Selected, supported, thread_cost_micros};
@@ -96,6 +96,17 @@ impl State {
     pub fn estimate_of(&self, thread: &ThreadId) -> Option<&ThreadUsage> {
         let estimate = self.machine.estimate()?;
         (self.machine.thread() == Some(thread.as_str())).then_some(estimate)
+    }
+
+    /// The figure of `thread` as the views read it (`estimate_of`).
+    pub fn figure_of(&self, thread: &ThreadId) -> Option<Figure> {
+        self.estimate_of(thread).cloned().map(Figure::from)
+    }
+
+    /// What the card of `request` shows as a figure (`card`).
+    pub fn card_figure(&self, request: u64) -> Option<Option<Figure>> {
+        self.card(request)
+            .map(|held| held.cloned().map(Figure::from))
     }
 
     /// What the card of `request` shows: none for a card that asked for nothing (the account has

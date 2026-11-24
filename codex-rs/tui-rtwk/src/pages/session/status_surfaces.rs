@@ -1,12 +1,11 @@
 //! Display values shared by the chat footer and the terminal title.
 
-use codex_app_server_protocol::ThreadUsage;
 use codex_protocol::account::PlanType;
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::chat::{self, DEFAULT_STATUS_LINE_ITEMS, StatusFacts};
 use codex_tui_core::screens::status::{
-    self, UsageInterest, format_credit_micros, format_estimated_usd_micros, thread_cost_micros,
+    self, Figure, UsageInterest, format_credit_micros, format_estimated_usd_micros,
 };
 use rtwk::AnyWidget;
 
@@ -33,7 +32,7 @@ pub(super) struct StatusContext<'a> {
     pub usage_pending: bool,
     /// What the backend estimates the thread cost (`estimated_thread_usage`): none until the
     /// first answer.
-    pub cost: Option<&'a ThreadUsage>,
+    pub cost: Option<&'a Figure>,
     /// The plan of the account (`plan_type`): `thread-credits` is not shown on Ent26.
     pub plan: Option<PlanType>,
 }
@@ -256,11 +255,13 @@ impl StatusContext<'_> {
             "thread-credits" => self
                 .cost
                 .filter(|_| self.plan != Some(PlanType::Ent26))
-                .map(|usage| usage.estimated_usage_credits_micros)
-                .map(|credits| format!("{} credits", format_credit_micros(credits))),
+                .map(|figure| {
+                    self.strings
+                        .status_credits(&format_credit_micros(figure.credits_micros()))
+                }),
             "estimated-thread-cost" => self
                 .cost
-                .and_then(|usage| thread_cost_micros(usage, self.plan))
+                .and_then(|figure| figure.cost_micros(self.plan))
                 .and_then(format_estimated_usd_micros),
             "task-progress" => thread
                 .and_then(|thread| thread.progress)

@@ -22,10 +22,9 @@ use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::format::format_tokens_compact;
-use codex_app_server_protocol::ThreadUsage;
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::status::{
-    Account, LimitData, LimitRow, RowValue, StatusCard, UsageInterest,
+    Account, Figure, LimitData, LimitRow, RowValue, StatusCard, UsageInterest,
 };
 
 use super::bar::{BAR_CELLS, bar};
@@ -58,8 +57,8 @@ impl StatelessWidget for StatusCell {
         let card = self.card.clone();
         // what this card holds of the thread's usage, by the number of the `/status` that made it
         let number = card.number;
-        let held = select::<FeatureStates, Option<Option<ThreadUsage>>, _>(cx, move |features| {
-            features.thread_usage.card(number).map(<Option<&ThreadUsage>>::cloned)
+        let held = select::<FeatureStates, Option<Option<Figure>>, _>(cx, move |features| {
+            features.thread_usage.card_figure(number)
         });
         let sheet = LayoutBuilder::new(move |cx, constraints| -> AnyWidget {
             let width = i32::max(constraints.max_width, 0);
@@ -109,7 +108,7 @@ fn indented(indent: i32, child: impl Into<AnyWidget>) -> AnyWidget {
 
 fn sheet(
     card: &StatusCard,
-    held: Option<Option<&ThreadUsage>>,
+    held: Option<Option<&Figure>>,
     look: &Look,
     seg: Measure,
     width: i32,
@@ -344,7 +343,7 @@ fn faint(look: &Look, text: impl Into<String>) -> Value {
 }
 
 /// The rows of the card in the oracle's order.
-fn entries(card: &StatusCard, held: Option<Option<&ThreadUsage>>, look: &Look) -> Vec<Entry> {
+fn entries(card: &StatusCard, held: Option<Option<&Figure>>, look: &Look) -> Vec<Entry> {
     let s = look.s;
     let row = |label: &str, value: Value| Entry::Row {
         label: label.to_string(),

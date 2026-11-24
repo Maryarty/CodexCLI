@@ -6,8 +6,9 @@
 
 use rtwk::style::Span;
 
-use codex_app_server_protocol::ThreadUsage;
-use codex_tui_core::screens::status::{Account, StatusCard, Usage, billing_slots, billing_usage};
+use codex_tui_core::screens::status::{
+    Account, Figure, StatusCard, Usage, billing_slots, billing_usage,
+};
 
 use super::cell::{Entry, Look, Value};
 
@@ -15,7 +16,7 @@ use super::cell::{Entry, Look, Value};
 /// `held` is none for a card whose account has no thread usage, else the figure the card holds.
 pub(super) fn entries(
     card: &StatusCard,
-    held: Option<Option<&ThreadUsage>>,
+    held: Option<Option<&Figure>>,
     look: &Look,
 ) -> Vec<Entry> {
     let s = look.s;
