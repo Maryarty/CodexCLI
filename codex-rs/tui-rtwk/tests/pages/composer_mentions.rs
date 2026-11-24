@@ -1,3 +1,4 @@
+// test root: pages
 //! The mention popups (`$` skills, `@` files, plugins, skills and tasks): the keys that move
 //! through them, pick, close and switch their tab, what a pick leaves in the draft and in
 //! history, and the pointer on the popup widget (a tap on a row picks it, a tap on a tab

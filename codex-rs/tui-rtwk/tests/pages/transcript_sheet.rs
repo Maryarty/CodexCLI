@@ -1,3 +1,4 @@
+// test root: pages
 //! Tests of the transcript sheet (S16; oracle `pager_overlay/transcript.rs`
 //! `TranscriptOverlay::render`, `render_hints`): the title row, the whole
 //! transcript with its reasoning, the status row, the two hint rows, the

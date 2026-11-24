@@ -1,3 +1,4 @@
+// test root: pages
 //! The composer's modal (Vim) editing in the page: the keys go through the
 //! keymap's Vim contexts into the engine (`core::screens::composer::vim`, its
 //! own state tests), and the draft keeps its elements whole while the engine

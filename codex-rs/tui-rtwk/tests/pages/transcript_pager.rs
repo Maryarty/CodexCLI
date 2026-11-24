@@ -1,3 +1,4 @@
+// test root: pages
 //! Tests of the static pager (S16; oracle `pager_overlay.rs` `PagerView` and
 //! `StaticOverlay`, `keymap.rs` pager defaults): the text scrolled by the
 //! pager's keys and the wheel, the percent in the rule, the ANSI colours of a

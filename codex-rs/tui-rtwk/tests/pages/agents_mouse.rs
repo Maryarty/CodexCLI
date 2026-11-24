@@ -1,3 +1,4 @@
+// test root: pages
 //! Mouse tests of S21, the agents command center (ADR-011): a click selects
 //! a row, a click on the selected row opens it, the wheel scrolls the list by
 //! item, the filter tabs are clickable. The oracle has no mouse; these hold

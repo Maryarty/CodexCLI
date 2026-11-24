@@ -131,7 +131,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 
 [dev-dependencies]
 # The module lists of the test roots, written from the test files (test-mods/build.rs).
-codex-tui-rtwk-test-mods = { path = "test-mods" }
+tui-test-mods = { path = "test-mods" }
 pretty_assertions = "1.4.1"
 tokio = { version = "1", features = ["macros", "test-util"] }
 rtwk-term = { workspace = true }

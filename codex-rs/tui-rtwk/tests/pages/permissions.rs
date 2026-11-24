@@ -1,3 +1,4 @@
+// test root: pages
 //! `/permissions` in the session page (oracle `chatwidget/permission_popups.rs`,
 //! `permission_discovery.rs`, `permissions_menu.rs`): the sheet that waits behind
 //! `Loading permission profiles…` until the server's catalog is read, lists the built-in modes and

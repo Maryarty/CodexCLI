@@ -1,3 +1,4 @@
+// test root: pages
 //! Probes of rtwk gaps G49, G50 and G51 (the three routes of process.md §5,
 //! one probe each). Every assertion pins what rtwk does today and the oracle's
 //! row it differs from: when rtwk changes, the probe fails and the row closes.

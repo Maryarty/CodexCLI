@@ -1,3 +1,4 @@
+// test root: pages
 //! `/review` in the session page (oracle `chatwidget/review_popups.rs`, `slash_dispatch.rs`): the
 //! four presets over the composer, the base branches and the commits the host lists, the custom
 //! instructions prompt, and `/review <text>` that starts the review at once. A pick starts

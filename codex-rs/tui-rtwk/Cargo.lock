@@ -3936,7 +3936,6 @@ dependencies = [
  "codex-protocol",
  "codex-shell-command",
  "codex-tui-core",
- "codex-tui-rtwk-test-mods",
  "codex-utils-elapsed",
  "codex-utils-path",
  "dunce",
@@ -3963,12 +3962,9 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "tui-test-mods",
  "url",
 ]
-
-[[package]]
-name = "codex-tui-rtwk-test-mods"
-version = "0.0.0"
 
 [[package]]
 name = "codex-uds"
@@ -13060,6 +13056,10 @@ dependencies = [
  "syn 2.0.117",
  "termcolor",
 ]
+
+[[package]]
+name = "tui-test-mods"
+version = "0.0.0"
 
 [[package]]
 name = "tungstenite"

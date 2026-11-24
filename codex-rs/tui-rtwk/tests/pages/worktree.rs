@@ -1,3 +1,4 @@
+// test root: pages
 //! `/worktree` in the session page (oracle `chatwidget/worktree_picker.rs`, `worktree_browser.rs`):
 //! the three rows over the composer, the browser of the repository's worktrees (its loading row,
 //! the list the host answers with, a worktree's actions and the delete confirmation), as the

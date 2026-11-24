@@ -1,3 +1,4 @@
+// test root: pages
 //! The folder-trust prompt cancelled at launch opens the command center in place of the folder
 //! (oracle `lib.rs`: `consent.should_exit` -> `SessionSelection::AgentsOverview`). Opening a task
 //! from it leaves the chat with the focus on its composer, so that the keys typed next land in the

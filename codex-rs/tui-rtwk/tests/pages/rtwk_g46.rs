@@ -1,3 +1,4 @@
+// test root: pages
 //! Probe of rtwk gap G46 (the DIM attribute on blank cells). The oracle
 //! (codex-rs/tui `external_agent_config_migration/mod.rs`
 //! `action_rows_keep_single_line_allocation_and_focus_style`) styles a whole

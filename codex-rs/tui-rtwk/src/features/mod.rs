@@ -23,6 +23,7 @@ use rtwk::style::Span;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::Intent;
+use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::feature_list;
 use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureInterest, FeatureNote, FeatureTarget, FeatureWish, Scope,
@@ -183,6 +184,12 @@ impl OpenArgs {
     pub fn of(target: FeatureTarget, cwd: Cwd, thread: Option<ThreadId>) -> OpenArgs {
         target_args(target, cwd, thread)
     }
+}
+
+/// Opens the settings dialog the slash command names (`Target::Settings`). The dialogs are no
+/// `FeatureSheet`: no feature target names them, the command's own target does.
+pub fn open_settings<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand) {
+    settings::open(cx, settings::Args::of(command));
 }
 
 /// A verb of a feature, from the widget that has the user's decision: the app applies it

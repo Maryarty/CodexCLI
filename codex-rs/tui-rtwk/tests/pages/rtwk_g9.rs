@@ -1,3 +1,4 @@
+// test root: pages
 //! Probe of rtwk gap G9 (selection and copy over a virtualized transcript)
 //! against rtwk's ADR-028 (`ListView::selection_text`). The oracle's
 //! behaviour (codex-rs/tui `transcript_view/selection_tests.rs`):

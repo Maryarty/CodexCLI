@@ -1,3 +1,4 @@
+// test root: pages
 //! `/model` in the session page (oracle `chatwidget/model_popups.rs`, `slash_dispatch.rs`): the
 //! quick menu or the whole list over the composer, the reasoning menu of a model over it and the
 //! advanced one over that, the `Loading models…` page while the catalog is empty. The pages are

@@ -1,3 +1,4 @@
+// test root: pages
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! Tests of copying what the reader selects in the transcript (S10; oracle

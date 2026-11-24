@@ -61,10 +61,7 @@ fn marked_root(text: &str, path: &Path) -> Result<&'static str, String> {
                 .find(|root| **root == value.trim())
                 .copied()
                 .ok_or_else(|| {
-                    format!(
-                        "{}: `{line}` names no root of {MARKED:?}",
-                        path.display()
-                    )
+                    format!("{}: `{line}` names no root of {MARKED:?}", path.display())
                 });
         }
     }
@@ -87,8 +84,7 @@ pub fn scan(tests: &Path) -> Result<Vec<Module>, String> {
                 .file_stem()
                 .map(|stem| stem.to_string_lossy().into_owned())
                 .ok_or_else(|| format!("{}: no file name", path.display()))?;
-            let text =
-                fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             files.push((path, stem, text));
         }
         files.sort();

@@ -1,3 +1,4 @@
+// test root: pages
 //! The composer's popup (`/` commands, `$` skills, `@` mentions): Up and Down,
 //! the wheel and the pointer move the highlight, Enter and a click pick the
 //! row (a command runs, a mention goes in as text), Tab completes the

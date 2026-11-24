@@ -1,3 +1,4 @@
+// test root: pages
 //! The composer before the first thread exists (the session is `Starting`):
 //! the draft can be typed, a message is kept until the thread starts and goes
 //! out then; a `!cmd` is kept with it, in order, and runs then (oracle:

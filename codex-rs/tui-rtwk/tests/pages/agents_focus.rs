@@ -1,3 +1,4 @@
+// test root: pages
 //! `codex-rtwk agents`: opening a task from the command center leaves the chat with the focus
 //! on its composer, so that the keys typed next land in the draft (oracle: the composer is the
 //! chat's only input, it has the keys from the first frame after the session is opened).

@@ -1,3 +1,4 @@
+// test root: pages
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! Older pages of a thread's history (S10; oracle `transcript_view/footer.rs`

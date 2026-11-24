@@ -1,3 +1,4 @@
+// test root: pages
 //! Tests of the chat's footer and status surfaces (S10; oracle
 //! `bottom_pane/footer.rs`, `chat_composer/passive_hints.rs`,
 //! `chat_composer/status_surface.rs`): what the shards do not say (state

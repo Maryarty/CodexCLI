@@ -1,3 +1,4 @@
+// test root: pages
 //! Images in the composer: a dragged image file arrives as a pasted path and
 //! is attached as `[Image #N]`; the placeholders are numbered in the order
 //! the images were attached, with no gap; a submit carries the files with the

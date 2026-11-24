@@ -1,3 +1,4 @@
+// test root: pages
 //! `/plugins` as a feature's sheet (ADR-013 pilot): the browser is the first route of a nested
 //! `Navigator` in the sheet and the detail, the prompts and the confirmations are routes over it.
 //! What the page tests pin is the route model: the `Back to plugins` row pops one route and the

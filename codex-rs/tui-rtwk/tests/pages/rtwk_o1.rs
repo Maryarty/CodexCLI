@@ -1,3 +1,4 @@
+// test root: pages
 //! Probe of ADR-013 O1: a nested `Navigator` as the body of a bottom sheet (the sheet of
 //! `/plugins`). The oracle's bottom pane is as tall as the view it shows, at the bottom edge.
 //!

@@ -1,3 +1,4 @@
+// test root: pages
 //! The provider-error notice's keys and taps (oracle `chatwidget/provider_error.rs`, the notice
 //! keys of `app/input.rs`): what the oracle's snapshot shard does not say. The notice's rows
 //! are the oracle's (`tests/oracle/chat_live_1.rs`); the hints also being tap targets goes
