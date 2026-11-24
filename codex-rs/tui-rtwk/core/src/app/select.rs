@@ -342,6 +342,22 @@ fn settings(
     true
 }
 
+/// `PublicVerb::OverrideTurn`: the thread's model and effort for its next turns, as a session
+/// pick without the line (`override_turn_context`); with no thread there is nothing to override.
+pub(super) fn turn_override(
+    app: &mut CodexApp,
+    model: String,
+    effort: Option<select::models::Effort>,
+    fx: &mut AppFx,
+) {
+    let patch = crate::threads::SettingsPatch {
+        model: Some(model),
+        effort,
+        ..crate::threads::SettingsPatch::default()
+    };
+    settings(app, patch, select::Setting::Model, None, fx);
+}
+
 pub(super) fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
     use select::models::Apply;
     let effects = select::persist::effects(&selection);

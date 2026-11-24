@@ -5,7 +5,7 @@
 //! something once; a verb is for changing something.
 
 use crate::screens::chat::StatusOverride;
-use crate::screens::select::models::Selection;
+use crate::screens::select::models::{Effort, Selection};
 use crate::screens::select::permissions;
 
 /// What a feature asks of an owner outside it (`AppCx::verb`).
@@ -21,4 +21,13 @@ pub enum PublicVerb {
     /// A `/permissions` pick applied once its precondition is met (the Windows sandbox is set
     /// up): the app's permissions pick, as the sheet's own pick is carried out.
     PickPermissions(permissions::Selection),
+    /// The model and effort the thread's next turns use, saved nowhere and said nowhere (oracle
+    /// `override_turn_context` with a model and an effort, then `UpdateModel` and
+    /// `UpdateReasoningEffort`: the rate limit prompt's "Switch to {model}"). `PickModel` for
+    /// this session only says its line; this one is for a feature whose own prompt is the
+    /// answer.
+    OverrideTurn {
+        model: String,
+        effort: Option<Effort>,
+    },
 }
