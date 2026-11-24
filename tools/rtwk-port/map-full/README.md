@@ -4,7 +4,7 @@ Source of `docs/rtwk-port/reports/port-map.md` (+ `port-map-modules.tsv`) and of
 lists `unpend/<package>.txt`. Data: `packages.py` (packages, owned files, sizes), `rows_chat.py` (owner and files
 of the rows of chat-feature-map.md by title), `rows_extra.py` (rows outside the chat screen, screen map),
 `cover.py` (CSV id -> row), `modules.py` (every oracle file -> package), `tests_rules.py` + `pending-tests.tsv`
-(1228 pending oracle tests -> package).
+(pending oracle tests -> package; `unpend-stale/unpend.py` deletes the rows of the tests it un-pends).
 
 ```
 python3 -I tools/rtwk-port/map-full/build.py      # rewrite the map, the tsv and unpend/

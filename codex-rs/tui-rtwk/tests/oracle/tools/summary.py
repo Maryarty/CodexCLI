@@ -7,6 +7,7 @@
     python3 -I tests/oracle/tools/summary.py --list red                   # the red tests, with the first line of why
     python3 -I tests/oracle/tools/summary.py --list pending               # pending tests: owner and reason
     python3 -I tests/oracle/tools/summary.py --list stale                 # pending tests that now pass (see --probe)
+    python3 -I tests/oracle/tools/summary.py --list stale-real            # ... with a body that asserts something present (un-pend these)
 
 Run a shard (or several) and read the result in one command, safe to run beside
 other agents (each run writes its own junit file, target/nextest/oracle/junit-<run>.xml):
@@ -27,7 +28,14 @@ Verdicts (tests/kit/verdict.rs):
   pending   failed with `PENDING[slice]: reason`  (kit::pending / a seed that does not exist)
   todo      failed with `TODO[port]`                (a stub nobody ported yet)
   red       any other failure: the screen differs from the oracle, or the test is wrong
-  stale     passed while a kit::pending marker was probing
+  stale     passed while a kit::pending marker was probing; a marker with no code after it (a usage stub)
+            passes vacuously: that test is counted `pending`, not stale. A stale test whose body only asserts
+            absence (assert_not_*, assert_no_*, assert_absent, assert!(!..)) or asserts nothing is listed with
+            the tag `{absence-only}` / `{no-assert}`: un-pending it would prove nothing, strengthen it first
+            (tools/rtwk-port/unpend-stale/unpend.py leaves such tests alone). The tag `{weak-body}` marks a
+            marker whose own reason says the body checks less than the oracle claims (`probe: the body passes
+            without it`, `the probe passes on the text alone`, `not verified`, `half pass`, `not written`, `holds only`) or names a gap row (G61, G-syntax):
+            the pass is not the oracle's, the marker stays.
 
 The guards (tests/oracle/guards.rs) count like any shard: a guard that fails is red, under the
 shard `guards`, with the first line of its failure.
@@ -55,6 +63,102 @@ def first_line(text):
     return ''
 
 
+# ---- the body of a stale test: does passing under the probe prove anything?
+
+def _skip_lexeme(src, i):
+    """If a comment, string, raw string or char literal starts at src[i], returns the index after it, else None."""
+    if src.startswith('//', i):
+        j = src.find('\n', i)
+        return len(src) if j < 0 else j
+    if src.startswith('/*', i):
+        j = src.find('*/', i + 2)
+        return len(src) if j < 0 else j + 2
+    m = re.compile(r'b?r(#*)"').match(src, i)
+    if m:
+        end = src.find('"' + m.group(1), m.end())
+        return len(src) if end < 0 else end + 1 + len(m.group(1))
+    if src[i] == '"' or src.startswith('b"', i):
+        j = i + (2 if src[i] == 'b' else 1)
+        while j < len(src) and src[j] != '"':
+            j += 2 if src[j] == '\\' else 1
+        return j + 1
+    m = re.compile(r"b?'(?:\\.[^']*|[^\\'])'").match(src, i)
+    if m:
+        return m.end()
+    return None
+
+
+def _match(src, i, open_c, close_c):
+    """src[i] == open_c: the index of its closing partner (strings and comments skipped)."""
+    depth = 0
+    while i < len(src):
+        j = _skip_lexeme(src, i)
+        if j is not None:
+            i = j
+            continue
+        if src[i] == open_c:
+            depth += 1
+        elif src[i] == close_c:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def test_body(shard, test):
+    """The text of `fn <test>` in tests/oracle/<shard>.rs after its kit::pending( .. ); call (None: not found)."""
+    path = os.path.join(CRATE, 'tests', 'oracle', shard + '.rs')
+    if not os.path.exists(path):
+        return None
+    src = open(path, encoding='utf-8').read()
+    m = re.search(r'\bfn %s\s*\(' % re.escape(test), src)
+    if not m:
+        return None
+    start = src.find('{', m.end())
+    end = _match(src, start, '{', '}')
+    if start < 0 or end < 0:
+        return None
+    body = src[start + 1:end]
+    k = re.search(r'\bkit::pending\s*\(', body)
+    if not k:
+        return body
+    close = _match(body, k.end() - 1, '(', ')')
+    return body[close + 1:] if close >= 0 else body[k.end():]
+
+
+WEAK_REASON = re.compile(r'probe passes|probe: the body passes|checks less than|not verified|half pass|not written|holds only|visible half|differs only by|\bpending\(G|\bG-?[\w]*\d+:|\bG-[a-z]+')
+NEGATIVE = re.compile(r'\bassert_(?:not_\w*|no_\w*|absent|title_lacks)\s*\(|\bassert(?:_eq)?!\s*\(\s*!|\bassert_ne!')
+ASSERT = re.compile(r'\bassert\w*!?\s*\(|\bexpect_\w+\s*\(')
+
+
+def body_kind(shard, test):
+    """'stub' (nothing after the marker), 'no-assert' (code, no assertion), 'absence-only' (only negative
+    assertions), 'real' (at least one assertion of something present) or None (the test was not found)."""
+    body = test_body(shard, test)
+    if body is None:
+        return None
+    # drop strings and comments so that words inside them do not count
+    code, i = [], 0
+    while i < len(body):
+        j = _skip_lexeme(body, i)
+        if j is not None:
+            code.append(' ')
+            i = j
+        else:
+            code.append(body[i])
+            i += 1
+    code = ''.join(code)
+    if not code.strip(' \t\r\n;'):
+        return 'stub'
+    calls = [m for m in ASSERT.finditer(code)]
+    if not calls:
+        return 'no-assert'
+    positive = [m for m in calls if not NEGATIVE.match(code, m.start())
+                and not re.match(r'assert_text_count\s*\([^;]*,\s*0\s*\)', code[m.start():])]
+    return 'real' if positive else 'absence-only'
+
+
 def verdicts(path):
     root = ET.parse(path).getroot()
     out = []
@@ -74,7 +178,16 @@ def verdicts(path):
             na = re.search(r'N/A\[([\w-]+)\]: (.*)', text)
             probe = re.search(r'PROBE\[([\w-]+)\]: (.*)', text)
             if probe:
-                out.append((shard, test, 'stale', probe.group(1), probe.group(2)))
+                kind = body_kind(shard, test)
+                if kind == 'stub':
+                    # nothing after the marker: the pass proves nothing, the test is still pending
+                    out.append((shard, test, 'pending', probe.group(1), '{stub} ' + probe.group(2)))
+                elif kind in ('absence-only', 'no-assert'):
+                    out.append((shard, test, 'stale', probe.group(1), '{%s} %s' % (kind, probe.group(2))))
+                elif WEAK_REASON.search(probe.group(2)):
+                    out.append((shard, test, 'stale', probe.group(1), '{weak-body} ' + probe.group(2)))
+                else:
+                    out.append((shard, test, 'stale', probe.group(1), probe.group(2)))
             elif na:
                 out.append((shard, test, 'n/a', na.group(1), na.group(2)))
             else:
@@ -149,8 +262,11 @@ def main(argv):
     if shards:
         rows = [r for r in rows if r[0] in shards]
     if want:
+        real_only = want == 'stale-real'
+        if real_only:
+            want = 'stale'
         for shard, test, kind, owner, why in rows:
-            if kind == want:
+            if kind == want and not (real_only and why.startswith('{')):
                 print('%s::%s  %s%s' % (shard, test, ('[%s] ' % owner) if owner else '', why))
         return
     per = collections.OrderedDict((s, collections.Counter()) for s in shards)
