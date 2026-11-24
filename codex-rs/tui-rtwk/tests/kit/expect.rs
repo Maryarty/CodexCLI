@@ -206,22 +206,15 @@ impl Screen {
         pretty_assertions::assert_eq!(got, n, "rows reading `{text}`:\n{}", self.text());
     }
 
-    /// The row that reads `row` is followed by exactly the rows `following`.
+    /// The row that reads `row` is followed by exactly the rows `following`, in the rows the
+    /// oracle's Markdown renderer speaks of (the agent cell's gutter cut off).
     pub fn assert_row_then(&self, row: &str, following: &[&str]) {
-        let rows = self.grid().rows(false);
-        let Some(at) = rows.iter().position(|r| r == row.trim_end()) else {
-            panic!("no `{row}` row:\n{}", self.text());
-        };
-        for (n, want) in following.iter().enumerate() {
-            let got = rows.get(at + 1 + n).map_or("", String::as_str);
-            pretty_assertions::assert_eq!(
-                got,
-                want.trim_end(),
-                "the row {} after `{row}`:\n{}",
-                n + 1,
-                self.text()
-            );
-        }
+        row_then(&self.grid().rows(false), &self.text(), row, following);
+    }
+
+    /// `assert_row_then` in the screen's rows as they are (the raw render has no gutter).
+    pub fn assert_screen_row_then(&self, row: &str, following: &[&str]) {
+        row_then(&self.rows(), &self.text(), row, following);
     }
 
     /// The first row of the oracle snapshot `name` and the rows under it equal ours, from the
@@ -713,6 +706,21 @@ impl Screen {
             shown,
             "the starfield dots (want shown: {shown}):\n{}",
             self.text()
+        );
+    }
+}
+
+fn row_then(rows: &[String], screen: &str, row: &str, following: &[&str]) {
+    let Some(at) = rows.iter().position(|r| r == row.trim_end()) else {
+        panic!("no `{row}` row:\n{screen}");
+    };
+    for (n, want) in following.iter().enumerate() {
+        let got = rows.get(at + 1 + n).map_or("", String::as_str);
+        pretty_assertions::assert_eq!(
+            got,
+            want.trim_end(),
+            "the row {} after `{row}`:\n{screen}",
+            n + 1
         );
     }
 }
