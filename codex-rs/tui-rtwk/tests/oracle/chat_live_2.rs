@@ -1131,7 +1131,14 @@ fn replayed_in_progress_turn_marks_task_running() {
         let mut turn = turn_ended("turn-1", "inProgress", serde_json::json!([]));
         turn["itemsView"] = serde_json::json!(items_view);
         turn["startedAt"] = serde_json::json!(1_700_000_000);
-        let mut s = resumed(vec![turn]);
+        // the oracle replays it without the thread's status: the scenario is a thread that is
+        // really running (an idle thread's unfinished turn starts nothing, openai/codex#43952)
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 24)
+            .replay(vec![turn])
+            .replay_running()
+            .live()
+            .open();
         // oracle: no history cell, the bottom pane `• Working (<elapsed> • esc to interrupt)`
         s.assert_contains("• Working (");
         s.assert_contains(" • esc to interrupt)");
