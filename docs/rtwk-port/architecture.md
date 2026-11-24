@@ -841,8 +841,57 @@ subscriptions` with default no-ops.
   `Err(message)` when a start was already said in the step (`start_said`), giving the message
   back, so two features' hooks cannot double-start. Whether the model is busy is the caller's
   to ask (it holds the model; for a feature `ThreadView::busy`).
-- `ThreadView`'s `core` and `slots` are private: the thread is read through the methods a
-  feature needs.
+- **The slash door** (fw-hubs-a, P1; `Feature` 14 -> 15). A slice owns the slash commands it
+  runs, with their arguments, as it owns the one that opens its sheet: `const RUNS:
+  &[SlashCommand]` names them and `fn slash(state, Slash { command, args, source }, cx)` runs one
+  (`args` is the text after the command's name, `source` the thread it was typed in). The one list
+  line generates `runs_of(command)` and `apply_slash(states, slash, cx)`; the dispatcher
+  (`commands/dispatch.rs`) turns every command some feature runs into the one `SessionIntent::Feature
+  { args }` and the app routes that to `apply_slash` (`app/session.rs`), so no hub names a slice's
+  verb: `/rename <name>`, `/model <name>`, `/mcp verbose`, `/recap`, `/copy`, `/goal ...` are their
+  slices' own, and a command nobody runs is answered "not available", as the oracle's stubs are.
+  `SessionIntent` 41 -> 25 (`Side` stays until fw-hubs-b moves the side lifecycle). A command
+  has one owner: `one_owner_per_command` (`RUNS` and `OPENS` of two slices never overlap, and
+  `SLASH_ROUTERS` is empty); `core/tests/slash_door.rs` proves the routes and that every command the
+  dispatcher hands to a feature has an owner.
+- **Selectors are the slice's** (fw-hubs-a, P3). `AppView` and `ThreadView` are handles, not
+  a menu of facts: `ThreadView::core()`, `slots()` and `parts()` give the thread's own domain facts
+  read-only, `AppView::facts()` gives `AppFacts` (the moment, the `[tui]` settings, what the status
+  screen holds of the account and the catalog, what the host knows of the account's access
+  programs). `ThreadCx` carries the same `AppFacts` (`cx.facts`), so a selector written over them
+  (`fn plan(facts: AppFacts<'_>) -> Option<PlanType>`) works in an app step and in a thread step. A
+  fact one slice wants is that slice's function over the handles (`processes::terminals`,
+  `copy::response_sources`, `recap::conversation`, `rename::name`, `small_cmds::daybreak_of`),
+  never a method of the view: `view_methods_budget` counts the `pub fn`s of `AppView` (9) and
+  `ThreadView` (7) and only lets them go down, and `framework_names_no_slice` makes `cx.rs`,
+  `surface.rs` and `remote.rs` name no slice (the exemption `cx.rs` had is gone).
+  `app_names_no_feature_state` counts the lines of the app that reach into a slice's state
+  (`app.features.side`, `parts.small_cmds`: six, all fw-hubs-b's) and only lets them go down.
+  *Not done:* a slice does not read another slice's state. The state a step holds `&mut` cannot be
+  lent too, and a snapshot of it before the step would deep-copy the stepped feature's state every
+  time (copy on write, `Shared`); no slice needs it today, so a cross-slice read stays a fact or
+  an interest, and the first one that needs more adds a handle here with its own decision.
+- **Time is told, and a wake is declared** (fw-hubs-a, P2; `Feature` 15 -> 17). Nothing in the
+  core reads a clock or ticks. The shell reads the wall clock and tells the app, `AppEv::Clock(Now)`
+  (`Now` is milliseconds and the zone's offset: `core/src/app/clock.rs`); the app keeps it
+  (`CodexApp::now`, `AppView::now`, `AppFacts::now`) and mirrors it into the screens that word an
+  age (`ScreenStates::set_now`), so `Agents::Clock`, `Status::Clock`, `Resume::Clock` and the chat's
+  clock event are gone. What wants to be woken says when: `Feature::wake_at(&state) -> Option<(Now,
+  Intent)>` and `thread_wake_at(&part)` (the part only where this process writes the thread), and the
+  screens' own: `agents::wake_at` (the next minute while the center lists tasks) and `chat::wake_at`
+  (the workspace headline's next read). After every step the app
+  gives the nearest moment as `AppFx::wake` (a `Wake`, never less than a second ahead, so a wake
+  the intent did not clear cannot spin the shell); the shell keeps ONE timer for it
+  (`services/shell.rs`: armed when the moment changes, so a stream of keys does not push it back; no
+  wake, no timer), tells the clock when it fires, and the app delivers the intents that are due as
+  the feature's own, through `intent` / `thread_intent` (Elm's subscription: the time is a message).
+  The shell reads the time from a `Clock` (`WallClock`; `FixedClock` for a test, `UiApp::with_clock`),
+  a script says it with the `clock` step (`{"step":"clock","secs":N}`, `millis`, `utc_offset`; the
+  old per-screen `{"clock":N}` is read as it), and the harness's ingress barrier is a clock event.
+  `no_clock_loops` counts what still ticks (a `Clock` variant in a screen's or a slice's enum,
+  `AppEv::Clock` named outside the app's arm, the script and the timer, a periodic timer): 0.
+  The thread-usage state machine of fw1-c7 (`screens/usage/thread.rs`: `State::next_due` is the
+  moment, `tick` the intent) waits for its slice: it declares `thread_wake_at` over `next_due`.
 
 **Enforced** (`tests/rules/layers.rs`, each with a test that bites on a synthetic source):
 `hub_enums_only_shrink` (ratchet of the hub enums' variants, `tests/rules/hub_budget.txt`),
@@ -851,8 +900,10 @@ a screen's thread intent by name: 9 now, to 0 as they move behind `chat::apply_t
 or into `threads/queue.rs`; a feature's: always 0), `the_feature_trait_has_the_hooks_the_budget_says`
 (the methods of `Feature`, the variants of `Out` and of the generated `FeatureThreadIntent`
 that are no feature's: a ratchet raised only with a paragraph here),
+`view_methods_budget`, `framework_names_no_slice`, `app_names_no_feature_state` and
+`no_clock_loops` (the three doors above, each ratchet a line of `hub_budget.txt`),
 `features_are_named_only_through_the_list` (no `features::<f>` outside the feature's two
-folders, the two lists and the slash router that builds an intent), `features_hold_no_app`
+folders and the two lists), `features_hold_no_app`
 (no `CodexApp` or `ThreadModel` in `core/src/features`), `feature_slices_ask_only_through_the_outbox`
 (a slice names none of `AppFx`, `ThreadFx`, `ThreadAsk`, `ThreadSet`, `apply_app`, `AppEv`,
 `Intent::Effect`, `Command::Effect`; `ThreadCx` keeps its `fx` private), `thread_rpcs_only_in_threads` (the lifecycle list everywhere; the

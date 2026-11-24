@@ -21,7 +21,8 @@ mod wire;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never};
+use super::{AppCx, Feature, Never, Slash};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::{Goal as GoalFact, GoalStatus, Tone};
@@ -189,6 +190,7 @@ fn said_status(cx: &mut AppCx<'_>, thread: ThreadId, goal: GoalFact) {
 
 impl Feature for Goal {
     const NAME: &'static str = "goal";
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Goal];
 
     type State = ();
     type ThreadPart = ();
@@ -202,6 +204,13 @@ impl Feature for Goal {
     type Fact = Never<Self>;
     type Wish = Wish;
     type Interest = Never<Self>;
+
+    /// `/goal`: the goal shown, set, paused, resumed, cleared or edited.
+    fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
+        let source = slash.source.clone();
+        let args = slash.into_args();
+        Self::intent(state, Intent::Command { source, args }, cx);
+    }
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
         match intent {

@@ -28,6 +28,7 @@
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
+use crate::app::Now;
 use crate::app::effects::Done;
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
@@ -39,7 +40,7 @@ mod cx;
 mod remote;
 mod surface;
 
-pub use cx::{AppCx, AppView, Out, ThreadCx, ThreadView};
+pub use cx::{AppCx, AppFacts, AppView, Out, ThreadCx, ThreadView};
 pub use remote::Remote;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
@@ -78,6 +79,29 @@ pub enum Never<F> {
 
 /// How a script's `fact` step reads one fact of a feature from its JSON (`Feature::SEED`).
 pub type SeedFn<T> = fn(serde_json::Value) -> Result<T, SeedError>;
+
+/// A slash command a feature runs (`Feature::RUNS`), as the composer's line made it: the command,
+/// the text after its name (trimmed; empty for the bare command) and the thread it was typed in
+/// (none before the session has started). The feature reads its own arguments from it, as
+/// Flutter's `onGenerateRoute` reads `RouteSettings.arguments`: the hub does not parse them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Slash {
+    pub command: SlashCommand,
+    pub args: String,
+    pub source: Option<ThreadId>,
+}
+
+impl Slash {
+    /// The arguments, none for the bare command.
+    pub fn args(&self) -> Option<&str> {
+        Some(self.args.as_str()).filter(|args| !args.is_empty())
+    }
+
+    /// The arguments by value, none for the bare command.
+    pub fn into_args(self) -> Option<String> {
+        Some(self.args).filter(|args| !args.is_empty())
+    }
+}
 
 impl<F> Clone for Never<F> {
     fn clone(&self) -> Self {
@@ -134,6 +158,13 @@ pub trait Feature: 'static {
     /// a sheet of the feature (`/goal`, `/rename` run a verb), and `Target` is `Never<Self>`.
     const OPENS: Option<(SlashCommand, Self::Target)> = None;
 
+    /// The slash commands the feature runs, with their arguments (`slash`): the verbs that are no
+    /// sheet. The one list line generates `runs_of` and `apply_slash`; `SessionIntent::Feature`
+    /// carries the line's text to the owner, so the hub names no slice's command. A command has
+    /// one owner (`one_owner_per_command`); one that opens a sheet bare and runs with arguments
+    /// (`/export <path>`, `/mcp verbose`) is in `OPENS` and `RUNS` of the same feature.
+    const RUNS: &'static [SlashCommand] = &[];
+
     /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
     /// `intent`, `answered`, `effect_done`, `on_fact`, `on_interest` and `on_resumed`.
     type State: Clone + std::fmt::Debug + Default + PartialEq + Eq;
@@ -174,6 +205,12 @@ pub trait Feature: 'static {
     /// An intent of the feature.
     fn intent(state: &mut Self::State, intent: Self::Intent, cx: &mut AppCx<'_>) {
         let _ = (state, intent, cx);
+    }
+
+    /// A slash command of `RUNS`, typed with `slash.args` after its name: the feature checks the
+    /// arguments, says what is wrong with them as a note, and does what they ask through `cx`.
+    fn slash(state: &mut Self::State, slash: Slash, cx: &mut AppCx<'_>) {
+        let _ = (state, slash, cx);
     }
 
     /// The answer of an RPC the feature asked through `AppCx::ask`.
@@ -258,6 +295,25 @@ pub trait Feature: 'static {
         cx: &mut AppCx<'_>,
     ) {
         let _ = (state, interest, open, cx);
+    }
+
+    /// When the feature wants to be woken, and with which of its own intents (ADR-012, "time as
+    /// a declared wake"): the app reads this after every step, hands the nearest moment of all
+    /// features to the shell (`AppFx::wake`), and when the clock (`AppEv::Clock`) has reached
+    /// it delivers the intent through `intent`, as any other. The intent must change the state
+    /// so that this answer is a later moment or `None`; a feature never reads a clock or starts a
+    /// timer of its own. None: nothing to wait for.
+    fn wake_at(state: &Self::State) -> Option<(Now, Self::Intent)> {
+        let _ = state;
+        None
+    }
+
+    /// The same for one thread's part: the intent is delivered to that thread under
+    /// `thread_intent`, as any thread intent is: only where this process writes the thread (a
+    /// thread it does not write asks for no moment).
+    fn thread_wake_at(part: &Self::ThreadPart) -> Option<(Now, Self::ThreadIntent)> {
+        let _ = part;
+        None
     }
 
     /// The wire request of one of the feature's RPCs.
@@ -447,6 +503,23 @@ macro_rules! feature_dirs {
             None
         }
 
+        /// Whether some feature runs the slash command (`Feature::RUNS`).
+        #[allow(unused_variables, dead_code)]
+        pub fn runs_of(command: $crate::commands::SlashCommand) -> bool {
+            false $(|| <$name::$variant as Feature>::RUNS.contains(&command))*
+        }
+
+        /// Hands a slash command to the feature that runs it; false when none does (the app says
+        /// the command is not available).
+        #[allow(unused_variables, unreachable_code)]
+        pub fn apply_slash(states: &mut FeatureStates, slash: Slash, cx: &mut AppCx<'_>) -> bool {
+            $(if <$name::$variant as Feature>::RUNS.contains(&slash.command) {
+                <$name::$variant as Feature>::slash(&mut states.$name, slash, cx);
+                return true;
+            })*
+            false
+        }
+
         /// The names of the features, in list (hook) order.
         #[allow(unused_variables)]
         pub fn names() -> Vec<&'static str> {
@@ -536,6 +609,56 @@ macro_rules! feature_dirs {
         #[allow(unused_variables)]
         pub fn on_resumed(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
             $(<$name::$variant as Feature>::on_resumed(&mut states.$name, thread, cx);)*
+        }
+
+        /// The nearest moment any feature's `wake_at` asks for.
+        pub fn next_wake(states: &FeatureStates) -> Option<$crate::app::Now> {
+            let mut next: Option<$crate::app::Now> = None;
+            $(
+                if let Some((at, _)) = <$name::$variant as Feature>::wake_at(&states.$name) {
+                    next = Some(next.map_or(at, |nearest| nearest.min(at)));
+                }
+            )*
+            next
+        }
+
+        /// The intents the features asked to be woken with, whose moment `now` has reached, in
+        /// list order.
+        pub fn wakes_due(states: &FeatureStates, now: $crate::app::Now) -> Vec<FeatureIntent> {
+            let mut due = Vec::new();
+            $(
+                if let Some((at, intent)) = <$name::$variant as Feature>::wake_at(&states.$name)
+                    && now.reached(at)
+                {
+                    due.push(FeatureIntent::$variant(intent));
+                }
+            )*
+            due
+        }
+
+        /// The nearest moment any feature's `thread_wake_at` asks for, in one thread's parts.
+        pub fn next_thread_wake(parts: &FeatureThreadParts) -> Option<$crate::app::Now> {
+            let mut next: Option<$crate::app::Now> = None;
+            $(
+                if let Some((at, _)) = <$name::$variant as Feature>::thread_wake_at(&parts.$name) {
+                    next = Some(next.map_or(at, |nearest| nearest.min(at)));
+                }
+            )*
+            next
+        }
+
+        /// The thread intents the features of one thread asked to be woken with, reached by
+        /// `now`, in list order.
+        pub fn thread_wakes_due(parts: &FeatureThreadParts, now: $crate::app::Now) -> Vec<FeatureThreadIntent> {
+            let mut due = Vec::new();
+            $(
+                if let Some((at, intent)) = <$name::$variant as Feature>::thread_wake_at(&parts.$name)
+                    && now.reached(at)
+                {
+                    due.push(FeatureThreadIntent::$variant(intent));
+                }
+            )*
+            due
         }
 
         /// An intent for a thread's part of its feature.

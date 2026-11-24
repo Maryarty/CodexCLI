@@ -212,6 +212,12 @@ fn rename(model: &Model, thread: String, name: String, outs: &mut Vec<Out>) {
     ));
 }
 
+/// When the center wants the clock told (`Feature::wake_at`'s counterpart of a screen): the start
+/// of the next whole minute while it lists tasks, since their ages are worded in minutes.
+pub fn wake_at(model: &Model, now: crate::app::Now) -> Option<crate::app::Now> {
+    (!model.threads.is_empty()).then(|| now.next_minute())
+}
+
 /// The `cwd`s of the center's tasks whose directory keys the shell has not
 /// been asked for, marked as asked (oracle: `AgentsOverviewProjectGroup::
 /// for_thread`, `directory_group_key`, read while building the rows). Only

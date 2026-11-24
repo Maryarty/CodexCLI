@@ -7,6 +7,7 @@
 //! the network, the clock or the file system (R12).
 
 mod banners;
+mod clock;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
@@ -17,6 +18,7 @@ mod select;
 mod session;
 mod side;
 mod transcript_text;
+pub use clock::{Now, Wake};
 pub use transcript_text::TranscriptText;
 
 /// What a surface says of its interest (`Intent::Interest`): the widgets of the UI name it here,
@@ -35,6 +37,7 @@ use std::rc::Rc;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 
+use crate::features::AppFacts;
 use crate::ids::BackendId;
 use crate::ids::ConnEpoch;
 use crate::ids::RequestKey;
@@ -294,6 +297,11 @@ pub enum AppEv {
     /// What the host knows about Daybreak (the account, the model catalog): it words the
     /// notice of a cyber refusal.
     Daybreak(threads::daybreak::Access),
+    /// The wall clock, as the shell read it: at start, and at the moment the app asked to be
+    /// woken (`AppFx::wake`: the nearest of what the features' and threads' `wake_at` and the
+    /// screens that word ages declared). The app keeps it (`CodexApp::now`), tells the screens
+    /// and delivers the wakes that are due; a script says it with its `clock` step.
+    Clock(Now),
     /// The `[tui]` settings the config holds (the host sends them once the config is read, and
     /// again after a setting changed).
     Tui(facts::TuiSettings),
@@ -467,9 +475,17 @@ pub struct AppFx {
     /// with the error, `run_main_inner` returning it).
     pub(crate) ends: bool,
     pub(crate) desktop_notice: Option<chat::DesktopNotice>,
+    /// The nearest moment the app wants the clock told (`AppEv::Clock`), as of the end of the
+    /// step: the shell keeps one timer for it.
+    pub(crate) wake: Option<Wake>,
 }
 
 impl AppFx {
+    /// When the app wants to be told the time next (none: it waits for an event).
+    pub fn wake(&self) -> Option<Wake> {
+        self.wake
+    }
+
     pub fn take_desktop_notice(&mut self) -> Option<chat::DesktopNotice> {
         self.desktop_notice.take()
     }
@@ -517,9 +533,8 @@ enum AppCtx {
     NewConversation {
         source: Option<ThreadId>,
         backend: BackendId,
-        /// What the new thread is asked once it has started (`/new <name>`: the rename); the
-        /// slash router builds it from a feature's thread intent.
-        then: Option<crate::features::FeatureThreadIntent>,
+        /// What the new thread is called once it has started (`/new <name>`: `name_started`).
+        name: Option<String>,
         /// The approved plan the new thread starts from (the plan prompt's "clear context" row).
         plan: Option<String>,
         /// A text for the new thread's composer (the provider-error notice's continue key).
@@ -602,6 +617,8 @@ pub struct CodexApp {
     pending_notices: Vec<threads::Notice>,
     /// The Daybreak facts (`AppEv::Daybreak`).
     daybreak: threads::daybreak::Access,
+    /// The moment the shell last told (`AppEv::Clock`).
+    now: Now,
     /// What renders a conversation as the Markdown of `/export` (the cells' text is the UI's).
     transcript_text: Option<TranscriptText>,
     /// The server's collaboration-mode presets (`collaborationMode/list`, read at connect):
@@ -674,6 +691,7 @@ impl CodexApp {
             effects: effects::Effects::default(),
             pending_notices: Vec::new(),
             daybreak: threads::daybreak::Access::default(),
+            now: Now::default(),
             transcript_text: None,
             modes: Vec::new(),
             reserve_returns: BTreeMap::new(),
@@ -744,6 +762,11 @@ impl CodexApp {
     }
 
     /// The `[tui]` settings the host reported.
+    /// The moment the shell last told the app (`AppEv::Clock`): the default one until it did.
+    pub fn now(&self) -> Now {
+        self.now
+    }
+
     pub fn tui(&self) -> facts::TuiSettings {
         self.tui
     }
@@ -1055,6 +1078,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
             fx.commands.push(Command::Directories { cwds });
         }
     }
+    fx.wake = features::wake(app);
 }
 
 /// The composer's asks of the host (message history, file search, mention usage), taken once per
@@ -1471,6 +1495,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Keymap(keymap) => app.keymap = Rc::new(*keymap),
         AppEv::Announce(notice) => notices::announce(app, notice, fx),
         AppEv::Daybreak(access) => app.daybreak = access,
+        AppEv::Clock(now) => features::clock(app, now, fx),
         AppEv::Tui(settings) => app.tui = settings,
         AppEv::Presets(slots) => select::event(app, crate::screens::select::Ev::Dials(slots), fx),
         AppEv::Feature(fact) => features::fact(app, fact, fx),
@@ -1835,7 +1860,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     if !overtaken {
                         install_rates(app, backend, limits);
                     }
-                    let now = app.screens.status.now;
+                    let now = app.now.secs();
                     let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
                         .entry(backend)
@@ -1894,7 +1919,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::NewConversation {
                 source,
                 backend,
-                then,
+                name,
                 plan,
                 draft,
                 side,
@@ -1918,8 +1943,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             fx,
                         );
                         note_instruction_sources(app, &thread, sources, fx);
-                        if let Some(intent) = then {
-                            apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
+                        if let Some(name) = name {
+                            session::name_started(app, &thread, name, fx);
                         }
                         // A side conversation is linked to its parent before it is shown, and
                         // starts empty: the forked history is the model's, not the screen's.
@@ -3050,7 +3075,12 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .stamped(daybreak)
                 .with_modes(&app.modes)
-                .at(app.screens.agents.now),
+                .with_facts(AppFacts::new(
+                    app.now,
+                    &app.tui,
+                    &app.screens.status,
+                    &app.daybreak,
+                )),
         );
     }
 }

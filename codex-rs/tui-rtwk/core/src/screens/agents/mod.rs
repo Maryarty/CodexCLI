@@ -12,8 +12,8 @@
 //!   (`rows`, `entries: Vec<CenterRow>`, `tab_counts`, `selected_row()`,
 //!   `show_more_selected`), `Model::details(&RowData)`.
 //! - Events (`Ev`, through `apply`/`AppEv::Screen(ScreenEv::Agents(..))`):
-//!   `Listed(Page)`, `Clock(i64)` (now, epoch seconds), `Current(Option<id>)`,
-//!   `Pinned(Option<Vec<id>>)`, `ListFailed`, `Notice`, `Request`. A script's
+//!   `Listed(Page)`, `Current(Option<id>)`,
+//!   `Pinned(Option<Vec<id>>)`, `ListFailed`, `Notice`, `Request`. The clock is the app's (`AppEv::Clock`, `Model::now`). A script's
 //!   `screen` step builds them through `seed` (`{"listed":{"threads":[..]}}`).
 //! - Intents (`Intent`, through `AppEv::Intent(Intent::Screen(ScreenIntent::
 //!   Agents(..)))`): `update(&mut Model, Intent) -> Vec<Out>` is the pure
@@ -72,6 +72,7 @@ pub use refresh::apply_answer;
 pub use refresh::attach_loaded;
 pub(crate) use refresh::finish_start;
 pub use refresh::is_active_writer;
+pub use update::wake_at;
 pub use update::wants_dirs;
 pub use sources::Fanout;
 pub use sources::PinReader;
@@ -386,8 +387,6 @@ impl Eq for Model {}
 pub enum Ev {
     /// The first page of the list, or a refresh of it.
     Listed(Page),
-    /// The clock, epoch seconds.
-    Clock(i64),
     /// The home directory, for `~`.
     Home(Option<String>),
     /// The backend and what it enables.

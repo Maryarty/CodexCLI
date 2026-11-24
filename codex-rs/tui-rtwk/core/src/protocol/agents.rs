@@ -317,7 +317,6 @@ pub(crate) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
                 worktrees: seed.worktrees,
             })
         }
-        "clock" => serde_json::from_value(body).map(Ev::Clock).map_err(text),
         "current" => serde_json::from_value::<Option<String>>(body)
             .map(|id| Ev::Current(id.map(crate::ids::ThreadId::new)))
             .map_err(text),

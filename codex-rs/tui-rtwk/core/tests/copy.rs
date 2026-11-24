@@ -63,7 +63,9 @@ fn command(app: &mut CodexApp) -> AppFx {
         AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread: Some(ThreadId::new(T)),
             command: SlashCommand::Copy,
-            intent: SessionIntent::Copy,
+            intent: SessionIntent::Feature {
+                args: String::new(),
+            },
         }))),
     )
 }

@@ -8,21 +8,26 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use rtwk::app::AppCx;
 use rtwk_tokio::TokioApp;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::watch;
+use tokio::time::Instant;
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::AppFx;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
+use codex_tui_core::app::Now;
+use codex_tui_core::app::Wake;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
-use codex_tui_core::screens::status::Ev as StatusEv;
 use codex_tui_core::screens::transcript::diff;
 
 use crate::app::UiApp;
@@ -72,6 +77,48 @@ pub trait Connector: Send {
     ) -> BackendTask;
 }
 
+/// What the shell reads the time from (ADR-012, "time as a declared wake"). The core never reads
+/// a clock: the shell reads this one and tells the app (`AppEv::Clock`), at the start and when
+/// the moment the app asked for (`AppFx::wake`) has come. The host's is the wall clock; a test
+/// gives the link a [`FixedClock`] and says the time itself.
+pub trait Clock: Send + Sync {
+    fn now(&self) -> Now;
+}
+
+/// The wall clock, in the local time zone.
+pub struct WallClock;
+
+impl Clock for WallClock {
+    fn now(&self) -> Now {
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| i64::try_from(since.as_millis()).unwrap_or(0));
+        Now::at_millis(millis).in_zone(chrono::Local::now().offset().local_minus_utc())
+    }
+}
+
+/// A clock that stands where it was put (`set`): what a test hands a link, so no test waits for
+/// a real minute or reads the real date.
+pub struct FixedClock(Mutex<Now>);
+
+impl FixedClock {
+    pub fn at(now: Now) -> Arc<Self> {
+        Arc::new(Self(Mutex::new(now)))
+    }
+
+    pub fn set(&self, now: Now) {
+        if let Ok(mut held) = self.0.lock() {
+            *held = now;
+        }
+    }
+}
+
+impl Clock for FixedClock {
+    fn now(&self) -> Now {
+        self.0.lock().map(|held| *held).unwrap_or_default()
+    }
+}
+
 /// The app's end of the shell: set up at start, then only used to send.
 pub struct Link {
     pub(crate) backend: Option<Backend>,
@@ -83,6 +130,10 @@ pub struct Link {
     pub(crate) commands: Option<UnboundedSender<Command>>,
     /// The other backends' commands.
     pub(crate) other_commands: BTreeMap<BackendId, UnboundedSender<Command>>,
+    /// Where the time is read (`Clock`).
+    pub(crate) clock: Arc<dyn Clock>,
+    /// The nearest moment the app wants the clock told, as of its last step, for the timer.
+    pub(crate) wake: Option<watch::Sender<Option<Wake>>>,
 }
 
 impl Link {
@@ -93,7 +144,15 @@ impl Link {
             ingress: None,
             commands: None,
             other_commands: BTreeMap::new(),
+            clock: Arc::new(WallClock),
+            wake: None,
         }
+    }
+
+    /// Reads the time from `clock` instead of the wall clock.
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
     }
 }
 
@@ -122,7 +181,12 @@ pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
     app.link.ingress = Some(ingress_tx.clone());
     app.link.commands = Some(command_tx);
-    cx.spawn_tokio(ambient(ingress_tx.clone(), epoch), |_, (), _| {});
+    let (wake_tx, wake_rx) = watch::channel(None);
+    app.link.wake = Some(wake_tx);
+    cx.spawn_tokio(
+        ambient(ingress_tx.clone(), epoch, app.link.clock.clone(), wake_rx),
+        |_, (), _| {},
+    );
     let task: BackendTask = match backend {
         Backend::None | Backend::Several { .. } => return,
         Backend::Connector(connector) => connector.run(ingress_tx.clone(), command_rx, epoch),
@@ -154,43 +218,59 @@ pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     }
 }
 
-/// How often the clock the screens show ages by is moved on.
-const CLOCK_EVERY: std::time::Duration = std::time::Duration::from_secs(20);
-
-/// The environment's facts the core cannot read (R12): the home directory
-/// once, then the clock at every `CLOCK_EVERY`. The command center shows
-/// `~` for the home and ages from the clock.
-async fn ambient(ingress: IngressTx, epoch: ConnEpoch) {
+/// The environment's facts the core cannot read (R12), and the one timer of the app: the home
+/// directory once, the time at the start, then the time again whenever the moment the app asked
+/// for has come (`AppFx::wake`, kept up to date by `run_effects`). Nothing here ticks on a
+/// schedule: with no wake asked for there is no timer, and what is woken (an age in minutes, a
+/// usage window) says when. The timer is armed when the app names a moment other than the one
+/// it waits for, so a stream of keys that ask the same moment does not push it back.
+async fn ambient(
+    ingress: IngressTx,
+    epoch: ConnEpoch,
+    clock: Arc<dyn Clock>,
+    mut wake: watch::Receiver<Option<Wake>>,
+) {
     let home = std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned());
     emit(
         &ingress,
         epoch,
         AppEv::Screen(ScreenEv::Agents(AgentsEv::Home(home))),
     );
+    emit(&ingress, epoch, AppEv::Clock(clock.now()));
+    // The moment waited for, and when on the runtime's clock it is.
+    let mut armed: Option<(Now, Instant)> = None;
     loop {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(0));
-        emit(
-            &ingress,
-            epoch,
-            AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(now))),
-        );
-        // A `/status` card is made at this clock, in the local time zone.
-        emit(
-            &ingress,
-            epoch,
-            AppEv::Screen(ScreenEv::Status(StatusEv::Clock {
-                now,
-                utc_offset_secs: chrono::Local::now().offset().local_minus_utc(),
-            })),
-        );
-        tokio::time::sleep(CLOCK_EVERY).await;
+        let changed = match armed {
+            None => wake.changed().await.map(|()| false).map_err(|_| ()),
+            Some((_, deadline)) => match tokio::time::timeout_at(deadline, wake.changed()).await {
+                Ok(changed) => changed.map(|()| false).map_err(|_| ()),
+                Err(_elapsed) => Ok(true),
+            },
+        };
+        match changed {
+            Err(()) => return,
+            // The moment has come: tell the app the time; its next step names the next one.
+            Ok(true) => {
+                armed = None;
+                emit(&ingress, epoch, AppEv::Clock(clock.now()));
+            }
+            Ok(false) => {
+                let asked = *wake.borrow_and_update();
+                armed = match (asked, armed) {
+                    (None, _) => None,
+                    (Some(next), Some((at, deadline))) if next.at() == at => Some((at, deadline)),
+                    (Some(next), _) => Some((next.at(), Instant::now() + next.after())),
+                };
+            }
+        }
     }
 }
 
 /// Runs the effects of one `apply_app` call.
 pub fn run_effects(app: &UiApp, fx: AppFx) {
+    if let Some(timer) = &app.link.wake {
+        timer.send_replace(fx.wake());
+    }
     let Some(commands) = &app.link.commands else {
         return;
     };

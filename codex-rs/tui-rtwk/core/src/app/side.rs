@@ -93,7 +93,7 @@ pub(super) fn start(
                 AppCtx::NewConversation {
                     source: Some(parent.clone()),
                     backend,
-                    then: None,
+                    name: None,
                     plan: None,
                     draft: None,
                     side: Some(Opening { parent, prompt }),

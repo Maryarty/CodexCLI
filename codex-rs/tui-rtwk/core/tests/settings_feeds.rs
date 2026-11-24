@@ -7,6 +7,7 @@
 
 use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::{AppEv, CodexApp, Command, Ingress, Intent};
+use codex_tui_core::commands::SessionIntent;
 use codex_tui_core::features::settings::{
     Command as SettingsCommand, Edit, Intent as SettingsIntent, Note, Offer, SetupKind, Which, Wish,
 };
@@ -14,6 +15,7 @@ use codex_tui_core::features::{self, FeatureCommand, FeatureIntent};
 use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::{ScreenIntent, chat};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -294,14 +296,15 @@ fn the_keymap_binding_is_written_under_its_context_and_action() {
 // ---- `/resume <name or id>`, the skills summary, the shortcut capture
 
 fn slash_resume(app: &mut CodexApp, name: &str) -> Vec<Command> {
-    let intent = SettingsIntent::Slash {
-        command: codex_tui_core::commands::SlashCommand::Resume,
-        args: name.to_owned(),
-        thread: Some(codex_tui_core::ids::ThreadId::new("thread-1")),
-    };
     run(
         app,
-        AppEv::Intent(Intent::Feature(FeatureIntent::from(intent))),
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: Some(codex_tui_core::ids::ThreadId::new("thread-1")),
+            command: codex_tui_core::commands::SlashCommand::Resume,
+            intent: SessionIntent::Feature {
+                args: name.to_owned(),
+            },
+        }))),
     )
 }
 

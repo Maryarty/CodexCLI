@@ -380,6 +380,24 @@ impl StatusOverride {
     }
 }
 
+/// The app's clock moved (`ScreenStates::set_now`): what is due by it is asked for, as after any
+/// other change of the facts.
+pub(crate) fn set_now(model: &mut Model, now: u64) {
+    model.facts.set_now(now);
+    model.facts.sync(&model.status, model.signed_in);
+}
+
+/// When the chat wants the clock told (`AppFx::wake`): the workspace headline's next read, only
+/// while a read would be made then (a ChatGPT sign-in; the facts say none while the item is off,
+/// the backend lacks the feature or a read is in flight).
+pub fn wake_at(model: &Model) -> Option<crate::app::Now> {
+    if !model.signed_in {
+        return None;
+    }
+    let due = model.facts.headline_due_at()?;
+    Some(crate::app::Now::at_secs(i64::try_from(due).unwrap_or(i64::MAX)))
+}
+
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {

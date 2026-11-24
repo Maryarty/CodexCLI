@@ -10,6 +10,11 @@
 //! - `fact`: a fact the host tells a feature unasked, read by that feature's own `SEED`
 //!   (`core/src/features/<f>/`, `Feature::SEED`): `{"step":"fact","feature":"settings",
 //!   "fact":{"kind":"theme_picker",..}}`. It is `AppEv::Feature`, the path the host's facts take.
+//! - `clock`: the time now (`{"step":"clock","secs":968250720}`, or `"millis"`, and an
+//!   optional `"utc_offset"` in seconds east of UTC): the app is told it as the shell tells it
+//!   (`AppEv::Clock`), so a script says what time it is and nothing waits for a real second. The
+//!   old per-screen forms (`{"step":"screen","dir":"agents"|"resume","ev":{"clock":secs}}`) are
+//!   read as this step.
 //! - `notify`: a server notification, the protocol's own JSON in `message`.
 //! - `request`: a server request, the protocol's own JSON in `message`.
 //! - `lagged`: the app server's event stream dropped `skipped` events
@@ -42,6 +47,7 @@ use crate::app::BackendEv;
 use crate::app::CodexApp;
 use crate::app::Command;
 use crate::app::Ingress;
+use crate::app::Now;
 use crate::app::Session;
 use crate::ids::ThreadId;
 use crate::rpc::Reply;
@@ -63,6 +69,15 @@ pub enum Step {
     Fact {
         feature: String,
         fact: serde_json::Value,
+    },
+    /// The time now: the app is told it (`AppEv::Clock`). One of `secs` and `millis`.
+    Clock {
+        #[serde(default)]
+        secs: Option<i64>,
+        #[serde(default)]
+        millis: Option<i64>,
+        #[serde(default)]
+        utc_offset: Option<i32>,
     },
     Notify {
         message: Box<ServerNotification>,
@@ -89,6 +104,43 @@ pub enum Step {
         width: u16,
         height: u16,
     },
+}
+
+impl Step {
+    /// The moment of a `clock` step; none for any other step or a step that names no time.
+    pub fn now(&self) -> Option<Now> {
+        let Step::Clock {
+            secs,
+            millis,
+            utc_offset,
+        } = self
+        else {
+            return None;
+        };
+        let now = match (secs, millis) {
+            (Some(secs), None) => Now::at_secs(*secs),
+            (None, Some(millis)) => Now::at_millis(*millis),
+            _ => return None,
+        };
+        Some(now.in_zone(utc_offset.unwrap_or(0)))
+    }
+}
+
+/// The clock events screens used to take (`{"step":"screen","dir":"agents"|"resume","ev":
+/// {"clock":secs}}`) as the `clock` step: the screens no longer have an event for the time.
+fn legacy_clock(value: &serde_json::Value) -> Option<Step> {
+    if value.get("step")?.as_str()? != "screen" {
+        return None;
+    }
+    if !matches!(value.get("dir")?.as_str()?, "agents" | "resume") {
+        return None;
+    }
+    let secs = value.get("ev")?.get("clock")?.as_i64()?;
+    Some(Step::Clock {
+        secs: Some(secs),
+        millis: None,
+        utc_offset: None,
+    })
 }
 
 /// Model state a script starts from.
@@ -253,7 +305,15 @@ pub fn parse(text: &str) -> Result<Script, ScriptError> {
             replies.push(method, answer);
             continue;
         }
-        let step = serde_json::from_value::<Step>(value).map_err(|e| bad(e.to_string()))?;
+        let step = match legacy_clock(&value) {
+            Some(step) => step,
+            None => serde_json::from_value::<Step>(value).map_err(|e| bad(e.to_string()))?,
+        };
+        if let Step::Clock { .. } = &step
+            && step.now().is_none()
+        {
+            return Err(bad("a `clock` step names `secs` or `millis`".to_owned()));
+        }
         if let Step::Respond { result, error, .. } = &step {
             answer_of("respond", result.clone(), error.clone()).map_err(bad)?;
         }
@@ -304,6 +364,12 @@ impl Script {
                         message: format!("{err:?}"),
                     })?;
                     ingest(app, AppEv::Screen(ev));
+                }
+                Step::Clock { .. } => {
+                    let now = step
+                        .now()
+                        .ok_or_else(|| fail("a `clock` step names a time"))?;
+                    ingest(app, AppEv::Clock(now));
                 }
                 Step::Fact { feature, fact } => {
                     let fact =

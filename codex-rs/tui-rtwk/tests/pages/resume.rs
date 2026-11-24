@@ -8,9 +8,7 @@
 #[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
-use codex_tui_core::app::AppEv;
-use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::resume::Ev as ResumeEv;
+use codex_tui_core::app::{AppEv, Now};
 
 use crate::common::{Harness, start_sized};
 
@@ -301,9 +299,7 @@ fn the_meta_line_leads_with_the_created_time_once_the_sort_is_created() {
     });
     // The shell's ambient clock feeds the command center's model only: the test plays the
     // shell for the picker's.
-    h.inject([AppEv::Screen(ScreenEv::Resume(ResumeEv::Clock(
-        i64::try_from(now).unwrap_or(0),
-    )))]);
+    h.inject([AppEv::Clock(Now::at_secs(i64::try_from(now).unwrap_or(0)))]);
     // The first listing went out before the fake could answer: a sort change lists again.
     h.press("tab");
     h.press("tab");

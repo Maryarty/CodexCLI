@@ -15,10 +15,11 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
-use super::{AppCx, AppView, Feature, Never, Out, ThreadCx, Tone, TurnEnd};
-use crate::app::AppFx;
+use super::{AppCx, AppView, Feature, Never, Out, Slash, ThreadCx, Tone, TurnEnd};
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
+use crate::app::{AppFx, Now};
+use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TicketMint};
 use crate::rpc::RpcError;
 use crate::screens::ScreenStates;
@@ -50,7 +51,7 @@ fn logged() -> Vec<(&'static str, Hook)> {
 /// own; beta has none of the note, fact, wish and interest (`Never<Self>`), which is the case
 /// the root `From` impls must survive twice.
 macro_rules! probe {
-    ($module:ident, $marker:ident, $name:literal, $($rest:tt)*) => {
+    ($module:ident, $marker:ident, $name:literal, $runs:expr, $($rest:tt)*) => {
         pub mod $module {
             use super::*;
 
@@ -71,6 +72,7 @@ macro_rules! probe {
 
             impl Feature for $marker {
                 const NAME: &'static str = $name;
+                const RUNS: &'static [SlashCommand] = $runs;
                 type State = u32;
                 type ThreadPart = u32;
                 type Target = Never<Self>;
@@ -86,6 +88,10 @@ macro_rules! probe {
 
                 fn intent(state: &mut u32, intent: Intent, _cx: &mut AppCx<'_>) {
                     *state += intent.0;
+                }
+
+                fn slash(state: &mut u32, slash: Slash, _cx: &mut AppCx<'_>) {
+                    *state += slash.args.len() as u32 + slash.source.map_or(0, |_| 100);
                 }
 
                 fn answered(
@@ -108,6 +114,16 @@ macro_rules! probe {
                             Done::Title(None) => 1,
                             _ => 1000,
                         };
+                }
+
+                // A state (or part) of a thousand or more is a timer: that many seconds after
+                // the epoch. Its intent adds nothing, so it stays asked for.
+                fn wake_at(state: &u32) -> Option<(Now, Intent)> {
+                    (*state >= 1000).then(|| (Now::at_secs(i64::from(*state)), Intent(0)))
+                }
+
+                fn thread_wake_at(part: &u32) -> Option<(Now, ThreadIntent)> {
+                    (*part >= 1000).then(|| (Now::at_secs(i64::from(*part)), ThreadIntent(0)))
                 }
 
                 fn on_resumed(_state: &mut u32, thread: &ThreadId, _cx: &mut AppCx<'_>) {
@@ -197,8 +213,14 @@ macro_rules! probe {
 mod probe_list {
     use super::*;
 
-    probe!(alpha, Alpha, "alpha", full);
-    probe!(beta, Beta, "beta", bare);
+    probe!(alpha, Alpha, "alpha", &[SlashCommand::Rename], full);
+    probe!(
+        beta,
+        Beta,
+        "beta",
+        &[SlashCommand::Goal, SlashCommand::Copy],
+        bare
+    );
 
     feature_dirs! {
         alpha => Alpha;
@@ -209,8 +231,9 @@ mod probe_list {
 use probe_list::{
     FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote,
     FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha, answered,
-    apply_intent, apply_thread_intent, apply_thread_reply, beta, decode, effect_done, names,
-    note_tone, on_fact, on_interest, on_interrupted, on_resumed, on_turn_end, wire,
+    apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode, effect_done,
+    names, next_thread_wake, next_wake, note_tone, on_fact, on_interest, on_interrupted,
+    on_resumed, on_turn_end, runs_of, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -278,6 +301,50 @@ fn an_interest_reaches_its_feature_opened_and_closed() {
     assert_eq!((*states.alpha, *states.beta), (2 + 100, 0));
 }
 
+/// A feature says when it wants the clock told (`Feature::wake_at`); the generated functions
+/// give the nearest moment of all (what the app hands the shell's one timer) and the intents
+/// whose moment the clock has reached, in list order, and nothing before. The clock is a value
+/// the test makes up: nothing here waits for a second.
+#[test]
+fn a_feature_declares_its_wake_and_it_is_due_only_when_the_clock_reaches_it() {
+    let mut states = FeatureStates::default();
+    assert_eq!(next_wake(&states), None, "no feature asked");
+    assert!(wakes_due(&states, Now::at_secs(1_000_000)).is_empty());
+    *states.alpha = 2_000;
+    *states.beta = 1_500;
+    assert_eq!(
+        next_wake(&states),
+        Some(Now::at_secs(1_500)),
+        "the nearer of the two"
+    );
+    assert!(wakes_due(&states, Now::at_secs(1_499)).is_empty());
+    assert_eq!(
+        wakes_due(&states, Now::at_secs(1_500)),
+        [FeatureIntent::from(beta::Intent(0))]
+    );
+    assert_eq!(
+        wakes_due(&states, Now::at_secs(2_500)),
+        [
+            FeatureIntent::from(alpha::Intent(0)),
+            FeatureIntent::from(beta::Intent(0))
+        ],
+        "both, in list order"
+    );
+}
+
+#[test]
+fn a_thread_part_declares_its_wake_the_same_way() {
+    let mut parts = FeatureThreadParts::default();
+    assert_eq!(next_thread_wake(&parts), None);
+    parts.beta = 3_000;
+    assert_eq!(next_thread_wake(&parts), Some(Now::at_secs(3_000)));
+    assert!(thread_wakes_due(&parts, Now::at_secs(2_999)).is_empty());
+    assert_eq!(
+        thread_wakes_due(&parts, Now::at_secs(3_000)),
+        [FeatureThreadIntent::from(beta::ThreadIntent(0))]
+    );
+}
+
 #[test]
 fn an_intent_reaches_its_feature_and_only_its_feature() {
     let mut states = FeatureStates::default();
@@ -285,6 +352,32 @@ fn an_intent_reaches_its_feature_and_only_its_feature() {
     app_step(|cx| apply_intent(&mut states, FeatureIntent::Alpha(alpha::Intent(5)), cx));
     app_step(|cx| apply_intent(&mut states, FeatureIntent::from(beta::Intent(3)), cx));
     assert_eq!((*states.alpha, *states.beta), (5, 5));
+}
+
+/// A slash command goes to the feature whose `RUNS` holds it, with the text after its name and
+/// the thread it was typed in; one nobody runs is not taken (the app says it is not available).
+#[test]
+fn a_slash_command_reaches_its_owner_with_its_arguments() {
+    let mut states = FeatureStates::default();
+    let slash = |command, args: &str, thread: Option<&str>| Slash {
+        command,
+        args: args.to_owned(),
+        source: thread.map(ThreadId::new),
+    };
+    let mut taken = Vec::new();
+    app_step(|cx| {
+        for line in [
+            slash(SlashCommand::Rename, "abc", None),
+            slash(SlashCommand::Copy, "xy", Some("t1")),
+            slash(SlashCommand::Goal, "", None),
+            slash(SlashCommand::Logout, "", None),
+        ] {
+            taken.push(apply_slash(&mut states, line, cx));
+        }
+    });
+    assert_eq!(taken, [true, true, true, false]);
+    assert_eq!((*states.alpha, *states.beta), (3, 2 + 100));
+    assert!(runs_of(SlashCommand::Goal) && !runs_of(SlashCommand::Logout));
 }
 
 #[test]

@@ -4,22 +4,92 @@
 //! a change of a thread) and the app carries it out after the call, in the order it was said.
 //! It never holds `&mut` of the app or of a thread's model.
 
+use std::sync::OnceLock;
+
 use super::surface::Scope;
 use super::{
     FeatureCommand, FeatureCtx, FeatureNote, FeatureThreadIntent, FeatureThreadParts, FeatureWish,
 };
-use crate::app::TranscriptText;
 use crate::app::effects::Ask;
 use crate::app::facts::TuiSettings;
+use crate::app::{Now, TranscriptText};
 use crate::ids::{ThreadId, Ticket};
 use crate::screens::ScreenStates;
 use crate::screens::ThreadSlots;
 use crate::screens::select::collaboration::Mask;
+use crate::screens::status;
 use crate::threads::daybreak::Access;
-use crate::threads::{Item, ThreadCore, ThreadFx, ThreadSet};
+use crate::threads::{ThreadCore, ThreadFx, ThreadSet};
+
+/// The facts of the app that both kinds of step read (ADR-012, "selectors"): the moment, the
+/// `[tui]` settings, what the status screen holds of the account and the catalog, and what the
+/// host knows of the account's access programs. Typed, read-only handles into the app, `Copy`:
+/// a feature's step is handed them whatever its scope (`AppView::facts`, `ThreadCx::facts`),
+/// so a selector a slice writes over them (`fn x(facts: AppFacts<'_>) -> T`) works in both.
+#[derive(Clone, Copy)]
+pub struct AppFacts<'a> {
+    now: Now,
+    tui: &'a TuiSettings,
+    status: &'a status::Model,
+    access: &'a Access,
+}
+
+impl<'a> AppFacts<'a> {
+    pub(crate) fn new(
+        now: Now,
+        tui: &'a TuiSettings,
+        status: &'a status::Model,
+        access: &'a Access,
+    ) -> Self {
+        Self {
+            now,
+            tui,
+            status,
+            access,
+        }
+    }
+
+    /// The moment the shell last told the app (`AppEv::Clock`); the default one until it did.
+    pub fn now(&self) -> Now {
+        self.now
+    }
+
+    /// The `[tui]` settings.
+    pub fn tui(&self) -> &'a TuiSettings {
+        self.tui
+    }
+
+    /// What the status screen holds: the account the server is signed in to, the model catalog,
+    /// the remote connection.
+    pub fn status(&self) -> &'a status::Model {
+        self.status
+    }
+
+    /// What the host knows of the account's access programs and the catalog's (`AppEv::Daybreak`).
+    pub fn access(&self) -> &'a Access {
+        self.access
+    }
+}
+
+impl AppFacts<'static> {
+    /// What a step that was given no facts reads: the clock not told yet, the defaults.
+    pub(crate) fn unknown() -> AppFacts<'static> {
+        static TUI: OnceLock<TuiSettings> = OnceLock::new();
+        static STATUS: OnceLock<status::Model> = OnceLock::new();
+        static ACCESS: OnceLock<Access> = OnceLock::new();
+        AppFacts {
+            now: Now::default(),
+            tui: TUI.get_or_init(TuiSettings::default),
+            status: STATUS.get_or_init(status::Model::default),
+            access: ACCESS.get_or_init(Access::default),
+        }
+    }
+}
 
 /// The app, read-only: the facts a feature decides by. It holds references to parts of the
-/// app, so a feature's own state can be `&mut` at the same time.
+/// app, so a feature's own state can be `&mut` at the same time. It offers the handles a
+/// selector reads (`active`, `thread`, `facts`, `screens`...) and no fact that is one slice's
+/// concern: a slice writes its own selectors over them (rule `view_methods_budget`).
 #[derive(Clone, Copy)]
 pub struct AppView<'a> {
     active: Option<&'a ThreadId>,
@@ -28,7 +98,8 @@ pub struct AppView<'a> {
     tui: &'a TuiSettings,
     modes: &'a [Mask],
     transcript: Option<&'a TranscriptText>,
-    daybreak: Option<&'a Access>,
+    access: Option<&'a Access>,
+    now: Now,
 }
 
 impl<'a> AppView<'a> {
@@ -47,19 +118,37 @@ impl<'a> AppView<'a> {
             tui,
             modes,
             transcript,
-            daybreak: None,
+            access: None,
+            now: Now::default(),
         }
     }
 
-    /// The host's Daybreak facts (the account, the model catalog) are read through this view.
-    pub(crate) fn with_daybreak(mut self, daybreak: &'a Access) -> Self {
-        self.daybreak = Some(daybreak);
+    /// The host's account and catalog facts are read through this view.
+    pub(crate) fn with_access(mut self, access: &'a Access) -> Self {
+        self.access = Some(access);
         self
     }
 
-    /// What the host knows about Daybreak (`AppEv::Daybreak`): nothing until it said.
-    pub fn daybreak(&self) -> Access {
-        self.daybreak.cloned().unwrap_or_default()
+    /// The moment the app was last told.
+    pub(crate) fn at(mut self, now: Now) -> Self {
+        self.now = now;
+        self
+    }
+
+    /// The moment the shell last told the app (`AppEv::Clock`).
+    pub fn now(&self) -> Now {
+        self.now
+    }
+
+    /// The facts both scopes read: the moment, the `[tui]` settings, the account, the catalog.
+    pub fn facts(&self) -> AppFacts<'a> {
+        let unknown = AppFacts::unknown();
+        AppFacts::new(
+            self.now,
+            self.tui,
+            &self.screens.status,
+            self.access.unwrap_or(unknown.access),
+        )
     }
 
     /// The thread the chat shows (none before the session has started).
@@ -75,11 +164,6 @@ impl<'a> AppView<'a> {
     /// The thread the chat shows.
     pub fn active_thread(&self) -> Option<ThreadView<'a>> {
         self.active.and_then(|id| self.thread(id))
-    }
-
-    /// The `[tui]` settings.
-    pub fn tui(&self) -> &'a TuiSettings {
-        self.tui
     }
 
     /// The screens' models (the select screen's catalog, the composer's...), as facts.
@@ -114,10 +198,10 @@ impl<'a> AppView<'a> {
 /// One thread, read-only: its own state and its screens' parts; a feature's own part is
 /// the `&mut` it is handed beside this.
 ///
-/// The thread is read through the methods below only (a feature adds the one it needs, each a
-/// decision): `core.busy()` would not see a turn start that was said in this step and is not in
-/// the model yet (`ThreadFx` hands its tickets to the model after the whole `apply`), so the
-/// model itself is not a feature's to read raw.
+/// What depends on the step (`busy`, `has_writer`) is a method here: `core.busy()` would not see a
+/// turn start that was said in this step and is not in the model yet (`ThreadFx` hands its
+/// tickets to the model after the whole `apply`), so the model itself is not a feature's to read
+/// raw. Every other fact is a selector the slice writes over `core`, `slots` and `parts`.
 #[derive(Clone, Copy)]
 pub struct ThreadView<'a> {
     core: &'a ThreadCore,
@@ -167,57 +251,21 @@ impl<'a> ThreadView<'a> {
         self.core.attached() && self.slots.chat.provider_error.is_none()
     }
 
-    /// The thread's background terminals (unified-exec sessions still running), oldest first
-    /// (`/ps`).
-    pub fn terminals(&self) -> &'a [crate::threads::Terminal] {
-        self.core.terminals()
-    }
-
-    /// The messages a copy can take, oldest first: an assistant message or a plan, as the server
-    /// sent it (oracle `record_agent_markdown`'s callers).
-    pub fn response_sources(&self) -> std::vec::IntoIter<&'a str> {
+    /// The thread's own domain facts (its transcript, its terminals...), read-only: a slice's
+    /// selector reads what it needs through this handle.
+    pub fn core(&self) -> &'a ThreadCore {
         self.core
-            .transcript()
-            .iter()
-            .filter_map(|(_, item)| match item {
-                Item::Agent { text, .. } | Item::Plan { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
     }
 
-    /// The messages of the conversation a reader sees, oldest first: what the user typed and
-    /// what the assistant said (no tools, reasoning or plans), as history draws their text.
-    pub fn conversation(&self) -> Vec<super::recap::Message> {
-        use super::recap::Message;
-        self.core
-            .transcript()
-            .iter()
-            .filter_map(|(_, item)| match item {
-                Item::User(prompt) => Some(Message::User(prompt.shown().text.into_owned())),
-                Item::Agent { text, .. } => Some(Message::Assistant(text.clone())),
-                _ => None,
-            })
-            .collect()
+    /// The thread's parts for the screens (the chat's name, directory, provider error...).
+    pub fn slots(&self) -> &'a ThreadSlots {
+        self.slots
     }
 
-    /// The Daybreak choice of the thread: what `/daybreak` saved for it, else what its metadata
-    /// holds (`Metadata::daybreak`).
-    pub fn daybreak(&self) -> Option<bool> {
+    /// The features' parts of the thread, read-only: none inside a feature's own thread step
+    /// (it holds its part `&mut` there). A slice reads its own part by its field.
+    pub fn parts(&self) -> Option<&'a FeatureThreadParts> {
         self.parts
-            .and_then(|parts| parts.small_cmds.saved())
-            .or(self.slots.chat.daybreak)
-    }
-
-    /// The thread is not kept (`config.ephemeral`): it has no metadata to save a choice in.
-    pub fn ephemeral(&self) -> bool {
-        self.slots.chat.ephemeral
-    }
-
-    /// The thread's name, when it has one (`/rename`).
-    pub fn name(&self) -> Option<&'a str> {
-        self.slots.chat.name.as_deref()
     }
 }
 
@@ -347,6 +395,9 @@ impl<'a> AppCx<'a> {
 /// asks `view.has_writer()`.
 pub struct ThreadCx<'a, 'b> {
     pub view: ThreadView<'a>,
+    /// The app's facts at this step (the moment, the account, the `[tui]` settings): read-only
+    /// handles, the same a step of the app's scope reads through `AppView::facts`.
+    pub facts: AppFacts<'a>,
     /// Private: a feature has the effects this type names (`request`, and what a feature
     /// that needs more adds here), never the thread's lifecycle RPCs. An effect that starts a
     /// turn sets `view.start_said` (the next feature in the list sees the thread busy).
@@ -358,7 +409,8 @@ impl<'a, 'b> ThreadCx<'a, 'b> {
     /// own `send_next`) already counts: the features' hooks run after the thread's own work.
     pub(crate) fn new(mut view: ThreadView<'a>, fx: &'a mut ThreadFx<'b>) -> Self {
         view.start_said = fx.start_said();
-        Self { view, fx }
+        let facts = fx.facts();
+        Self { view, facts, fx }
     }
 
     /// An RPC of the feature on this thread: `ctx` comes back with the answer to the

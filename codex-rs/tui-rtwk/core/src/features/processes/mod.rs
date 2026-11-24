@@ -9,7 +9,7 @@
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never};
+use super::{AppCx, Feature, Never, ThreadView};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -17,6 +17,11 @@ use crate::threads::{Terminal, Tone};
 
 /// The marker type of the feature.
 pub struct Processes;
+
+/// The thread's background terminals (unified-exec sessions still running), oldest first.
+pub fn terminals<'a>(thread: ThreadView<'a>) -> &'a [Terminal] {
+    thread.core().terminals()
+}
 
 /// What `/ps` names (`FeatureTarget`): the command runs the feature through its UI half's `open`,
 /// which says the verb below for the thread in use (no sheet is drawn).
@@ -61,7 +66,7 @@ impl Feature for Processes {
         let terminals = source
             .as_ref()
             .and_then(|id| cx.view().thread(id))
-            .map(|thread| thread.terminals().to_vec())
+            .map(|thread| terminals(thread).to_vec())
             .unwrap_or_default();
         cx.note(source, Note { terminals });
     }

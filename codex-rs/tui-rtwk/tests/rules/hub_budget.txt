@@ -11,6 +11,8 @@
 # enum <file> <Name> <variants>
 # arms <file> <fn> <pattern> <occurrences of the pattern in the function's code>
 # methods <file> <Trait> <methods of the trait>
+# view <file> <Type> <pub fns of the type's impl blocks>   (rule `view_methods_budget`)
+# appstate <n>, clock_loops <n>   (rules `app_names_no_feature_state`, `no_clock_loops`)
 # SessionIntent 43 -> 44: `/status` left `Target` (a screen's directory, which it
 # is not any more: the card is a cell of the thread's transcript, ADR-003) for the oracle's
 # slash list, which stays `SessionIntent`'s; `Target::Status` went (that enum has no budget).
@@ -19,7 +21,12 @@
 # `mcp_inventory::Mode`s; `SessionIntent::Ps` went, `Mcp` stays for `/mcp login`.
 # fw1-c8: `ElevateSandbox` is `features/windows_sandbox` (`Feature::OPENS`, `Target::Feature`): 43 -> 42.
 # Merged (c5 + c8, wave 1): 41.
-enum core/src/commands/dispatch.rs SessionIntent 41
+# fw-hubs-a (P1, the slash door): `SessionIntent::Feature { args }` is the one variant for every
+# command a feature runs (`Feature::RUNS`, `features::apply_slash`); Recap, Rename, Goal, Copy,
+# Export, Mcp, Logout, Ide, Daybreak, Hooks, DebugConfig, Model, Title, Statusline and ResumeNamed
+# left it, and the dead Apps and Tui with them: 41 - 17 + 1 = 25. Side stays until fw-hubs-b moves
+# the side lifecycle into its slice.
+enum core/src/commands/dispatch.rs SessionIntent 25
 # fw1-c8: the seven worktree lines are one `Note::Worktree(worktree::Line)` (39 -> 33 with the new ones).
 enum core/src/screens/select.rs Note 33
 enum core/src/screens/select.rs Picked 8
@@ -52,7 +59,10 @@ enum core/src/threads.rs ThreadEv 30
 enum core/src/threads.rs ThreadAsk 21
 enum core/src/threads.rs ThreadCtx 4
 enum core/src/app.rs Intent 17
-enum core/src/app.rs AppEv 17
+# fw-hubs-a (P2): `AppEv::Clock(Now)`, the one event that tells the time (the shell's timer, a
+# script's `clock` step); `Agents::Clock`, `Status::Clock`, `Resume::Clock` and the chat facts' clock
+# are gone from their screens (those are not hub enums).
+enum core/src/app.rs AppEv 18
 enum core/src/app.rs Command 20
 enum core/src/app.rs AppCtx 13
 enum core/src/threads/note.rs NoteKey 16
@@ -92,7 +102,28 @@ enum core/src/features/mod.rs FeatureThreadIntent 1
 # the arguments of the sheet (`OpenArgs`, the UI half).
 enum core/src/features/mod.rs FeatureTarget 0
 enum src/features/mod.rs OpenArgs 0
-methods core/src/features/mod.rs Feature 14
+# fw-hubs-a: `slash` (the command a feature runs, ADR-012 "the slash door"): 14 -> 15; `wake_at`
+# and `thread_wake_at` (the moment a slice wants the clock told, ADR-012 "time as a declared
+# wake"; the one timer is the shell's): 15 -> 17.
+methods core/src/features/mod.rs Feature 17
+# fw-hubs-a (P3): the two views a slice reads the app through. `AppView` has 9 `pub fn`s and
+# `ThreadView` 7 (the handles `core`, `slots`, `parts`, `facts` and what depends on the step:
+# `busy`, `has_writer`); a fact one slice wants is that slice's selector over them
+# (`processes::terminals`, `copy::response_sources`, `recap::conversation`, `rename::name`,
+# `small_cmds::daybreak_of`), so these lines only go down.
+# view <file> <Type> <pub fns of the type's impl blocks>
+view core/src/features/cx.rs AppView 9
+view core/src/features/cx.rs ThreadView 7
+# The hub names a slice's state (`app.features.<f>`, `parts.<f>`) in 6 lines: the five of the side
+# lifecycle (app.rs, app/side.rs) and the thread's saved Daybreak read in app/notices.rs. Both
+# are fw-hubs-b's (the side lifecycle moves into its slice, the notice reads through a selector);
+# the count goes to 0.
+# appstate <lines of core/src/app.rs and core/src/app/ that name a feature's state>
+appstate 6
+# Time is told, never ticked (rule `no_clock_loops`): a `Clock` variant in a screen's or a slice's
+# enum, `AppEv::Clock` named outside the app's arm, the script's step and the shell's timer, a
+# periodic timer. 0, and stays 0.
+clock_loops 0
 # threads::apply_ev still matches the chat screen's thread intents by name (the draft, the mask,
 # ...): the count goes to 0 as they move behind `chat::apply_thread_intent` or into feature
 # slices. The queue's five went to `threads/queue.rs` (`apply`, which gives back what is not the

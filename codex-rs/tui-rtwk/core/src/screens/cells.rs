@@ -154,8 +154,9 @@ pub struct Startup {
 pub enum Ev {
     /// What the host found out about the terminal's hyperlinks.
     LinkDisplay(LinkDisplay),
-    /// What the host found out about the viewer's clock.
-    Clock(ViewerClock),
+    /// What the host found out about how the viewer writes a time (the 12-hour or 24-hour
+    /// clock, the zone): a display fact, not the time (`AppEv::Clock`).
+    Viewer(ViewerClock),
     /// `show_raw_agent_reasoning` of the config.
     RawReasoning(bool),
     /// How the run started.
@@ -175,7 +176,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::LinkDisplay(display) => model.link_display = display,
-        Ev::Clock(clock) => model.clock = clock,
+        Ev::Viewer(clock) => model.clock = clock,
         Ev::RawReasoning(show) => model.show_raw_reasoning = show,
         Ev::Startup(startup) => model.startup = Some(startup),
         Ev::RuntimeMetrics { turn, metrics } => {
@@ -252,10 +253,10 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             SeedLinkDisplay::LabelOnly => LinkDisplay::LabelOnly,
             SeedLinkDisplay::WithDestination => LinkDisplay::WithDestination,
         }),
-        SeedEv::Clock {
+        SeedEv::ViewerClock {
             format,
             utc_offset,
-        } => Ev::Clock(ViewerClock {
+        } => Ev::Viewer(ViewerClock {
             format,
             utc_offset,
         }),
@@ -272,7 +273,8 @@ enum SeedEv {
     LinkDisplay {
         display: SeedLinkDisplay,
     },
-    Clock {
+    #[serde(rename = "clock")]
+    ViewerClock {
         format: ClockFormat,
         #[serde(default)]
         utc_offset: Option<i32>,

@@ -52,10 +52,10 @@ fn verb(app: &mut CodexApp, intent: SmallIntent) -> AppFx {
     )
 }
 
-/// The Daybreak choice the thread shows (`ThreadView::daybreak`).
+/// The Daybreak choice the thread shows (`small_cmds::daybreak_of`).
 fn saved(app: &CodexApp) -> Option<bool> {
     app.thread(&ThreadId::new(T))
-        .and_then(|thread| thread.view().daybreak())
+        .and_then(|thread| features::small_cmds::daybreak_of(thread.view()))
 }
 
 fn fact(app: &mut CodexApp, fact: Fact) {
@@ -112,7 +112,13 @@ fn notes(app: &CodexApp) -> Vec<SmallNote> {
 #[test]
 fn logout_asks_the_account_and_a_success_wishes_the_shutdown() {
     let mut app = app();
-    let fx = command(&mut app, SlashCommand::Logout, SessionIntent::Logout);
+    let fx = command(
+        &mut app,
+        SlashCommand::Logout,
+        SessionIntent::Feature {
+            args: String::new(),
+        },
+    );
     let request = one(&fx);
     assert_eq!(request.1, Wanted::Logout);
     answer(&mut app, &request, serde_json::json!({}));
@@ -138,8 +144,8 @@ fn ide_toggles_and_says_what_the_host_found() {
         command(
             app,
             SlashCommand::Ide,
-            SessionIntent::Ide {
-                args: args.map(str::to_owned),
+            SessionIntent::Feature {
+                args: args.unwrap_or_default().to_owned(),
             },
         )
     };
@@ -264,7 +270,9 @@ fn debug_config_says_the_rows_the_host_gave() {
     let fx = command(
         &mut app,
         SlashCommand::DebugConfig,
-        SessionIntent::DebugConfig,
+        SessionIntent::Feature {
+            args: String::new(),
+        },
     );
     assert!(sent(&fx).is_empty());
     let got = notes(&app);

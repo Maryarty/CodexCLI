@@ -10,7 +10,7 @@ use super::SlashCommand;
 use super::SlashCommandItem;
 use super::find_slash_command;
 use super::parse_slash_name;
-use crate::features::{FeatureTarget, target_of};
+use crate::features::{FeatureTarget, runs_of, target_of};
 
 /// A screen directory a command opens. The UI opens it through that
 /// directory's own opener.
@@ -208,48 +208,23 @@ pub enum SessionIntent {
     /// `/status`: a card in the thread's transcript.
     Status,
     Init,
-    Recap,
     Archive,
     Delete,
     Worktree,
-    Rename {
-        name: Option<String>,
-    },
     Plan {
         prompt: Option<String>,
-    },
-    Goal {
-        args: Option<String>,
     },
     Side {
         prompt: Option<String>,
     },
-    Copy,
-    /// `/export <path>`: a bare `/export` is the feature's own sheet (`Target::Feature`).
-    Export {
-        path: String,
-    },
     Raw {
         on: Option<bool>,
     },
-    Tui,
     Cd {
         path: String,
     },
     Pwd,
-    /// `/mcp verbose` and `/mcp login <server>` (a bare `/mcp` is the feature's, `Feature::OPENS`).
-    Mcp {
-        args: Option<String>,
-    },
-    Apps,
-    Logout,
     Vim,
-    Ide {
-        args: Option<String>,
-    },
-    Daybreak,
-    Hooks,
-    DebugConfig,
     Stop,
     Rollout,
     App,
@@ -261,23 +236,17 @@ pub enum SessionIntent {
     StartReview {
         target: crate::threads::ReviewTarget,
     },
-    Model {
-        args: Option<String>,
-    },
     Permissions {
         args: Option<String>,
     },
-    Title {
-        args: Option<String>,
-    },
-    Statusline {
-        args: Option<String>,
-    },
     VoiceControl(VoiceControl),
-    ResumeNamed {
-        name: String,
-    },
     MemoryMaintenance,
+    /// A command a feature runs (`Feature::RUNS`: `/rename`, `/goal`, `/model <name>`, `/mcp
+    /// verbose`, ...) with the text after its name (trimmed, empty when bare): the feature that
+    /// owns the command reads it (`features::apply_slash`), the hub names no slice's verb.
+    Feature {
+        args: String,
+    },
 }
 
 /// `/voice` with an argument.
@@ -411,6 +380,16 @@ fn session(command: SlashCommand, intent: SessionIntent) -> Outcome {
     Outcome::Session { command, intent }
 }
 
+/// A command a feature runs (`Feature::RUNS`), with the text after its name.
+fn run(command: SlashCommand, args: &str) -> Outcome {
+    session(
+        command,
+        SessionIntent::Feature {
+            args: args.trim().to_string(),
+        },
+    )
+}
+
 fn some(args: &str) -> Option<String> {
     (!args.is_empty()).then(|| args.to_string())
 }
@@ -441,6 +420,10 @@ pub fn dispatch_command(command: SlashCommand, args: &str, cx: &DispatchCx) -> O
 /// `chatwidget/slash_dispatch.rs`, `dispatch_command` (bare commands).
 fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
     use SlashCommand::*;
+    // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
+    if let Some(feature) = target_of(command) {
+        return open(Target::Feature(feature), command, "");
+    }
     match command {
         Model => {
             if cx.thread_started {
@@ -456,17 +439,12 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
             open(Target::Settings, command, "")
         }
-        // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
-        Export | Plugins | Ps | Mcp | Diff | Daemon | ElevateSandbox => match target_of(command) {
-            Some(feature) => open(Target::Feature(feature), command, ""),
-            None => Outcome::Notice(Notice::NotAvailable(command)),
-        },
         Agents => open(Target::Agents, command, ""),
         MultiAgents => open(Target::AgentPicker, command, ""),
         Resume => open(Target::Resume, command, ""),
         Import => open(Target::Import, command, ""),
         Status => session(command, SessionIntent::Status),
-        Warnings | Feedback | Rename => open(Target::Dialogs, command, ""),
+        Warnings | Feedback => open(Target::Dialogs, command, ""),
         Pets => open(Target::Pets, command, ""),
         TestApproval => open(Target::Approvals, command, ""),
         Usage => {
@@ -481,7 +459,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Quit | Exit => Outcome::Quit,
         App | Recap if !cx.thread_started => Outcome::Notice(Notice::SessionStarting(command)),
         App => session(command, SessionIntent::App),
-        Recap => session(command, SessionIntent::Recap),
         New => session(command, SessionIntent::New { name: None }),
         Clear => session(command, SessionIntent::Clear { name: None }),
         Fork => session(command, SessionIntent::Fork { name: None }),
@@ -489,9 +466,7 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Init => session(command, SessionIntent::Init),
         Worktree => session(command, SessionIntent::Worktree),
         Plan => session(command, SessionIntent::Plan { prompt: None }),
-        Goal => session(command, SessionIntent::Goal { args: None }),
         Side | Btw => session(command, SessionIntent::Side { prompt: None }),
-        Copy => session(command, SessionIntent::Copy),
         Raw => session(command, SessionIntent::Raw { on: None }),
         // `slash_dispatch.rs:557-559`: a bare `/cd` is `/cd ~`.
         Cd => session(
@@ -501,15 +476,13 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
             },
         ),
         Pwd => session(command, SessionIntent::Pwd),
-        Logout => session(command, SessionIntent::Logout),
         Vim => session(command, SessionIntent::Vim),
-        Ide => session(command, SessionIntent::Ide { args: None }),
-        Daybreak => session(command, SessionIntent::Daybreak),
-        Hooks => session(command, SessionIntent::Hooks),
-        DebugConfig => session(command, SessionIntent::DebugConfig),
         Stop => session(command, SessionIntent::Stop),
         Rollout => session(command, SessionIntent::Rollout),
         MemoryDrop | MemoryUpdate => session(command, SessionIntent::MemoryMaintenance),
+        // every other command is a feature's verb (`Feature::RUNS`); one that has no owner is
+        // answered "not available" where the app looks for it (`features::apply_slash`)
+        _ => run(command, ""),
     }
 }
 
@@ -519,35 +492,16 @@ fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Out
     let args = args.trim();
     match command {
         Review => session(command, SessionIntent::Review { args: some(args) }),
-        Model => session(command, SessionIntent::Model { args: some(args) }),
         Permissions => session(command, SessionIntent::Permissions { args: some(args) }),
-        Title => session(command, SessionIntent::Title { args: some(args) }),
-        Statusline => session(command, SessionIntent::Statusline { args: some(args) }),
-        Rename => session(command, SessionIntent::Rename { name: some(args) }),
         New => session(command, SessionIntent::New { name: some(args) }),
         Clear => session(command, SessionIntent::Clear { name: some(args) }),
         Fork => session(command, SessionIntent::Fork { name: some(args) }),
         Plan => session(command, SessionIntent::Plan { prompt: some(args) }),
-        Goal => session(command, SessionIntent::Goal { args: some(args) }),
         Side | Btw => session(command, SessionIntent::Side { prompt: some(args) }),
-        Ide => session(command, SessionIntent::Ide { args: some(args) }),
-        Export if args.is_empty() => dispatch_bare(command, cx),
-        Export => session(
-            command,
-            SessionIntent::Export {
-                path: args.to_string(),
-            },
-        ),
         Cd => session(
             command,
             SessionIntent::Cd {
                 path: args.to_string(),
-            },
-        ),
-        Resume => session(
-            command,
-            SessionIntent::ResumeNamed {
-                name: args.to_string(),
             },
         ),
         Pets => open(Target::Pets, command, args),
@@ -577,6 +531,8 @@ fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Out
             _ => Outcome::Notice(Notice::Usage(UsageKey::Raw)),
         },
         Mcp => dispatch_mcp(args, cx),
+        // a feature's verb takes its arguments (`Feature::RUNS`)
+        _ if runs_of(command) => run(command, args),
         // A command without inline arguments never gets here.
         _ => dispatch_bare(command, cx),
     }
@@ -585,12 +541,7 @@ fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Out
 fn dispatch_mcp(args: &str, cx: &DispatchCx) -> Outcome {
     let command = SlashCommand::Mcp;
     if args.eq_ignore_ascii_case("verbose") {
-        return session(
-            command,
-            SessionIntent::Mcp {
-                args: Some(args.to_string()),
-            },
-        );
+        return run(command, args);
     }
     if let Some((word, name)) = args.split_once(' ')
         && word.eq_ignore_ascii_case("login")
@@ -599,12 +550,8 @@ fn dispatch_mcp(args: &str, cx: &DispatchCx) -> Outcome {
         if !cx.thread_started {
             return Outcome::Notice(Notice::McpLoginNeedsSession);
         }
-        return session(
-            command,
-            SessionIntent::Mcp {
-                args: Some(args.to_string()),
-            },
-        );
+        // the sign-in is not built (no feature runs it)
+        return Outcome::Notice(Notice::NotAvailable(command));
     }
     Outcome::Notice(Notice::Usage(UsageKey::Mcp))
 }

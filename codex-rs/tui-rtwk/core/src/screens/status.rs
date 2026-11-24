@@ -132,8 +132,6 @@ pub enum Ev {
     /// A card a script seeds (`{"kind":"status_card", ..}`): the app puts it
     /// into the shown thread's transcript as `/status` does.
     Card(Box<StatusCard>),
-    /// The clock moved on (the shell's ambient loop).
-    Clock { now: i64, utc_offset_secs: i32 },
     /// The account the server is signed in to, as the host read it.
     Account(Option<Account>),
     /// The models the server offers.
@@ -152,13 +150,6 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         // The thread's: the app routes it (`app::apply_event`).
         Ev::Card(_) => {}
-        Ev::Clock {
-            now,
-            utc_offset_secs,
-        } => {
-            model.now = now;
-            model.utc_offset_secs = utc_offset_secs;
-        }
         Ev::Account(account) => model.account = account,
         Ev::Catalog(catalog) => model.catalog = catalog,
         Ev::Connection(remote) => model.remote = remote,

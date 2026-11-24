@@ -14,7 +14,7 @@
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never};
+use super::{AppCx, Feature, Never, Slash};
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
@@ -104,6 +104,7 @@ fn run(cx: &mut AppCx<'_>, destination: Destination) {
 impl Feature for Export {
     const NAME: &'static str = "export";
     const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Export, Sheet));
+    const RUNS: &'static [SlashCommand] = &[SlashCommand::Export];
 
     type State = ();
     type ThreadPart = ();
@@ -117,6 +118,14 @@ impl Feature for Export {
     type Fact = Never<Self>;
     type Wish = Never<Self>;
     type Interest = Never<Self>;
+
+    /// `/export <path>`: the conversation in use is written to the path as typed. A bare `/export`
+    /// is the feature's sheet (`OPENS`) and never gets here.
+    fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
+        if let Some(path) = slash.into_args() {
+            Self::intent(state, Intent::Command { path }, cx);
+        }
+    }
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
         let destination = match intent {

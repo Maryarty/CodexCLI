@@ -146,6 +146,13 @@ impl UiApp {
         self.with_synced_first_thread()
     }
 
+    /// The shell reads the time from `clock` (the default is the wall clock): a test hands it a
+    /// `shell::FixedClock` and says the time itself.
+    pub fn with_clock(mut self, clock: std::sync::Arc<dyn shell::Clock>) -> Self {
+        self.link = self.link.with_clock(clock);
+        self
+    }
+
     pub fn with_lang(mut self, lang: Lang) -> Self {
         self.ui.lang = lang;
         self

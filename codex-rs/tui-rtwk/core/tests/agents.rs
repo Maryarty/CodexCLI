@@ -2038,7 +2038,7 @@ fn selected_usage_is_cached() {
         plan: Some(PlanType::Business),
         backend_auth: true,
     })));
-    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Clock(1_000))));
+    sandbox.send(AppEv::Clock(codex_tui_core::app::Now::at_secs(1_000)));
     let mut m = model(&sandbox).clone();
     move_cursor(Sel::Task(selected.clone()));
     let estimate = |credits: i64, cost: i64, groups: bool| -> ThreadUsage {

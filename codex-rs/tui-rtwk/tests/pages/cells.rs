@@ -2939,14 +2939,14 @@ mod separator_facts {
     #[test]
     fn the_clock_setting_and_the_runtime_metrics_arrive_after_the_row_and_redraw_it() {
         let mut h = separator();
-        h.inject([cells(Ev::Clock(ViewerClock {
+        h.inject([cells(Ev::Viewer(ViewerClock {
             format: ClockFormat::TwentyFourHour,
             utc_offset: Some(0),
         }))]);
         h.wait_for("the 24-hour time with its date", |screen| {
             screen.contains("Worked for 2m 5s • Sep 6, 2000 at 14:32")
         });
-        h.inject([cells(Ev::Clock(ViewerClock {
+        h.inject([cells(Ev::Viewer(ViewerClock {
             format: ClockFormat::TwelveHour,
             utc_offset: Some(0),
         }))]);
