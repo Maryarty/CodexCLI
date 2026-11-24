@@ -2088,12 +2088,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         Some(&resumed),
                         fx,
                     );
-                    apply_thread(
-                        app,
-                        &thread,
-                        threads::history_page(&resumed.turns, None),
-                        fx,
-                    );
+                    apply_thread(app, &thread, threads::history_page_of(&resumed), fx);
                     fetch_history(app, &thread, fx);
                 }
             }
@@ -2809,7 +2804,7 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         }
         attach_thread_with_metadata(app, &id, backend, Origin::Resumed, Some(thread), fx);
         show_held_thread(app, id.clone(), fx);
-        apply_thread(app, &id, threads::history_page(&thread.turns, None), fx);
+        apply_thread(app, &id, threads::history_page_of(thread), fx);
         if stale {
             apply_thread(app, &id, ThreadEv::StreamRestored { read: true }, fx);
         }
@@ -2925,7 +2920,7 @@ fn session_opened(
             };
             attach_thread_with_metadata(app, &id, BackendId::default(), origin, Some(&opened), fx);
             show_held_thread(app, id.clone(), fx);
-            apply_thread(app, &id, threads::history_page(&opened.turns, None), fx);
+            apply_thread(app, &id, threads::history_page_of(&opened), fx);
             fetch_history(app, &id, fx);
             send_queued(app, &id, fx);
             if action == Action::Resume {
