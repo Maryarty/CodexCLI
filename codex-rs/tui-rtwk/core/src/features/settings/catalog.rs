@@ -575,6 +575,8 @@ pub struct Facts {
     pub config_rows: Vec<Row>,
     /// The tabs of the keymap picker as the resolved keymap reads now (`keymap::picker`).
     pub keymap_tabs: Vec<KeymapTab>,
+    /// The `[tui.keymap]` the user wrote: what a captured shortcut is applied to.
+    pub keymap_spec: crate::keymap::KeymapSpec,
 }
 
 /// `config.memories`: the two switches of the memories dialog.

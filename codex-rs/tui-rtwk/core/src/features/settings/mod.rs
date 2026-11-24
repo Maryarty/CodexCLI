@@ -17,6 +17,7 @@
 //! host's: it reloads the config once the file has the edit and sends them again.
 
 pub mod args;
+pub mod capture;
 mod catalog;
 pub mod hooks;
 pub mod items;
@@ -81,6 +82,15 @@ pub enum Intent {
         args: String,
         thread: Option<ThreadId>,
     },
+    /// A shortcut was captured for an action of the keymap picker: the key as the config
+    /// writes it, and what it is for. The feature applies it to the config the host read,
+    /// checks that the keymap still resolves, and writes it (`Edit::KeymapBound`'s write).
+    KeymapCaptured {
+        context: String,
+        action: String,
+        key: String,
+        intent: capture::Intent,
+    },
 }
 
 /// What a command with arguments asks of the page (ADR-013: a one-shot signal the surface's
@@ -95,6 +105,15 @@ pub enum Wish {
     /// `/resume <name or id>` found the session: the surface opens it (`OpenThread`, the one
     /// door of ADR-003).
     OpenThread(ThreadId),
+    /// The captured key cannot be bound: the keymap with it does not resolve (the conflict
+    /// sheet: pick another key, or cancel).
+    KeymapConflict {
+        context: String,
+        action: String,
+        key: String,
+        intent: capture::Intent,
+        error: String,
+    },
 }
 
 /// What the host tells the feature unasked, and what a script seeds.
@@ -171,6 +190,10 @@ pub enum Ctx {
     HookTrust {
         many: bool,
     },
+    /// A captured shortcut was written: what the session says once the file has it.
+    KeymapWrite {
+        saved: Note,
+    },
     /// A page of the listing `/resume <label>` looks the label up in.
     Resume {
         lookup: resume::Lookup,
@@ -199,6 +222,9 @@ pub enum Note {
     SaveFailed { setting: Setting, error: String },
     /// `Failed to update skill config for {path}: {error}`.
     SkillWriteFailed { path: String, error: String },
+    /// What a visit of `/skills` changed: `Enabled {enabled} skill(s)` and/or `disabled
+    /// {disabled} skill(s)`.
+    SkillsChanged { enabled: usize, disabled: usize },
     /// `Failed to load skills: {error}` (the listing failed).
     SkillsFailed { error: String },
     /// `Failed to update hook config: {error}`.
@@ -227,6 +253,22 @@ pub enum Note {
     UnverifiedSession { id: String },
     /// `Failed to list sessions while resolving session label: {error}`.
     ResumeFailed { error: String },
+    /// What a captured shortcut did (`Remapped`, `Added`, `Replaced`, `No change`).
+    KeymapEdited {
+        context: String,
+        action: String,
+        key: String,
+        said: capture::Said,
+    },
+    /// `Unknown keymap action `{context}.{action}`. Reopen /keymap and choose an action.`
+    KeymapUnknown { context: String, action: String },
+    /// `` `{context}.{action}` no longer uses `{old_key}`. Reopen /keymap and choose a binding
+    /// again.``
+    KeymapStale {
+        context: String,
+        action: String,
+        old_key: String,
+    },
 }
 
 impl Note {
@@ -234,7 +276,10 @@ impl Note {
     pub fn is_info(&self) -> bool {
         matches!(
             self,
-            Note::ExperimentalUnavailable | Note::TuiModeSaved { .. }
+            Note::ExperimentalUnavailable
+                | Note::TuiModeSaved { .. }
+                | Note::KeymapEdited { .. }
+                | Note::SkillsChanged { .. }
         )
     }
 }
@@ -259,6 +304,8 @@ pub struct State {
     /// The hook switches on their way, by key: what was asked for while one was in flight
     /// (`pending_hook_enabled_writes`: only the last value is sent, and after the answer).
     pub hook_writes: BTreeMap<String, Option<bool>>,
+    /// The skills' switches when `/skills` was opened, by path: what its summary compares to.
+    pub skills_opened: BTreeMap<String, bool>,
 }
 
 impl State {
@@ -456,6 +503,10 @@ impl State {
 
     /// The skills the server listed are the checklist of `/skills`.
     fn skills_listed(&mut self, skills: Vec<Skill>) {
+        self.skills_opened = skills
+            .iter()
+            .map(|skill| (skill.path.clone(), skill.enabled))
+            .collect();
         let items = skills
             .into_iter()
             .map(|skill| SetupItem {
@@ -473,6 +524,30 @@ impl State {
             items,
             values: BTreeMap::new(),
         }));
+    }
+
+    /// `handle_manage_skills_closed`: how many skills the visit switched on and off (a skill
+    /// put back as it was counts for nothing); none, no line.
+    fn skills_summary(&self, cx: &mut AppCx<'_>) {
+        let Some(Offer::Setup(setup)) = self.offers.get(&Which::Skills) else {
+            return;
+        };
+        let (mut enabled, mut disabled) = (0, 0);
+        for item in &setup.items {
+            match self.skills_opened.get(&item.id) {
+                Some(was) if *was != item.enabled => {
+                    if item.enabled {
+                        enabled += 1;
+                    } else {
+                        disabled += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if enabled + disabled > 0 {
+            cx.note(None, Note::SkillsChanged { enabled, disabled });
+        }
     }
 
     /// A skill was switched on the server: the checklist the dialogs are offered follows.
@@ -650,6 +725,70 @@ impl State {
         }
     }
 
+    /// A key was captured for `context.action`: the edit it makes of the config, checked
+    /// against the keymap it would give, then written; a refusal is the line or the conflict
+    /// sheet saying why.
+    fn keymap_captured(
+        &mut self,
+        context: String,
+        action: String,
+        key: String,
+        intent: capture::Intent,
+        cx: &mut AppCx<'_>,
+    ) {
+        let said = |said| Note::KeymapEdited {
+            context: context.clone(),
+            action: action.clone(),
+            key: key.clone(),
+            said,
+        };
+        match capture::captured(&self.facts.keymap_spec, &context, &action, &key, &intent) {
+            Ok(capture::Outcome::Unchanged) => cx.note(None, said(capture::Said::Unchanged)),
+            Ok(capture::Outcome::Updated {
+                spec: _,
+                keys,
+                said: done,
+            }) => {
+                let edit = Edit::KeymapBound {
+                    context: context.clone(),
+                    action: action.clone(),
+                    keys,
+                };
+                if let Some(write) = persist::write_of(&edit) {
+                    cx.effect(
+                        Ask::ConfigWrite { edits: write.edits },
+                        Ctx::KeymapWrite { saved: said(done) },
+                    );
+                }
+                self.edits.push(edit);
+            }
+            Err(capture::Failure::UnknownAction) => {
+                cx.note(None, Note::KeymapUnknown { context, action });
+            }
+            Err(capture::Failure::NoLongerUses { old_key }) => cx.note(
+                None,
+                Note::KeymapStale {
+                    context,
+                    action,
+                    old_key,
+                },
+            ),
+            Err(capture::Failure::Conflict(error)) => {
+                let scope = cx.view().active().cloned().unwrap_or_default();
+                cx.wish(
+                    scope,
+                    Wish::KeymapConflict {
+                        context,
+                        action,
+                        key,
+                        intent,
+                        error,
+                    },
+                );
+            }
+        }
+    }
+
     /// A request of a dialog: the state it changes at once, then the write it stands for.
     fn request(&mut self, edit: Edit, cx: &mut AppCx<'_>) {
         match &edit {
@@ -688,13 +827,16 @@ impl State {
                     enabled: *enabled,
                 },
             ),
-            Edit::SkillsClosed => cx.ask(
-                None,
-                Command::Skills {
-                    cwd: cx.view().working_directory(None),
-                },
-                Ctx::Skills,
-            ),
+            Edit::SkillsClosed => {
+                self.skills_summary(cx);
+                cx.ask(
+                    None,
+                    Command::Skills {
+                        cwd: cx.view().working_directory(None),
+                    },
+                    Ctx::Skills,
+                );
+            }
             Edit::HookEnabled { key, enabled } => self.hook_enabled(key.clone(), *enabled, cx),
             Edit::HookTrusted { key, current_hash } => {
                 self.hook_trust(vec![(key.clone(), current_hash.clone())], false, cx);
@@ -809,6 +951,12 @@ impl super::Feature for Settings {
                 args,
                 thread,
             } => state.slash(command, &args, thread, cx),
+            Intent::KeymapCaptured {
+                context,
+                action,
+                key,
+                intent,
+            } => state.keymap_captured(context, action, key, intent, cx),
         }
     }
 
@@ -840,6 +988,19 @@ impl super::Feature for Settings {
                     );
                 }
                 Err(error) => state.features_saved(*generation, Err(error.clone())),
+            }
+            return;
+        }
+        if let (Ctx::KeymapWrite { saved }, Done::Config(result)) = (&ctx, &done) {
+            match result {
+                Ok(()) => cx.note(None, saved.clone()),
+                Err(error) => cx.note(
+                    None,
+                    Note::SaveFailed {
+                        setting: Setting::Keymap,
+                        error: error.clone(),
+                    },
+                ),
             }
             return;
         }
@@ -932,7 +1093,7 @@ impl super::Feature for Settings {
                 };
                 State::resumed(&name, thread, verdict, cx);
             }
-            Ctx::Write(_) | Ctx::FeaturesWrite { .. } => {}
+            Ctx::Write(_) | Ctx::FeaturesWrite { .. } | Ctx::KeymapWrite { .. } => {}
         }
     }
 

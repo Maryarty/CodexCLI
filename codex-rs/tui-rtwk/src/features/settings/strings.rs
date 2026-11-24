@@ -15,6 +15,7 @@ use rtwk::l10n::msg;
 
 use codex_tui_core::commands::args::ArgError;
 use codex_tui_core::features::settings::args::{Refusal, Surface};
+use codex_tui_core::features::settings::capture::Said;
 use codex_tui_core::features::settings::{Note, Setting};
 
 use crate::l10n::Lang;
@@ -484,10 +485,22 @@ pub fn note(note: &Note) -> String {
             Setting::Title => format!("Failed to save terminal title items: {error}"),
             Setting::Memories => format!("Failed to save memory settings: {error}"),
             Setting::TuiMode => format!("Failed to save TUI mode: {error}"),
-            Setting::Keymap => format!("Failed to save keymap: {error}"),
+            Setting::Keymap => format!("Failed to save shortcut: {error}"),
         },
         Note::SkillWriteFailed { path, error } => {
             format!("Failed to update skill config for {path}: {error}")
+        }
+        Note::SkillsChanged { enabled, disabled } => {
+            let plural = |count: &usize| if *count == 1 { "" } else { "s" };
+            match (enabled, disabled) {
+                (0, _) => format!("Disabled {disabled} skill{}", plural(disabled)),
+                (_, 0) => format!("Enabled {enabled} skill{}", plural(enabled)),
+                _ => format!(
+                    "Enabled {enabled} skill{}, disabled {disabled} skill{}",
+                    plural(enabled),
+                    plural(disabled)
+                ),
+            }
         }
         Note::SkillsFailed { error } => format!("Failed to load skills: {error}"),
         Note::HookWriteFailed { error } => format!("Failed to update hook config: {error}"),
@@ -506,6 +519,29 @@ pub fn note(note: &Note) -> String {
             format!("Saved TUI mode: {mode}. Restart Codex to apply; launch overrides still apply.")
         }
         Note::Refused(refusal) => refusal_words(refusal),
+        Note::KeymapEdited {
+            context,
+            action,
+            key,
+            said,
+        } => match said {
+            Said::Remapped => format!("Remapped `{context}.{action}` to `{key}`."),
+            Said::Added => format!("Added `{key}` to `{context}.{action}`."),
+            Said::Replaced { old_key } => {
+                format!("Replaced `{old_key}` with `{key}` for `{context}.{action}`.")
+            }
+            Said::Unchanged => format!("No change: `{context}.{action}` already uses `{key}`."),
+        },
+        Note::KeymapUnknown { context, action } => format!(
+            "Unknown keymap action `{context}.{action}`. Reopen /keymap and choose an action."
+        ),
+        Note::KeymapStale {
+            context,
+            action,
+            old_key,
+        } => format!(
+            "`{context}.{action}` no longer uses `{old_key}`. Reopen /keymap and choose a binding again."
+        ),
         Note::NoSavedChat { name } => format!("No saved chat found matching '{name}'."),
         Note::AmbiguousSession {
             name,

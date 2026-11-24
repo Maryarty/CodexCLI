@@ -81,7 +81,12 @@ const GROUPS: &[(&str, &str, &[&str])] = &[
     (
         "vim",
         "Vim",
-        &["vim_normal", "vim_operator", "vim_search", "vim_text_object"],
+        &[
+            "vim_normal",
+            "vim_operator",
+            "vim_search",
+            "vim_text_object",
+        ],
     ),
     ("navigation", "Navigation", &["pager", "list"]),
     ("agents", "Agents", &["agents"]),
@@ -109,7 +114,8 @@ pub fn action_label(action: &str) -> String {
         .join(" ")
 }
 
-fn spec(binding: &Binding) -> String {
+/// A binding as the config writes it: `ctrl-t`, `ctrl-x b`.
+pub fn binding_spec(binding: &Binding) -> String {
     match binding {
         Binding::Single(stroke) => stroke.spec(),
         Binding::Chord { prefix, completion } => {
@@ -122,12 +128,16 @@ fn spec(binding: &Binding) -> String {
 /// has none (`format_action_binding_summary`).
 fn summary(keymap: &Keymap, context: &str, name: &str) -> String {
     let specs: Vec<String> = if (context, name) == ("global", "leader") {
-        keymap.leaders().iter().map(|stroke| stroke.spec()).collect()
+        keymap
+            .leaders()
+            .iter()
+            .map(|stroke| stroke.spec())
+            .collect()
     } else {
         keymap
             .actions()
             .find(|(id, _)| id.context.config_name() == context && id.name == name)
-            .map(|(_, bindings)| bindings.iter().map(spec).collect())
+            .map(|(_, bindings)| bindings.iter().map(binding_spec).collect())
             .unwrap_or_default()
     };
     let mut seen = BTreeSet::new();

@@ -11,15 +11,17 @@ use std::path::Path;
 use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
-use codex_core::config::Config;
 use codex_config::types::{
-    CopyOnSelect, NotificationCondition, ResumeCwdMode, RightClickPaste,
-    SessionPickerViewMode,
+    CopyOnSelect, NotificationCondition, ResumeCwdMode, RightClickPaste, SessionPickerViewMode,
 };
+use codex_core::config::Config;
 use codex_features::Feature;
 use codex_tui_core::app::effects::{ConfigEdit, Done};
 use codex_tui_core::features::settings::keymap;
-use codex_tui_core::features::settings::{Fact, Facts, MemoryFacts, Row, Section, SettingId, Value};
+use codex_tui_core::features::settings::{
+    Fact, Facts, MemoryFacts, Row, Section, SettingId, Value,
+};
+use codex_tui_core::keymap::KeymapSpec;
 use codex_tui_core::protocol::config::{config_write, config_written};
 use codex_tui_core::rpc::ServerError;
 use codex_tui_rtwk::services::backend::rpc::Ids;
@@ -72,6 +74,9 @@ pub(crate) fn fact(config: &Config, home: Option<&Path>) -> Fact {
         config_rows: config_rows(config, &PasteEnvironment::detect()),
         keymap_tabs: crate::facts::keymap(config)
             .map(|resolved| keymap::picker(&resolved, keymap::Filter::default()).tabs)
+            .unwrap_or_default(),
+        keymap_spec: serde_json::to_value(&config.tui_keymap)
+            .map(|value| KeymapSpec::from_json(&value))
             .unwrap_or_default(),
     })
 }
