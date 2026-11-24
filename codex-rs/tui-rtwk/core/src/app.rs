@@ -233,6 +233,13 @@ pub enum Intent {
         what: AutoReview,
     },
     Screen(ScreenIntent),
+    /// A verb of a thread's safety state: the retry of a buffered turn, a rewrite after a
+    /// refusal, the continuation after a misalignment stop, the receipt of the request
+    /// (`threads/safety.rs`).
+    Safety {
+        thread: ThreadId,
+        verb: crate::threads::safety::Verb,
+    },
     /// An intent of a feature slice (ADR-012).
     Feature(crate::features::FeatureIntent),
     /// A surface wants, or lets go of, the data a feature shows (ADR-013 И): made only by the
@@ -359,6 +366,9 @@ pub enum Command {
         ticket: Ticket,
         thread: ThreadId,
         message: UserMessage,
+        /// The acknowledgement of a misalignment failure, epoch milliseconds: the request
+        /// carries the `misalignment_override` metadata (`threads/safety.rs`).
+        misalignment_override: Option<i64>,
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
@@ -2176,6 +2186,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             confirmed(app, fx);
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
+        Intent::Safety { thread, verb } => {
+            let ev = ThreadEv::Safety(crate::threads::safety::Ev::Verb(verb));
+            apply_thread(app, &thread, ev, fx);
+        }
         Intent::Feature(intent) => features::intent(app, intent, fx),
         Intent::Interest(step) => features::interest(app, step, fx),
         Intent::WishShown(seq) => features::wish_shown(app, seq),

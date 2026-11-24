@@ -234,6 +234,7 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     // a refused thread keeps what waits (oracle `suppress_queue_autosend`); a command the screen
     // runs is waited for
     if model.slots.chat.mcp.is_starting()
+        || model.safety.blocks_input()
         || model.slots.chat.provider_error.is_some()
         || model.recovered
         || model.due.is_some()
