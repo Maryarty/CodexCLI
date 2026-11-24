@@ -6,6 +6,15 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The screen row of the `/mcp` cell's first line: the oracle's snapshot is the bare cell, the chat
+/// draws the transcript around it.
+fn mcp_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .rposition(|row| row.trim_end() == "/mcp")
+        .unwrap_or_else(|| panic!("the /mcp cell is not on the screen:\n{}", s.text()))
+}
+
 const RT_SEED: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
 "#;
@@ -892,23 +901,37 @@ fn completed_stop_hook_multiline_system_message_prefixes_first_line_only() {
 // ORACLE history_cell/mcp_tests.rs:12 mcp_inventory_connection_states kind=snap owner=chat-live snap=mcp_inventory_connection_states
 #[test]
 fn mcp_inventory_connection_states() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for the MCP server inventory: the screen takes the mcpServerStatus/list reply, which a script step cannot carry",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.assert_snap_region("mcp_inventory_connection_states", 0, 0);
+    // oracle: eight servers, one per connection state, no tools: the inventory's colours and words.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/cells_1/mcp_inventory_connection_states.jsonl"
+        ))
+        .open();
+    s.type_text("/mcp");
+    s.keys("enter");
+    s.assert_snap_region("mcp_inventory_connection_states", mcp_row(&s), 0);
 }
 
 // ORACLE history_cell/mcp_tests.rs:73 mcp_inventory_older_app_server_authentication kind=snap owner=chat-live snap=mcp_inventory_older_app_server_authentication
 #[test]
 fn mcp_inventory_older_app_server_authentication() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for the MCP server inventory: the screen takes the mcpServerStatus/list reply, which a script step cannot carry",
+    // oracle: servers of an older app server (no `runtimeStatus`): the auth status words them.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/cells_1/mcp_inventory_older_app_server_authentication.jsonl"
+        ))
+        .open();
+    s.type_text("/mcp");
+    s.keys("enter");
+    s.assert_snap_region(
+        "mcp_inventory_older_app_server_authentication",
+        mcp_row(&s),
+        0,
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.assert_snap_region("mcp_inventory_older_app_server_authentication", 0, 0);
 }
 
 // ORACLE history_cell/mcp_tests.rs:140 mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript kind=snap owner=chat-live snap=mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript

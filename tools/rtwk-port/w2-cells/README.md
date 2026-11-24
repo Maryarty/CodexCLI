@@ -10,3 +10,5 @@
   builds by hand, as `thread/backgroundTerminals` facts and a `/ps` command).
 - `guardian_fixtures.py`: writes the scripts of the guardian tests of `chat_approvals_2` that the recorder left
   partial (`item/autoApprovalReview/*`, `guardianWarning`, MCP startup) as the denied test's recorded script shapes them.
+- `mcp_fixtures.py`: writes the `respond` scripts of the `/mcp` inventory tests of `cells_1` and `cells_4` (the statuses
+  the oracle's test builds by hand, answering the `mcpServerStatus/list` ask).
