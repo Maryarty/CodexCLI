@@ -8,7 +8,6 @@ use codex_tui_core::fixtures::script::Answer;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::Reply;
 use codex_tui_rtwk::app::UiApp;
-use codex_tui_rtwk::services::backend::fake::Hold;
 
 use super::Screen;
 use super::seed::{Open, answer};
@@ -105,11 +104,12 @@ impl Screen {
         self
     }
 
-    /// The images of what the user sends are still being prepared: the turn's request is held
-    /// in flight (the host prepares them before it sends), so the composer is already free
-    /// and the message is not on the server. `release` lets the preparation end well.
-    pub fn hold_image_preparation(&mut self) -> Hold {
-        self.hold_request("turn/start")
+    /// The images of what the user sends are still being prepared: the turn's start is held in
+    /// flight (the host prepares them before it sends), so the composer is already free and the
+    /// message is not on the server. `fail_image_preparation` ends the wait.
+    pub fn hold_image_preparation(&mut self) -> &mut Screen {
+        self.h.fake.hold_turn_start();
+        self
     }
 
     /// The preparation of the images of the turn in flight ends in `message` (`Failed to

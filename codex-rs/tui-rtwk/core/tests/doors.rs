@@ -6,7 +6,9 @@
 use std::rc::Rc;
 
 use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
-use codex_tui_core::features::windows_sandbox::{Config, Fact, Host, Intent as Sandbox, Mode, Reply};
+use codex_tui_core::features::windows_sandbox::{
+    Config, Fact, Host, Intent as Sandbox, Mode, Reply,
+};
 use codex_tui_core::features::{FeatureCommand, FeatureFact, FeatureIntent, FeatureReply};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply as Answer;
@@ -156,10 +158,8 @@ fn a_script_seeds_the_presets_and_refuses_a_note_no_feature_seeds() {
         ]
     );
     // The set goes through the router like the host's.
-    let played = script::build(
-        r#"{"step":"presets","slots":[{"slot":1,"input":"/status"}]}"#,
-    )
-    .expect("the presets are told to the app");
+    let played = script::build(r#"{"step":"presets","slots":[{"slot":1,"input":"/status"}]}"#)
+        .expect("the presets are told to the app");
     played.app.assert_consistent();
 
     // A feature that seeds no note, and a name no feature has, are refused with their line.
@@ -236,9 +236,9 @@ fn the_account_plan_judges_a_snapshot_that_names_none() {
 /// `TuiSettings`; a refusal of the file is said in the history with the oracle's words.
 #[test]
 fn the_rate_limit_prompt_is_hidden_by_a_persisted_notice_setting() {
+    use codex_tui_core::app::Ingress;
     use codex_tui_core::app::effects::{Ask, Done};
     use codex_tui_core::app::facts::TuiSettings;
-    use codex_tui_core::app::Ingress;
     use codex_tui_core::features::FeatureNote;
     use codex_tui_core::features::settings::{
         Edit, Intent as SettingsIntent, Note as SettingsNote, Setting,
