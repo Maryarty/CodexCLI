@@ -245,7 +245,7 @@ fn exploration_nonzero_exits_remain_visible_beside_successful_reads() {
 fn exploration_reasoning_during_followup_command_stays_ordered() {
     kit::pending(
         Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no reasoning rows interleaved with an exploring cell on the chat screen (reasoning between two exec commands)",
+        "S27 INLINE FORM (display_lines of the scrollback): the oracle snapshot is the inline stream (`$ ls`, output, `✓ • 5ms`, reasoning `• ...` rows), not the compact cell the chat screen owns (`• Explored / └ List ls / Read file.txt`); needs the inline history writer (S27)",
     );
     // oracle: `ls` then reasoning "Read the file next.", `cat file.txt` with reasoning "Waiting for the file.";
     // the active transcript keeps that order.
@@ -259,7 +259,7 @@ fn exploration_reasoning_during_followup_command_stays_ordered() {
 fn adjacent_exploration_groups_across_reasoning_live_and_replayed() {
     kit::pending(
         Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no exploring cell grouping across reasoning, live and replayed, on the chat screen (five exec commands, Compact/Expanded/Raw)",
+        "S27 INLINE FORM: the live and replayed screens are compared in the Compact, Expanded and Raw inline forms of the scrollback (display_lines/transcript/raw_lines); the owned compact exploration cell matches its oracle rows, the other forms need the inline history writer (S27)",
     );
     // oracle: the live and the replayed screens render the same Compact, Expanded and Raw text.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/adjacent_exploration_groups_across_reasoning_live_and_replayed.jsonl")).open();
@@ -614,10 +614,6 @@ fn exec_history_extends_previous_when_consecutive() {
 // ORACLE chatwidget/tests/exec_flow.rs:1239 user_shell_command_renders_output_not_exploring kind=snap owner=dialogs-pane snap=user_shell_ls_output
 #[test]
 fn user_shell_command_renders_output_not_exploring() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no user-shell command cell on the chat screen: `ls` run by the user draws its output, not an exploring row",
-    );
     // oracle: one history cell for the user's `ls` with file1 and file2 as its output.
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -626,8 +622,12 @@ fn user_shell_command_renders_output_not_exploring() {
             "fixtures/chat_approvals_1/user_shell_command_renders_output_not_exploring.jsonl"
         ))
         .open();
-    // needs feed: begin and end `ls` with source UserShell (user-shell-ls), output file1 and file2, exit 0
-    s.assert_snap("user_shell_ls_output");
+    let row = s
+        .rows()
+        .iter()
+        .rposition(|row| row.starts_with("• You ran"))
+        .unwrap_or_else(|| panic!("no user-shell cell on the screen:\n{}", s.text()));
+    s.assert_snap_rows_at("user_shell_ls_output", row);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1267 bang_shell_enter_while_task_running_submits_run_user_shell_command kind=ui owner=dialogs-pane
