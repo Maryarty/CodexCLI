@@ -29,6 +29,7 @@ use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
+use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
@@ -156,7 +157,7 @@ async fn start_args(
         strict_config: false,
         cloud_config_bundle: CloudConfigBundleLoader::default(),
         embedded_network_policy,
-        feedback: crate::feedback::shared(),
+        feedback: CodexFeedback::new(),
         log_db: None,
         state_db,
         environment_manager: Arc::new(environment_manager),
@@ -391,6 +392,11 @@ async fn run(
         epoch,
         AppEv::Feature(settings_fact(&config).into()),
     );
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Feature(feedback_fact(&config, startup.target).into()),
+    );
     if !warnings.is_empty() {
         emit(
             &ingress,
@@ -507,19 +513,6 @@ async fn run(
                             handle.clone(),
                             (ingress.clone(), epoch),
                         )
-                    } else if let Command::Effect {
-                        request,
-                        ask: Ask::FeedbackUpload(upload),
-                        ..
-                    } = &command
-                    {
-                        crate::feedback::job(
-                            *request,
-                            upload.clone(),
-                            startup.clone(),
-                            ids.clone(),
-                            sender(handle.clone()),
-                        )
                     } else {
                         match effects.run(&command, exec) {
                             Some(job) => job,
@@ -613,6 +606,19 @@ fn settings_fact(config: &Config) -> codex_tui_core::features::settings::Fact {
     )
 }
 
+/// What `/feedback` reads of the config and the connection: whether uploads are on, whether the
+/// workspace is remote (no ZIP can be saved here), the Codex home the ZIPs go under.
+fn feedback_fact(
+    config: &Config,
+    target: crate::startup::Target,
+) -> codex_tui_core::features::feedback::Fact {
+    codex_tui_core::features::feedback::Fact::config(
+        config.feedback_enabled,
+        target == crate::startup::Target::Remote,
+        Some(config.codex_home.to_string_lossy().into_owned()),
+    )
+}
+
 /// `Ask::ConfigWrite` of a dialog (`/theme`, `/title`, `/statusline`, `/memories`): the edits go
 /// through the app server, and once the config file holds them the status card, the terminal
 /// settings and the dialogs' facts follow from the config as it is now, before the answer (the
@@ -643,6 +649,11 @@ fn config_write_job(
                 &ingress,
                 epoch,
                 AppEv::Feature(settings_fact(config).into()),
+            );
+            emit(
+                &ingress,
+                epoch,
+                AppEv::Feature(feedback_fact(config, startup.target).into()),
             );
         }
         Some(AppEv::Effect {
@@ -693,6 +704,16 @@ fn status_feed(
         ids.clone(),
         sender(handle.clone()),
     )));
+    // `/feedback`'s audience: an `@openai.com` account is an employee.
+    inflight.push(Box::pin({
+        let (ids, send) = (ids.clone(), sender(handle.clone()));
+        async move {
+            let email = crate::facts::account_email(ids, send).await;
+            Some(AppEv::Feature(
+                codex_tui_core::features::feedback::Fact::account(email.as_deref()).into(),
+            ))
+        }
+    }));
     inflight.push(Box::pin(crate::facts::card_catalog(
         ids.clone(),
         sender(handle.clone()),

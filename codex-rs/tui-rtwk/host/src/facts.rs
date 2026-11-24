@@ -209,6 +209,30 @@ where
     ))))
 }
 
+/// The e-mail of the ChatGPT account the server is signed in to (none for an API key, or when
+/// the read fails): `/feedback` tells an employee by it.
+pub async fn account_email<F, Fut>(ids: Ids, send: F) -> Option<String>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let response = send(ClientRequest::GetAccount {
+        request_id: ids.next(),
+        params: GetAccountParams {
+            refresh_token: false,
+        },
+    })
+    .await
+    .ok()?;
+    match serde_json::from_value::<GetAccountResponse>(response)
+        .ok()?
+        .account?
+    {
+        Account::Chatgpt { email, .. } => email,
+        _ => None,
+    }
+}
+
 fn card_account_of(response: GetAccountResponse) -> Option<CardAccount> {
     match response.account? {
         Account::Chatgpt {

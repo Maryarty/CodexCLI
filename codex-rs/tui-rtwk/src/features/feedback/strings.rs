@@ -22,15 +22,17 @@ pub fn note(note: &Note) -> String {
             "Feedback uploads are disabled, and saving a ZIP requires a local app server."
                 .to_owned()
         }
-        Note::ZipNeedsLocalServer => "Saving a feedback ZIP requires a local app server.".to_owned(),
+        Note::ZipNeedsLocalServer => {
+            "Saving a feedback ZIP requires a local app server.".to_owned()
+        }
         Note::Saved(path) => format!("Feedback ZIP saved to {path}"),
         Note::Failed(error) => error.clone(),
         Note::Uploaded {
             category,
             include_logs,
-            thread_id,
+            report,
             audience,
-        } => success(*category, *include_logs, thread_id, *audience).join("\n"),
+        } => success(*category, *include_logs, report, *audience).join("\n"),
     }
 }
 

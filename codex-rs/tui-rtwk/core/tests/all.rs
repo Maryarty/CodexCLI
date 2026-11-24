@@ -26,6 +26,7 @@ mod commands;
 mod composer_history;
 mod composer_shell;
 mod composer_vim;
+mod decisions;
 mod dialogs;
 mod directives;
 mod export;
