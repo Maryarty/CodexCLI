@@ -532,6 +532,7 @@ mod tests {
         let copy = one.clone();
         copy.held(make).0.set(8);
         assert_eq!(one.held(make).0.get(), 8);
+        drop(copy);
         assert_eq!(made.get(), 1);
         // another thread has its own, and another type its own slot
         assert_eq!(other.held(make).0.get(), 0);
