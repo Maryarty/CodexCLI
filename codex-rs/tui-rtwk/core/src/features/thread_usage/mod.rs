@@ -19,6 +19,8 @@
 
 pub mod model;
 
+use std::collections::BTreeMap;
+
 use codex_app_server_protocol::{ClientRequest, GetAccountTokenUsageParams, RequestId};
 
 use super::{AppCx, AppView, Feature, Never};
@@ -81,8 +83,11 @@ pub struct State {
     machine: model::State,
     /// The figures a widget wants (`SelectedThreadUsage`).
     wanted: Selected,
-    /// A `/status` card shows the thread's usage.
-    card: bool,
+    /// What each `/status` card shows of the thread's usage, by the number of its request: the
+    /// figure as it was when the card was made, then the ones that arrived while it waited for
+    /// the settled one (a card is not patched after, `status_history_handles`). A card whose
+    /// account has no thread usage has none.
+    cards: BTreeMap<u64, Option<ThreadUsage>>,
 }
 
 impl State {
@@ -93,10 +98,39 @@ impl State {
         (self.machine.thread() == Some(thread.as_str())).then_some(estimate)
     }
 
+    /// What the card of `request` shows: none for a card that asked for nothing (the account has
+    /// no thread usage), else its figure (none until there is one).
+    pub fn card(&self, request: u64) -> Option<Option<&ThreadUsage>> {
+        self.cards.get(&request).map(Option::as_ref)
+    }
+
     /// Whether the feature is off for the account's plan or the thread (an answer without a
     /// usage): no row is shown then.
     pub fn is_disabled(&self) -> bool {
         self.machine.is_disabled()
+    }
+}
+
+/// `/status` made a card (`request_thread_usage_for_status`): when the account has a thread usage
+/// the card holds the figure there is now, and waits for the one the request brings.
+fn open_card(state: &mut State, request: u64, cx: &mut AppCx<'_>) {
+    if state.cards.contains_key(&request) {
+        return;
+    }
+    let Some(active) = cx.view().active().cloned() else {
+        return;
+    };
+    let machine_ctx = ctx(state, cx.view());
+    if !state.machine.is_available(active.as_str(), &machine_ctx) {
+        return;
+    }
+    let held = state.estimate_of(&active).cloned();
+    state.cards.insert(request, held);
+    if let Some(asked) = state
+        .machine
+        .for_status(active.as_str(), request, &machine_ctx)
+    {
+        ask(cx, asked);
     }
 }
 
@@ -174,6 +208,12 @@ impl Feature for ThreadUsageCost {
             result.map_err(|error| format!("{error:?}")),
             &machine_ctx,
         );
+        // the cards that waited get the figure now kept (`status_history_handles`)
+        for card in finished.cards {
+            if let Some(held) = state.cards.get_mut(&card) {
+                *held = state.machine.estimate().cloned();
+            }
+        }
         if let Some(request) = finished.request {
             ask(cx, request);
         }
@@ -203,7 +243,7 @@ impl Feature for ThreadUsageCost {
     /// `ensure_thread_usage_requested`: a thread that is shown has its usage asked once, when a
     /// figure of it is shown.
     fn on_shown(state: &mut State, thread: &ThreadId, cx: &mut AppCx<'_>) {
-        if !is_shown(state) && !state.card {
+        if !is_shown(state) && state.cards.is_empty() {
             return;
         }
         let machine_ctx = ctx(state, cx.view());
@@ -220,11 +260,18 @@ impl Feature for ThreadUsageCost {
         open: bool,
         cx: &mut AppCx<'_>,
     ) {
-        match interest {
-            UsageInterest::Credits => state.wanted.credits = open,
-            UsageInterest::EstimatedCost => state.wanted.estimated_cost = open,
-            UsageInterest::Card => state.card = open,
-        }
+        let wanted = match *interest {
+            UsageInterest::Credits => &mut state.wanted.credits,
+            UsageInterest::EstimatedCost => &mut state.wanted.estimated_cost,
+            // a card that is gone keeps its figure and goes on waiting for the settled one
+            UsageInterest::Card(request) => {
+                if open {
+                    open_card(state, request, cx);
+                }
+                return;
+            }
+        };
+        *wanted = open;
         if !open {
             if !is_shown(state) {
                 state.machine.cancel_polling();
@@ -235,14 +282,7 @@ impl Feature for ThreadUsageCost {
             return;
         };
         let machine_ctx = ctx(state, cx.view());
-        let request = match interest {
-            // `request_thread_usage_for_status`: a card waits for a figure of its own.
-            UsageInterest::Card => state.machine.for_status(&thread, 0, &machine_ctx),
-            UsageInterest::Credits | UsageInterest::EstimatedCost => {
-                state.machine.ensure_requested(&thread, &machine_ctx)
-            }
-        };
-        if let Some(request) = request {
+        if let Some(request) = state.machine.ensure_requested(&thread, &machine_ctx) {
             ask(cx, request);
         }
     }

@@ -13,6 +13,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+mod billing;
 mod card;
 mod compose;
 mod helpers;
@@ -20,13 +21,17 @@ mod limits;
 mod rates;
 mod warnings;
 
+pub use billing::{
+    Billing, BilledTokens, Effort, Share, Slot, Speed, Usage, slots as billing_slots, usage as billing_usage,
+};
 pub use card::{
     Account, ApprovalLabel, ModelDetail, Permissions, PermissionsLabel, Reasoning, Remote,
     SandboxKind, SandboxText, StatusCard, model_details,
 };
 pub use helpers::{
-    AgentsSource, PlanLabel, ResetDate, ResetTime, compose_agents_summary,
-    format_directory_display, plan_label, reset_time,
+    AgentsSource, PlanLabel, ResetDate, ResetTime, compose_agents_summary, format_credit_micros,
+    format_directory_display, format_estimated_usd_micros, plan_label, reset_time,
+    thread_cost_micros,
 };
 pub use limits::{
     Credits, CreditsText, Data as LimitData, Limits, Row as LimitRow, RowLabel, RowValue,
@@ -49,8 +54,9 @@ pub enum UsageInterest {
     Credits,
     /// The dollars (`estimated-thread-cost` of the status line or the title).
     EstimatedCost,
-    /// A `/status` card with a thread-usage row.
-    Card,
+    /// The `/status` card made by the request numbered so (`Item::Status`): it shows a
+    /// thread-usage row, and waits for the figure the request asks for.
+    Card(u64),
 }
 
 pub const NAME: &str = "status";

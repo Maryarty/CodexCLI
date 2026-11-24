@@ -77,14 +77,7 @@ pub struct Finished {
     pub request: Option<Request>,
 }
 
-/// ENT26 is billed directly in dollars; a missing native usage is not a zero estimate.
-pub fn thread_cost_micros(usage: &ThreadUsage, plan: Option<PlanType>) -> Option<i64> {
-    if plan == Some(PlanType::Ent26) {
-        usage.native_usage_usd_micros
-    } else {
-        usage.estimated_usage_usd_micros
-    }
-}
+pub use crate::screens::status::thread_cost_micros;
 
 /// Whether a plan's account has a thread usage to read at all.
 pub fn supported(plan: Option<PlanType>) -> bool {
@@ -151,6 +144,11 @@ impl State {
 
     fn available(&self, thread: Option<&str>, ctx: &Ctx) -> bool {
         ctx.backend_auth && !self.disabled && thread.is_some() && supported(ctx.plan)
+    }
+
+    /// Whether `thread`'s account has a usage to read now (`thread_usage_is_available`).
+    pub fn is_available(&self, thread: &str, ctx: &Ctx) -> bool {
+        self.available(Some(thread), ctx)
     }
 
     /// When the earliest request that is due is, for the caller's timer (the early redraw).

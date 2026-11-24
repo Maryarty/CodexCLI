@@ -18,14 +18,21 @@ use rtwk::layout::{
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
+use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::format::format_tokens_compact;
-use codex_tui_core::screens::status::{Account, LimitData, LimitRow, RowValue, StatusCard};
+use codex_app_server_protocol::ThreadUsage;
+use codex_tui_core::features::FeatureStates;
+use codex_tui_core::screens::status::{
+    Account, LimitData, LimitRow, RowValue, StatusCard, UsageInterest,
+};
 
 use super::bar::{BAR_CELLS, bar};
 use super::strings::{self, Strings};
+use super::usage;
 use crate::app::theme::Tokens;
+use crate::widgets::interest::Interest;
 use crate::widgets::measure::{self, Measure};
 
 /// The cells before a card's text, and between a label and its value.
@@ -49,27 +56,33 @@ impl StatelessWidget for StatusCell {
             bold: tokens.bold(),
         };
         let card = self.card.clone();
-        LayoutBuilder::new(move |cx, constraints| -> AnyWidget {
+        // what this card holds of the thread's usage, by the number of the `/status` that made it
+        let number = card.number;
+        let held = select::<FeatureStates, Option<Option<ThreadUsage>>, _>(cx, move |features| {
+            features.thread_usage.card(number).map(<Option<&ThreadUsage>>::cloned)
+        });
+        let sheet = LayoutBuilder::new(move |cx, constraints| -> AnyWidget {
             let width = i32::max(constraints.max_width, 0);
-            sheet(&card, &look, segmenter_of(cx), width)
-        })
-        .into()
+            sheet(&card, held.as_ref().map(Option::as_ref), &look, segmenter_of(cx), width)
+        });
+        // the card shows the usage of its thread: the feature asks for it for as long as it is drawn
+        Interest::new(UsageInterest::Card(number), sheet).into()
     }
 }
 
 /// The words and the styles one build reads.
 #[derive(Clone)]
-struct Look {
-    s: &'static Strings,
+pub(super) struct Look {
+    pub(super) s: &'static Strings,
     /// Oracle `.dim()`.
-    faint: Style,
+    pub(super) faint: Style,
     /// The oracle's accent colour and the magenta of the typed command.
     accent: Style,
     bold: Style,
 }
 
 /// What a row's value is: spans of text, or a usage window.
-enum Value {
+pub(super) enum Value {
     Spans(Vec<Span>),
     Window {
         percent_left: i32,
@@ -78,9 +91,12 @@ enum Value {
     },
 }
 
-enum Entry {
+pub(super) enum Entry {
     Row { label: String, value: Value },
     Blank,
+    /// A label the column is made wide enough for, with no row of its own (the oracle's
+    /// `push_label` of what a figure will show).
+    Reserve(String),
 }
 
 fn blank() -> AnyWidget {
@@ -91,15 +107,23 @@ fn indented(indent: i32, child: impl Into<AnyWidget>) -> AnyWidget {
     Padding::new(EdgeInsets::only(indent, 0, 0, 0), child).into()
 }
 
-fn sheet(card: &StatusCard, look: &Look, seg: Measure, width: i32) -> AnyWidget {
+fn sheet(
+    card: &StatusCard,
+    held: Option<Option<&ThreadUsage>>,
+    look: &Look,
+    seg: Measure,
+    width: i32,
+) -> AnyWidget {
     let s = look.s;
     // Room for the two-cell title mark even in a tiny terminal.
     let indent = if width >= INDENT + 2 { INDENT } else { 0 };
-    let entries = entries(card, look);
+    let entries = entries(card, held, look);
     let label_width = entries
         .iter()
         .filter_map(|entry| match entry {
-            Entry::Row { label, .. } => Some(i32::try_from(seg.width(label)).unwrap_or(i32::MAX)),
+            Entry::Row { label, .. } | Entry::Reserve(label) => {
+                Some(i32::try_from(seg.width(label)).unwrap_or(i32::MAX))
+            }
             Entry::Blank => None,
         })
         .max()
@@ -165,6 +189,7 @@ fn labelled(entries: Vec<Entry>, look: &Look, indent: i32, seg: Measure, room: i
         .column_gap(GAP);
     for entry in entries {
         match entry {
+            Entry::Reserve(_) => {}
             Entry::Blank => {
                 grid = grid
                     .child(SizedBox::fixed(0, 1))
@@ -204,6 +229,7 @@ fn flowing(entries: Vec<Entry>, look: &Look, indent: i32) -> AnyWidget {
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
     for entry in entries {
         match entry {
+            Entry::Reserve(_) => {}
             Entry::Blank => column = column.child(blank()),
             Entry::Row { label, value } => column = column.child(paragraph(label, value, look)),
         }
@@ -318,7 +344,7 @@ fn faint(look: &Look, text: impl Into<String>) -> Value {
 }
 
 /// The rows of the card in the oracle's order.
-fn entries(card: &StatusCard, look: &Look) -> Vec<Entry> {
+fn entries(card: &StatusCard, held: Option<Option<&ThreadUsage>>, look: &Look) -> Vec<Entry> {
     let s = look.s;
     let row = |label: &str, value: Value| Entry::Row {
         label: label.to_string(),
@@ -460,6 +486,7 @@ fn entries(card: &StatusCard, look: &Look) -> Vec<Entry> {
             ),
         )),
     }
+    entries.extend(usage::entries(card, held, look));
     entries
 }
 

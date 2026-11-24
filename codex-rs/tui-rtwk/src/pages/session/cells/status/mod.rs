@@ -9,6 +9,7 @@
 
 mod bar;
 mod cell;
+mod usage;
 
 pub use cell::StatusCell;
 

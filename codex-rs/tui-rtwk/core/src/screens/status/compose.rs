@@ -211,6 +211,7 @@ impl StatusCard {
             context,
             limits,
             hour24: false,
+            number: 0,
         }
     }
 }

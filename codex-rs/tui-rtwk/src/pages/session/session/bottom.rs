@@ -19,6 +19,7 @@ use crate::pages::session::backtrack::EditWatch;
 use crate::pages::session::banners::{BackendBanners, NoticeLine, ReserveSelector, reserve_of};
 use crate::pages::session::footer::{Sparkle, StatusRows};
 use crate::pages::session::popovers::mention;
+use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::status_line::status_spans;
@@ -130,13 +131,24 @@ pub(super) fn body(
             .with_key(Key::value("composer")),
         )
     };
-    if !line.is_empty() && !thread.read_only() && frame.provider.is_none() {
-        body = body.child(StatusRows {
+    // a status line that names the credits or the cost wants them, whether or not it shows them
+    // yet (`thread_usage_selected`): without a figure the line is empty
+    let wanted = line_interests(facts);
+    let rows = (!line.is_empty() && !thread.read_only() && frame.provider.is_none()).then(|| {
+        AnyWidget::from(StatusRows {
             spans: line,
             composer: w.ui.composer.clone(),
             hints,
-        });
-    }
+        })
+    });
+    body = match (rows, wanted.is_empty()) {
+        (Some(rows), true) => body.child(rows),
+        (rows, false) => body.child(raise(
+            wanted,
+            rows.unwrap_or_else(|| SizedBox::new(Some(0), Some(0), None).into()),
+        )),
+        (None, true) => body,
+    };
     body.child(footer)
 }
 

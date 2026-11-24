@@ -1,13 +1,19 @@
 //! Display values shared by the chat footer and the terminal title.
 
+use codex_app_server_protocol::ThreadUsage;
+use codex_protocol::account::PlanType;
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::chat::{self, DEFAULT_STATUS_LINE_ITEMS, StatusFacts};
-use codex_tui_core::screens::status;
+use codex_tui_core::screens::status::{
+    self, UsageInterest, format_credit_micros, format_estimated_usd_micros, thread_cost_micros,
+};
+use rtwk::AnyWidget;
 
 use rtwk_core::unicode::grapheme_boundaries;
 
 use crate::l10n::strings::Shared;
+use crate::widgets::interest::Interest;
 
 /// Read-only inputs for the status line and terminal title.
 pub(super) struct StatusContext<'a> {
@@ -25,6 +31,11 @@ pub(super) struct StatusContext<'a> {
     pub raw_output: bool,
     /// The resumed thread has counted no tokens yet (`token_usage_pending`).
     pub usage_pending: bool,
+    /// What the backend estimates the thread cost (`estimated_thread_usage`): none until the
+    /// first answer.
+    pub cost: Option<&'a ThreadUsage>,
+    /// The plan of the account (`plan_type`): `thread-credits` is not shown on Ent26.
+    pub plan: Option<PlanType>,
 }
 
 impl StatusContext<'_> {
@@ -242,6 +253,15 @@ impl StatusContext<'_> {
                 .map(|percent| self.strings.status_quota("5h", percent)),
             "weekly-limit" => percent_remaining(self.rate_limits?, 7 * 24 * 60)
                 .map(|percent| self.strings.status_quota("Weekly", percent)),
+            "thread-credits" => self
+                .cost
+                .filter(|_| self.plan != Some(PlanType::Ent26))
+                .map(|usage| usage.estimated_usage_credits_micros)
+                .map(|credits| format!("{} credits", format_credit_micros(credits))),
+            "estimated-thread-cost" => self
+                .cost
+                .and_then(|usage| thread_cost_micros(usage, self.plan))
+                .and_then(format_estimated_usd_micros),
             "task-progress" => thread
                 .and_then(|thread| thread.progress)
                 .filter(|&(_, total)| total > 0)
@@ -335,6 +355,42 @@ fn is_title_item(id: &str) -> bool {
             | "reasoning"
             | "task-progress"
     )
+}
+
+/// What the items of the status line ask of the thread's usage: a figure that is configured is
+/// wanted whether or not it shows yet (`thread_usage_selected`).
+pub(super) fn line_interests(facts: &StatusFacts) -> Vec<UsageInterest> {
+    match &facts.items {
+        Some(items) => interests_of(items.iter().map(String::as_str)),
+        None => interests_of(DEFAULT_STATUS_LINE_ITEMS),
+    }
+}
+
+/// The same for the items of the terminal title.
+pub(super) fn title_interests(facts: &StatusFacts) -> Vec<UsageInterest> {
+    interests_of(title_items(facts))
+}
+
+fn interests_of<'a>(ids: impl IntoIterator<Item = &'a str>) -> Vec<UsageInterest> {
+    let mut wanted = Vec::new();
+    for id in ids {
+        let interest = match id {
+            "thread-credits" => UsageInterest::Credits,
+            "estimated-thread-cost" => UsageInterest::EstimatedCost,
+            _ => continue,
+        };
+        if !wanted.contains(&interest) {
+            wanted.push(interest);
+        }
+    }
+    wanted
+}
+
+/// `child`, for as long as it is drawn, wants the usage of the thread the `interests` name.
+pub(super) fn raise(interests: Vec<UsageInterest>, child: AnyWidget) -> AnyWidget {
+    interests.into_iter().fold(child, |child, interest| {
+        Interest::new(interest, child).into()
+    })
 }
 
 fn is_spinner(id: &str) -> bool {

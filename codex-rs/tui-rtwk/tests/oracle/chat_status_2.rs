@@ -111,38 +111,44 @@ fn status_line_legacy_context_usage_renders_context_used_percent() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3306 status_line_estimated_thread_cost_fetches_and_renders_backend_estimate kind=ui owner=ui-pane
 #[test]
 fn status_line_estimated_thread_cost_fetches_and_renders_backend_estimate() {
-    kit::pending(
-        Owner::UiPane,
-        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a thread with backend auth on a Business plan, status_line = estimated-thread-cost;
-    // the usage answer is ~$1.82 (estimated_usage_usd_micros 1_820_000); an idle refresh polls nothing
-    s.assert_contains("~$1.82");
+    // a thread with backend auth on a Business plan, status_line = estimated-thread-cost; the
+    // usage answer is ~$1.82 (estimated_usage_usd_micros 1_820_000); an idle refresh polls nothing
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/estimated_cost.jsonl"))
+        .open();
+    s.wait_for("~$1.82");
+    s.assert_has_row_trimmed("~$1.82");
+    s.wait(120_000);
+    s.assert_requests_of("account/usage/read", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3343 status_line_thread_credits_fetches_and_renders_fractional_credits kind=ui owner=ui-pane
 #[test]
 fn status_line_thread_credits_fetches_and_renders_fractional_credits() {
-    kit::pending(
-        Owner::UiPane,
-        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = thread-credits; the usage answer is 5.2 credits
-    s.assert_contains("5.2 credits");
+    // status_line = thread-credits; the usage answer is 5.24 credits, shown as 5.2
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/thread_credits.jsonl"))
+        .open();
+    s.wait_for("5.2 credits");
+    s.assert_has_row_trimmed("5.2 credits");
+    s.wait(120_000);
+    s.assert_requests_of("account/usage/read", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3453 terminal_title_thread_usage_fetches_and_renders_without_status_line kind=ui owner=ui-pane
 #[test]
 fn terminal_title_thread_usage_fetches_and_renders_without_status_line() {
-    kit::pending(
-        Owner::UiPane,
-        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line empty, terminal_title = thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
+    // status_line empty, terminal_title = thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/title_usage.jsonl"))
+        .open();
+    s.wait(200);
     s.assert_title("5.2 credits | ~$0.21");
+    s.assert_absent("5.2 credits");
+    s.assert_requests_of("account/usage/read", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3905 status_line_estimated_thread_cost_footer_snapshot kind=snap owner=ui-pane snap=status_line_estimated_thread_cost_footer
@@ -150,10 +156,14 @@ fn terminal_title_thread_usage_fetches_and_renders_without_status_line() {
 fn status_line_estimated_thread_cost_footer_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists; and the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
+        "the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: status_line = model-with-reasoning, thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
+    // status_line = model-with-reasoning, thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!("fixtures/chat_status_2/footer_usage.jsonl"))
+        .open();
+    s.wait_for("5.2 credits");
     s.assert_snap("status_line_estimated_thread_cost_footer");
 }
 
