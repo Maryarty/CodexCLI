@@ -11,7 +11,7 @@ into target/nextest/oracle/junit.xml), read with tests/oracle/tools/summary.py: 
 the oracle claims, stay pending: summary.py tags them `{stub}` `{absence-only}` `{no-assert}` `{weak-body}`).
 Package of a test: map-full/tests_rules.py (the reason of map-full/pending-tests.tsv when the test is there).
 Edit: the `kit::pending( .. );` statement leaves the test fn (strings and comments are skipped, not parsed as code); the
-`self` / `Owner` of `use crate::kit::{..}` leave with their last user; the row leaves pending-tests.tsv. `--commit` commits
+`self` / `Owner` of `use crate::kit::{..}` and a `const X: &str` reason leave with their last user; the row leaves pending-tests.tsv. `--commit` commits
 per package (oracle files + the tsv, staged by path); at the end map-full/build.py regenerates the port-map and unpend/*.txt.
 Rerunnable after every landing: with no stale test it changes nothing.
 """
@@ -103,6 +103,33 @@ def tidy_imports(src):
     return src[:m.start()] + new + src[m.end():]
 
 
+def tidy_consts(src):
+    """Drops `const NAME: &str = ..;` (reasons shared by several markers) that no code of the file names any more."""
+    while True:
+        for m in re.finditer(r'^const (\w+): &str =', src, re.M):
+            name = m.group(1)
+            if len(re.findall(r'\b%s\b' % name, src)) > 1:
+                continue
+            i = m.end()
+            while i < len(src) and src[i] != ';':
+                j = summary._skip_lexeme(src, i)
+                i = j if j is not None else i + 1
+            end = i + 1
+            if src[end:end + 1] == '\n':
+                end += 1
+            begin = m.start()
+            while True:  # the comment lines right above go with it
+                prev = src.rfind('\n', 0, begin - 1) + 1
+                if begin > 0 and src[prev:begin].lstrip().startswith('//'):
+                    begin = prev
+                else:
+                    break
+            src = src[:begin] + src[end:]
+            break
+        else:
+            return src
+
+
 def git(*args, check=True):
     return subprocess.run(['git', '-C', ROOT] + list(args), check=check, capture_output=True, text=True)
 
@@ -144,7 +171,7 @@ def main():
             if new is None:
                 print('  not found / no marker: %s::%s' % (shard, test))
                 continue
-            open(f, 'w', encoding='utf-8').write(tidy_imports(new))
+            open(f, 'w', encoding='utf-8').write(tidy_consts(tidy_imports(new)))
             files.add(f)
             names.append('%s::%s' % (shard, test))
         if not names:
