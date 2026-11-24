@@ -534,21 +534,41 @@ fn status_history_updates_again_after_billing_settles() {
 #[test]
 fn billing_surfaces_render_for_every_supported_enterprise_plan() {
     // The oracle loops over Business, EnterpriseCbpUsageBased, EnterpriseCbpAutomation and Ent26.
-    for _plan in 0..4 {
-        kit::pending(
-            Owner::ChatLive,
-            "no thread billing in the chat: no plan-gated thread-credits and estimated-thread-cost status line and terminal title items, no shared billing request (seed steps)",
-        );
-        let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    for plan in [
+        "business",
+        "enterprise_cbp_usage_based",
+        "enterprise_cbp_automation",
+        "ent26",
+    ] {
+        let mut s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+        // the account on the plan, the status line and the title of the two billing items
+        let items = r#"["thread-credits","estimated-thread-cost"]"#;
+        // the thread's usage: Ent26 has no credits and no estimate, and a native usage of 0.75 USD
+        let (credits, usd) = if plan == "ent26" {
+            (0, 0)
+        } else {
+            (5_200_000, 210_000)
+        };
+        s.feed(&format!(
+            r#"{{"step":"screen","dir":"status","ev":{{"kind":"account","account":{{"chat_gpt":{{"email":"user@example.com","plan":"{plan}"}}}}}}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.5","cwd":"/tmp/project","account_usage":true,"items":{items},"terminal_title":{items}}}}}}}
+{{"step":"respond","method":"account/usage/read","result":{{"summary":{{"lifetimeTokens":null,"peakDailyTokens":null,"longestRunningTurnSec":null,"currentStreakDays":null,"longestStreakDays":null}},"dailyUsageBuckets":null,"threadUsage":{{"threadId":"thread-1","estimatedUsageCreditsMicros":{credits},"estimatedUsageUsdMicros":{usd},"nativeUsageUsdMicros":750000,"groups":[]}}}}}}"#
+        ));
+        // the status line and the title ask for the figure once between them
+        s.wait_for("~$");
+        s.assert_requests_of("account/usage/read", 1);
+        if plan == "ent26" {
+            // Ent26 (no credits, native usage 0.75 USD): the status line and the title show ~$0.75.
+            s.assert_has_row_trimmed("~$0.75");
+            s.assert_title("~$0.75");
+            // The /status card's Thread usage row.
+            s.type_text("/status").keys("enter");
+            s.assert_contains("Thread usage:        ~$0.75");
+            continue;
+        }
         // Business and the enterprise plans: the status line and the terminal title show 5.2 credits · ~$0.21.
-        s.assert_contains("5.2 credits · ~$0.21");
+        s.assert_has_row_trimmed("5.2 credits · ~$0.21");
         s.assert_title("5.2 credits | ~$0.21");
-        // Ent26 (no credits, native usage 0.75 USD): the status line and the title show ~$0.75.
-        s.assert_contains("~$0.75");
-        s.assert_title("~$0.75");
-        // The /status card's Thread usage row.
-        s.type_text("/status").keys("enter");
-        s.assert_contains("Thread usage:        ~$0.75");
     }
 }
 
