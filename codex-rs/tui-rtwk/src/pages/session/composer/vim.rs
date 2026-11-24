@@ -600,25 +600,33 @@ pub fn insert(
                 return None;
             }
             run(data, c, |v, host| v.type_text(host, &ch.to_string()));
-            absorb_shell_prefix(data, c);
+            absorb_shell_prefix(draft, &*data.tell, c);
             Some(true)
         }
         _ => None,
     }
 }
 
+/// Whether Vim is on and in Replace mode: what is typed or pasted overwrites.
+pub fn replacing(draft: &ComposerDraft) -> bool {
+    draft.vim_enabled() && mode(draft).replace
+}
+
 /// A `!` Replace mode typed at the draft's start is shell mode and leaves the text (the prompt
 /// shows it); its recovery step stays, so Backspace brings back the character it covered
 /// (`sync_bash_mode_from_text`, `absorb_prompt_prefix`).
-fn absorb_shell_prefix(data: &KeyData, c: &TextEditingController) {
-    let draft = &data.draft;
+pub fn absorb_shell_prefix(
+    draft: &ComposerDraft,
+    tell: &dyn Fn(ComposerMsg),
+    c: &TextEditingController,
+) {
     if draft.shell() || draft.is_plain() || !c.text().starts_with('!') {
         return;
     }
     let caret = c.selection().extent_offset;
     draft.with_vim(|v| v.absorb_prompt_prefix(caret, 1));
     if draft.absorb_shell_prefix(c) {
-        (data.tell)(ComposerMsg::Shell);
+        tell(ComposerMsg::Shell);
     }
 }
 

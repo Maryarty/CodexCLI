@@ -11,6 +11,7 @@ use std::rc::Rc;
 
 use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, editing_key};
 use rtwk::focus::KeyPress;
+use rtwk::prelude::{KeyCode, Mods as PressMods};
 
 use codex_tui_core::data::history::Store;
 use codex_tui_core::keymap::actions::{
@@ -422,8 +423,12 @@ pub(super) enum Resolved {
 }
 
 pub(super) fn resolve(keymap: &Keymap, key: &KeyPress) -> Resolved {
+    // a terminal without the kitty protocol sends Ctrl+H as the C0 byte, which arrives as
+    // Backspace holding Ctrl: the oracle's backend reads it as `Ctrl+h`, the key `ctrl-h` names
+    let c0 = (key.code == KeyCode::Backspace && key.mods == PressMods::CTRL)
+        .then(|| KeyPress::char('h').with_mods(PressMods::CTRL));
     for (edit, id) in EDITS {
-        if pressed(keymap, id, key) {
+        if pressed(keymap, id, key) || c0.as_ref().is_some_and(|k| pressed(keymap, id, k)) {
             let via = edit.canonical().filter(|k| k != key);
             return Resolved::Edit { edit, via };
         }
@@ -675,7 +680,14 @@ fn edit_arms(
     }
     // Shell mode: Backspace at the start and Esc on an empty draft
     // leave it.
-    if is(FIELD_DELETE_BACKWARD) && plain && collapsed && caret == 0 && draft.shell() {
+    let deleting_backward = matches!(
+        resolve(&data.keymap, key),
+        Resolved::Edit {
+            edit: Edit::DeleteBackward,
+            ..
+        }
+    );
+    if deleting_backward && collapsed && caret == 0 && draft.shell() {
         draft.set_shell(false);
         (data.tell)(ComposerMsg::Shell);
         return true;
