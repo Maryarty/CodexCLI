@@ -175,16 +175,16 @@ pub struct State {
     spend_control: Option<bool>,
     /// Whether the credits last seen can be spent.
     credits: Option<bool>,
-    /// The switch prompt is open (its sheet closes when this goes false).
-    switch_open: bool,
+    /// The model is offered and the offer still stands (the prompt closes when it does not).
+    offered: bool,
     /// The nudge e-mail in flight: one at a time.
     sending: Option<Nudge>,
 }
 
 impl State {
-    /// Whether the switch prompt is to stay open.
-    pub fn switch_open(&self) -> bool {
-        self.switch_open
+    /// Whether the offer of the lower-cost model still stands (credits turned up: it does not).
+    pub fn offered(&self) -> bool {
+        self.offered
     }
 
     fn workspace_limit_reached(&self) -> bool {
@@ -216,7 +216,7 @@ impl State {
         if sample.codex && has_workspace_credits {
             match self.stage {
                 Stage::Pending | Stage::Asking => self.stage = Stage::Idle,
-                Stage::Shown => self.switch_open = false,
+                Stage::Shown => self.offered = false,
                 Stage::Idle => {}
             }
         }
@@ -366,7 +366,7 @@ feature! {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
                     Intent::Switch { model, effort } => {
-                        state.switch_open = false;
+                        state.offered = false;
                         cx.verb(PublicVerb::OverrideTurn {
                             model,
                             effort: Some(effort),
@@ -378,7 +378,7 @@ feature! {
                             cx.ask(None, Ask::Nudge(nudge), Ctx::Nudge(nudge));
                         }
                     }
-                    Intent::Closed => state.switch_open = false,
+                    Intent::Closed => state.offered = false,
                 }
             }
 
@@ -393,7 +393,7 @@ feature! {
                         if state.stage == Stage::Asking =>
                     {
                         state.stage = Stage::Shown;
-                        state.switch_open = true;
+                        state.offered = true;
                         if let Some(thread) = cx.view().active().cloned() {
                             cx.wish(thread, Wish::Switch(candidate));
                         }

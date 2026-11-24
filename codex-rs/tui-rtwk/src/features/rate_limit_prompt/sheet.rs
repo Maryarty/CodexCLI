@@ -53,7 +53,7 @@ impl PromptState {
     /// Whether the switch prompt is wanted: asked in `did_change_dependencies` and again in
     /// `build`, because a build forgets the selects of the build before.
     fn wanted(cx: &mut Cx<'_, Self>) -> bool {
-        select::<FeatureStates, bool, _>(cx, |features| features.rate_limit_prompt.switch_open())
+        select::<FeatureStates, bool, _>(cx, |features| features.rate_limit_prompt.offered())
     }
 }
 
