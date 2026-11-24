@@ -15,6 +15,9 @@
 
 use rtwk_rich::markdown::{Block, MdBlock, MdInline, MdList, MdTable};
 
+/// The `#`s of a heading, one per level.
+const MARKS: &str = "######";
+
 /// The text of `blocks`, or `None` where one of them is not modelled.
 pub fn text(blocks: &[Block]) -> Option<String> {
     let mut out = Vec::with_capacity(blocks.len());
@@ -28,11 +31,8 @@ fn block_text(block: &MdBlock) -> Option<String> {
     Some(match block {
         MdBlock::Paragraph(inlines) => inline_text(inlines)?,
         MdBlock::Heading { level, children } => {
-            format!(
-                "{} {}",
-                "#".repeat(usize::from(*level)),
-                inline_text(children)?
-            )
+            let marks = &MARKS[..usize::from(*level).clamp(1, MARKS.len())];
+            format!("{marks} {}", inline_text(children)?)
         }
         MdBlock::CodeBlock(code) => code.code.trim_end_matches('\n').to_owned(),
         MdBlock::BlockQuote(children) => text(children)?,
