@@ -150,7 +150,7 @@ The 209 transcript_view tests in this chunk, by group:
   `Following | Reading | Detailed | Browsing{nth} | Find{query} | Select{marks} | Copy{target}`.
   It replaces `detailed_transcript`/`esc_primed`, and the Esc order of `owned_transcript.rs:974-1060` becomes the controller's one `on_escape`.
   The thread state stays in `CodexApp`; the controller holds only view state (offsets, marks, query). No ADR-003 copy.
-- **Selection + copy (ADR-028).**
+- **Selection + copy (ADR-028; superseded at the pin c953f062 by ADR-029, parity/repin-5.md, gap row G-new-sel-lines).** The list below was written for `ItemTexts` / `ListView::selection_text`; on the pin an item is one line of text (`ListView::item_text`, `ItemText`), the item draws its part through `ListView::selection_of`, there are no keys (a selection is kept across a change by `SelectionAreaController::start`/`end` and `select_between`), and a cell of many wrapped rows is not an item of it. `ItemTexts` is still in the tree until rtwk's `sel-028-retire`; do not build on it.
   - `TranscriptTexts: ItemTexts` over the rows the pane builds, with `key(i)` = the item id; `ListView::selection_text(Rc<dyn ItemTexts>)`
     (`rtwk-scroll/src/list_view.rs:503`) inside one `SelectionArea` (`rtwk-widgets/src/gestures/selection.rs:460`).
   - `SelectionArea` gives `copy_on_release`, `on_copy`, `copy_transform` and `trim_trailing_blanks`. The `SelectionAreaController` (:271) gives
