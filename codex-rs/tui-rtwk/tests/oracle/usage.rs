@@ -412,8 +412,21 @@ fn analytics_preserves_full_denominators_and_signed_small_credits() {
 fn analytics_dates_distinguish_zero_missing_and_exact_details() {
     kit::pending(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
+        "the oracle's snapshot is five `panel(Section, 54, 3)` bodies joined (a function of the model, \
+         no screen of the page draws one: the chart is not at that size), and its last two panels \
+         are the same report emptied by a test's own edit; the three `contains` of the first \
+         three panels are ported below",
     );
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(100, 38)
+        .entry("usage", "credits_exact")
+        .open();
+    s.keys("home");
+    s.assert_contains("No activity (0)");
+    s.keys("right enter");
+    s.assert_contains("12746.441206 credits");
+    s.keys("right");
+    s.assert_contains("Aug 29 · Not reported");
 }
 
 // ORACLE analytics_tests.rs:345 analytics_maximized_refunds_leave_room_for_both_bands kind=snap owner=routes-lists snap=analytics_maximized_refunds_leave_room_for_both_bands
@@ -429,10 +442,62 @@ fn analytics_maximized_refunds_leave_room_for_both_bands() {
 // ORACLE analytics_tests.rs:367 analytics_day_navigation_keeps_geometry_and_legend kind=ui owner=routes-lists
 #[test]
 fn analytics_day_navigation_keeps_geometry_and_legend() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
-    );
+    // The oracle's frame: the bars (cell and style), the marker row and the table row.
+    type Geometry = (Vec<(usize, usize, String, String)>, usize, usize);
+    fn geometry(s: &Screen) -> Geometry {
+        let grid = s.grid();
+        let mut bars = Vec::new();
+        for y in 0..grid.height {
+            for x in 0..grid.width {
+                let cell = grid.cell(x, y);
+                if matches!(
+                    cell.text.as_str(),
+                    "█" | "▁" | "▂" | "▃" | "▄" | "▅" | "▆" | "▇"
+                ) {
+                    bars.push((x, y, cell.text.clone(), format!("{:?}", grid.style(x, y))));
+                }
+            }
+        }
+        let rows = s.rows();
+        let row_of = |text: &str| {
+            rows.iter()
+                .position(|row| row.contains(text))
+                .unwrap_or_else(|| panic!("no `{text}` row on the screen:\n{}", s.text()))
+        };
+        (bars, row_of("▲"), row_of("Product"))
+    }
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(58, 38)
+        .entry("usage", "credits_days")
+        .open();
+    for width in [58, 160] {
+        s.resize(width, 38);
+        for expanded in [false, true] {
+            s.keys("home");
+            if expanded {
+                s.keys("enter");
+            }
+            let mut previous: Option<Geometry> = None;
+            for _ in 0..7 {
+                let now = geometry(&s);
+                assert!(!now.0.is_empty(), "no bars drawn:\n{}", s.text());
+                if let Some(previous) = &previous {
+                    assert!(
+                        *previous == now,
+                        "the geometry moved at width {width} (expanded {expanded}):\n{}",
+                        s.text()
+                    );
+                }
+                previous = Some(now);
+                s.assert_contains("● CLI");
+                s.assert_contains("● Desktop app");
+                s.keys("right");
+            }
+            if expanded {
+                s.keys("enter");
+            }
+        }
+    }
 }
 
 // ORACLE analytics_tests.rs:419 analytics_series_rank_by_range_and_keep_calendar_ticks_stable kind=snap owner=routes-lists snap=analytics_series_rank_by_range_and_keep_calendar_ticks_stable

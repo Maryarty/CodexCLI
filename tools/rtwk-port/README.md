@@ -1,3 +1,4 @@
 - w2-settings/keymap_fixture.py: context, context_label and action on the items of keymap fixtures (settings keymap picker rows).
 - w2-settings/keymap_press.py: moves the KeyCode reading of the keymap editor to src/keymap/press.rs (ADR-006); for the owner of src/keymap to run (UNTESTED: written when the area rule forbade running it).
 - doors-r1/span_link.py: `link: None` in every struct literal of the picker `Span { text, role }` (a `link` field on the picker run, doors-r1 item 6).
+- w2-status/usage_fixtures.py: writes the usage debug entries credits_days and credits_exact (src/pages/usage/fixtures) from the oracle's `fixture::history(1,0,0)` with the edits its tests make.

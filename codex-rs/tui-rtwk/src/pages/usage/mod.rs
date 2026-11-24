@@ -72,6 +72,18 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
+            name: "credits_days",
+            description: "the Credits report with a day of one product and a day with no row",
+            script: include_str!("fixtures/credits_days.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
+            name: "credits_exact",
+            description: "the Credits report with 12746.441206 credits on a day",
+            script: include_str!("fixtures/credits_exact.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
             name: "dashboard",
             description: "a Plus account's four reports of the week, z for the dashboard of cards",
             script: include_str!("fixtures/dashboard.jsonl"),
