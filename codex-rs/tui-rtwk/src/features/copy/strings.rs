@@ -8,6 +8,20 @@ use codex_tui_core::features::copy::Note;
 /// The title of the copy picker (oracle `show_copy_picker`).
 pub const PICKER_TITLE: &str = "Copy to clipboard";
 
+/// The row of the whole response (oracle `show_copy_picker`).
+pub const WHOLE_RESPONSE: &str = "Whole response";
+
+/// The row of a code block that names no language.
+pub const CODE_BLOCK: &str = "Code block";
+
+/// The row of a quote.
+pub const BLOCKQUOTE: &str = "Blockquote";
+
+/// The row of a code block in `language`.
+pub fn code_in(language: &str) -> String {
+    format!("{language} code")
+}
+
 /// The words of one of the feature's notes.
 pub fn note(note: &Note) -> String {
     match note {
