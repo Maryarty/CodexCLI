@@ -284,11 +284,13 @@ fn a_run_that_ends_without_an_answer_is_the_slices_failure_and_the_thread_is_let
     ] {
         let (mut app, first) = started();
         walk(&mut app, &first, json!({}));
+        // a message that is too long ends the run as it comes, the rest when the turn ends
+        let mut unsubscribed = Vec::new();
         if let Some(text) = message {
-            says(&mut app, text);
+            unsubscribed.extend(unsubscribes(&says(&mut app, text)));
         }
-        let fx = ends(&mut app, status);
-        assert_eq!(unsubscribes(&fx), [TEMP], "{status}");
+        unsubscribed.extend(unsubscribes(&ends(&mut app, status)));
+        assert_eq!(unsubscribed, [TEMP], "{status}");
         assert_eq!(notes(&app), vec![RecapNote::Failed], "{status}");
     }
 }
