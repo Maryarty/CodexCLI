@@ -203,20 +203,8 @@ pub enum Note {
     /// Restart the app server and TUI to refresh /model.` after a provider write, or `Saving the
     /// default provider. Try /model after the save finishes.` while it runs.
     ModelPickerUnavailable(Provider),
-    /// `Managed worktrees require a local Git repository.` (an error).
-    WorktreesUnavailable,
-    /// `Cannot list managed worktrees: {error}` (an error).
-    WorktreeListFailed(String),
-    /// A worktree for the conversation was not started (`start_managed_worktree`; an error).
-    WorktreeRefused(worktree::Refusal),
-    /// The worktree could not be made (an error): the host's words.
-    WorktreeFailed(String),
-    /// The conversation did not start in the new worktree, which stays on disk (an error).
-    WorktreeRetained { root: String, reason: crate::app::worktree::RetainedReason },
-    /// `Removed worktree at {root}. Thread history was kept.`
-    WorktreeRemoved { root: String },
-    /// `Could not remove worktree at {root}: {error}` (an error).
-    WorktreeRemoveFailed { root: String, error: String },
+    /// A line of the worktree pickers and of the conversation started in a worktree.
+    Worktree(worktree::Line),
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
@@ -257,12 +245,6 @@ impl Note {
             Note::ModelsNotLoaded
             | Note::SaveFailed { .. }
             | Note::AppsFailed(_)
-            | Note::WorktreesUnavailable
-            | Note::WorktreeListFailed(_)
-            | Note::WorktreeRefused(_)
-            | Note::WorktreeFailed(_)
-            | Note::WorktreeRetained { .. }
-            | Note::WorktreeRemoveFailed { .. }
             | Note::PresetsUnavailable
             | Note::PresetInvalid(_)
             | Note::PresetBroken { .. }
@@ -270,6 +252,7 @@ impl Note {
             | Note::PresetFailed { .. }
             | Note::PermissionArgs(_)
             | Note::PermissionRefused(_) => Tone::Error,
+            Note::Worktree(line) if line.error() => Tone::Error,
             _ => Tone::Info,
         }
     }
@@ -781,14 +764,14 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         // replaces itself with the browser, or closes; a failure is said unless it was given up.
         Ev::Worktrees { request, result } => {
             if let Some(error) = model.worktree.answered(request, result) {
-                model.notes.push(Note::WorktreeListFailed(error));
+                model.notes.push(Note::Worktree(worktree::Line::ListFailed(error)));
             }
         }
         Ev::WorktreeRemoved { request, result } => {
             if let Some(root) = model.worktree.removed(request) {
                 model.notes.push(match result {
-                    Ok(()) => Note::WorktreeRemoved { root },
-                    Err(error) => Note::WorktreeRemoveFailed { root, error },
+                    Ok(()) => Note::Worktree(worktree::Line::Removed { root }),
+                    Err(error) => Note::Worktree(worktree::Line::RemoveFailed { root, error }),
                 });
             }
         }
@@ -945,7 +928,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.worktree.open(cwd, thread);
                 model.shows.push(Opening::Worktree(worktree::Menu::Worktrees));
             } else {
-                model.notes.push(Note::WorktreesUnavailable);
+                model.notes.push(Note::Worktree(worktree::Line::Unavailable));
             }
         }
         // What a page of `/review` settled on (`Picked::Review`), and the list a page asks of the

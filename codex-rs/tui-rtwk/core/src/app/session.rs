@@ -469,6 +469,13 @@ pub(super) fn begin_conversation(
     fx.commands.push(request);
 }
 
+/// `/new <name>`, `/fork <name>` made in a new worktree: the thread is named once it has started
+/// (`features/rename`).
+pub(super) fn name_started(app: &mut CodexApp, thread: &ThreadId, name: String, fx: &mut AppFx) {
+    let intent = crate::features::rename::ThreadIntent::Set(name).into();
+    apply_thread(app, thread, ThreadEv::FeatureIntent(intent), fx);
+}
+
 /// `review/start` inline on the thread: the review runs as a turn of it.
 pub(super) fn start_review(
     app: &mut CodexApp,

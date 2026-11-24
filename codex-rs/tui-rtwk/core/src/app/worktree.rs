@@ -83,7 +83,9 @@ impl Step {
         fx: &mut AppFx,
     ) {
         let refuse = |app: &mut CodexApp, why: Refusal, fx: &mut AppFx| {
-            let note = Note::from(NoteKey::Select(select::Note::WorktreeRefused(why)));
+            let note = Note::from(NoteKey::Select(select::Note::Worktree(
+                select::worktree::Line::Refused(why),
+            )));
             session_note(app, source.clone(), note, fx);
         };
         let Some(thread) = source.clone() else {
@@ -216,8 +218,7 @@ impl Step {
                 if let Some(chat) = chat {
                     // `/new <name>`, `/fork <name>`: named once it has started.
                     if let Some(name) = chat.name {
-                        let intent = crate::features::rename::ThreadIntent::Set(name).into();
-                        apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
+                        super::session::name_started(app, &thread, name, fx);
                     }
                     show_held_thread(app, thread.clone(), fx);
                     if chat.fork {
@@ -281,8 +282,10 @@ fn finish(app: &mut CodexApp, chat: Option<Chat>, said: Said, fx: &mut AppFx) {
         return;
     };
     let note = match said {
-        Said::Failed(error) => select::Note::WorktreeFailed(error),
-        Said::Retained { root, reason } => select::Note::WorktreeRetained { root, reason },
+        Said::Failed(error) => select::Note::Worktree(select::worktree::Line::Failed(error)),
+        Said::Retained { root, reason } => {
+            select::Note::Worktree(select::worktree::Line::Retained { root, reason })
+        }
     };
     session_note(
         app,

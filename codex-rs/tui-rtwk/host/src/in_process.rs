@@ -484,7 +484,7 @@ async fn run(
                         done,
                     ) = &*notification
                     {
-                        emit(&ingress, epoch, crate::windows_sandbox::completed(done));
+                        emit(&ingress, epoch, AppEv::Feature(codex_tui_core::features::windows_sandbox::Fact::completed(done).into()));
                     }
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
                 }
@@ -645,7 +645,17 @@ fn sandbox_job(
         handle.clone(),
     );
     Box::pin(async move {
-        crate::windows_sandbox::fetch(cwd, remote_workspace, &ids, sender(handle)).await
+        let (config, requirements, ready) =
+            crate::windows_sandbox::fetch(cwd, &ids, sender(handle)).await?;
+        Some(AppEv::Feature(
+            codex_tui_core::features::windows_sandbox::Fact::environment(
+                &config,
+                requirements,
+                remote_workspace,
+                ready,
+            )
+            .into(),
+        ))
     })
 }
 
@@ -656,7 +666,20 @@ fn security_job(
     handle: &AppServerRequestHandle,
 ) -> Boxed<Option<AppEv>> {
     let (config, ids, handle) = (Arc::clone(config), ids.clone(), handle.clone());
-    Box::pin(async move { crate::security_setup::fetch(&config, &ids, sender(handle)).await })
+    Box::pin(async move {
+        let notice = crate::security_setup::fetch(&config, &ids, sender(handle)).await?;
+        Some(AppEv::Feature(
+            codex_tui_core::features::security_setup::Fact::loaded(
+                notice.account,
+                notice.user,
+                notice.title,
+                notice.description,
+                notice.label,
+                notice.url,
+            )
+            .into(),
+        ))
+    })
 }
 
 /// The list and the removal of the worktree menus: the pool is this machine's, the owners are

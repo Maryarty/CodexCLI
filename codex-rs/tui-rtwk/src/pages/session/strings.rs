@@ -701,24 +701,35 @@ impl Strings {
             Note::PresetSaved(slot) => format!("Saved preset {slot}."),
             Note::PresetDeleted(slot) => format!("Deleted preset {slot}."),
             Note::ModelsNotLoaded => self.note_models_not_loaded.to_string(),
-            Note::WorktreesUnavailable => self.note_worktrees_unavailable.to_string(),
-            Note::WorktreeListFailed(error) => text(self.note_worktree_list_failed, error),
+            Note::Worktree(codex_tui_core::screens::select::worktree::Line::Unavailable) => {
+                self.note_worktrees_unavailable.to_string()
+            }
+            Note::Worktree(codex_tui_core::screens::select::worktree::Line::ListFailed(error)) => {
+                text(self.note_worktree_list_failed, error)
+            }
             // `start_managed_worktree`, `finish_managed_worktree` (English only until the table
             // of the session strings gets their keys: UI LEFT).
-            Note::WorktreeRefused(why) => match why {
-                codex_tui_core::screens::select::worktree::Refusal::NotIdle => {
-                    "Creating a worktree requires an idle primary session without queued input."
+            Note::Worktree(codex_tui_core::screens::select::worktree::Line::Refused(why)) => {
+                match why {
+                    codex_tui_core::screens::select::worktree::Refusal::NotIdle => {
+                        "Creating a worktree requires an idle primary session without queued input."
+                    }
+                    codex_tui_core::screens::select::worktree::Refusal::Pending => {
+                        "A worktree is already being created."
+                    }
+                    codex_tui_core::screens::select::worktree::Refusal::HistoryNotSaved => {
+                        "Conversation history is not saved."
+                    }
                 }
-                codex_tui_core::screens::select::worktree::Refusal::Pending => {
-                    "A worktree is already being created."
-                }
-                codex_tui_core::screens::select::worktree::Refusal::HistoryNotSaved => {
-                    "Conversation history is not saved."
-                }
+                .to_string()
             }
-            .to_string(),
-            Note::WorktreeFailed(error) => error.clone(),
-            Note::WorktreeRetained { root, reason } => {
+            Note::Worktree(codex_tui_core::screens::select::worktree::Line::Failed(error)) => {
+                error.clone()
+            }
+            Note::Worktree(codex_tui_core::screens::select::worktree::Line::Retained {
+                root,
+                reason,
+            }) => {
                 use codex_tui_core::app::worktree::{BindFailure, RetainedReason};
                 let reason = match reason {
                     RetainedReason::Start(codex_tui_core::rpc::RpcError::Remote(error)) => {
@@ -736,8 +747,13 @@ impl Strings {
                     "{reason} A checkout was retained at {root}; remove it with `git worktree remove <checkout-path>` from the source repository if it is no longer needed."
                 )
             }
-            Note::WorktreeRemoved { root } => text(self.note_worktree_removed, root),
-            Note::WorktreeRemoveFailed { root, error } => Fmt::new(
+            Note::Worktree(codex_tui_core::screens::select::worktree::Line::Removed { root }) => {
+                text(self.note_worktree_removed, root)
+            }
+            Note::Worktree(codex_tui_core::screens::select::worktree::Line::RemoveFailed {
+                root,
+                error,
+            }) => Fmt::new(
                 self.note_worktree_remove_failed,
                 [Arg::Text(root), Arg::Text(error)],
                 &self.num,

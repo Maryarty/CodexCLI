@@ -289,7 +289,9 @@ fn an_abandoned_list_and_a_stale_one_are_dropped_and_a_failure_is_said() {
     );
     assert_eq!(
         notes(&app),
-        [note(Note::WorktreeListFailed("no git".into()))]
+        [note(Note::Worktree(worktree::Line::ListFailed(
+            "no git".into()
+        )))]
     );
     assert_eq!(notes(&app)[0].1, Tone::Error);
 }
@@ -399,9 +401,9 @@ fn a_removal_is_asked_in_the_sessions_directory_and_answered_with_a_note() {
     );
     assert_eq!(
         notes(&app),
-        [note(Note::WorktreeRemoved {
+        [note(Note::Worktree(worktree::Line::Removed {
             root: "/pool/b".into()
-        })]
+        }))]
     );
     // a late second answer is nobody's
     answer(&mut app, removal, Done::WorktreeRemoved(Ok(())));
@@ -416,10 +418,10 @@ fn a_removal_is_asked_in_the_sessions_directory_and_answered_with_a_note() {
     answer(&mut app, failing, Done::WorktreeRemoved(Err("busy".into())));
     assert_eq!(
         notes(&app)[1],
-        note(Note::WorktreeRemoveFailed {
+        note(Note::Worktree(worktree::Line::RemoveFailed {
             root: "/pool/c".into(),
             error: "busy".into()
-        })
+        }))
     );
 }
 
@@ -450,7 +452,10 @@ fn the_worktree_command_shows_the_sheet_where_worktrees_are_on_and_says_so_where
     };
     command(&mut app);
     assert_eq!(shows(&app), []);
-    assert_eq!(notes(&app), [note(Note::WorktreesUnavailable)]);
+    assert_eq!(
+        notes(&app),
+        [note(Note::Worktree(worktree::Line::Unavailable))]
+    );
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(CommandFlags {
@@ -528,7 +533,9 @@ fn a_worktree_for_a_conversation_is_refused_with_no_idle_thread_to_start_it_from
     );
     assert_eq!(
         notes(&app),
-        [note(Note::WorktreeRefused(worktree::Refusal::NotIdle))]
+        [note(Note::Worktree(worktree::Line::Refused(
+            worktree::Refusal::NotIdle
+        )))]
     );
 }
 

@@ -17,7 +17,8 @@
 # The slash list has no generic `Feature` variant yet: a Need of the ADR-012 owner.
 # fw1-c8: `ElevateSandbox` is `features/windows_sandbox` (`Feature::OPENS`, `Target::Feature`): 43 -> 42.
 enum core/src/commands/dispatch.rs SessionIntent 42
-enum core/src/screens/select.rs Note 36
+# fw1-c8: the seven worktree lines are one `Note::Worktree(worktree::Line)` (39 -> 33 with the new ones).
+enum core/src/screens/select.rs Note 33
 enum core/src/screens/select.rs Picked 8
 # ADR-013 (select, the page stack leaves core family by family): `Menu::Confirm` and `Menu::Review`
 # are sheets of their own (`Show`/`Opening`: the one-shot the presenter shows; the pages of

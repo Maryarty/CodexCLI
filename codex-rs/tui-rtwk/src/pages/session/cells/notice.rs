@@ -203,9 +203,9 @@ impl StatelessWidget for NoticeCell {
                 match title {
                     Some(name) => row.extend([
                         Span::styled(name.clone(), tokens.accent()),
-                        Span::styled(" (", Style::new()),
+                        Span::styled(strings.forked_id_open, Style::new()),
                         Span::styled(from.clone(), tokens.accent()),
-                        Span::styled(")", Style::new()),
+                        Span::styled(strings.forked_id_close, Style::new()),
                     ]),
                     None => row.push(Span::styled(from.clone(), tokens.accent())),
                 }

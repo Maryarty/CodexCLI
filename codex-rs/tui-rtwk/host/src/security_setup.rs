@@ -9,8 +9,6 @@ use std::time::Duration;
 
 use codex_app_server_protocol::{ClientRequest, GetAccountSecuritySetupResponse};
 use codex_core::config::Config;
-use codex_tui_core::app::AppEv;
-use codex_tui_core::features::security_setup::{Action, Fact, Identity, Notice};
 use codex_tui_core::rpc::ServerError;
 use codex_tui_rtwk::services::backend::rpc::Ids;
 
@@ -33,8 +31,19 @@ fn address_valid(url: &str) -> bool {
     })
 }
 
-/// The fact for the notice the server holds, or none.
-pub(crate) async fn fetch<F, Fut>(config: &Config, ids: &Ids, send: F) -> Option<AppEv>
+/// A notice the server holds for the account, as the host checked it.
+pub(crate) struct Fetched {
+    pub account: String,
+    pub user: String,
+    pub title: String,
+    pub description: String,
+    pub label: String,
+    pub url: String,
+}
+
+/// The notice the server holds, verified for the auth that is current now, or none (the feature
+/// checks the text; the address and the identity are the host's).
+pub(crate) async fn fetch<F, Fut>(config: &Config, ids: &Ids, send: F) -> Option<Fetched>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: std::future::Future<Output = Result<serde_json::Value, ServerError>>,
@@ -47,19 +56,7 @@ where
         let value = send(request).await.ok()?;
         let response: GetAccountSecuritySetupResponse = serde_json::from_value(value).ok()?;
         let fetched = response.notice?;
-        let identity = Identity {
-            account: fetched.account_id,
-            user: fetched.user_id,
-        };
-        let notice = Notice {
-            title: fetched.title,
-            description: fetched.description,
-            action: Action {
-                label: fetched.action.label,
-                url: fetched.action.url,
-            },
-        };
-        if !notice.text_valid() || !address_valid(&notice.action.url) {
+        if !address_valid(&fetched.action.url) {
             return None;
         }
         let current = config
@@ -69,10 +66,16 @@ where
             .ok()
             .flatten()?;
         let (account, user) = (current.get_account_id()?, current.get_chatgpt_user_id()?);
-        (account == identity.account && user == identity.user).then_some((identity, notice))
+        (account == fetched.account_id && user == fetched.user_id).then_some(Fetched {
+            account,
+            user,
+            title: fetched.title,
+            description: fetched.description,
+            label: fetched.action.label,
+            url: fetched.action.url,
+        })
     };
-    let (identity, notice) = tokio::time::timeout(WITHIN, asked).await.ok().flatten()?;
-    Some(AppEv::Feature(Fact::Loaded { identity, notice }.into()))
+    tokio::time::timeout(WITHIN, asked).await.ok().flatten()
 }
 
 #[cfg(test)]

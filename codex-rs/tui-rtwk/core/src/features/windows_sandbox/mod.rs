@@ -44,7 +44,7 @@ pub enum Host {
 /// The sandbox configuration and the managed requirements (oracle `WindowsSandboxConfig`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Config {
-    pub mxc_selected: bool,
+    pub mxc: bool,
     pub mode: Option<Mode>,
     /// `None`: the policy was not loaded; a loaded `None` list allows both modes.
     pub requirements: Option<Option<Vec<Mode>>>,
@@ -61,7 +61,7 @@ impl Config {
             .additional
             .get("windows")
             .and_then(|windows| windows.get("sandbox"));
-        let mxc_selected = configured.and_then(|value| serde_json::from_value(value.clone()).ok())
+        let mxc = configured.and_then(|value| serde_json::from_value(value.clone()).ok())
             == Some(WindowsSandboxImplementation::Mxc);
         let from_features = || {
             let features = config.config.additional.get("features")?;
@@ -77,10 +77,10 @@ impl Config {
             })
         };
         let mut state = Self {
-            mxc_selected,
+            mxc,
             mode: configured
                 .and_then(|value| serde_json::from_value(value.clone()).ok())
-                .or_else(|| if mxc_selected { None } else { from_features() }),
+                .or_else(|| if mxc { None } else { from_features() }),
             requirements: Some(
                 requirements
                     .requirements
@@ -97,7 +97,7 @@ impl Config {
                     }),
             ),
         };
-        if !state.mxc_selected
+        if !state.mxc
             && let Some(Some(allowed)) = &state.requirements
             && !state.mode.is_some_and(|mode| allowed.contains(&mode))
         {
@@ -110,7 +110,7 @@ impl Config {
     }
 
     pub fn is_enabled(&self) -> bool {
-        self.mxc_selected || self.mode.is_some()
+        self.mxc || self.mode.is_some()
     }
 
     pub fn level(&self) -> WindowsSandboxLevel {
@@ -155,6 +155,15 @@ pub enum Choice {
 }
 
 impl Choice {
+    /// The setup the row asks for (`Quit` asks none: it is the view's).
+    pub fn mode(self) -> Option<Mode> {
+        match self {
+            Choice::Elevated => Some(Mode::Elevated),
+            Choice::Legacy => Some(Mode::Unelevated),
+            Choice::Quit => None,
+        }
+    }
+
     /// The row is picked with a second press (`require_explicit_confirmation`).
     pub fn explicit_confirmation(self) -> bool {
         self == Choice::Legacy
@@ -203,16 +212,48 @@ pub enum Fact {
     Trusted,
 }
 
+impl Fact {
+    /// The sandbox as the server's config and requirements say it (`Config::from_responses`),
+    /// for a local or a remote workspace.
+    pub fn environment(
+        config: &ConfigReadResponse,
+        requirements: ConfigRequirementsReadResponse,
+        remote_workspace: bool,
+        elevated_ready: bool,
+    ) -> Fact {
+        Fact::Environment {
+            config: Config::from_responses(config, requirements),
+            host: if remote_workspace {
+                Host::Remote
+            } else {
+                Host::Local
+            },
+            local_server: !remote_workspace,
+            elevated_ready,
+        }
+    }
+
+    /// `windowsSandbox/setupCompleted`.
+    pub fn completed(
+        done: &codex_app_server_protocol::WindowsSandboxSetupCompletedNotification,
+    ) -> Fact {
+        Fact::Completed {
+            mode: done.mode,
+            success: done.success,
+            error: done.error.clone(),
+        }
+    }
+}
+
 /// What a surface or a command says.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// `/setup-default-sandbox`.
     Elevate,
-    /// A prompt's row was chosen (`Quit` is the view's).
-    Choose(Choice),
     /// The prompt due was shown.
     Shown(Prompt),
-    /// The setup is wanted for `mode` (the permissions page: `Ask for approval` with no sandbox).
+    /// The setup is wanted for `mode` (a prompt's row, `Choice::mode`; the permissions page:
+    /// `Ask for approval` with no sandbox).
     Begin(Mode),
 }
 
@@ -466,9 +507,6 @@ impl Feature for WindowsSandbox {
                     state.begin(Mode::Elevated, cx);
                 }
             }
-            Intent::Choose(Choice::Elevated) => state.begin(Mode::Elevated, cx),
-            Intent::Choose(Choice::Legacy) => state.begin(Mode::Unelevated, cx),
-            Intent::Choose(Choice::Quit) => {}
             Intent::Begin(mode) => state.begin(mode, cx),
             Intent::Shown(prompt) => {
                 if state.due == Some(prompt) {

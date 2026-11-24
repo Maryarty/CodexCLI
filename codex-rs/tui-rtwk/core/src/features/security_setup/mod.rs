@@ -70,6 +70,28 @@ pub enum Fact {
     Invalidated,
 }
 
+impl Fact {
+    /// A notice the host fetched for the account (`account`, `user`) and checked the address of
+    /// (the host parses URLs; the text rules are `Notice::text_valid`, checked on arrival).
+    pub fn loaded(
+        account: String,
+        user: String,
+        title: String,
+        description: String,
+        label: String,
+        url: String,
+    ) -> Fact {
+        Fact::Loaded {
+            identity: Identity { account, user },
+            notice: Notice {
+                title,
+                description,
+                action: Action { label, url },
+            },
+        }
+    }
+}
+
 /// What the banner asks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {

@@ -28,7 +28,7 @@ fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
 
 fn config(mode: Option<Mode>, allowed: Option<Vec<Mode>>) -> Config {
     Config {
-        mxc_selected: false,
+        mxc: false,
         mode,
         requirements: Some(allowed),
     }
@@ -135,13 +135,10 @@ fn a_setup_runs_one_at_a_time_and_a_disallowed_one_is_not_started() {
         []
     );
     assert_eq!(notes(&app), [SandboxNote::Disallowed]);
-    let fx = verb(&mut app, Sandbox::Choose(Choice::Elevated));
+    let fx = verb(&mut app, Sandbox::Begin(Mode::Elevated));
     assert_eq!(starts(&fx).len(), 1);
     // running: a second one is not started and, once started, says nothing
-    assert_eq!(
-        starts(&verb(&mut app, Sandbox::Choose(Choice::Elevated))),
-        []
-    );
+    assert_eq!(starts(&verb(&mut app, Sandbox::Begin(Mode::Elevated))), []);
     assert_eq!(notes(&app), [SandboxNote::Disallowed]);
 }
 
@@ -156,6 +153,8 @@ fn the_prompts_offer_what_the_requirements_allow() {
     );
     assert!(!page.required_by_organization);
     assert!(!page.choice_required);
+    assert_eq!(Choice::Legacy.mode(), Some(Mode::Unelevated));
+    assert_eq!(Choice::Quit.mode(), None);
     assert!(Choice::Legacy.explicit_confirmation());
     assert!(!Choice::Elevated.explicit_confirmation());
     environment(
@@ -173,7 +172,7 @@ fn the_prompts_offer_what_the_requirements_allow() {
 fn an_elevated_failure_is_the_fallback_prompt_and_a_legacy_one_an_error_line() {
     let mut app = CodexApp::new();
     environment(&mut app, config(None, None), Host::Local);
-    let fx = verb(&mut app, Sandbox::Choose(Choice::Elevated));
+    let fx = verb(&mut app, Sandbox::Begin(Mode::Elevated));
     let [(ticket, _)] = starts(&fx).as_slice().try_into().expect("one start");
     run(
         &mut app,
@@ -195,7 +194,7 @@ fn an_elevated_failure_is_the_fallback_prompt_and_a_legacy_one_an_error_line() {
     assert!(!state(&app).setting_up());
     verb(&mut app, Sandbox::Shown(Prompt::Fallback));
     assert_eq!(state(&app).due(), None);
-    verb(&mut app, Sandbox::Choose(Choice::Legacy));
+    verb(&mut app, Sandbox::Begin(Mode::Unelevated));
     run(
         &mut app,
         AppEv::Feature(FeatureFact::from(Fact::Completed {
@@ -211,7 +210,7 @@ fn an_elevated_failure_is_the_fallback_prompt_and_a_legacy_one_an_error_line() {
 fn a_finished_setup_is_the_configuration_and_another_clients_end_is_not_ours() {
     let mut app = CodexApp::new();
     environment(&mut app, config(None, None), Host::Local);
-    verb(&mut app, Sandbox::Choose(Choice::Legacy));
+    verb(&mut app, Sandbox::Begin(Mode::Unelevated));
     run(
         &mut app,
         AppEv::Feature(FeatureFact::from(Fact::Completed {
