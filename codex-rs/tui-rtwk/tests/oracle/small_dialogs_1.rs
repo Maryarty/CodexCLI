@@ -10,14 +10,10 @@ use crate::kit::{self, Owner, Screen};
 // ORACLE bottom_pane/app_link_view.rs:1149 horizontal_list_keys_move_action_selection kind=ui owner=dialogs-pane
 #[test]
 fn horizontal_list_keys_move_action_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built in the dialogs screen (AppLinkView, Notion installed and enabled): entry `app_link_manage` missing",
-    );
     // The oracle moves the action selection right and back (ctrl+l, ctrl+h); the
     // selection is drawn, so the screen is the first one again when it is back.
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "app_link_manage")
+        .entry("select", "app_link_installed")
         .open();
     let first = s.shot();
     s.keys("ctrl+l");
@@ -29,13 +25,9 @@ fn horizontal_list_keys_move_action_selection() {
 // ORACLE bottom_pane/app_link_view.rs:1176 remapped_horizontal_list_keys_control_action_selection kind=ui owner=dialogs-pane
 #[test]
 fn remapped_horizontal_list_keys_control_action_selection() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_manage` missing with the list keys remapped (list.move_left x, list.move_right z)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .keymap(&[("list.move_left", "x"), ("list.move_right", "z")])
-        .entry("dialogs", "app_link_manage")
+        .entry("select", "app_link_installed")
         .open();
     let first = s.shot();
     s.keys("l right");
@@ -52,12 +44,8 @@ fn remapped_horizontal_list_keys_control_action_selection() {
 // ORACLE bottom_pane/app_link_view.rs:1217 toggle_action_sends_set_app_enabled_and_updates_label kind=ui owner=dialogs-pane
 #[test]
 fn toggle_action_sends_set_app_enabled_and_updates_label() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_manage` missing (Notion installed and enabled); the SetAppEnabled event is not drawn, the label change is",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "app_link_manage")
+        .entry("select", "app_link_installed")
         .open();
     s.keys("2");
     s.assert_in_order(&["Manage on ChatGPT", "Enable app", "Back"]);
@@ -83,30 +71,39 @@ fn generic_url_elicitation_resolves_without_connector_refresh() {
 // ORACLE bottom_pane/app_link_view.rs:1306 install_confirmation_does_not_split_long_url_like_token_without_scheme kind=ui owner=dialogs-pane
 #[test]
 fn install_confirmation_does_not_split_long_url_like_token_without_scheme() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built on its install confirmation for a long URL-like token without a scheme: entry `app_link_long_url_confirm` missing (40 columns)",
-    );
-    let s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 16)
-        .entry("dialogs", "app_link_long_url_confirm")
+        .entry("select", "app_link_long_url")
         .open();
+    s.keys("enter");
+    // The pane is narrower than the token, so no row holds it whole; it is not split at a
+    // hyphen or a slash, but runs on to the width and goes on in the next row.
     let url = "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
-    let (row, col) = locate(&s, url);
-    s.assert_text_at(col, row, url);
+    let rows = s.rows();
+    let first = rows
+        .iter()
+        .position(|row| row.trim().starts_with("example.test/"))
+        .unwrap_or_else(|| panic!("no URL row on the screen:\n{}", s.text()));
+    let shown: Vec<&str> = rows[first..]
+        .iter()
+        .map(|row| row.trim())
+        .take_while(|row| !row.is_empty())
+        .collect();
+    assert_eq!(shown.concat(), url, "{}", s.text());
+    assert!(
+        !shown[0].ends_with('-') && !shown[0].ends_with('/'),
+        "the URL is split at a hyphen or a slash: {shown:?}"
+    );
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1350 install_confirmation_render_keeps_url_tail_visible_when_narrow kind=ui owner=dialogs-pane
 #[test]
 fn install_confirmation_render_keeps_url_tail_visible_when_narrow() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built on its install confirmation for a long https URL at 36 columns: entry `app_link_long_url_tail_confirm` missing",
-    );
-    let s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::DialogsPane)
         .size(36, 24)
-        .entry("dialogs", "app_link_long_url_tail_confirm")
+        .entry("select", "app_link_long_url_tail")
         .open();
+    s.keys("enter");
     s.assert_contains("tail42");
 }
 
