@@ -389,10 +389,6 @@ fn page_keys_follow_pager_scroll_bindings() {
 // ORACLE transcript_view_tests.rs:257 terminal_output_disclosure_follows_live_history_and_keymap kind=ui owner=chat-live
 #[test]
 fn terminal_output_disclosure_follows_live_history_and_keymap() {
-    kit::pending(
-        Owner::ChatLive,
-        "the hint's key is the literal `⌃t` of the cell strings; the oracle rebinds open_transcript (f12, `ctrl-x t`, unbound) and the hint follows, which the kit cannot set in config",
-    );
     let mut command = command_item("output-test", "bash -lc echo");
     command["aggregatedOutput"] = serde_json::json!("1\n2\n3\n4\n5\n6\n7\n8\n");
     let s = live_plain(72, 14, &[item_line("item/completed", command)]);

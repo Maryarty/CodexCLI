@@ -411,10 +411,6 @@ fn plan_slash_command_with_hidden_shell_paste_submits_literal_prompt() {
 // ORACLE chatwidget/tests/plan_mode.rs:1453 plan_slash_command_with_hidden_shell_paste_rejected_image_remains_literal kind=ui owner=chat-live
 #[test]
 fn plan_slash_command_with_hidden_shell_paste_rejected_image_remains_literal() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a model without image input and no remote image URL seed; the /plan placeholder is drawn but the rejected-image submit is not in the port",
-    );
     let payload = hidden_shell_payload();
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.type_text("/plan ").paste(&payload);
@@ -426,10 +422,6 @@ fn plan_slash_command_with_hidden_shell_paste_rejected_image_remains_literal() {
 // ORACLE chatwidget/tests/plan_mode.rs:1476 plan_slash_command_with_hidden_shell_paste_unavailable_model_remains_literal kind=ui owner=chat-live
 #[test]
 fn plan_slash_command_with_hidden_shell_paste_unavailable_model_remains_literal() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for an unavailable model (set_model empty) in the live chat; the /plan placeholder is drawn but the literal submit is not in the port",
-    );
     let payload = hidden_shell_payload();
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.type_text("/plan ").paste(&payload);

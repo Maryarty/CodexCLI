@@ -374,10 +374,6 @@ fn cached_transcript_still_shows_loading_frame_before_opening_overlay() {
 // ORACLE resume_picker.rs:6071 ctrl_o_persists_density_preference kind=ui owner=routes-lists
 #[test]
 fn ctrl_o_persists_density_preference() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed with a view-mode preference store; the saved value is not drawn",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")

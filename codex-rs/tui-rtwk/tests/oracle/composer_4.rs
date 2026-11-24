@@ -508,10 +508,6 @@ fn paste_burst_modified_queue_binding_still_dispatches() {
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:10 draft_handoff_preserves_newline_after_short_unicode_prefix kind=snap owner=chat-live
 #[test]
 fn draft_handoff_preserves_newline_after_short_unicode_prefix() {
-    kit::pending(
-        Owner::ChatLive,
-        "no draft-handoff mode on the chat screen (no seed): the restricted composer that hands a draft off is not reachable, and the newline after `猫` is typed here as Ctrl+J",
-    );
     let mut s = chat(100, 24);
     s.type_text("猫");
     s.keys("alt+enter");
@@ -526,10 +522,6 @@ fn draft_handoff_preserves_newline_after_short_unicode_prefix() {
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:31 handoff_edit_discards_stale_command_before_ordinary_enter kind=ui owner=chat-live
 #[test]
 fn handoff_edit_discards_stale_command_before_ordinary_enter() {
-    kit::pending(
-        Owner::ChatLive,
-        "no draft-handoff mode on the chat screen (no seed): a `/quit` handed over stays a command in the composer's popup until Ctrl+U",
-    );
     for bracketed_paste in [true, false] {
         let mut s = chat(100, 24);
         if bracketed_paste {
@@ -1268,10 +1260,6 @@ fn plain_replace_yank_preserves_previous_backspace_recovery() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:400 internal_snapshot_restores_exact_mention_identity kind=ui owner=chat-live
 #[test]
 fn internal_snapshot_restores_exact_mention_identity() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no mention elements on the chat composer (no seed for insert_element or plugin bindings): the `@plugin` chips are not drawn; the mention paths are not on the screen",
-    );
     let mut s = chat(100, 24);
     s.type_text("@plugin@plugin@plugin");
     s.assert_contains("@plugin");

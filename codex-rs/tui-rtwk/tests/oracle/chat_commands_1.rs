@@ -138,10 +138,6 @@ fn hidden_shell_paste_restored_by_interrupt_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:225 hidden_shell_paste_restored_after_image_rejection_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_restored_after_image_rejection_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a current model without image input with a remote image attached (the model catalog and the remote image URL are not seeded)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.paste(&hidden_shell_payload());
     s.assert_contains("[Pasted Content 1006 chars]");
@@ -153,10 +149,6 @@ fn hidden_shell_paste_restored_after_image_rejection_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:248 hidden_shell_paste_restored_after_unavailable_model_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_restored_after_unavailable_model_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for an unavailable current model (set_model with an empty name); the model is not seeded",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.paste(&hidden_shell_payload());
     s.assert_contains("[Pasted Content 1006 chars]");
@@ -469,10 +461,6 @@ fn startup_draft_handoff_rebases_cursor_around_colliding_large_pastes() {
 // ORACLE chatwidget/tests/composer_submission.rs:1536 startup_draft_handoff_preserves_cleared_history_across_session_configuration kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_handoff_preserves_cleared_history_across_session_configuration() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for drafts cleared with ctrl+c into the history and a startup draft restored around the session configuration",
-    );
     for _configure_before_restore in [false, true] {
         let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
         s.type_text("first startup draft");
@@ -640,10 +628,6 @@ fn queued_message_edit_hint_displays_configured_chords() {
 // ORACLE chatwidget/tests/composer_submission.rs:2361 enqueueing_history_prompt_multiple_times_is_stable kind=ui owner=chat-nav-pane
 #[test]
 fn enqueueing_history_prompt_multiple_times_is_stable() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a running turn after a submitted prompt (turn-1 started after \"repeat me\" is sent); the queue is not seeded",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("repeat me");
     s.keys("enter");
