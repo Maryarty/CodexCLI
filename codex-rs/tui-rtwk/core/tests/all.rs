@@ -78,6 +78,7 @@ mod sparkle;
 mod status;
 mod status_data;
 mod status_facts;
+mod structured_turn;
 mod submission;
 mod tips;
 mod transcript_diff;

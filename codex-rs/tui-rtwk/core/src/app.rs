@@ -17,6 +17,7 @@ mod notices;
 mod reset;
 mod select;
 mod session;
+mod structured;
 mod transcript_text;
 pub use clock::{Now, Wake};
 pub use transcript_text::TranscriptText;
@@ -595,6 +596,9 @@ enum AppCtx {
         action: crate::screens::startup::Action,
         thread: ThreadId,
     },
+    /// An RPC of a structured turn a feature asked for (`app/structured.rs`): `run` is its
+    /// number, `backend` the one it goes to.
+    Structured { run: u64, backend: BackendId },
     /// An RPC of a feature slice about the app.
     Feature(crate::features::FeatureCtx),
 }
@@ -624,6 +628,8 @@ pub struct CodexApp {
     wishes: Rc<crate::features::Wishes>,
     mint: TicketMint,
     outgoing: Pending<AppCtx>,
+    /// The structured turns the features asked for and have no answer to yet.
+    structured: structured::Runs,
     /// What was asked before the first thread exists, in order: it goes out
     /// when the thread starts (oracle: input queued until the session is
     /// configured).
@@ -711,6 +717,7 @@ impl CodexApp {
             wishes: Rc::new(crate::features::Wishes::default()),
             mint: TicketMint::default(),
             outgoing: Pending::default(),
+            structured: structured::Runs::default(),
             queued_submits: Vec::new(),
             attaching_events: VecDeque::new(),
             first_thread: FirstThread::OnConnect,
@@ -847,6 +854,15 @@ impl CodexApp {
         seen.sort();
         seen.dedup();
         assert_eq!(seen.len(), total, "a ticket awaited twice");
+        for run in self.structured.asking() {
+            let asked = self
+                .outgoing
+                .any(|ctx| matches!(ctx, AppCtx::Structured { run: asked, .. } if *asked == run));
+            assert!(
+                asked,
+                "structured turn {run} is waiting for an answer nobody owes"
+            );
+        }
         let opening = self.screens.agents.opening.as_ref();
         assert_eq!(
             opening.is_some(),
@@ -896,6 +912,7 @@ impl CodexApp {
         if let Some(
             AppCtx::Worktree { backend, .. }
             | AppCtx::OpenThread { backend, .. }
+            | AppCtx::Structured { backend, .. }
             | AppCtx::NewConversation { backend, .. },
         ) = ticket.and_then(|ticket| self.outgoing.get(ticket))
         {
@@ -917,10 +934,7 @@ impl CodexApp {
             | Command::ResolveRequest { key, .. }
             | Command::VerifyUser { key, .. } => key.backend,
             Command::Effect {
-                ask:
-                    effects::Ask::SuggestTitle { thread }
-                    | effects::Ask::StructuredTurn { thread, .. }
-                    | effects::Ask::Export { thread, .. },
+                ask: effects::Ask::Export { thread, .. },
                 ..
             } => agents.owner_of(thread.as_str()),
             Command::StartThread { backend, .. }
@@ -1200,6 +1214,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 .remove(&origin);
             Rc::make_mut(&mut app.session).reserve.remove(&origin);
             detach_threads(app, origin, fx);
+            structured::lost(app, origin, fx);
             if active_backend(app) == origin {
                 set_status(app, Session::Failed(Failure::Stopped));
             }
@@ -1349,6 +1364,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 );
             }
             features::observe(app, &notification, fx);
+            structured::observe(app, &notification, fx);
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
             if let ServerNotification::ServerRequestResolved(resolved) = &*notification {
@@ -2100,6 +2116,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 session_opened(app, action, thread, answer, fx);
             }
             AppCtx::Opening { thread, ctx } => lifecycle::read(app, thread, ctx, answer, fx),
+            AppCtx::Structured { run, .. } => structured::answered(app, run, answer, fx),
             AppCtx::Feature(ctx) => features::answer(app, ctx, answer, fx),
         }
         return;
@@ -3052,6 +3069,7 @@ fn sent_to(app: &CodexApp, ctx: &AppCtx) -> BackendId {
         | AppCtx::Nudge { backend, .. }
         | AppCtx::NewConversation { backend, .. }
         | AppCtx::OpenThread { backend, .. }
+        | AppCtx::Structured { backend, .. }
         | AppCtx::Worktree { backend, .. }
         | AppCtx::Select(
             crate::screens::select::Ctx::Fallback { backend }

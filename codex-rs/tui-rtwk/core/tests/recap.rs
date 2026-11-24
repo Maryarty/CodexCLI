@@ -1,20 +1,21 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! `/recap` (oracle `app/recap.rs`, `app/recap_history.rs`): the excerpt of the visible exchanges,
-//! the structured turn asked of the host, and what its answer becomes (a recap, the failure line,
-//! or nothing when the conversation moved on). The words and the cell are the UI's: these tests
-//! read data.
+//! the structured turn asked of the door (`structured_turn.rs` walks the run itself), and what
+//! its answer becomes (a recap, the failure line, or nothing when the conversation moved on). The
+//! words and the cell are the UI's: these tests read data.
 
-use codex_app_server_protocol::ServerNotification;
-use codex_tui_core::app::effects::{Ask, Done};
-use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Intent, apply_app};
 use codex_tui_core::features::recap::{Intent as RecapIntent, Message, Note as RecapNote};
 use codex_tui_core::features::{FeatureIntent, FeatureNote};
 use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::threads::{Item as Entry, Note, NoteKey};
+use codex_tui_core::threads::structured::Kind;
+use codex_tui_core::threads::{Item as Entry, Note, NoteKey, ThreadAsk};
 use pretty_assertions::assert_eq;
 use serde_json::json;
+
+use crate::structured_turn::{TEMP, ends, says, stream, the_ask, thread_asks, unsubscribes, walk};
 
 const T: &str = "thread-1";
 
@@ -40,7 +41,7 @@ fn said(id: &str, text: &str) -> String {
 }
 
 /// An app whose thread went through `exchanges`: a request and its answer each.
-fn app(exchanges: &[(&str, &str)]) -> CodexApp {
+pub fn app(exchanges: &[(&str, &str)]) -> CodexApp {
     let mut script = vec![r#"{"step":"seed","seed":"session","thread":"thread-1"}"#.to_owned()];
     for (i, (asked, answered)) in exchanges.iter().enumerate() {
         script.push(user(&format!("u{i}"), asked));
@@ -56,7 +57,7 @@ fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
     fx
 }
 
-fn recap(app: &mut CodexApp) -> AppFx {
+pub fn recap(app: &mut CodexApp) -> AppFx {
     run(
         app,
         AppEv::Intent(Intent::Feature(FeatureIntent::Recap(
@@ -67,17 +68,7 @@ fn recap(app: &mut CodexApp) -> AppFx {
     )
 }
 
-fn asks(fx: &AppFx) -> Vec<(u64, Ask)> {
-    fx.commands()
-        .iter()
-        .filter_map(|c| match c {
-            Command::Effect { request, ask, .. } => Some((*request, ask.clone())),
-            _ => None,
-        })
-        .collect()
-}
-
-fn notes(app: &CodexApp) -> Vec<RecapNote> {
+pub fn notes(app: &CodexApp) -> Vec<RecapNote> {
     app.active_thread()
         .transcript()
         .iter()
@@ -91,14 +82,19 @@ fn notes(app: &CodexApp) -> Vec<RecapNote> {
         .collect()
 }
 
-fn answer(app: &mut CodexApp, request: u64, response: &str) {
-    run(
-        app,
-        AppEv::Effect {
-            request,
-            done: Done::Structured(Ok(response.to_owned())),
-        },
-    );
+/// The slice asked for a structured turn: the first request of the run is out.
+fn asked(fx: &AppFx) -> bool {
+    matches!(
+        thread_asks(fx).as_slice(),
+        [(_, ThreadAsk::McpServers { .. })]
+    )
+}
+
+/// The run goes through to the end with the model's `response`.
+fn answer(app: &mut CodexApp, first: &AppFx, response: &str) {
+    walk(app, first, json!({}));
+    says(app, response);
+    ends(app, "completed");
 }
 
 #[test]
@@ -139,7 +135,7 @@ fn a_long_history_keeps_the_newest_exchanges_and_says_what_it_left_out() {
 #[test]
 fn an_empty_conversation_has_nothing_to_recap() {
     let mut app = app(&[]);
-    assert!(asks(&recap(&mut app)).is_empty());
+    assert!(thread_asks(&recap(&mut app)).is_empty());
     assert_eq!(notes(&app), vec![RecapNote::EmptyHistory]);
 }
 
@@ -147,21 +143,19 @@ fn an_empty_conversation_has_nothing_to_recap() {
 fn a_recap_asks_one_structured_turn_and_says_the_answer() {
     let mut app = app(&[("fix the bug", "done"), ("ship it", "shipped")]);
     let fx = recap(&mut app);
-    let sent = asks(&fx);
-    let [
-        (
-            request,
-            Ask::StructuredTurn {
-                thread,
-                prompt,
-                schema,
-            },
-        ),
-    ] = sent.as_slice()
+    assert!(asked(&fx), "{:?}", fx.commands());
+    let requests = walk(&mut app, &fx, json!({}));
+    let Some(ThreadAsk::StructuredTurn {
+        thread,
+        kind,
+        prompt,
+        schema,
+        effort,
+    }) = requests.last()
     else {
-        panic!("expected one structured turn, got {sent:?}");
+        panic!("expected the turn of the run, got {requests:?}");
     };
-    assert_eq!(thread, &ThreadId::new(T));
+    assert_eq!((thread.as_str(), *kind, effort), (TEMP, Kind::Recap, &None));
     assert!(
         prompt.ends_with(
             "User: fix the bug\n\nAssistant: done\n\nUser: ship it\n\nAssistant: shipped"
@@ -169,12 +163,13 @@ fn a_recap_asks_one_structured_turn_and_says_the_answer() {
     );
     assert_eq!(schema["required"], json!(["summary", "next_action"]));
     // a second one while it generates says so and asks nothing
-    assert!(asks(&recap(&mut app)).is_empty());
-    answer(
+    assert!(thread_asks(&recap(&mut app)).is_empty());
+    says(
         &mut app,
-        *request,
         r#"{"summary": " Shipped the fix. ", "next_action": " "}"#,
     );
+    let fx = ends(&mut app, "completed");
+    assert_eq!(unsubscribes(&fx), [TEMP], "the temporary thread is let go");
     assert_eq!(
         notes(&app),
         vec![
@@ -186,7 +181,25 @@ fn a_recap_asks_one_structured_turn_and_says_the_answer() {
         ]
     );
     // the request is over: another can be made
-    assert_eq!(asks(&recap(&mut app)).len(), 1);
+    assert!(asked(&recap(&mut app)));
+}
+
+#[test]
+fn a_recap_says_the_next_action_when_there_is_one() {
+    let mut app = app(&[("a", "b")]);
+    let fx = recap(&mut app);
+    answer(
+        &mut app,
+        &fx,
+        r#"{"summary": "Fixed.", "next_action": "Run the tests."}"#,
+    );
+    assert_eq!(
+        notes(&app).last(),
+        Some(&RecapNote::Recap {
+            summary: "Fixed.".to_owned(),
+            next_action: Some("Run the tests.".to_owned())
+        })
+    );
 }
 
 #[test]
@@ -199,40 +212,41 @@ fn an_answer_that_does_not_parse_is_the_failure_line() {
         r#"{"summary": "x", "next_action": 3}"#,
     ] {
         let mut app = app(&[("a", "b")]);
-        let request = asks(&recap(&mut app))[0].0;
-        answer(&mut app, request, response);
+        let fx = recap(&mut app);
+        answer(&mut app, &fx, response);
         assert_eq!(notes(&app), vec![RecapNote::Failed], "{response}");
     }
+}
+
+#[test]
+fn a_request_the_server_refuses_is_the_failure_line() {
     let mut app = app(&[("a", "b")]);
-    let request = asks(&recap(&mut app))[0].0;
-    run(
-        &mut app,
-        AppEv::Effect {
-            request,
-            done: Done::Structured(Err("no server".to_owned())),
-        },
-    );
+    let fx = recap(&mut app);
+    let (ticket, _) = the_ask(&fx);
+    crate::structured_turn::refuse(&mut app, ticket, "no server");
     assert_eq!(notes(&app), vec![RecapNote::Failed]);
+    // the request is over: another can be made
+    assert!(asked(&recap(&mut app)));
 }
 
 #[test]
 fn an_answer_for_a_conversation_that_moved_on_is_dropped() {
     let mut app = app(&[("a", "b")]);
-    let request = asks(&recap(&mut app))[0].0;
-    run(
+    let fx = recap(&mut app);
+    walk(&mut app, &fx, json!({}));
+    stream(
         &mut app,
-        AppEv::Backend(BackendEv::Notification(Box::new(
-            serde_json::from_value::<ServerNotification>(json!({"method": "item/completed",
-                "params": {"threadId": T, "turnId": "turn-2", "completedAtMs": 0,
-                "startedAtMs": 0, "item": {"type": "agentMessage", "id": "late", "text": "more",
-                "phase": null}}}))
-            .unwrap(),
-        ))),
+        json!({"method": "item/completed",
+            "params": {"threadId": T, "turnId": "turn-2", "completedAtMs": 0,
+            "startedAtMs": 0, "item": {"type": "agentMessage", "id": "late", "text": "more",
+            "phase": null}}}),
     );
-    answer(
-        &mut app,
-        request,
-        r#"{"summary": "x", "next_action": null}"#,
+    says(&mut app, r#"{"summary": "x", "next_action": null}"#);
+    let fx = ends(&mut app, "completed");
+    assert_eq!(
+        unsubscribes(&fx),
+        [TEMP],
+        "the temporary thread is let go all the same"
     );
     assert_eq!(notes(&app), vec![]);
 }

@@ -7,7 +7,6 @@
 //! rule that every command the dispatcher hands to a feature has one.
 
 use codex_app_server_protocol::RequestId;
-use codex_tui_core::app::effects::Ask;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{
     CommandFlags, DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, dispatch,
@@ -17,8 +16,8 @@ use codex_tui_core::features::settings::{Note as SettingsNote, args::Refusal};
 use codex_tui_core::features::{self, FeatureCommand, FeatureNote};
 use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::{ScreenIntent, chat};
-use codex_tui_core::threads::{Item, Note, NoteKey};
+use codex_tui_core::screens::{ScreenCommand, ScreenIntent, agents, chat};
+use codex_tui_core::threads::{Item, Note, NoteKey, ThreadAsk};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -110,16 +109,19 @@ fn model_with_a_name_is_checked_by_the_settings_slice() {
 }
 
 #[test]
-fn recap_is_routed_to_the_recap_slice_and_asks_the_host_for_a_structured_turn() {
+fn recap_is_routed_to_the_recap_slice_and_asks_the_door_for_a_structured_turn() {
     let mut app = app();
     let fx = slash(&mut app, SlashCommand::Recap, "");
+    // the door's first request: the MCP servers of the thread's directory, to be disabled
     let asked = fx.commands().iter().any(|command| {
         matches!(
             command,
-            Command::Effect {
-                ask: Ask::StructuredTurn { thread, .. },
+            Command::Screen {
+                command: ScreenCommand::Agents(agents::Command::Thread(
+                    ThreadAsk::McpServers { .. }
+                )),
                 ..
-            } if thread.as_str() == T
+            }
         )
     });
     assert!(asked, "{:?}", fx.commands());

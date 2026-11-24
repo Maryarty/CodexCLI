@@ -6,13 +6,14 @@
 //! oracle do. What the lifecycle RPCs are stays in `threads.rs` (`ThreadAsk`), the feature never
 //! builds one.
 //!
-//! The answers come back to the feature's `thread_opened` (`open_thread`, `spawn_thread`), under the
-//! `ctx` the feature gave.
+//! The answers come back to the feature's `thread_opened` (`open_thread`, `spawn_thread`) and
+//! `structured_done` (`structured_turn`), under the `ctx` the feature gave.
 
 use super::FeatureCtx;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::UserMessage;
+use crate::threads::structured::StructuredTurn;
 
 /// A thread a feature asks the app to make (`AppCx::spawn`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +59,12 @@ pub enum Lifecycle {
     Open { thread: ThreadId, ctx: FeatureCtx },
     /// Make a thread; answered by `thread_opened` once it is open here (before it is shown).
     Spawn { spawn: ThreadSpawn, ctx: FeatureCtx },
+    /// An isolated request to the model in an ephemeral thread of its own, answered by
+    /// `structured_done` with the last message of its one turn.
+    Structured {
+        turn: Box<StructuredTurn>,
+        ctx: FeatureCtx,
+    },
     /// Drop `thread`: its turn is interrupted, the server stops holding it and the app forgets it.
     /// Never the thread in use.
     Discard { thread: ThreadId },

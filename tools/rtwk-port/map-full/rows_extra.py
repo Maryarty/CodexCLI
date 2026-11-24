@@ -4,7 +4,7 @@
 that cover.py names (`x:<title>`)."""
 EXTRA = [
     # ---- terminal and runtime
-    ("Inline viewport", "❌", "S27: нижний viewport со своим scrollback; нужны rtwk G1, G2, G5", "tui.rs, custom_terminal.rs, tui/frame_requester.rs", "—", "inline-mode"),
+    ("Inline viewport", "❌", "S27: нижний viewport со своим scrollback; rtwk ScreenMode::Inline + Static", "tui.rs, custom_terminal.rs, tui/frame_requester.rs", "—", "inline-mode"),
     ("Вставка завершённых строк в scrollback", "❌", "DECSTBM/native scrollback, OSC 8 и картинки в committed-строках (G7)", "insert_history.rs, tui/scrollback.rs, tui/history_tail.rs", "—", "inline-mode"),
     ("Resize reflow", "❌", "пересборка committed-строк из исходных ячеек при resize (G2)", "app/resize_reflow.rs, transcript_reflow.rs, resize_reflow_cap.rs", "—", "inline-mode"),
     ("Fullscreen (alt-screen + мышь)", "✅", "", "tui/alternate_screen.rs", "rtwk host (`App::run`), src/app/run.rs", "—"),
@@ -67,3 +67,13 @@ SCREENS = [
     ("S26", "ui_tree and inline visualization", "❌", "обе части", "ui-tree-viz"),
     ("S27", "inline mode", "❌", "режим целиком", "inline-mode"),
 ]
+
+
+# Hand edits of the generated port-map, kept as data (a rebuild must not lose them): a chat-map row whose status
+# or note changed since chat-feature-map.md was cut, and rows that chat-feature-map.md does not have (inserted after
+# the row named).  Closed rows (✅) get no package.
+OVERRIDES = {'/recap': dict(status='✅', note='fix-recap-title 4131311a7: AppCx::structured_turn (ephemeral read-only thread, outputSchema), recap cell / failure line; остаток: отказ для облачной беседы -> w2-commands')}
+INSERTS = [('/recap', [
+    dict(title='Пробел: /recap и предложение имени треда — заглушки', status='✅', note='fix-recap-title 4131311a7: заглушки Ask::StructuredTurn/SuggestTitle удалены; /recap и предложение имени идут через AppCx::structured_turn; остаток (авто-имя по первому сообщению, отмена устаревшего запуска) -> w2-commands', oracle='temporary_structured_request.rs, app/recap.rs, app/thread_title.rs', port='core/src/features/recap, core/src/features/rename, src/services/effects.rs'),
+    dict(title='Пробел: потеря/восстановление потока треда', status='✅', note='fix-stream-lost 78e957dcf: host/src/cloud.rs шлёт BackendEv::StreamLost{thread,error}/StreamRestored; простой тред — Command::ReconnectIdleThread, в ходе — строка Error, очередь держится; восстановление: history_may_be_incomplete + отправка очереди; открытие потерянного треда перечитывает его. Остаток: restore_reconnected_input (steer до эха) -> live-turn; AppEv::ShuttingDown без отправителя (нет on_stop в rtwk, потребителя нет)', oracle='app/app_server_events.rs:130-170, chatwidget/input_flow.rs', port='host/src/in_process.rs, host/src/cloud.rs, core/src/threads'),
+])]

@@ -25,6 +25,10 @@ const SIGNED_OUT: &str = include_str!("fixtures/chat_commands_2/signed_out.jsonl
 const SH_BLOCKS: &str = include_str!("fixtures/chat_commands_2/sh_blocks.jsonl");
 const TURN2_REPLY: &str = include_str!("fixtures/chat_commands_2/turn2_reply.jsonl");
 const TURN2_STARTED: &str = include_str!("fixtures/chat_commands_2/turn2_started.jsonl");
+/// An exchange of thread-1 to name the thread by (`suggest_thread_name` asks the model only when
+/// the conversation has a message): the oracle's tests of the suggestion send the event itself.
+const TALKED: &str = r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"startedAtMs":0,"item":{"type":"userMessage","id":"u1","clientId":null,"content":[{"type":"text","text":"fix the login timeout","text_elements":[]}]}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"startedAtMs":0,"item":{"type":"agentMessage","id":"a1","text":"I raised the timeout.","phase":null}}}}"#;
 
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/slash_commands.rs:110 service_tier_commands_and_saved_selection_respect_independent_speed_policy kind=snap owner=chat-nav-pane
@@ -290,8 +294,8 @@ fn interrupted_merged_message_history_encodes_mentions_once() {
 fn slash_rename_prefills_existing_thread_name() {
     let mut s = Screen::build(Owner::ChatNavPane).script(NAMED).open();
     s.type_text("/rename").keys("enter");
-    // The oracle's manual chat has no thread id, so it asks for no suggestion: here the host's
-    // answer is "nothing came out", which leaves the prompt as the oracle shows it.
+    // The oracle's manual chat has no thread id, so it asks for no suggestion: a thread with no
+    // conversation asks for none here either, which leaves the prompt as the oracle shows it.
     s.answer_title(None);
     s.assert_snap_region("slash_rename_prefilled_prompt", 19, 0);
     s.keys("enter");
@@ -302,6 +306,7 @@ fn slash_rename_prefills_existing_thread_name() {
 #[test]
 fn slash_rename_requests_and_prefills_an_editable_title_suggestion() {
     let mut s = Screen::build(Owner::ChatNavPane).script(NAMED).open();
+    s.feed(TALKED);
     s.type_text("/rename").keys("enter");
     s.assert_snap_region("slash_rename_suggestion_loading", 18, 0);
     s.answer_title(Some("Fix login timeout"));
@@ -314,6 +319,7 @@ fn slash_rename_requests_and_prefills_an_editable_title_suggestion() {
 #[test]
 fn slash_rename_preserves_manual_edits_when_suggestion_arrives() {
     let mut s = Screen::build(Owner::ChatNavPane).script(SESSION).open();
+    s.feed(TALKED);
     s.type_text("/rename").keys("enter");
     s.paste("My own title");
     s.answer_title(Some("Generated title"));

@@ -2,7 +2,7 @@
 
 Дата: 2026-11-24, база 01741db4b (батчи 10-12). Документ собран скриптом `tools/rtwk-port/map-full/build.py` из данных рядом с ним: правится дата, перезапуск. Проверка непротиворечивости — `tools/rtwk-port/map-full/check.py`. Карта экрана чата `chat-feature-map.md` остаётся (подробные ячейки, числа тестов, архитектура ADR-013) и ссылается сюда; здесь — вся функциональность oracle без исключений, пакеты работ по владению файлами, и 1175 pending-тестов по пакетам.
 
-**Итог.** Строк-функций: 326 (экран чата — 291 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 135, 🟡 86, ❌ 100, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 45-50 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 1175, у каждого пакет (раздел «Тесты»).
+**Итог.** Строк-функций: 328 (экран чата — 293 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 138, 🟡 86, ❌ 99, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 46-49 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 1175, у каждого пакет (раздел «Тесты»).
 
 ## Как читать
 
@@ -22,28 +22,28 @@
 
 | Пакет | Волна | Прогонов | Строк | Строк закрыто | Pending-тестов | Зависит от |
 |---|---|---|---|---|---|---|
-| `fw1-c1` — core: /diff-документ pager, /presets, /daemon, /subagents, app link, provider switch | W1 (влита) | 1 | ≈750 | ядро для 54 | 0 | — |
-| `fw1-c2` — core: внешний редактор Ctrl+G, очередь команд, состояния composer, /side /btw | W1 (влита) | 1 | ≈1150 | ядро для 68 | 0 | — |
+| `fw1-c1` — core: /diff-документ pager, /presets, /daemon, /subagents, app link, provider switch | W1 (влита) | 1 | ≈750 | ядро для 53 | 0 | — |
+| `fw1-c2` — core: внешний редактор Ctrl+G, очередь команд, состояния composer, /side /btw | W1 (влита) | 1 | ≈1150 | ядро для 67 | 0 | — |
 | `fw1-c3` — core: /experimental /skills /hooks, /config /tui /keymap, аргументные формы (settings-слайс) | W1 (влита) | 1-2 | ≈1500 | ядро для 36 | 0 | — |
-| `fw1-c4` — core: /copy и Ctrl+O, /logout /ide /daybreak /recap /debug-config /debug-m-* | W1 (влита) | 1 | ≈950 | ядро для 54 | 0 | — |
+| `fw1-c4` — core: /copy и Ctrl+O, /logout /ide /daybreak /recap /debug-config /debug-m-* | W1 (влита) | 1 | ≈950 | ядро для 53 | 0 | — |
 | `fw1-c5` — core: exploration-группы, фоновые терминалы и /ps, инвентарь /mcp | W1 (влита) | 1 | ≈900 | ядро для 14 | 0 | — |
 | `fw1-c6` — core: safety buffering, misalignment, guardian, compaction | W1 (влита) | 1 | ≈800 | ядро для 14 | 0 | — |
 | `fw1-c7` — core: сброс лимита /usage, billing, /status thread usage и строка сервера, предупреждения лимитов | W1 (влита) | 1 | ≈900 | ядро для 20 | 0 | — |
-| `fw1-c8` — core: worktree/checkout для /new /fork /worktree, «Forked thread», Windows sandbox, security setup | W1 (влита) | 1 | ≈1000 | ядро для 27 | 0 | — |
-| `fw1-c9` — core: /feedback (note, upload), решение approval, вопросы (черновики, очередь) | W1 (влита) | 1 | ≈700 | ядро для 51 | 0 | — |
-| `fw-core-hubs` — framework: core-хабы — сжатие (`SessionIntent::Feature`, конец арма NotAvailable) и одна дверь возможностей хоста (`effects::Ask`) | W2 | 1-2 | ≈950 | — (сжатие хабов) | 0 | после fw1-c1..c9, fw1-c2 (Ask::Editor) |
+| `fw1-c8` — core: worktree/checkout для /new /fork /worktree, «Forked thread», Windows sandbox, security setup | W1 (влита) | 1 | ≈1000 | ядро для 26 | 0 | — |
+| `fw1-c9` — core: /feedback (note, upload), решение approval, вопросы (черновики, очередь) | W1 (влита) | 1 | ≈700 | ядро для 50 | 0 | — |
+| `fw-core-hubs` — framework: core-хабы — сжатие (`SessionIntent::Feature`, конец арма NotAvailable) и одна дверь возможностей хоста (`effects::Ask`); с 2026-11-24 = tm fw-hubs-a/b/c + fix-recap-title, fix-stream-lost (arch-pillars P1-P9) | W2 | 3 + 2 | ≈950 | — (сжатие хабов) | 0 | после fw1-c1..c9, fw1-c2 (Ask::Editor) |
 | `fw-ui-registry` — framework: сжатие UI-хабов — реестры действий, целей, ячеек и режимов; session_page.rs по заботам | W2 | 1-2 | ≈1000 | — (сжатие хабов) | 0 | после fw1-c1..c9 (их открытые sheet) |
 | `w2-transcript` — UI транскрипт: Ctrl+T pager с поиском, select и copy mode, детали хода, /diff, хром транскрипта | W2 | 4 | ≈3550 | 27 | 208 | fw-ui-registry, fw1-c1, fw1-c4 |
 | `w2-composer` — UI composer: состояния, очередь, Ctrl+G, мышь, Vim, burst, mentions и popovers | W2 | 3 | ≈2450 | 21 | 84 | fw-ui-registry, fw1-c2 |
 | `w2-settings` — UI настройки: /config, /keymap, /experimental /skills /hooks, лист по заботам | W2 | 2 | ≈2050 | 16 | 9 | fw-ui-registry, fw1-c3 |
 | `w2-cells` — UI ячейки: exec, MCP, exploration, /ps, compaction, safety, guardian, ошибки провайдера и остальной cells-sweep | W2 | 3 | ≈3050 | 14 | 108 | fw-ui-registry, fw1-c5, fw1-c6 |
 | `w2-approvals` — UI approvals, request-user-input и все select/dialog-листы; bare /review и /permissions | W2 | 3 | ≈2200 | 24 | 109 | fw-ui-registry, fw1-c9 |
-| `w2-commands` — UI /side, /subagents, daemon, presets, worktree, Windows sandbox, security setup, /feedback и малые команды | W2 | 3 | ≈2550 | 27 | 64 | fw-ui-registry, fw1-c1, fw1-c2, fw1-c8, fw1-c4, fw1-c9 |
+| `w2-commands` — UI /side, /subagents, daemon, presets, worktree, Windows sandbox, security setup, /feedback и малые команды | W2 | 3 | ≈2550 | 26 | 64 | fw-ui-registry, fw1-c1, fw1-c2, fw1-c8, fw1-c4, fw1-c9 |
 | `w2-status` — UI /usage, thread usage, лимиты, карточка /status, футер и строка статуса | W2 | 4 | ≈3000 | 20 | 201 | fw-ui-registry, fw1-c7, fw1-c3, fw1-c2 |
 | `w2-live` — UI живой ход: backtrack, plan mode, interrupts, баннеры, empty-state animation, Markdown | W2 | 2 | ≈2000 | 3 | 155 | fw-ui-registry, rtwk |
 | `voice` — voice/realtime: /voice, F8, voice strip, настройки, split-flap, session lock | W3 | 3 | ≈1900 | 5 | 1 | fw-ui-registry, fw-core-hubs (Ask::Audio) |
 | `sidebar` — sidebar: документы, файлы, ссылки, chooser, анимация | W3 | 2 | ≈1300 | 1 | 0 | fw-ui-registry |
-| `inline-mode` — inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen | W3 | 3+ | ≈2500 | 6 | 12 | rtwk, fw-core-hubs (Ask::ScreenMode) |
+| `inline-mode` — inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen (rtwk уже умеет inline) | W3 | 2 | ≈1500 | 6 | 12 | fw-core-hubs (Ask::ScreenMode) |
 | `ui-tree-viz` — ui_tree и inline visualization | W3 | 2 | ≈1100 | 1 | 0 | fw-core-hubs |
 | `pets-ambient` — pets: ambient-питомец, asset pack, протоколы изображений | W3 | 2 | ≈1200 | 4 | 0 | rtwk |
 | `startup-rest` — запуск и onboarding: хвосты S01-S06 и startup-шарды, daemon recovery, startup error, cloud environment, провайдеры | W3 | 2 | ≈1300 | 6 | 13 | rtwk для G48-G55; остальное не зависит |
@@ -145,7 +145,7 @@
 
 ### `fw-core-hubs`
 
-- **Что:** framework: core-хабы — сжатие (`SessionIntent::Feature`, конец арма NotAvailable) и одна дверь возможностей хоста (`effects::Ask`). **Волна:** W2; **размер:** 1-2 прогонов, ≈950 строк.
+- **Что:** framework: core-хабы — сжатие (`SessionIntent::Feature`, конец арма NotAvailable) и одна дверь возможностей хоста (`effects::Ask`); с 2026-11-24 = tm fw-hubs-a/b/c + fix-recap-title, fix-stream-lost (arch-pillars P1-P9). **Волна:** W2; **размер:** 3 + 2 прогонов, ≈950 строк.
 - **Файлы (владеет):** `core/src/app/session.rs`, `core/src/commands/dispatch.rs`, `core/src/commands.rs`, `core/src/threads.rs`, `core/src/threads/cells.rs`, `core/src/app.rs`, `tests/rules/hub_budget.txt`, `core/src/app/effects.rs`, `host/src/effects.rs`, `host/src/in_process.rs`, `host/src/facts.rs`, `src/services/effects.rs`, `tests/rules/layers.rs`, `rest:core/src`, `rest:host/src`, `rest:tests/rules`.
 - **Oracle:** app/event_dispatch.rs, chatwidget/slash_dispatch.rs, slash_command.rs, app_event.rs.
 - **Ядро / шаги:** ADR-012: пакет фичи НЕ владеет хабом и не пишет в него свои строки; фича входит в приложение только через двери слайса: `feature_list!`/`target_of` (слэш-команды), `AppCx::ask` и `ThreadCx::request` (RPC сервера), `AppCx::effect` с вариантом `effects::Ask` (только возможности хоста), `ThreadModel.features` (состояние треда). Правка хаба бывает только СЖАТИЕМ — это и есть вся работа этого пакета. Шаг 1: общий вариант `Feature` в `SessionIntent` (то самое «Need of the ADR-012 owner» в `tests/rules/hub_budget.txt`: «слэш-список не имеет generic-варианта») — после него слэш-команда нового слайса не добавляет варианта; бюджет `SessionIntent 43` фиксируется. Шаг 2 (после слияния fw1-c1..c9): удалить остаток арма `S::Recap | S::Side | … => NotAvailable` (`app/session.rs:361-386`), `Notice::NotAvailable`/`Stub`; команды, что остались без владельца (`/model <имя>`, `/permissions` без аргумента, `/review`, `/resume <имя>`, `/apps`), переехали в слайсы пакетов w2-approvals и resume-rest — арм сжимается до пустого и исчезает, бюджет в `hub_budget.txt` опускается на столько же. Шаг 3: `threads.rs`/`cells.rs` — только вычёркивание вариантов `ThreadEv`/`ThreadAsk`, ушедших в `ThreadModel.features` (счётчики в `hub_budget.txt` падают; рост запрещён правилом). Остальное в `core/src` и `host/src`, чего никто не назвал, — тоже у этого пакета: фичи сюда не пишут. Шаг 4 (дверь возможностей хоста): `AppCx::effect` с `effects::Ask` — единственная дверь для возможностей хоста, у неё один enum на всех; поэтому пакет один раз добавляет заранее названные варианты `Audio` (voice), `Suspend` (Ctrl+Z), `Notify` (OSC 9 / BEL), `ScreenMode` (alt-screen для inline), `Probe` (цвета терминала), `SessionLock` с `Done`-ответами, строками в `hub_budget.txt` и пустыми обработчиками хоста. Причина одного владельца (и единого пакета с шагами 1-3: у них общий `hub_budget.txt`): пакеты voice, terminal-features, inline-mode идут параллельно и иначе правили бы один enum; дальше каждый пишет только свой файл хоста (`host/src/audio.rs` и т. п.) и слайс. Редактор Ctrl+G (`Ask::Editor`) делает fw1-c2..
@@ -209,7 +209,7 @@
 - **Что:** UI /side, /subagents, daemon, presets, worktree, Windows sandbox, security setup, /feedback и малые команды. **Волна:** W2; **размер:** 3 прогонов, ≈2550 строк.
 - **Бриф и задача:** `docs/rtwk-port/research/w2-packages/briefs.md` §A.6; задача tm `w2-commands`, её `area` — список владения (35 путей, `tools/rtwk-port/map-full/packages.py`).
 - **Зависит:** fw-ui-registry, fw1-c1, fw1-c2, fw1-c8, fw1-c4, fw1-c9.
-- **Строки (27):** Строка «Forked thread» / имя треда в истории; Side-разговор (/side, /btw, Ctrl+/): форк-вопрос, подпись ро; /presets — выбор пресета (Daybreak presets); /daybreak; /ide — контекст IDE; /setup-default-sandbox (Windows); /new; /fork; /worktree; /recap; /side, /btw; /daemon; /debug-config; /logout; /feedback; /subagents (multi-agents picker); /debug-m-drop, /debug-m-update; Windows sandbox: prompts, help-ссылки, fallback; Worktree/checkout picker; Quick dials (saved dials: save/clear picker); Feedback: выбор, consent upload, диагностика, note; Security setup / security prompts; Daemon (подключение к daemon); Ссылка на приложение (app link) диалог; Feedback (диалог); Model provider switch (блокирует кэш выбора); Ctrl+/ (Ctrl+_, Ctrl+7) — side.
+- **Строки (26):** Строка «Forked thread» / имя треда в истории; Side-разговор (/side, /btw, Ctrl+/): форк-вопрос, подпись ро; /presets — выбор пресета (Daybreak presets); /daybreak; /ide — контекст IDE; /setup-default-sandbox (Windows); /new; /fork; /worktree; /side, /btw; /daemon; /debug-config; /logout; /feedback; /subagents (multi-agents picker); /debug-m-drop, /debug-m-update; Windows sandbox: prompts, help-ссылки, fallback; Worktree/checkout picker; Quick dials (saved dials: save/clear picker); Feedback: выбор, consent upload, диагностика, note; Security setup / security prompts; Daemon (подключение к daemon); Ссылка на приложение (app link) диалог; Feedback (диалог); Model provider switch (блокирует кэш выбора); Ctrl+/ (Ctrl+_, Ctrl+7) — side.
 - **Тесты:** 64 pending (список — `tools/rtwk-port/map-full/unpend/w2-commands.txt`).
 
 ### `w2-status`
@@ -254,12 +254,12 @@
 
 ### `inline-mode`
 
-- **Что:** inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen. **Волна:** W3; **размер:** 3+ прогонов, ≈2500 строк.
+- **Что:** inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen (rtwk уже умеет inline). **Волна:** W3; **размер:** 2 прогонов, ≈1500 строк.
 - **Файлы (владеет):** `src/app/run.rs`, `src/app/mod.rs`, `src/app/screen_mode/**`, `src/app/scrollback/**`, `src/services/transcript_file.rs`.
 - **Oracle:** tui.rs, insert_history.rs, app/resize_reflow.rs, custom_terminal*, transcript_reflow.rs, app/native_history.rs.
 - **UI:** ScreenMode из `tui.fullscreen_transcript`, committed scrollback, снимки cells_4/5 и transcript_view_3 (34 n/a).
-- **Первый шаг:** rtwk: G1 (вход/выход alt-screen во время работы), G2 (повторная раскладка committed-строк при resize), G5 (Windows Terminal), G7 (OSC 8 и картинки в committed-строках).
-- **Зависит:** rtwk, fw-core-hubs (Ask::ScreenMode).
+- **Первый шаг:** взять готовое из rtwk: `ScreenMode::Inline` (rtwk-core/src/presenter/modes.rs:63), `binding::Static` — готовый вывод над приложением, в истории терминала (rtwk docs/widgets/app/static.md), образец inline-агента `rtwk-e2e/src/agent.rs:624 inline_agent_app` и `rtwk-e2e/src/modes.rs:74`. Чего в rtwk нет (бывшие G1/G2/G5/G7: смена alt-screen на ходу, reflow committed-строк, OSC 8/картинки в них) — проверить по этим образцам одной строкой разрыва, без rtwk-работы вперёд.
+- **Зависит:** fw-core-hubs (Ask::ScreenMode).
 - **Строки (6):** Ячейка MCP-вызова (running/ok/failed, результат); Inline-режим (без alt-screen); Inline viewport; Вставка завершённых строк в scrollback; Resize reflow; Временный alt-screen для оверлеев.
 - **Тесты:** 12 pending (список — `tools/rtwk-port/map-full/unpend/inline-mode.txt`).
 
@@ -494,7 +494,9 @@
 | /init | ✅ | отправляет prompt AGENTS.md | slash_command.rs, chatwidget/slash_dispatch.rs | core/src/commands/dispatch.rs, core/src/app/session.rs | — |
 | /compact | 🟡 | команда ✅; статус/таймер compaction не включены | chatwidget/compaction.rs | src/pages/session/cells/compaction.rs (нет) | ядро: fw1-c5, fw1-c6 (влито); `w2-cells` |
 | /config | ❌ | `Which::Config` → пустой слот «settings (S15)» (`Shown::Other`), вида нет; то же для `/tui` | config_panel/, chatwidget/tui_mode_picker.rs | src/features/settings/ (нет config_panel) | ядро: fw1-c3 (влито); `w2-settings` |
-| /recap | ❌ | NotAvailable; ячейка recap | daybreak.rs, ide_context.rs, app/recap.rs, debug_config.rs | core/src/commands/dispatch.rs | ядро: fw1-c1, fw1-c2, fw1-c8, fw1-c4, fw1-c9 (влито); `w2-commands` |
+| /recap | ✅ | fix-recap-title 4131311a7: AppCx::structured_turn (ephemeral read-only thread, outputSchema), recap cell / failure line; остаток: отказ для облачной беседы -> w2-commands | daybreak.rs, ide_context.rs, app/recap.rs, debug_config.rs | core/src/commands/dispatch.rs | — |
+| Пробел: /recap и предложение имени треда — заглушки | ✅ | fix-recap-title 4131311a7: заглушки Ask::StructuredTurn/SuggestTitle удалены; /recap и предложение имени идут через AppCx::structured_turn; остаток (авто-имя по первому сообщению, отмена устаревшего запуска) -> w2-commands | temporary_structured_request.rs, app/recap.rs, app/thread_title.rs | core/src/features/recap, core/src/features/rename, src/services/effects.rs | — |
+| Пробел: потеря/восстановление потока треда | ✅ | fix-stream-lost 78e957dcf: host/src/cloud.rs шлёт BackendEv::StreamLost{thread,error}/StreamRestored; простой тред — Command::ReconnectIdleThread, в ходе — строка Error, очередь держится; восстановление: history_may_be_incomplete + отправка очереди; открытие потерянного треда перечитывает его. Остаток: restore_reconnected_input (steer до эха) -> live-turn; AppEv::ShuttingDown без отправителя (нет on_stop в rtwk, потребителя нет) | app/app_server_events.rs:130-170, chatwidget/input_flow.rs | host/src/in_process.rs, host/src/cloud.rs, core/src/threads | — |
 | /plan [prompt] | ✅ | маска из каталога, уведомления disabled/unavailable | slash_command.rs, chatwidget/slash_dispatch.rs | core/src/commands/dispatch.rs, core/src/app/session.rs | — |
 | /voice | ❌ | bare /voice, mute, stop → NotAvailable (`VoiceControl`); F8 и fallback-ветка open.rs → пустой sheet voice | chatwidget/realtime*.rs, bottom_pane/voice_strip.rs | src/sheets/voice/ | `voice` |
 | /goal [цель/pause/resume/clear] | 🟡 | команда и модель (features/goal) ✅; батч 9 (features-trait): у цели своя UI-половина `src/features/goal/` (sheet.rs: меню цели и edit prompt, общий вид prompt `features/prompt.rs`), `Target::Feature`; снимки меню и edit prompt не включены | chatwidget/goal_menu.rs, goal_status.rs, goal_display.rs | src/features/goal/ | ядро: fw1-c9 (влито); `w2-approvals` |
@@ -703,7 +705,7 @@
 
 | Функция | Статус | Чего нет | Oracle | Порт | Пакет |
 |---|---|---|---|---|---|
-| Inline viewport | ❌ | S27: нижний viewport со своим scrollback; нужны rtwk G1, G2, G5 | tui.rs, custom_terminal.rs, tui/frame_requester.rs | — | `inline-mode` |
+| Inline viewport | ❌ | S27: нижний viewport со своим scrollback; rtwk ScreenMode::Inline + Static | tui.rs, custom_terminal.rs, tui/frame_requester.rs | — | `inline-mode` |
 | Вставка завершённых строк в scrollback | ❌ | DECSTBM/native scrollback, OSC 8 и картинки в committed-строках (G7) | insert_history.rs, tui/scrollback.rs, tui/history_tail.rs | — | `inline-mode` |
 | Resize reflow | ❌ | пересборка committed-строк из исходных ячеек при resize (G2) | app/resize_reflow.rs, transcript_reflow.rs, resize_reflow_cap.rs | — | `inline-mode` |
 | Fullscreen (alt-screen + мышь) | ✅ | — | tui/alternate_screen.rs | rtwk host (`App::run`), src/app/run.rs | — |
@@ -1039,7 +1041,7 @@
 | slash.init | /init - create an AGENTS.md file with instructions for Codex | /init | ✅ | — |
 | slash.compact | /compact - summarize conversation to prevent hitting the con | /compact | 🟡 | `w2-cells` |
 | slash.config | /config - configure Codex preferences | /config | ❌ | `w2-settings` |
-| slash.recap | /recap - summarize the current conversation now | /recap | ❌ | `w2-commands` |
+| slash.recap | /recap - summarize the current conversation now | /recap | ✅ | — |
 | slash.plan | /plan - switch to Plan mode | /plan [prompt] | ✅ | — |
 | slash.voice | /voice - start or stop voice; use /voice settings to choose  | /voice | ❌ | `voice` |
 | slash.goal | /goal - set or view the goal for a long-running task | /goal [цель/pause/resume/clear] | 🟡 | `w2-approvals` |

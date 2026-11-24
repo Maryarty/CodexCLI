@@ -58,7 +58,7 @@ pkg("fw1-c9", "core: /feedback (note, upload), решение approval, вопр
 
 # ---------------------------------------------------------------- wave 2: hubs first (registry codegen)
 W2 = "W2"
-pkg("fw-core-hubs", "framework: core-хабы — сжатие (`SessionIntent::Feature`, конец арма NotAvailable) и одна дверь возможностей хоста (`effects::Ask`)", W2, "1-2", "≈950",
+pkg("fw-core-hubs", "framework: core-хабы — сжатие (`SessionIntent::Feature`, конец арма NotAvailable) и одна дверь возможностей хоста (`effects::Ask`); с 2026-11-24 = tm fw-hubs-a/b/c + fix-recap-title, fix-stream-lost (arch-pillars P1-P9)", W2, "3 + 2", "≈950",
     ["core/src/app/session.rs", "core/src/commands/dispatch.rs", "core/src/commands.rs",
      "core/src/threads.rs", "core/src/threads/cells.rs", "core/src/app.rs", "tests/rules/hub_budget.txt",
      "core/src/app/effects.rs", "host/src/effects.rs", "host/src/in_process.rs", "host/src/facts.rs",
@@ -273,13 +273,13 @@ pkg("sidebar", "sidebar: документы, файлы, ссылки, chooser, 
     core="факты sidebar (документы, загрузка)", ui="панель рядом с транскриптом, chooser, ячейка file",
     first="rtwk: раскладка панели рядом с транскриптом со скользящей анимацией (SplitPane/AnimatedSize), если её нет",
     deps="fw-ui-registry")
-pkg("inline-mode", "inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen", W3, "3+", "≈2500",
+pkg("inline-mode", "inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen (rtwk уже умеет inline)", W3, "2", "≈1500",
     ["src/app/run.rs", "src/app/mod.rs", "src/app/screen_mode/**", "src/app/scrollback/**",
      "src/services/transcript_file.rs"],
     oracle="tui.rs, insert_history.rs, app/resize_reflow.rs, custom_terminal*, transcript_reflow.rs, app/native_history.rs",
     ui="ScreenMode из `tui.fullscreen_transcript`, committed scrollback, снимки cells_4/5 и transcript_view_3 (34 n/a)",
-    first="rtwk: G1 (вход/выход alt-screen во время работы), G2 (повторная раскладка committed-строк при resize), G5 (Windows Terminal), G7 (OSC 8 и картинки в committed-строках)",
-    deps="rtwk, fw-core-hubs (Ask::ScreenMode)")
+    first="взять готовое из rtwk: `ScreenMode::Inline` (rtwk-core/src/presenter/modes.rs:63), `binding::Static` — готовый вывод над приложением, в истории терминала (rtwk docs/widgets/app/static.md), образец inline-агента `rtwk-e2e/src/agent.rs:624 inline_agent_app` и `rtwk-e2e/src/modes.rs:74`. Чего в rtwk нет (бывшие G1/G2/G5/G7: смена alt-screen на ходу, reflow committed-строк, OSC 8/картинки в них) — проверить по этим образцам одной строкой разрыва, без rtwk-работы вперёд",
+    deps="fw-core-hubs (Ask::ScreenMode)")
 pkg("ui-tree-viz", "ui_tree и inline visualization", W3, "2", "≈1100",
     ["core/src/features/ui_tree/**", "src/features/ui_tree/**", "src/widgets/ui_tree/**",
      "core/src/threads/inline_vis.rs"],

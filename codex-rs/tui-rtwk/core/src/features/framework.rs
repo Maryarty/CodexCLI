@@ -19,7 +19,8 @@ use codex_app_server_protocol::ThreadClosedNotification;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
 use super::{
-    AppCx, AppView, Connection, Feature, Never, Out, Refusal, Slash, ThreadCx, Tone, TurnEnd,
+    AppCx, AppView, Connection, Feature, Never, Out, Refusal, Slash, StructuredFailure, ThreadCx,
+    Tone, TurnEnd,
 };
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
@@ -40,6 +41,7 @@ enum Hook {
     Shown(ThreadId),
     Connection(Connection),
     Opened(&'static str, Result<ThreadId, Refusal>),
+    Structured(&'static str, Result<String, StructuredFailure>),
 }
 
 thread_local! {
@@ -119,8 +121,8 @@ macro_rules! probe {
                 fn effect_done(state: &mut u32, ctx: Ctx, done: Done, _cx: &mut AppCx<'_>) {
                     *state += ctx.0.len() as u32
                         + match done {
-                            Done::Title(Some(title)) => title.len() as u32,
-                            Done::Title(None) => 1,
+                            Done::Export(Ok(path)) => path.len() as u32,
+                            Done::Export(Err(_)) => 1,
                             _ => 1000,
                         };
                 }
@@ -146,6 +148,15 @@ macro_rules! probe {
                     _cx: &mut AppCx<'_>,
                 ) {
                     log($name, Hook::Opened(ctx.0, result));
+                }
+
+                fn structured_done(
+                    _state: &mut u32,
+                    ctx: Ctx,
+                    result: Result<String, StructuredFailure>,
+                    _cx: &mut AppCx<'_>,
+                ) {
+                    log($name, Hook::Structured(ctx.0, result));
                 }
 
                 fn on_shown(_state: &mut u32, thread: &ThreadId, _cx: &mut AppCx<'_>) {
@@ -282,7 +293,7 @@ use probe_list::{
     answered, apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode,
     effect_done, names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact,
     on_interest, on_interrupted, on_resumed, on_shown, on_turn_end, project, project_request,
-    runs_of, thread_opened, thread_wakes_due, wakes_due, wire,
+    runs_of, structured_done, thread_opened, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -459,6 +470,15 @@ fn an_answer_goes_to_its_feature_and_one_of_another_shape_is_a_mismatch() {
     );
 }
 
+fn export() -> Ask {
+    Ask::Export {
+        thread: ThreadId::new("t1"),
+        path: "out.md".to_owned(),
+        cwd: "/work".to_owned(),
+        markdown: String::new(),
+    }
+}
+
 /// The host's answer goes to the feature whose ctx the ask carried, as the feature's own
 /// `Ctx`, and to no other.
 #[test]
@@ -468,19 +488,19 @@ fn a_host_answer_reaches_the_feature_that_asked() {
         effect_done(
             &mut states,
             FeatureCtx::from(beta::Ctx("bb")),
-            Done::Title(Some("abc".to_owned())),
+            Done::Export(Ok("abc".to_owned())),
             cx,
         );
         effect_done(
             &mut states,
             FeatureCtx::from(alpha::Ctx("a")),
-            Done::Title(None),
+            Done::Export(Err("none".to_owned())),
             cx,
         );
         effect_done(
             &mut states,
             FeatureCtx::from(beta::Ctx("b")),
-            Done::Export(Err("no".to_owned())),
+            Done::ClipboardText(Err("no".to_owned())),
             cx,
         );
     });
@@ -507,12 +527,7 @@ fn a_feature_asks_the_host_through_the_outbox() {
     );
     let mut cx = AppCx::new(AppView::new(None, &threads, &screens, &tui, &[], None));
     cx.effect(Ask::ClipboardText, ctx.clone());
-    cx.effect(
-        Ask::SuggestTitle {
-            thread: ThreadId::new("t1"),
-        },
-        ctx.clone(),
-    );
+    cx.effect(export(), ctx.clone());
     assert_eq!(
         cx.into_out(),
         [
@@ -521,9 +536,7 @@ fn a_feature_asks_the_host_through_the_outbox() {
                 ctx: super::FeatureCtx::Goal(ctx.clone()),
             },
             Out::Effect {
-                ask: Ask::SuggestTitle {
-                    thread: ThreadId::new("t1"),
-                },
+                ask: export(),
                 ctx: super::FeatureCtx::Goal(ctx),
             },
         ],
@@ -632,6 +645,38 @@ fn the_shown_connection_and_opened_hooks_reach_their_features() {
             ("beta", Hook::Opened("b", Err(Refusal::Busy))),
         ],
         "the app-wide hooks run in list order, the answer reaches the feature that asked"
+    );
+}
+
+/// The answer of a structured turn goes to the feature whose ctx the request carried, as its own
+/// `Ctx`, with the text or the reason there is none.
+#[test]
+fn a_structured_answer_reaches_the_feature_that_asked() {
+    let mut states = FeatureStates::default();
+    logged();
+    app_step(|cx| {
+        structured_done(
+            &mut states,
+            FeatureCtx::from(alpha::Ctx("a")),
+            Ok("{}".to_owned()),
+            cx,
+        );
+        structured_done(
+            &mut states,
+            FeatureCtx::from(beta::Ctx("b")),
+            Err(StructuredFailure::TimedOut),
+            cx,
+        );
+    });
+    assert_eq!(
+        logged(),
+        [
+            ("alpha", Hook::Structured("a", Ok("{}".to_owned()))),
+            (
+                "beta",
+                Hook::Structured("b", Err(StructuredFailure::TimedOut))
+            ),
+        ]
     );
 }
 

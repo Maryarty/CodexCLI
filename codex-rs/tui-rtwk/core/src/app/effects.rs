@@ -113,17 +113,6 @@ pub enum Ask {
     /// The diff of the working directory `cwd` (`None`: the process's own): the host runs the
     /// `diff::Diff` machine through its workspace executor.
     GitDiff { cwd: Option<String> },
-    /// A structured turn of an ephemeral thread started from `thread`'s model, provider and
-    /// directory, with no tools: `prompt` is the only input and the answer is the model's last
-    /// message, which follows `schema` (oracle `temporary_structured_request`: the recap). Answered
-    /// by `Done::Structured`.
-    StructuredTurn {
-        thread: ThreadId,
-        prompt: String,
-        schema: serde_json::Value,
-    },
-    /// A title for `thread`: an ephemeral thread with a structured turn, then unsubscribed.
-    SuggestTitle { thread: ThreadId },
     /// The transcript of `thread`, as the Markdown the asker rendered from the cells' text,
     /// written to `path` (`~/` is the home directory, a relative path is under `cwd`: the
     /// launch directory for a remote workspace, else the thread's; an existing file is never
@@ -183,10 +172,6 @@ pub enum Done {
     /// The delivery status, or the host's failure text (oracle: `Failed to copy ...: {error}`).
     Copy(Result<CopyStatus, String>),
     GitDiff(Result<diff::Report, diff::Failure>),
-    /// The structured turn's response text, or why there is none.
-    Structured(Result<String, String>),
-    /// The suggested title; none when nothing came out.
-    Title(Option<String>),
     /// The path written, or the host's failure text.
     Export(Result<String, String>),
     /// Nothing, or the host's failure text.

@@ -68,6 +68,7 @@ pub(super) fn run(
 pub(super) fn clock(app: &mut CodexApp, now: Now, fx: &mut AppFx) {
     app.now = now;
     Rc::make_mut(&mut app.screens).set_now(now);
+    super::structured::expire(app, now, fx);
     for due in features::wakes_due(&app.features, now) {
         intent(app, due, fx);
     }
@@ -101,6 +102,7 @@ pub(super) fn wake(app: &CodexApp) -> Option<Wake> {
         crate::screens::agents::wake_at(&app.screens.agents, app.now),
     );
     next = nearest(next, crate::screens::chat::wake_at(&app.screens.chat));
+    next = nearest(next, app.structured.wake_at());
     next.map(|at| Wake::new(app.now, at))
 }
 
@@ -263,6 +265,18 @@ pub(super) fn thread_opened(
 ) {
     run(app, fx, |states, cx| {
         features::thread_opened(states, ctx, result, cx)
+    });
+}
+
+/// A structured turn a feature asked for ended, or could not be had.
+pub(super) fn structured_done(
+    app: &mut CodexApp,
+    ctx: FeatureCtx,
+    result: Result<String, crate::features::StructuredFailure>,
+    fx: &mut AppFx,
+) {
+    run(app, fx, |states, cx| {
+        features::structured_done(states, ctx, result, cx)
     });
 }
 

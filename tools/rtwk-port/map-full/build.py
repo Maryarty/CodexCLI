@@ -41,6 +41,13 @@ def chat_rows():
         r["oracle"] = hit[2] if hit else dflt[0]
         r["port"] = hit[3] if hit else dflt[1]
         r["owner"] = (hit[1] if hit else dflt[2]) if r["status"] != "✅" else "—"
+    for r in rows:
+        if r["title"] in rows_extra.OVERRIDES:
+            r.update(rows_extra.OVERRIDES[r["title"]])
+            r["owner"] = "—" if r["status"] == "✅" else r["owner"]
+    for after, new_rows in rows_extra.INSERTS:
+        i = next(k for k, r in enumerate(rows) if r["title"] == after)
+        rows[i + 1:i + 1] = [dict(r, sec=rows[i]["sec"], owner="—", line=0) for r in new_rows]
     return rows
 
 
