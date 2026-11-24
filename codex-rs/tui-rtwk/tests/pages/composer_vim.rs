@@ -123,6 +123,33 @@ fn a_search_moves_the_caret_to_the_match() {
 }
 
 #[test]
+fn a_slash_on_an_empty_draft_goes_into_insert_mode_and_types_it() {
+    let mut h = chat();
+    vim_draft(&mut h, "");
+    keys(&mut h, "/");
+    assert_eq!(prompt(&h), "› /");
+}
+
+#[test]
+fn a_remapped_search_key_opens_the_search_prompt_on_an_empty_draft() {
+    let mut h = start();
+    h.wait_idle();
+    h.set_keymap(&[
+        ("global.toggle_vim_mode", "f9"),
+        ("vim_search.forward", "s"),
+    ]);
+    vim_draft(&mut h, "");
+    // `s` is the search key now: it starts the query (not the draft's text), and `/` is no longer
+    // one, so the oracle's slash rule (a search key AND a plain `/`) leaves Normal mode alone
+    keys(&mut h, "s");
+    h.t.type_text("x");
+    h.advance(100);
+    assert_eq!(prompt(&h), "› Ask Codex to do anything");
+    keys(&mut h, "esc /");
+    assert_eq!(prompt(&h), "› Ask Codex to do anything");
+}
+
+#[test]
 fn escape_drops_the_search_query() {
     let mut h = chat();
     vim_draft(&mut h, "draft");

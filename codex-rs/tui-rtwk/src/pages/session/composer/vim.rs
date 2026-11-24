@@ -38,6 +38,7 @@ use codex_tui_core::keymap::actions::{
     VIM_TEXT_OBJECT_DOUBLE_QUOTE, VIM_TEXT_OBJECT_PARENTHESES, VIM_TEXT_OBJECT_SINGLE_QUOTE,
     VIM_TEXT_OBJECT_WORD,
 };
+use codex_tui_core::keymap::fixed::SLASH_COMPLETE;
 use codex_tui_core::keymap::{ActionId, Binding, Keymap};
 use codex_tui_core::kit::vim::{
     Find, Input, Motion, Normal, Object, Operator, OperatorKey, Vim, VimDirection, VimPending,
@@ -336,13 +337,23 @@ fn typed_char(key: &KeyPress) -> Option<char> {
 // ---- Normal mode ------------------------------------------------------------
 
 /// `/` on an empty draft is the slash command's: Normal mode goes into Insert mode and types it
-/// (the search key of Vim is for a draft with text).
+/// (the search key of Vim is for a draft with text). As in the oracle the press must be a vim
+/// search key (forward, backward, next, previous) AND the plain `/`: with the search keys
+/// remapped away from `/`, the key is not a search key and Normal mode keeps it.
 pub fn opens_slash(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &Mode) -> bool {
     mode.normal
         && mode.pending == VimPending::None
         && !data.suggest.open()
         && c.text().is_empty()
-        && pressed(&data.keymap, VIM_SEARCH_FORWARD, key)
+        && pressed_fixed(SLASH_COMPLETE, key)
+        && [
+            VIM_SEARCH_FORWARD,
+            VIM_SEARCH_BACKWARD,
+            VIM_SEARCH_NEXT,
+            VIM_SEARCH_PREVIOUS,
+        ]
+        .into_iter()
+        .any(|id| pressed(&data.keymap, id, key))
 }
 
 /// The keys Normal mode answers before anything else of the composer: the
