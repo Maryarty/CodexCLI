@@ -13,15 +13,13 @@ use codex_tui_core::commands::{
 };
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
-use codex_tui_core::threads::queue::Dispatched;
-use codex_tui_core::threads::{
-    DueCommand, Failure, Note, NoteKey, Queued, Ran, ThreadModel, Toggle, UserMessage,
-};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
+use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle, UserMessage};
 
 use crate::app::view::Hs;
 use crate::features;
 use crate::pages::session::composer::clear_sent;
+use crate::pages::session::composer::queue::{self, Delivery};
 use crate::pages::session::open::{note_opened, open};
 
 /// The chat screen of one thread's controllers.
@@ -50,17 +48,6 @@ pub(super) fn prompt(text: &'static str, style: Style) -> AnyWidget {
 /// shows its empty page, `No warnings`).
 pub(super) fn open_warnings(cx: &mut Cx<'_, ChatState>) {
     super::open::open_warnings(cx);
-}
-
-/// What a line that is a message for the model does while a turn runs:
-/// Enter steers it (`apply` decides), Tab queues it behind the turn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Delivery {
-    Submit,
-    Queue,
-    /// A line of the queue that is due (`dispatch_queued`): it runs as if typed now, but it is
-    /// no draft: the composer, its history and its shell mode are the user's, as they are.
-    Drain,
 }
 
 /// A settings shortcut (`Shift+Tab`, `Alt+,`, `Alt+.`) on a thread its parent controls says so
@@ -124,28 +111,9 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     run(line, None, w, cx, hs, send, &mut Ran::Submitted);
 }
 
-/// The queued command that is due runs through the dispatch a typed line does
-/// (`submit_queued_slash_prompt`); what it did is the thread's to hear of (`QueueRan`).
-pub(super) fn run_due(due: &DueCommand, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) -> Ran {
-    let mut ran = Ran::Dispatched(none_opened());
-    let line = due.line();
-    run(&line.text, Some(line), w, cx, hs, Delivery::Drain, &mut ran);
-    ran
-}
-
-/// A command that opened nothing and has no rule of its own: the queue goes on.
-fn none_opened() -> Dispatched {
-    Dispatched {
-        command: None,
-        modal: false,
-        can_change_directory: false,
-        managed_worktree: false,
-    }
-}
-
 /// `line` as the composer sends it, `queued` being the message a due command is (its images and
 /// mentions are its own, not the draft's); `ran` tells how the queue goes on.
-fn run(
+pub(super) fn run(
     line: &str,
     queued: Option<&UserMessage>,
     w: &Chat,
@@ -218,24 +186,9 @@ fn run(
         say(cx, Note::from(Notice::InputTooLarge { provided }));
         return;
     }
-    // Tab behind a running turn keeps the line as it is: a command or a shell line is parsed
-    // when its turn comes, never now (`queued_input_action`).
+    // (Tab behind a running turn: a command or a shell line is parsed when its turn comes)
     if send == Delivery::Queue {
-        record(cx);
-        let table = crate::pages::session::composer::strings::of(cx);
-        let draft = w.ui.draft.submission_with(
-            &w.ui.composer,
-            |n| table.image(n),
-            states.popovers.sources().mentions,
-        );
-        let message = if draft.text.trim() == line.trim() {
-            draft
-        } else {
-            UserMessage::text(line)
-        };
-        let queued = Queued::of(message, w.ui.draft.shell());
-        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(queued));
-        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+        queue::keep(line, w, cx, hs, thread.id(), &states);
         return;
     }
     // A draft in shell mode runs as the user's own shell command (`!cmd`,
@@ -274,19 +227,7 @@ fn run(
                 cx.emit(&hs.submit, message.clone());
             } else if !line.trim().is_empty() || w.ui.draft.remote_count() > 0 {
                 record(cx);
-                // the draft's images go with its text; a line that is not
-                // the draft (a popup's pick) goes as text
-                let table = crate::pages::session::composer::strings::of(cx);
-                let draft = w.ui.draft.submission_with(
-                    &w.ui.composer,
-                    |n| table.image(n),
-                    states.popovers.sources().mentions,
-                );
-                let message = if draft.text.trim() == line.trim() {
-                    draft
-                } else {
-                    UserMessage::text(line)
-                };
+                let message = queue::message(line, w, cx, &states);
                 // (the queue key and the drain left before dispatch)
                 cx.emit(&hs.submit, message);
             }
@@ -298,7 +239,7 @@ fn run(
             command,
             ..
         }) => {
-            *ran = opened_by(command);
+            *ran = queue::opened_by(command);
             record(cx);
             clear_sent(&w.ui);
             let args = features::OpenArgs::of(
@@ -310,7 +251,7 @@ fn run(
             note_opened(Target::Feature(feature));
         }
         Outcome::Open(opened) => {
-            *ran = opened_by(opened.command);
+            *ran = queue::opened_by(opened.command);
             record(cx);
             clear_sent(&w.ui);
             if opened.target == Target::Usage {
@@ -404,10 +345,7 @@ fn run(
             say(cx, Note::from(NoteKey::Toggled(Toggle::Vim, on)));
         }
         Outcome::Session { command, intent } => {
-            *ran = Ran::Dispatched(Dispatched {
-                command: Some(command),
-                ..none_opened()
-            });
+            *ran = queue::session_ran(command);
             record(cx);
             clear_sent(&w.ui);
             screen(
@@ -453,16 +391,6 @@ fn run(
             say(cx, Note::from(notice));
         }
     }
-}
-
-/// What a command that opens a sheet or a page leaves the queue with: it waits until the page is
-/// in front again (`!no_modal_or_popup_active`).
-fn opened_by(command: SlashCommand) -> Ran {
-    Ran::Dispatched(Dispatched {
-        command: Some(command),
-        modal: true,
-        ..none_opened()
-    })
 }
 
 /// What the model is asked before the select sheet shows the confirmation of

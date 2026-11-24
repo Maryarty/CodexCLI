@@ -134,6 +134,15 @@ pub trait FeatureView: Feature {
         None
     }
 
+    /// A text the feature hands the composer of `thread` (the external editor's edit): numbered,
+    /// read from the app through `cx`. None: nothing waits.
+    fn handed<S: 'static>(_thread: &ThreadId, _cx: &mut Cx<'_, S>) -> Option<(u64, String)> {
+        None
+    }
+
+    /// The composer took the text numbered `number` (`handed`): the feature forgets it.
+    fn taken<S: 'static>(_number: u64, _hs: &Hs, _cx: &mut Cx<'_, S>) {}
+
     /// The keys the feature owns, bound by the chat page.
     fn actions() -> Vec<FeatureAction> {
         Vec::new()
@@ -300,6 +309,28 @@ macro_rules! view_slots {
     };
 }
 
+macro_rules! view_handed {
+    ($($name:ident => $variant:ident;)*) => {
+        /// The text a feature hands the composer of `thread`, the first in list order.
+        #[allow(unused_variables)]
+        pub fn handed<S: 'static>(thread: &ThreadId, cx: &mut Cx<'_, S>) -> Option<(u64, String)> {
+            let mut text = None;
+            $(
+            let own = <codex_tui_core::features::$name::$variant as FeatureView>::handed(thread, cx);
+            text = text.or(own);
+            )*
+            text
+        }
+
+        /// The composer took the text numbered `number`: every feature that handed one forgets
+        /// it.
+        #[allow(unused_variables)]
+        pub fn taken<S: 'static>(number: u64, hs: &Hs, cx: &mut Cx<'_, S>) {
+            $(<codex_tui_core::features::$name::$variant as FeatureView>::taken(number, hs, cx);)*
+        }
+    };
+}
+
 macro_rules! view_actions {
     ($($name:ident => $variant:ident;)*) => {
         /// The keys the features own, in list order.
@@ -329,4 +360,5 @@ feature_list!(view_debug);
 sheet_list!(view_open);
 feature_list!(view_cells);
 feature_list!(view_slots);
+feature_list!(view_handed);
 feature_list!(view_actions);

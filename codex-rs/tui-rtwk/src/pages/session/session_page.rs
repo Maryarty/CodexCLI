@@ -256,16 +256,6 @@ impl ChatState {
             .is_some_and(|fork| fork.thread == *thread.id())
     }
 
-    /// What the page keeps of the draft (the footer and the Tab binding
-    /// read it): empty (shell mode's `!` is content), in shell mode, in
-    /// history search.
-    fn sync_draft(&mut self, w: &Chat) {
-        self.search_rev = w.ui.draft.search_rev();
-        self.draft_shell = w.ui.draft.shell();
-        self.draft_vim = w.ui.draft.vim_label();
-        self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
-    }
-
     fn shown(&self, modes: &Modes) -> Shown {
         Shown {
             shortcuts: self.shortcuts,

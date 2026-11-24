@@ -20,7 +20,7 @@ use rtwk::layout::{
     Shadow, SizedBox,
 };
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
-use rtwk::provider::{Provider, read, select, watch};
+use rtwk::provider::{read, select, watch};
 use rtwk::style::{Attrs, Style, Theme};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
@@ -28,8 +28,6 @@ use rtwk_core::presenter::CursorShape;
 
 use codex_tui_core::app::{ConnectionState, SessionSlice};
 use codex_tui_core::data::history::Lookup;
-use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::external_editor::Intent as ExternalEditorIntent;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::screens::composer;
@@ -54,6 +52,7 @@ pub mod editing;
 pub mod footer;
 pub mod mentions;
 pub mod plain;
+pub mod queue;
 pub mod search;
 pub mod strings;
 pub mod suggest;
@@ -349,8 +348,8 @@ pub struct ComposerState {
     /// Whether the last build saw a restricted composer: a change into it
     /// restricts the draft.
     restricted: Cell<bool>,
-    /// The edit of the external editor this composer took last (`State::edited` is applied
-    /// once).
+    /// The number of the text the external editor left that this composer took last (each is
+    /// applied once).
     edited: Cell<Option<u64>>,
 }
 
@@ -414,7 +413,7 @@ pub enum ComposerMsg {
     Restrict,
     /// The external editor left `text` for this composer (`apply_external_edit`).
     Edited {
-        seq: u64,
+        number: u64,
         text: String,
     },
 }
@@ -814,7 +813,7 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Remote => return rtwk::Rebuild::Yes,
-            ComposerMsg::Edited { seq, text } => {
+            ComposerMsg::Edited { number, text } => {
                 let table = strings::of(cx);
                 w.ui.draft.edited(&w.ui.composer, &text, |n| table.image(n));
                 w.ui.sparkle.replaced(&text);
@@ -824,7 +823,7 @@ impl State for ComposerState {
                 }
                 // the feature forgets the edit, so it is not applied twice
                 let hs = read::<Hs, _>(cx);
-                crate::features::verb_by(cx, &hs, ExternalEditorIntent::Applied { seq });
+                crate::features::taken(number, &hs, cx);
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Restrict => {
@@ -888,24 +887,10 @@ impl State for ComposerState {
         }
         if !w.bare && w.plain.is_none() {
             let thread = read::<ThreadModel, _>(cx).id().clone();
-            let edited = if Provider::<FeatureStates>::maybe_of(cx, false).is_some() {
-                select::<FeatureStates, _, _>(cx, move |states| {
-                    states
-                        .external_editor
-                        .edited
-                        .clone()
-                        .filter(|edited| edited.thread == thread)
-                })
-            } else {
-                None
-            };
-            if let Some(edited) = edited
-                && self.edited.replace(Some(edited.seq)) != Some(edited.seq)
+            if let Some((number, text)) = crate::features::handed(&thread, cx)
+                && self.edited.replace(Some(number)) != Some(number)
             {
-                cx.local_sender()(ComposerMsg::Edited {
-                    seq: edited.seq,
-                    text: edited.text,
-                });
+                cx.local_sender()(ComposerMsg::Edited { number, text });
             }
         }
         let restricted = self.mode(w, cx);
