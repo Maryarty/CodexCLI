@@ -1,0 +1,3 @@
+# bottom_pane/approval_overlay.rs:2438 network_access_command_history_uses_target_without_structured_context: network-access <url>, no network context
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"network-access https://example.com:8443","cwd":"/tmp","reason":null,"availableDecisions":["accept","cancel"],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

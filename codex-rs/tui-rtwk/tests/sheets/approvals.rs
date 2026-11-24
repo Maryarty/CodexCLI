@@ -515,6 +515,36 @@ fn user_input_backspace_on_empty_notes_closes_them() {
     assert!(!shows(&h, "clear notes"), "{}", h.t.screen());
 }
 
+/// Backspace on the options clears the selection: no row is marked until a key sets one (the
+/// oracle's `backspace_in_options_clears_selection`: `selected_idx` is `None`); a Down selects the
+/// first row again.
+#[test]
+fn user_input_backspace_on_the_options_unmarks_every_row() {
+    let mut h = open(120, 16, "user_input");
+    h.press("down");
+    assert!(shows(&h, "\u{203a} 2. Option 2"), "{}", h.t.screen());
+    h.press("backspace");
+    assert!(!shows(&h, "\u{203a} "), "{}", h.t.screen());
+    h.press("down");
+    assert!(shows(&h, "\u{203a} 1. Option 1"), "{}", h.t.screen());
+}
+
+/// A draft belongs to its question (the oracle's per-question `ComposerDraft`): it stays when the
+/// dialog goes to another question and comes back.
+#[test]
+fn user_input_a_draft_stays_with_its_question() {
+    let mut h = open(120, 16, "user_input_options_then_freeform");
+    h.press("ctrl+n");
+    assert!(shows(&h, "Question 2/2"), "{}", h.t.screen());
+    h.t.type_text("kept draft");
+    h.t.pump_for(ms(100));
+    h.press("ctrl+p");
+    assert!(shows(&h, "Question 1/2"), "{}", h.t.screen());
+    assert!(!shows(&h, "kept draft"), "{}", h.t.screen());
+    h.press("ctrl+n");
+    assert!(shows(&h, "kept draft"), "{}", h.t.screen());
+}
+
 /// A request that is not blocking hides its countdown for a minute, shows it in red for the next
 /// minute and then answers itself, empty (the oracle's `auto_resolution_*`: grace 60 s, countdown
 /// 60 s, `pre_draw_tick`).

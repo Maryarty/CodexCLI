@@ -1,4 +1,4 @@
 # An exec approval with a reason and no proposed prefix: the modal of a short single-line command.
 # Oracle data: chatwidget/tests/approval_requests.rs:8 exec_approval_emits_proposed_command_and_decision_history: call-short, command bash -lc 'echo hello world', reason, no execpolicy amendment
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-short","approvalId":"call-short","environmentId":null,"command":"bash -lc 'echo hello world'","cwd":"/tmp","reason":"this is a test reason such as one that would be produced by the model","proposedExecpolicyAmendment":null,"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-short","approvalId":"call-short","environmentId":"remote","command":"bash -lc 'echo hello world'","cwd":"/tmp","reason":"this is a test reason such as one that would be produced by the model","proposedExecpolicyAmendment":null,"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

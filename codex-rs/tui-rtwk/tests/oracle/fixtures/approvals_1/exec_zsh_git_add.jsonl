@@ -1,0 +1,3 @@
+# bottom_pane/approval_overlay.rs:2384 exec_history_cell_wraps_with_two_space_indent: zsh -lc git add ...
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"/bin/zsh -lc 'git add tui/src/render/mod.rs tui/src/render/renderable.rs'","cwd":"/tmp","reason":null,"availableDecisions":["accept","cancel"],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

@@ -26,11 +26,12 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::keymap::Keymap;
+use codex_tui_core::keymap::actions::{CHAT_INTERRUPT_TURN, COMPOSER_SUBMIT, LIST_ACCEPT};
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::input::{self, AutoResolution, Draft};
 use codex_tui_core::screens::approvals::{Intent, Prompt, Question};
 
-use super::keys::{Press, is_backspace, press_of, types_text};
+use super::keys::{Press, is_backspace, is_escape, press_of, types_text};
 use super::strings::{self, Strings};
 use super::tips;
 use crate::app::theme::Tokens;
@@ -119,6 +120,10 @@ pub enum Msg {
     Cancel,
     /// Ctrl+C: clears typed notes, else interrupts.
     CtrlC,
+    /// The chat's interrupt key when the user bound it to something else than Esc: it always
+    /// interrupts, with the notes open too (the oracle: only Esc closes them); in the
+    /// confirmation it does nothing.
+    Stop,
     /// The previous or the next question (ctrl+p/n, PageUp/PageDown).
     Question(bool),
     /// The previous or the next question from the options (h/l, the arrows).
@@ -178,7 +183,8 @@ impl_widget!(stateful eq UserInputView);
 /// (a key a mode does not take is ignored by `update`).
 fn msg_of(keymap: &Keymap, key: &KeyPress) -> Option<Msg> {
     Some(match press_of(keymap, key)? {
-        Press::Cancel => Msg::Cancel,
+        Press::Cancel if is_escape(key) => Msg::Cancel,
+        Press::Cancel => Msg::Stop,
         Press::Interrupt => Msg::CtrlC,
         Press::Question(next) => Msg::Question(next),
         Press::Side(next) => Msg::Side(next),
@@ -196,8 +202,15 @@ fn msg_of(keymap: &Keymap, key: &KeyPress) -> Option<Msg> {
 /// tab, the arrows (they move the options) and Backspace on empty notes.
 fn notes_msg(keymap: &Keymap, key: &KeyPress, options: bool, empty: bool) -> Option<Msg> {
     let msg = msg_of(keymap, key)?;
+    // The composer's submit key is read before the moves between questions (the oracle's
+    // `handle_key_event`): it is the notes' own, whatever else it is bound to.
+    if matches!(msg, Msg::Question(_) | Msg::Tab | Msg::Cursor(_))
+        && crate::keymap::pressed(keymap, COMPOSER_SUBMIT, key)
+    {
+        return None;
+    }
     match msg {
-        Msg::Cancel | Msg::CtrlC | Msg::Question(_) => Some(msg),
+        Msg::Cancel | Msg::Stop | Msg::CtrlC | Msg::Question(_) => Some(msg),
         Msg::Tab | Msg::Cursor(_) if options && !types_text(key) => Some(msg),
         Msg::Clear if options && empty && is_backspace(key) => Some(Msg::HideNotes),
         _ => None,
@@ -361,6 +374,7 @@ impl UserInputViewState {
     fn update_confirm(&mut self, msg: Msg, w: &UserInputView, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Cancel | Msg::Clear => self.go_back(w),
+            Msg::Stop => return Rebuild::No,
             Msg::CtrlC => {
                 self.interrupt(w, cx);
                 return Rebuild::No;
@@ -444,7 +458,7 @@ impl State for UserInputViewState {
         let visible = self.notes_visible(self.current, question);
         match msg {
             Msg::Cancel if has_options && visible => self.close_notes(),
-            Msg::Cancel => {
+            Msg::Cancel | Msg::Stop => {
                 self.interrupt(w, cx);
                 return Rebuild::No;
             }
@@ -475,6 +489,7 @@ impl State for UserInputViewState {
             Msg::Clear if in_options => {
                 let state = &mut self.questions[self.current];
                 state.selected = false;
+                state.options.clear();
                 state.committed = false;
                 state.notes_open = false;
                 state.notes.clear();
@@ -719,7 +734,7 @@ impl UserInputViewState {
                 .into();
             column = column.child(composer.with_key(u32::try_from(self.current).unwrap_or(0)));
         }
-        let footer = self.footer(tokens, s, question, visible);
+        let footer = self.footer(tokens, s, &crate::keymap::keymap(cx), question, visible);
         if !visible {
             // Without the input the spare rows of a tall frame stay under the footer.
             return column.child(footer).into();
@@ -740,6 +755,7 @@ impl UserInputViewState {
         &self,
         tokens: &Tokens,
         s: &Strings,
+        keymap: &Keymap,
         question: &Question,
         notes_visible: bool,
     ) -> AnyWidget {
@@ -772,7 +788,16 @@ impl UserInputViewState {
         } else {
             s.tip_submit_answer
         };
-        list.push(key(s.key_enter, submit));
+        // The submit key is the composer's while the keys go to the notes, else the list's
+        // accept; the interrupt key is the chat's. A key the user unbound has no tip.
+        let submit_key = if self.notes_focus || !has_options {
+            crate::keymap::label(keymap, COMPOSER_SUBMIT)
+        } else {
+            crate::keymap::label(keymap, LIST_ACCEPT)
+        };
+        if let Some(submit_key) = submit_key {
+            list.push(key(&submit_key, submit));
+        }
         if count > 1 {
             if has_options && !self.notes_focus {
                 list.push(key(s.tip_arrows, s.tip_navigate_questions));
@@ -781,8 +806,10 @@ impl UserInputViewState {
             }
         }
         // Esc closes the notes of an option question, so it is not offered to interrupt then.
-        if !(has_options && notes_visible) {
-            list.push(key(s.key_esc, s.tip_interrupt));
+        if let Some(interrupt) = crate::keymap::label(keymap, CHAT_INTERRUPT_TURN)
+            && !(has_options && notes_visible && interrupt == s.key_esc)
+        {
+            list.push(key(&interrupt, s.tip_interrupt));
         }
         tips::rows(list, s.tip_separator, dim)
     }
