@@ -319,10 +319,6 @@ fn goal_edit_prompt_resets_terminal_status_to_active() {
 // ORACLE chatwidget/tests/goal_menu.rs:195 resume_paused_goal_prompt_default_resumes_goal kind=ui owner=dialogs-pane
 #[test]
 fn resume_paused_goal_prompt_default_resumes_goal() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no resume-paused-goal prompt in the port; the visible half is the prompt closing after Enter (the SetThreadGoalStatus event is not drawn)",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(100, 9).live().open();
     let base = s.shot();
     s.type_text("/goal").keys("enter");
@@ -333,10 +329,6 @@ fn resume_paused_goal_prompt_default_resumes_goal() {
 // ORACLE chatwidget/tests/goal_menu.rs:216 resume_paused_goal_prompt_can_leave_goal_paused kind=ui owner=dialogs-pane
 #[test]
 fn resume_paused_goal_prompt_can_leave_goal_paused() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no resume-paused-goal prompt in the port; the visible half is the prompt closing after Down and Enter with no event (the absence of an event is not drawn)",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(100, 9).live().open();
     let base = s.shot();
     s.type_text("/goal").keys("enter");
