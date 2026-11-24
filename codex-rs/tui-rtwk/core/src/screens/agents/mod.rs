@@ -742,6 +742,13 @@ pub enum Reply {
         turns: Vec<codex_app_server_protocol::Turn>,
         next: Option<String>,
     },
+    /// The MCP servers of the effective config (`config/read`).
+    McpServers(serde_json::Map<String, serde_json::Value>),
+    /// The ephemeral thread of a structured turn started; `as_asked` is whether it has the
+    /// permissions that were asked for (`Temporary::started_as_asked`).
+    Temporary { thread: String, as_asked: bool },
+    /// The id of the turn a structured turn started.
+    StructuredTurn { turn: String },
 }
 
 impl Eq for Reply {}

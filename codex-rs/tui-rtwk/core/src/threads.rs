@@ -29,6 +29,7 @@ pub mod replay;
 pub mod safety;
 pub mod status;
 pub mod stream_preview;
+pub mod structured;
 mod user_prompt;
 
 pub use activity::{
@@ -57,10 +58,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use codex_app_server_protocol::AskForApproval;
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewDelivery;
 use codex_app_server_protocol::ReviewStartParams;
+use codex_app_server_protocol::SandboxMode;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
@@ -74,12 +78,16 @@ use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadRevertParams;
 use codex_app_server_protocol::ThreadSetNameParams;
 use codex_app_server_protocol::ThreadShellCommandParams;
+use codex_app_server_protocol::ThreadSource;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadTurnsListParams;
 use codex_app_server_protocol::ThreadUnsubscribeParams;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnItemsView;
+use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStatus;
+use codex_app_server_protocol::UserInput;
+use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
 
 use crate::app::AppFx;
 use crate::app::Command;
@@ -1679,6 +1687,21 @@ pub enum ThreadAsk {
         thread: String,
         markdown: String,
     },
+    /// `config/read` of the effective config for `cwd`: the MCP servers a temporary thread
+    /// disables (`AppCx::structured_turn`, `structured`).
+    McpServers {
+        cwd: Option<String>,
+    },
+    /// `thread/start` of the ephemeral, read-only thread of a structured turn.
+    StartTemporary(Box<structured::Temporary>),
+    /// `turn/start` of the temporary thread's one turn, following an output schema.
+    StructuredTurn {
+        thread: String,
+        kind: structured::Kind,
+        prompt: String,
+        schema: serde_json::Value,
+        effort: Option<codex_protocol::openai_models::ReasoningEffort>,
+    },
 }
 
 /// How many turns one page of a thread's history holds.
@@ -1707,8 +1730,11 @@ impl ThreadAsk {
             | ThreadAsk::Review { thread, .. }
             | ThreadAsk::SettingsUpdate { thread, .. }
             | ThreadAsk::PrepareApprovedPlan { thread, .. }
+            | ThreadAsk::StructuredTurn { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
-            ThreadAsk::Start { .. } => None,
+            ThreadAsk::Start { .. }
+            | ThreadAsk::McpServers { .. }
+            | ThreadAsk::StartTemporary(_) => None,
         }
     }
 
@@ -1890,7 +1916,87 @@ impl ThreadAsk {
                     },
                 }
             }
+            ThreadAsk::McpServers { cwd } => ClientRequest::ConfigRead {
+                request_id,
+                params: ConfigReadParams {
+                    include_layers: false,
+                    cwd: cwd.clone(),
+                },
+            },
+            ThreadAsk::StartTemporary(temporary) => start_temporary(request_id, temporary),
+            ThreadAsk::StructuredTurn {
+                thread,
+                kind,
+                prompt,
+                schema,
+                effort,
+            } => {
+                // a title thread is read-only for the turn too, as on desktop
+                let title = *kind == structured::Kind::Title;
+                ClientRequest::TurnStart {
+                    request_id,
+                    params: TurnStartParams {
+                        thread_id: thread.clone(),
+                        input: vec![UserInput::Text {
+                            text: prompt.clone(),
+                            text_elements: Vec::new(),
+                        }],
+                        permissions: title
+                            .then(|| BUILT_IN_PERMISSION_PROFILE_READ_ONLY.to_owned()),
+                        runtime_workspace_roots: title.then(Vec::new),
+                        output_schema: Some(schema.clone()),
+                        effort: effort.clone(),
+                        ..TurnStartParams::default()
+                    },
+                }
+            }
         }
+    }
+}
+
+/// `thread/start` of the ephemeral thread of a structured turn (`start_temporary_thread`): no
+/// tools, no environments, every MCP server of the config disabled, and read-only: the built-in
+/// read-only profile by name for a title, the active profile when a recap's is a named one, else
+/// the default permissions and the sandbox mode say read-only. The thread's own config has
+/// everything else off (`structured::off`).
+fn start_temporary(request_id: RequestId, temporary: &structured::Temporary) -> ClientRequest {
+    let (source, approval_policy) = match temporary.kind {
+        structured::Kind::Title => ("thread_title", Some(AskForApproval::Never)),
+        structured::Kind::Recap => ("system", None),
+    };
+    let permissions = temporary.permissions();
+    let mut config = structured::off();
+    if permissions.is_none() {
+        // Managed profiles take precedence over the legacy sandbox override below.
+        config.insert(
+            "default_permissions".to_owned(),
+            BUILT_IN_PERMISSION_PROFILE_READ_ONLY.into(),
+        );
+    }
+    let servers = temporary
+        .mcp_servers
+        .keys()
+        .map(|name| (name.clone(), serde_json::json!({ "enabled": false })))
+        .collect::<serde_json::Map<_, _>>();
+    config.insert("mcp_servers".to_owned(), serde_json::Value::Object(servers));
+    ClientRequest::ThreadStart {
+        request_id,
+        params: ThreadStartParams {
+            model: temporary.model.clone(),
+            model_provider: temporary.provider.clone(),
+            cwd: temporary.cwd.clone(),
+            approval_policy,
+            sandbox: permissions.is_none().then_some(SandboxMode::ReadOnly),
+            permissions,
+            runtime_workspace_roots: Some(Vec::new()),
+            ephemeral: Some(true),
+            thread_source: Some(ThreadSource::Feature(source.to_owned())),
+            environments: Some(Vec::new()),
+            dynamic_tools: Some(Vec::new()),
+            selected_capability_roots: Some(Vec::new()),
+            config: Some(config),
+            ..ThreadStartParams::default()
+        },
     }
 }
 

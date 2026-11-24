@@ -28,6 +28,7 @@ pub(super) fn carry(app: &mut CodexApp, lifecycle: Lifecycle, fx: &mut AppFx) {
     match lifecycle {
         Lifecycle::Open { thread, ctx } => open(app, thread, ctx, fx),
         Lifecycle::Spawn { spawn, ctx } => spawn_thread(app, spawn, ctx, fx),
+        Lifecycle::Structured { turn, ctx } => super::structured::begin(app, *turn, ctx, fx),
         Lifecycle::Discard { thread } => discard(app, &thread, fx),
         Lifecycle::Submit { thread, message } => submit(app, &thread, message, fx),
         Lifecycle::GiveBack { thread, text } => {
