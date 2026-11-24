@@ -8,7 +8,7 @@ use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::{ID, Settings, Which};
 
-use super::{config_panel, features, hooks, memories, setup, theme};
+use super::{config_panel, features, hooks, keymap_editor, memories, setup, theme};
 
 /// Which sheet the dialog asked for is drawn with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,7 +19,7 @@ pub(super) enum Shown {
     Memories,
     Hooks,
     Config,
-    Other,
+    Keymap,
 }
 
 impl Shown {
@@ -31,7 +31,7 @@ impl Shown {
             Which::Memories => Shown::Memories,
             Which::Hooks => Shown::Hooks,
             Which::Config => Shown::Config,
-            Which::Keymap => Shown::Other,
+            Which::Keymap => Shown::Keymap,
         }
     }
 }
@@ -44,6 +44,8 @@ pub struct Screen {
     pub which: Option<Which>,
     /// The memories dialog opens on its reset confirmation (a debug entry's start).
     pub confirm_reset: bool,
+    /// The keymap editor opens on the keypress inspector (`/keymap debug`).
+    pub inspect: bool,
 }
 
 /// Widget state: whether the feature offers the dialog yet.
@@ -84,9 +86,12 @@ impl State for ScreenState {
             .into(),
             Some(Shown::Hooks) => hooks::HooksSheet.into(),
             Some(Shown::Config) => config_panel::ConfigSheet.into(),
-            // No dialog offered (the debug menu's row, a dialog nothing builds yet): the
-            // skeleton's empty-slot line.
-            None | Some(Shown::Other) => {
+            Some(Shown::Keymap) => keymap_editor::KeymapSheet {
+                inspect: w.inspect,
+            }
+            .into(),
+            // No dialog offered (the debug menu's row): the skeleton's empty-slot line.
+            None => {
                 let shared = crate::l10n::strings::of(cx);
                 Dialog::bare(Text::new(
                     shared

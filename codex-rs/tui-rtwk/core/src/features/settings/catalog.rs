@@ -741,6 +741,9 @@ pub enum Edit {
         action: String,
         keys: Vec<String>,
     },
+    /// The custom binding of an action of the keymap picker was removed (the key is cleared
+    /// from the config).
+    KeymapCleared { context: String, action: String },
     /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
     MemoriesSaved {
         use_memories: bool,

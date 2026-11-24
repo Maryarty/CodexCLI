@@ -170,6 +170,45 @@ impl Keymap {
             .unwrap_or_default()
     }
 
+    /// The bindings of an action as the config writes them, each once (the oracle's
+    /// `active_binding_specs`): the text the user wrote for a configured one (`leader p`),
+    /// else the canonical spec of each default single key, and the chords as they were
+    /// declared. A leader chord some leader key cannot complete (another action holds it) is
+    /// written as the chord it is, so the spec means what it is bound to.
+    pub fn specs(&self, id: ActionId) -> Vec<String> {
+        let Some(slot) = self.slot(id) else {
+            return Vec::new();
+        };
+        let mut specs: Vec<String> = Vec::new();
+        for bound in &slot.bound {
+            let spec = match bound.binding {
+                Binding::Single(_) if slot.configured => bound.spec.clone(),
+                Binding::Single(stroke) => stroke.spec(),
+                Binding::Chord { prefix, completion } if bound.is_leader() => {
+                    let whole = self.leaders.iter().all(|leader| {
+                        slot.bound.iter().any(|other| {
+                            other.binding
+                                == Binding::Chord {
+                                    prefix: *leader,
+                                    completion,
+                                }
+                        })
+                    });
+                    if whole {
+                        bound.spec.clone()
+                    } else {
+                        format!("{} {}", prefix.spec(), completion.spec())
+                    }
+                }
+                Binding::Chord { .. } => bound.spec.clone(),
+            };
+            if !specs.contains(&spec) {
+                specs.push(spec);
+            }
+        }
+        specs
+    }
+
     /// Whether the user set the action (an empty list is a setting: unbound).
     pub fn is_configured(&self, id: ActionId) -> bool {
         self.slot(id).is_some_and(|slot| slot.configured)

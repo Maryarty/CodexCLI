@@ -7,6 +7,8 @@ use codex_tui_core::features::settings::Which;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Args {
     pub which: Which,
+    /// `/keymap debug`: the keymap editor opens on the keypress inspector.
+    pub inspect: bool,
 }
 
 impl Args {
@@ -14,6 +16,7 @@ impl Args {
     /// `/config`, `/experimental`, `/keymap`; `/tui` is the configuration panel).
     pub fn of(command: SlashCommand) -> Args {
         Args {
+            inspect: false,
             which: match command {
                 SlashCommand::Theme => Which::Theme,
                 SlashCommand::Memories => Which::Memories,
@@ -25,5 +28,11 @@ impl Args {
                 _ => Which::Config,
             },
         }
+    }
+
+    /// The dialog opens on the keypress inspector (`/keymap debug`).
+    pub fn inspecting(mut self) -> Args {
+        self.inspect = self.which == Which::Keymap;
+        self
     }
 }

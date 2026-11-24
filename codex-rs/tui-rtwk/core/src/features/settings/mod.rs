@@ -83,6 +83,9 @@ pub enum Intent {
         key: String,
         intent: capture::Intent,
     },
+    /// The custom binding of an action of the keymap picker is removed: the default comes back
+    /// (`KeymapCleared`).
+    KeymapCleared { context: String, action: String },
 }
 
 /// What a command with arguments asks of the page (ADR-013: a one-shot signal the surface's
@@ -247,6 +250,8 @@ pub enum Note {
         key: String,
         said: capture::Said,
     },
+    /// `Removed custom shortcut for `{context}.{action}`.`
+    KeymapRemoved { context: String, action: String },
     /// `Unknown keymap action `{context}.{action}`. Reopen /keymap and choose an action.`
     KeymapUnknown { context: String, action: String },
     /// `` `{context}.{action}` no longer uses `{old_key}`. Reopen /keymap and choose a binding
@@ -266,6 +271,7 @@ impl Note {
             Note::ExperimentalUnavailable
                 | Note::TuiModeSaved { .. }
                 | Note::KeymapEdited { .. }
+                | Note::KeymapRemoved { .. }
                 | Note::SkillsChanged { .. }
         )
     }
@@ -813,6 +819,27 @@ impl State {
         }
     }
 
+    /// The custom binding of `context.action` is removed from the config (`apply_keymap_clear`).
+    fn keymap_cleared(&mut self, context: String, action: String, cx: &mut AppCx<'_>) {
+        if keymap::action(&context, &action).is_none() {
+            cx.note(None, Note::KeymapUnknown { context, action });
+            return;
+        }
+        let edit = Edit::KeymapCleared {
+            context: context.clone(),
+            action: action.clone(),
+        };
+        if let Some(write) = persist::write_of(&edit) {
+            cx.effect(
+                Ask::ConfigWrite { edits: write.edits },
+                Ctx::KeymapWrite {
+                    saved: Note::KeymapRemoved { context, action },
+                },
+            );
+        }
+        self.edits.push(edit);
+    }
+
     /// A request of a dialog: the state it changes at once, then the write it stands for.
     fn request(&mut self, edit: Edit, cx: &mut AppCx<'_>) {
         match &edit {
@@ -1011,6 +1038,7 @@ impl super::Feature for Settings {
                 key,
                 intent,
             } => state.keymap_captured(context, action, key, intent, cx),
+            Intent::KeymapCleared { context, action } => state.keymap_cleared(context, action, cx),
         }
     }
 

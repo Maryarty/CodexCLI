@@ -9,9 +9,14 @@
 //! what it is offered and what it asked of the app (`Edit`, ADR-013). The
 //! feature is `codex_tui_core::features::settings`.
 
-use codex_tui_core::features::settings::{ID, KIND, Settings};
+use std::rc::Rc;
 
-use super::FeatureView;
+use rtwk::AnyWidget;
+
+use codex_tui_core::features::Scope;
+use codex_tui_core::features::settings::{ID, KIND, Settings, Wish};
+
+use super::{FeatureView, Shown};
 use crate::app::debug::Dir;
 use crate::pages::session::strings::Strings as SessionStrings;
 
@@ -21,6 +26,7 @@ pub mod features;
 pub mod hooks;
 pub mod items;
 mod keys;
+pub mod keymap_editor;
 pub mod memories;
 mod open;
 pub mod setup;
@@ -35,6 +41,32 @@ pub use which::Args;
 use open::request;
 
 impl FeatureView for Settings {
+    /// The key the keymap cannot take opens the conflict sheet once, at the bottom like the
+    /// oracle's view (the keymap editor under it stays).
+    fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
+        let Wish::KeymapConflict {
+            context,
+            action,
+            key,
+            intent,
+            error,
+        } = wish.clone();
+        Some(Shown {
+            held_by: None,
+            open: Rc::new(move || -> AnyWidget {
+                keymap_editor::ConflictSheet {
+                    context: context.clone(),
+                    action: action.clone(),
+                    key: key.clone(),
+                    intent: intent.clone(),
+                    error: error.clone(),
+                }
+                .into()
+            }),
+            options: crate::sheets::sheet_options(),
+        })
+    }
+
     fn note_words(
         note: &codex_tui_core::features::settings::Note,
         _words: &SessionStrings,

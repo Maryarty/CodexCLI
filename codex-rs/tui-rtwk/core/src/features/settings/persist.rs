@@ -117,6 +117,14 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
                 serde_json::json!(keys),
             )],
         },
+        // `keymap_binding_clear_edit`: the key is removed (a null value clears the path).
+        Edit::KeymapCleared { context, action } => Write {
+            subject: Subject::Keymap,
+            edits: vec![replace(
+                &["tui.keymap.", context.as_str(), ".", action.as_str()].concat(),
+                serde_json::Value::Null,
+            )],
+        },
         // `build_memory_settings_edits`.
         Edit::MemoriesSaved {
             use_memories,

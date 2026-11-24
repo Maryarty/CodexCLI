@@ -187,6 +187,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/config_panel.jsonl"),
         ),
         (
+            "keymap_picker",
+            "the keymap editor over the built-in keymap",
+            include_str!("fixtures/keymap_default.jsonl"),
+        ),
+        (
+            "keymap_inspector",
+            "the keypress inspector of the keymap editor",
+            include_str!("fixtures/keymap_default.jsonl"),
+        ),
+        (
             "theme_picker_all",
             "the syntax theme picker over the built-in themes and a custom one",
             include_str!("fixtures/theme_picker_all.jsonl"),
@@ -198,18 +208,21 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: if name == "memories_reset_confirmation" {
+            open: match name {
                 // The dialog opens on the confirmation: the draft's start.
-                EntryOpen::Dialog(|seeded| debug_screen(seeded, true))
-            } else {
-                EntryOpen::Dialog(|seeded| debug_screen(seeded, false))
+                "memories_reset_confirmation" => {
+                    EntryOpen::Dialog(|seeded| debug_screen(seeded, true, false))
+                }
+                // The keymap editor opens on the inspector.
+                "keymap_inspector" => EntryOpen::Dialog(|seeded| debug_screen(seeded, false, true)),
+                _ => EntryOpen::Dialog(|seeded| debug_screen(seeded, false, false)),
             },
         })
         .collect()
 }
 
 /// The dialog a seeded entry shows: the kind the script offered (a script offers one).
-fn debug_screen(seeded: &Seeded<'_>, confirm_reset: bool) -> AnyWidget {
+fn debug_screen(seeded: &Seeded<'_>, confirm_reset: bool, inspect: bool) -> AnyWidget {
     let which = seeded
         .core
         .features()
@@ -221,6 +234,7 @@ fn debug_screen(seeded: &Seeded<'_>, confirm_reset: bool) -> AnyWidget {
     Screen {
         which,
         confirm_reset,
+        inspect,
     }
     .into()
 }
@@ -235,6 +249,7 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
             Screen {
                 which: Some(args.which),
                 confirm_reset: false,
+                inspect: args.inspect,
             }
             .into()
         },

@@ -606,6 +606,9 @@ pub fn note(note: &Note) -> String {
             }
             Said::Unchanged => format!("No change: `{context}.{action}` already uses `{key}`."),
         },
+        Note::KeymapRemoved { context, action } => {
+            format!("Removed custom shortcut for `{context}.{action}`.")
+        }
         Note::KeymapUnknown { context, action } => format!(
             "Unknown keymap action `{context}.{action}`. Reopen /keymap and choose an action."
         ),

@@ -145,7 +145,10 @@ impl ConfigState {
             (_, id) => match editors::dialog_of(id) {
                 Some(which) => {
                     close_dialog::<_, ()>(cx, None);
-                    super::open(cx, super::Args { which });
+                    super::open(cx, super::Args {
+                        which,
+                        inspect: false,
+                    });
                 }
                 None if editors::is_choice(id) => self.edit(Editor::Choice(id)),
                 None => {}
