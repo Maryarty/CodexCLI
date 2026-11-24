@@ -36,6 +36,7 @@ pub mod prompt;
 // lines, not macro expansions) formats the views too. A feature of the list without its
 // directory does not compile: `view_dispatch!` needs its `FeatureView` impl.
 pub mod export;
+pub mod feedback;
 pub mod goal;
 pub mod mcp_inventory;
 pub mod plugins;
