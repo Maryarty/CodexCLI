@@ -6,7 +6,7 @@
 
 #![allow(clippy::expect_used)]
 
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, Checkout, Held, Owner, Screen};
 
 // ---- oracle: chatwidget/tests/popups_and_settings.rs (43 screen-level tests here; 4 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/popups_and_settings.rs:2864 apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps kind=ui owner=dialogs-pane
@@ -1341,77 +1341,153 @@ fn manage_skills_summary_snapshot() {
 }
 
 // ---- oracle: chatwidget/tests/worktree_picker_tests.rs (5 screen-level tests here; 0 state tests left to dialogs-pane)
+// The session runs in a local Git repository whose host offers its worktrees (the
+// `worktrees_enabled` flag stands for `set_local_worktree_operations(true)` and the repository).
+const WORKTREES: &str = r#"{"step":"screen","dir":"chat","ev":{"flags":{"worktrees_enabled":true}}}
+{"step":"screen","dir":"chat","ev":{"status":{"cwd":"/tmp/project"}}}
+{"step":"clock","secs":1000020}"#;
+
+/// The clock of `WORKTREES` (a whole minute: the browser counts ages in minutes).
+const NOW: i64 = 1_000_020;
+
+/// The screen row of the first popup line `title`: the oracle's snapshots are the popup alone.
+fn popup_row(s: &Screen, title: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.trim() == title)
+        .unwrap_or(usize::MAX)
+}
+
+fn worktrees_screen(height: u16) -> Screen {
+    Screen::build(Owner::DialogsPane)
+        .size(80, height)
+        .live()
+        .script(WORKTREES)
+        .open()
+}
+
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:9 slash_new_and_fork_offer_checkout_choices_inside_local_git_repository kind=snap owner=dialogs-pane snap=worktrees_command_local snap=worktrees_command_remote snap=worktrees_fork_choices snap=worktrees_new_choices
 #[test]
 fn slash_new_and_fork_offer_checkout_choices_inside_local_git_repository() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree picker in the port (`/new`, `/fork`, `/work`): the checkout choices inside a local git repository have no widget and no git seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
+    let mut s = worktrees_screen(24);
     s.type_text("/new");
     s.keys("enter");
-    s.assert_snap("worktrees_new_choices");
-    s.keys("esc");
-    s.type_text("/fork named");
-    s.keys("enter");
-    s.assert_snap("worktrees_fork_choices");
+    s.assert_snap_region(
+        "worktrees_new_choices",
+        popup_row(&s, "Where should the new conversation run?"),
+        0,
+    );
     s.assert_contains("Use current Git worktree");
     s.assert_contains("Create new Git worktree");
     s.keys("esc");
-    s.resize(80, 3);
-    s.type_text("/work");
-    s.assert_snap("worktrees_command_remote");
+    s.type_text("/fork named");
+    s.keys("enter");
+    s.assert_snap_region(
+        "worktrees_fork_choices",
+        popup_row(&s, "Where should the forked conversation run?"),
+        0,
+    );
+    s.keys("esc");
+    kit::pending(
+        Owner::DialogsPane,
+        "the `/work` command-popup frames (worktrees_command_local at 80x5, _remote at 80x3) are the composer's popup: at 80x5 the composer draws the popup under the composer line where the oracle draws it above, the 80x3 screen draws no composer, and the footer's `GPT-5.6-Sol default` status is not a seed; the checkout choices above are the port's (w2-composer)",
+    );
     s.resize(80, 5);
+    s.type_text("/work");
     s.assert_snap("worktrees_command_local");
+    s.assert_contains("/worktree");
+    // a host without local worktree operations does not list /worktree
+    let mut remote = Screen::build(Owner::DialogsPane).size(80, 3).live().open();
+    remote.type_text("/work");
+    remote.assert_snap("worktrees_command_remote");
+    remote.assert_absent("/worktree");
 }
 
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:85 slash_worktree_offers_current_or_new_conversation kind=snap owner=dialogs-pane snap=worktrees_conversation_choices
 #[test]
 fn slash_worktree_offers_current_or_new_conversation() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree picker in the port: the continue-current or start-new conversation choice has no widget and no git seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 11).live().open();
+    let mut s = worktrees_screen(24);
     s.type_text("/worktree");
     s.keys("enter");
-    s.assert_snap("worktrees_conversation_choices");
+    s.assert_snap_region(
+        "worktrees_conversation_choices",
+        popup_row(&s, "Worktrees"),
+        0,
+    );
     s.assert_contains("Continue current conversation");
     s.assert_contains("Start new conversation");
+}
+
+/// The browser of `/worktree`: the third row (Browse worktrees), the host not yet answered.
+fn worktree_browser(s: &mut Screen) {
+    s.type_text("/worktree");
+    s.keys("enter");
+    s.keys("down down enter");
 }
 
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:107 worktree_browser_actions_and_stale_results kind=snap owner=dialogs-pane snap=worktree_browser_actions snap=worktree_browser_delete_confirmation snap=worktree_browser_list snap=worktree_browser_loading
 #[test]
 fn worktree_browser_actions_and_stale_results() {
+    let mut s = worktrees_screen(24);
+    worktree_browser(&mut s);
+    s.assert_snap_region(
+        "worktree_browser_loading",
+        popup_row(&s, "Managed worktrees"),
+        0,
+    );
+    s.answer_worktrees(&[Checkout {
+        root: "/repo/worktree",
+        cwd: "/repo/worktree",
+        owner: Held::Resumable("Fix login form", NOW - 7_200),
+    }]);
+    s.assert_snap_region(
+        "worktree_browser_list",
+        popup_row(&s, "Managed worktrees"),
+        0,
+    );
+    s.type_text("worktree");
+    s.keys("enter");
+    s.assert_snap_region(
+        "worktree_browser_actions",
+        popup_row(&s, "Worktree: Fix login form"),
+        0,
+    );
     kit::pending(
         Owner::DialogsPane,
-        "no worktree browser in the port: the loading state, the list, the actions, the delete confirmation and stale results have no widget and no git seed",
+        "the delete confirmation frame (worktree_browser_delete_confirmation) is the oracle's bottom pane alone, with the composer's `› As` and the footer's `GP` showing at the sides of the centred dialog: ours floats over the whole screen; the rows up to the actions are the port's",
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 6).live().open();
-    s.type_text("/worktree");
-    s.keys("enter");
-    s.assert_snap("worktree_browser_loading");
-    s.resize(80, 8);
-    s.assert_snap("worktree_browser_list");
-    s.keys("enter");
-    s.resize(80, 9);
-    s.assert_snap("worktree_browser_actions");
-    s.resize(80, 8);
+    s.keys("3");
     s.assert_snap("worktree_browser_delete_confirmation");
 }
 
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:214 worktree_browser_names_archived_and_missing_owners kind=snap owner=dialogs-pane snap=worktree_browser_owner_states
 #[test]
 fn worktree_browser_names_archived_and_missing_owners() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree browser in the port: the owner states (archived and missing owners) and the Worktree: title have no widget and no git seed",
+    let mut s = worktrees_screen(24);
+    worktree_browser(&mut s);
+    s.answer_worktrees(&[
+        Checkout {
+            root: "/repo/archived",
+            cwd: "/repo/archived",
+            owner: Held::Archived("Fix settings", NOW - 86_400),
+        },
+        Checkout {
+            root: "/repo/missing",
+            cwd: "/repo/missing",
+            owner: Held::Missing,
+        },
+        Checkout {
+            root: "/repo/empty",
+            cwd: "/repo/empty",
+            owner: Held::Nobody,
+        },
+    ]);
+    s.assert_snap_region(
+        "worktree_browser_owner_states",
+        popup_row(&s, "Managed worktrees"),
+        0,
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 10).live().open();
-    s.type_text("/worktree");
     s.keys("enter");
-    s.assert_snap("worktree_browser_owner_states");
     s.assert_contains("Worktree: Fix settings");
     s.assert_absent("Resume owner");
 }
@@ -1419,21 +1495,63 @@ fn worktree_browser_names_archived_and_missing_owners() {
 // ORACLE chatwidget/tests/worktree_picker_tests.rs:273 worktree_picker_custom_keys_preserve_draft_and_protect_current_checkout kind=ui owner=dialogs-pane
 #[test]
 fn worktree_picker_custom_keys_preserve_draft_and_protect_current_checkout() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no worktree browser in the port: the remapped f3 select and f2 back keys, the draft kept, and the current checkout protected from deletion; no widget and no keymap seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 24)
         .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
         .live()
+        .script(WORKTREES)
         .open();
-    s.type_text("Keep this draft");
     s.type_text("/worktree");
     s.keys("enter");
+    s.keys("down down f3");
+    s.answer_worktrees(&[
+        Checkout {
+            root: "/repo/日本語",
+            cwd: "/repo/日本語/src",
+            owner: Held::Nobody,
+        },
+        Checkout {
+            root: "/tmp/project",
+            cwd: "/tmp/project",
+            owner: Held::Nobody,
+        },
+    ]);
+    s.type_text("日本語");
     s.assert_contains("f3 select · f2 back");
+    s.keys("f3");
+    s.assert_contains("Worktree");
     s.keys("f2");
-    s.assert_contains("Keep this draft");
+    s.assert_absent("Worktree");
+    // the session's own checkout cannot be deleted
     s.resize(80, 24);
-    s.assert_contains("Switch to another checkout before deleting this one");
+    s.type_text("/worktree");
+    s.keys("enter");
+    s.keys("down down f3");
+    s.answer_worktrees(&[Checkout {
+        root: "/tmp/project",
+        cwd: "/tmp/project",
+        owner: Held::Nobody,
+    }]);
+    s.keys("f3");
+    let unwrapped = |s: &Screen| {
+        s.rows()
+            .iter()
+            .flat_map(|row| row.split_whitespace())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert!(
+        unwrapped(&s).contains("Switch to another checkout before deleting this one"),
+        "{:?}",
+        s.rows()
+    );
+    s.keys("2");
+    s.assert_contains("Delete worktree (disabled)");
+    s.keys("f2");
+    s.assert_absent("Delete worktree");
+    kit::pending(
+        Owner::DialogsPane,
+        "no seed keeps a draft in the composer while /worktree runs (the command empties the composer; the oracle opens the browser with `request_managed_worktrees` over the draft): the draft kept after f2 is not asserted; the remapped keys and the protected checkout above are the port's",
+    );
+    s.assert_composer("Keep this draft");
 }

@@ -33,6 +33,7 @@ mod side;
 mod sparkle;
 mod states;
 mod verdict;
+mod worktrees;
 
 #[allow(unused_imports)]
 pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
@@ -59,6 +60,8 @@ pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_lab
 pub use replies::{Page, agent_turn};
 #[allow(unused_imports)]
 pub use verdict::{Owner, missing, na, pending, todo};
+#[allow(unused_imports)]
+pub use worktrees::{Checkout, Held};
 
 use rtwk_core::input::{Mods, MouseKind};
 
