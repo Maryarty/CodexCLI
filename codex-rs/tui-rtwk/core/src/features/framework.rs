@@ -19,8 +19,8 @@ use codex_app_server_protocol::ThreadClosedNotification;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
 use super::{
-    AppCx, AppView, Connection, Feature, LimitsUpdate, Never, Out, Refusal, SeedFn, Slash,
-    StructuredFailure, ThreadCx, Tone, TurnEnd,
+    AppCx, AppView, Connection, Feature, Never, Out, Refusal, SeedFn, Slash, StructuredFailure,
+    ThreadCx, Tone, TurnEnd,
 };
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
@@ -28,7 +28,6 @@ use crate::app::{AppFx, Now};
 use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TicketMint};
 use crate::rpc::RpcError;
-use crate::screens::status::{Sample, Source};
 use crate::screens::{ScreenStates, SeedError};
 use crate::threads::{Origin, ThreadEv, ThreadFx, ThreadSet, UserMessage};
 
@@ -41,7 +40,6 @@ enum Hook {
     Settled,
     Shown(ThreadId),
     Connection(Connection),
-    Limits(Source, bool),
     Opened(&'static str, Result<ThreadId, Refusal>),
     Structured(&'static str, Result<String, StructuredFailure>),
 }
@@ -167,10 +165,6 @@ macro_rules! probe {
 
                 fn on_connection(_state: &mut u32, connection: Connection, _cx: &mut AppCx<'_>) {
                     log($name, Hook::Connection(connection));
-                }
-
-                fn on_limits(_state: &mut u32, update: &LimitsUpdate, _cx: &mut AppCx<'_>) {
-                    log($name, Hook::Limits(update.source, update.stale));
                 }
 
                 fn thread_intent(part: &mut u32, intent: ThreadIntent, _cx: &mut ThreadCx<'_, '_>) {
@@ -304,9 +298,8 @@ use probe_list::{
     FeatureNote, FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha,
     answered, apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode,
     effect_done, names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact,
-    on_interest, on_interrupted, on_limits, on_resumed, on_shown, on_turn_end, project,
-    project_request, runs_of, seed_note, structured_done, thread_opened, thread_wakes_due,
-    wakes_due, wire,
+    on_interest, on_interrupted, on_resumed, on_shown, on_turn_end, project, project_request,
+    runs_of, seed_note, structured_done, thread_opened, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -679,43 +672,6 @@ fn the_shown_connection_and_opened_hooks_reach_their_features() {
             ("beta", Hook::Opened("b", Err(Refusal::Busy))),
         ],
         "the app-wide hooks run in list order, the answer reaches the feature that asked"
-    );
-}
-
-/// A read or a rolling update of the account's limits reaches every feature, in list order, with
-/// the sample and where it came from.
-#[test]
-fn the_limits_reach_every_feature_in_list_order() {
-    let mut states = FeatureStates::default();
-    logged();
-    let read = LimitsUpdate {
-        sample: Sample::default(),
-        source: Source::Read,
-        stale: true,
-    };
-    let rolling = LimitsUpdate {
-        source: Source::Rolling { read_out: true },
-        stale: false,
-        ..read.clone()
-    };
-    app_step(|cx| {
-        on_limits(&mut states, &read, cx);
-        on_limits(&mut states, &rolling, cx);
-    });
-    assert_eq!(
-        logged(),
-        [
-            ("alpha", Hook::Limits(Source::Read, true)),
-            ("beta", Hook::Limits(Source::Read, true)),
-            (
-                "alpha",
-                Hook::Limits(Source::Rolling { read_out: true }, false)
-            ),
-            (
-                "beta",
-                Hook::Limits(Source::Rolling { read_out: true }, false)
-            ),
-        ]
     );
 }
 

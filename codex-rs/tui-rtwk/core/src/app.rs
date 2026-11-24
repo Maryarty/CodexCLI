@@ -1148,28 +1148,6 @@ fn drain_popover_asks(app: &mut CodexApp, fx: &mut AppFx) {
     }
 }
 
-/// The plan's own bucket of the shown account's limits was read or updated: every feature's
-/// `on_limits` follows it, after the app's own warnings.
-fn limits_update(
-    app: &mut CodexApp,
-    sample: status::Sample,
-    source: status::Source,
-    stale: bool,
-    fx: &mut AppFx,
-) {
-    if !sample.codex {
-        return;
-    }
-    let update = crate::features::LimitsUpdate {
-        sample,
-        source,
-        stale,
-    };
-    features::run(app, fx, |states, cx| {
-        crate::features::on_limits(states, &update, cx);
-    });
-}
-
 fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     let connection = match &ev {
         AppEv::Connected | AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)) => {
@@ -1263,8 +1241,6 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .rolling(&sample, read_out);
                     if active_backend(app) == origin {
                         reset::warn(app, warnings, fx);
-                        let source = status::Source::Rolling { read_out };
-                        limits_update(app, sample, source, false, fx);
                     }
                     // never reuse the permission from before a new hard stop
                     // (`invalidate_ordinary_usage_recovery`)
@@ -1929,7 +1905,6 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         install_rates(app, backend, limits);
                     }
                     let now = app.now.secs();
-                    let sample = read.codex.clone();
                     let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
                         .entry(backend)
@@ -1937,9 +1912,6 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         .install(*read, now);
                     if active_backend(app) == backend {
                         reset::warn(app, warnings, fx);
-                        if let Some(sample) = sample {
-                            limits_update(app, sample, status::Source::Read, overtaken, fx);
-                        }
                     }
                     install_banner(app, backend, banner.map(|banner| *banner));
                     banners::fallback(app, backend, fx);
