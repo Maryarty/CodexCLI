@@ -19,10 +19,6 @@ fn row_of(s: &Screen, text: &str) -> usize {
 // ORACLE bottom_pane/approval_overlay.rs:1348 configured_list_cancel_aborts_exec_approval kind=ui owner=dialogs-pane
 #[test]
 fn configured_list_cancel_aborts_exec_approval() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed (`.keymap` is missing until the port reads key bindings; entry approvals/exec_request exists)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("approvals", "exec_request")
         .keymap(&[("list.cancel", "q")])
@@ -700,10 +696,6 @@ fn oversized_question_ids_keep_questions_answerable_without_echoing_the_id() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2206 horizontal_list_keys_move_between_select_fields kind=ui owner=dialogs-pane
 #[test]
 fn horizontal_list_keys_move_between_select_fields() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed (`.keymap` is missing until the port reads key bindings: list.accept cleared); the entry approvals/mcp_two_booleans exists and the default h/l and Left/Right keys are pinned in tests/sheets/approvals.rs",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("approvals", "mcp_two_booleans")
         .keymap(&[("list.accept", "")])
@@ -732,10 +724,6 @@ fn switching_fields_clears_length_validation_flash() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2278 text_fields_inherit_composer_chord_context_and_submit_binding kind=snap owner=dialogs-pane snap=mcp_server_elicitation_text_configured_key_chords
 #[test]
 fn text_fields_inherit_composer_chord_context_and_submit_binding() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed (`.keymap` is missing until the port reads key bindings: composer.submit = ctrl-x enter); the entry approvals/mcp_text_chords exists and its default Enter submit is pinned in tests/sheets/approvals.rs",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 10)
         .entry("approvals", "mcp_text_chords")

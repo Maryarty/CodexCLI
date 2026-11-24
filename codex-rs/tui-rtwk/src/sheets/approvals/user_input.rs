@@ -734,13 +734,7 @@ impl UserInputViewState {
                 .into();
             column = column.child(composer.with_key(u32::try_from(self.current).unwrap_or(0)));
         }
-        let footer = self.footer(
-            tokens,
-            s,
-            &crate::keymap::keymap(cx),
-            question,
-            visible,
-        );
+        let footer = self.footer(tokens, s, &crate::keymap::keymap(cx), question, visible);
         if !visible {
             // Without the input the spare rows of a tall frame stay under the footer.
             return column.child(footer).into();
