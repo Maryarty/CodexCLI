@@ -146,6 +146,14 @@ impl Limits {
             .is_some_and(|through| self.answered < through)
     }
 
+    /// The plan of the account the app is signed in to (oracle `update_account_state`, which sets
+    /// `plan_type` before any snapshot arrives): what a snapshot that names no plan is judged by,
+    /// so a Plus or Team account warns at 50% of its five-hour window from the first update. A
+    /// snapshot that names a plan still wins.
+    pub fn set_plan(&mut self, plan: Option<PlanType>) {
+        self.plan = plan;
+    }
+
     /// A read failed; a newer failed read does not invalidate an older successful one.
     pub fn read_failed(&mut self) {
         self.read_ended();

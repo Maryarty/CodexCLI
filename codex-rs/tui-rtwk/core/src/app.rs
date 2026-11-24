@@ -1286,12 +1286,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .backend_banners
                         .remove(&origin);
                     Rc::make_mut(&mut app.session).reserve.remove(&origin);
-                    if let Some(store) = Rc::make_mut(&mut app.session)
+                    // what was read for the old account goes; the new one's plan is what the
+                    // next snapshot is judged by (`update_account_state` sets `plan_type`)
+                    let store = Rc::make_mut(&mut app.session)
                         .rate_snapshots
-                        .get_mut(&origin)
-                    {
-                        store.clear();
-                    }
+                        .entry(origin)
+                        .or_default();
+                    store.clear();
+                    store.limits_mut().set_plan(note.plan_type);
                     if active_backend(app) == origin {
                         reset::clear(app);
                     }
@@ -1675,6 +1677,19 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     }
                 }
                 _ => {}
+            }
+            // the account a host reads (the bootstrap) gives the limits their plan as well
+            if let ScreenEv::Status(status::Ev::Account(account)) = &ev {
+                let plan = match account {
+                    Some(status::Account::ChatGpt { plan, .. }) => *plan,
+                    _ => None,
+                };
+                Rc::make_mut(&mut app.session)
+                    .rate_snapshots
+                    .entry(origin)
+                    .or_default()
+                    .limits_mut()
+                    .set_plan(plan);
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             let startup = matches!(ev, ScreenEv::Cells(screens::cells::Ev::Startup(_)));

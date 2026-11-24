@@ -5,10 +5,10 @@
 
 use std::rc::Rc;
 
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::features::windows_sandbox::{Config, Fact, Host, Intent as Sandbox, Mode, Reply};
 use codex_tui_core::features::{FeatureCommand, FeatureFact, FeatureIntent, FeatureReply};
-use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply as Answer;
 use codex_tui_core::screens::agents::CenterThreads;
 use codex_tui_core::screens::select::Note;
@@ -175,4 +175,58 @@ fn a_script_seeds_the_presets_and_refuses_a_note_no_feature_seeds() {
         assert_eq!(err.line, 2);
         assert!(err.message.contains(want), "{}", err.message);
     }
+}
+
+/// The account's plan reaches the limits (`update_account_state` sets `plan_type` before any
+/// snapshot): a rolling update that names no plan is judged by it, so a Plus account's notice
+/// starts at 50% of the five-hour window and a Pro account's at 75%.
+#[test]
+fn the_account_plan_judges_a_snapshot_that_names_none() {
+    fn notify(app: &mut CodexApp, message: serde_json::Value) {
+        let message = serde_json::from_value(message).expect("a notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(message))),
+        );
+    }
+    fn account(app: &mut CodexApp, plan: &str) {
+        let params = serde_json::json!({"authMode": "chatgpt", "planType": plan});
+        notify(
+            app,
+            serde_json::json!({"method": "account/updated", "params": params}),
+        );
+    }
+    fn rolling(app: &mut CodexApp, percent: i32) {
+        let window = serde_json::json!({"usedPercent": percent, "windowDurationMins": 300, "resetsAt": 2_000_000_000});
+        let rate_limits = serde_json::json!({"limitId": "codex", "primary": window});
+        notify(
+            app,
+            serde_json::json!({"method": "account/rateLimits/updated", "params": {"rateLimits": rate_limits}}),
+        );
+    }
+    fn notice(app: &CodexApp) -> Option<i32> {
+        let store = app.session().rate_snapshots.get(&BackendId::default())?;
+        store.limits().notice().map(|(used, _)| used.percent)
+    }
+
+    let mut app = CodexApp::new();
+    account(&mut app, "plus");
+    rolling(&mut app, 55);
+    assert_eq!(notice(&app), Some(55));
+
+    let mut app = CodexApp::new();
+    account(&mut app, "pro");
+    rolling(&mut app, 55);
+    assert_eq!(notice(&app), None);
+
+    // the new account's plan replaces the old one's, and what was read goes with the old account
+    let mut app = CodexApp::new();
+    account(&mut app, "plus");
+    rolling(&mut app, 55);
+    account(&mut app, "pro");
+    assert_eq!(notice(&app), None);
+    rolling(&mut app, 60);
+    assert_eq!(notice(&app), None);
+    rolling(&mut app, 80);
+    assert_eq!(notice(&app), Some(80));
 }
