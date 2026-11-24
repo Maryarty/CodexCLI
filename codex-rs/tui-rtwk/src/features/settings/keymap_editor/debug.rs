@@ -75,10 +75,10 @@ impl StatefulWidget for Inspector {
 impl_widget!(stateful eq Inspector);
 
 /// `code=F(8), modifiers=none, kind=Press`: the event as the oracle prints it.
-fn raw_of(key: &KeyPress, none: &str) -> String {
+fn raw_of(key: &KeyPress, s: &Strings) -> String {
     let shift = key.mods.contains(Mods::SHIFT);
     let code = match key.code {
-        KeyCode::Char => format!("Char({:?})", key.ch.unwrap_or(' ')),
+        KeyCode::Char => s.raw_char(key.ch.unwrap_or(' ')),
         KeyCode::Tab if shift => "BackTab".to_owned(),
         KeyCode::Escape => "Esc".to_owned(),
         KeyCode::F1 => "F(1)".to_owned(),
@@ -109,11 +109,11 @@ fn raw_of(key: &KeyPress, none: &str) -> String {
         parts.push("SUPER".to_owned());
     }
     let mods = if parts.is_empty() {
-        none.to_owned()
+        s.modifiers_none.to_owned()
     } else {
         parts.join("|")
     };
-    format!("code={code}, modifiers={mods}, kind=Press")
+    s.raw_event(&code, &mods)
 }
 
 /// The words of where a binding comes from.
@@ -136,9 +136,9 @@ impl InspectorState {
         self.report = Some(Report {
             detected: stroke
                 .as_ref()
-                .map_or_else(|| raw_of(key, s.modifiers_none), stroke_label),
+                .map_or_else(|| raw_of(key, s), stroke_label),
             config_key: spec_of(key, s),
-            raw: raw_of(key, s.modifiers_none),
+            raw: raw_of(key, s),
             matches: stroke
                 .map(|stroke| keymap::matching(&live, &spec, &stroke))
                 .unwrap_or_default(),

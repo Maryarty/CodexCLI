@@ -1108,7 +1108,10 @@ fn keymap_picker_tabs_and_search() {
     h.t.press("right");
     h.t.pump_for(ms(100));
     let screen = h.t.screen();
-    assert!(screen.contains("Frequently customized shortcuts."), "{screen}");
+    assert!(
+        screen.contains("Frequently customized shortcuts."),
+        "{screen}"
+    );
     h.t.press("left");
     h.t.type_text("transcript");
     h.t.pump_for(ms(100));
@@ -1205,7 +1208,10 @@ fn keymap_inspector_shows_the_delayed_hint() {
     );
     h.t.pump_for(ms(3500));
     let screen = h.t.screen();
-    assert!(screen.contains("Still waiting? If nothing changes"), "{screen}");
+    assert!(
+        screen.contains("Still waiting? If nothing changes"),
+        "{screen}"
+    );
     assert!(screen.contains("Waiting for a keypress..."), "{screen}");
 }
 
@@ -1240,11 +1246,7 @@ fn keymap_capturing() -> Harness {
     h.press("down");
     h.press("enter");
     h.press("enter");
-    assert!(
-        h.t.screen().contains("Remap Shortcut"),
-        "{}",
-        h.t.screen()
-    );
+    assert!(h.t.screen().contains("Remap Shortcut"), "{}", h.t.screen());
     h
 }
 
@@ -1272,7 +1274,10 @@ fn keymap_capturing_a_taken_key_opens_the_conflict_sheet() {
     h.advance(400);
     let screen = h.t.screen();
     assert!(screen.contains("Shortcut Conflict"), "{screen}");
-    assert!(screen.contains("global.open_transcript cannot use `ctrl-l`."), "{screen}");
+    assert!(
+        screen.contains("global.open_transcript cannot use `ctrl-l`."),
+        "{screen}"
+    );
     assert!(screen.contains("Pick another key"), "{screen}");
     assert_eq!(edits(&h), vec![]);
     h.press("enter");
@@ -1288,4 +1293,41 @@ fn keymap_capture_esc_returns_to_the_menu() {
     let screen = h.t.screen();
     assert!(screen.contains("Edit Shortcut"), "{screen}");
     assert_eq!(edits(&h), vec![]);
+}
+
+/// `config_Notifications`: the group's rows, their values and the footer, as the oracle draws
+/// them at 140 columns (the name column is as wide as the widest label of the whole panel).
+#[test]
+fn config_panel_notifications_group_matches_the_oracle_rows() {
+    let mut h = config_panel();
+    h.t.press("right");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    for text in [
+        "Appearance   Notifications   Input   Sessions   Text selection",
+        "› Notifications           [x] On               Let your terminal notify you when a turn finishes or approval is needed",
+        "  Notify when             Unfocused ›          Notify only while you are away or while this terminal is focused too",
+        "  Test notification       Send in 5s           Send in 5 seconds so you can switch apps before the notification appears",
+        "left/right group · / search · enter toggle · esc clear search/close",
+    ] {
+        assert!(screen.contains(text), "{text}\n{screen}");
+    }
+}
+
+/// `config_Input`: an open row says "enter open" in the footer.
+#[test]
+fn config_panel_input_group_matches_the_oracle_rows() {
+    let mut h = config_panel();
+    h.t.press("right");
+    h.t.press("right");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    for text in [
+        "› Keyboard shortcuts      Configure ›          Browse actions and remap their keys",
+        "  Start in Vim mode       [ ] Off              Start new composers in Vim mode and use /vim for the current composer",
+        "  Paste detection         [x] On               Recognize pasted-text bursts and keep multiline input together",
+        "left/right group · / search · enter open · esc clear search/close",
+    ] {
+        assert!(screen.contains(text), "{text}\n{screen}");
+    }
 }

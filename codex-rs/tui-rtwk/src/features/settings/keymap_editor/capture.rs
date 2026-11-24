@@ -202,7 +202,7 @@ impl State for CaptureState {
                 self.error = None;
                 let done = match w.mode {
                     Mode::Single => spec,
-                    Mode::Leader => format!("leader {spec}"),
+                    Mode::Leader => s.leader_key(&spec),
                     Mode::Chord => {
                         let Some(first) = self.first.take() else {
                             self.first = Some(spec);
@@ -231,8 +231,8 @@ impl State for CaptureState {
                 Text::rich(vec![
                     Span::styled(s.capture_action.to_owned(), tokens.dim()),
                     Span::new(super::lists::label_of(&w.action)),
-                    Span::new("  ".to_owned()),
-                    Span::styled(format!("{}.{}", w.context, w.action), tokens.dim()),
+                    Span::new(s.id_gap()),
+                    Span::styled(s.action_id(&w.context, &w.action), tokens.dim()),
                 ])
                 .wrap(TextWrap::Word),
             )
@@ -250,7 +250,7 @@ impl State for CaptureState {
             );
         if let Some(error) = &self.error {
             column = column.child(blank()).child(
-                Text::new(format!("{}{error}", s.capture_error))
+                Text::new(s.capture_failed(error))
                     .style(tokens.error())
                     .wrap(TextWrap::Word),
             );

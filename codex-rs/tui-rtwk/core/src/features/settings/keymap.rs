@@ -173,7 +173,7 @@ pub fn summary(keymap: &Keymap, context: &str, name: &str) -> String {
                 .map(|leader| format!("{} {completion}", leader.spec()))
                 .collect();
             if resolved.is_empty() {
-                format!("{spec} (inactive)")
+                [spec.as_str(), " (inactive)"].concat()
             } else {
                 format!("{spec} ({})", resolved.join(", "))
             }

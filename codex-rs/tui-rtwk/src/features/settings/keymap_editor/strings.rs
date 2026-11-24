@@ -322,6 +322,41 @@ impl Strings {
         Fmt::new(msg, [Arg::Text(arg)], &self.num)
     }
 
+    /// "`tui.keymap.global.open_transcript`": the config key of an action.
+    pub fn config_path(&self, context: &str, action: &str) -> String {
+        format!("`tui.keymap.{context}.{action}`")
+    }
+
+    /// "global.open_transcript": the id of an action as the capture view shows it.
+    pub fn action_id(&self, context: &str, action: &str) -> String {
+        format!("{context}.{action}")
+    }
+
+    /// The space between an action's name and its id on the capture view.
+    pub fn id_gap(&self) -> String {
+        "  ".to_owned()
+    }
+
+    /// "leader c": the key that follows the leader, as the config writes it.
+    pub fn leader_key(&self, spec: &str) -> String {
+        format!("leader {spec}")
+    }
+
+    /// "Error: ...": what the capture view says of a key it cannot store.
+    pub fn capture_failed(&self, error: &str) -> String {
+        format!("{}{error}", self.capture_error)
+    }
+
+    /// `Char('x')`: a character as the inspector's raw event prints it.
+    pub fn raw_char(&self, ch: char) -> String {
+        format!("Char({ch:?})")
+    }
+
+    /// `code=F(8), modifiers=none, kind=Press`: the raw event of the inspector.
+    pub fn raw_event(&self, code: &str, modifiers: &str) -> String {
+        format!("code={code}, modifiers={modifiers}, kind=Press")
+    }
+
     /// "ctrl-t": the conflict sheet's line.
     pub fn conflict<'a>(&'a self, context: &'a str, action: &'a str, key: &'a str) -> Fmt<'a, 3> {
         Fmt::new(

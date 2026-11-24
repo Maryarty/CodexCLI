@@ -297,7 +297,7 @@ pub fn menu(
         ]),
         line(vec![
             (s.menu_config.to_owned(), Role::Dim),
-            (format!("`tui.keymap.{context}.{action}`"), Role::Info),
+            (s.config_path(context, action), Role::Info),
         ]),
         vec![span(description, Role::Dim)],
     ];

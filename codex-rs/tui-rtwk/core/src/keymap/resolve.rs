@@ -183,11 +183,9 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
                 "{}: printable keys are reserved for text input",
                 id.config_path()
             ),
-            KeymapError::CtrlZReserved(id) => write!(
-                f,
-                "{}: ctrl-z is reserved for suspend",
-                id.config_path()
-            ),
+            KeymapError::CtrlZReserved(id) => {
+                write!(f, "{}: ctrl-z is reserved for suspend", id.config_path())
+            }
             KeymapError::OpenAgentsAltGr => f.write_str(
                 "tui.keymap.global.open_agents: AltGr characters are reserved for text input",
             ),
@@ -228,15 +226,15 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
                     }
                 };
                 let (first, second) = (name(*first), name(*second));
-                let relation = if *shadows {
-                    format!("`{first}` shadows `{second}` with the same key")
+                write!(f, "Ambiguous `tui.keymap.{scope}` bindings: ")?;
+                if *shadows {
+                    write!(f, "`{first}` shadows `{second}` with the same key")?;
                 } else {
-                    format!("`{first}` and `{second}` use the same key")
-                };
+                    write!(f, "`{first}` and `{second}` use the same key")?;
+                }
                 write!(
                     f,
-                    "Ambiguous `tui.keymap.{scope}` bindings: {relation}. Set unique keys in \
-`~/.codex/config.toml` and retry. {DOCS}"
+                    ". Set unique keys in `~/.codex/config.toml` and retry. {DOCS}"
                 )
             }
             KeymapError::ChordAltGr { id, text } => write!(
@@ -278,11 +276,7 @@ on Unix. Choose a different chord and retry.",
                 "Ambiguous `{}` = `{text}`: repeating the leader is reserved for cancellation.",
                 id.config_path()
             ),
-            KeymapError::ChordShadows {
-                id,
-                text,
-                shadowed,
-            } => write!(
+            KeymapError::ChordShadows { id, text, shadowed } => write!(
                 f,
                 "Ambiguous `{}` = `{text}`: its prefix shadows `{}`. Unbind or remap the \
 existing shortcut before using it as a chord prefix.",

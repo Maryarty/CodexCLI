@@ -1,1 +1,2 @@
 - w2-settings/keymap_fixture.py: context, context_label and action on the items of keymap fixtures (settings keymap picker rows).
+- w2-settings/keymap_press.py: moves the KeyCode reading of the keymap editor to src/keymap/press.rs (ADR-006); for the owner of src/keymap to run (UNTESTED: written when the area rule forbade running it).

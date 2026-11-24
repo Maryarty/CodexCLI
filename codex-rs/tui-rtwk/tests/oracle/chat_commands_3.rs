@@ -80,10 +80,6 @@ fn copy_action_reports_when_no_agent_response_exists() {
 // ORACLE chatwidget/tests/slash_commands.rs:2450 keymap_capture_can_capture_current_copy_shortcut kind=ui owner=chat-nav-pane
 #[test]
 fn keymap_capture_can_capture_current_copy_shortcut() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the keymap capture view (opened from the keymap editor) is not built, so the copy key cannot be routed to capture black-box",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/keymap");
     s.keys("enter");
@@ -106,7 +102,7 @@ fn slash_keymap_capture_can_capture_app_shortcuts() {
 fn slash_keymap_debug_opens_keypress_inspector() {
     kit::pending(
         Owner::ChatNavPane,
-        "the /keymap debug keypress inspector is not built",
+        "the keypress inspector is built (settings/keymap_inspector) but `/keymap debug` does not open it: `features::open_settings(cx, command)` drops the command's arguments (Args::inspecting() is ready; `session/actions.rs` has `opened.args`), and the live app has no keymap facts for the picker",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/keymap debug");
@@ -124,7 +120,7 @@ fn slash_keymap_debug_opens_keypress_inspector() {
 fn slash_keymap_debug_can_inspect_app_shortcuts() {
     kit::pending(
         Owner::ChatNavPane,
-        "the /keymap debug keypress inspector is not built; its action rows for the app shortcuts are not drawn",
+        "the keypress inspector is built (settings/keymap_inspector) but `/keymap debug` does not open it: `features::open_settings(cx, command)` drops the command's arguments (Args::inspecting() is ready; `session/actions.rs` has `opened.args`), and the live app has no keymap facts for the picker",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
