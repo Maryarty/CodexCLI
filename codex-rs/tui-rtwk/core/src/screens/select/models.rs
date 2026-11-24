@@ -1,5 +1,5 @@
 //! The `/model` family of the selection dialog: the catalog the pickers read,
-//! the menus of the stack (data only, ADR-010: the words are the view's) and
+//! the menus (`ModelMenu`, the pages of the sheet; data only, ADR-010: the words are the view's) and
 //! the rules that turn a choice into the next menu or a final pick.
 //! Oracle: `chatwidget/model_popups.rs`, `model_popup_state.rs`,
 //! `session_model_selection.rs`.

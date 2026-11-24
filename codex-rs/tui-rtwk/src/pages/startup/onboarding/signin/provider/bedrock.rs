@@ -219,11 +219,11 @@ impl BedrockState {
                     let digit = fixed_presses(fixed::PICK_NUMBERS)
                         .iter()
                         .position(|digit| digit.ch == key.ch && key.mods == digit.mods);
-                    if is(fixed::PICK_PREVIOUS) {
+                    if is(fixed::ONBOARD_PREVIOUS) {
                         Some(Msg::Up)
-                    } else if is(fixed::PICK_NEXT) {
+                    } else if is(fixed::ONBOARD_NEXT) {
                         Some(Msg::Down)
-                    } else if is(fixed::ENTER) {
+                    } else if is(fixed::ONBOARD_CONFIRM) {
                         Some(Msg::Confirm)
                     } else {
                         digit.map(Msg::Digit)

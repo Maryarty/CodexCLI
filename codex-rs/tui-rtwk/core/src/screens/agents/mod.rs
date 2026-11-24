@@ -773,7 +773,10 @@ pub enum Ctx {
     },
     Interrupt,
     Start,
-    Fork,
+    /// The fork of `thread` (a failure is told to the page of that thread, not to every page).
+    Fork {
+        thread: String,
+    },
     NewWorktree,
     /// A page of the search `id`, asked for `limit` matches.
     Search {

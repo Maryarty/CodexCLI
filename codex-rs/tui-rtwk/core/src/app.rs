@@ -99,9 +99,10 @@ pub struct SessionSlice {
     /// chat is empty again and the command center takes its place
     /// (`return_to_agents_after_removal`).
     pub removed: u32,
-    /// How many forks the server refused (`/fork` on a thread another process writes): the page
-    /// that waits on its copy stops waiting.
-    pub fork_failed: u32,
+    /// How many forks of each thread the server refused (`/fork` on a thread another process
+    /// writes): the page of that thread, which waits on its copy, stops waiting; another thread's
+    /// page does not hear of it.
+    pub fork_failed: BTreeMap<ThreadId, u32>,
     pub rate_limits: BTreeMap<BackendId, status::RateLimits>,
     /// Every bucket the full reads of each backend left, and its reset credits.
     pub rate_snapshots: BTreeMap<BackendId, status::RateLimitStore>,
@@ -640,7 +641,7 @@ impl CodexApp {
                 switches: 0,
                 switched_from: None,
                 removed: 0,
-                fork_failed: 0,
+                fork_failed: BTreeMap::new(),
                 rate_limits: BTreeMap::new(),
                 rate_snapshots: BTreeMap::new(),
                 connections: BTreeMap::new(),
@@ -2601,7 +2602,7 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         _ => Err(RpcError::Mismatch),
     };
     if let (
-        agents::Ctx::Resume { .. } | agents::Ctx::Fork | agents::Ctx::Start,
+        agents::Ctx::Resume { .. } | agents::Ctx::Fork { .. } | agents::Ctx::Start,
         Ok(
             agents::Reply::Resumed(thread)
             | agents::Reply::Forked(thread)
@@ -2631,8 +2632,12 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         session.status = Session::Ready;
         provider_refusal(app, &id, error, fx);
     }
-    if matches!((&ctx, &result), (agents::Ctx::Fork, Err(_))) {
-        Rc::make_mut(&mut app.session).fork_failed += 1;
+    if let (agents::Ctx::Fork { thread }, Err(_)) = (&ctx, &result) {
+        let session = Rc::make_mut(&mut app.session);
+        *session
+            .fork_failed
+            .entry(ThreadId::new(thread))
+            .or_default() += 1;
     }
     if let (agents::Ctx::History { thread }, Ok(agents::Reply::History { turns, next })) =
         (&ctx, &result)
@@ -2828,7 +2833,7 @@ fn is_attach(ctx: &AppCtx) -> bool {
             | AppCtx::NewConversation { .. }
             | AppCtx::OpenThread { .. }
             | AppCtx::OpenSession { .. }
-            | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork)
+            | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork { .. })
     )
 }
 

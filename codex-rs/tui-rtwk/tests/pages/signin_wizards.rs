@@ -913,6 +913,7 @@ mod gateway {
 
     const REPEAT_ENTER: &[u8] = b"\x1b[13;1:2u";
     const RELEASE_ENTER: &[u8] = b"\x1b[13;1:3u";
+    const SHIFT_ENTER: &[u8] = b"\x1b[13;2u";
 
     fn input(h: &mut Harness, bytes: &[u8]) {
         h.t.input(bytes);
@@ -1067,6 +1068,27 @@ tab move \u{b7} enter next/save \u{b7} esc back"
         h.wait_for("the configured line", |s| {
             s.contains("\u{2713} Custom provider configured")
         });
+    }
+
+    /// The provider forms take plain keys only (`key_hint::plain`): Shift+Enter
+    /// on Save sends nothing, plain Enter does.
+    #[test]
+    fn shift_enter_on_save_does_not_save_but_enter_does() {
+        let (mut h, epoch) = launch();
+        form(&mut h, epoch);
+        paste(&mut h, "Team gateway");
+        key(&mut h, "down");
+        paste(&mut h, "https://team.example.test/v1");
+        key(&mut h, "down");
+        paste(&mut h, "TEAM_KEY");
+        key(&mut h, "down");
+        let asked = logins(&h).len();
+        h.t.pump_for(Duration::from_millis(1100));
+        input(&mut h, SHIFT_ENTER);
+        h.settle();
+        assert_eq!(logins(&h).len(), asked, "Shift+Enter saved");
+        step(&mut h, "enter");
+        assert_eq!(logins(&h).len(), asked + 1, "Enter did not save");
     }
 
     /// The row of the screen the text is on (the first), by its start.

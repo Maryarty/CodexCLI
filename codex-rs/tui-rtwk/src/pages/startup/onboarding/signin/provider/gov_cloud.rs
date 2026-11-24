@@ -89,11 +89,11 @@ impl State for GovCloudState {
                 if guarded(node, key.clone()) == KeyEventResult::Handled {
                     return KeyEventResult::Handled;
                 }
-                let msg = if pressed_fixed(fixed::CONFIRM_PREVIOUS, &key) {
+                let msg = if pressed_fixed(fixed::ONBOARD_PREVIOUS, &key) {
                     Msg::Up
-                } else if pressed_fixed(fixed::CONFIRM_NEXT, &key) {
+                } else if pressed_fixed(fixed::ONBOARD_NEXT, &key) {
                     Msg::Down
-                } else if pressed_fixed(fixed::ENTER, &key) {
+                } else if pressed_fixed(fixed::ONBOARD_CONFIRM, &key) {
                     Msg::Acknowledge
                 } else {
                     return KeyEventResult::Ignored;
@@ -204,8 +204,8 @@ impl State for GovCloudState {
             let InputEvent::Key(key) = event else {
                 return false;
             };
-            let arrow = event_is_fixed(fixed::CONFIRM_PREVIOUS, key)
-                || event_is_fixed(fixed::CONFIRM_NEXT, key);
+            let arrow = event_is_fixed(fixed::ONBOARD_PREVIOUS, key)
+                || event_is_fixed(fixed::ONBOARD_NEXT, key);
             key.kind == KeyKind::Repeat && !arrow
         })
         .into()
