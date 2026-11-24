@@ -1144,23 +1144,11 @@ fn assert_snap_through(s: &Screen, name: &str, row: usize, last: &str) {
         .position(|r| r.contains(last))
         .unwrap_or_else(|| panic!("{name}: no row holds `{last}`"));
     let ours = s.rows();
-    assert!(
-        row < ours.len(),
-        "{name}: the banner is not on the screen:\n{}",
-        s.text()
-    );
     let have: Vec<String> = (0..=end)
         .map(|at| ours.get(row + at).map_or("", |r| r.trim_end()).to_owned())
         .collect();
-    let want: Vec<String> = want[..=end]
-        .iter()
-        .map(|r| r.trim_end().to_owned())
-        .collect();
-    pretty_assertions::assert_eq!(
-        have,
-        want,
-        "{name}: ours (left) differs from the oracle (right)"
-    );
+    let want: Vec<&str> = want[..=end].iter().map(|r| r.trim_end()).collect();
+    kit::assert_rows_are(&have, &want);
 }
 
 // ORACLE chatwidget/tests/security_setup_tests.rs:23 security_setup_preserves_draft_action_and_dismissal_across_widgets kind=snap owner=dialogs-pane
@@ -1176,7 +1164,7 @@ fn security_setup_preserves_draft_action_and_dismissal_across_widgets() {
     );
     // 1 opens the page in the browser and the banner stays
     s.keys("1");
-    assert_eq!(s.opened_urls(), ["https://chatgpt.com/cyber"]);
+    s.assert_opened_urls(&["https://chatgpt.com/cyber"]);
     s.assert_contains("Set up security");
     s.keys("esc");
     s.assert_absent("Set up security");

@@ -242,6 +242,20 @@ impl Screen {
         self.h.advance(100);
     }
 
+    /// The host answers the external editor (Ctrl+G) that was given `draft` with `text`: the
+    /// effect `Ask::Editor` of that draft is read from the commands and answered.
+    pub fn answer_editor(&mut self, draft: &str, text: &str) {
+        use codex_tui_core::app::effects::{Ask, Done};
+        let ask = self
+            .commands()
+            .into_iter()
+            .find(|c| {
+                matches!(c, codex_tui_core::app::Command::Effect { ask: Ask::Editor { draft: d, .. }, .. } if d == draft)
+            })
+            .unwrap_or_else(|| panic!("the draft `{draft}` did not go to the editor"));
+        self.answer_effect(&ask, Done::Editor(Ok(text.into())));
+    }
+
     /// Pastes text as a terminal with bracketed paste does.
     pub fn paste(&mut self, text: &str) -> &mut Screen {
         self.h.t.paste(text);

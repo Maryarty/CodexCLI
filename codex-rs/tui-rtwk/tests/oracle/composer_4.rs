@@ -4,9 +4,6 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::app::Command;
-use codex_tui_core::app::effects::{Ask as Effect, Done};
-
 use crate::kit::{self, Owner, Screen};
 
 /// A chat screen at `w` x `h`, the composer live and empty.
@@ -1012,14 +1009,7 @@ fn external_editor_import_preserves_replace_backspace_recovery() {
     s.type_text("0RX");
     // Ctrl+G sends the draft to the editor, which returns `abc`
     s.keys("ctrl+g");
-    let ask = s
-        .commands()
-        .into_iter()
-        .find(|c| {
-            matches!(c, Command::Effect { ask: Effect::Editor { draft, .. }, .. } if draft == "Xld")
-        })
-        .expect("the draft went to the editor");
-    s.answer_effect(&ask, Done::Editor(Ok("abc".into())));
+    s.answer_editor("Xld", "abc");
     s.assert_row(prompt(&s), "› abc");
     // the caret is after its first cell: Backspace deletes `a`, nothing of the old Replace is put back
     s.keys("home right backspace");
