@@ -217,6 +217,44 @@ fn an_account_update_changes_the_plan_and_drops_the_usage() {
     assert_eq!(app.screens().agents.plan, None);
 }
 
+/// A fork the server refuses is the failure of the thread it copied: the signal is per thread
+/// (ADR-013 O4), so the page that waits on thread A does not stop waiting for a failed fork of B.
+#[test]
+fn a_failed_fork_of_one_thread_leaves_the_forking_of_another_alone() {
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::{ScreenIntent, agents};
+
+    let mut app = build(include_str!(
+        "../../src/pages/agents/fixtures/overview.jsonl"
+    ))
+    .expect("plays")
+    .app;
+    let rows = app.screens().agents.center(&app.agents_threads()).rows;
+    let a = rows[0].id().to_owned();
+    let b = rows[1].id().to_owned();
+    assert!(a != b);
+    let fork = |app: &mut CodexApp, thread: &str| {
+        let fx = run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::Fork(
+                thread.to_owned(),
+            )))),
+        );
+        let [Command::Screen { ticket, .. }] = fx.commands() else {
+            panic!("expected a fork of {thread}");
+        };
+        *ticket
+    };
+    let _of_a = fork(&mut app, &a);
+    let of_b = fork(&mut app, &b);
+    run(&mut app, AppEv::Reply(of_b, Reply::failed("refused")));
+    let failed = &app.session().fork_failed;
+    assert_eq!(failed.get(&ThreadId::new(&b)), Some(&1));
+    assert_eq!(failed.get(&ThreadId::new(&a)), None, "A's fork still waits");
+}
+
 /// A reply that is a failure is an error, never an account.
 #[test]
 fn a_server_error_has_its_code_and_prints_its_message() {

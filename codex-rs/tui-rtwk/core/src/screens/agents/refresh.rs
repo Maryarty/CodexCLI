@@ -298,12 +298,12 @@ pub fn apply_answer(model: &mut Model, previews: &mut ThreadPreviews, ctx: Ctx, 
                 model.notice = None;
             }
         }
-        (Ctx::Fork, Ok(Reply::Forked(_))) => {
+        (Ctx::Fork { .. }, Ok(Reply::Forked(_))) => {
             // The copy opens in the chat.
             model.resumes += 1;
         }
-        (Ctx::Fork, Ok(_)) => {}
-        (Ctx::Fork, Err(error)) => {
+        (Ctx::Fork { .. }, Ok(_)) => {}
+        (Ctx::Fork { .. }, Err(error)) => {
             model.notice = Some(Notice::Error(error_text(error)));
         }
         (Ctx::Rename { thread }, Ok(_)) => {

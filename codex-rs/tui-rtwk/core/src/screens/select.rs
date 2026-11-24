@@ -78,8 +78,10 @@ pub enum Opening {
     /// the list) and the link dialog of the app picked from it; the sheet reads the directory as
     /// a fact and its pages are its own.
     Apps,
-    /// `/presets`: the page the sheet opens on (the slot picker, the sources or the editor); the
-    /// pages over it (`Menu::choose`, `Menu::submit`) and what Esc does on each are the sheet's.
+    /// The presets sheet: the page it opens on (the slot picker, the sources or the editor,
+    /// `quick_dials::Menu`); the pages over it (`quick_dials::Menu::choose`, `submit`) are routes
+    /// of the sheet's own navigator, and what Esc does on each is the sheet's. The model keeps no
+    /// stack of them. (`/presets` itself says its overlay is not built until it lands.)
     Quick(Box<quick_dials::Menu>),
     /// `/permissions`, its inline pick and its shortcut (`permissions.rs`): the menu the sheet
     /// opens on; the page it is on after a pick is the sheet's.

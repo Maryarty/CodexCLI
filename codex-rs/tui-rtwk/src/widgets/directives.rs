@@ -79,7 +79,10 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
         }
     });
     let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
-    let fork_failed = select::<SessionSlice, u32, _>(cx, |session| session.fork_failed);
+    let thread = counters.thread.clone();
+    let fork_failed = select::<SessionSlice, u32, _>(cx, move |session| {
+        session.fork_failed.get(&thread).copied().unwrap_or(0)
+    });
     Deps {
         counters,
         removed,
@@ -172,10 +175,14 @@ impl State for ListenerState {
             }
             Some(_) => {}
         }
+        // the count is of this page's thread: a switch of thread only takes note of the new one
+        let same_thread = before
+            .as_ref()
+            .is_some_and(|before| before.thread == now.thread);
         if self
             .fork_failed
             .replace(fork_failed)
-            .is_some_and(|seen| seen < fork_failed)
+            .is_some_and(|seen| same_thread && seen < fork_failed)
         {
             cx.emit(&w.on_edge, Edge::ForkFailed);
         }

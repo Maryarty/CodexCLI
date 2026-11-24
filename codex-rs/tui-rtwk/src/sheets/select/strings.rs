@@ -52,6 +52,8 @@ pub struct Strings {
     pub apps_installed: &'static str,
     /// `/daemon`: what the popup says is not built yet.
     pub daemon_action: &'static str,
+    /// `/presets`: the same, its overlay is not built.
+    pub presets_action: &'static str,
     pub apps_disabled: &'static str,
     pub apps_installable: &'static str,
     pub apps_brief: Msg<2>,
@@ -325,6 +327,7 @@ pub const EN: Strings = Strings {
     apps_search: "Type to search apps",
     apps_installed: "Installed",
     daemon_action: "daemon menu",
+    presets_action: "presets menu",
     apps_disabled: "Installed · Disabled",
     apps_installable: "Can be installed",
     apps_brief: msg!("{0} · {1}"),

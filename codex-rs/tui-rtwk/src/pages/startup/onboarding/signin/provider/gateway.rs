@@ -272,7 +272,7 @@ impl GatewayState {
                     Some(Msg::Mark((index + count - 1) % count))
                 } else if is(fixed::FORM_NEXT) {
                     Some(Msg::Mark((index + 1) % count))
-                } else if is(fixed::ENTER) && index == SAVE {
+                } else if is(fixed::ONBOARD_CONFIRM) && index == SAVE {
                     Some(Msg::Save)
                 } else if is(fixed::GATEWAY_COMPLETE) && index == VARIABLE {
                     Some(Msg::Complete)

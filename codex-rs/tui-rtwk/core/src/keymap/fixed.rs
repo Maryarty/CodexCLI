@@ -216,6 +216,11 @@ pub const OSS_NEXT: ActionId = list("oss_next");
 pub const OSS_LMSTUDIO: ActionId = list("oss_lmstudio");
 pub const OSS_OLLAMA: ActionId = list("oss_ollama");
 pub const OSS_CANCEL: ActionId = list("oss_cancel");
+/// The onboarding's plain keys (`onboarding/keys.rs`, `key_hint::plain`): Up/`k` and Down/`j` move,
+/// Enter confirms, each with no modifier held (Shift+Enter is none of them).
+pub const ONBOARD_PREVIOUS: ActionId = list("onboard_previous");
+pub const ONBOARD_NEXT: ActionId = list("onboard_next");
+pub const ONBOARD_CONFIRM: ActionId = list("onboard_confirm");
 /// A sign-in wizard's form: Up and Shift+Tab, Down and Tab move between the fields; the gateway's
 /// model list also walks with Ctrl+K/P and Ctrl+J/N, jumps to its ends, pages with PageUp/Ctrl+B
 /// and PageDown/Ctrl+F, takes a row on Enter or `1`; Ctrl+Space completes a variable.
@@ -567,17 +572,35 @@ pub const TABLE: &[Fixed] = &[
         bindings: &[exact(Key::Char('c'), CTRL)],
     },
     Fixed {
+        id: ONBOARD_PREVIOUS,
+        bindings: &[
+            exact(Key::Up, Mods::NONE),
+            exact(Key::Char('k'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: ONBOARD_NEXT,
+        bindings: &[
+            exact(Key::Down, Mods::NONE),
+            exact(Key::Char('j'), Mods::NONE),
+        ],
+    },
+    Fixed {
+        id: ONBOARD_CONFIRM,
+        bindings: &[exact(Key::Enter, Mods::NONE)],
+    },
+    Fixed {
         id: FORM_PREVIOUS,
-        bindings: &[any(Key::Up), exact(Key::Tab, Mods::SHIFT)],
+        bindings: &[exact(Key::Up, Mods::NONE), exact(Key::Tab, Mods::SHIFT)],
     },
     Fixed {
         id: FORM_NEXT,
-        bindings: &[any(Key::Down), exact(Key::Tab, Mods::NONE)],
+        bindings: &[exact(Key::Down, Mods::NONE), exact(Key::Tab, Mods::NONE)],
     },
     Fixed {
         id: GATEWAY_PREVIOUS,
         bindings: &[
-            any(Key::Up),
+            exact(Key::Up, Mods::NONE),
             exact(Key::Char('k'), Mods::NONE),
             exact(Key::Char('k'), CTRL),
             exact(Key::Char('p'), CTRL),
@@ -586,7 +609,7 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: GATEWAY_NEXT,
         bindings: &[
-            any(Key::Down),
+            exact(Key::Down, Mods::NONE),
             exact(Key::Char('j'), Mods::NONE),
             exact(Key::Char('j'), CTRL),
             exact(Key::Char('n'), CTRL),

@@ -110,8 +110,10 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         Intent::Fork(thread) => {
             if model.has_task(&thread) {
                 outs.push(out(
-                    Command::Thread(ThreadAsk::Fork { thread }),
-                    Ctx::Fork,
+                    Command::Thread(ThreadAsk::Fork {
+                        thread: thread.clone(),
+                    }),
+                    Ctx::Fork { thread },
                 ));
             }
         }
