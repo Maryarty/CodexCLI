@@ -3,17 +3,33 @@
 //! and the rows' words are the sheet's (UI LEFT: P3 of the full-port map); it reads
 //! `daemon::State::page`, says `Verb`s, and the shell runs `State::update_wanted` after exit.
 
+pub mod sheet;
 pub mod strings;
 
-use rtwk::Cx;
+use std::rc::Rc;
 
-use codex_tui_core::features::daemon::{Daemon, Note, Sheet, Verb};
+use rtwk::{AnyWidget, Cx};
+
+use codex_tui_core::features::Scope;
+use codex_tui_core::features::daemon::{Daemon, Note, Sheet, Verb, Wish};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
-use super::{FeatureSheet, FeatureView};
+use self::sheet::DaemonSheet;
+use super::{FeatureSheet, FeatureView, Shown};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for Daemon {
+    /// A page opens once for the wish, over the chat (no sheet is kept open for it: each page
+    /// closes before the next is wished for).
+    fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
+        let Wish::Menu(menu) = *wish;
+        Some(Shown {
+            held_by: None,
+            open: Rc::new(move || -> AnyWidget { DaemonSheet { menu }.into() }),
+            options: sheet::options(menu),
+        })
+    }
+
     fn note_words(note: &Note, _words: &SessionStrings) -> String {
         strings::note(note)
     }
@@ -26,12 +42,9 @@ impl FeatureSheet for Daemon {
         Args
     }
 
+    /// The verb probes the connection; the menu opens as the feature's wish.
     fn open<S: 'static>(cx: &mut Cx<'_, S>, _args: Args) {
         super::verb(cx, Verb::Open);
-        // The menu sheet is not built (UI LEFT): the popup says so until it lands, and the
-        // `Wish::Menu` the verb asks for waits for its presenter.
-        let action = crate::sheets::select::strings::of(cx).daemon_action;
-        drop(crate::widgets::page_keys::not_yet(cx, action));
     }
 }
 

@@ -50,10 +50,9 @@ mod usage;
 mod view;
 
 /// `/subagents`: the picker of this session's subagent threads (oracle
-/// `AppEvent::OpenAgentPicker`), a sheet over the chat. It is not built: the sheet says so.
-pub fn open_picker<S>(cx: &mut Cx<'_, S>) {
-    let action = shared::of(cx).pages.action_subagents;
-    drop(crate::widgets::page_keys::not_yet(cx, action));
+/// `AppEvent::OpenAgentPicker`), a sheet over the chat.
+pub fn open_picker<S: 'static>(cx: &mut Cx<'_, S>) {
+    crate::sheets::select::agent_picker::open(cx);
 }
 
 /// The route of this screen, pushed by the widget that opens it

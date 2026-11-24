@@ -3,6 +3,7 @@
 //! share. Snapshots in `tests/snapshots/chat/`.
 
 use codex_tui_core::commands::Target;
+use codex_tui_core::features::FeatureTarget;
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
 use codex_tui_rtwk::features::settings;
 use codex_tui_rtwk::pages::session::backtrack;
@@ -75,6 +76,9 @@ fn target_of(dir: &str) -> Target {
         "voice" => Target::Voice,
         "approvals" => Target::Approvals,
         "backtrack" => Target::Backtrack,
+        "feedback" => Target::Feature(FeatureTarget::Feedback(
+            codex_tui_core::features::feedback::Sheet,
+        )),
         _ => panic!("`{dir}` is not a screen the chat opens"),
     }
 }
@@ -94,6 +98,7 @@ fn widget_of(dir: &str) -> Finder {
         "voice" => find::by_type::<voice::Screen>(),
         "approvals" => find::by_type::<approvals::Screen>(),
         "backtrack" => find::by_type::<backtrack::Screen>(),
+        "feedback" => find::widget_where("FeedbackSheet", |w| w.type_name() == "FeedbackSheet"),
         // Every family is a sheet of its own (`sheets/select`): the page /model opens on, the
         // /permissions step, the /review page, the confirmation of /archive and /delete.
         "select" => find::widget_where("a select sheet", |w| {

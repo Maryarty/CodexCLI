@@ -16,7 +16,7 @@ use crate::common::{
     assert_snapshot, assert_snapshot_where, start, start_debug, start_quittable, start_sized,
 };
 
-const DIRS: [(&str, &str, Kind); 19] = [
+const DIRS: [(&str, &str, Kind); 20] = [
     ("chat", "S10", Kind::Home),
     ("cells", "S11", Kind::Part),
     ("composer", "S10", Kind::Part),
@@ -36,10 +36,11 @@ const DIRS: [(&str, &str, Kind); 19] = [
     ("onboarding", "S01-S04", Kind::Route),
     ("startup", "S05", Kind::Dialog),
     ("import", "S06", Kind::Route),
+    ("feedback", "S23", Kind::Dialog),
 ];
 
 #[test]
-fn screen_map_registers_the_19_directories() {
+fn screen_map_registers_the_20_directories() {
     let dirs = debug::dirs();
     let seen: Vec<_> = dirs
         .iter()

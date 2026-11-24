@@ -1,0 +1,5 @@
+# /feedback: the note step for an employee.
+# Oracle data: bottom_pane/feedback_note_view_tests.rs (`upload_audience = Some(OpenAiEmployee)`)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"dialogs","ev":{"kind":"attachments","can_save":true,"rollout":"rollout.jsonl"}}
+{"step":"fact","feature":"feedback","fact":{"audience":"open_ai_employee"}}

@@ -54,7 +54,8 @@ fn tell(app: &mut CodexApp, fact: Fact) {
 }
 
 const HOME: &str = "/home/x/.codex";
-const FILE: &str = "codex-diagnostics-2026-11-24T10-00-00Z-1a2b3c4d.zip";
+/// The name of a ZIP saved at the app's clock before the shell told it a time (the epoch).
+const FILE: &str = "codex-diagnostics-1970-01-01T00-00-00Z-00000000.zip";
 
 fn submit(app: &mut CodexApp, note: &str, include_logs: bool, destination: Destination) -> AppFx {
     run(
@@ -67,7 +68,6 @@ fn submit(app: &mut CodexApp, note: &str, include_logs: bool, destination: Desti
                 rollout: Some("/home/.codex/sessions/rollout-1.jsonl".to_owned()),
                 include_logs,
                 destination,
-                file_name: FILE.to_owned(),
             },
         ))),
     )
