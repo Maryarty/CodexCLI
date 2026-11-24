@@ -33,6 +33,7 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
+use crate::features::pick_pet;
 use crate::keymap::bind_fixed;
 
 pub mod strings;
@@ -219,10 +220,8 @@ impl State for ScreenState {
             Msg::Row(index) => {
                 if at.is_some_and(|at| visible[at] == index) {
                     if let Some(pet) = picker.pets.get(index) {
-                        cx.emit(
-                            &hs.screen,
-                            ScreenIntent::Pets(Intent::Pick(pet.selector.clone())),
-                        );
+                        pick_pet(cx, pet.selector.clone());
+                        cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
                         close_dialog::<_, ()>(cx, None);
                     }
                 } else if let Some(row) = visible.iter().position(|pet| *pet == index) {
@@ -239,10 +238,8 @@ impl State for ScreenState {
             }
             Msg::Pick => {
                 if let Some(pet) = at.and_then(|at| picker.pets.get(visible[at])) {
-                    cx.emit(
-                        &hs.screen,
-                        ScreenIntent::Pets(Intent::Pick(pet.selector.clone())),
-                    );
+                    pick_pet(cx, pet.selector.clone());
+                    cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
                     close_dialog::<_, ()>(cx, None);
                 }
             }

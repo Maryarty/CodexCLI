@@ -924,7 +924,7 @@ impl State {
         match subject {
             persist::Subject::Theme(name) => self.facts.syntax_theme = Some(name),
             persist::Subject::Memories(memories) => self.facts.memories = Some(memories),
-            persist::Subject::TuiMode(_) | persist::Subject::Keymap => {}
+            persist::Subject::TuiMode(_) | persist::Subject::Keymap | persist::Subject::Pet(_) => {}
             // The chat's status facts hold these: the host sends them again.
             persist::Subject::StatusLine { .. } | persist::Subject::Title(_) => {}
         }

@@ -712,6 +712,9 @@ pub enum Edit {
     Editor(SettingId),
     /// `SyntaxThemeSelected`.
     ThemeSelected(String),
+    /// Enter on a pet of the `/pets` picker (`PetSelected`; the selector of the disabled row is
+    /// `PetDisabled`): `tui.pet` is written.
+    PetSelected(String),
     /// A skill was switched (`AppEvent::SetSkillEnabled`): its id, its value.
     SkillToggled(String, bool),
     /// The skills toggle was closed (`AppEvent::ManageSkillsClosed`: the

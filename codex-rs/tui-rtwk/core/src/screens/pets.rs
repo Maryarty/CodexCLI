@@ -8,8 +8,6 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::app::Command as AppCommand;
-use crate::app::effects::{Ask, ConfigEdit, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
@@ -126,15 +124,6 @@ impl Picker {
     }
 }
 
-/// The bit of the request numbers of the config writes a pick makes (the other screens' are
-/// listed in `core/src/app/effects.rs`: `1 << 61` is the worktree menus', `1 << 62` the review's).
-pub const REQUEST_BIT: u64 = 1 << 60;
-
-/// `request` is the number of a pick's config write.
-pub fn owns(request: u64) -> bool {
-    request & REQUEST_BIT != 0
-}
-
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
@@ -142,11 +131,6 @@ pub struct Model {
     pub catalog: Option<Picker>,
     /// `PetPreviewRequested`, in order.
     pub previews: Vec<String>,
-    /// The picks being written to the config (`tui.pet`), by request number: the selector the
-    /// picker shows as configured once the host confirms.
-    saving: std::collections::BTreeMap<u64, String>,
-    /// How many writes were asked: the numbers of their requests.
-    stamp: u64,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -164,10 +148,9 @@ pub enum Ev {
 pub enum Intent {
     /// The picker wants the preview of the pet with this selector.
     LoadPreview(String),
-    /// The picker was left: the preview is not wanted any more.
+    /// The picker was left, or a pet was picked (the pick itself is `settings::Edit::PetSelected`,
+    /// a write of `tui.pet`): the preview is not wanted any more.
     ReleasePreview,
-    /// Enter on the row with this selector.
-    Pick(String),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -203,44 +186,6 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 picker.preview = None;
             }
         }
-        Intent::Pick(selector) => {
-            // `PetSelected` / `PetDisabled` (oracle `app/pets.rs`): `tui.pet` is written; the
-            // picker's configured pet follows once the host confirms.
-            model.stamp += 1;
-            let request = REQUEST_BIT | model.stamp;
-            let edit = ConfigEdit {
-                key_path: "tui.pet".to_owned(),
-                value: serde_json::Value::String(selector.clone()),
-            };
-            model.saving.insert(request, selector);
-            fx.commands.push(AppCommand::Effect {
-                request,
-                ask: Ask::ConfigWrite { edits: vec![edit] },
-            });
-            if let Some(picker) = &mut model.catalog {
-                picker.preview = None;
-            }
-        }
-    }
-}
-
-/// The host answered the config write of a pick (`request` is `owns`): the picker shows the pet
-/// as configured, or the failure is returned worded as the oracle words it (`handle_pet_disabled`,
-/// `handle_pet_selection_loaded`), for the conversation's error line.
-pub fn written(model: &mut Model, request: u64, done: &Done) -> Option<String> {
-    let selector = model.saving.remove(&request)?;
-    match done {
-        Done::Config(Ok(())) => {
-            if let Some(picker) = &mut model.catalog {
-                picker.current = Some(selector);
-            }
-            None
-        }
-        Done::Config(Err(error)) if selector == DISABLED => {
-            Some(format!("Failed to disable pets: {error}"))
-        }
-        Done::Config(Err(error)) => Some(format!("Failed to save pet selection: {error}")),
-        _ => None,
     }
 }
 

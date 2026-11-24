@@ -19,8 +19,8 @@ use super::shortcuts::ShortcutView;
 use super::warnings::{Pages, Turn};
 use super::{shortcuts, strings, warnings};
 use crate::app::view::Hs;
-use crate::pages::session::transcript::copy::CopyJob;
 use crate::keymap::{bindings, first_of_each, keymap};
+use crate::pages::session::transcript::copy::CopyJob;
 
 /// The dialog a `SmallDialog` is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

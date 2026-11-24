@@ -94,7 +94,7 @@ fn report(rule: &str, found: &[String], file: &str) -> Vec<String> {
 }
 
 /// Fails with what `report` says and why the rule is there.
-fn check(rule: &str, why: &str, found: &[String]) {
+pub(crate) fn check(rule: &str, why: &str, found: &[String]) {
     let report = report(rule, found, &ratchet_file());
     assert!(
         report.is_empty(),
@@ -153,6 +153,7 @@ fn the_ratchet_file_is_well_formed() {
         "adr013_kit_names_no_screen",
         "adr013_data_names_only_ids",
         "adr013_store_written_only_by_apply",
+        "dead_state_field_read_only_in_tests",
     ];
     let mut bad = Vec::new();
     for line in ratchet_file().lines() {

@@ -186,6 +186,13 @@ pub fn open_settings<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand) {
     settings::open(cx, settings::Args::of(command));
 }
 
+/// Enter on a pet of the `/pets` picker: `[tui].pet` is written (the settings own the config
+/// writes, and the words of a refusal; `Edit::PetSelected`).
+pub fn pick_pet<S: 'static>(cx: &mut Cx<'_, S>, selector: String) {
+    use codex_tui_core::features::settings::{Edit, Intent};
+    verb(cx, Intent::Request(Edit::PetSelected(selector)));
+}
+
 /// A verb of a feature, from the widget that has the user's decision: the app applies it
 /// (`Intent::Feature`). The arguments are ids (a directory, a plugin's row), never what was
 /// pressed.

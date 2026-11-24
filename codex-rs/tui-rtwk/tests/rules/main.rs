@@ -5,6 +5,7 @@
 
 mod adr013;
 mod carried;
+mod dead_state;
 mod feature_sheet;
 mod fixtures;
 mod layers;

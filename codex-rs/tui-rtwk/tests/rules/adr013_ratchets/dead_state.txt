@@ -1,0 +1,10 @@
+# dead_state_field_read_only_in_tests (tests/rules/dead_state.rs): today's state fields that only
+# tests read. Each is an outbox nobody drains or a value nobody shows; a line leaves the list when
+# its field gets a reader (a view, a host ask) or goes.
+#   dialogs.note        the feedback flow's note (w2-commands owns /feedback)
+#   pets.previews       `PetPreviewRequested`: the host never loads the preview (pets slice)
+#   agents.server_version, import.outcome: their views do not show them yet
+ratchet dead_state_field_read_only_in_tests core/src/screens/dialogs.rs:Model.note 1
+ratchet dead_state_field_read_only_in_tests core/src/screens/pets.rs:Model.previews 1
+ratchet dead_state_field_read_only_in_tests core/src/screens/agents/mod.rs:Model.server_version 1
+ratchet dead_state_field_read_only_in_tests core/src/screens/import/mod.rs:Model.outcome 1

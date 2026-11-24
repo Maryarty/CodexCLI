@@ -6,7 +6,7 @@
 //! `footer_snapshots` waits for the entries that need the status line.
 
 use codex_tui_core::app::Command;
-use codex_tui_core::app::effects::{Ask, Done, CopyStatus};
+use codex_tui_core::app::effects::{Ask, CopyStatus, Done};
 
 use crate::kit::{Owner, Screen};
 
@@ -108,6 +108,9 @@ fn ctrl_o_in_the_warnings_copies_the_page_and_says_so() {
         .collect();
     assert_eq!(copies.len(), 1, "{}", s.text());
     s.answer_effect(&copies[0], Done::Copy(Ok(CopyStatus::Confirmed)));
+    // The result is the composer gap's (`show_selection_copy_result`): the viewer covers it, it
+    // is there when the viewer closes.
+    s.keys("esc");
     s.assert_contains("Copied 9 chars to host clipboard");
 }
 

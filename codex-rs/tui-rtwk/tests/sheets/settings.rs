@@ -11,9 +11,7 @@ use rtwk_core::input::{Mods, MouseKind};
 use codex_tui_core::app::effects::Ask;
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::features::FeatureFact;
-use codex_tui_core::features::settings::{
-    Fact as SettingsFact, Facts, MemoryFacts, Offer, Which,
-};
+use codex_tui_core::features::settings::{Fact as SettingsFact, Facts, MemoryFacts, Offer, Which};
 use codex_tui_rtwk::app::UiApp;
 
 use crate::common::{HEIGHT, Harness, WIDTH, ms, start_driven, start_sized};
@@ -817,8 +815,7 @@ fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
     h.press("down");
     h.press("enter");
     h.wait_until("the picked theme is in force and recorded", |h| {
-        syntax_theme(h).as_deref() == Some("coldark-dark")
-            && !edits(h).is_empty()
+        syntax_theme(h).as_deref() == Some("coldark-dark") && !edits(h).is_empty()
     });
     assert_eq!(
         edits(&h),

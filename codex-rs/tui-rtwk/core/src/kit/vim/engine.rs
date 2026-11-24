@@ -1073,7 +1073,6 @@ impl Vim {
         }
         true
     }
-
 }
 
 /// `dj` / `dk` and the like: whole lines.
