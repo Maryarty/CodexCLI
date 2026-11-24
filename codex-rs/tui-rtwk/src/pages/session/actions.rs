@@ -325,7 +325,9 @@ pub(super) fn run(
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
             } else if opened.command == SlashCommand::Presets {
-                crate::sheets::select::open_presets(cx);
+                // the menu opens where presets can be used (`open_quick_dial_menu`): the page says
+                // so after this line is run
+                cx.local_sender()(ChatMsg::Presets(crate::sheets::select::hud::Step::Open));
             } else if shown_by_presenter {
                 note_opened(opened.target);
             } else {
@@ -418,7 +420,7 @@ fn review_cwd(states: &ScreenStates, thread: &ThreadModel) -> String {
 
 /// `restrict_model_picker_to_luna_reserve`: the thread runs on the Reserve and the last account
 /// read did not say ordinary usage is back.
-fn reserve_only(
+pub(super) fn reserve_only(
     session: &SessionSlice,
     states: &ScreenStates,
     thread: &ThreadModel,

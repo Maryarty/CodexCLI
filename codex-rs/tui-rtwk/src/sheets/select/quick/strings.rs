@@ -56,6 +56,13 @@ pub struct Strings {
     pub profile_name_unavailable: &'static str,
     pub title_items_unavailable: &'static str,
     pub status_items_unavailable: &'static str,
+    // `quick_dial_hud`: the shortcut menu over the composer.
+    pub hud_title: &'static str,
+    pub hud_empty: &'static str,
+    /// Between a key and what it does (` \u{b7} `).
+    pub hud_separator: &'static str,
+    /// The keys of the menu and what they do.
+    pub hud_commands: [(&'static str, &'static str); 5],
     // `QuickDial::validate`.
     pub invalid_empty: &'static str,
     pub invalid_shell: &'static str,
@@ -153,6 +160,16 @@ pub const EN: Strings = Strings {
     profile_name_unavailable: "The permission profile name cannot be recalled.",
     title_items_unavailable: "Choose available terminal-title items with /title before saving.",
     status_items_unavailable: "Choose available status-line items with /statusline before saving.",
+    hud_title: "Presets",
+    hud_empty: "No presets saved. Press n to create one.",
+    hud_separator: " \u{b7} ",
+    hud_commands: [
+        ("n", "new"),
+        ("s", "from settings"),
+        ("e", "edit"),
+        ("d", "delete"),
+        ("esc", "close"),
+    ],
     invalid_empty: "Preset input cannot be empty.",
     invalid_shell: "Presets support prompts and slash commands, not shell commands.",
     invalid_too_long: "Preset input cannot exceed 8,000 UTF-8 bytes.",

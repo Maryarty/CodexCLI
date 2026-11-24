@@ -18,6 +18,7 @@
 //! - `send`     Enter, Tab's queue, a picked command, the edit-queued key
 //! - `escape`   Esc's ladder
 //! - `leave`    Ctrl+C and Ctrl+D a feature takes first (the return from a side conversation)
+//! - `presets`  the shortcut menu of `/presets` over the composer: its keys and its verbs
 //! - `lock`     the keys of a read-only thread and of a provider-error lock
 //! - `edges`    the model's one-shots
 //!
@@ -71,6 +72,8 @@ mod leave;
 mod lock;
 #[path = "session/overlay.rs"]
 mod overlay;
+#[path = "session/presets.rs"]
+mod presets;
 #[path = "session/reader.rs"]
 mod reader;
 #[path = "session/send.rs"]
@@ -171,6 +174,8 @@ pub enum ChatMsg {
     /// The reasoning shortcuts: a step down or up (`handle_reasoning_shortcut`).
     Reasoning(codex_tui_core::screens::select::reasoning::Direction),
     CtrlC,
+    /// A key of the shortcut menu of `/presets` (`Key::Open`: the command ran).
+    Presets(crate::sheets::select::hud::Step),
     RetryWriter,
     /// The provider-error notice's keys: `c` continues in a new chat, `n` starts
     /// a fresh one, Esc (and the third hint) opens the chats to resume.
@@ -293,6 +298,7 @@ impl State for ChatState {
             // on is another thread's
             old.ui.modes.close();
             self.leader.set(false);
+            self.banner.quick_menu.set(false);
             self.forking = None;
         }
     }
@@ -351,16 +357,9 @@ impl State for ChatState {
                 }
             }
             ChatMsg::QuitReadOnly => cx.emit(&hs.quit, ()),
-            ChatMsg::CtrlC if leave::taken(PageKey::Interrupt, w, cx, &hs) => return Rebuild::No,
             ChatMsg::CtrlD if leave::taken(PageKey::Quit, w, cx, &hs) => return Rebuild::No,
-            ChatMsg::CtrlC => {
-                let thread = read::<ThreadModel, _>(cx);
-                if thread.can_interrupt() {
-                    cx.emit(&hs.interrupt, thread.id().clone());
-                } else {
-                    cx.emit(&hs.quit, ());
-                }
-            }
+            ChatMsg::CtrlC => leave::ctrl_c(w, cx, &hs),
+            ChatMsg::Presets(key) => return presets::key(key, self, w, cx, &hs),
             ChatMsg::CtrlD => {
                 if w.ui.composer.text().is_empty() {
                     let thread = read::<ThreadModel, _>(cx);

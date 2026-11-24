@@ -173,6 +173,14 @@ pub const INTERRUPT_OR_QUIT: ActionId = chat("interrupt_or_quit");
 pub const QUIT_ON_EMPTY: ActionId = chat("quit_on_empty");
 /// `?` on an empty composer: the shortcut overlay.
 pub const OPEN_SHORTCUTS: ActionId = chat("open_shortcuts");
+/// The keys of the shortcut menu of `/presets` while it is open: `n` a new preset, `s` one from the
+/// settings, `e` edit, `d` delete, a digit (`QUICK_SLOT`, the keys `0` to `9` in this order) the
+/// preset of that slot.
+pub const QUICK_NEW: ActionId = chat("quick_new");
+pub const QUICK_SETTINGS: ActionId = chat("quick_settings");
+pub const QUICK_EDIT: ActionId = chat("quick_edit");
+pub const QUICK_DELETE: ActionId = chat("quick_delete");
+pub const QUICK_SLOT: ActionId = chat("quick_slot");
 /// The keys of a thread another process writes: retry the writer, fork a copy, quit.
 pub const RETRY_WRITER: ActionId = chat("retry_writer");
 pub const FORK_WRITER: ActionId = chat("fork_writer");
@@ -410,6 +418,37 @@ pub const TABLE: &[Fixed] = &[
     Fixed {
         id: OPEN_SHORTCUTS,
         bindings: &[any(Key::Char('?'))],
+    },
+    Fixed {
+        id: QUICK_NEW,
+        bindings: &[exact(Key::Char('n'), Mods::NONE)],
+    },
+    Fixed {
+        id: QUICK_SETTINGS,
+        bindings: &[exact(Key::Char('s'), Mods::NONE)],
+    },
+    Fixed {
+        id: QUICK_EDIT,
+        bindings: &[exact(Key::Char('e'), Mods::NONE)],
+    },
+    Fixed {
+        id: QUICK_DELETE,
+        bindings: &[exact(Key::Char('d'), Mods::NONE)],
+    },
+    Fixed {
+        id: QUICK_SLOT,
+        bindings: &[
+            exact(Key::Char('0'), Mods::NONE),
+            exact(Key::Char('1'), Mods::NONE),
+            exact(Key::Char('2'), Mods::NONE),
+            exact(Key::Char('3'), Mods::NONE),
+            exact(Key::Char('4'), Mods::NONE),
+            exact(Key::Char('5'), Mods::NONE),
+            exact(Key::Char('6'), Mods::NONE),
+            exact(Key::Char('7'), Mods::NONE),
+            exact(Key::Char('8'), Mods::NONE),
+            exact(Key::Char('9'), Mods::NONE),
+        ],
     },
     Fixed {
         id: RETRY_WRITER,

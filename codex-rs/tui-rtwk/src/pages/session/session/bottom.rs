@@ -23,6 +23,7 @@ use crate::pages::session::popovers::mention;
 use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
 use crate::sheets::dialogs::shortcut_panel;
+use crate::sheets::select::hud;
 use crate::widgets::status_line::status_spans;
 
 use super::frame::Frame;
@@ -54,10 +55,18 @@ pub(super) fn body(
             || run.has_activity_rows()
             || matches!(session.status, Session::Starting));
     // The reader's gap above the composer is a flexible row, the first thing a short window clips.
+    // The menu of `/presets` stands over the whole pane (`above_composer`); where it is closed a
+    // blank child keeps the others' places, so their state is not lost.
+    let menu = state.banner.quick_menu.get();
     let mut body = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .main_axis_size(MainAxisSize::Min)
         .overflow_intended(true)
+        .child(if menu {
+            hud::view(cx)
+        } else {
+            SizedBox::shrink().into()
+        })
         .child(StatusSlot)
         .child(NoticeLine)
         .child(EditWatch);
@@ -72,7 +81,7 @@ pub(super) fn body(
     // `visible_new_backend_control`): the displayed backend, and the key.
     let control = session
         .cycle_label(thread, frame.drawn.offer)
-        .filter(|_| searching.is_none() && !state.shortcuts);
+        .filter(|_| searching.is_none() && !state.shortcuts && !menu);
     if let Some(label) = control {
         body = body.child(
             Row::new()

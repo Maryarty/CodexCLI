@@ -147,6 +147,9 @@ pub(crate) struct BannerGate {
     /// The newest occurrence of the security reminder the user dismissed (0: none): kept here, so
     /// the dismissal survives the usage banner's replacement and the thread switches.
     pub(crate) dismissed: Rc<Cell<u64>>,
+    /// The shortcut menu of `/presets` is open over the composer (`quick_dial_menu`): its keys come
+    /// first, any other key closes it.
+    pub(crate) quick_menu: Rc<Cell<bool>>,
 }
 
 impl BannerGate {
@@ -155,6 +158,7 @@ impl BannerGate {
             keys: Rc::new(Cell::new(BannerKeys::default())),
             options: Options::new(),
             dismissed: Rc::new(Cell::new(0)),
+            quick_menu: Rc::new(Cell::new(false)),
         }
     }
 }

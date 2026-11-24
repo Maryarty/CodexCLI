@@ -16,6 +16,7 @@ use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::live::provider_error;
 use crate::pages::session::transcript;
+use crate::sheets::select::hud::Step as PresetStep;
 
 use super::frame::Frame;
 use super::{ChatMsg, ChatState};
@@ -48,6 +49,19 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     let (banner, blocked) = (state.banner.clone(), state.banner_blocked.clone());
     let keymap = state.keymap.clone();
     state.node.set_on_key_event(Some(Rc::new(move |_, key| {
+        // the menu of `/presets` is open: its keys come first, any other key closes it and goes on
+        // to the field (`handle_quick_dial_menu`)
+        if banner.quick_menu.get() {
+            let pressed = PresetStep::of(&key);
+            if pressed != PresetStep::Hold {
+                send(ChatMsg::Presets(pressed));
+            }
+            return if pressed.is_taken() {
+                KeyEventResult::Handled
+            } else {
+                KeyEventResult::Ignored
+            };
+        }
         // browsing the prompts: its keys come first, any other key ends it
         // and goes on to the field
         if modes.borrow().browsing() {

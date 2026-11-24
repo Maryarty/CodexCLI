@@ -25,3 +25,17 @@ pub(super) fn taken(key: PageKey, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs)
         None => false,
     }
 }
+
+/// Ctrl+C: a feature that owns the thread takes it (the return from a side conversation), else it
+/// interrupts the turn, else it quits (`on_ctrl_c`).
+pub(super) fn ctrl_c(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+    if taken(PageKey::Interrupt, w, cx, hs) {
+        return;
+    }
+    let thread = read::<ThreadModel, _>(cx);
+    if thread.can_interrupt() {
+        cx.emit(&hs.interrupt, thread.id().clone());
+    } else {
+        cx.emit(&hs.quit, ());
+    }
+}

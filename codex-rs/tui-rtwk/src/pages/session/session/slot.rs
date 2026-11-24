@@ -99,7 +99,8 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
                     .ui
                     .draft
                     .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
-                hint_override: None,
+                // the menu of `/presets` takes the hints away (`set_footer_hint_override`)
+                hint_override: state.banner.quick_menu.get().then(Vec::new),
                 flash: None,
                 on_queue: Some(cx.send(ChatMsg::QueueDraft)),
                 on_warnings: Some(cx.send(ChatMsg::Action(Action::Warnings))),

@@ -691,25 +691,19 @@ fn a_plan_that_ends_with_no_sheet_open_asks() {
     h.wait_for("the plan question", |s| s.contains(PLAN_TITLE));
 }
 
-/// `/presets` says its menu is not built instead of opening an empty dialog (the presets HUD stays
-/// with w2-commands item 4); `/daemon` opens its menu (oracle `open_daemon_menu`: not connected to
-/// the local background server in the fake backend) and Esc closes it.
+/// `/daemon` opens its menu (oracle `open_daemon_menu`: not connected to the local background
+/// server in the fake backend) and Esc closes it. (`/presets` is the menu of `presets_menu.rs`.)
 #[test]
-fn presets_say_they_are_not_built_and_daemon_opens_its_menu() {
+fn daemon_opens_its_menu_and_esc_closes_it() {
     let mut h = start();
     h.wait_idle();
-    for (command, words) in [
-        ("/presets", "presets menu"),
-        ("/daemon", "Not connected to the local background server."),
-    ] {
-        h.t.type_text(command);
-        h.press("enter");
-        h.wait_for("the popup", |s| s.contains(words));
-        assert!(!h.t.screen().contains("New preset"), "{}", h.t.screen());
-        h.press("esc");
-        h.settle();
-        assert!(!h.t.screen().contains(words), "{}", h.t.screen());
-    }
+    let words = "Not connected to the local background server.";
+    h.t.type_text("/daemon");
+    h.press("enter");
+    h.wait_for("the popup", |s| s.contains(words));
+    h.press("esc");
+    h.settle();
+    assert!(!h.t.screen().contains(words), "{}", h.t.screen());
 }
 
 /// `/daemon` without a CLI to manage the daemon: the title, the status, the guidance and the

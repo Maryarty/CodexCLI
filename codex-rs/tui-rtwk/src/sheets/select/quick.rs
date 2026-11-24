@@ -14,6 +14,7 @@
 
 mod editor;
 mod entries;
+pub mod hud;
 mod lists;
 pub mod strings;
 
