@@ -14,12 +14,14 @@ mod collab;
 pub mod daybreak;
 pub mod decision;
 pub mod directives;
+pub mod exploration;
 pub mod followups;
 pub mod goal;
 pub mod inline_vis;
 pub mod local_links;
 mod message;
 mod note;
+pub mod processes;
 pub mod queue;
 pub mod replay;
 pub mod status;
@@ -42,6 +44,7 @@ pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, ToolMention, UserMessage};
 pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
+pub use processes::{Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
 pub use user_prompt::{Shown, UserPrompt};
@@ -734,15 +737,6 @@ pub enum TurnEnd {
     Failed,
 }
 
-/// One unified-exec session that runs in the background (oracle
-/// `UnifiedExecProcessSummary`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Terminal {
-    /// The server's process id, else the item's id.
-    pub key: String,
-    pub command: String,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RunningHook {
     id: String,
@@ -826,6 +820,16 @@ pub enum ThreadCtx {
     Screen(ScreenCtx),
     /// An RPC of a feature slice (`ThreadCx::request`).
     Feature(FeatureCtx),
+}
+
+/// What a command of the turn streams (`item/commandExecution/outputDelta`) or is written to
+/// (`item/commandExecution/terminalInteraction`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommandEv {
+    /// Output of the command `key`.
+    Output { key: ItemKey, delta: String },
+    /// The model polled a background terminal (empty `stdin`) or wrote to it.
+    Interaction { process: String, stdin: String },
 }
 
 /// An event of one thread.
@@ -916,10 +920,8 @@ pub enum ThreadEv {
         key: ItemKey,
         delta: String,
     },
-    CommandOutputDelta {
-        key: ItemKey,
-        delta: String,
-    },
+    /// What a command streams or is written to (`CommandEv`).
+    Command(CommandEv),
     TurnEnded {
         turn: TurnId,
         end: TurnEnd,
@@ -975,7 +977,7 @@ impl ThreadEv {
             | Self::HookEnded { .. }
             | Self::AgentDelta { .. }
             | Self::PlanDelta { .. }
-            | Self::CommandOutputDelta { .. }
+            | Self::Command(_)
             | Self::TurnEnded { .. }
             | Self::TurnCompleted { .. }
             | Self::TurnError { .. }
@@ -1079,9 +1081,9 @@ pub struct ThreadCore {
     /// preparation): the queue sends nothing on its own until it is empty
     /// (oracle `recovered_queue`).
     recovered: bool,
-    /// The unified-exec sessions that run in the background (oracle
-    /// `unified_exec_processes`), oldest first.
-    terminals: Vec<Terminal>,
+    /// The unified-exec sessions that run in the background and the wait streak of their
+    /// polls (oracle `unified_exec_processes`, `unified_exec_wait_streak`).
+    processes: processes::Processes,
     /// The hook runs the server reported started and not yet completed.
     hooks: Vec<RunningHook>,
     last_error: Option<Failure>,
@@ -1256,7 +1258,7 @@ impl ThreadModel {
                 steers_after_interrupt: false,
                 restore: None,
                 recovered: false,
-                terminals: Vec::new(),
+                processes: processes::Processes::default(),
                 hooks: Vec::new(),
                 last_error: None,
                 goal: None,
@@ -1365,9 +1367,11 @@ impl ThreadModel {
         self.restore.as_ref()
     }
 
-    /// The background terminals (unified-exec sessions still running), oldest first.
-    pub fn terminals(&self) -> &[Terminal] {
-        &self.terminals
+    /// The process the model keeps polling with nothing to write, while no other entry
+    /// came between: the status row reads `Waiting for background terminal` with its command
+    /// (oracle `unified_exec_wait_streak`).
+    pub fn terminal_wait(&self) -> Option<&WaitStreak> {
+        self.processes.streak()
     }
 
     /// What the status row says of the running hooks (oracle
@@ -1434,6 +1438,11 @@ impl ThreadModel {
 impl ThreadCore {
     pub fn id(&self) -> &ThreadId {
         &self.id
+    }
+
+    /// The background terminals (unified-exec sessions still running), oldest first.
+    pub fn terminals(&self) -> &[Terminal] {
+        self.processes.terminals()
     }
 
     pub fn is_running(&self) -> bool {
@@ -2058,13 +2067,20 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         )),
         ServerNotification::CommandExecutionOutputDelta(n) => Some((
             ThreadId::new(&n.thread_id),
-            ThreadEv::CommandOutputDelta {
+            ThreadEv::Command(CommandEv::Output {
                 key: ItemKey {
                     turn: TurnId::new(&n.turn_id),
                     item: ItemId::new(&n.item_id),
                 },
                 delta: n.delta.clone(),
-            },
+            }),
+        )),
+        ServerNotification::TerminalInteraction(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::Command(CommandEv::Interaction {
+                process: n.process_id.clone(),
+                stdin: n.stdin.clone(),
+            }),
         )),
         _ => None,
     };
@@ -2603,7 +2619,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::CleanTerminals,
         )) if model.has_writer() => {
-            model.terminals.clear();
+            model.processes.clear();
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             screens::apply_thread_intent(
                 &mut model.slots,
@@ -2700,7 +2716,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::ItemStarted { key, item } => {
-            track_terminal(model, &key, &item);
+            processes::track(model, &key, &item);
             note_review(model, &item);
             if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
                 let echo = steer_echoed(model, &item);
@@ -2710,7 +2726,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::ItemUpsert { key, item } => {
-            track_terminal(model, &key, &item);
+            processes::track(model, &key, &item);
             note_review(model, &item);
             if !model.authoritative_turns.contains(&key.turn) {
                 let echo = model.transcript.item(&key).is_none() && steer_echoed(model, &item);
@@ -2719,6 +2735,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 if !model.finished_turns.contains(&key.turn) && matches!(item, Item::Agent { .. }) {
                     model.completed_items.insert(key.clone());
+                    processes::flush(model, Some(key.turn.clone()));
                 }
                 if let Item::Plan { text } = &item
                     && !model.finished_turns.contains(&key.turn)
@@ -2738,21 +2755,30 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::Appended { turn, item } => apply_appended(model, turn, item),
         ThreadEv::AgentDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
+                processes::flush(model, Some(key.turn.clone()));
                 model.transcript.append_agent(key, &delta);
             }
         }
         ThreadEv::PlanDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
                 model.slots.chat.plan.plan_delta();
+                processes::flush(model, Some(key.turn.clone()));
                 model.transcript.append_plan(key, &delta);
             }
         }
-        ThreadEv::CommandOutputDelta { key, delta } => {
+        ThreadEv::Command(CommandEv::Output { key, delta }) => {
+            processes::output(model, &key, &delta);
             if !model.finished_turns.contains(&key.turn) {
                 model.transcript.append_command_output(key, &delta);
             }
         }
-        ThreadEv::TurnEnded { turn, end } => end_turn(model, turn, end, fx),
+        ThreadEv::Command(CommandEv::Interaction { process, stdin }) => {
+            processes::interaction(model, &process, stdin);
+        }
+        ThreadEv::TurnEnded { turn, end } => {
+            processes::turn_ended(model, &turn, end);
+            end_turn(model, turn, end, fx);
+        }
         ThreadEv::TurnCompleted {
             turn,
             end,
@@ -2760,6 +2786,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             timing,
             error,
         } => {
+            processes::turn_ended(model, &turn, end);
             match snapshot {
                 Some(TurnSnapshot::Full(items)) => {
                     Rc::make_mut(&mut model.authoritative_turns).insert(turn.clone());
@@ -2768,7 +2795,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                             turn: turn.clone(),
                             item: id.clone(),
                         };
-                        track_terminal(model, &key, item);
+                        processes::track(model, &key, item);
                     }
                     model.transcript.replace_turn(&turn, items);
                 }
@@ -2838,41 +2865,6 @@ fn with_features(
     step(parts, &mut ThreadCx::new(view, fx));
 }
 
-/// A unified-exec command that runs is a background terminal until its item
-/// completes (oracle `track_unified_exec_process_begin` / `_end`).
-fn track_terminal(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
-    let Item::Tool(tool) = item else {
-        return;
-    };
-    let ToolKind::Shell {
-        command,
-        process_id,
-        unified_exec: true,
-        ..
-    } = &tool.kind
-    else {
-        return;
-    };
-    let key = process_id
-        .clone()
-        .unwrap_or_else(|| key.item.as_str().to_string());
-    if tool.status == ToolStatus::Running {
-        match model
-            .terminals
-            .iter_mut()
-            .find(|terminal| terminal.key == key)
-        {
-            Some(terminal) => terminal.command.clone_from(command),
-            None => model.terminals.push(Terminal {
-                key,
-                command: command.clone(),
-            }),
-        }
-    } else {
-        model.terminals.retain(|terminal| terminal.key != key);
-    }
-}
-
 /// A live completion the server timed only in part (oracle `FinalMessageSeparator::from_turn_once`):
 /// the elapsed time falls back to the status timer (the clock since the turn was seen to start),
 /// the completion time to the local clock.
@@ -2918,6 +2910,9 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
         model.transcript.mark_completed(&turn);
     }
     model.transcript.finish_streams(&turn);
+    if end != TurnEnd::Completed {
+        model.transcript.fail_running(&turn);
+    }
     model.completed_items.retain(|key| key.turn != turn);
     let ends_running = matches!(&model.turn, TurnState::Running(running) if running.turn == turn);
     if ends_running || !model.is_running() {

@@ -37,7 +37,9 @@ pub mod prompt;
 // directory does not compile: `view_dispatch!` needs its `FeatureView` impl.
 pub mod export;
 pub mod goal;
+pub mod mcp_inventory;
 pub mod plugins;
+pub mod processes;
 pub mod rename;
 pub mod settings;
 

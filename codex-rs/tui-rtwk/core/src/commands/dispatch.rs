@@ -237,6 +237,7 @@ pub enum SessionIntent {
         path: String,
     },
     Pwd,
+    /// `/mcp verbose` and `/mcp login <server>` (a bare `/mcp` is the feature's, `Feature::OPENS`).
     Mcp {
         args: Option<String>,
     },
@@ -250,7 +251,6 @@ pub enum SessionIntent {
     ElevateSandbox,
     Hooks,
     DebugConfig,
-    Ps,
     Stop,
     Rollout,
     App,
@@ -458,7 +458,7 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
             open(Target::Settings, command, "")
         }
         // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
-        Export | Plugins => match target_of(command) {
+        Export | Plugins | Ps | Mcp => match target_of(command) {
             Some(feature) => open(Target::Feature(feature), command, ""),
             None => Outcome::Notice(Notice::NotAvailable(command)),
         },
@@ -503,7 +503,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
             },
         ),
         Pwd => session(command, SessionIntent::Pwd),
-        Mcp => session(command, SessionIntent::Mcp { args: None }),
         Logout => session(command, SessionIntent::Logout),
         Vim => session(command, SessionIntent::Vim),
         Ide => session(command, SessionIntent::Ide { args: None }),
@@ -511,7 +510,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         ElevateSandbox => session(command, SessionIntent::ElevateSandbox),
         Hooks => session(command, SessionIntent::Hooks),
         DebugConfig => session(command, SessionIntent::DebugConfig),
-        Ps => session(command, SessionIntent::Ps),
         Stop => session(command, SessionIntent::Stop),
         Rollout => session(command, SessionIntent::Rollout),
         MemoryDrop | MemoryUpdate => session(command, SessionIntent::MemoryMaintenance),

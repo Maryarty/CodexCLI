@@ -141,6 +141,12 @@ impl<'a> ThreadView<'a> {
         self.core.attached() && self.slots.chat.provider_error.is_none()
     }
 
+    /// The thread's background terminals (unified-exec sessions still running), oldest first
+    /// (`/ps`).
+    pub fn terminals(&self) -> &'a [crate::threads::Terminal] {
+        self.core.terminals()
+    }
+
     /// The thread's name, when it has one (`/rename`).
     pub fn name(&self) -> Option<&'a str> {
         self.slots.chat.name.as_deref()

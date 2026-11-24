@@ -371,7 +371,6 @@ pub(super) fn session_intent(
         | S::ElevateSandbox
         | S::Hooks
         | S::DebugConfig
-        | S::Ps
         | S::Review { args: None }
         | S::Model { .. }
         | S::Permissions { args: None }
