@@ -196,6 +196,8 @@ impl ComposerDraft {
             inner.shell = shell;
             inner.vim.history = Default::default();
         }
+        // Replace mode's recovery starts empty over the imported text
+        self.with_vim(codex_tui_core::kit::vim::Vim::forget_recovery);
         c.reset("");
         let next = self.0.borrow().next_seq;
         // the placeholders still in the text, in text order: each takes the first image of its

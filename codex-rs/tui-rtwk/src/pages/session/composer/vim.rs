@@ -561,9 +561,19 @@ pub fn insert(
             }
         )
         && c.selection().is_collapsed()
-        && run(data, c, |v, host| v.replace_backspace(host))
     {
-        return Some(true);
+        // Backspace at the start of a shell draft takes the `!` away, after Replace put back what
+        // the hidden `!` had covered (`handle_key_event_without_popup`)
+        let hidden = draft.shell() && c.selection().extent_offset == 0;
+        let restored = run(data, c, |v, host| v.replace_backspace(host));
+        if hidden {
+            draft.set_shell(false);
+            (data.tell)(ComposerMsg::Shell);
+            return Some(true);
+        }
+        if restored {
+            return Some(true);
+        }
     }
     match resolved {
         Resolved::Edit {
@@ -577,16 +587,53 @@ pub fn insert(
             run(data, c, |v, host| v.type_text(host, "\n"));
             Some(true)
         }
+        Resolved::Edit {
+            edit: Edit::Yank, ..
+        } if !c.selection().is_collapsed() && !draft.register().text.is_empty() => {
+            // a selected range is what the yank replaces (`apply_vim_insert_action`)
+            insert_pasted(draft, c, &draft.register().text);
+            Some(true)
+        }
         Resolved::Edit { edit, .. } => {
             let action = edit.action()?;
             run(data, c, |v, host| v.insert_action(host, action)).then_some(true)
         }
         Resolved::None if mode.replace => {
             let ch = typed_char(key)?;
+            // a selected range is replaced by what is typed, as in any mode, and no command
+            // repeats it (`insert_str_at_target`)
+            if !c.selection().is_collapsed() {
+                draft.with_vim(Vim::forget_commands);
+                return None;
+            }
             run(data, c, |v, host| v.type_text(host, &ch.to_string()));
+            absorb_shell_prefix(draft, &*data.tell, c);
             Some(true)
         }
         _ => None,
+    }
+}
+
+/// Whether Vim is on and in Replace mode: what is typed or pasted overwrites.
+pub fn replacing(draft: &ComposerDraft) -> bool {
+    draft.vim_enabled() && mode(draft).replace
+}
+
+/// A `!` Replace mode typed at the draft's start is shell mode and leaves the text (the prompt
+/// shows it); its recovery step stays, so Backspace brings back the character it covered
+/// (`sync_bash_mode_from_text`, `absorb_prompt_prefix`).
+pub fn absorb_shell_prefix(
+    draft: &ComposerDraft,
+    tell: &dyn Fn(ComposerMsg),
+    c: &TextEditingController,
+) {
+    if draft.shell() || draft.is_plain() || !c.text().starts_with('!') {
+        return;
+    }
+    let caret = c.selection().extent_offset;
+    draft.with_vim(|v| v.absorb_prompt_prefix(caret, 1));
+    if draft.absorb_shell_prefix(c) {
+        tell(ComposerMsg::Shell);
     }
 }
 
@@ -612,7 +659,12 @@ pub fn paste_into_query(draft: &ComposerDraft, text: &str) -> bool {
 /// Puts a paste (or a flushed burst) into the text: Replace mode overwrites what it covers, the
 /// other modes insert it at the selection.
 pub fn insert_pasted(draft: &ComposerDraft, c: &TextEditingController, text: &str) {
-    if draft.vim_enabled() && mode(draft).replace {
+    if draft.vim_enabled() && mode(draft).replace && !c.selection().is_collapsed() {
+        // a pointer's selection is replaced whole, and no command repeats it
+        // (`insert_str_at_target`)
+        draft.with_vim(Vim::forget_commands);
+        c.insert(text);
+    } else if draft.vim_enabled() && mode(draft).replace {
         let mut host = VimHost::new(c, draft);
         draft.with_vim(|v| v.insert_pasted(&mut host, text));
     } else {

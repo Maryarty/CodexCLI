@@ -4,6 +4,9 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::{Ask as Effect, Done};
+
 use crate::kit::{self, Owner, Screen};
 
 /// A chat screen at `w` x `h`, the composer live and empty.
@@ -122,6 +125,16 @@ fn submit_once(s: &mut Screen, text: &str) {
 fn vim_draft(s: &mut Screen, text: &str) {
     type_lines(s, text);
     s.keys("f9 g g");
+}
+
+/// The oracle's `set_text_content(text)` in Vim's Normal mode: the draft is replaced and Normal
+/// mode stays (`d$` leaves in the register the text a `y$` took of the same line, and `0` puts
+/// the caret on the first cell, as the oracle's tests then do).
+fn vim_replace_draft(s: &mut Screen, text: &str) {
+    s.type_text("d$i");
+    type_lines(s, text);
+    s.keys("esc");
+    s.type_text("0");
 }
 
 /// The oracle's `rich_composer()`: a `$skill` mention, an attached image, a 1001-character paste,
@@ -332,10 +345,6 @@ fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:62 recovery_keeps_unselected_text_after_a_held_replace_key kind=ui owner=chat-live
 #[test]
 fn recovery_keeps_unselected_text_after_a_held_replace_key() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace with a mouse selection: a drag over `bc` then `X` replaces the character at the end of the drag (`abcX`), the oracle replaces the selection and keeps the rest (`aXd`)",
-    );
     for (text, expected) in [("abcd", "aXd"), ("!abcd", "!aXd")] {
         let mut s = chat(80, 24);
         s.type_text(text);
@@ -930,10 +939,6 @@ fn vim_replace_backspace_restores_characters_in_new_slash_element() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:714 vim_replace_delete_backward_restores_characters_hidden_by_prompt_prefixes kind=ui owner=chat-live
 #[test]
 fn vim_replace_delete_backward_restores_characters_hidden_by_prompt_prefixes() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: `R!` does not hide the `!` prefix, so Ctrl+H restores nothing",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "ébc");
     s.type_text("R!");
@@ -1001,17 +1006,28 @@ fn vim_replace_completion_preserves_suffix() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:797 external_editor_import_preserves_replace_backspace_recovery kind=ui owner=chat-live
 #[test]
 fn external_editor_import_preserves_replace_backspace_recovery() {
-    kit::pending(
-        Owner::ChatLive,
-        "G67: a composer handler cannot suspend the terminal for $EDITOR (no Ctrl+G external editor); no Vim Replace mode and no external-editor import on the chat composer (apply_external_edit has no seed): the imported `abc` is not drawn",
-    );
     let mut s = chat(100, 24);
     s.type_text("old");
-    s.keys("esc");
-    s.type_text("RX");
-    // the external editor returns `abc` (no kit call yet); the caret is after its first cell
+    s.keys("f9");
+    s.type_text("0RX");
+    // Ctrl+G sends the draft to the editor, which returns `abc`
+    s.keys("ctrl+g");
+    let ask = s
+        .commands()
+        .into_iter()
+        .find(|c| {
+            matches!(c, Command::Effect { ask: Effect::Editor { draft, .. }, .. } if draft == "Xld")
+        })
+        .expect("the draft went to the editor");
+    s.answer_effect(&ask, Done::Editor(Ok("abc".into())));
+    s.assert_row(prompt(&s), "› abc");
+    // the caret is after its first cell: Backspace deletes `a`, nothing of the old Replace is put back
+    s.keys("home right backspace");
+    s.assert_row(prompt(&s), "› bc");
+    s.type_text("X");
     s.keys("backspace");
     s.assert_row(prompt(&s), "› bc");
+    s.assert_contains("Replace");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:829 cancelled_history_search_preserves_literal_bang_draft kind=ui owner=chat-live
@@ -1079,15 +1095,10 @@ fn insert_yank_and_dot_preserve_rich_payloads() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:172 insert_yank_repeat_keeps_original_text_after_word_deletion kind=ui owner=chat-live
 #[test]
 fn insert_yank_repeat_keeps_original_text_after_word_deletion() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: the Insert-mode yank and the dot repeat are not drawn",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "foo bar");
-    s.type_text("y$");
-    s.keys("ctrl+u");
-    s.type_text("_");
+    s.type_text("0y$");
+    vim_replace_draft(&mut s, "_");
     s.type_text("0i");
     s.keys("ctrl+y ctrl+w esc");
     s.assert_row(prompt(&s), "› foo _");
@@ -1133,15 +1144,10 @@ fn replace_yank_inserts_rich_objects_without_stale_character_recovery() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:250 equal_length_plain_replace_yank_records_dot kind=ui owner=chat-live
 #[test]
 fn equal_length_plain_replace_yank_records_dot() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: the equal-length Replace yank and its dot repeat are not drawn",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "xyz");
-    s.type_text("y$");
-    s.keys("ctrl+u");
-    s.type_text("abcdefghi");
+    s.type_text("0y$");
+    vim_replace_draft(&mut s, "abcdefghi");
     s.type_text("0R");
     s.keys("ctrl+y esc");
     s.type_text("l.");
@@ -1151,12 +1157,9 @@ fn equal_length_plain_replace_yank_records_dot() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:265 empty_insert_and_replace_yanks_do_not_replay_a_later_register kind=ui owner=chat-live
 #[test]
 fn empty_insert_and_replace_yanks_do_not_replay_a_later_register() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: the empty Insert and Replace yanks and the later `0yl.` replay are not drawn",
-    );
     for mode in ["i", "R"] {
         let mut s = chat(100, 24);
+        s.keys("f9");
         s.type_text(mode);
         s.keys("ctrl+y");
         s.type_text("x");
@@ -1170,10 +1173,6 @@ fn empty_insert_and_replace_yanks_do_not_replay_a_later_register() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:283 linewise_rich_paste_preserves_the_cursor_on_the_leading_element kind=snap owner=chat-live
 #[test]
 fn linewise_rich_paste_preserves_the_cursor_on_the_leading_element() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim linewise yank and put are built but the kit seeds no Vim state for this body, and no image attachment on the chat composer: the two `[Pasted Content 1001 chars]` lines and the caret on the first cell of the second are not drawn",
-    );
     let mut s = chat(100, 24);
     s.paste(&"z".repeat(1001));
     s.keys("f9");
@@ -1187,15 +1186,10 @@ fn linewise_rich_paste_preserves_the_cursor_on_the_leading_element() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:339 yank_replaces_selection_without_recording_pointer_edits kind=ui owner=chat-live
 #[test]
 fn yank_replaces_selection_without_recording_pointer_edits() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no mouse selection on the chat composer: a Ctrl+Y over the drag-selected `bc` is not drawn; the plain `xyz` case is the visible half",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "xyz");
-    s.type_text("y$");
-    s.keys("ctrl+u");
-    s.type_text("abcdef");
+    s.type_text("0y$");
+    vim_replace_draft(&mut s, "abcdef");
     s.type_text("i");
     let p = prompt(&s);
     // the drag selects `bc` (draft columns 1 to 3)
@@ -1207,15 +1201,10 @@ fn yank_replaces_selection_without_recording_pointer_edits() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:385 plain_replace_yank_preserves_previous_backspace_recovery kind=ui owner=chat-live
 #[test]
 fn plain_replace_yank_preserves_previous_backspace_recovery() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace yank is built but the kit seeds no Vim state for this body: `0RQ` then Ctrl+Y over `bcd` is not drawn, and Backspace does not restore `abcdefghi`",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "xyz");
-    s.type_text("y$");
-    s.keys("ctrl+u");
-    s.type_text("abcdefghi");
+    s.type_text("0y$");
+    vim_replace_draft(&mut s, "abcdefghi");
     s.type_text("0RQ");
     s.keys("ctrl+y");
     s.assert_row(prompt(&s), "› Qxyzefghi");

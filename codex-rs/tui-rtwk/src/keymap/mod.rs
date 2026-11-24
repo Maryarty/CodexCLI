@@ -218,8 +218,10 @@ fn holds(binding: &FixedBinding, key: &KeyPress) -> bool {
     .into_iter()
     .filter(|(flag, _)| key.mods.contains(*flag))
     .fold(Mods::NONE, |all, (_, mods)| all.with(mods));
+    // a character is the key typed, or the key it is on a US layout (a Cyrillic layout's Ctrl+в
+    // is Ctrl+D: `KeyCombo::accepts_press` reads a press the same way)
     let same_key = match binding.key {
-        Key::Char(c) => key.ch == Some(c),
+        Key::Char(c) => key.ch == Some(c) || key.layout_char() == Some(c),
         other => press_code(other) == Some(key.code),
     };
     same_key && binding.mods.accepts(held)
@@ -371,6 +373,14 @@ pub fn of(id: ActionId) -> KeyPress {
 /// press) is one of a hardwired action's keys.
 pub fn event_is_fixed(id: ActionId, event: &rtwk_core::input::KeyEvent) -> bool {
     KeyPress::from_event(event).is_some_and(|key| pressed_fixed(id, &key))
+}
+
+/// What a terminal without the kitty protocol sends for Ctrl+H: the C0 byte, which arrives as
+/// Backspace holding Ctrl. The oracle's backend reads it as `Ctrl+h`, the key `ctrl-h` names, so
+/// `Some` is that press (a kitty terminal's Ctrl+H is the press itself).
+pub fn c0_ctrl_h(key: &KeyPress) -> Option<KeyPress> {
+    (key.code == KeyCode::Backspace && key.mods == PressMods::CTRL)
+        .then(|| KeyPress::char('h').with_mods(PressMods::CTRL))
 }
 
 /// The press of a hardwired action's first key (`Edit::canonical`: the key the field's own

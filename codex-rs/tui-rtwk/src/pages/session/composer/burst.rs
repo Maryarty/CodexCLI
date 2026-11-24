@@ -120,7 +120,13 @@ pub fn flush_due_with(
             true
         }
         FlushResult::Typed(ch) => {
-            if !typed_char(draft, tell, c, ch, skill_space) {
+            // Replace mode puts it over what it covers, a `!` at the start included
+            // (`insert_str`, then `sync_bash_mode_from_text`)
+            if vim::replacing(draft) {
+                vim::insert_pasted(draft, c, &ch.to_string());
+                vim::absorb_shell_prefix(draft, tell, c);
+                vim::pasted(draft, c, &ch.to_string());
+            } else if !typed_char(draft, tell, c, ch, skill_space) {
                 vim::insert_pasted(draft, c, &ch.to_string());
                 // Insert mode records it for `.`
                 vim::pasted(draft, c, &ch.to_string());
@@ -158,7 +164,17 @@ pub fn apply_paste(
     c: &TextEditingController,
     text: &str,
 ) {
-    if !draft.paste(c, text, |chars| (env.label)(chars), |n| (env.image)(n)) {
+    if vim::replacing(draft)
+        && text.starts_with('!')
+        && c.selection().start() == 0
+        && !draft.is_plain()
+        && !draft.shell()
+        && codex_tui_core::kit::paste::large_paste(text).is_none()
+    {
+        // a `!` Replace mode puts at the start is shell mode, over the character it covered
+        vim::insert_pasted(draft, c, text);
+        vim::absorb_shell_prefix(draft, tell, c);
+    } else if !draft.paste(c, text, |chars| (env.label)(chars), |n| (env.image)(n)) {
         vim::insert_pasted(draft, c, text);
     }
     vim::pasted(draft, c, text);
