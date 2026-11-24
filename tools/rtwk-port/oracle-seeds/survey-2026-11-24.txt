@@ -1,0 +1,43 @@
+oracle tests 2599; pending 1016 (stubs with no body 59); tests with a fixture file 548
+blocker class: other 399, feature 327, entry 140, kit-seed 82, keymap 49, fixture 19
+
+| class | cell | events | notif | widget | total |
+|---|---|---|---|---|---|
+| other | 142 | 67 | 10 | 180 | 399 |
+| feature | 47 | 219 | 22 | 39 | 327 |
+| entry | 33 | 8 | 0 | 99 | 140 |
+| kit-seed | 32 | 24 | 0 | 26 | 82 |
+| keymap | 16 | 14 | 1 | 18 | 49 |
+| fixture | 10 | 6 | 0 | 3 | 19 |
+
+| owner | other | feature | entry | kit-seed | keymap | fixture | total |
+|---|---|---|---|---|---|---|---|
+| chat-live | 274 | 141 | 22 | 44 | 11 | 14 | 506 |
+| dialogs-pane | 54 | 78 | 52 | 5 | 27 | 0 | 216 |
+| ui-pane | 31 | 84 | 30 | 2 | 0 | 3 | 150 |
+| chat-nav-pane | 27 | 23 | 0 | 28 | 7 | 0 | 85 |
+| routes-lists | 7 | 1 | 36 | 3 | 4 | 2 | 53 |
+| startup-prompts | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
+| onboarding | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
+| startup-flow | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+
+fixture-class tests (the generator-addressable set):
+- chat_live_2::completion_follows_plain_and_streamed_tool_answers (chat-live, events): no script step for the completed turn's final separator (`Worked for` duration, completion time) nor for a str
+- chat_live_2::chained_config_error_wraps_in_history_snapshot (chat-live, events): no script step for a UI error message (a failed save of the default model, `config/batchWrite failed`) in the 
+- chat_live_4::plan_implementation_popup_skips_when_rate_limit_prompt_pending (chat-live, events): the Implement-this-plan prompt exists; no fixture yet for the 92% rate-limit snapshot before the turn complete
+- chat_status_3::subagent_completion_preserves_stream_and_authoritative_answer (ui-pane, events): no subagent activity in the live chat: the turn deltas, the subagent completion and the authoritative answer h
+- chat_status_3::interrupted_answer_flushes_queued_subagent_activity (ui-pane, events): no subagent activity and no turn interrupt in the live chat: the seed has no script yet
+- chat_status_3::image_result_live_and_replay_render_in_the_owning_call (ui-pane, events): the chat has no MCP tool call with an image result, live or replayed: no seed script for either path
+- transcript_view_5::reasoning_copy_joins_soft_wraps_and_retains_the_existing_rendering (chat-live, cell): no transcript-only reasoning entry: a ReasoningSummaryCell has no script shape or debug entry, and the chat dr
+- transcript_view_5::plan_copy_retains_checkboxes_but_omits_wrapping_gutters (chat-live, cell): no plan-update entry: the chat has no update_plan cell and no script shape for a plan
+- transcript_view_5::recap_copy_preserves_hard_lines_and_reflows_only_soft_wraps (chat-live, cell): no thread-recap entry: a ThreadRecapHistoryCell with a next action has no script shape, and the chat draws no 
+- transcript_view_5::recap_tabs_preserve_url_wrapping_and_source_across_resize (chat-live, cell): no thread-recap entry with a leading tab and a URL: no script shape, and the chat draws no recap yet
+- transcript_view_5::ordinary_spaces_before_tabs_affect_the_stop_without_entering_the_gutter (chat-live, widget): no entry with ordinary spaces before tabs in a 32-column row: no script shape yet
+- transcript_view_5::aligned_text_excludes_synthetic_leading_columns (chat-live, widget): no right-aligned hyperlinked entry ('wide') at eight columns: no script shape and no transcript cell yet
+- transcript_view_5::narrow_wrapping_keeps_joined_emoji_whole (chat-live, widget): no entry with a joined emoji and a letter at two columns: no script shape yet
+- transcript_view_5::hidden_initial_entries_do_not_add_a_separator_but_visible_entries_do (chat-live, cell): no seed of hidden empty entries between visible ones with a live row 'Live': the oracle's empty cells have no 
+- transcript_view_5::reading_survives_prepend_and_new_output_then_returns_to_latest (chat-live, cell): no older page loaded from history and no new output arriving while the reader is up: no script shape, and the 
+- transcript_view_5::scrolling_to_latest_cancels_beginning_and_keeps_selection_when_the_final_page_arrives (chat-live, cell): no history-loading state and no triple-click selection in the chat; the final older page arrives from no scrip
+- transcript_view_5::selecting_within_an_edge_row_does_not_start_selection_autoscroll (chat-live, cell): no drag selection with edge autoscroll in the chat; the forty-row entry has no script shape until the selectio
+- usage::analytics_sections_adapt_to_terminal_colors (routes-lists, cell): asserts terminal colour mapping of the test's palette, needs a fixture of every section
+- usage::chat_selection_keeps_a_highlighted_trailing_blank_after_wrapping (routes-lists, cell): asserts terminal colour mapping of the test's palette, needs a fixture of every section
