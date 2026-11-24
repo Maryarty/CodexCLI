@@ -724,7 +724,7 @@ fn switching_fields_clears_length_validation_flash() {
         .entry("approvals", "mcp_two_strings")
         .open();
     // The oracle pastes one character over the input limit: Enter flashes the length error, ctrl+n goes on.
-    s.paste(&"x".repeat(codex_tui_core::screens::composer::MAX_INPUT_CHARS + 1));
+    s.paste_over_the_input_limit();
     s.keys("enter");
     s.keys("ctrl+n");
     // The oracle's frame delay and the flash timing are not drawn; the composer is empty after the switch, so no x run is on the screen.

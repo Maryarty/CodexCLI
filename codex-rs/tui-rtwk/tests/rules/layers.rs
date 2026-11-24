@@ -773,7 +773,14 @@ fn features_are_named_only_through_the_list() {
 fn declared_feature_mods(mod_rs: &str) -> Vec<String> {
     let mut mods: Vec<String> = code_lines(mod_rs)
         .filter_map(|(_, line)| {
-            let name = line.trim().strip_prefix("pub mod ")?.strip_suffix(';')?;
+            let line = line.trim();
+            // any visibility: `pub mod`, `pub(crate) mod`, `pub(super) mod`
+            let rest = line.strip_prefix("pub")?;
+            let rest = match rest.strip_prefix('(') {
+                Some(restricted) => restricted.split_once(')')?.1,
+                None => rest,
+            };
+            let name = rest.strip_prefix(" mod ")?.strip_suffix(';')?;
             name.chars().all(is_ident).then(|| name.to_string())
         })
         .collect();
@@ -797,9 +804,8 @@ fn the_plain_feature_mods_are_the_feature_list() {
 
 #[test]
 fn the_feature_mod_scan_bites() {
-    let text =
-        "// pub mod commented;\nmod private;\npub mod goal;\npub mod queue;\npub use goal::Goal;\n";
-    assert_eq!(declared_feature_mods(text), ["goal", "queue"]);
+    let text = "// pub mod commented;\nmod private;\npub mod goal;\npub(crate) mod hidden;\npub mod queue;\npub use goal::Goal;\n";
+    assert_eq!(declared_feature_mods(text), ["goal", "hidden", "queue"]);
 }
 
 #[test]

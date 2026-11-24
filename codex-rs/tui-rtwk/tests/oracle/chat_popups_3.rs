@@ -4,7 +4,6 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::features::plugins::{Location, Target, Want};
 use serde_json::json;
 
 use crate::kit::{self, Owner, Screen};
@@ -30,11 +29,6 @@ pub(crate) fn row_of(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-/// The screen's text with every run of white space one space: a history cell the width wraps reads as one line.
-fn flat(s: &Screen) -> String {
-    s.text().split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 /// The plugin the marketplace tabs of these tests hold.
 fn debug_plugin() -> serde_json::Value {
     seed::available(
@@ -55,13 +49,6 @@ fn debug_market() -> serde_json::Value {
         Some("Debug Marketplace"),
         vec![debug_plugin()],
     )
-}
-
-/// The config of a user whose `names` are git marketplaces.
-fn config_with(names: &[&str]) -> codex_tui_core::features::plugins::Config {
-    let mut config = seed::config();
-    config.configured = names.iter().map(|name| seed::git(name)).collect();
-    config
 }
 
 /// The browser over the curated marketplace holding `plugins` (the oracle's `render_loaded_plugins_popup`).
@@ -99,25 +86,6 @@ fn figma_detail(summary: serde_json::Value) -> serde_json::Value {
         &["Figma", "Slack"],
         &["figma-mcp", "docs-mcp"],
     )
-}
-
-/// The `app/list` requests the app has made, oldest first.
-pub(crate) fn apps_asked(s: &Screen) -> Vec<codex_tui_core::app::Command> {
-    use codex_tui_core::app::Command;
-    use codex_tui_core::screens::ScreenCommand;
-    use codex_tui_core::screens::select::Command as Select;
-    s.commands()
-        .into_iter()
-        .filter(|command| {
-            matches!(
-                command,
-                Command::Screen {
-                    command: ScreenCommand::Select(Select::Apps { .. }),
-                    ..
-                }
-            )
-        })
-        .collect()
 }
 
 /// An `app/list` answer: `(id, name, description)` of apps installed and on.
@@ -167,7 +135,7 @@ fn marketplace_upgrade_loading_popup_snapshot() {
     seed::with(&shelf, |held| {
         held.held.insert("marketplace/upgrade");
     });
-    let mut s = seed::open(100, 24, config_with(&["debug"]), &shelf);
+    let mut s = seed::open(100, 24, seed::config_with(&["debug"]), &shelf);
     select_tab(&mut s, "Debug Marketplace.");
     s.keys("ctrl+u");
     s.assert_contains("Upgrading debug marketplace...");
@@ -192,16 +160,15 @@ fn marketplace_upgrade_failure_includes_backend_messages_snapshot() {
             })),
         );
     });
-    let mut s = seed::open(100, 24, config_with(&["debug"]), &shelf);
+    let mut s = seed::open(100, 24, seed::config_with(&["debug"]), &shelf);
     select_tab(&mut s, "Debug Marketplace.");
     s.keys("ctrl+u esc");
-    let text = flat(&s);
     for fragment in [
         "Failed to upgrade 2 marketplaces",
         "debug: git ls-remote marketplace source failed with status 128: authentication failed",
         "tools: failed to validate upgraded marketplace root",
     ] {
-        assert!(text.contains(fragment), "{fragment}\n{}", s.text());
+        s.assert_reads(fragment);
     }
 }
 
@@ -326,16 +293,7 @@ fn plugins_popup_add_marketplace_tab_opens_prompt_and_submits_source() {
     s.assert_contains("owner/repo, git URL, or local marketplace path");
     s.paste("owner/repo").keys("enter");
     // the add request goes out once, for the source typed
-    let adds: Vec<_> = seed::wants(&s)
-        .into_iter()
-        .filter(|want| matches!(want, Want::Add { .. }))
-        .collect();
-    assert_eq!(
-        adds,
-        vec![Want::Add {
-            source: "owner/repo".to_string()
-        }]
-    );
+    seed::assert_added(&s, &["owner/repo"]);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:346 plugins_popup_upgrades_user_configured_git_marketplace_from_marketplace_tab kind=ui owner=dialogs-pane
@@ -348,7 +306,7 @@ fn plugins_popup_upgrades_user_configured_git_marketplace_from_marketplace_tab()
     seed::with(&shelf, |held| {
         held.held.insert("marketplace/upgrade");
     });
-    let mut s = seed::open(100, 24, config_with(&["repo"]), &shelf);
+    let mut s = seed::open(100, 24, seed::config_with(&["repo"]), &shelf);
     select_tab(&mut s, "Repo Marketplace.");
     s.assert_contains("Repo Marketplace.");
     s.assert_contains("⌃u upgrade");
@@ -356,16 +314,7 @@ fn plugins_popup_upgrades_user_configured_git_marketplace_from_marketplace_tab()
     s.assert_contains("Debug Plugin");
     s.keys("ctrl+u ctrl+u");
     // one upgrade of `repo`, no duplicate
-    let upgrades: Vec<_> = seed::wants(&s)
-        .into_iter()
-        .filter(|want| matches!(want, Want::Upgrade { .. }))
-        .collect();
-    assert_eq!(
-        upgrades,
-        vec![Want::Upgrade {
-            name: Some("repo".to_string())
-        }]
-    );
+    seed::assert_upgraded(&s, &[Some("repo")]);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:415 marketplace_add_success_refreshes_to_new_marketplace_tab kind=snap owner=dialogs-pane snap=plugins_popup_newly_installed_marketplace
@@ -375,7 +324,7 @@ fn marketplace_add_success_refreshes_to_new_marketplace_tab() {
     seed::with(&shelf, |held| {
         held.held.insert("marketplace/add");
     });
-    let mut s = seed::open(100, 24, config_with(&["debug"]), &shelf);
+    let mut s = seed::open(100, 24, seed::config_with(&["debug"]), &shelf);
     select_tab(&mut s, "Add a marketplace from a Git repo or local root.");
     s.keys("enter");
     s.paste("owner/repo").keys("enter");
@@ -393,7 +342,7 @@ fn marketplace_add_success_refreshes_to_new_marketplace_tab() {
             })),
         );
     });
-    let add = seed::last(&s, |want| matches!(want, Want::Add { .. }));
+    let add = seed::last_of(&s, seed::Kind::Add);
     s.answer_request(
         &add,
         json!({
@@ -428,7 +377,7 @@ fn plugins_popup_removes_user_configured_marketplace_flow() {
     seed::with(&shelf, |held| {
         held.held.insert("marketplace/remove");
     });
-    let mut s = seed::open(100, 24, config_with(&["repo"]), &shelf);
+    let mut s = seed::open(100, 24, seed::config_with(&["repo"]), &shelf);
     select_tab(&mut s, "Repo Marketplace.");
     s.assert_contains("Repo Marketplace.");
     s.assert_contains("⌃u upgrade");
@@ -451,9 +400,9 @@ fn plugins_popup_removes_user_configured_marketplace_flow() {
                 .to_string()
         })
         .collect();
-    assert_eq!(
-        dialog,
-        [
+    kit::assert_rows_are(
+        &dialog,
+        &[
             "  Plugins",
             "  Remove Repo Marketplace marketplace?",
             "  This removes the configured marketplace from Codex.",
@@ -465,26 +414,17 @@ fn plugins_popup_removes_user_configured_marketplace_flow() {
             "",
             "  enter select · esc close",
         ],
-        "plugins_popup_marketplace_remove_confirmation, from the dialog's column"
     );
     s.keys("enter");
     s.assert_contains("Removing Repo Marketplace...");
     s.assert_contains("Removing marketplace...");
-    assert_eq!(
-        seed::wants(&s)
-            .into_iter()
-            .filter(|want| matches!(want, Want::Remove { .. }))
-            .collect::<Vec<_>>(),
-        vec![Want::Remove {
-            name: "repo".to_string()
-        }]
-    );
+    seed::assert_removed(&s, &["repo"]);
     // the removal result and the refreshed list arrive from the app server
     seed::with(&shelf, |held| {
         held.held.remove("marketplace/remove");
         held.local = vec![seed::curated(Vec::new())];
     });
-    let remove = seed::last(&s, |want| matches!(want, Want::Remove { .. }));
+    let remove = seed::last_of(&s, seed::Kind::Remove);
     s.answer_request(
         &remove,
         json!({ "marketplaceName": "repo", "installedRoot": seed::path("marketplaces/repo") }),
@@ -607,17 +547,7 @@ fn plugins_popup_remote_row_opens_remote_detail() {
     s.assert_contains("Press Enter to install or view plugin details");
     s.keys("enter");
     // the detail is asked of the remote marketplace, by the plugin's id
-    let target = Target {
-        location: Location::Remote {
-            marketplace: "workspace-directory".to_string(),
-        },
-        plugin: "plugins~Plugin_calendar".to_string(),
-    };
-    assert!(
-        seed::wants(&s).contains(&Want::Read(target)),
-        "{:?}",
-        seed::wants(&s)
-    );
+    seed::assert_read_remote(&s, "workspace-directory", "plugins~Plugin_calendar", 1);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:842 plugin_detail_unmaterialized_default_uses_remote_install_path kind=ui owner=dialogs-pane
@@ -657,16 +587,10 @@ fn plugin_detail_unmaterialized_default_uses_remote_install_path() {
     s.assert_contains("Install this plugin now");
     s.keys("down enter");
     // the install is asked of the remote marketplace, by the plugin's id
-    let target = Target {
-        location: Location::Remote {
-            marketplace: "workspace-shared-with-me-private".to_string(),
-        },
-        plugin: "plugins~Plugin_linear".to_string(),
-    };
-    assert!(
-        seed::wants(&s).contains(&Want::Install(target)),
-        "{:?}",
-        seed::wants(&s)
+    seed::assert_install_remote(
+        &s,
+        "workspace-shared-with-me-private",
+        "plugins~Plugin_linear",
     );
 }
 
@@ -774,11 +698,7 @@ fn plugin_detail_popup_shows_admin_disabled_status_snapshot() {
     s.assert_contains("This plugin is disabled by your workspace admin");
     s.assert_absent("Install this plugin now");
     // no action goes out after the disabled install state is drawn
-    assert!(
-        !seed::wants(&s)
-            .iter()
-            .any(|want| matches!(want, Want::Install(_)))
-    );
+    seed::assert_no_install(&s);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1132 plugins_popup_admin_disabled_installed_plugin_has_no_toggle_hint kind=snap owner=dialogs-pane snap=plugins_popup_admin_disabled_installed
@@ -808,11 +728,7 @@ fn plugins_popup_admin_disabled_installed_plugin_has_no_toggle_hint() {
     let before = s.shot();
     s.keys("tab");
     s.assert_same_rows(&before);
-    assert!(
-        !seed::wants(&s)
-            .iter()
-            .any(|want| matches!(want, Want::Enable { .. }))
-    );
+    seed::assert_no_enable(&s);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1176 plugins_popup_admin_disabled_available_plugin_has_view_only_hint kind=ui owner=dialogs-pane
@@ -933,17 +849,7 @@ fn plugins_popup_remote_detail_tracks_physical_and_policy_install_state() {
     s.assert_contains("Docs");
     s.keys("enter");
     // the detail is asked of the remote marketplace, by the remote id
-    let target = || Target {
-        location: Location::Remote {
-            marketplace: market.to_string(),
-        },
-        plugin: id.to_string(),
-    };
-    assert!(
-        seed::wants(&s).contains(&Want::Read(target())),
-        "{:?}",
-        seed::wants(&s)
-    );
+    seed::assert_read_remote(&s, market, id, 1);
     // the policy refresh (an admin-assigned remote duplicate that is not installed) arrives
     seed::with(&shelf, |held| held.remote = vec![remote(false)]);
     let unmaterialized = seed::set(
@@ -972,11 +878,7 @@ fn plugins_popup_remote_detail_tracks_physical_and_policy_install_state() {
     s.assert_contains("No installed plugins");
     s.assert_absent("Docs");
     s.keys("left enter");
-    let reads = seed::wants(&s)
-        .into_iter()
-        .filter(|want| *want == Want::Read(target()))
-        .count();
-    assert_eq!(reads, 2);
+    seed::assert_read_remote(&s, market, id, 2);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1464 plugin_detail_error_popup_skips_disabled_row_numbering kind=snap owner=dialogs-pane snap=plugin_detail_error_popup
@@ -1082,40 +984,16 @@ fn plugins_popup_toggle_keys_preserve_search_and_selection() {
     });
     let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("down space");
-    let enables = |s: &Screen| -> Vec<Want> {
-        seed::wants(s)
-            .into_iter()
-            .filter(|want| matches!(want, Want::Enable { .. }))
-            .collect()
-    };
-    assert_eq!(
-        enables(&s),
-        vec![Want::Enable {
-            id: "plugin-drive".to_string(),
-            enabled: false
-        }]
-    );
+    seed::assert_enables(&s, &[("plugin-drive", false)]);
     s.type_text("dr");
     s.keys("tab");
     // the write goes on: the server confirms the first, then the one that flips it back
     seed::with(&shelf, |held| {
         held.held.remove("config/value/write");
     });
-    let first = seed::last(&s, |want| matches!(want, Want::Enable { .. }));
+    let first = seed::last_of(&s, seed::Kind::Enable);
     s.answer_request(&first, json!({}));
-    assert_eq!(
-        enables(&s),
-        vec![
-            Want::Enable {
-                id: "plugin-drive".to_string(),
-                enabled: false
-            },
-            Want::Enable {
-                id: "plugin-drive".to_string(),
-                enabled: true
-            },
-        ]
-    );
+    seed::assert_enables(&s, &[("plugin-drive", false), ("plugin-drive", true)]);
     s.assert_snap_region(
         "plugins_popup_toggle_refresh_preserves_search",
         row_of(&s, "Plugins"),
@@ -1174,11 +1052,7 @@ fn plugins_popup_space_on_uninstalled_row_does_not_start_search() {
     s.keys("space");
     // Space sends no write and starts no search: the rows stay the same
     s.assert_same_rows(&before);
-    assert!(
-        !seed::wants(&s)
-            .iter()
-            .any(|want| matches!(want, Want::Enable { .. }))
-    );
+    seed::assert_no_enable(&s);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:1795 plugins_popup_space_with_active_search_does_not_toggle_installed_plugin kind=ui owner=dialogs-pane
@@ -1367,8 +1241,8 @@ fn apps_popup_stays_loading_until_final_snapshot_updates() {
     s.type_text("/apps").keys("enter");
     s.assert_contains("Loading installed and available apps...");
     s.assert_snap_region("apps_popup_loading_state", 17, 0);
-    let asked = apps_asked(&s);
-    assert_eq!(asked.len(), 1, "{asked:?}");
+    s.assert_apps_asked(1);
+    let asked = s.asked_apps();
     s.answer_request(
         &asked[0],
         apps_answer(&[
@@ -1407,8 +1281,8 @@ fn apps_notification_update_excludes_inaccessible_apps_from_mentions() {
 fn apps_refresh_failure_keeps_existing_full_snapshot() {
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps").keys("enter");
-    let asked = apps_asked(&s);
-    assert_eq!(asked.len(), 1, "{asked:?}");
+    s.assert_apps_asked(1);
+    let asked = s.asked_apps();
     s.answer_request(
         &asked[0],
         serde_json::json!({"data": [
@@ -1425,8 +1299,8 @@ fn apps_refresh_failure_keeps_existing_full_snapshot() {
     // refresh that fails follows the full list
     s.keys("esc");
     s.type_text("/apps").keys("enter");
-    let asked = apps_asked(&s);
-    assert_eq!(asked.len(), 2, "{asked:?}");
+    s.assert_apps_asked(2);
+    let asked = s.asked_apps();
     s.answer_error(&asked[1], "failed to load apps");
     // the previous full snapshot is kept
     s.assert_contains("Installed 1 of 2 available apps.");
@@ -1438,7 +1312,7 @@ fn apps_refresh_failure_keeps_existing_full_snapshot() {
 fn apps_popup_preserves_selected_app_across_refresh() {
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps").keys("enter");
-    let asked = apps_asked(&s);
+    let asked = s.asked_apps();
     s.answer_request(
         &asked[0],
         apps_answer(&[
@@ -1460,8 +1334,8 @@ fn apps_popup_preserves_selected_app_across_refresh() {
         serde_json::json!({"step": "notify", "message": {"method": "app/list/updated",
             "params": {"data": refreshed["data"]}}})
     ));
-    let asked = apps_asked(&s);
-    assert_eq!(asked.len(), 2, "{asked:?}");
+    s.assert_apps_asked(2);
+    let asked = s.asked_apps();
     s.answer_request(&asked[1], refreshed);
     s.assert_contains("Airtable");
     s.assert_contains("› Slack");
@@ -1486,8 +1360,8 @@ fn apps_popup_replaces_loading_state_after_initial_refresh_failure() {
     s.type_text("/apps").keys("enter");
     s.assert_contains("Loading apps...");
     // the failure (app/list failed: 403 Forbidden) arrives from the app server
-    let asked = apps_asked(&s);
-    assert_eq!(asked.len(), 1, "{asked:?}");
+    s.assert_apps_asked(1);
+    let asked = s.asked_apps();
     s.answer_error(&asked[0], "app/list failed: 403 Forbidden");
     s.assert_absent("Loading apps...");
     s.assert_absent("403 Forbidden");

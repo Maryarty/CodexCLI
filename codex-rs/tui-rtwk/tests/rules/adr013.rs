@@ -34,8 +34,10 @@ fn ratchet_file() -> String {
     let dir = crate_dir().join("tests/rules");
     let mut text =
         std::fs::read_to_string(dir.join("adr013_ratchets.txt")).expect("read the ratchet file");
+    // no family file left is no directory (git keeps none empty): every ratchet has run out
     let mut families: Vec<_> = std::fs::read_dir(dir.join("adr013_ratchets"))
-        .expect("read the ratchet directory")
+        .into_iter()
+        .flatten()
         .map(|entry| entry.expect("a ratchet file").path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "txt"))
         .collect();
@@ -1626,14 +1628,17 @@ fn the_eq_scan_bites() {
 
 /// A `KeyCode::` or a keymap `Key::` variant in a page, a sheet or the app is a key the user cannot rebind (ADR-006): keys are
 /// read through `Shortcuts` and `Actions` of the resolved keymap, `KeyCode` stays in `src/keymap/` and
-/// in the primitives of `src/widgets/` (the picker, the key guard, the page keys).
+/// in the three named primitives of `src/widgets/` (`KEYCODE_PRIMITIVES`: the picker, the key guard,
+/// the page keys' labels). The modifiers read by hand (`mods.is_empty()`, `mods == key.mods`) and the
+/// text of a press matched against a literal (`match key.text() { Some("?") .. }`) are the same
+/// hardwired key: a named fixed action or a helper of `src/keymap` says it.
 fn keycode_outside_keymap(files: &Files) -> Vec<String> {
     hits_by_file(
         files,
         |name| {
             in_ui_sources(name)
                 && !name.starts_with("src/keymap/")
-                && !name.starts_with("src/widgets/")
+                && !KEYCODE_PRIMITIVES.contains(&name)
         },
         |tokens, i| {
             starts(tokens, i, &["KeyCode", ":", ":"])
@@ -1671,9 +1676,44 @@ fn keycode_outside_keymap(files: &Files) -> Vec<String> {
                 // `core::keymap::fixed`, whose presses `src/keymap` builds
                 || starts(tokens, i, &["KeyPress", ":", ":"])
                 || starts(tokens, i, &[".", "text", "(", ")", "=", "=", "Some"])
+                // a char bound (`focus.bind('k', ..)`): `cleaned` blanks a char literal to a space, so
+                // `.bind(` followed at once by `,` is the shape of a char as the key
+                || starts(tokens, i, &[".", "bind", "(", ","])
+                // a character compared to the press's (`key.ch == Some('/')`, `!=` too) and the
+                // modifiers read by hand (`key.mods == Mods::NONE`, `.mods.contains(Mods::CTRL)`):
+                // a named fixed action (`pressed_fixed`) and the helpers of `src/keymap`
+                // (`unmodified`, `types_text`, ..) say it
+                || starts(tokens, i, &[".", "ch", "=", "=", "Some", "("])
+                || starts(tokens, i, &[".", "ch", "!", "=", "Some", "("])
+                || starts(tokens, i, &["mods", "=", "=", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", "!", "=", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", ".", "contains", "(", "Mods", ":", ":"])
+                || starts(tokens, i, &["mods", ".", "0"])
+                || starts(tokens, i, &["mods", ".", "is_empty", "(", ")"])
+                // `key.mods == digit.mods` (and `!=`, either side): a press's modifiers against
+                // another press's, by hand
+                || (matches!(at(tokens, i + 1), "=" | "!")
+                    && at(tokens, i + 2) == "="
+                    && at(tokens, i) == "mods"
+                    && at(tokens, i + 4) == "."
+                    && at(tokens, i + 5) == "mods")
+                // a press's text matched against a literal (`match key.text() { Some("?") => .. }`):
+                // `Some("..")` with a `.text()` just before it in the same statement
+                || (starts(tokens, i, &["Some", "(", "\""])
+                    && at(tokens, i.wrapping_sub(1)) != "="
+                    && (i.saturating_sub(12)..i).rev().take_while(|&j| !matches!(at(tokens, j), ";" | "}"))
+                        .any(|j| starts(tokens, j, &[".", "text", "(", ")"])))
         },
     )
 }
+
+/// The primitives of `src/widgets/` that read keys themselves: the picker's list keys, the key guard,
+/// the page keys' labels. Every other widget file goes through the keymap like a page.
+const KEYCODE_PRIMITIVES: &[&str] = &[
+    "src/widgets/key_guard.rs",
+    "src/widgets/picker/mod.rs",
+    "src/widgets/page_keys.rs",
+];
 
 #[test]
 fn adr006_keycode_only_in_keymap() {
@@ -1689,7 +1729,7 @@ fn the_keycode_scan_bites() {
     let files = vec![
         (
             "src/pages/agents/dialogs.rs".to_owned(),
-            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\nlet s = Stroke::new(Key::Char('r'), m);\nlet w = x.with_key(Key::value(1));\n// Key::Tab\n"
+            "match key.code { KeyCode::Enter => a(), KeyCode::Esc => b() }\n// KeyCode::Tab\nif key.fixed() == Fixed::Up {}\nlet give = Give::Fixed;\nlet h = KeyPress::char('h');\nfocus.bind(KeyPress::ESC, x);\nif key.text() == Some(\"?\") {}\nlet t = composer.text();\nlet n = key.text().is_empty();\nlet s = Stroke::new(Key::Char('r'), m);\nlet w = x.with_key(Key::value(1));\n// Key::Tab\nfocus.bind('k', y);\nfocus.bind(digit, y);\nfocus.bind(\"k\", y);\n// .bind('q', z)\nif key.ch == Some('/') {}\nif key.ch != Some('!') {}\nlet p = key.mods == Mods::NONE;\nlet q = key.mods != Mods::SHIFT;\nlet r = key.mods.contains(Mods::CTRL);\nlet t = key.mods.0 & 1;\nlet same = digit.ch == key.ch && key.mods == digit.mods;\nlet e = key.mods.is_empty();\nmatch key.text() { Some(\"?\") => 1, _ => 2 };\nlet o = Some(\"x\");\nlet f = key.text(); let g = Some(\"y\");\n// key.mods == Mods::NONE\n"
                 .to_owned(),
         ),
         (
@@ -1698,7 +1738,11 @@ fn the_keycode_scan_bites() {
         ),
         (
             "src/widgets/picker/mod.rs".to_owned(),
-            "KeyCode::Up\n".to_owned(),
+            "KeyCode::Up\nkey.mods.is_empty()\n".to_owned(),
+        ),
+        (
+            "src/widgets/options.rs".to_owned(),
+            "if key.mods.is_empty() {}\n".to_owned(),
         ),
     ];
     assert_eq!(
@@ -1711,7 +1755,18 @@ fn the_keycode_scan_bites() {
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
             "src/pages/agents/dialogs.rs",
-            "src/pages/agents/dialogs.rs"
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/pages/agents/dialogs.rs",
+            "src/widgets/options.rs"
         ]
     );
 }

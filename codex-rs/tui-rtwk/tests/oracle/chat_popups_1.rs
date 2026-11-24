@@ -128,7 +128,7 @@ fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
             include_str!("fixtures/chat_popups_1/runtime_us_astra62_custom.json"),
         ),
     ];
-    for (name, model, bundled, custom) in cases {
+    for (_name, model, bundled, custom) in cases {
         let mut s = on_catalog(100, 6, model, bundled);
         // the catalog is read when the picker opens (the oracle's chat holds it already)
         let refresh = |s: &mut Screen| {
@@ -145,16 +145,8 @@ fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
         );
         // Enter switches the tier on: the thread's settings and the saved default
         s.keys("enter");
-        let patches = s.request_params("thread/settings/update");
-        assert!(
-            patches.iter().any(|p| p.to_string().contains("ultrafast")),
-            "{name}: {patches:?}"
-        );
-        let writes = s.request_params("config/batchWrite");
-        assert!(
-            writes.iter().any(|p| p.to_string().contains("ultrafast")),
-            "{name}: {writes:?}"
-        );
+        s.assert_request_mentions("thread/settings/update", "ultrafast");
+        s.assert_request_mentions("config/batchWrite", "ultrafast");
         // the server's catalog turns custom: its one tier is named Express
         let custom = custom.trim();
         s.feed(&format!(
@@ -164,11 +156,7 @@ fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
         s.type_text("/express");
         s.assert_contains("/express  My custom Bedrock tier.");
         s.keys("enter");
-        let writes = s.request_params("config/batchWrite");
-        assert!(
-            writes.iter().any(|p| p.to_string().contains("ultrafast")),
-            "{name}: {writes:?}"
-        );
+        s.assert_request_mentions("config/batchWrite", "ultrafast");
         let _ = bundled;
     }
 }
@@ -373,13 +361,7 @@ fn custom_model_display_name_in_pickers_preserves_selection_slug() {
     s.assert_snap("custom_model_display_name_reasoning");
     // Enter applies the slug (`ApplyModelSelection`)
     s.keys("enter");
-    let patches = s.request_params("thread/settings/update");
-    assert!(
-        patches
-            .iter()
-            .any(|p| p.to_string().contains("us.openai.gpt-5.6-luna")),
-        "{patches:?}"
-    );
+    s.assert_request_mentions("thread/settings/update", "us.openai.gpt-5.6-luna");
 }
 
 // ORACLE chatwidget/tests/model_display_name_tests.rs:62 custom_model_display_name_in_status_line_and_fallback kind=snap owner=dialogs-pane snap=custom_model_display_name_status_line
@@ -392,13 +374,7 @@ fn custom_model_display_name_in_status_line_and_fallback() {
         ))
         .open();
     s.assert_snap("custom_model_display_name_status_line");
-    let line = |s: &Screen, text: &str| {
-        assert!(
-            s.rows().iter().any(|row| row.trim() == text),
-            "the status line is `{text}`\n{}",
-            s.text()
-        );
-    };
+    let line = |s: &Screen, text: &str| s.assert_has_row_trimmed(text);
     // the catalog is cleared: the status line shows the slug; Luna Reserve by its reserve slug;
     // an empty model shows the default display name (its text is a constant of the oracle).
     let status = |model: &str| {

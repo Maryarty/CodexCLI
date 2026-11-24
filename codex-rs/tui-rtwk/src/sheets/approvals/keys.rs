@@ -8,14 +8,13 @@
 //! the intent into its state change.
 
 use rtwk::focus::{KeyCombo, KeyPress};
-use rtwk::prelude::Mods;
 
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::keymap::actions::{
     CHAT_INTERRUPT_TURN, LIST_ACCEPT, LIST_MOVE_DOWN, LIST_MOVE_LEFT, LIST_MOVE_RIGHT, LIST_MOVE_UP,
 };
 
-use crate::keymap::pressed;
+use crate::keymap::{pressed, unmodified};
 
 /// What a key press asks of a question dialog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,7 +76,7 @@ pub fn press_of(keymap: &Keymap, key: &KeyPress) -> Option<Press> {
     } else {
         key
     };
-    let plain = key.mods == Mods::NONE;
+    let plain = unmodified(key);
     let letter = letter_of(key);
     if is("ctrl+c", key) {
         return Some(Press::Interrupt);

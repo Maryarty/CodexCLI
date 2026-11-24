@@ -320,19 +320,14 @@ fn terminal_title_shows_action_required_while_exec_approval_is_pending() {
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_3/action_required.jsonl"))
         .open();
-    let before = s.title().expect("a title while the turn runs");
-    assert!(before.ends_with("project"), "the running title: {before:?}");
+    s.assert_title_ends_with("project");
     s.feed(
         r#"{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-action-required","approvalId":"call-action-required","environmentId":null,"command":"bash -lc \"echo hello\"","cwd":"/tmp","reason":"need confirmation","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#,
     );
     s.assert_title("[ ! ] Action Required | project");
     s.keys("y");
-    let after = s.title().expect("a title after the approval");
-    assert!(after.contains("project"), "restored title: {after:?}");
-    assert!(
-        !after.contains("Action Required"),
-        "restored title: {after:?}"
-    );
+    s.assert_title_has("project");
+    s.assert_title_lacks("Action Required");
 }
 
 // ORACLE chatwidget/tests/terminal_title.rs:286 thread_identity_renders_names_and_fallbacks_on_both_surfaces kind=snap owner=ui-pane
@@ -351,13 +346,7 @@ fn thread_identity_renders_names_and_fallbacks_on_both_surfaces() {
         .open();
     // unnamed: the name is omitted, the thread title falls back to the id
     s.assert_title(&format!("{id} | {cut}"));
-    assert!(
-        s.rows()
-            .iter()
-            .any(|row| row.trim() == format!("{id} · {id}")),
-        "the status line has the title and the id\n{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed(&format!("{id} · {id}"));
     // the default title: the project alone (no activity: animations are off)
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"project_root":"project","animations":false,"items":[]}}}"#);
     s.assert_title("project");
@@ -366,13 +355,7 @@ fn thread_identity_renders_names_and_fallbacks_on_both_surfaces() {
     // named: the three ids on both surfaces
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"project_root":"project","animations":false,"items":["thread-name","thread-title","session-id"],"terminal_title":["thread-name","thread","session-id"]}}}"#);
     s.assert_title(&format!("Fix login timeout | Fix login timeout | {cut}"));
-    assert!(
-        s.rows()
-            .iter()
-            .any(|row| row.trim() == format!("Fix login timeout · Fix login timeout · {id}")),
-        "the status line has the name twice and the id\n{}",
-        s.text()
-    );
+    s.assert_has_row_trimmed(&format!("Fix login timeout · Fix login timeout · {id}"));
     // a name of blanks is no name
     s.feed(r#"{"step":"notify","message":{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"  "}}}"#);
     s.assert_title(&format!("{id} | {cut}"));

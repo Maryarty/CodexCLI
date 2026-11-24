@@ -16,12 +16,13 @@ use std::rc::Rc;
 
 use rtwk::editing::{Suggestion, TextEditingController};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::Mods;
 
 use super::ComposerMsg;
-use crate::keymap::pressed;
+use crate::keymap::{only_ctrl, pressed, pressed_fixed, unmodified};
 use codex_tui_core::keymap::Keymap;
-use codex_tui_core::keymap::fixed::{POPUP_ACCEPT, POPUP_COMPLETE, POPUP_NEXT, POPUP_PREVIOUS};
+use codex_tui_core::keymap::fixed::{
+    POPUP_ACCEPT, POPUP_COMPLETE, POPUP_NEXT, POPUP_PREVIOUS, SLASH_COMPLETE,
+};
 
 /// The suggestions shown, shared by the key hook and the popup's builder.
 #[derive(Default)]
@@ -163,7 +164,7 @@ impl Suggest {
         key: &KeyPress,
         tell: &dyn Fn(ComposerMsg),
     ) -> bool {
-        if key.ch != Some('/') || key.mods != Mods::NONE {
+        if !pressed_fixed(SLASH_COMPLETE, key) {
             return false;
         }
         let (at, naming) = {
@@ -199,8 +200,8 @@ impl Suggest {
             let inner = self.0.borrow();
             (inner.items.len(), inner.highlighted)
         };
-        let plain = key.mods == Mods::NONE;
-        let ctrl = key.mods == Mods::CTRL;
+        let plain = unmodified(key);
+        let ctrl = only_ctrl(key);
         // Up and Down are the plain keys, Ctrl+P and Ctrl+N the control characters
         let is = |id| pressed(keymap, id, key) && (plain || (ctrl && key.ch.is_some()));
         match () {

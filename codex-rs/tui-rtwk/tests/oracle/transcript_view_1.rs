@@ -499,7 +499,7 @@ fn older_page_loading_uses_the_status_row_without_moving_content_or_cursor() {
             s.at_the_top_of_a_partial_history(12, page);
             s.assert_has_row(row);
             // the content is not moved by the page that comes: the first row stays the first
-            assert_eq!(s.page_requests().len(), 2, "{width} columns · {page:?}");
+            s.assert_page_requests(2);
         }
     }
 }

@@ -11,7 +11,6 @@
 
 use rtwk::editing::{StoredStops, TextEditingController, editing_key};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::Mods;
 
 use codex_tui_core::keymap::actions::{
     VIM_NORMAL_APPEND_AFTER_CURSOR, VIM_NORMAL_APPEND_LINE_END, VIM_NORMAL_CANCEL_OPERATOR,
@@ -39,6 +38,7 @@ use codex_tui_core::keymap::actions::{
     VIM_TEXT_OBJECT_DOUBLE_QUOTE, VIM_TEXT_OBJECT_PARENTHESES, VIM_TEXT_OBJECT_SINGLE_QUOTE,
     VIM_TEXT_OBJECT_WORD,
 };
+use codex_tui_core::keymap::fixed::SLASH_COMPLETE;
 use codex_tui_core::keymap::{ActionId, Binding, Keymap};
 use codex_tui_core::kit::vim::{
     Find, Input, Motion, Normal, Object, Operator, OperatorKey, Vim, VimDirection, VimPending,
@@ -47,10 +47,13 @@ use codex_tui_core::kit::vim::{
 
 use super::ComposerMsg;
 use super::editing::{self, Edit, KeyData, Resolved};
-use crate::keymap::{combo_of, pressed};
+use crate::keymap::{
+    at_most_shift, combo_of, holds_shift_or_alt, pressed, pressed_fixed, unmodified,
+};
 use crate::widgets::composer_draft::{ComposerDraft, VimHost};
 use codex_tui_core::keymap::fixed::{
-    DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_FORWARD, SEARCH_ACCEPT, SEARCH_CANCEL, TAB,
+    DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_FORWARD, SEARCH_ACCEPT, SEARCH_CANCEL,
+    SHELL_PREFIX, TAB,
 };
 
 /// What the engine is doing, read once per key.
@@ -233,7 +236,7 @@ fn command_char(keymap: &Keymap, key: &KeyPress) -> Option<char> {
     if pressed(keymap, ENTER, key) {
         return Some('\n');
     }
-    if key.mods != Mods::NONE && key.mods != Mods::SHIFT {
+    if !at_most_shift(key) {
         return None;
     }
     key.ch
@@ -328,25 +331,29 @@ fn is_pure(command: Normal) -> bool {
 
 /// A key that is typed text: a character with no modifier but Shift.
 fn typed_char(key: &KeyPress) -> Option<char> {
-    if key.mods == Mods::NONE || key.mods == Mods::SHIFT {
-        key.ch
-    } else {
-        None
-    }
+    if at_most_shift(key) { key.ch } else { None }
 }
 
 // ---- Normal mode ------------------------------------------------------------
 
 /// `/` on an empty draft is the slash command's: Normal mode goes into Insert mode and types it
-/// (the search key of Vim is for a draft with text).
+/// (the search key of Vim is for a draft with text). As in the oracle the press must be a vim
+/// search key (forward, backward, next, previous) AND the plain `/`: with the search keys
+/// remapped away from `/`, the key is not a search key and Normal mode keeps it.
 pub fn opens_slash(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &Mode) -> bool {
     mode.normal
         && mode.pending == VimPending::None
         && !data.suggest.open()
         && c.text().is_empty()
-        && key.ch == Some('/')
-        && key.mods == Mods::NONE
-        && pressed(&data.keymap, VIM_SEARCH_FORWARD, key)
+        && pressed_fixed(SLASH_COMPLETE, key)
+        && [
+            VIM_SEARCH_FORWARD,
+            VIM_SEARCH_BACKWARD,
+            VIM_SEARCH_NEXT,
+            VIM_SEARCH_PREVIOUS,
+        ]
+        .into_iter()
+        .any(|id| pressed(&data.keymap, id, key))
 }
 
 /// The keys Normal mode answers before anything else of the composer: the
@@ -418,8 +425,7 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
     if mode.pending == VimPending::None
         && prefix.is_none()
         && c.text().is_empty()
-        && key.ch == Some('!')
-        && key.mods == Mods::NONE
+        && pressed_fixed(SHELL_PREFIX, key)
     {
         draft.set_shell(true);
         // the command is typed next: Insert mode (`enter_vim_insert_mode`)
@@ -431,7 +437,7 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
     // undo step (the composer's key, Normal mode or not)
     if mode.pending == VimPending::None
         && pressed(&data.keymap, FIELD_DELETE_BACKWARD, key)
-        && key.mods == Mods::NONE
+        && unmodified(key)
         && draft.shell()
         && c.selection().is_collapsed()
         && c.selection().extent_offset == 0
@@ -496,7 +502,7 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
 pub fn search_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let draft = &data.draft;
     let query = draft.vim_query();
-    let plain = key.mods == Mods::NONE;
+    let plain = unmodified(key);
     let abort = pressed(&data.keymap, SEARCH_CANCEL, key)
         || (pressed(&data.keymap, FIELD_DELETE_BACKWARD, key) && plain && query.text().is_empty());
     if abort {
@@ -534,7 +540,7 @@ pub fn insert(
 ) -> Option<bool> {
     let draft = &data.draft;
     draft.vim_begin_edit(c);
-    let plain = key.mods == Mods::NONE;
+    let plain = unmodified(key);
     if pressed(&data.keymap, DISMISS, key) && plain {
         // shell mode's Esc on an empty draft is shell mode's
         if draft.shell() && c.text().is_empty() {
@@ -565,9 +571,7 @@ pub fn insert(
             ..
         } => {
             // Shift+Enter and Alt+Enter are the field's own line break
-            if pressed(&data.keymap, ENTER, key)
-                && (key.mods.contains(Mods::SHIFT) || key.mods.contains(Mods::ALT))
-            {
+            if pressed(&data.keymap, ENTER, key) && holds_shift_or_alt(key) {
                 return None;
             }
             run(data, c, |v, host| v.type_text(host, "\n"));

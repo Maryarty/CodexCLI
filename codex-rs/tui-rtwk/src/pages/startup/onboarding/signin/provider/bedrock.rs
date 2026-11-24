@@ -37,7 +37,7 @@ use super::super::{Line, Look, guarded_keys, rows_of, width_of};
 use super::{sized, strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
-use crate::keymap::{fixed_presses, pressed_fixed};
+use crate::keymap::{fixed_presses, pressed_fixed, same_press};
 use crate::widgets::key_guard::KeyGuard;
 use crate::widgets::options::Options;
 
@@ -218,7 +218,7 @@ impl BedrockState {
                 let msg = if index == IDLE {
                     let digit = fixed_presses(fixed::PICK_NUMBERS)
                         .iter()
-                        .position(|digit| digit.ch == key.ch && key.mods == digit.mods);
+                        .position(|digit| same_press(digit, &key));
                     if is(fixed::ONBOARD_PREVIOUS) {
                         Some(Msg::Up)
                     } else if is(fixed::ONBOARD_NEXT) {

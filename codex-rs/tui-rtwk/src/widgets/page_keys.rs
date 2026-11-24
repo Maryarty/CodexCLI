@@ -6,7 +6,7 @@
 use crate::widgets::measure::Measure;
 use rtwk::LayoutBuilder;
 use rtwk::controls::KeyHintsBar;
-use rtwk::focus::{Focus, KeyCombo, KeyPress};
+use rtwk::focus::{Focus, KeyCombo};
 use rtwk::layout::{Column, EdgeInsets, MainAxisSize, Padding, SizedBox};
 use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog_handler, show_dialog};
 use rtwk::prelude::KeyCode;
@@ -16,7 +16,9 @@ use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
+use crate::keymap::bind_fixed;
 use crate::l10n::strings as l10n;
+use codex_tui_core::keymap::fixed;
 
 /// The bottom menu of a page: `keys` (key as the oracle writes it, hint), the
 /// same list the page binds with `KeyBindings`. The key text is the oracle's
@@ -206,13 +208,12 @@ impl State for NotYetState {
 
     fn build(&self, w: &NotYet, cx: &mut Cx<'_, Self>) -> AnyWidget {
         // Esc closes the dialog itself (rtwk); Enter is bound here.
-        Focus::new(Dialog::new(
+        let focus = Focus::new(Dialog::new(
             Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .child(Text::new(w.text.clone())),
         ))
-        .autofocus()
-        .bind(KeyPress::ENTER, close_dialog_handler(cx, Some(())))
-        .into()
+        .autofocus();
+        bind_fixed(focus, fixed::ENTER, close_dialog_handler(cx, Some(()))).into()
     }
 }

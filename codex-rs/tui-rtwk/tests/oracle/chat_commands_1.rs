@@ -5,7 +5,6 @@
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
 use crate::kit::{self, Owner, Screen};
-use codex_tui_core::app::facts::TuiSettings;
 
 const SESSION: &str = include_str!("fixtures/chat_commands_2/session.jsonl");
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
@@ -214,7 +213,7 @@ fn parent_owned_thread_blocks_all_direct_input_entry_points() {
     // The snapshot of the oracle is the one row it inserted.
     s.assert_has_row("■ This sub-agent is controlled by its parent. Direct input is disabled.");
     s.assert_composer("keep this draft");
-    assert!(s.turns().is_empty(), "no turn: {:?}", s.turns());
+    s.assert_no_turn();
     // The oracle then tries /init, /review, /side, /archive, /rename, /subagents,
     // /diff, !echo: each Enter keeps the draft and sends nothing.
     for command in [
@@ -238,21 +237,8 @@ fn parent_owned_thread_blocks_all_direct_input_entry_points() {
             Some(shell) => s.assert_has_row(&format!("! {shell}")),
             None => s.assert_composer(command),
         }
-        assert!(s.turns().is_empty(), "{command}: {:?}", s.turns());
-        assert!(
-            !s.commands().iter().any(|c| matches!(
-                c,
-                codex_tui_core::app::Command::Screen {
-                    command: codex_tui_core::screens::ScreenCommand::Chat(
-                        codex_tui_core::screens::chat::Command::Shell(_)
-                            | codex_tui_core::screens::chat::Command::Compact
-                    ),
-                    ..
-                }
-            )),
-            "{command}: {:?}",
-            s.commands()
-        );
+        s.assert_no_turn();
+        s.assert_no_shell_or_compact();
     }
 }
 
@@ -265,17 +251,12 @@ fn parent_owned_thread_blocks_settings_shortcuts() {
         .open();
     s.keys("shift+tab alt+. alt+,");
     // The snapshot of the oracle is the three rows it inserted, one per shortcut.
-    let said = s
-        .rows()
-        .iter()
-        .filter(|row| {
-            row.trim_end()
-                == "■ This sub-agent is controlled by its parent. Direct input is disabled."
-        })
-        .count();
-    assert_eq!(said, 3, "{}", s.text());
+    s.assert_row_count(
+        "■ This sub-agent is controlled by its parent. Direct input is disabled.",
+        3,
+    );
     // and neither the mode nor the effort was asked for
-    assert!(s.request_params("thread/settings/update").is_empty());
+    s.assert_no_request("thread/settings/update");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:480 handoff_image_survives_model_rejection_and_submission_failure kind=snap owner=chat-nav-pane
@@ -306,24 +287,13 @@ fn local_clipboard_image_does_not_turn_a_held_bang_into_a_shell_command() {
     s.paste_clipboard_image_at_once("alt+v", &path);
     s.keys("enter");
     // the oracle's draft is `[Image #1]!` with shell mode off: nothing is sent yet
-    assert!(s.turns().is_empty(), "{:?}", s.commands());
-    assert!(
-        !s.commands()
-            .iter()
-            .any(|c| format!("{c:?}").contains("Shell")),
-        "{:?}",
-        s.commands()
-    );
+    s.assert_no_turn();
+    s.assert_no_shell_command();
     s.wait(1000);
     s.keys("enter");
     s.wait_for("› Ask Codex to do anything");
     // the turn is the image then the text, never a shell command
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1, "{:?}", s.commands());
-    assert_eq!(turns[0].text, "[Image #1]!");
-    assert_eq!(turns[0].images.len(), 1);
-    assert_eq!(turns[0].images[0].path, path);
-    assert_eq!(turns[0].images[0].range, 0.."[Image #1]".len());
+    s.assert_sole_turn(kit::Turn::text("[Image #1]!").images(&[(&path, 0.."[Image #1]".len())]));
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:626 submission_preserves_text_elements_and_local_images kind=ui owner=chat-nav-pane
@@ -369,16 +339,11 @@ fn submission_with_remote_and_local_images_keeps_local_placeholder_numbering() {
     s.wait_for("› Ask Codex to do anything");
     // the turn is the remote image, then the local one, then the text: the local placeholder
     // keeps the number after the remote images
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1, "{:?}", s.commands());
-    assert_eq!(
-        turns[0].remote_images,
-        vec!["https://example.com/remote.png"]
+    s.assert_sole_turn(
+        kit::Turn::text("[Image #2] submit mixed")
+            .remote_images(&["https://example.com/remote.png"])
+            .images(&[(&path, 0.."[Image #2]".len())]),
     );
-    assert_eq!(turns[0].images.len(), 1);
-    assert_eq!(turns[0].images[0].path, path);
-    assert_eq!(turns[0].images[0].range, 0.."[Image #2]".len());
-    assert_eq!(turns[0].text, "[Image #2] submit mixed");
     // ... and the history shows the submitted message
     s.assert_contains("[Image #2] submit mixed");
 }
@@ -395,14 +360,11 @@ fn enter_with_only_remote_images_submits_user_turn() {
     s.keys("enter");
     s.wait_for("› Ask Codex to do anything");
     // the turn is the image alone; the draft's remote images are taken
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1, "{:?}", s.commands());
-    assert_eq!(
-        turns[0].remote_images,
-        vec!["https://example.com/remote-only.png"]
+    s.assert_sole_turn(
+        kit::Turn::text("")
+            .remote_images(&["https://example.com/remote-only.png"])
+            .no_images(),
     );
-    assert!(turns[0].images.is_empty());
-    assert_eq!(turns[0].text, "");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1009 shift_enter_with_only_remote_images_does_not_submit_user_turn kind=ui owner=chat-nav-pane
@@ -416,7 +378,7 @@ fn shift_enter_with_only_remote_images_does_not_submit_user_turn() {
     s.assert_composer("");
     s.keys("shift+enter");
     // the oracle asserts no submission and the remote image kept
-    assert!(s.turns().is_empty(), "{:?}", s.commands());
+    s.assert_no_turn();
     s.assert_contains("[Image #1]");
 }
 
@@ -535,10 +497,7 @@ fn startup_draft_handoff_keeps_vim_insert_mode_for_nonempty_drafts() {
         let mut s = Screen::build(Owner::ChatNavPane)
             .size(80, 24)
             .live()
-            .tui(TuiSettings {
-                vim_mode_default: true,
-                ..TuiSettings::default()
-            })
+            .vim_mode()
             .open();
         s.type_text(text);
         s.keys("x right");

@@ -53,6 +53,7 @@ use codex_tui_core::screens::cells::{Ev as CellsEv, Startup};
 use codex_tui_core::threads::Notice;
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_rtwk::services::startup::UpdateAction;
+use rtwk::binding::ScreenMode;
 use rtwk_core::style::ColorMode;
 use rtwk_core::unicode::TextMode;
 use rtwk_test::Options;
@@ -80,6 +81,32 @@ impl ColorDepth {
             ColorDepth::Ansi16 => ColorMode::Ansi16,
             ColorDepth::Ansi256 => ColorMode::Ansi256,
             ColorDepth::TrueColor => ColorMode::TrueColor,
+        }
+    }
+}
+
+/// How the CLI was installed (what its update command runs; `Open::update_available`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Install {
+    Npm,
+    Bun,
+    VitePlus,
+    Pnpm,
+    Brew,
+    StandaloneUnix,
+    StandaloneWindows,
+}
+
+impl Install {
+    fn action(self) -> UpdateAction {
+        match self {
+            Install::Npm => UpdateAction::NpmGlobalLatest,
+            Install::Bun => UpdateAction::BunGlobalLatest,
+            Install::VitePlus => UpdateAction::VitePlusGlobalLatest,
+            Install::Pnpm => UpdateAction::PnpmGlobalLatest,
+            Install::Brew => UpdateAction::BrewUpgrade,
+            Install::StandaloneUnix => UpdateAction::StandaloneUnix,
+            Install::StandaloneWindows => UpdateAction::StandaloneWindows,
         }
     }
 }
@@ -113,12 +140,19 @@ pub(super) struct Env {
     tooltips_off: bool,
     /// The `[tui]` settings the host tells the app (`Open::tui`).
     tui: Option<TuiSettings>,
+    /// The app runs inline (`--no-alt-screen`) under these shell rows.
+    pub(super) inline: Option<Vec<String>>,
 }
 
 impl Env {
     /// The terminal as `rtwk_test` makes it for these seeds.
     pub(super) fn options(&self, width: u16, height: u16) -> Options {
         let mut options = Options::new().size(width, height);
+        if let Some(history) = &self.inline {
+            options = options
+                .mode(ScreenMode::Inline)
+                .history(history.iter().map(String::as_str));
+        }
         if let Some(bg) = self.background {
             options = options.background_rgb(bg);
         }
@@ -294,6 +328,13 @@ impl Open {
         self
     }
 
+    /// The app runs inline (`--no-alt-screen`): a region of the normal screen under `shell`, the
+    /// rows the shell had printed (what the oracle's `render_inline` draws under).
+    pub fn inline(mut self, shell: &[&str]) -> Open {
+        self.env.inline = Some(shell.iter().map(|row| (*row).to_owned()).collect());
+        self
+    }
+
     /// The syntax theme of the config (`[tui] theme`), by name.
     pub fn syntax_theme(mut self, name: &'static str) -> Open {
         self.env.syntax_theme = Some(name);
@@ -325,11 +366,11 @@ impl Open {
 
     /// The host announces a newer release `latest` (to run: `action`'s command, none for an
     /// install the CLI does not know) as the first conversation opens.
-    pub fn update_available(mut self, latest: &str, action: Option<UpdateAction>) -> Open {
+    pub fn update_available(mut self, latest: &str, action: Option<Install>) -> Open {
         self.env.announced.push(Notice::UpdateAvailable {
             current: "0.0.0".to_owned(),
             latest: latest.to_owned(),
-            command: action.map(UpdateAction::command_str),
+            command: action.map(|install| install.action().command_str()),
         });
         self
     }
@@ -394,6 +435,14 @@ impl Open {
     pub fn tui(mut self, settings: TuiSettings) -> Open {
         self.env.tui = Some(settings);
         self
+    }
+
+    /// A new draft starts in Vim Insert mode (`tui.vim_mode_default`).
+    pub fn vim_mode(self) -> Open {
+        self.tui(TuiSettings {
+            vim_mode_default: true,
+            ..TuiSettings::default()
+        })
     }
 
     /// A variable of the app's environment.

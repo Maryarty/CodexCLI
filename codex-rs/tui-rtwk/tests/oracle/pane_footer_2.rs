@@ -15,16 +15,7 @@ use crate::kit::{self, ColorDepth, Owner, Screen};
 const AGENTS_FOOTER: &str = "rows above the footer equal; the footer hint row differs: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents` for `? for shortcuts` (needs a kit option or a CommandFlags/StatusFacts flag for it, as chat_status_2's rows)";
 
 fn assert_rows_of(s: &Screen, snap: &str) {
-    let want: Vec<String> = kit::snap_rows(snap, "")
-        .iter()
-        .map(|row| row.trim_end().to_string())
-        .collect();
-    let have = s.rows();
-    let have: Vec<String> = have.into_iter().take(want.len()).collect();
-    assert_eq!(
-        have, want,
-        "{snap}: ours (left) differs from the oracle (right)"
-    );
+    s.assert_snap_head(snap);
 }
 
 // ---- oracle: bottom_pane/effort_ignition_tests.rs (6 screen-level tests here; 8 state tests left to ui-pane)

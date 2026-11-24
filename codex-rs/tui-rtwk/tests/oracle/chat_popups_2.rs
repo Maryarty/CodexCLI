@@ -418,17 +418,8 @@ fn approvals_popup_shows_disabled_presets() {
         .entry("select", "permissions_constrained")
         .open();
     // The oracle collapses the whitespace: the reason wraps at 80 columns.
-    let collapsed = s
-        .rows()
-        .join(" ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    assert!(collapsed.contains("(disabled)"), "{collapsed}");
-    assert!(
-        collapsed.contains("this message should be printed in the description"),
-        "{collapsed}"
-    );
+    s.assert_reads("(disabled)");
+    s.assert_reads("this message should be printed in the description");
 }
 
 // ORACLE chatwidget/tests/permissions.rs:1317 approvals_popup_navigation_skips_disabled kind=ui owner=dialogs-pane
@@ -685,14 +676,14 @@ fn plugins_popup_uses_product_labels_for_remote_and_personal_tabs() {
         row.split_whitespace().collect::<Vec<_>>().join(" ")
     })
     .collect();
-    assert_eq!(
-        rows,
-        [
+    kit::assert_rows_are(
+        &rows,
+        &[
             "› [-] Buildkite Available Press Enter to install or view plugin details",
             "› [-] Docs Available Press Enter to install or view plugin details",
             "› [-] Link Share Available Press Enter to install or view plugin details",
             "› [-] Local Docs Available Press Enter to install or view plugin details",
-        ]
+        ],
     );
 }
 
@@ -770,13 +761,7 @@ fn plugins_popup_remote_local_dedupe_prefers_installed_remote_after_mapped_share
     let mut s = seed::open(100, 24, seed::config(), &shelf);
     // The remote copy is the installed one: it wins over the local row that is no mapped share.
     s.wait_for("Installed 1 of 1 available plugins.");
-    let row = s
-        .rows()
-        .into_iter()
-        .find(|row| row.contains("Docs"))
-        .expect("the all-plugins row");
-    assert!(row.contains("Installed"), "{row}");
-    assert!(!row.contains("Local curated docs plugin."), "{row}");
+    s.assert_row_of("Docs", &["Installed"], &["Local curated docs plugin."]);
 }
 
 // ORACLE chatwidget/tests/plugin_catalog_tests.rs:244 plugin_detail_not_installable_plugin_disables_install_action kind=ui owner=dialogs-pane
@@ -800,14 +785,10 @@ fn plugin_detail_not_installable_plugin_disables_install_action() {
     });
     let mut s = seed::open(100, 24, seed::config(), &shelf);
     s.keys("enter");
-    let text = s.text();
-    let install_row = text
-        .lines()
-        .find(|line| line.contains("Install plugin"))
-        .expect("the install row");
-    assert!(
-        install_row.contains("This plugin is not installable from this marketplace"),
-        "{install_row}"
+    s.assert_row_of(
+        "Install plugin",
+        &["This plugin is not installable from this marketplace"],
+        &[],
     );
     let before = s.shot();
     // Down skips the disabled install row: the popup is drawn the same.

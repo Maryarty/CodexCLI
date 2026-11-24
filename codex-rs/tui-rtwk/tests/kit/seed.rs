@@ -74,6 +74,12 @@ impl Screen {
 }
 
 impl Open {
+    /// The terminal's height, its width the default one.
+    pub fn height(mut self, height: u16) -> Open {
+        self.height = height;
+        self
+    }
+
     /// The terminal size of the oracle test (columns, rows).
     pub fn size(mut self, width: u16, height: u16) -> Open {
         self.width = width;
@@ -213,7 +219,13 @@ impl Open {
             self.env.deliver(&mut h);
             self.set_keymap(&mut h);
         }
-        if self.first_frame {
+        if self.env.inline.is_some() {
+            for _ in 0..crate::common::debug_row(dir, Some(entry)) {
+                h.t.press("down");
+            }
+            h.t.press("enter");
+            h.t.pump_for(ms(800));
+        } else if self.first_frame {
             for _ in 0..crate::common::debug_row(dir, Some(entry)) {
                 h.press("down");
             }
@@ -222,7 +234,7 @@ impl Open {
         } else {
             h.open_debug_row(dir, Some(entry));
         }
-        if self.first_frame {
+        if self.env.inline.is_some() || self.first_frame {
         } else if self.early {
             h.t.pump_for(ms(20));
         } else {

@@ -229,13 +229,7 @@ fn submit_captures_recent_mention_bindings_before_clearing_textarea() {
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.assert_contains("$figma please");
     // oracle: the submission's bindings are the one `$figma`
-    assert_eq!(
-        s.turns()[0].mentions,
-        vec![codex_tui_core::threads::ToolMention::Skill {
-            name: "figma".to_string(),
-            path: "/tmp/user/figma/SKILL.md".to_string(),
-        }]
-    );
+    s.assert_sole_turn(kit::Turn::any().skills(&[("figma", "/tmp/user/figma/SKILL.md")]));
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11047 history_navigation_restores_remote_and_local_image_attachments kind=ui owner=chat-live
@@ -252,14 +246,11 @@ fn history_navigation_restores_remote_and_local_image_attachments() {
     s.keys("enter");
     s.wait_for("› Ask Codex to do anything");
     // the turn carries the remote image and the local one numbered after it
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1, "{:?}", s.commands());
-    assert_eq!(
-        turns[0].remote_images,
-        vec!["https://example.com/remote.png"]
+    s.assert_sole_turn(
+        kit::Turn::any()
+            .remote_images(&["https://example.com/remote.png"])
+            .image_paths(&[path.as_path()]),
     );
-    assert_eq!(turns[0].images.len(), 1);
-    assert_eq!(turns[0].images[0].path, path);
     s.keys("up");
     s.assert_row(prompt(&s), "› [Image #2]");
     s.assert_contains("[Image #1]");
@@ -276,13 +267,10 @@ fn history_navigation_restores_remote_only_submissions() {
     // oracle: two remote image URLs and no text; Enter records the empty submission
     s.keys("enter");
     s.wait_for("› Ask Codex to do anything");
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1, "{:?}", s.commands());
-    assert_eq!(
-        turns[0].remote_images,
-        vec!["https://example.com/one.png", "https://example.com/two.png"]
+    s.assert_sole_turn(
+        kit::Turn::text("")
+            .remote_images(&["https://example.com/one.png", "https://example.com/two.png"]),
     );
-    assert!(turns[0].text.is_empty());
     // oracle: Up restores it: the text is empty and the remote images come back
     s.keys("up");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
@@ -495,7 +483,7 @@ fn deleting_reordered_image_one_renumbers_text_in_place() {
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: the draft 'Test [Image #2] test [Image #1]' (set_text_content, two images): the
     // first image attached, then the second one before it
-    let first = s.attach_image("image_first.png");
+    s.attach_image("image_first.png");
     s.keys("home");
     s.type_text("Test ");
     let second = s.attach_image("image_second.png");
@@ -508,11 +496,7 @@ fn deleting_reordered_image_one_renumbers_text_in_place() {
     // what the draft sends is the second image alone
     s.keys("enter");
     s.wait_for("› Ask Codex to do anything");
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1, "{:?}", s.commands());
-    assert_eq!(turns[0].images.len(), 1);
-    assert_eq!(turns[0].images[0].path, second);
-    assert_ne!(turns[0].images[0].path, first);
+    s.assert_sole_turn(kit::Turn::any().image_paths(&[second.as_path()]));
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11764 deleting_first_text_element_renumbers_following_text_element kind=ui owner=chat-live

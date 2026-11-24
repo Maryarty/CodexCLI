@@ -27,7 +27,7 @@ use codex_tui_core::screens::composer::trigger;
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
-use crate::keymap::pressed_fixed;
+use crate::keymap::{pressed_fixed, unmodified};
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::copy::Shown;
@@ -330,7 +330,7 @@ pub fn pager_key(key: &KeyPress, composer: &TextEditingController) -> Option<i8>
     } else {
         return None;
     };
-    if !key.mods.is_empty() {
+    if !unmodified(key) {
         return None;
     }
     let text = composer.text();

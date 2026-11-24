@@ -4,8 +4,6 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_rtwk::services::startup::UpdateAction;
-
 use crate::kit::{self, Owner, Screen};
 
 const URL_LIKE: &str =
@@ -119,7 +117,7 @@ fn standalone_unix_update_available_history_cell_snapshot() {
     let s = Screen::build(Owner::ChatLive)
         .size(110, 22)
         .live()
-        .update_available("9.9.9", Some(UpdateAction::StandaloneUnix))
+        .update_available("9.9.9", Some(kit::Install::StandaloneUnix))
         .open();
     s.assert_snap_region(
         "standalone_unix_update_available_history_cell_snapshot",
@@ -134,7 +132,7 @@ fn standalone_windows_update_available_history_cell_snapshot() {
     let s = Screen::build(Owner::ChatLive)
         .size(110, 22)
         .live()
-        .update_available("9.9.9", Some(UpdateAction::StandaloneWindows))
+        .update_available("9.9.9", Some(kit::Install::StandaloneWindows))
         .open();
     s.assert_snap_region(
         "standalone_windows_update_available_history_cell_snapshot",
@@ -149,7 +147,7 @@ fn pnpm_update_available_history_cell_snapshot() {
     let s = Screen::build(Owner::ChatLive)
         .size(110, 22)
         .live()
-        .update_available("9.9.9", Some(UpdateAction::PnpmGlobalLatest))
+        .update_available("9.9.9", Some(kit::Install::Pnpm))
         .open();
     s.assert_snap_region(
         "pnpm_update_available_history_cell_snapshot",

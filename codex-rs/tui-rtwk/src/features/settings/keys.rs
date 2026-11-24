@@ -9,7 +9,6 @@ use std::rc::Rc;
 
 use rtwk::Cx;
 use rtwk::focus::{KeyCombo, KeyPress};
-use rtwk::prelude::Mods;
 
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::keymap::actions::{
@@ -17,7 +16,7 @@ use codex_tui_core::keymap::actions::{
     LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
 
-use crate::keymap::{keymap, pressed};
+use crate::keymap::{keymap, pressed, types_text, unmodified};
 use crate::widgets::session_list::Move;
 
 /// The keymap the sheet's key callback reads.
@@ -68,16 +67,11 @@ pub(super) fn letter_of(key: &KeyPress) -> Option<char> {
     })
 }
 
-/// A key that types a printable character (no Ctrl, no Alt).
-fn types_text(key: &KeyPress) -> bool {
-    letter_of(key).is_some() && !key.mods.contains(Mods::CTRL) && !key.mods.contains(Mods::ALT)
-}
-
 /// The list key a press is under the user's keymap (`MultiSelectPicker::handle_key_event`).
 /// With a search line (`searching`) printable characters are the query's: they move nothing,
 /// but a key the keymap binds to accept or cancel is still that.
 pub(super) fn list_key(keys: &Keymap, key: &KeyPress, searching: bool) -> Option<ListKey> {
-    if !(searching && types_text(key)) {
+    if !(searching && letter_of(key).is_some() && types_text(key)) {
         if let Some((_, mv)) = MOVES.iter().find(|(id, _)| pressed(keys, *id, key)) {
             return Some(ListKey::Move(*mv));
         }
@@ -99,12 +93,12 @@ pub(super) fn list_key(keys: &Keymap, key: &KeyPress, searching: bool) -> Option
 
 /// Space, with no modifier: flips the row.
 pub(super) fn is_space(key: &KeyPress) -> bool {
-    letter_of(key) == Some(' ') && key.mods.is_empty()
+    letter_of(key) == Some(' ') && unmodified(key)
 }
 
 /// The plain letter `letter` (a key the view binds itself, as the hooks browser's `t`).
 pub(super) fn is_letter(key: &KeyPress, letter: char) -> bool {
-    letter_of(key) == Some(letter) && key.mods.is_empty()
+    letter_of(key) == Some(letter) && unmodified(key)
 }
 
 /// Ctrl+C: the view's own cancel too (`on_ctrl_c`).

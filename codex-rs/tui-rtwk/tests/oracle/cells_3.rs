@@ -451,13 +451,12 @@ fn session_info_availability_nux_tooltip_snapshot() {
     let Some(y) = rows.iter().position(|row| row.contains(">_ OpenAI Codex")) else {
         panic!("no session header:\n{}", s.text());
     };
-    let at = |row: usize| rows.get(row).map_or("", |row| row.trim_end());
-    assert_eq!(at(y.saturating_sub(1)), "", "a blank row above the header");
+    s.assert_row(y.saturating_sub(1), "");
     s.assert_row_starts_with(y, "  >_ OpenAI Codex (v");
-    assert!(at(y).ends_with(')'), "{}", at(y));
-    assert_eq!(at(y + 1), "     /tmp/project");
-    assert_eq!(at(y + 2), "");
-    assert_eq!(at(y + 3), "  Tip: Model just became available");
+    s.assert_row_ends_with(y, ")");
+    s.assert_row(y + 1, "     /tmp/project");
+    s.assert_row(y + 2, "");
+    s.assert_row(y + 3, "  Tip: Model just became available");
 }
 
 // ORACLE history_cell/tests.rs:799 session_info_preserves_styled_tooltip_links kind=snap owner=chat-live snap=session_info_preserves_styled_tooltip_links

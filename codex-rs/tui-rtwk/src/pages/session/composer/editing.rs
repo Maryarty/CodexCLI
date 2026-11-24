@@ -11,7 +11,6 @@ use std::rc::Rc;
 
 use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, editing_key};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::Mods;
 
 use codex_tui_core::data::history::Store;
 use codex_tui_core::keymap::actions::{
@@ -39,7 +38,9 @@ use super::mentions;
 use super::search;
 use super::suggest::Suggest;
 use super::vim;
-use crate::keymap::{press_for, pressed};
+use crate::keymap::{
+    holds_command_mod, holds_shift_or_alt, only_shift, press_for, pressed, unmodified,
+};
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
 
@@ -96,10 +97,6 @@ pub(super) fn walk_history(data: &KeyData, c: &TextEditingController, up: bool) 
     took
 }
 
-fn only(key: &KeyPress, mods: Mods) -> bool {
-    key.mods == mods
-}
-
 /// Whether the composer takes `key` for `c` before the field: the modal
 /// (Vim) keys that precede everything, the paste-burst detector (keys that
 /// arrive as fast as a paste are held), then the composer's own editing keys.
@@ -128,9 +125,7 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
 /// the composer holds nothing, where the caret is, and whether the key is
 /// the history search's (it opens or is inside it: no sparkle's business).
 fn sparkle_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> SparkleKey {
-    let plain = !key.mods.contains(Mods::CTRL)
-        && !key.mods.contains(Mods::ALT)
-        && !key.mods.contains(Mods::SUPER);
+    let plain = !holds_command_mod(key);
     let plain_char = if plain && key.ch.is_some() {
         key.text().and_then(|text| text.chars().next())
     } else {
@@ -255,8 +250,8 @@ fn restricted_key(
     data.suggest.hide(c.text());
     let submit = pressed(&data.keymap, COMPOSER_SUBMIT, key);
     let queue = pressed(&data.keymap, COMPOSER_QUEUE, key);
-    let plain = key.mods == Mods::NONE
-        && (pressed(&data.keymap, ENTER, key) || pressed(&data.keymap, TAB, key));
+    let plain =
+        unmodified(key) && (pressed(&data.keymap, ENTER, key) || pressed(&data.keymap, TAB, key));
     if !(submit || queue || plain) {
         return None;
     }
@@ -294,7 +289,7 @@ fn remote_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool
     let Some(env) = &data.burst else {
         return false;
     };
-    let took = key.mods == Mods::NONE
+    let took = unmodified(key)
         && if pressed(&data.keymap, HISTORY_PREVIOUS, key) {
             draft.remote_up(c)
         } else if pressed(&data.keymap, HISTORY_NEXT, key) {
@@ -323,7 +318,7 @@ fn remote_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool
 /// them (the Editor context does not see it: Composer shadows it).
 fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Option<bool> {
     let keymap = &*data.keymap;
-    let plain = |id: ActionId| pressed(keymap, id, key) && key.mods == Mods::NONE;
+    let plain = |id: ActionId| pressed(keymap, id, key) && unmodified(key);
     if pressed(keymap, COMPOSER_SUBMIT, key) {
         if plain(ENTER) {
             return Some(false);
@@ -587,9 +582,7 @@ fn edit_key(
             // Shift+Enter and Alt+Enter are the field's own line break;
             // any other key of the action (Enter, once submit is
             // elsewhere) breaks the line here
-            if pressed(&data.keymap, ENTER, key)
-                && (key.mods.contains(Mods::SHIFT) || key.mods.contains(Mods::ALT))
-            {
+            if pressed(&data.keymap, ENTER, key) && holds_shift_or_alt(key) {
                 return false;
             }
             c.insert("\n");
@@ -672,10 +665,10 @@ fn edit_arms(
     let selection = c.selection();
     let caret = selection.extent_offset;
     let collapsed = selection.is_collapsed();
-    let plain = only(key, Mods::NONE);
+    let plain = unmodified(key);
     let is = |id: ActionId| pressed(&data.keymap, id, key);
     if let Some(ch) = key.ch
-        && (plain || only(key, Mods::SHIFT))
+        && (plain || only_shift(key))
         && typed_char(draft, &*data.tell, c, ch, skill_space)
     {
         return true;
@@ -706,7 +699,7 @@ fn edit_arms(
         c.replace(e.start, e.end, "");
         return true;
     }
-    if is(FIELD_LEFT) && (plain || only(key, Mods::SHIFT)) {
+    if is(FIELD_LEFT) && (plain || only_shift(key)) {
         if plain && !collapsed {
             return false;
         }
@@ -716,7 +709,7 @@ fn edit_arms(
         c.move_caret(e.start, !plain);
         return true;
     }
-    if is(FIELD_RIGHT) && (plain || only(key, Mods::SHIFT)) {
+    if is(FIELD_RIGHT) && (plain || only_shift(key)) {
         if plain && !collapsed {
             return false;
         }

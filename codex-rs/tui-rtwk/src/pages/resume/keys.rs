@@ -10,7 +10,6 @@ use std::rc::Rc;
 
 use rtwk::editing::KeyCx;
 use rtwk::focus::{KeyCombo, KeyPress};
-use rtwk::prelude::Mods;
 
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::keymap::actions::{
@@ -20,7 +19,7 @@ use codex_tui_core::keymap::actions::{
 use codex_tui_core::screens::resume::Dir;
 
 use super::Msg;
-use crate::keymap::pressed;
+use crate::keymap::{pressed, types_plain_text};
 use crate::widgets::session_list::Move;
 
 /// What the handler reads: where to tell a key, whether a transcript is
@@ -56,7 +55,7 @@ pub fn take(data: &KeyData, key: &KeyPress, kcx: KeyCx) -> bool {
     // The session picker is always searchable: typed text, shifted or not, is
     // the field's, so a list binding on a plain character (`k`) is not a move
     // (oracle: `allow_plain_char_navigation`).
-    let typed = key.ch.is_some() && (key.mods == Mods::NONE || key.mods == Mods::SHIFT);
+    let typed = types_plain_text(key);
     let msg = if list(LIST_CANCEL) {
         Msg::Escape
     } else if own("ctrl+t") {

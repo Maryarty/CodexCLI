@@ -5,7 +5,6 @@
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
 use crate::kit::{self, Owner, Screen};
-use codex_tui_core::app::facts::TuiSettings;
 
 const PLAN_ITEM: &str = include_str!("fixtures/chat_live_4/plan_item.jsonl");
 const FOOTER: &str = include_str!("fixtures/chat_live_4/footer.jsonl");
@@ -470,10 +469,7 @@ fn vim_mode_default_enabled_starts_composer_in_insert_mode() {
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .live()
-        .tui(TuiSettings {
-            vim_mode_default: true,
-            ..TuiSettings::default()
-        })
+        .vim_mode()
         .open();
     s.keys("x right esc .");
     s.assert_has_row("› xx");

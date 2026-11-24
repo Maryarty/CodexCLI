@@ -443,16 +443,7 @@ fn ctrl_c_cleared_prompt_is_recoverable_via_history() {
     // oracle: and its image is back (take_recent_submission_images == [preview.png])
     s.keys("enter");
     s.wait_for("draft message");
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1);
-    assert_eq!(
-        turns[0]
-            .images
-            .iter()
-            .map(|i| i.path.clone())
-            .collect::<Vec<_>>(),
-        vec![path]
-    );
+    s.assert_sole_turn(kit::Turn::any().image_paths(&[path.as_path()]));
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:1120 review_popup_custom_prompt_action_sends_event kind=ui owner=chat-live

@@ -1,5 +1,0 @@
-# ADR-013 ratchets of the KeyPress literals outside `keymap` (format and rules: tests/rules/adr013_ratchets.txt).
-# A hit is a `KeyPress::` literal or a `.text() == Some(..)` test in a view: the strokes become `keymap::fixed`
-# named actions in the family that owns the file (adr013-keys, the composer and the startup flows); the list only shrinks.
-ratchet adr006_keycode_only_in_keymap src/sheets/select/app_link.rs 6
-ratchet adr006_keycode_only_in_keymap src/sheets/select/prompt.rs 1

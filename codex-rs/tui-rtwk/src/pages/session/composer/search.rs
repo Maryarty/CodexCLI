@@ -6,7 +6,6 @@
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
 use rtwk::layout::{Expanded, Row, SizedBox};
-use rtwk::prelude::Mods;
 use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
@@ -22,7 +21,7 @@ use super::ComposerMsg;
 use super::editing::KeyData;
 use super::strings;
 use crate::app::theme;
-use crate::keymap::pressed;
+use crate::keymap::{pressed, unmodified};
 use codex_tui_core::keymap::fixed::{
     DEBUG_KEY, HISTORY_NEXT, HISTORY_PREVIOUS, SEARCH_ACCEPT, SEARCH_CANCEL, SEARCH_CANCEL_BYTE,
     SEARCH_CLEAR, SEARCH_ERASE,
@@ -48,7 +47,7 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let draft = &data.draft;
     let store = &data.history;
     let mut asks = Vec::new();
-    let plain = key.mods == Mods::NONE;
+    let plain = unmodified(key);
     if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_PREVIOUS, key)
         || (pressed(&data.keymap, HISTORY_PREVIOUS, key) && plain)
     {
