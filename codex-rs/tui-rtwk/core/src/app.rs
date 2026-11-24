@@ -2211,7 +2211,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         // a verb of the thread's safety state: the thread's own, not the screen's
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety { thread, verb })) => {
             let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Safety(
-                crate::threads::safety::Ev::Verb(verb),
+                crate::threads::safety::SafetyEv::Verb(verb),
             )));
             apply_thread(app, &thread, ev, fx);
         }

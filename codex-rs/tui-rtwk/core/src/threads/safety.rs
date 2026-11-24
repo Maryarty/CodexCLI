@@ -245,7 +245,7 @@ pub enum Verb {
 
 /// An event of the safety state of one thread (a variant of `chat::ThreadEv::Safety`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {
+pub enum SafetyEv {
     /// `model/safetyBuffering/updated`.
     Buffering {
         turn: TurnId,
@@ -260,7 +260,7 @@ pub enum Ev {
     Verb(Verb),
 }
 
-fn wrap(ev: Ev) -> ThreadEv {
+fn wrap(ev: SafetyEv) -> ThreadEv {
     ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Safety(ev)))
 }
 
@@ -277,7 +277,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
             },
         ) => Some((
             ThreadId::new(thread_id),
-            wrap(Ev::Buffering {
+            wrap(SafetyEv::Buffering {
                 turn: TurnId::new(turn_id),
                 show: *show_buffering_ui,
                 faster_model: faster_model.clone(),
@@ -289,7 +289,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
             metadata,
         }) => Some((
             ThreadId::new(thread_id),
-            wrap(Ev::Moderation {
+            wrap(SafetyEv::Moderation {
                 turn: TurnId::new(turn_id),
                 metadata: metadata.clone(),
             }),
@@ -330,15 +330,15 @@ pub(super) fn observe(model: &mut ThreadModel, ev: &ThreadEv) {
     }
 }
 
-pub(super) fn apply(model: &mut ThreadModel, ev: Ev, fx: &mut ThreadFx<'_>) {
+pub(super) fn apply(model: &mut ThreadModel, ev: SafetyEv, fx: &mut ThreadFx<'_>) {
     match ev {
-        Ev::Buffering {
+        SafetyEv::Buffering {
             turn,
             show,
             faster_model,
         } => buffering(model, turn, show, faster_model),
-        Ev::Moderation { turn, metadata } => moderation(model, turn, metadata),
-        Ev::Verb(verb) => verb_applied(model, verb, fx),
+        SafetyEv::Moderation { turn, metadata } => moderation(model, turn, metadata),
+        SafetyEv::Verb(verb) => verb_applied(model, verb, fx),
     }
 }
 

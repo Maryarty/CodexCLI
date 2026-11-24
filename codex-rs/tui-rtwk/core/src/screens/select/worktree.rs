@@ -106,7 +106,7 @@ pub enum Refusal {
 
 /// What the worktree pickers and the chat flow say in the history (`select::Note::Worktree`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Line {
+pub enum WorktreeLine {
     /// `Managed worktrees require a local Git repository.` (an error).
     Unavailable,
     /// `Cannot list managed worktrees: {error}` (an error).
@@ -123,10 +123,10 @@ pub enum Line {
     RemoveFailed { root: String, error: String },
 }
 
-impl Line {
+impl WorktreeLine {
     /// The oracle says it as an error.
     pub fn error(&self) -> bool {
-        !matches!(self, Line::Removed { .. })
+        !matches!(self, WorktreeLine::Removed { .. })
     }
 }
 

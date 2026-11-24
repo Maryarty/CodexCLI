@@ -976,7 +976,7 @@ impl ThreadEv {
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
             // what the user says to the safety state is no news of the server
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(
-                safety::Ev::Verb(_),
+                safety::SafetyEv::Verb(_),
             ))) => false,
             Self::TurnStarted { .. }
             | Self::ItemStarted { .. }

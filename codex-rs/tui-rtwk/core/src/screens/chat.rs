@@ -693,9 +693,9 @@ pub enum ThreadEv {
     Compaction { turn: TurnId, running: bool },
     /// The thread's own facts of a context compaction (`threads/compaction.rs`): `threads::apply`
     /// takes it before the screen sees it, the screen keeps nothing of it.
-    Compacting(crate::threads::compaction::Ev),
+    Compacting(crate::threads::compaction::CompactionEv),
     /// The thread's safety facts (`threads/safety.rs`), taken by `threads::apply` the same way.
-    Safety(crate::threads::safety::Ev),
+    Safety(crate::threads::safety::SafetyEv),
     Name(Option<String>),
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
     /// The server retries the turn's request: the header says so, and the

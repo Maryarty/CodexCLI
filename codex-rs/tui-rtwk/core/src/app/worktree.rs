@@ -84,7 +84,7 @@ impl Step {
     ) {
         let refuse = |app: &mut CodexApp, why: Refusal, fx: &mut AppFx| {
             let note = Note::from(NoteKey::Select(select::Note::Worktree(
-                select::worktree::Line::Refused(why),
+                select::worktree::WorktreeLine::Refused(why),
             )));
             session_note(app, source.clone(), note, fx);
         };
@@ -282,9 +282,11 @@ fn finish(app: &mut CodexApp, chat: Option<Chat>, said: Said, fx: &mut AppFx) {
         return;
     };
     let note = match said {
-        Said::Failed(error) => select::Note::Worktree(select::worktree::Line::Failed(error)),
+        Said::Failed(error) => {
+            select::Note::Worktree(select::worktree::WorktreeLine::Failed(error))
+        }
         Said::Retained { root, reason } => {
-            select::Note::Worktree(select::worktree::Line::Retained { root, reason })
+            select::Note::Worktree(select::worktree::WorktreeLine::Retained { root, reason })
         }
     };
     session_note(

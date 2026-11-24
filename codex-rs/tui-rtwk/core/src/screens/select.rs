@@ -205,7 +205,7 @@ pub enum Note {
     /// default provider. Try /model after the save finishes.` while it runs.
     ModelPickerUnavailable(Provider),
     /// A line of the worktree pickers and of the conversation started in a worktree.
-    Worktree(worktree::Line),
+    Worktree(worktree::WorktreeLine),
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
@@ -768,14 +768,14 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         // replaces itself with the browser, or closes; a failure is said unless it was given up.
         Ev::Worktrees { request, result } => {
             if let Some(error) = model.worktree.answered(request, result) {
-                model.notes.push(Note::Worktree(worktree::Line::ListFailed(error)));
+                model.notes.push(Note::Worktree(worktree::WorktreeLine::ListFailed(error)));
             }
         }
         Ev::WorktreeRemoved { request, result } => {
             if let Some(root) = model.worktree.removed(request) {
                 model.notes.push(match result {
-                    Ok(()) => Note::Worktree(worktree::Line::Removed { root }),
-                    Err(error) => Note::Worktree(worktree::Line::RemoveFailed { root, error }),
+                    Ok(()) => Note::Worktree(worktree::WorktreeLine::Removed { root }),
+                    Err(error) => Note::Worktree(worktree::WorktreeLine::RemoveFailed { root, error }),
                 });
             }
         }
@@ -932,7 +932,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.worktree.open(cwd, thread);
                 model.shows.push(Opening::Worktree(worktree::Menu::Worktrees));
             } else {
-                model.notes.push(Note::Worktree(worktree::Line::Unavailable));
+                model.notes.push(Note::Worktree(worktree::WorktreeLine::Unavailable));
             }
         }
         // What a page of `/review` settled on (`Picked::Review`), and the list a page asks of the

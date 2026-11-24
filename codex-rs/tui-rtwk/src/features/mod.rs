@@ -35,9 +35,9 @@ pub mod prompt;
 // One line per directory of `feature_list!`, written out so that rustfmt (which follows `mod`
 // lines, not macro expansions) formats the views too. A feature of the list without its
 // directory does not compile: `view_dispatch!` needs its `FeatureView` impl.
+pub mod copy;
 pub mod daemon;
 pub mod diff;
-pub mod copy;
 pub mod export;
 pub mod feedback;
 pub mod goal;
@@ -48,8 +48,8 @@ pub mod recap;
 pub mod rename;
 pub mod security_setup;
 pub mod settings;
-pub mod windows_sandbox;
 pub mod small_cmds;
+pub mod windows_sandbox;
 
 /// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope
 /// shows it from its own slice of the feature's state (the data of the wish is the feature's, a

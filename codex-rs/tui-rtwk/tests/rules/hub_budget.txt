@@ -66,8 +66,10 @@ enum core/src/rpc.rs Answer 11
 # `/recap` (fw1-c4): `Ask::StructuredTurn` / `Done::Structured`, the host's ephemeral thread with one
 # structured turn (the oracle's `temporary_structured_request`); `SuggestTitle` can become its
 # second user and leave.
-enum core/src/app/effects.rs Ask 13
-enum core/src/app/effects.rs Done 12
+# Merged wave 1 (fw1-c1 + fw1-c4): Ask 13 -> 14, Done 12 -> 13 (c1's BackgroundServer and c4's
+# StructuredTurn/Structured; c2's Editor adds one more of each when it lands).
+enum core/src/app/effects.rs Ask 14
+enum core/src/app/effects.rs Done 13
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that
 # are no feature's. A new one is a decision with an ADR-012 paragraph (a hook is added only for
 # a thread or app lifecycle fact, never for one producer and one consumer), and raises its line.

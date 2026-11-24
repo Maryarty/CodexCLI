@@ -89,7 +89,7 @@ impl Compaction {
 
 /// What happened to a compaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {
+pub enum CompactionEv {
     /// `item/started` of a context compaction; `started_at_ms` is the server's clock.
     Started {
         turn: TurnId,
@@ -100,7 +100,7 @@ pub enum Ev {
     Completed { key: ItemKey },
 }
 
-fn wrap(ev: Ev) -> ThreadEv {
+fn wrap(ev: CompactionEv) -> ThreadEv {
     ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Compacting(ev)))
 }
 
@@ -111,7 +111,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
         ServerNotification::ItemStarted(n) => match &n.item.payload {
             ThreadItemPayload::ContextCompaction { id } => Some((
                 ThreadId::new(&n.thread_id),
-                wrap(Ev::Started {
+                wrap(CompactionEv::Started {
                     turn: TurnId::new(&n.turn_id),
                     id: ItemId::new(id),
                     started_at_ms: n.started_at_ms,
@@ -122,7 +122,7 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
         ServerNotification::ItemCompleted(n) => match &n.item.payload {
             ThreadItemPayload::ContextCompaction { id } => Some((
                 ThreadId::new(&n.thread_id),
-                wrap(Ev::Completed {
+                wrap(CompactionEv::Completed {
                     key: ItemKey {
                         turn: TurnId::new(&n.turn_id),
                         item: ItemId::new(id),
@@ -135,9 +135,9 @@ pub(super) fn project(notification: &ServerNotification) -> Option<(ThreadId, Th
     }
 }
 
-pub(super) fn apply(model: &mut ThreadModel, ev: Ev, fx: &mut ThreadFx<'_>) {
+pub(super) fn apply(model: &mut ThreadModel, ev: CompactionEv, fx: &mut ThreadFx<'_>) {
     match ev {
-        Ev::Started {
+        CompactionEv::Started {
             turn,
             id,
             started_at_ms,
@@ -157,7 +157,7 @@ pub(super) fn apply(model: &mut ThreadModel, ev: Ev, fx: &mut ThreadFx<'_>) {
             };
             model.core.compaction.start(id, started_at);
         }
-        Ev::Completed { key } => {
+        CompactionEv::Completed { key } => {
             model.core.compaction.finish(&key.item, fx.now());
             super::apply_ev(
                 model,
