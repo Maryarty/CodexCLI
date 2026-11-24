@@ -10,7 +10,7 @@ use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::models::{AccountAnalyticsHistory, AccountAnalyticsUnit};
 use codex_tui_core::screens::usage::{
     AccountReply, Ask, AskKind, Control, Ev, GroupName, Intent, Load, LoadError, Model, Note,
-    ReportReply, Section, Stamp, settle, step,
+    ReportKey, ReportReply, Section, UsageChoice, Stamp, View, settle, step,
 };
 use pretty_assertions::assert_eq;
 
@@ -38,13 +38,15 @@ fn history() -> AccountAnalyticsHistory {
     }
 }
 
-/// Opens the page and answers the account as the host would.
-fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
+/// Opens the page and answers the account as the host would; then the page's part: the choice
+/// fits the account and asks for the report of each tab.
+fn opened(plan: PlanType) -> (Model, UsageChoice, Vec<Ask>) {
     let mut model = Model::default();
-    let asks = step(&mut model, Intent::Open { view: None });
+    let mut sel = UsageChoice::opening(None);
+    let asks = step(&mut model, Intent::Open);
     assert_eq!(asks.len(), 1);
     assert_eq!(asks[0].what, AskKind::Account);
-    let asks = settle(
+    let mut asks = settle(
         &mut model,
         Ev::Account {
             session: asks[0].session,
@@ -52,7 +54,21 @@ fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
             result: Ok(reply(plan)),
         },
     );
-    (model, asks)
+    sel.settled(&model);
+    let keys = sel.keys(&model);
+    asks.extend(load(&mut model, keys));
+    (model, sel, asks)
+}
+
+/// What the page says to the model: the reports `keys`, in order.
+fn load(model: &mut Model, keys: Vec<ReportKey>) -> Vec<Ask> {
+    keys.into_iter()
+        .flat_map(|key| step(model, Intent::Load(key)))
+        .collect()
+}
+
+fn history_of(model: &Model, sel: &UsageChoice, section: Section) -> Load<std::rc::Rc<AccountAnalyticsHistory>> {
+    View::new(model, sel).history(section)
 }
 
 fn answer(model: &mut Model, ask: &Ask) {
@@ -146,10 +162,10 @@ fn account_layouts_show_the_reports_of_each_kind() {
         ),
         (PlanType::Unknown, vec![Section::Summary]),
     ] {
-        let (model, _) = opened(plan);
+        let (model, _, _) = opened(plan);
         assert_eq!(model.visible_sections(), &expected[..], "{plan:?}");
     }
-    let (mut model, _) = opened(PlanType::Plus);
+    let (mut model, _, _) = opened(PlanType::Plus);
     model.plan_enabled = true;
     assert_eq!(model.visible_sections()[2], Section::Plan);
 }
@@ -158,8 +174,8 @@ fn account_layouts_show_the_reports_of_each_kind() {
 fn the_usage_tab_is_the_business_one_per_account_kind() {
     // The words of the tabs live in the page's string table; the core only
     // says which account kind a tab is for.
-    let (consumer, _) = opened(PlanType::Plus);
-    let (business, _) = opened(PlanType::Business);
+    let (consumer, _, _) = opened(PlanType::Plus);
+    let (business, _, _) = opened(PlanType::Business);
     assert!(!consumer.business());
     assert!(business.business());
 }
@@ -167,14 +183,9 @@ fn the_usage_tab_is_the_business_one_per_account_kind() {
 #[test]
 fn account_pending_and_error_start_no_report() {
     let mut model = Model::default();
-    let asks = step(&mut model, Intent::Open { view: None });
+    let asks = step(&mut model, Intent::Open);
     assert!(model.account.is_loading());
-    assert!(
-        model
-            .histories
-            .iter()
-            .all(|load| *load == Load::Unavailable)
-    );
+    assert!(model.histories.is_empty());
     let asks = settle(
         &mut model,
         Ev::Account {
@@ -193,17 +204,12 @@ fn account_pending_and_error_start_no_report() {
         )))
     );
     assert!(model.visible_sections().is_empty());
-    assert!(
-        model
-            .histories
-            .iter()
-            .all(|load| *load == Load::Unavailable)
-    );
+    assert!(model.histories.is_empty());
 }
 
 #[test]
 fn an_account_starts_only_its_eligible_reports_once() {
-    let (model, asks) = opened(PlanType::Plus);
+    let (model, _, asks) = opened(PlanType::Plus);
     assert_eq!(asks[0].what, AskKind::Profile);
     assert_eq!(
         sections_asked(&asks),
@@ -215,7 +221,7 @@ fn an_account_starts_only_its_eligible_reports_once() {
         ]
     );
     assert!(model.profile.is_loading());
-    let (_, business) = opened(PlanType::Business);
+    let (_, _, business) = opened(PlanType::Business);
     assert_eq!(
         sections_asked(&business),
         [
@@ -226,7 +232,7 @@ fn an_account_starts_only_its_eligible_reports_once() {
         ]
     );
     // The same account again changes nothing: no second start.
-    let (mut model, _) = opened(PlanType::Plus);
+    let (mut model, _, _) = opened(PlanType::Plus);
     let session = model.session;
     let again = settle(
         &mut model,
@@ -241,7 +247,7 @@ fn an_account_starts_only_its_eligible_reports_once() {
 
 #[test]
 fn the_first_asks_carry_the_groups_and_ranges_of_the_oracle() {
-    let (_, asks) = opened(PlanType::Plus);
+    let (_, _, asks) = opened(PlanType::Plus);
     let usage = asks
         .iter()
         .find_map(|ask| match &ask.what {
@@ -259,7 +265,7 @@ fn the_first_asks_carry_the_groups_and_ranges_of_the_oracle() {
     // Business tokens group by model (2) for a team-like plan, by token type
     // (6) for an enterprise workspace, when the stored group is not allowed.
     for (plan, expected) in [(PlanType::Team, 2), (PlanType::Business, 6)] {
-        let (_, asks) = opened(plan);
+        let (_, _, asks) = opened(plan);
         let group = asks
             .iter()
             .find_map(|ask| match &ask.what {
@@ -277,61 +283,60 @@ fn the_first_asks_carry_the_groups_and_ranges_of_the_oracle() {
 
 #[test]
 fn a_range_change_reloads_only_its_group_and_keeps_the_other_reports() {
-    let (mut model, asks) = opened(PlanType::Plus);
+    let (mut model, mut sel, asks) = opened(PlanType::Plus);
     for ask in &asks[1..] {
         answer(&mut model, ask);
     }
-    assert!(model.histories[Section::Usage as usize].ready().is_some());
+    assert!(history_of(&model, &sel, Section::Usage).ready().is_some());
     // On Usage: the usage range group; Activity and the tools keep theirs.
-    step(&mut model, Intent::Select(Section::Usage));
-    let asks = step(&mut model, Intent::Range);
+    sel.pick(&model, Section::Usage);
+    let keys = sel.next_range(&model);
+    let asks = load(&mut model, keys);
     assert_eq!(sections_asked(&asks), [Section::Usage]);
-    assert_eq!(model.ranges, [1, 0, 0]);
-    assert!(model.histories[Section::Usage as usize].is_loading());
-    assert!(
-        model.histories[Section::Activity as usize]
-            .ready()
-            .is_some()
-    );
+    assert_eq!(sel.ranges, [1, 0, 0]);
+    assert!(history_of(&model, &sel, Section::Usage).is_loading());
+    assert!(history_of(&model, &sel, Section::Activity).ready().is_some());
     match &asks[0].what {
         AskKind::Report { days, .. } => assert_eq!(*days, 30),
         other => panic!("{other:?}"),
     }
     // Plugins and Skills share the tools group.
-    step(&mut model, Intent::Select(Section::Plugins));
-    let asks = step(&mut model, Intent::Range);
+    sel.pick(&model, Section::Plugins);
+    let keys = sel.next_range(&model);
+    let asks = load(&mut model, keys);
     assert_eq!(sections_asked(&asks), [Section::Plugins, Section::Skills]);
-    assert_eq!(model.ranges, [1, 0, 1]);
+    assert_eq!(sel.ranges, [1, 0, 1]);
     // The Overview has no range of its own.
-    step(&mut model, Intent::Select(Section::Summary));
-    assert!(step(&mut model, Intent::Range).is_empty());
-    assert_eq!(model.ranges, [1, 0, 1]);
+    sel.pick(&model, Section::Summary);
+    assert!(sel.next_range(&model).is_empty());
+    assert_eq!(sel.ranges, [1, 0, 1]);
 }
 
 #[test]
 fn the_group_cycle_follows_the_options_and_reloads_the_section() {
-    let (mut model, asks) = opened(PlanType::Plus);
+    let (mut model, mut sel, asks) = opened(PlanType::Plus);
     for ask in &asks[1..] {
         answer(&mut model, ask);
     }
-    step(&mut model, Intent::Select(Section::Usage));
-    assert_eq!(model.group_options(), [1, 2, 0, 3]);
-    let asks = step(&mut model, Intent::Group);
-    assert_eq!(model.groups[Section::Usage as usize], 2);
+    sel.pick(&model, Section::Usage);
+    assert_eq!(sel.group_options(&model), [1, 2, 0, 3]);
+    let keys = sel.next_group(&model);
+    let asks = load(&mut model, keys);
+    assert_eq!(sel.groups[Section::Usage as usize], 2);
     assert_eq!(sections_asked(&asks), [Section::Usage]);
     for expected in [0, 3, 1] {
-        step(&mut model, Intent::Group);
-        assert_eq!(model.groups[Section::Usage as usize], expected);
+        sel.next_group(&model);
+        assert_eq!(sel.groups[Section::Usage as usize], expected);
     }
     // Plugins have no groupings: no control, no ask.
-    step(&mut model, Intent::Select(Section::Plugins));
-    assert!(!model.control_available(Control::Group, false));
-    assert!(step(&mut model, Intent::Group).is_empty());
+    sel.pick(&model, Section::Plugins);
+    assert!(!sel.control_available(&model, Control::Group, false));
+    assert!(sel.next_group(&model).is_empty());
 }
 
 #[test]
 fn an_unattributed_consumer_falls_back_to_the_product_grouping() {
-    let (mut model, asks) = opened(PlanType::Plus);
+    let (mut model, mut sel, asks) = opened(PlanType::Plus);
     let usage = asks
         .iter()
         .find(|ask| {
@@ -357,15 +362,18 @@ fn an_unattributed_consumer_falls_back_to_the_product_grouping() {
             }),
         },
     );
-    assert_eq!(model.groups[Section::Usage as usize], 0);
-    step(&mut model, Intent::Select(Section::Usage));
-    assert_eq!(model.group_options(), [0, 2]);
+    // the page's choice follows, and the answer to the grouped question is the ungrouped one
+    sel.after_settle(&model);
+    assert_eq!(sel.groups[Section::Usage as usize], 0);
+    assert!(history_of(&model, &sel, Section::Usage).ready().is_some());
+    sel.pick(&model, Section::Usage);
+    assert_eq!(sel.group_options(&model), [0, 2]);
     assert_eq!(model.group_name(Section::Usage, 0), GroupName::Product);
 }
 
 #[test]
 fn the_business_model_control_cycles_the_models_and_filters_the_tokens() {
-    let (mut model, asks) = opened(PlanType::Business);
+    let (mut model, mut sel, asks) = opened(PlanType::Business);
     let usage = asks
         .iter()
         .find(|ask| {
@@ -391,11 +399,12 @@ fn the_business_model_control_cycles_the_models_and_filters_the_tokens() {
             }),
         },
     );
-    step(&mut model, Intent::Select(Section::Usage));
-    assert!(model.control_available(Control::Model, false));
+    sel.pick(&model, Section::Usage);
+    assert!(sel.control_available(&model, Control::Model, false));
     let mut seen = Vec::new();
     for _ in 0..3 {
-        let asks = step(&mut model, Intent::Model);
+        let keys = sel.next_model(&model);
+        let asks = load(&mut model, keys);
         let AskKind::Report { model: filter, .. } = &asks[0].what else {
             panic!("{asks:?}")
         };
@@ -410,15 +419,15 @@ fn the_business_model_control_cycles_the_models_and_filters_the_tokens() {
         ]
     );
     // A consumer has no model control.
-    let (mut consumer, _) = opened(PlanType::Plus);
-    step(&mut consumer, Intent::Select(Section::Usage));
-    assert!(!consumer.control_available(Control::Model, false));
-    assert!(step(&mut consumer, Intent::Model).is_empty());
+    let (consumer, mut sel, _) = opened(PlanType::Plus);
+    sel.pick(&consumer, Section::Usage);
+    assert!(!sel.control_available(&consumer, Control::Model, false));
+    assert!(sel.next_model(&consumer).is_empty());
 }
 
 #[test]
 fn a_stale_or_foreign_reply_settles_nothing() {
-    let (mut model, asks) = opened(PlanType::Plus);
+    let (mut model, mut sel, asks) = opened(PlanType::Plus);
     let usage = asks
         .iter()
         .find(|ask| {
@@ -433,37 +442,35 @@ fn a_stale_or_foreign_reply_settles_nothing() {
         .unwrap()
         .clone();
     // A range change replaces the load: the first answer is stale.
-    step(&mut model, Intent::Select(Section::Usage));
-    let newer = step(&mut model, Intent::Range).remove(0);
+    sel.pick(&model, Section::Usage);
+    let keys = sel.next_range(&model);
+    let newer = load(&mut model, keys).remove(0);
+    // the first answer is of the 7 days, still on the page's cache under its key
     answer(&mut model, &usage);
-    assert!(model.histories[Section::Usage as usize].is_loading());
+    assert!(history_of(&model, &sel, Section::Usage).is_loading());
     answer(&mut model, &newer);
-    assert!(model.histories[Section::Usage as usize].ready().is_some());
+    assert!(history_of(&model, &sel, Section::Usage).ready().is_some());
     // A reply of the session before a refresh is dropped too.
-    let before = step(&mut model, Intent::Range).remove(0);
+    let keys = sel.next_range(&model);
+    let before = load(&mut model, keys).remove(0);
     step(&mut model, Intent::Refresh);
     answer(&mut model, &before);
-    assert_eq!(model.histories[Section::Usage as usize], Load::Unavailable);
+    assert_eq!(history_of(&model, &sel, Section::Usage), Load::Unavailable);
     assert!(model.account.is_loading());
 }
 
 #[test]
 fn a_refresh_starts_a_session_and_a_close_drops_every_load() {
-    let (mut model, asks) = opened(PlanType::Plus);
+    let (mut model, mut sel, asks) = opened(PlanType::Plus);
     for ask in &asks[1..] {
         answer(&mut model, ask);
     }
-    step(&mut model, Intent::Select(Section::Skills));
+    sel.pick(&model, Section::Skills);
     let session = model.session;
     let asks = step(&mut model, Intent::Refresh);
     assert_eq!((model.session, asks.len()), (session + 1, 1));
-    assert_eq!(model.section, Section::Skills);
-    assert!(
-        model
-            .histories
-            .iter()
-            .all(|load| *load == Load::Unavailable)
-    );
+    assert_eq!(sel.section, Section::Skills);
+    assert!(model.histories.is_empty());
     assert!(model.profile == Load::Unavailable);
     step(&mut model, Intent::Leave);
     assert!(!model.live);
@@ -482,7 +489,7 @@ fn a_refresh_starts_a_session_and_a_close_drops_every_load() {
 
 #[test]
 fn an_identity_change_reopens_the_session() {
-    let (mut model, _) = opened(PlanType::Plus);
+    let (mut model, _, _) = opened(PlanType::Plus);
     let session = model.session;
     let asks = settle(&mut model, Ev::Invalidated { session });
     assert_eq!((model.session, asks.len()), (session + 1, 1));
@@ -493,36 +500,32 @@ fn an_identity_change_reopens_the_session() {
 
 #[test]
 fn the_slash_command_picks_the_overview_chart() {
-    let mut model = Model::default();
-    step(
-        &mut model,
-        Intent::Open {
-            view: Some(codex_tui_core::screens::usage::TokenActivityView::Cumulative),
-        },
-    );
-    assert_eq!(model.section, Section::Summary);
-    assert_eq!(model.groups[Section::Summary as usize], 2);
+    let sel = UsageChoice::opening(Some(
+        codex_tui_core::screens::usage::TokenActivityView::Cumulative,
+    ));
+    assert_eq!(sel.section, Section::Summary);
+    assert_eq!(sel.groups[Section::Summary as usize], 2);
 }
 
 #[test]
 fn selecting_a_hidden_section_changes_nothing() {
-    let (mut model, _) = opened(PlanType::Plus);
-    step(&mut model, Intent::Select(Section::Credits));
-    assert_eq!(model.section, Section::Summary);
-    step(&mut model, Intent::Select(Section::Chats));
-    assert_eq!(model.section, Section::Chats);
+    let (model, mut sel, _) = opened(PlanType::Plus);
+    sel.pick(&model, Section::Credits);
+    assert_eq!(sel.section, Section::Summary);
+    sel.pick(&model, Section::Chats);
+    assert_eq!(sel.section, Section::Chats);
 }
 
 #[test]
 fn the_date_range_of_a_section_ends_on_the_session_day() {
-    let (mut model, _) = opened(PlanType::Plus);
-    let range = model.section_date_range(Section::Usage);
+    let (model, mut sel, _) = opened(PlanType::Plus);
+    let range = sel.section_date_range(&model, Section::Usage);
     assert_eq!(range.start().to_string(), "2026-09-03");
     assert_eq!(range.end().to_string(), "2026-09-09");
-    step(&mut model, Intent::Select(Section::Usage));
-    step(&mut model, Intent::Range);
+    sel.pick(&model, Section::Usage);
+    sel.next_range(&model);
     assert_eq!(
-        model.section_date_range(Section::Usage).start().to_string(),
+        sel.section_date_range(&model, Section::Usage).start().to_string(),
         "2026-08-11"
     );
     assert_eq!(model.model_name("gpt-5"), "GPT-5");
@@ -530,14 +533,14 @@ fn the_date_range_of_a_section_ends_on_the_session_day() {
 }
 
 #[test]
-fn the_task_metric_cycles_in_the_model() {
+fn the_task_metric_cycles_in_the_choice() {
     use codex_tui_core::screens::usage::chats::{
         Amounts, Decimal, Metric, Status, Task, TaskList, TaskRow,
     };
-    let (mut model, _) = opened(PlanType::Plus);
+    let (mut model, mut sel, _) = opened(PlanType::Plus);
     // The metrics offered are the ones some row reports: the balance, then
     // the percentages the rows have.
-    model.section = Section::Chats;
+    sel.pick(&model, Section::Chats);
     model.tasks = codex_tui_core::screens::usage::Load::Ready(std::rc::Rc::new(TaskList {
         rows: vec![TaskRow {
             title: "A task".into(),
@@ -554,11 +557,11 @@ fn the_task_metric_cycles_in_the_model() {
         ..TaskList::default()
     }));
     assert_eq!(model.task_metrics(), Metric::ALL.to_vec());
-    step(&mut model, Intent::TaskMetric);
-    step(&mut model, Intent::TaskMetric);
-    assert_eq!(model.chat_metric, 2);
-    step(&mut model, Intent::TaskMetric);
-    assert_eq!(model.chat_metric, 0);
+    sel.next_metric(&model);
+    sel.next_metric(&model);
+    assert_eq!(sel.chat_metric, 2);
+    sel.next_metric(&model);
+    assert_eq!(sel.chat_metric, 0);
 }
 
 /// The account's clock preference settles with the account (oracle:
@@ -569,7 +572,7 @@ fn the_account_settles_the_clock_format() {
     let mut model = Model::default();
     assert!(!model.hour24);
     for hour24 in [true, false] {
-        let asks = step(&mut model, Intent::Open { view: None });
+        let asks = step(&mut model, Intent::Open);
         settle(
             &mut model,
             Ev::Account {
@@ -595,9 +598,7 @@ fn the_asks_go_to_the_host_as_usage_commands_and_the_answers_come_back_through_t
     let mut fx = AppFx::default();
     apply_app(
         &mut app,
-        AppEv::Intent(AppIntent::Screen(ScreenIntent::Usage(Intent::Open {
-            view: None,
-        }))),
+        AppEv::Intent(AppIntent::Screen(ScreenIntent::Usage(Intent::Open))),
         &mut fx,
     );
     let asks = fx
@@ -627,5 +628,5 @@ fn the_asks_go_to_the_host_as_usage_commands_and_the_answers_come_back_through_t
         .iter()
         .filter(|command| matches!(command, Command::Usage { .. }))
         .count();
-    assert!(later > 1, "the reports are asked: {:?}", fx.commands());
+    assert!(later >= 1, "the profile is asked: {:?}", fx.commands());
 }

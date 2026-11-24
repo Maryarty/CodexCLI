@@ -10,7 +10,7 @@ use rtwk::text::{Text, TextWrap};
 
 use codex_tui_core::keymap::fixed::{INTERRUPT_OR_QUIT, USAGE_PREVIOUS_TAB};
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::screens::usage::{Control, Model};
+use codex_tui_core::screens::usage::{Control, View};
 
 use super::keys;
 use super::strings::Strings;
@@ -24,7 +24,7 @@ fn stroke_label_of(id: ActionId) -> String {
 
 /// The help's lines before wrapping.
 pub(super) fn lines(
-    model: &Model,
+    model: &View<'_>,
     strings: &Strings,
     num: &NumSyms,
     keymap: &Keymap,
@@ -60,7 +60,8 @@ pub(super) fn lines(
         out.push(strings.help_toggle.to_owned());
     }
     out.push(strings.help_close(&hint(keys::CANCEL), &interrupt, num));
-    if let Some(updated) = model.histories[model.section as usize]
+    if let Some(updated) = model
+        .history(model.section())
         .ready()
         .and_then(|history| history.updated_at)
     {

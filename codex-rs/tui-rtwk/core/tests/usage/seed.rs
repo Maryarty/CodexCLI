@@ -2,7 +2,7 @@
 
 use codex_protocol::account::PlanType;
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::screens::usage::{Load, LoadError, Note, Section};
+use codex_tui_core::screens::usage::{Load, LoadError, Model, Note, Section, UsageChoice, View};
 use pretty_assertions::assert_eq;
 
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
@@ -11,13 +11,21 @@ fn play(steps: &[&str]) -> Sandbox {
     Sandbox::play(&format!("{SESSION}\n{}\n", steps.join("\n"))).expect("plays")
 }
 
+/// What the page would choose over the seed the fixture left in the model.
+fn chosen(model: &Model) -> UsageChoice {
+    match &model.seeded {
+        Some(seed) => UsageChoice::seeded(seed, model),
+        None => UsageChoice::default(),
+    }
+}
+
 #[test]
 fn a_fresh_model_has_no_account_and_loads_nothing() {
     let sandbox = play(&[]);
     let model = &sandbox.app().screens().usage;
     assert!(model.account == Load::Unavailable);
     assert!(model.visible_sections().is_empty());
-    assert_eq!(model.section, Section::Summary);
+    assert_eq!(chosen(model).section, Section::Summary);
 }
 
 #[test]
@@ -36,12 +44,14 @@ fn a_seed_settles_the_account_the_reports_and_the_profile() {
     ]);
     let model = &sandbox.app().screens().usage;
     assert_eq!(model.account.ready().copied(), Some(PlanType::Plus));
-    assert_eq!(model.section, Section::Usage);
+    let sel = chosen(model);
+    let view = View::new(model, &sel);
+    assert_eq!(sel.section, Section::Usage);
     assert_eq!(model.end_date.to_string(), "2026-09-09");
-    assert!(model.histories[Section::Usage as usize].ready().is_some());
-    assert!(model.histories[Section::Activity as usize].is_loading());
+    assert!(view.history(Section::Usage).ready().is_some());
+    assert!(view.history(Section::Activity).is_loading());
     assert_eq!(
-        model.histories[Section::Skills as usize].note(),
+        view.history(Section::Skills).note(),
         Some(Note::Error(LoadError::Host("temporary failure".to_owned())))
     );
     assert_eq!(
@@ -55,7 +65,7 @@ fn a_seed_of_a_section_the_account_hides_falls_back_to_the_first() {
     let sandbox = play(&[
         r#"{"step":"screen","dir":"usage","ev":{"account":{"plan":"plus","today":"2026-09-09"},"section":"credits"}}"#,
     ]);
-    assert_eq!(sandbox.app().screens().usage.section, Section::Summary);
+    assert_eq!(chosen(&sandbox.app().screens().usage).section, Section::Summary);
 }
 
 #[test]

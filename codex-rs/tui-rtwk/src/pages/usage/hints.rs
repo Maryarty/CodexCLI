@@ -15,7 +15,7 @@ use rtwk::text::segmenter_of;
 use rtwk::{AnyWidget, LayoutBuilder};
 
 use codex_tui_core::keymap::Keymap;
-use codex_tui_core::screens::usage::{Model, Section};
+use codex_tui_core::screens::usage::{Chosen, Section, View};
 
 use super::keys;
 use super::report;
@@ -27,7 +27,7 @@ const SEPARATOR: &str = " \u{b7} ";
 
 /// What the rows depend on besides the width.
 pub(super) struct Facts<'a> {
-    pub model: &'a Model,
+    pub model: &'a View<'a>,
     pub strings: &'a Strings,
     pub num: &'a NumSyms,
     pub keymap: &'a Keymap,
@@ -88,7 +88,7 @@ pub(super) fn rows(seg: Measure, facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2
         actions.push((hint(keys::ACCEPT), word(strings.hint_focus)));
         actions.push((word(strings.hint_tab_key), word(strings.hint_card)));
     } else {
-        let section = model.section;
+        let section = model.section();
         match section {
             Section::Summary => {}
             Section::Plan => actions.push((pair(keys::UP, keys::DOWN), word(strings.hint_period))),
@@ -157,7 +157,7 @@ pub(super) fn rows(seg: Measure, facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2
 /// The footer's inputs, owned: the widget is built again when the scroll
 /// controller notifies.
 pub(super) struct Footer {
-    pub model: Model,
+    pub model: Chosen,
     pub strings: Strings,
     pub num: NumSyms,
     pub keymap: Rc<Keymap>,
@@ -193,8 +193,9 @@ pub(super) fn footer(footer: Footer) -> AnyWidget {
         let (model, keymap) = (model.clone(), keymap.clone());
         let (key, hint) = (key.clone(), hint.clone());
         LayoutBuilder::new(move |cx, constraints| {
+            let view = model.view();
             let facts = Facts {
-                model: &model,
+                model: &view,
                 strings: &strings,
                 num: &num,
                 keymap: &keymap,

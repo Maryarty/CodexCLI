@@ -89,6 +89,17 @@ impl From<super::plan::Error> for LoadError {
     }
 }
 
+/// What a report was asked for (ADR-013: the key of a request record; the reports are a cache by
+/// it): the section's report over `days` days ending at the model's end date, grouped by the
+/// `group`-th grouping, filtered to `model` (the token report's `m` control).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ReportKey {
+    pub section: super::Section,
+    pub days: u32,
+    pub group: usize,
+    pub model: Option<String>,
+}
+
 /// The number of one request: a reply settles the load only when it carries
 /// the stamp the load was started with.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]

@@ -21,7 +21,7 @@ use codex_tui_core::screens::usage::plot::{Ink, Plot};
 use codex_tui_core::screens::usage::report::{
     Body, Head, Label, Left, Message, Note, Report, ReportView, Right, Row as Line, Summary,
 };
-use codex_tui_core::screens::usage::{Load, Model, Section};
+use codex_tui_core::screens::usage::{Load, Section, View};
 
 use super::Look;
 use super::cards::{Fit, Item};
@@ -50,8 +50,8 @@ pub fn is_chart(section: Section) -> bool {
 
 /// What the load of `section` says while it is not ready, or that its range
 /// holds no data; nothing for a ready report.
-pub fn message_text(model: &Model, section: Section, strings: &Strings) -> Option<String> {
-    let load = &model.histories[section as usize];
+pub fn message_text(model: &View<'_>, section: Section, strings: &Strings) -> Option<String> {
+    let load = &model.history(section);
     match load {
         Load::Ready(history) if history.data.is_empty() => Some(strings.empty_range.to_owned()),
         Load::Ready(_) => None,
@@ -61,7 +61,7 @@ pub fn message_text(model: &Model, section: Section, strings: &Strings) -> Optio
 
 /// The words of [`message_text`], in the secondary style the oracle gives
 /// a chart report's message (`chart.rs`) and none to the other tabs'.
-pub fn message(model: &Model, section: Section, strings: &Strings, look: &Look) -> AnyWidget {
+pub fn message(model: &View<'_>, section: Section, strings: &Strings, look: &Look) -> AnyWidget {
     let style = if is_chart(section) {
         look.secondary.clone()
     } else {
@@ -73,7 +73,7 @@ pub fn message(model: &Model, section: Section, strings: &Strings, look: &Look) 
 
 /// The report of `section` in the room the body gets.
 pub fn body(
-    model: &Model,
+    model: &View<'_>,
     section: Section,
     strings: &Strings,
     num: &NumSyms,
@@ -81,11 +81,12 @@ pub fn body(
     shown: Shown,
     scroll: ScrollController,
 ) -> AnyWidget {
-    if !is_chart(section) || model.histories[section as usize].ready().is_none() {
+    if !is_chart(section) || model.history(section).ready().is_none() {
         return message(model, section, strings, look);
     }
-    let (model, strings, num, look) = (model.clone(), *strings, *num, look.clone());
+    let (owned, strings, num, look) = (model.chosen(), *strings, *num, look.clone());
     LayoutBuilder::new(move |_, constraints| {
+        let model = owned.view();
         let view = ReportView {
             cursor: shown.cursor,
             detail: shown.detail,
@@ -429,7 +430,7 @@ fn report_view(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -
 /// focused view, the table of the two first rows, the time it was updated
 /// last, each with the rows it takes. A report that is not ready says why.
 pub fn card(
-    model: &Model,
+    model: &View<'_>,
     section: Section,
     strings: &Strings,
     num: &NumSyms,

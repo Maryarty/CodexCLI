@@ -27,7 +27,7 @@ use codex_tui_core::keymap::{Keymap, fixed};
 use codex_tui_core::screens::usage::chats::Pos as ChatPos;
 use codex_tui_core::screens::usage::plan::{PlanStep, Pos as PlanPos};
 use codex_tui_core::screens::usage::{
-    Control, Intent as UsageIntent, Model, Section, TokenActivityView,
+    Control, Intent as UsageIntent, Model, ReportKey, Section, TokenActivityView, UsageChoice, View,
 };
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
@@ -63,109 +63,109 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "overview",
             description: "the Overview of a Plus account at 140 cells",
             script: include_str!("fixtures/overview.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "credits_refund",
             description: "an Enterprise account's Credits report with a refund, the focused report",
             script: include_str!("fixtures/credits_refund.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "dashboard",
             description: "a Plus account's four reports of the week, z for the dashboard of cards",
             script: include_str!("fixtures/dashboard.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "dashboard_denied",
             description: "the same four reports, the Plugins report refused (access denied)",
             script: include_str!("fixtures/dashboard_denied.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "updated",
             description: "the dashboard's Usage report with the time the host made it (help, card, controls)",
             script: include_str!("fixtures/updated.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "plan",
             description: "a Plus account's plan history: one 5-hour and one weekly period, the Plan report in front",
             script: include_str!("fixtures/plan.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "plan_twelve_hour",
             description: "the same history on a 12-hour clock",
             script: include_str!("fixtures/plan_twelve_hour.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "plan_unavailable",
             description: "the plan history was never loaded",
             script: include_str!("fixtures/plan_unavailable.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "chats",
             description: "an Enterprise account's Chats report, the first chat with a breakdown of four groups",
             script: include_str!("fixtures/chats.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "chats_long",
             description: "a long first chat title and two chats without an estimate",
             script: include_str!("fixtures/chats_long.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "chats_usd",
             description: "chats whose estimates carry dollars",
             script: include_str!("fixtures/chats_usd.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "tasks",
             description: "a Plus account's Chats report with all three metrics",
             script: include_str!("fixtures/tasks.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "chats_many",
             description: "thirty chats, more than the window shows",
             script: include_str!("fixtures/chats_many.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "plan_empty",
             description: "the plan history with complete coverage and no periods",
             script: include_str!("fixtures/plan_empty.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "plan_zero",
             description: "a 5-hour period that used nothing",
             script: include_str!("fixtures/plan_zero.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "plan_future",
             description: "a 5-hour period that starts after the snapshot",
             script: include_str!("fixtures/plan_future.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "plan_many",
             description: "fourteen 5-hour periods and one weekly one",
             script: include_str!("fixtures/plan_many.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
             name: "panel_states",
             description: "four reports: loading, unavailable, an error, an empty range",
             script: include_str!("fixtures/panel_states.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(true).into()),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(true, seeded).into()),
         },
     ]
 }
@@ -191,20 +191,35 @@ pub fn open_empty() -> DebugOpen {
 /// stacked, without chrome (the oracle's test renders those alone).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen {
-    open: Option<Option<TokenActivityView>>,
+    open: bool,
+    /// What the page opens on: the Overview's view of `/usage daily`, or what a fixture chose.
+    choice: UsageChoice,
     panels: bool,
 }
 
 impl Screen {
     fn opening(view: Option<TokenActivityView>) -> Self {
         Self {
-            open: Some(view),
+            open: true,
+            choice: UsageChoice::opening(view),
             panels: false,
         }
     }
 
-    fn seeded(panels: bool) -> Self {
-        Self { open: None, panels }
+    /// The page over a model a fixture script seeded: its choice is the script's.
+    fn seeded(panels: bool, seeded: &Seeded<'_>) -> Self {
+        let model = &seeded.core.screens().usage;
+        let choice = model
+            .seeded
+            .as_ref()
+            .map_or_else(UsageChoice::default, |seed| {
+                UsageChoice::seeded(seed, model)
+            });
+        Self {
+            open: false,
+            choice,
+            panels,
+        }
     }
 }
 
@@ -233,6 +248,12 @@ const LAST_DAY: usize = 6;
 /// and flags, never what the model holds).
 pub struct ScreenState {
     taps: Taps,
+    /// What the person chose: the tab, the ranges, the groups, the model, the chats' sort. The
+    /// model answers for what it is asked, it keeps none of this.
+    sel: UsageChoice,
+    /// The session whose reports the choice has started: a session of the model that is past it
+    /// and has its account starts them.
+    started: u32,
     cursors: [usize; SECTIONS],
     details: [Option<usize>; SECTIONS],
     /// The plan report's table in front, its rows and open details (core's).
@@ -272,6 +293,8 @@ impl Default for ScreenState {
         }
         Self {
             taps: Taps::default(),
+            sel: UsageChoice::default(),
+            started: 0,
             cursors: [LAST_DAY; SECTIONS],
             details: [None; SECTIONS],
             plan: PlanPos::default(),
@@ -321,7 +344,10 @@ impl StatefulWidget for Screen {
     type State = ScreenState;
 
     fn create_state(&self) -> ScreenState {
-        ScreenState::default()
+        ScreenState {
+            sel: self.choice.clone(),
+            ..ScreenState::default()
+        }
     }
 }
 
@@ -389,7 +415,7 @@ fn heading(model: &Model, strings: &Strings, num: &NumSyms, look: &Look) -> AnyW
 /// The tab strip (oracle: `render_filled_tab_bar`, the labels numbered from
 /// 80 cells).
 fn tabs(
-    model: &Model,
+    model: &View<'_>,
     strings: &Strings,
     num: &NumSyms,
     look: &Look,
@@ -413,7 +439,7 @@ fn tabs(
         labels,
         active: visible
             .iter()
-            .position(|section| *section == model.section)
+            .position(|section| *section == model.section())
             .unwrap_or(0),
         marks: (strings.tab_left, strings.tab_right),
         styles: (look.selected.clone(), look.dim.clone()),
@@ -438,7 +464,7 @@ fn control(spans: Vec<Span>, tap: &Option<Handler<PointerEvent>>) -> AnyWidget {
 /// What the dashboard is drawn from: the model and the widget's own state
 /// (R14), borrowed for one build.
 struct Page<'a> {
-    model: &'a Model,
+    model: &'a View<'a>,
     strings: &'a Strings,
     num: &'a NumSyms,
     look: &'a Look,
@@ -464,7 +490,7 @@ impl Page<'_> {
         let at = if self.help {
             HELP_SCROLL
         } else if self.shown.zoomed {
-            self.model.section as usize
+            self.model.section() as usize
         } else {
             DASHBOARD_SCROLL
         };
@@ -497,7 +523,7 @@ impl Page<'_> {
         }
         if !self.shown.zoomed {
             return cards::dashboard(cards::Deck {
-                model: (*model).clone(),
+                model: model.chosen(),
                 strings: **strings,
                 num: **num,
                 look: (*look).clone(),
@@ -508,7 +534,7 @@ impl Page<'_> {
                 taps: self.taps.clone(),
             });
         }
-        match model.section {
+        match model.section() {
             Section::Summary => {
                 // The profile block is centred in the room (oracle: the
                 // padding above it) and scrolls once it is taller.
@@ -589,10 +615,10 @@ impl Page<'_> {
         let mut rows: [Vec<AnyWidget>; 2] = [Vec::new(), Vec::new()];
         let report = model.control_available(Control::Range, false);
         if report {
-            let range = model.range_of(model.section);
+            let range = model.range_of(model.section());
             let on = look.accent.clone().attrs(Attrs::BOLD);
             let pick = |active: bool| if active { on.clone() } else { look.dim.clone() };
-            let dates = model.section_date_range(model.section);
+            let dates = model.section_date_range(model.section());
             let interval = strings.interval(
                 dates.start().ymd(),
                 dates.end().ymd(),
@@ -616,13 +642,13 @@ impl Page<'_> {
         }
         let option_row = usize::from(inner < 100 && report);
         if model.control_available(Control::Group, false) {
-            let group = model.groups[model.section as usize];
+            let group = model.group_of(model.section());
             rows[option_row].push(control(
                 vec![
                     key(strings.group_key),
                     blank(),
                     Span::styled(
-                        strings.group_name(model.group_name(model.section, group)),
+                        strings.group_name(model.group_name(model.section(), group)),
                         Style::default(),
                     ),
                 ],
@@ -631,6 +657,7 @@ impl Page<'_> {
         }
         if model.control_available(Control::Model, false) {
             let name = model
+                .sel
                 .token_model
                 .as_deref()
                 .map_or(strings.all_models, |name| model.model_name(name));
@@ -701,7 +728,8 @@ impl Page<'_> {
             }
             column = column.child(SizedBox::new(None, Some(1), Some(shown.into())));
         }
-        let updated = model.histories[model.section as usize]
+        let updated = model
+            .history(model.section())
             .ready()
             .and_then(|history| history.updated_at)
             .map(|at| strings.updated_controls(at, model.hour24, num));
@@ -745,13 +773,13 @@ impl Page<'_> {
             .child(self.controls(inner))
             .child(Expanded::new(1, self.body(inner)))
             .child(hints::footer(hints::Footer {
-                model: (*model).clone(),
+                model: model.chosen(),
                 strings: **strings,
                 num: **num,
                 keymap: self.keymap.clone(),
                 shown: self.shown,
                 help: self.help,
-                row_details: match model.section {
+                row_details: match model.section() {
                     Section::Chats => model.chat_has_details(self.chat),
                     _ => self.plan.has_row(model.plan.ready().map(|r| &**r)),
                 },
@@ -765,7 +793,7 @@ impl Page<'_> {
 
 /// Four reports' bodies, one under the other with a blank row between
 /// (the oracle's test of the loading, unavailable, error and empty states).
-fn panels(model: &Model, strings: &Strings, look: &Look) -> AnyWidget {
+fn panels(model: &View<'_>, strings: &Strings, look: &Look) -> AnyWidget {
     Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .spacing(1)
@@ -814,6 +842,34 @@ impl ScreenState {
     }
 }
 
+impl ScreenState {
+    /// The model changed: a session that has its account starts the reports of the tabs the
+    /// choice asks for (oracle: `start_reports`), and the choice follows what the answers
+    /// taught (`UsageChoice::after_settle`).
+    fn model_changed(&mut self, cx: &mut Cx<'_, Self>) {
+        let model = read::<ScreenStates, _>(cx).usage.clone();
+        let mut loads = Vec::new();
+        if model.session != self.started && model.account.ready().is_some() {
+            self.started = model.session;
+            self.sel.settled(&model);
+            loads = self.sel.keys(&model);
+        }
+        self.sel.after_settle(&model);
+        Self::load(cx, loads);
+    }
+
+    /// Asks the model for the reports `keys`, in order.
+    fn load(cx: &mut Cx<'_, Self>, keys: Vec<ReportKey>) {
+        if keys.is_empty() {
+            return;
+        }
+        let hs = read::<Hs, _>(cx);
+        for key in keys {
+            cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Load(key)));
+        }
+    }
+}
+
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
@@ -834,25 +890,31 @@ impl State for ScreenState {
             sort: Some(cx.map(|_: PointerEvent| Msg::SortMetric)),
         };
         self.retap(cx);
-        if let Some(view) = w.open {
+        self.started = read::<ScreenStates, _>(cx).usage.session;
+        if w.open {
             let hs = read::<Hs, _>(cx);
-            cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Open { view }));
+            cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Open));
         }
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
         self.retap(cx);
+        self.model_changed(cx);
     }
 
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
         let model = read::<ScreenStates, _>(cx).usage.clone();
+        // the choice as the message found it; what the message changes is made on `self.sel`
+        let chosen = self.sel.clone();
+        let view = View::new(&model, &chosen);
         let visible = model.visible_sections();
-        let section = model.section;
+        let section = chosen.section;
         let mut rebuild = Rebuild::No;
+        let mut loads: Vec<ReportKey> = Vec::new();
         let intent = match msg {
             Msg::List(act) => {
-                let intent = self.list(act, &model, section, cx);
+                let intent = self.list(act, &view, section, cx);
                 rebuild = Rebuild::Yes;
                 intent
             }
@@ -865,9 +927,10 @@ impl State for ScreenState {
                 self.help = false;
                 self.zoomed = true;
                 rebuild = Rebuild::Yes;
-                visible
-                    .get(index)
-                    .map(|section| UsageIntent::Select(*section))
+                if let Some(section) = visible.get(index) {
+                    self.sel.pick(&model, *section);
+                }
+                None
             }
             Msg::Help => {
                 self.help = !self.help;
@@ -878,27 +941,29 @@ impl State for ScreenState {
                 self.help = false;
                 // The help closes whether or not the section changes.
                 rebuild = Rebuild::Yes;
-                visible
-                    .get(index)
-                    .map(|section| UsageIntent::Select(*section))
+                if let Some(section) = visible.get(index) {
+                    self.sel.pick(&model, *section);
+                }
+                None
             }
             Msg::Step(delta) if !visible.is_empty() => {
                 let at = visible
                     .iter()
-                    .position(|section| *section == model.section)
+                    .position(|section| *section == chosen.section)
                     .unwrap_or(0);
                 let next = (at as isize + delta).rem_euclid(visible.len() as isize) as usize;
                 self.help = false;
                 rebuild = Rebuild::Yes;
-                Some(UsageIntent::Select(visible[next]))
+                self.sel.pick(&model, visible[next]);
+                None
             }
             Msg::Step(_) => None,
             Msg::Range => {
                 // The days keep their dates: the 30 days hold the 7 after
                 // 23 older ones (oracle: `change_range`).
-                if model.control_available(Control::Range, false) {
+                if view.control_available(Control::Range, false) {
                     let group = model.range_group(section);
-                    let longer = model.ranges[group as usize] == 0;
+                    let longer = chosen.ranges[group as usize] == 0;
                     for other in visible.iter().filter(|other| {
                         !matches!(other, Section::Chats | Section::Plan | Section::Summary)
                             && model.range_group(**other) == group
@@ -917,12 +982,21 @@ impl State for ScreenState {
                             }
                         });
                     }
+                    loads = self.sel.next_range(&model);
                     rebuild = Rebuild::Yes;
                 }
-                Some(UsageIntent::Range)
+                None
             }
-            Msg::Group => Some(UsageIntent::Group),
-            Msg::Model => Some(UsageIntent::Model),
+            Msg::Group => {
+                loads = self.sel.next_group(&model);
+                rebuild = Rebuild::Yes;
+                None
+            }
+            Msg::Model => {
+                loads = self.sel.next_model(&model);
+                rebuild = Rebuild::Yes;
+                None
+            }
             Msg::PlanRow(window, index) => {
                 self.plan
                     .pick(window, index, model.plan.ready().map(|r| &**r));
@@ -941,26 +1015,25 @@ impl State for ScreenState {
                     cursor: index,
                     ..ChatPos::default()
                 };
-                self.chat.pick(index, rows, model.chat_has_details(&probe));
+                self.chat.pick(index, rows, view.chat_has_details(&probe));
                 rebuild = Rebuild::Yes;
                 None
             }
             Msg::ZeroGroups => {
                 // Only drawn: the details list the free groups or not.
-                if model.control_available(Control::ZeroCreditGroups, self.chat.detail.is_some()) {
+                if view.control_available(Control::ZeroCreditGroups, self.chat.detail.is_some()) {
                     self.chat.zero_groups = !self.chat.zero_groups;
                     rebuild = Rebuild::Yes;
                 }
                 None
             }
             Msg::SortMetric => {
-                if model.control_available(Control::TaskMetric, false) {
+                if view.control_available(Control::TaskMetric, false) {
                     self.chat.detail = None;
                     rebuild = Rebuild::Yes;
-                    Some(UsageIntent::TaskMetric)
-                } else {
-                    None
+                    self.sel.next_metric(&model);
                 }
+                None
             }
             Msg::Refresh => Some(UsageIntent::Refresh),
             Msg::Close => {
@@ -972,6 +1045,7 @@ impl State for ScreenState {
         if let Some(intent) = intent {
             cx.emit(&hs.screen, ScreenIntent::Usage(intent));
         }
+        Self::load(cx, loads);
         rebuild
     }
 
@@ -981,9 +1055,10 @@ impl State for ScreenState {
         let num = shared::of(cx).num;
         let keymap = crate::keymap::keymap(cx);
         let usage = select::<ScreenStates, Model, _>(cx, |screens| screens.usage.clone());
+        let sel = self.sel.clone();
         let panels_only = w.panels;
         let taps = self.taps.clone();
-        let section = usage.section as usize;
+        let section = sel.section as usize;
         let shown = report::Shown {
             cursor: self.cursors[section],
             detail: self.details[section],
@@ -1010,7 +1085,7 @@ impl State for ScreenState {
         };
         let shown_keymap = keymap.clone();
         let body = LayoutBuilder::new(move |_, constraints| {
-            let model = &usage;
+            let model = &View::new(&usage, &sel);
             if panels_only {
                 panels(model, strings, &look)
             } else {

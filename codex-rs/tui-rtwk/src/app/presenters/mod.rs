@@ -17,6 +17,7 @@ use rtwk::app::AppCx;
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::select::Intent as SelectIntent;
+use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
 
 use crate::app::UiApp;
 
@@ -28,6 +29,8 @@ pub struct Presenters {
     taken: u64,
     /// The same for the select screen's shows (`select::Show`).
     taken_select: u64,
+    /// The same for the static pager's documents (`transcript::Directive`).
+    taken_pager: u64,
 }
 
 /// Shows the wishes of the features and the sheets the select screen asked for that are waiting
@@ -35,6 +38,39 @@ pub struct Presenters {
 pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     present_wishes(app, cx);
     present_shows(app, cx);
+    present_pagers(app, cx);
+}
+
+/// The static pager's documents: a pager the size of the screen opens over the chat for each
+/// (`Overlay::new_static_with_lines`), and the directive is said shown.
+fn present_pagers(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
+    let pending: Vec<_> = app
+        .core
+        .screens()
+        .transcript
+        .pending()
+        .filter(|directive| directive.seq > app.ui.presenters.taken_pager)
+        .cloned()
+        .collect();
+    for directive in pending {
+        let Some(place) = app.ui.presenter.place().get() else {
+            return;
+        };
+        let doc = directive.value.clone();
+        let dialog = cx.show_dialog_from::<()>(
+            place,
+            move |_| crate::pages::session::transcript::pager::covering(doc.clone()),
+            crate::pages::session::transcript::pager::cover_options(),
+            |_app, _answer, _cx| {},
+        );
+        if dialog.is_closed() {
+            return;
+        }
+        app.ui.presenters.taken_pager = directive.seq;
+        app.send(AppEv::Intent(Intent::Screen(ScreenIntent::Transcript(
+            TranscriptIntent::Shown(directive.seq),
+        ))));
+    }
 }
 
 /// The select screen's shows: a sheet opens for each, built from what the model asked for.

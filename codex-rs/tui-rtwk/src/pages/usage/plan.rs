@@ -18,7 +18,7 @@ use rtwk::style::Style;
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Handler, LayoutBuilder};
 
-use codex_tui_core::screens::usage::Model;
+use codex_tui_core::screens::usage::View;
 use codex_tui_core::screens::usage::plan::{self, Line, Note, PlanView, Pos, TABLE_GAP};
 
 use super::cards::{Fit, Item};
@@ -238,7 +238,7 @@ pub fn items(
 
 /// What the Plan card shows: the first period of each table and the notes.
 pub fn card(
-    model: &Model,
+    model: &View<'_>,
     pos: &Pos,
     strings: &Strings,
     num: &NumSyms,
@@ -259,7 +259,7 @@ pub fn card(
 /// The focused Plan report: every period, the details of the open one, under
 /// one scroll.
 pub fn body(
-    model: &Model,
+    model: &View<'_>,
     pos: &Pos,
     strings: &Strings,
     num: &NumSyms,

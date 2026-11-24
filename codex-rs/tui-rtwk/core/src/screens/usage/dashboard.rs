@@ -4,7 +4,7 @@
 //! the room only, never on the selected day or a load, so a load never shifts
 //! the cards.
 
-use super::{Model, Section};
+use super::{Section, View};
 
 /// From this width the cards sit two in a row.
 const TWO_COLUMNS: usize = 104;
@@ -92,19 +92,19 @@ pub struct Lead {
     pub group: Option<usize>,
 }
 
-impl Model {
+impl View<'_> {
     /// The lines that open the card of `section` (oracle: `dashboard_lines`).
     pub fn card_lead(&self, section: Section) -> Lead {
         let ranged = !matches!(section, Section::Chats | Section::Plan | Section::Summary);
         Lead {
-            range: ranged.then(|| self.ranges[self.range_group(section) as usize] != 0),
+            range: ranged.then(|| self.range_of(section) != 0),
             model: (ranged && section == Section::Usage && self.business())
-                .then(|| self.token_model.clone()),
+                .then(|| self.sel.token_model.clone()),
             group: matches!(
                 section,
                 Section::Usage | Section::Credits | Section::Activity | Section::Plan
             )
-            .then(|| self.groups[section as usize]),
+            .then(|| self.group_of(section)),
         }
     }
 }

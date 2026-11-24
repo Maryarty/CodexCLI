@@ -18,7 +18,7 @@ use codex_tui_core::screens::usage::data::compact_amount;
 use codex_tui_core::screens::usage::profile::{
     InvocationKind, Profile, Stats, count_value, duration, percent,
 };
-use codex_tui_core::screens::usage::{Load, Model, Section, TokenActivityView};
+use codex_tui_core::screens::usage::{Load, Section, TokenActivityView, View};
 
 use super::Look;
 use super::cards::{Fit, Item};
@@ -32,7 +32,13 @@ const TWO_COLUMNS: i32 = 76;
 const TOP_ROWS: usize = 5;
 
 /// The Overview's body for `width` cells of room.
-pub fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width: i32) -> AnyWidget {
+pub fn body(
+    model: &View<'_>,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    width: i32,
+) -> AnyWidget {
     let profile = match &model.profile {
         Load::Ready(profile) => profile.clone(),
         other => {
@@ -43,8 +49,9 @@ pub fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width:
     };
     let inner = width.min(BLOCK);
     let (strings, num, look) = (*strings, *num, look.clone());
-    let model = model.clone();
+    let owned = model.chosen();
     LayoutBuilder::new(move |_, constraints| {
+        let model = owned.view();
         let inner = constraints.max_width.min(inner).max(1);
         centred_block(&model, &profile, inner, &strings, &num, &look).0
     })
@@ -53,14 +60,14 @@ pub fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width:
 
 /// The profile block `inner` cells wide, centred, and the rows it takes.
 fn centred_block(
-    model: &Model,
+    model: &View<'_>,
     profile: &Profile,
     inner: i32,
     strings: &Strings,
     num: &NumSyms,
     look: &Look,
 ) -> (AnyWidget, usize) {
-    let view = VIEWS[model.groups[Section::Summary as usize]];
+    let view = VIEWS[model.group_of(Section::Summary)];
     let items = [
         identity(model, profile, strings, look),
         figures(&profile.stats, inner, strings, num, look),
@@ -85,7 +92,13 @@ fn centred_block(
 
 /// What a card holds of the Overview: the block at most `BLOCK` cells wide
 /// in the card's width, or why there is no profile (oracle: `summary_lines`).
-pub fn card(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, fit: Fit) -> Vec<Item> {
+pub fn card(
+    model: &View<'_>,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    fit: Fit,
+) -> Vec<Item> {
     match &model.profile {
         Load::Ready(profile) => {
             let inner = i32::try_from(fit.width).unwrap_or(i32::MAX).min(BLOCK);
@@ -113,7 +126,7 @@ fn centred(shown: String, style: &Style) -> AnyWidget {
 }
 
 /// The name, the handle and the plan, centred, then a blank row.
-fn identity(model: &Model, profile: &Profile, strings: &Strings, look: &Look) -> Item {
+fn identity(model: &View<'_>, profile: &Profile, strings: &Strings, look: &Look) -> Item {
     let mut rows = 1;
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
@@ -212,7 +225,7 @@ fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &L
 /// legend or the caption of the bar views (oracle: `activity_chart.rs`).
 fn chart(
     profile: &Profile,
-    model: &Model,
+    model: &View<'_>,
     view: TokenActivityView,
     inner: i32,
     strings: &Strings,

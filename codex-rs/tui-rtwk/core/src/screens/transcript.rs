@@ -40,40 +40,62 @@ pub struct PagerDoc {
     pub action: Option<PagerAction>,
 }
 
+/// One thing the domain wants shown, once (ADR-013 Ж): the document of a static pager. The
+/// presenter shows it and says so (`Intent::Shown`); whether the pager is still open afterwards
+/// is the page's, never kept here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Directive<T> {
+    /// Numbers the directives in the order they were made; what a presenter says it showed.
+    pub seq: u64,
+    pub value: T,
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// The static pager that is open, if one is (`/diff`, the full-screen
-    /// approvals, provider details): the single source of what it shows.
-    pub pager: Option<PagerDoc>,
+    /// The documents (`/diff`, the full-screen approvals, provider details) nobody has shown
+    /// yet, oldest first.
+    queue: Vec<Directive<PagerDoc>>,
+    seq: u64,
+}
+
+impl Model {
+    /// The documents still to show, oldest first.
+    pub fn pending(&self) -> impl Iterator<Item = &Directive<PagerDoc>> {
+        self.queue.iter()
+    }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    /// A static pager opens on `doc` (replacing one that is open).
+    /// A static pager is to open on `doc`.
     Pager(PagerDoc),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// The static pager closes.
-    ClosePager,
+    /// The presenter showed the directive `seq` (or gave it up): it is gone from the queue.
+    Shown(u64),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Pager(doc) => model.pager = Some(doc),
+        Ev::Pager(doc) => {
+            model.seq += 1;
+            let seq = model.seq;
+            model.queue.push(Directive { seq, value: doc });
+        }
     }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::ClosePager => model.pager = None,
+        Intent::Shown(seq) => model.queue.retain(|directive| directive.seq != seq),
     }
 }
 

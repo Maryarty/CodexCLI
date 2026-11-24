@@ -11,7 +11,7 @@
 use std::cmp::Ordering;
 
 use super::data::credits;
-use super::{Model, Section};
+use super::{Model, Section, View};
 
 /// How many rows the consumer card and a truncated listing keep (oracle:
 /// `tasks.rs` `truncate(100)`, `task_panel.rs` `take(5)`).
@@ -567,15 +567,17 @@ impl Model {
             .collect()
     }
 
-    pub fn task_metric(&self) -> Metric {
-        let metrics = self.task_metrics();
-        Metric::ALL
-            .get(self.chat_metric)
-            .copied()
-            .filter(|metric| metrics.contains(metric))
-            .unwrap_or(metrics[0])
+    /// The rows the keys move over in the Chats report.
+    pub fn chat_row_count(&self) -> usize {
+        if self.business() {
+            self.business_chats().map_or(0, |list| list.rows.len())
+        } else {
+            self.tasks.ready().map_or(0, |list| list.rows.len())
+        }
     }
+}
 
+impl View<'_> {
     /// The rows by the sort metric, the largest first (oracle: `task_rows`).
     pub fn task_rows(&self) -> Vec<&TaskRow> {
         let mut rows = self
@@ -586,15 +588,6 @@ impl Model {
         let metric = self.task_metric();
         rows.sort_by(|a, b| compare(b.available(), a.available(), metric));
         rows
-    }
-
-    /// The rows the keys move over in the Chats report.
-    pub fn chat_row_count(&self) -> usize {
-        if self.business() {
-            self.business_chats().map_or(0, |list| list.rows.len())
-        } else {
-            self.tasks.ready().map_or(0, |list| list.rows.len())
-        }
     }
 
     /// The row under the cursor has details to open (oracle:
@@ -637,7 +630,7 @@ impl Model {
         lines.push(ChatLine::Head { usd });
         let cursor = pos.at(list.rows.len());
         for (index, row) in list.rows.iter().enumerate() {
-            let selected = self.section == Section::Chats && index == cursor;
+            let selected = self.sel.section == Section::Chats && index == cursor;
             let text = row
                 .estimate
                 .as_ref()
@@ -800,7 +793,7 @@ impl Model {
         for (index, row) in rows.iter().enumerate() {
             body.push(TaskLine::Row {
                 index,
-                selected: self.section == Section::Chats && index == cursor,
+                selected: self.sel.section == Section::Chats && index == cursor,
                 title: row.title(),
                 partial: row.partial(),
                 cells: metrics

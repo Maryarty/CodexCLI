@@ -6,7 +6,7 @@ use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::usage::report::{
     Body, Head, Label, Left, Message, ReportView, Right, Summary, Unit,
 };
-use codex_tui_core::screens::usage::{GroupName, Model, Section};
+use codex_tui_core::screens::usage::{GroupName, Model, Section, UsageChoice, View};
 use pretty_assertions::assert_eq;
 
 fn days(refund: bool) -> String {
@@ -49,19 +49,21 @@ fn days(refund: bool) -> String {
         .join(",")
 }
 
-fn model(refund: bool) -> Model {
+fn model(refund: bool) -> (Model, UsageChoice) {
     let data = days(refund);
     let script = format!(
         r#"{{"step":"seed","seed":"session","thread":"thread-1"}}
 {{"step":"screen","dir":"usage","ev":{{"account":{{"plan":"enterprise_cbp_usage_based","today":"2026-09-02"}},"section":"credits","histories":[{{"section":"credits","load":{{"ready":{{"unit":"credits","updated_at":null,"data":[{data}]}}}}}}]}}}}
 "#
     );
-    Sandbox::play(&script)
+    let model = Sandbox::play(&script)
         .expect("plays")
         .app()
         .screens()
         .usage
-        .clone()
+        .clone();
+    let sel = UsageChoice::seeded(model.seeded.as_ref().expect("seeded"), &model);
+    (model, sel)
 }
 
 fn label(date: codex_tui_core::screens::usage::NaiveDate, month: bool) -> String {
@@ -87,7 +89,8 @@ fn view(cursor: usize, viewport: usize) -> ReportView {
 
 #[test]
 fn the_head_the_summary_and_the_columns_of_the_focused_credits_report() {
-    let model = model(true);
+    let (model, sel) = model(true);
+    let model = View::new(&model, &sel);
     let report = model
         .focused(Section::Credits, view(6, 25), 96, &label)
         .expect("ready");
@@ -123,7 +126,8 @@ fn the_head_the_summary_and_the_columns_of_the_focused_credits_report() {
 
 #[test]
 fn a_day_without_numbers_says_so_and_the_report_keeps_its_rows() {
-    let model = model(false);
+    let (model, sel) = model(false);
+    let model = View::new(&model, &sel);
     let first = model
         .focused(Section::Credits, view(0, 25), 96, &label)
         .expect("ready");
@@ -141,7 +145,8 @@ fn a_day_without_numbers_says_so_and_the_report_keeps_its_rows() {
 
 #[test]
 fn the_plot_needs_fifteen_rows_and_fifty_cells_and_the_table_sits_beside_it_from_140() {
-    let model = model(false);
+    let (model, sel) = model(false);
+    let model = View::new(&model, &sel);
     let short = model
         .focused(Section::Credits, view(6, 14), 96, &label)
         .expect("ready");

@@ -12,7 +12,7 @@ use rtwk::scroll::ScrollController;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::usage::chats::ChatStep;
 use codex_tui_core::screens::usage::plan::PlanStep;
-use codex_tui_core::screens::usage::{Intent as UsageIntent, Model, Section};
+use codex_tui_core::screens::usage::{Intent as UsageIntent, Section, View};
 
 use super::keys::ListAct;
 use super::{DASHBOARD_SCROLL, HELP_SCROLL, ScreenState, report};
@@ -51,7 +51,7 @@ impl ScreenState {
     pub(super) fn list(
         &mut self,
         act: ListAct,
-        model: &Model,
+        model: &View<'_>,
         section: Section,
         cx: &mut Cx<'_, Self>,
     ) -> Option<UsageIntent> {
@@ -150,7 +150,7 @@ impl ScreenState {
     }
 
     /// A chart report: the selected day and the open detail.
-    fn chart(&mut self, act: ListAct, model: &Model, section: Section) {
+    fn chart(&mut self, act: ListAct, model: &View<'_>, section: Section) {
         let index = section as usize;
         let last = model.day_count(section).max(1) - 1;
         let cursor = self.cursors[index];

@@ -22,7 +22,7 @@ use rtwk::style::Style;
 use rtwk::text::{Text, TextAlign, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Handler, LayoutBuilder};
 
-use codex_tui_core::screens::usage::Model;
+use codex_tui_core::screens::usage::View;
 use codex_tui_core::screens::usage::chats::Pos as ChatPos;
 use codex_tui_core::screens::usage::chats::{
     Amount, BUSINESS_ROW_MAX, CONSUMER_ROW_MAX, CREDITS_COLUMN, ChatLine, LEFT_ROOM, Metric,
@@ -694,7 +694,7 @@ fn room(business: bool, width: usize, fit: Fit) -> (Fit, usize) {
 
 /// What the Chats card shows: the first rows.
 pub fn card(
-    model: &Model,
+    model: &View<'_>,
     pos: &ChatPos,
     strings: &Strings,
     num: &NumSyms,
@@ -722,7 +722,7 @@ pub fn card(
 /// The focused Chats report: every row, the details of the open one, under
 /// one scroll.
 pub fn body(
-    model: &Model,
+    model: &View<'_>,
     pos: &ChatPos,
     strings: &Strings,
     num: &NumSyms,
