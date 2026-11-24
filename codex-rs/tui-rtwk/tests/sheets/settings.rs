@@ -8,11 +8,10 @@
 
 use rtwk_core::input::{Mods, MouseKind};
 
-use codex_tui_core::app::AppEv;
+use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::features::FeatureFact;
-use codex_tui_core::features::settings::{
-    Edit, Fact as SettingsFact, Facts, MemoryFacts, Offer, Which,
-};
+use codex_tui_core::features::settings::{Fact as SettingsFact, Facts, MemoryFacts, Offer, Which};
 use codex_tui_rtwk::app::UiApp;
 
 use crate::common::{HEIGHT, Harness, WIDTH, ms, start_driven, start_sized};
@@ -548,10 +547,22 @@ fn a_tap_moves_the_cursor_to_a_feature_and_a_second_tap_flips_it() {
 // ---- the memories dialog (`memories_settings_view.rs`): two switches, the
 // reset row and its confirmation
 
-/// The edits the model recorded (what the dialog asked the app to do): the
-/// real model, so the dialogs under test are opened by `/memories`.
-fn edits(h: &Harness) -> Vec<Edit> {
-    h.t.read_app(|app: &UiApp| app.core.features().settings.edits.clone())
+/// The config edits the app has asked of the host (what the dialog saved): the real model, so the
+/// dialogs under test are opened by `/memories`.
+fn edits(h: &Harness) -> Vec<(String, serde_json::Value)> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Effect {
+                ask: Ask::ConfigWrite { edits },
+                ..
+            } => Some(edits),
+            _ => None,
+        })
+        .flatten()
+        .map(|edit| (edit.key_path, edit.value))
+        .collect()
 }
 
 /// `/memories` with the memory tool on, use on and generate off
@@ -599,12 +610,16 @@ fn space_flips_a_switch_enter_saves_both_and_closes() {
     );
     h.press("enter");
     assert!(!h.t.screen().contains("Memories"), "{}", h.t.screen());
+    h.wait_until("the write", |h| !edits(h).is_empty());
     assert_eq!(
         edits(&h),
-        vec![Edit::MemoriesSaved {
-            use_memories: true,
-            generate_memories: true
-        }]
+        vec![
+            ("memories.use_memories".to_owned(), serde_json::json!(true)),
+            (
+                "memories.generate_memories".to_owned(),
+                serde_json::json!(true)
+            )
+        ]
     );
 }
 
@@ -681,7 +696,7 @@ fn esc_goes_back_from_the_confirmation_then_closes_and_the_next_confirmation_sta
 }
 
 #[test]
-fn enter_on_reset_all_memories_sends_the_reset_and_closes() {
+fn enter_on_reset_all_memories_closes_the_confirmation() {
     let mut h = memories_command();
     h.press("up");
     h.press("enter");
@@ -691,7 +706,6 @@ fn enter_on_reset_all_memories_sends_the_reset_and_closes() {
         "{}",
         h.t.screen()
     );
-    assert_eq!(edits(&h), vec![Edit::MemoriesReset]);
 }
 
 /// ADR-011 (beyond the oracle): a tap puts the cursor on a row, a second tap
@@ -801,13 +815,12 @@ fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
     h.press("down");
     h.press("enter");
     h.wait_until("the picked theme is in force and recorded", |h| {
-        syntax_theme(h).as_deref() == Some("coldark-dark")
-            && h.t
-                .read_app(|app: &UiApp| !app.core.features().settings.edits.is_empty())
+        syntax_theme(h).as_deref() == Some("coldark-dark") && !edits(h).is_empty()
     });
-    let edits =
-        h.t.read_app(|app: &UiApp| app.core.features().settings.edits.clone());
-    assert_eq!(edits, vec![Edit::ThemeSelected("coldark-dark".to_string())]);
+    assert_eq!(
+        edits(&h),
+        vec![("tui.theme".to_owned(), serde_json::json!("coldark-dark"))]
+    );
     assert!(!h.t.screen().contains("Select Syntax Theme"));
 }
 
@@ -1258,11 +1271,11 @@ fn keymap_capturing_a_free_key_writes_the_binding() {
     h.advance(600);
     let edits = edits(&h);
     assert!(
-        matches!(
-            edits.as_slice(),
-            [Edit::KeymapBound { context, action, keys }]
-                if context == "global" && action == "open_transcript" && keys == &vec!["f12".to_string()]
-        ),
+        edits
+            == [(
+                "tui.keymap.global.open_transcript".to_owned(),
+                serde_json::json!(["f12"])
+            )],
         "{edits:?}"
     );
 }

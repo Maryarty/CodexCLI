@@ -1555,15 +1555,6 @@ impl ThreadCore {
         &self.safety
     }
 
-    /// Whether the buffered `turn` can still be retried (it runs, nothing of its answer came).
-    pub fn can_retry_safety(&self, turn: &TurnId) -> bool {
-        self.is_running()
-            && self
-                .safety
-                .buffering()
-                .is_some_and(|held| held.turn == *turn && held.waiting())
-    }
-
     /// The transcript, for a feature's view of the thread (`ThreadView`).
     pub(crate) fn transcript(&self) -> &Transcript {
         &self.transcript

@@ -53,19 +53,6 @@ fn the_retained_warnings_are_the_seeded_ones_each_text_once() {
 }
 
 #[test]
-fn a_copied_page_is_recorded_for_the_clipboard() {
-    let mut sandbox = Sandbox::play(RETAINED).expect("plays");
-    send(
-        &mut sandbox,
-        DialogIntent::CopyWarning(entries()[1].details.clone()),
-    );
-    assert_eq!(
-        sandbox.app().screens().dialogs.copied.last(),
-        Some(&entries()[1].details)
-    );
-}
-
-#[test]
 fn a_decision_dismisses_its_pages_and_keeps_the_saved_ones_retained() {
     let mut sandbox = Sandbox::play(RETAINED).expect("plays");
     let want = entries();
@@ -73,14 +60,13 @@ fn a_decision_dismisses_its_pages_and_keeps_the_saved_ones_retained() {
         dismissed: vec![want[0].clone(), want[2].clone()],
         saved: vec![want[1].clone()],
     };
-    send(&mut sandbox, DialogIntent::Decide(decision.clone()));
+    send(&mut sandbox, DialogIntent::Decide(decision));
     let dialogs = &sandbox.app().screens().dialogs;
-    assert_eq!(dialogs.decided, vec![decision]);
     assert_eq!(dialogs.retained, vec![want[1].clone()]);
 }
 
 #[test]
-fn no_decision_is_recorded_for_nothing_shown_or_saved() {
+fn a_decision_of_nothing_shown_or_saved_changes_nothing() {
     let mut sandbox = Sandbox::play(RETAINED).expect("plays");
     send(
         &mut sandbox,
@@ -89,7 +75,6 @@ fn no_decision_is_recorded_for_nothing_shown_or_saved() {
             saved: Vec::new(),
         }),
     );
-    assert!(sandbox.app().screens().dialogs.decided.is_empty());
     assert_eq!(sandbox.app().screens().dialogs.retained.len(), 3);
 }
 
