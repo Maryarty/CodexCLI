@@ -173,6 +173,19 @@ pub struct Strings {
     pub find_cancel: &'static str,
     pub find_latest: &'static str,
     pub find_limited: &'static str,
+    /// Select mode's footer (`transcript_view/footer.rs`): the spellings of the keys with
+    /// nothing marked and with a range marked, the widest first; the first that fits the row.
+    /// `{copy}` is the copy chord's label.
+    pub select_hints: [&'static str; 4],
+    pub select_marked_hints: [&'static str; 4],
+    /// Copy mode's footer (`transcript_view/footer.rs`): the first row (`{target}` is what the
+    /// cursor is on, one of the four that follow, as the oracle lowercases them) and the keys.
+    pub copy_title: &'static str,
+    pub copy_user: &'static str,
+    pub copy_whole: &'static str,
+    pub copy_code: &'static str,
+    pub copy_quote: &'static str,
+    pub copy_hints: [&'static str; 2],
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -321,6 +334,27 @@ pub const EN: Strings = Strings {
     find_cancel: "esc cancel",
     find_latest: "esc latest",
     find_limited: "query limited to 4 KiB",
+    select_hints: [
+        "arrows/hjkl/w/b/e move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V/shift+arrows mark · / find · n/N next · enter/q/esc close",
+        "arrows/hjkl/w/b/e move · 0/$/g/G ends · v/space/V mark · / find · enter/q/esc close",
+        "arrows/hjkl move · v/space/V mark · / find · enter/q/esc close",
+        "v mark · enter/q close",
+    ],
+    select_marked_hints: [
+        "arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V mark · o swap · / find · y/{copy} copy · enter copy & latest · esc clear · q close",
+        "arrows/hjkl move · o swap · y/{copy} copy · enter copy & latest · esc clear · q close",
+        "y/{copy} copy · enter copy & latest · esc clear · q close",
+        "enter copy · q close",
+    ],
+    copy_title: "Copy {target}",
+    copy_user: "user message",
+    copy_whole: "whole response",
+    copy_code: "code block",
+    copy_quote: "blockquote",
+    copy_hints: [
+        "↑/↓/j/k select · g/G ends · enter copy · esc close",
+        "↑/↓ select · enter copy · esc close",
+    ],
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

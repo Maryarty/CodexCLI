@@ -28,6 +28,7 @@ use crate::app::theme::Tokens;
 use super::dispatch::{CellEnv, Place, below};
 use super::one_row::one_row;
 use super::strings::Strings;
+use super::text::Part;
 use crate::widgets::measure::Measure;
 use codex_tui_core::threads::Item;
 
@@ -122,13 +123,80 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The marker of a step by its status.
+fn mark(step: &PlanStep) -> &'static str {
+    match step.status {
+        StepStatus::Completed => "✔ ",
+        StepStatus::InProgress | StepStatus::Pending => "□ ",
+    }
+}
+
 /// The marker and the style of a step by its status.
 fn marker(step: &PlanStep, tokens: &Tokens) -> (&'static str, Style) {
-    match step.status {
-        StepStatus::Completed => ("✔ ", tokens.dim().attrs(Attrs::STRIKE | Attrs::DIM)),
-        StepStatus::InProgress => ("□ ", tokens.accent().attrs(Attrs::BOLD)),
-        StepStatus::Pending => ("□ ", tokens.dim().attrs(Attrs::DIM)),
+    let style = match step.status {
+        StepStatus::Completed => tokens.dim().attrs(Attrs::STRIKE | Attrs::DIM),
+        StepStatus::InProgress => tokens.accent().attrs(Attrs::BOLD),
+        StepStatus::Pending => tokens.dim().attrs(Attrs::DIM),
+    };
+    (mark(step), style)
+}
+
+/// The steps the compact cell lists: in progress, then pending, then completed (the order
+/// inside each kept), the first [`PREVIEW_STEPS`] of them.
+fn previewed(update: &PlanUpdate) -> Vec<&PlanStep> {
+    let mut steps: Vec<&PlanStep> = update.steps.iter().collect();
+    steps.sort_by_key(|step| match step.status {
+        StepStatus::InProgress => 0,
+        StepStatus::Pending => 1,
+        StepStatus::Completed => 2,
+    });
+    steps.truncate(PREVIEW_STEPS);
+    steps
+}
+
+/// The texts of the cell. Revealed (the detailed transcript, or its control tapped): the header,
+/// the branch, the note, the steps (a marker and its text each). Compact: the header and a row
+/// each of the first steps (the rows are clipped at the room's end, which the model does not
+/// know). Then the disclosure's control, a gutter, unless the transcript is the detailed one; it
+/// is there when the cell has a note or more steps than the preview holds (a step wider than the
+/// room shows it too, which is again the room's).
+pub fn texts(update: &PlanUpdate, detailed: bool, expanded: bool, strings: &Strings) -> Vec<Part> {
+    let revealed = detailed || expanded;
+    let mut parts = Vec::new();
+    if revealed {
+        parts.push(Part::text([strings.bullet, strings.updated_plan].concat()));
+        parts.push(Part::text(strings.plan_branch));
+        if let Some(note) = update.note() {
+            parts.push(Part::text(note));
+        }
+        if update.steps.is_empty() {
+            parts.push(Part::text(strings.no_steps));
+        }
+        for step in &update.steps {
+            parts.push(Part::text(mark(step)));
+            parts.push(Part::text(step.text.clone()));
+        }
+    } else {
+        parts.push(Part::text(
+            [strings.bullet, strings.updated_plan, &progress(update, strings)].concat(),
+        ));
+        for (index, step) in previewed(update).into_iter().enumerate() {
+            parts.push(Part::text(
+                [branch(index == 0, strings), mark(step), &one_line(&step.text)].concat(),
+            ));
+        }
+        if update.steps.is_empty() {
+            parts.push(Part::text([strings.plan_branch, strings.no_steps].concat()));
+        }
     }
+    if !detailed {
+        if expanded {
+            parts.push(Part::gutter(strings.hide_details));
+        } else if update.note().is_some() || update.steps.len() > PREVIEW_STEPS {
+            parts.push(Part::gutter(strings.show_details));
+        }
+    }
+    parts
 }
 
 /// `compact_hyperlink_lines`: the header and the first steps, a row each.
@@ -141,14 +209,7 @@ fn compact(update: &PlanUpdate, tokens: &Tokens, strings: &Strings) -> AnyWidget
             Span::styled(strings.updated_plan, tokens.bold()),
             Span::styled(progress(update, strings), tokens.dim().attrs(Attrs::DIM)),
         ]));
-    let mut steps: Vec<&PlanStep> = update.steps.iter().collect();
-    // In progress, then pending, then completed; the order inside each kept.
-    steps.sort_by_key(|step| match step.status {
-        StepStatus::InProgress => 0,
-        StepStatus::Pending => 1,
-        StepStatus::Completed => 2,
-    });
-    for (index, step) in steps.into_iter().take(PREVIEW_STEPS).enumerate() {
+    for (index, step) in previewed(update).into_iter().enumerate() {
         let (mark, style) = marker(step, tokens);
         column = column.child(one_row(vec![
             Span::styled(branch(index == 0, strings), tokens.dim().attrs(Attrs::DIM)),

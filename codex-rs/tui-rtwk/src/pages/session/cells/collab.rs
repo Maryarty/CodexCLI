@@ -19,6 +19,7 @@ use crate::app::theme::Tokens;
 
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use super::text::Part;
 use codex_tui_core::threads::Item;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +54,29 @@ impl StatelessWidget for CollabCell {
         }
         column.into()
     }
+}
+
+/// The texts of the cell: the title after its bullet, then a `Text` per detail row (the branch or
+/// its blank first). The styles `rows` is given are the theme's and make no text.
+pub fn texts(event: &CollabEvent, strings: &Strings) -> Vec<Part> {
+    let tokens = Tokens::new(std::rc::Rc::new(rtwk::prelude::ThemeData::DARK));
+    let (title, details) = rows(event, &tokens, strings);
+    let joined =
+        |lead: &str, spans: Spans| -> String {
+            std::iter::once(lead.to_owned())
+                .chain(spans.iter().map(|span| span.text.to_string()))
+                .collect()
+        };
+    let mut parts = vec![Part::text(joined(strings.collab_bullet, title))];
+    for (index, detail) in details.into_iter().enumerate() {
+        let lead = if index == 0 {
+            strings.hook_branch
+        } else {
+            strings.hook_body_indent
+        };
+        parts.push(Part::text(joined(lead, detail)));
+    }
+    parts
 }
 
 /// Oracle `.dim()`.

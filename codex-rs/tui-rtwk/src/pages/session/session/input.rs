@@ -8,15 +8,21 @@ use rtwk::focus::{Focus, KeyBindings, KeyCombo, KeyEventResult};
 use rtwk::layout::Stack;
 use rtwk::{AnyWidget, Cx, Key};
 
-use codex_tui_core::keymap::actions::{CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST};
+use codex_tui_core::keymap::actions::{
+    CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
+};
 use codex_tui_core::keymap::{ActionId, Binding, Keymap, fixed};
 
 use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::live::provider_error;
+use crate::pages::session::transcript::copy::{self as copying, Step as CopyStep};
+use crate::pages::session::transcript::select::{self as caret, Step};
+use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript::{self, find};
 use crate::sheets::select::hud::Step as PresetStep;
+use crate::widgets::thread_ui::Input;
 
 use super::frame::Frame;
 use super::{ChatMsg, ChatState};
@@ -72,6 +78,64 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         {
             return KeyEventResult::Handled;
         }
+        // copy mode (`/copy`): its keys are the only ones there are, whatever the composer holds
+        // (`handle_copy_mode_key`: a key that is none of its own does nothing)
+        let copier = copying::mode_of(&finder);
+        if copier.active()
+            && !finder.active()
+            && let Some(step) = copier.key(&key)
+        {
+            match step {
+                CopyStep::Moved => {}
+                CopyStep::Copy => {
+                    // the target is what the area selects: the copy sends it, and the target's
+                    // own source where it has one (`copying` keeps it for that copy)
+                    copier.copying();
+                    send(ChatMsg::Selection(SelectionKey::CopyAndFollow));
+                    modes.borrow().hold(Input::Plain);
+                }
+                CopyStep::Exit => {
+                    copier.end(&selection.borrow());
+                    if let Some(follow) = copier.reader() {
+                        follow.jump_to_latest();
+                    }
+                    modes.borrow().hold(Input::Plain);
+                }
+                CopyStep::Page(pages) => send(ChatMsg::Page(pages)),
+            }
+            return KeyEventResult::Handled;
+        }
+        // select mode: the caret's keys come before the field's, while Find is not asking
+        // (`handle_select_mode_key`); a key of the mode ends here, one that is not goes on
+        let caret = caret::of(&finder);
+        if caret.active()
+            && !finder.active()
+            && let Some(step) = caret.key(&key)
+        {
+            let selection = selection.borrow().clone();
+            match step {
+                Step::Moved => {}
+                Step::Copy => {
+                    send(ChatMsg::Selection(SelectionKey::Copy));
+                    caret.copied();
+                }
+                Step::CopyAndFollow => {
+                    send(ChatMsg::Selection(SelectionKey::CopyAndFollow));
+                    caret.leave();
+                    modes.borrow().hold(Input::Plain);
+                }
+                Step::Exit => {
+                    caret.end(&selection);
+                    modes.borrow().hold(Input::Plain);
+                }
+                Step::Find => {
+                    if let Some(follow) = caret.reader() {
+                        finder.begin(&follow, &selection);
+                    }
+                }
+            }
+            return KeyEventResult::Handled;
+        }
         // browsing the prompts: its keys come first, any other key ends it
         // and goes on to the field
         if modes.borrow().browsing() {
@@ -93,16 +157,20 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         }
         // the leader chords: `change_host` (`Ctrl+X b`) is live while the backend control shows
         // (`visible_new_backend_control`), `open_presets` (`Ctrl+X p`) opens the menu of `/presets`
-        // where the page is free (`no_modal_or_popup_active`); both work with a draft in the
-        // composer.
-        let (hosts, presets) = {
+        // where the page is free (`no_modal_or_popup_active`), `select_transcript` (`Ctrl+X [`)
+        // begins select mode; all work with a draft in the composer.
+        let (hosts, presets, selects) = {
             let keymap = keymap.borrow();
             let hosts = if control.get() {
                 chords_of(&keymap, GLOBAL_CHANGE_HOST)
             } else {
                 Vec::new()
             };
-            (hosts, chords_of(&keymap, CHAT_OPEN_PRESETS))
+            (
+                hosts,
+                chords_of(&keymap, CHAT_OPEN_PRESETS),
+                chords_of(&keymap, GLOBAL_SELECT_TRANSCRIPT),
+            )
         };
         if leader.replace(false) {
             if hosts.iter().any(|(_, done)| done.accepts_press(&key)) {
@@ -113,9 +181,14 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 send(ChatMsg::Presets(PresetStep::Open));
                 return KeyEventResult::Handled;
             }
+            if selects.iter().any(|(_, done)| done.accepts_press(&key)) {
+                send(ChatMsg::Action(keys::Action::Select));
+                return KeyEventResult::Handled;
+            }
         } else if hosts
             .iter()
             .chain(&presets)
+            .chain(&selects)
             .any(|(prefix, _)| prefix.accepts_press(&key))
         {
             leader.set(true);

@@ -18,31 +18,111 @@ use rtwk_rich::markdown::{Block, MdBlock, MdInline, MdList, MdTable};
 /// The `#`s of a heading, one per level.
 const MARKS: &str = "######";
 
-/// The text of `blocks`, or `None` where one of them is not modelled.
+/// The text of the blocks of a parsed source (`parse_markdown`), or `None` where one of them is
+/// not modelled: a heading gets its `#`s here.
 pub fn text(blocks: &[Block]) -> Option<String> {
+    text_of(blocks, false)
+}
+
+/// The text of the blocks a cell draws (`cells::citation::blocks_of`, `widgets::markdown::view`):
+/// a heading carries its `#` marker as drawn text already, so none is added.
+pub fn drawn(blocks: &[Block]) -> Option<String> {
+    text_of(blocks, true)
+}
+
+/// What a block of a message is for the copy mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Code,
+    Quote,
+}
+
+/// A block the copy mode can select: where its text is in the text of the blocks ([`drawn`]) and
+/// what that text is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub kind: Kind,
+    pub range: std::ops::Range<usize>,
+    pub text: String,
+}
+
+/// The code blocks and the top-level quotes of drawn `blocks` (a quote's own code blocks too, a
+/// list item's), in the order of the text, with their place in it. The blocks of the text are
+/// laid in order, so each is looked for after the one before it.
+pub fn found(blocks: &[Block]) -> Vec<Found> {
+    let Some(body) = drawn(blocks) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    walk(blocks, &body, &mut 0, &mut out);
+    out
+}
+
+fn walk(blocks: &[Block], body: &str, cursor: &mut usize, out: &mut Vec<Found>) {
+    for block in blocks {
+        let Some(text) = block_text(block, true).filter(|text| !text.is_empty()) else {
+            continue;
+        };
+        let Some(at) = body[*cursor..].find(&text).map(|at| at + *cursor) else {
+            continue;
+        };
+        let range = at..at + text.len();
+        match &**block {
+            MdBlock::CodeBlock(_) => {
+                if !text.trim().is_empty() {
+                    out.push(Found {
+                        kind: Kind::Code,
+                        range: range.clone(),
+                        text,
+                    });
+                }
+            }
+            MdBlock::BlockQuote(children) => {
+                out.push(Found {
+                    kind: Kind::Quote,
+                    range: range.clone(),
+                    text,
+                });
+                *cursor = at;
+                walk(children, body, cursor, out);
+            }
+            MdBlock::List(list) => {
+                *cursor = at;
+                for item in &list.items {
+                    walk(&item.children, body, cursor, out);
+                }
+            }
+            _ => {}
+        }
+        *cursor = range.end;
+    }
+}
+
+fn text_of(blocks: &[Block], marked: bool) -> Option<String> {
     let mut out = Vec::with_capacity(blocks.len());
     for block in blocks {
-        out.push(block_text(block)?);
+        out.push(block_text(block, marked)?);
     }
     Some(out.join("\n\n"))
 }
 
-fn block_text(block: &MdBlock) -> Option<String> {
+fn block_text(block: &MdBlock, marked: bool) -> Option<String> {
     Some(match block {
         MdBlock::Paragraph(inlines) => inline_text(inlines)?,
+        MdBlock::Heading { children, .. } if marked => inline_text(children)?,
         MdBlock::Heading { level, children } => {
             let marks = &MARKS[..usize::from(*level).clamp(1, MARKS.len())];
             format!("{marks} {}", inline_text(children)?)
         }
         MdBlock::CodeBlock(code) => code.code.trim_end_matches('\n').to_owned(),
-        MdBlock::BlockQuote(children) => text(children)?,
-        MdBlock::List(list) => list_text(list)?,
+        MdBlock::BlockQuote(children) => text_of(children, marked)?,
+        MdBlock::List(list) => list_text(list, marked)?,
         MdBlock::Table(table) => table_text(table)?,
         MdBlock::ThematicBreak => return None,
     })
 }
 
-fn list_text(list: &MdList) -> Option<String> {
+fn list_text(list: &MdList, marked: bool) -> Option<String> {
     // a tight list has no blank row between its items nor between the blocks of
     // one item; a loose list has it between both
     let sep = if list.tight { "\n" } else { "\n\n" };
@@ -50,7 +130,7 @@ fn list_text(list: &MdList) -> Option<String> {
     for item in &list.items {
         let mut parts = Vec::with_capacity(item.children.len());
         for child in &item.children {
-            parts.push(block_text(child)?);
+            parts.push(block_text(child, marked)?);
         }
         items.push(parts.join(sep));
     }

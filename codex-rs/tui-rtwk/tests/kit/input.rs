@@ -86,6 +86,8 @@ impl Screen {
     /// One key as a terminal sends it: its own bytes where it has them, else
     /// the kitty protocol's (`super+space`, `shift+enter`).
     pub(super) fn press_key(&mut self, key: &str) {
+        // `leader`, as the oracle's tests write the chord's prefix: the default leader
+        let key = if key == "leader" { "ctrl+x" } else { key };
         if shares_legacy_bytes(key) {
             // `ctrl+j` is the byte 0x0a on an xterm, which is Enter: a test that binds the chord
             // means the key itself, so it goes as a terminal with the kitty protocol sends it.

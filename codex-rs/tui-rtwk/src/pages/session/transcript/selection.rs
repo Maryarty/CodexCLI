@@ -33,6 +33,9 @@ pub(in crate::pages::session) struct SelectionHost {
     pub child: AnyWidget,
     pub selection: TextSelection,
     pub follow: Follow,
+    /// Select mode of the thread: while only its caret is shown, the caret's cell is drawn bold
+    /// and underlined as well as reversed (the oracle's `render_select_cursor`).
+    pub caret: bool,
 }
 
 /// What a key does while something is selected (oracle `handle_selection_key`): the keys are
@@ -140,10 +143,15 @@ impl State for HostState {
 
     fn build(&self, w: &SelectionHost, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let settings = watch::<TuiSettings, _>(cx);
+        let attrs = if w.caret {
+            Attrs::REVERSE | Attrs::BOLD | Attrs::UNDERLINE
+        } else {
+            Attrs::REVERSE
+        };
         let area = SelectionArea::new(w.child.clone())
             // the oracle draws the selection REVERSED on top of the cell's own style
             // (`transcript_view/selection.rs`; `rendered_selection`)
-            .style(Style::new().attrs(Attrs::REVERSE).pen())
+            .style(Style::new().attrs(attrs).pen())
             .controller(w.selection.controller())
             .copy_on_release(settings.copy_on_select)
             .on_copy(cx.map(Msg::Copied));

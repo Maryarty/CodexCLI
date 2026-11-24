@@ -10,15 +10,50 @@
 //! becomes the feedback. The oracle's rule that a second copy refused as busy leaves the copy
 //! under way showing is kept here (`show_copy_feedback`).
 
-use super::TranscriptMode;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::ops::Range;
+use std::rc::Rc;
+
+use rtwk::focus::{KeyCombo, KeyPress};
+use rtwk::foundation::ValueNotifier;
+use rtwk::gestures::SelectionTarget;
 
 use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use codex_tui_core::app::facts::TuiSettings;
+use codex_tui_core::threads::Item;
+
+use super::TranscriptMode;
+use super::find::{Finder, RowTexts};
+use super::item_text::{Reading, drawn_blocks};
+use super::markdown_text::{self, Kind};
+use super::select;
+use super::strings::Strings;
+use crate::pages::session::cells::text::Part;
+use crate::widgets::thread_ui::{Follow, Input, TextSelection, ThreadUi};
 
 /// The bit of the request numbers of the copies the transcript asks (the other bits are listed
 /// in `core/src/app/effects.rs`: `1 << 58` is the features', `1 << 59` to `1 << 62` the screens').
 pub const REQUEST_BIT: u64 = 1 << 57;
+
+/// A block written in the Markdown source of a message, as the copy feature cuts it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Piece {
+    Code(String),
+    /// A quote: its source lines without the `>` marks, and what a copy of it answers with (its
+    /// directive lines left out).
+    Quote { source: String, copied: String },
+}
+
+/// What the mode reads of a message's source: handed in by the feature that begins it (a page does
+/// not name a feature).
+#[derive(Clone, Copy)]
+pub struct Cutter {
+    /// The code blocks and quotes of a source, in the order they stand in it.
+    pub pieces: fn(&str) -> Vec<Piece>,
+    /// The Markdown a copy of the whole response answers with (`None` where there is none).
+    pub whole: fn(&str, &str) -> Option<String>,
+}
 
 /// How many sent copies are remembered: the host answers them in order and the app keeps as
 /// many answers.
@@ -182,7 +217,638 @@ impl CopyLog {
     }
 }
 
-/// The copy of a block as a mode of the transcript (`mode_list!`): no fixture states of its own.
+// ---- copy mode (oracle `transcript_view/copy_mode.rs`) ----------------------------------------
+//
+// `/copy` on the chat's own transcript walks a cursor over what the reader can copy as one piece:
+// the whole last response (where it starts), each code block and quote of the messages, each
+// prompt; the footer says which (`Copy code block`) and what the keys do. Enter copies the target
+// and goes back to the last row; what is copied is the target's own source (a code block without
+// its fence, the response as Markdown), not what is drawn.
+//
+// The model is a controller (Flutter's `ValueNotifier<CopyState>`), one per thread, found by the
+// finder the thread's `ThreadUi` holds (`mode_of`, as the select mode's is): the entry begins it
+// (`enter`), the page's key handler moves it (`key`), the pane gives it the targets it read of the
+// items (`read`) and shows the target by asking the selection area to select its range (`show`), as
+// it does a match of Find. The targets are a flat list in the order of the transcript; Up and Down
+// move along it, the whole response sits after its end.
+//
+// The oracle finds the blocks in the rendered layout; this reads them from the blocks the cell
+// draws (`markdown_text::found`) and from a prompt's source lines.
+
+/// One piece the reader can copy: a range of a row's text, what it is called, and what is copied
+/// when it is not what is drawn there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    /// The row of the list, oldest first.
+    pub row: usize,
+    /// The bytes of the row's text (gutters included, as the area counts them).
+    pub range: Range<usize>,
+    pub label: &'static str,
+    pub payload: Option<String>,
+}
+
+/// What the pane read of the transcript for the mode.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Targets {
+    /// The pieces in the order of the transcript.
+    pub list: Vec<Target>,
+    /// The last response as a whole: its payload is the Markdown the copy answers with.
+    pub response: Option<Target>,
+}
+
+impl Targets {
+    /// Adds what row `row` (the item `item`, mounted as `parts`) holds: a prompt and the blocks
+    /// written in it, a message's or a plan's code and quotes; the last response that has
+    /// something visible is the whole response.
+    pub fn add(
+        &mut self,
+        row: usize,
+        item: &Item,
+        parts: &[Part],
+        reading: &Reading<'_>,
+        table: &'static Strings,
+        cutter: &Cutter,
+    ) {
+        let Some((first, last)) = extent(parts) else {
+            return;
+        };
+        let text = parts
+            .iter()
+            .map(|part| part.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text[first..last].trim().is_empty() {
+            return;
+        }
+        let mut found = Vec::new();
+        match item {
+            Item::User(prompt) => {
+                let shown = prompt.shown();
+                found.push(Target {
+                    row,
+                    range: first..last,
+                    label: table.copy_user,
+                    payload: (!shown.text.is_empty()).then(|| shown.text.to_string()),
+                });
+                found.extend(literal_blocks(
+                    row,
+                    &text,
+                    (first, last),
+                    &shown.text,
+                    table,
+                    cutter,
+                ));
+            }
+            Item::Agent { text: source, .. } | Item::Plan { text: source } => {
+                let cwd = reading.cwd.unwrap_or("");
+                if let Some(markdown) = (cutter.whole)(source, cwd) {
+                    self.response = Some(Target {
+                        row,
+                        range: first..last,
+                        label: table.copy_whole,
+                        payload: Some(markdown),
+                    });
+                }
+                if !reading.raw {
+                    found.extend(rendered_blocks(
+                        row, item, source, parts, reading, table, cutter,
+                    ));
+                }
+            }
+            _ => return,
+        }
+        found.sort_by_key(|target| (target.range.start, std::cmp::Reverse(target.range.end)));
+        self.list.extend(found);
+    }
+}
+
+/// The bytes the non-gutter parts of a row span in its text: where the first starts to where the
+/// last ends.
+fn extent(parts: &[Part]) -> Option<(usize, usize)> {
+    let mut at = 0;
+    let mut span: Option<(usize, usize)> = None;
+    for part in parts {
+        if !part.gutter {
+            let end = at + part.text.len();
+            span = Some(span.map_or((at, end), |(first, _)| (first, end)));
+        }
+        at += part.text.len() + 1;
+    }
+    span
+}
+
+/// A text with its lines' trailing blanks and its ends cut: what two spellings of one block are
+/// compared by (oracle `normalized`).
+fn normalized(text: &str) -> String {
+    text.lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
+}
+
+/// A drawn quote without the `>` marks of its lines.
+fn unquoted(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let line = line.trim_start();
+            line.strip_prefix('>')
+                .map_or(line, |line| line.strip_prefix(' ').unwrap_or(line))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The code and the quotes of the source of a message, as the copy picker lists them: the code
+/// without its fence, a quote without its `>` marks and the directive lines of the agent app.
+fn sources(cutter: &Cutter, source: &str) -> (Vec<String>, Vec<String>) {
+    let (mut codes, mut quotes) = (Vec::new(), Vec::new());
+    for piece in (cutter.pieces)(source) {
+        match piece {
+            Piece::Code(content) => codes.push(content),
+            Piece::Quote { copied, .. } => quotes.push(copied),
+        }
+    }
+    (codes, quotes)
+}
+
+/// The code blocks and quotes a message or plan draws, each with the source the author wrote
+/// where one matches the drawn text (indented code and tables may have none: what is drawn is
+/// then copied).
+fn rendered_blocks(
+    row: usize,
+    item: &Item,
+    source: &str,
+    parts: &[Part],
+    reading: &Reading<'_>,
+    table: &'static Strings,
+    cutter: &Cutter,
+) -> Vec<Target> {
+    // the body is the last part, laid out as the cell draws the blocks: when it is not (a cell
+    // that is drawn another way) there is no block to point at
+    let blocks = drawn_blocks(item, reading);
+    let Some(body) = parts.last() else {
+        return Vec::new();
+    };
+    if markdown_text::drawn(&blocks).as_deref() != Some(body.text.as_str()) {
+        return Vec::new();
+    }
+    let body_at: usize = parts[..parts.len() - 1]
+        .iter()
+        .map(|part| part.text.len() + 1)
+        .sum();
+    let (mut codes, mut quotes) = sources(cutter, source);
+    markdown_text::found(&blocks)
+        .into_iter()
+        .map(|block| {
+            let (label, pool, drawn) = match block.kind {
+                Kind::Code => (table.copy_code, &mut codes, block.text.clone()),
+                Kind::Quote => (table.copy_quote, &mut quotes, unquoted(&block.text)),
+            };
+            let payload = pool
+                .iter()
+                .position(|source| normalized(source) == normalized(&drawn))
+                .map(|at| pool.remove(at));
+            Target {
+                row,
+                range: body_at + block.range.start..body_at + block.range.end,
+                label,
+                payload,
+            }
+        })
+        .collect()
+}
+
+/// The code blocks and quotes written in a prompt, which is drawn as its source: found in its
+/// text by what they say (oracle `literal_block_ranges`).
+fn literal_blocks(
+    row: usize,
+    text: &str,
+    (first, last): (usize, usize),
+    source: &str,
+    table: &'static Strings,
+    cutter: &Cutter,
+) -> Vec<Target> {
+    let mut found = Vec::new();
+    let mut cursor = first;
+    for piece in (cutter.pieces)(source) {
+        match piece {
+            Piece::Code(content) => {
+                let content = content.trim_end_matches('\n');
+                if content.trim().is_empty() {
+                    continue;
+                }
+                if let Some(at) = text[cursor..last].find(content).map(|at| at + cursor) {
+                    found.push(Target {
+                        row,
+                        range: at..at + content.len(),
+                        label: table.copy_code,
+                        payload: Some(content.to_owned()),
+                    });
+                    cursor = at + content.len();
+                }
+            }
+            Piece::Quote {
+                source: content,
+                copied,
+            } => {
+                let Some(line) = content.lines().find(|line| !line.trim().is_empty()) else {
+                    continue;
+                };
+                let Some(at) = text[cursor..last].find(line).map(|at| at + cursor) else {
+                    continue;
+                };
+                let start = text[..at]
+                    .rfind('\n')
+                    .map_or(0, |newline| newline + 1)
+                    .max(first);
+                // as many lines as the quote has, whether the drawing keeps its `>` marks or not
+                let lines = content.trim_end_matches('\n').lines().count().max(1);
+                let mut end = start;
+                for line in text[start..last].split_inclusive('\n').take(lines) {
+                    end += line.len();
+                }
+                let end = text[..end].trim_end_matches('\n').len().max(start);
+                found.push(Target {
+                    row,
+                    range: start..end,
+                    label: table.copy_quote,
+                    payload: Some(copied),
+                });
+                cursor = end;
+            }
+        }
+    }
+    found
+}
+
+/// What a key of copy mode does to the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// The target moved, or the key is the mode's and does nothing.
+    Moved,
+    /// Enter: copy the target, and go back to the last row once the host confirms.
+    Copy,
+    /// Esc: the mode ends, the transcript is at its last row.
+    Exit,
+    /// PageUp, PageDown: the transcript scrolls by pages.
+    Page(i8),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Do {
+    Up,
+    Down,
+    Home,
+    End,
+    Copy,
+    Exit,
+    Page(i8),
+    Other,
+}
+
+/// The keys of the mode (`handle_copy_mode_key`): the vim pairs map onto the arrows; every other
+/// key is the mode's and does nothing, so no text reaches the composer.
+const KEYS: &[(&str, Do)] = &[
+    ("up", Do::Up),
+    ("k", Do::Up),
+    ("down", Do::Down),
+    ("j", Do::Down),
+    ("home", Do::Home),
+    ("g", Do::Home),
+    ("end", Do::End),
+    ("shift+g", Do::End),
+    ("G", Do::End),
+    ("esc", Do::Exit),
+    ("enter", Do::Copy),
+    ("ctrl+c", Do::Copy),
+    ("super+c", Do::Copy),
+    ("ctrl+shift+c", Do::Copy),
+    ("ctrl+insert", Do::Copy),
+    ("pageup", Do::Page(-1)),
+    ("pagedown", Do::Page(1)),
+];
+
+fn what(key: &KeyPress) -> Do {
+    KEYS.iter()
+        .find_map(|(spec, what)| {
+            KeyCombo::parse(spec)
+                .ok()
+                .filter(|combo| combo.accepts_press(key))
+                .map(|_| *what)
+        })
+        .unwrap_or(Do::Other)
+}
+
+/// What a copy of the target answers with where it is not what the area selects.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Payload {
+    pub text: String,
+    pub format: CopyFormat,
+}
+
+struct Data {
+    active: bool,
+    /// The first target is chosen with the first targets the pane reads.
+    placed: bool,
+    /// The target held: an index of the list, or the whole response (`None`).
+    at: Option<usize>,
+    targets: Rc<Targets>,
+    follow: Option<Follow>,
+    /// What the feature reads of a source, handed in when it began the mode.
+    cutter: Option<Cutter>,
+    /// What the area was last asked to select: the row, the range and the revision of the rows.
+    shown: Option<(usize, Range<usize>, u64)>,
+    /// The target moved: the pane scrolls it into view.
+    reveal: bool,
+    /// What Enter chose to copy, for the copy that the page sends next.
+    pending: Option<Payload>,
+}
+
+struct Inner {
+    data: RefCell<Data>,
+    /// The select mode's: the pane and the footer listen to the one notifier.
+    ticks: Rc<ValueNotifier<u32>>,
+}
+
+/// The copy mode of one thread's transcript: a handle that is equal to its clones.
+#[derive(Clone)]
+pub struct CopyMode(Rc<Inner>);
+
+impl PartialEq for CopyMode {
+    fn eq(&self, other: &CopyMode) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+thread_local! {
+    static REGISTRY: RefCell<Vec<(Finder, CopyMode)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The copy mode of the thread whose finder this is (made on first ask).
+pub fn mode_of(finder: &Finder) -> CopyMode {
+    REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        if let Some((_, mode)) = registry.iter().find(|(held, _)| held == finder) {
+            return mode.clone();
+        }
+        let mode = CopyMode(Rc::new(Inner {
+            data: RefCell::new(Data {
+                active: false,
+                placed: false,
+                at: None,
+                targets: Rc::default(),
+                follow: None,
+                cutter: None,
+                shown: None,
+                reveal: false,
+                pending: None,
+            }),
+            ticks: select::of(finder).listenable(),
+        }));
+        registry.push((finder.clone(), mode.clone()));
+        mode
+    })
+}
+
+/// `/copy` over the transcript of `ui`: the mode begins at the last row, on the last response.
+/// Refused (false) while Find or another mode of input holds the keys.
+pub fn enter(ui: &ThreadUi, cutter: Cutter) -> bool {
+    if ui.input() != Input::Plain {
+        return false;
+    }
+    mode_of(&ui.find).begin(&ui.follow, cutter);
+    ui.modes.hold(Input::Copy);
+    true
+}
+
+impl CopyMode {
+    fn notify(&self) {
+        self.0.ticks.set_value(self.0.ticks.value().wrapping_add(1));
+    }
+
+    /// Copy mode is on.
+    pub fn active(&self) -> bool {
+        self.0.data.borrow().active
+    }
+
+    /// The mode begins: the transcript goes to its last row and the first target is chosen with
+    /// the first targets the pane reads (`begin_copy_mode`).
+    pub fn begin(&self, follow: &Follow, cutter: Cutter) {
+        {
+            let mut data = self.0.data.borrow_mut();
+            if data.active {
+                return;
+            }
+            follow.jump_to_latest();
+            data.active = true;
+            data.placed = false;
+            data.at = None;
+            data.shown = None;
+            data.pending = None;
+            data.follow = Some(follow.clone());
+            data.cutter = Some(cutter);
+        }
+        self.notify();
+    }
+
+    /// The mode ends: the area lets go of the target.
+    pub fn end(&self, selection: &TextSelection) {
+        self.leave();
+        selection.controller().clear();
+    }
+
+    /// The mode ends, what is selected left as it is: a copy that follows clears it when it is
+    /// delivered.
+    pub fn leave(&self) {
+        {
+            let mut data = self.0.data.borrow_mut();
+            data.active = false;
+            data.shown = None;
+            data.targets = Rc::default();
+        }
+        self.notify();
+    }
+
+    /// What the feature that began the mode reads of a source with.
+    pub fn cutter(&self) -> Option<Cutter> {
+        self.0.data.borrow().cutter
+    }
+
+    /// The reader whose list the mode began over (Esc goes back to its last row).
+    pub fn reader(&self) -> Option<Follow> {
+        self.0.data.borrow().follow.clone()
+    }
+
+    fn current(&self) -> Option<Target> {
+        let data = self.0.data.borrow();
+        match data.at {
+            None => data.targets.response.clone(),
+            Some(at) => data.targets.list.get(at).cloned(),
+        }
+    }
+
+    /// What the footer's first row calls the target held (`code block`), once the mode is on; none
+    /// where there is no target (the footer then says the whole response, as the oracle does).
+    pub fn label(&self) -> Option<&'static str> {
+        if !self.active() {
+            return None;
+        }
+        self.current().map(|target| target.label)
+    }
+
+    /// The targets the pane last read (what the footer and the cursor choose among).
+    pub fn targets(&self) -> Rc<Targets> {
+        self.0.data.borrow().targets.clone()
+    }
+
+    /// The targets the pane read: the first read chooses where the mode starts (the whole last
+    /// response, else the last piece).
+    pub fn read(&self, targets: &Rc<Targets>) {
+        let changed = {
+            let mut data = self.0.data.borrow_mut();
+            if !data.active {
+                return;
+            }
+            let before = (data.at, data.targets.clone());
+            if !Rc::ptr_eq(&data.targets, targets) && *data.targets != **targets {
+                data.targets = targets.clone();
+            }
+            // a read with no target yet (the rows are not drawn) places nothing: the next one does
+            let anything = data.targets.response.is_some() || !data.targets.list.is_empty();
+            if !data.placed && anything {
+                data.placed = true;
+                data.at = match data.targets.response {
+                    Some(_) => None,
+                    None => data.targets.list.len().checked_sub(1),
+                };
+                data.reveal = true;
+                data.shown = None;
+            }
+            if let Some(at) = data.at
+                && at >= data.targets.list.len()
+            {
+                data.at = data.targets.list.len().checked_sub(1);
+                data.shown = None;
+            }
+            // what the footer names follows the targets: it is told when they or the cursor moved
+            before.0 != data.at || !Rc::ptr_eq(&before.1, &data.targets)
+        };
+        if changed {
+            self.notify();
+        }
+    }
+
+    /// A key of the mode: what the page does of it (every key is the mode's, one that is none of
+    /// its table does nothing).
+    pub fn key(&self, key: &KeyPress) -> Option<Step> {
+        if !self.active() {
+            return None;
+        }
+        let step = match what(key) {
+            Do::Up => self.go(|at, n, _| match at {
+                None => n.checked_sub(1).map(Some),
+                Some(at) => at.checked_sub(1).map(Some),
+            }),
+            Do::Down => self.go(|at, n, response| match at {
+                None => None,
+                Some(at) if at + 1 < n => Some(Some(at + 1)),
+                Some(_) => response.then_some(None),
+            }),
+            Do::Home => self.go(|_, n, _| (n > 0).then_some(Some(0))),
+            Do::End => self.go(|_, n, response| {
+                if response {
+                    Some(None)
+                } else {
+                    n.checked_sub(1).map(Some)
+                }
+            }),
+            Do::Copy => Step::Copy,
+            Do::Exit => Step::Exit,
+            Do::Page(pages) => Step::Page(pages),
+            Do::Other => Step::Moved,
+        };
+        Some(step)
+    }
+
+    /// Moves the target as `to` says (from the one held, how many pieces there are and whether
+    /// there is a whole response), or leaves it where `to` has no answer.
+    fn go(&self, to: impl Fn(Option<usize>, usize, bool) -> Option<Option<usize>>) -> Step {
+        {
+            let mut data = self.0.data.borrow_mut();
+            let (n, response) = (data.targets.list.len(), data.targets.response.is_some());
+            if let Some(next) = to(data.at, n, response)
+                && next != data.at
+            {
+                data.at = next;
+                data.shown = None;
+                data.reveal = true;
+            }
+        }
+        self.notify();
+        Step::Moved
+    }
+
+    /// The row the target moved to, once: the pane scrolls it into view.
+    pub fn reveal(&self) -> Option<usize> {
+        if !std::mem::take(&mut self.0.data.borrow_mut().reveal) {
+            return None;
+        }
+        self.current().map(|target| target.row)
+    }
+
+    /// The target is shown as the selection of the area (it paints it REVERSED, as the oracle
+    /// does).
+    pub fn show(&self, rows: &Rc<RowTexts>, selection: &TextSelection) {
+        let controller = selection.controller();
+        let wanted = self
+            .current()
+            .map(|target| (target.row, target.range, rows.revision_of()));
+        if wanted.is_some() && self.0.data.borrow().shown == wanted {
+            return;
+        }
+        match &wanted {
+            Some((row, range, _)) => {
+                controller.select(SelectionTarget::of(rows), *row, range.start, range.end);
+            }
+            None => controller.clear(),
+        }
+        self.0.data.borrow_mut().shown = wanted;
+    }
+
+    /// Enter: what the target copies as is kept for the copy the page sends next ([`shape`]), and
+    /// the mode ends with the selection left for that copy to read and clear.
+    ///
+    /// [`shape`]: CopyMode::shape
+    pub fn copying(&self) {
+        let target = self.current();
+        let whole = self.0.data.borrow().at.is_none();
+        self.0.data.borrow_mut().pending = target.and_then(|target| {
+            target.payload.map(|text| Payload {
+                text,
+                format: if whole {
+                    CopyFormat::Markdown
+                } else {
+                    CopyFormat::PlainText
+                },
+            })
+        });
+        self.leave();
+    }
+
+    /// The copy of the selection the page is about to send, as the target copies: its own source
+    /// where it has one. A copy that is not the mode's (nothing was kept) is left as it is.
+    pub fn shape(&self, mut job: CopyJob) -> CopyJob {
+        if let Some(payload) = self.0.data.borrow_mut().pending.take() {
+            job.text = payload.text;
+            job.format = payload.format;
+        }
+        job
+    }
+}
+
+/// Copying as a mode of the transcript (`mode_list!`): no fixture states of its own.
 pub struct Mode;
 
 impl TranscriptMode for Mode {
