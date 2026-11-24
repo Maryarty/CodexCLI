@@ -47,7 +47,7 @@ mod verb;
 pub use crate::threads::structured::{
     Kind as StructuredKind, StructuredTurn, Why as StructuredFailure,
 };
-pub use cx::{AppCx, AppFacts, AppView, ChatFacts, Out, ThreadCx, ThreadView};
+pub use cx::{AppCx, AppFacts, AppView, ChatFacts, LimitsUpdate, Out, ThreadCx, ThreadView};
 pub use lifecycle::{Connection, Lifecycle, Refusal, ThreadSpawn};
 pub use remote::Remote;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
@@ -442,6 +442,14 @@ pub trait Feature: 'static {
         let _ = (part, cx);
     }
 
+    /// The account's limits were read, or a rolling update of them came, with the plan's own
+    /// bucket in it (`LimitsUpdate`): the hook of a feature that follows them. Runs in list order
+    /// for the thread in use's backend, after the app's own warnings; the app's facts (the
+    /// account, the catalog, the `[tui]` settings) are the ones `cx.view().facts()` reads.
+    fn on_limits(state: &mut Self::State, update: &LimitsUpdate, cx: &mut AppCx<'_>) {
+        let _ = (state, update, cx);
+    }
+
     /// What held the thread's input back is over (a goal was set: `AppCx::settled`): what
     /// waits goes on. Runs over all features in list order, like the turn hooks, so a feature
     /// that waits for it does not name the one that said it.
@@ -833,6 +841,12 @@ macro_rules! feature_dirs {
         #[allow(unused_variables)]
         pub fn on_connection(states: &mut FeatureStates, connection: $crate::features::Connection, cx: &mut AppCx<'_>) {
             $(<$name::$variant as Feature>::on_connection(&mut states.$name, connection, cx);)*
+        }
+
+        /// The account's limits changed: every feature's hook, in list order.
+        #[allow(unused_variables)]
+        pub fn on_limits(states: &mut FeatureStates, update: &$crate::features::LimitsUpdate, cx: &mut AppCx<'_>) {
+            $(<$name::$variant as Feature>::on_limits(&mut states.$name, update, cx);)*
         }
 
         /// The thread `thread` was resumed and is in use: every feature's hook, in list order.

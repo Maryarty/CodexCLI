@@ -349,6 +349,20 @@ pub struct ChatFacts {
     pub side: Option<SideFooter>,
 }
 
+/// What the app learned of the account's limits (`Feature::on_limits`): the plan's own bucket
+/// (`codex`) as the app read it, and where it came from. A feature that follows the limits (the
+/// rate limit prompt) keeps what it needs of the samples, in the order they come: a rolling update
+/// is sparse, and what it lacks is what the earlier ones said.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LimitsUpdate {
+    pub sample: status::Sample,
+    /// A full read of the account, or a rolling notification (and whether a read was in flight).
+    pub source: status::Source,
+    /// A read that a rolling update overtook: its answer is older than what the app holds (oracle
+    /// `applying_stale_read`). Never for a rolling update.
+    pub stale: bool,
+}
+
 /// The context of an app-scoped step of a feature: the app as a view, and the outbox.
 pub struct AppCx<'a> {
     view: AppView<'a>,
