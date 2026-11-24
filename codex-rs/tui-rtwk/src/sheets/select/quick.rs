@@ -22,7 +22,7 @@ pub use self::entries::debug_entries;
 
 use std::rc::Rc;
 
-use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::navigation::{Navigator, PageRoute, Route};
 use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -36,11 +36,14 @@ use crate::app::view::Hs;
 use crate::widgets::picker::{Event, Picker};
 use crate::widgets::sheet::bottom;
 
+use super::{centered, centered_route};
+
 /// The sheet: a navigator as tall as the sheet's cap whose home is `menu`, each page at the bottom
-/// edge of it (where the oracle's pane is; `review_sheet.rs`).
+/// edge of it (where the oracle's pane is; `review_sheet.rs`), the confirmation in the middle of
+/// it (`SelectionViewParams::confirmation`: `ViewPresentation::Centered`).
 pub fn sheet(menu: &Menu) -> AnyWidget {
     Navigator::new()
-        .home(bottom(Page { menu: menu.clone() }))
+        .home(placed(menu))
         .back_key(None)
         .into()
 }
@@ -54,8 +57,25 @@ pub fn options() -> DialogOptions {
     }
 }
 
-fn route(menu: Menu) -> PageRoute<()> {
-    PageRoute::new(move |_| bottom(Page { menu: menu.clone() }))
+/// The page of `menu` where the sheet starts: a confirmation floats Centered, the others stand
+/// at the bottom.
+fn placed(menu: &Menu) -> AnyWidget {
+    let page = Page { menu: menu.clone() };
+    if matches!(menu, Menu::Confirm { .. }) {
+        centered(page)
+    } else {
+        bottom(page)
+    }
+}
+
+/// The page of `menu` pushed over the one that led to it: a confirmation floats Centered over
+/// it (which stays visible around it), the others replace it at the bottom.
+fn route(menu: Menu) -> Route {
+    if matches!(menu, Menu::Confirm { .. }) {
+        centered_route(move || Page { menu: menu.clone() }.into())
+    } else {
+        PageRoute::<()>::new(move |_| bottom(Page { menu: menu.clone() })).into_route()
+    }
 }
 
 /// One page of the sheet.

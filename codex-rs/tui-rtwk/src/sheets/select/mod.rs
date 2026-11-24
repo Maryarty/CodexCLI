@@ -6,6 +6,7 @@
 pub(crate) mod agent_picker;
 mod app_link;
 mod apps;
+mod centered;
 mod confirm;
 mod generic;
 mod lists;
@@ -35,6 +36,7 @@ pub mod strings;
 /// The shortcut menu of `/presets` over the composer (the page draws it and takes its keys).
 pub use quick::hud;
 
+pub use centered::{centered, route as centered_route};
 pub use generic::{Purpose, pick};
 
 /// A debug entry of a `/permissions` page: the script's model has asked for the menu, the sheet

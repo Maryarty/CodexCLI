@@ -651,3 +651,82 @@ mod copy_on_an_owned_transcript {
         assert!(sent[0].0.contains("Latest **plan**"), "{:?}", sent[0].0);
     }
 }
+
+/// The select sheet's Centered presentation (`ViewPresentation::Centered`): the confirmation of
+/// a saved preset floats in the middle of the sheet, inset from its sides, over the page that led
+/// to it, which stays visible around it.
+mod centered_select_page {
+    use crate::kit::{Owner, Screen};
+
+    fn entry(name: &'static str) -> Screen {
+        Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .entry("select", name)
+            .open()
+    }
+
+    fn at(rows: &[String], text: &str) -> usize {
+        rows.iter()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("{text:?} is not on screen:\n{}", rows.join("\n")))
+    }
+
+    #[test]
+    fn a_confirmation_floats_in_the_middle_inset_from_the_sides() {
+        let s = entry("quick_confirm_delete");
+        let rows = s.rows();
+        let title = at(&rows, "Delete preset 1?");
+        assert!(
+            (5..=16).contains(&title),
+            "the middle of 24 rows, not the bottom edge: row {title}\n{}",
+            s.text()
+        );
+        let indent = rows[title].chars().take_while(|c| *c == ' ').count();
+        assert!(indent >= 2, "two cells in from the side:\n{}", s.text());
+    }
+
+    #[test]
+    fn a_confirmation_pushed_over_a_page_keeps_that_page_showing() {
+        let mut s = entry("quick_edit");
+        s.keys("enter enter");
+        let rows = s.rows();
+        let confirm = at(&rows, "Replace preset 1?");
+        let editor = at(&rows, "Edit preset 1");
+        assert!(
+            confirm < editor,
+            "the editor stays at the bottom under the confirmation:\n{}",
+            s.text()
+        );
+        // Esc takes the confirmation away and the editor is the page again
+        s.keys("esc");
+        s.assert_absent("Replace preset 1?");
+        s.assert_contains("Edit preset 1");
+    }
+}
+
+/// A side conversation asks for a follow-up: the empty composer of the thread says so
+/// (`side_placeholder_text`), and the thread beside it keeps the usual words.
+mod side_placeholder {
+    use crate::kit::{Owner, Screen};
+
+    const SIDE: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":true,"side_conversation_active":true}}}
+"#;
+
+    #[test]
+    fn a_side_conversation_asks_for_a_follow_up() {
+        let s = Screen::build(Owner::UiPane).size(80, 24).script(SIDE).open();
+        s.assert_contains("Ask a follow-up question");
+        s.assert_absent("Ask Codex to do anything");
+    }
+
+    #[test]
+    fn the_usual_thread_keeps_its_usual_placeholder() {
+        let s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .script(r#"{"step":"seed","seed":"session","thread":"thread-1"}"#)
+            .open();
+        s.assert_contains("Ask Codex to do anything");
+        s.assert_absent("Ask a follow-up question");
+    }
+}
