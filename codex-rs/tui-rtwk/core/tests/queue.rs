@@ -6,14 +6,16 @@
 //! starts the next turn, a command is handed to the screen and the queue waits for what it
 //! reports, a shell line runs, a bare `!` says how to use it.
 
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_app_server_protocol::{ErrorNotification, ServerNotification, TurnError};
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app, apply_app_from};
 use codex_tui_core::commands::{
     DispatchCx, Outcome, QueueDrain, SlashCommand, Target, dispatch_queued,
 };
 use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
-use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenCommand, ScreenThreadIntent, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat};
+use codex_tui_core::threads::ThreadAsk;
 use codex_tui_core::threads::queue::Dispatched;
 use codex_tui_core::threads::{Item, Queued, Ran, ThreadModel, UserMessage};
 use pretty_assertions::assert_eq;
@@ -414,44 +416,253 @@ fn a_held_queue_sends_nothing_at_the_turn_end_and_goes_on_when_the_user_sends() 
     assert_eq!(started_texts(&fx), ["now"]);
 }
 
-/// The thread's stream is lost while the connection stands (`BackendEv::StreamLost`, the oracle's
-/// `thread_stream_disconnected`): what the user sends waits in the queue, steers included, until
-/// the stream is back, and then goes out as the next turn.
+// The lost stream of a thread (a Cloud backend's `ThreadStreamDisconnected` and
+// `ThreadStreamReconnected`, oracle `app_server_events.rs`): the host forwards them as
+// `BackendEv::StreamLost` and `StreamRestored`.
+
+const LOST: &str = "Cloud stream ended. Reopen the conversation to reconnect.";
+
+fn disconnected(thread: &str) -> Box<ErrorNotification> {
+    Box::new(ErrorNotification {
+        error: TurnError {
+            message: LOST.to_owned(),
+            codex_error_info: None,
+            additional_details: None,
+            misalignment: None,
+        },
+        will_retry: false,
+        thread_id: thread.to_owned(),
+        turn_id: String::new(),
+    })
+}
+
+fn lost(thread: &str) -> BackendEv {
+    BackendEv::StreamLost {
+        thread: ThreadId::new(thread),
+        error: disconnected(thread),
+    }
+}
+
+fn restored(thread: &str) -> BackendEv {
+    BackendEv::StreamRestored(ThreadId::new(thread))
+}
+
+/// The error rows of the thread, oldest first.
+fn errors(app: &CodexApp) -> Vec<String> {
+    thread(app)
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Error { message } => Some(message.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn reconnects(fx: &AppFx) -> Vec<ThreadId> {
+    fx.commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::ReconnectIdleThread { thread, .. } => Some(thread.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The stream is lost while the connection stands: what the user sends waits in the queue, steers
+/// included, until the stream is back, and then goes out as the next turn.
 #[test]
 fn a_lost_stream_queues_a_submit_until_it_is_back() {
     let mut app = ready();
-    notify(&mut app, BackendEv::StreamLost(ThreadId::new(T)));
+    notify(&mut app, lost(T));
     assert!(thread(&app).view().stream_lost());
-    let submit = |app: &mut CodexApp, text: &str| {
-        run(
-            app,
-            AppEv::Intent(Intent::Submit {
-                thread: Some(ThreadId::new(T)),
-                message: UserMessage::text(text),
-            }),
-        )
-    };
     let fx = submit(&mut app, "hello");
     assert_eq!(started_texts(&fx), Vec::<String>::new());
     assert_eq!(queued(&app), ["hello"]);
-    let fx = notify(&mut app, BackendEv::StreamRestored(ThreadId::new(T)));
+    let fx = notify(&mut app, restored(T));
     assert!(!thread(&app).view().stream_lost());
     assert_eq!(started_texts(&fx), ["hello"]);
     assert_eq!(queued(&app), Vec::<String>::new());
 }
 
-/// The same while a turn runs: a steer would go out, a lost stream holds it.
+/// An idle displayed thread of a Cloud backend asks the backend to attach it again and shows no
+/// error line (`reconnect_idle_thread` accepted: the handler returns before the error).
 #[test]
-fn a_lost_stream_holds_a_message_typed_during_a_turn_and_the_queue_waits_for_it() {
+fn an_idle_lost_stream_asks_the_host_to_reconnect_and_shows_no_line() {
+    let mut app = ready();
+    let fx = notify(&mut app, lost(T));
+    assert_eq!(reconnects(&fx), [ThreadId::new(T)]);
+    assert!(thread(&app).view().stream_lost());
+    assert_eq!(errors(&app), Vec::<String>::new());
+}
+
+/// While a user turn runs nothing is reconnected: the error is the line of the thread, which ends
+/// the running turn (`on_error` finalizes it), and the queue waits for the stream.
+#[test]
+fn a_lost_stream_during_a_turn_shows_the_error_and_holds_the_queue() {
     let mut app = running();
-    notify(&mut app, BackendEv::StreamLost(ThreadId::new(T)));
     tab(&mut app, "later", false);
-    let fx = notify(&mut app, turn_completed(T, "turn-1"));
+    let fx = notify(&mut app, lost(T));
+    assert_eq!(reconnects(&fx), Vec::<ThreadId>::new());
+    assert!(thread(&app).view().stream_lost());
+    assert_eq!(errors(&app), [LOST]);
+    assert!(!thread(&app).is_running(), "the error ended the turn");
     assert_eq!(
         started_texts(&fx),
         Vec::<String>::new(),
         "the queue does not send while the stream is lost"
     );
-    let fx = notify(&mut app, BackendEv::StreamRestored(ThreadId::new(T)));
+    let fx = notify(&mut app, restored(T));
     assert_eq!(started_texts(&fx), ["later"]);
+}
+
+/// A refused reconnect is the host's: it sends the error back as the notification the line is
+/// made of, and the thread stays lost.
+#[test]
+fn a_refused_reconnect_comes_back_as_the_error_notification() {
+    let mut app = ready();
+    notify(&mut app, lost(T));
+    notify(
+        &mut app,
+        BackendEv::Notification(Box::new(ServerNotification::Error(*disconnected(T)))),
+    );
+    assert_eq!(errors(&app), [LOST]);
+    assert!(thread(&app).view().stream_lost());
+}
+
+/// A thread the user is not looking at is not marked: the error is its line (the oracle marks the
+/// displayed thread only), and its restore changes nothing.
+#[test]
+fn a_lost_stream_of_a_thread_not_displayed_is_a_line_only() {
+    let mut app = ready();
+    let fx = notify(&mut app, lost("thread-2"));
+    assert_eq!(reconnects(&fx), Vec::<ThreadId>::new());
+    assert!(!thread(&app).view().stream_lost());
+    let fx = notify(&mut app, restored("thread-2"));
+    assert!(started_texts(&fx).is_empty());
+}
+
+/// A thread another backend owns is not this backend's to speak of.
+#[test]
+fn a_lost_stream_of_another_backend_is_not_heard() {
+    let mut app = ready();
+    let mut fx = AppFx::default();
+    apply_app_from(&mut app, BackendId(1), AppEv::Backend(lost(T)), &mut fx);
+    assert!(!thread(&app).view().stream_lost());
+    assert_eq!(reconnects(&fx), Vec::<ThreadId>::new());
+    assert_eq!(errors(&app), Vec::<String>::new());
+}
+
+/// The restore of a stream nobody lost is nothing (oracle: `thread_stream_disconnected` is set);
+/// the restore of a lost one leaves the history it missed unread.
+#[test]
+fn a_restored_stream_marks_the_history_it_missed() {
+    let mut app = ready();
+    notify(&mut app, restored(T));
+    assert!(!thread(&app).history_may_be_incomplete());
+    notify(&mut app, lost(T));
+    notify(&mut app, restored(T));
+    assert!(thread(&app).history_may_be_incomplete());
+    assert!(!thread(&app).view().stream_lost());
+}
+
+/// The connection itself going takes the thread's stream with it.
+#[test]
+fn a_lost_connection_clears_the_lost_stream() {
+    let mut app = ready();
+    notify(&mut app, lost(T));
+    run(&mut app, AppEv::Disconnected);
+    assert!(!thread(&app).view().stream_lost());
+}
+
+fn listed(id: &str) -> codex_app_server_protocol::Thread {
+    serde_json::from_value(serde_json::json!({
+        "id": id, "environments": null, "extra": null, "sessionId": id,
+        "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+        "preview": id, "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+        "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+        "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000,
+        "status": {"type": "idle"}, "path": null,
+        "cwd": "/tmp/project", "cliVersion": "0.0.0", "originator": null, "source": "cli",
+        "canAcceptDirectInput": true, "threadSource": null,
+        "agentNickname": null, "agentRole": null, "gitInfo": null, "name": id,
+        "daybreakEnabled": null, "turns": []
+    }))
+    .expect("a thread")
+}
+
+/// The ticket of the resume `fx` asks for.
+fn resume_ticket(fx: &AppFx) -> Option<Ticket> {
+    fx.commands().iter().find_map(|command| match command {
+        Command::Screen {
+            ticket,
+            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { thread })),
+            ..
+        } if thread == T => Some(*ticket),
+        _ => None,
+    })
+}
+
+/// "Reopen the conversation to reconnect" (the Cloud client's words): opening a held thread
+/// whose stream was lost reads it from the server again (oracle `ignore_same_thread_resume`
+/// lets the resume through), replaces what was held, clears the loss and sends what waited.
+#[test]
+fn opening_a_thread_whose_stream_was_lost_reads_it_again_and_sends_the_queue() {
+    let mut app = ready();
+    notify(&mut app, lost(T));
+    submit(&mut app, "hello");
+    assert_eq!(queued(&app), ["hello"]);
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    let ticket = resume_ticket(&fx).expect("the lost thread is resumed, not just shown");
+    let fx = run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                listed(T),
+            )))),
+        ),
+    );
+    assert!(!thread(&app).view().stream_lost());
+    assert!(!thread(&app).history_may_be_incomplete());
+    assert_eq!(started_texts(&fx), ["hello"]);
+    assert_eq!(queued(&app), Vec::<String>::new());
+}
+
+/// The same for a thread whose stream came back with its gap unread; a thread nothing was lost
+/// in is only shown.
+#[test]
+fn opening_a_thread_with_a_gap_reads_it_again_and_a_sound_one_is_only_shown() {
+    let mut app = ready();
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    assert!(resume_ticket(&fx).is_none());
+    notify(&mut app, lost(T));
+    notify(&mut app, restored(T));
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    let ticket = resume_ticket(&fx).expect("the gap is read");
+    run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                listed(T),
+            )))),
+        ),
+    );
+    assert!(!thread(&app).history_may_be_incomplete());
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    assert!(resume_ticket(&fx).is_none());
 }

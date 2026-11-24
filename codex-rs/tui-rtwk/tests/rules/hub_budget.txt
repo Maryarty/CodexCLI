@@ -69,7 +69,10 @@ enum core/src/app.rs Intent 17
 # reaches every feature's `on_connection`): 18 -> 19. `BackendEv` gains `StreamLost` and
 # `StreamRestored` (the host's per-thread stream events, forwarded by fix-stream-lost); it is not budgeted.
 enum core/src/app.rs AppEv 19
-enum core/src/app.rs Command 20
+# fix-stream-lost: `Command::ReconnectIdleThread`, the one ask a lost stream makes of the host (the
+# oracle's `reconnect_idle_thread`: an RPC-less call on the Cloud handle whose refusal sends the error
+# back as a notification); it is not a feature's and no thread RPC (`ThreadAsk` is wire requests): 20 -> 21.
+enum core/src/app.rs Command 21
 # fw-hubs-b (P5): `AppCtx::Opening`, the read of a thread a feature asked to open (`AppCx::open_thread`,
 # the feature's own `FeatureCtx` rides in it): 13 -> 14. `NewConversation.side` (a slice's type) is
 # `spawned` (the generic `FeatureCtx`), rule `app_ctx_names_no_feature`.
