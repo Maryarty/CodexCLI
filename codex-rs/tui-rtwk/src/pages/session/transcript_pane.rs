@@ -31,7 +31,7 @@ use super::cells::text::Env;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
 use super::transcript::find::{self, Finder, RowTexts};
-use super::transcript::item_text::item_text;
+use super::transcript::item_text::mounted_text;
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
@@ -232,6 +232,7 @@ impl ViewportState {
         rows: &[Row],
         header: bool,
         reverse: bool,
+        bullet: &str,
         env: &Env<'_>,
     ) -> Rc<RowTexts> {
         let transcript = thread.transcript();
@@ -242,7 +243,7 @@ impl ViewportState {
         texts.extend(rows.iter().map(|row| {
             transcript
                 .get(row.range.start)
-                .and_then(|(_, item)| item_text(item, env))
+                .and_then(|(_, item)| mounted_text(item, env, bullet))
                 .unwrap_or_default()
         }));
         let fresh = RowTexts::new(texts, reverse, transcript.layout_revision());
@@ -525,15 +526,19 @@ impl State for ViewportState {
                 detailed,
                 expanded: false,
             };
-            self.row_texts(&thread, &rows, header.is_some(), reverse, &env)
+            self.row_texts(&thread, &rows, header.is_some(), reverse, &bullet, &env)
         });
         if let Some(texts) = &texts {
             if let Some(hit) = search.advance(&**texts) {
-                let index = texts.index_of(hit.row);
-                widget.follow.scroll().ensure_index_visible(index);
+                // the controller counts a reverse list's items from its bottom; the selection
+                // area's model counts the rows of the render list, from the top
+                widget
+                    .follow
+                    .scroll()
+                    .ensure_index_visible(texts.index_of(hit.row));
                 widget.selection.controller().select(
                     SelectionTarget::of(texts),
-                    index,
+                    hit.row,
                     hit.range.start,
                     hit.range.end,
                 );

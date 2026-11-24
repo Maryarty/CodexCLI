@@ -6,6 +6,9 @@
 //!
 //! The footer's place is the page's footer slot, which calls `find_footer::slot` once.
 
+use codex_tui_core::ids::ThreadId;
+use codex_tui_rtwk::pages::session::transcript::find;
+
 use crate::kit::{Owner, Screen};
 
 const NEEDLES: &str = include_str!("../oracle/fixtures/transcript_view_4/find_jump.jsonl");
@@ -115,4 +118,21 @@ fn a_paste_past_the_limit_is_cut_whole_and_says_so() {
     s.keys("f3");
     s.paste(&"é".repeat(3000));
     s.assert_contains("query limited to 4 KiB");
+}
+
+/// The pane reads the finder, not the footer: a query set on the finder is scanned for, the match
+/// scrolled to and shown (reversed) by the transcript's selection area, whoever edits the query.
+#[test]
+fn the_pane_shows_the_match_its_finder_found_and_closing_takes_it_away() {
+    let mut s = chat();
+    s.keys("f3");
+    let finder = find::finder(&ThreadId::new("thread-1"));
+    finder.query().set_text("needle two");
+    finder.changed();
+    s.wait(50);
+    s.assert_text_style("Needle two", "reversed");
+    s.assert_text_style("Needle one", "!reversed");
+    finder.cancel();
+    s.wait(50);
+    s.assert_text_style("Needle two", "!reversed");
 }

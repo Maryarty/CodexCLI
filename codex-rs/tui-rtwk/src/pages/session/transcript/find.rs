@@ -397,18 +397,20 @@ impl Finder {
     /// Runs the scan the reader asked for over `rows`, and tells the match it found, once: the
     /// pane scrolls to it and selects it. A scan that finds none leaves the status saying so.
     pub fn advance(&self, rows: &dyn Rows) -> Option<Hit> {
-        let (want, folded, current, follow, saved) = {
+        let asked = {
             let data = self.0.data.borrow();
-            if data.mode == Mode::Closed || data.want == Want::Nothing {
-                return self.take_unshown();
-            }
-            (
-                data.want,
-                data.folded.clone(),
-                data.current.clone(),
-                data.follow.clone(),
-                data.saved,
-            )
+            (data.mode != Mode::Closed && data.want != Want::Nothing).then(|| {
+                (
+                    data.want,
+                    data.folded.clone(),
+                    data.current.clone(),
+                    data.follow.clone(),
+                    data.saved,
+                )
+            })
+        };
+        let Some((want, folded, current, follow, saved)) = asked else {
+            return self.take_unshown();
         };
         let count = rows.count();
         let found = match want {
@@ -641,8 +643,9 @@ impl Finder {
     }
 }
 
-/// The rows of a transcript as the list shows them, in the order the list's `ItemTexts` model reads
-/// them (the list's own index: a reverse list counts from its end).
+/// The rows of a transcript as the list shows them: what the list's `ItemTexts` model reads (the
+/// selection area counts the items of a reverse list by the render list's children, from the top:
+/// oldest first) and the scan runs over.
 pub struct RowTexts {
     /// The text of each row, oldest first.
     texts: Vec<String>,
@@ -659,7 +662,8 @@ impl RowTexts {
         }
     }
 
-    /// The list's index of row `row` (oldest first).
+    /// The `ListController`'s index of row `row` (oldest first): a reverse list counts from its
+    /// bottom.
     pub fn index_of(&self, row: usize) -> usize {
         if self.reverse {
             self.texts.len() - 1 - row
@@ -691,12 +695,7 @@ impl ItemTexts for RowTexts {
     }
 
     fn text(&self, index: usize) -> Cow<'_, str> {
-        let row = if self.reverse {
-            self.texts.len().saturating_sub(1).saturating_sub(index)
-        } else {
-            index
-        };
-        Cow::Borrowed(self.texts.get(row).map_or("", String::as_str))
+        Cow::Borrowed(self.texts.get(index).map_or("", String::as_str))
     }
 
     fn revision(&self) -> u64 {
