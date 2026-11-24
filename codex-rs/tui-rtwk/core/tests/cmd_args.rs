@@ -82,7 +82,7 @@ fn model_names_effort_and_refusals() {
         Err(Refusal::Starting)
     );
     let _ = EffortOption {
-        effort: current.effort.clone().unwrap_or_default(),
+        effort: current.effort.unwrap_or_default(),
         description: String::new(),
     };
 }

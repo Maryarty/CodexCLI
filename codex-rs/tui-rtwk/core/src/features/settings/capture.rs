@@ -77,7 +77,7 @@ fn active(spec: &KeymapSpec, keymap: &Keymap, context: &str, action: &str) -> Op
             keymap
                 .leaders()
                 .iter()
-                .map(|stroke| stroke.spec())
+                .map(crate::keymap::Stroke::spec)
                 .collect(),
         ));
     }

@@ -176,16 +176,15 @@ impl<'a> ThreadView<'a> {
     /// The messages a copy can take, oldest first: an assistant message or a plan, as the server
     /// sent it (oracle `record_agent_markdown`'s callers).
     pub fn response_sources(&self) -> std::vec::IntoIter<&'a str> {
-        let sources: Vec<&'a str> = self
-            .core
+        self.core
             .transcript()
             .iter()
             .filter_map(|(_, item)| match item {
                 Item::Agent { text, .. } | Item::Plan { text } => Some(text.as_str()),
                 _ => None,
             })
-            .collect();
-        sources.into_iter()
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// The messages of the conversation a reader sees, oldest first: what the user typed and

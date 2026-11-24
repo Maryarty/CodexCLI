@@ -16,6 +16,7 @@ use crate::screens::status::{WindowName, window_name};
 pub const THRESHOLDS: [i32; 4] = [50, 75, 90, 95];
 
 /// The percent used at which the oracle offers a lower-cost model (`RATE_LIMIT_SWITCH_PROMPT_THRESHOLD`).
+#[allow(dead_code)] // read by the UI half (port-map ui-usage-limits)
 pub const SWITCH_PROMPT_THRESHOLD: i32 = 90;
 
 /// One window of a sample.

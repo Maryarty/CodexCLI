@@ -29,12 +29,7 @@ fn credits(count: i64) -> ResetCredits {
 }
 
 fn step(state: &State) -> Progress {
-    state
-        .redemption
-        .as_ref()
-        .expect("a redemption")
-        .step
-        .clone()
+    state.redemption.as_ref().expect("a redemption").step
 }
 
 fn key_of(next: Next) -> String {

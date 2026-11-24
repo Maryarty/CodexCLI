@@ -79,7 +79,7 @@ pub(crate) fn rows(config: &Config) -> Vec<Row> {
 fn render_agents_config_lines(config: &Config) -> Vec<Line> {
     vec![
         "".into(),
-        "[agents]:".bold().into(),
+        "[agents]:".bold(),
         format!("  - enabled = {}", config.agents_enabled).into(),
         format!(
             "  - max_concurrent_threads_per_session = {}",
@@ -137,16 +137,12 @@ fn render_debug_config_lines(
     stack: &ConfigLayerStack,
     sandbox_mode_is_effectively_allowed: impl Fn(SandboxModeRequirement) -> bool,
 ) -> Vec<Line> {
-    let mut lines = vec!["/debug-config".magenta().into(), "".into()];
+    let mut lines = vec!["/debug-config".magenta(), "".into()];
 
-    lines.push(
-        "Config layer stack (lowest precedence first):"
-            .bold()
-            .into(),
-    );
+    lines.push("Config layer stack (lowest precedence first):".bold());
     let mut layers = stack.all_layers_low_to_high().peekable();
     if layers.peek().is_none() {
-        lines.push("  <none>".dim().into());
+        lines.push("  <none>".dim());
     } else {
         for (index, layer) in layers.enumerate() {
             let source = format_config_layer_source(&layer.name, CONFIG_TOML_FILE);
@@ -158,7 +154,7 @@ fn render_debug_config_lines(
             lines.push(format!("  {}. {source} ({status})", index + 1).into());
             lines.extend(render_non_file_layer_details(layer));
             if let Some(reason) = &layer.disabled_reason {
-                lines.push(format!("     reason: {reason}").dim().into());
+                lines.push(format!("     reason: {reason}").dim());
             }
         }
     }
@@ -167,7 +163,7 @@ fn render_debug_config_lines(
     let requirements_toml = stack.requirements_toml();
 
     lines.push("".into());
-    lines.push("Requirements:".bold().into());
+    lines.push("Requirements:".bold());
     let mut requirement_lines = Vec::new();
 
     if let Some(sqlite_home) = requirements.sqlite_home.as_ref() {
@@ -394,7 +390,7 @@ fn render_debug_config_lines(
     }
 
     if requirement_lines.is_empty() {
-        lines.push("  <none>".dim().into());
+        lines.push("  <none>".dim());
     } else {
         lines.extend(requirement_lines);
     }
@@ -421,7 +417,7 @@ fn render_session_flag_details(config: &TomlValue) -> Vec<Line> {
     flatten_toml_key_values(config, /*prefix*/ None, &mut pairs);
 
     if pairs.is_empty() {
-        return vec!["     - <none>".dim().into()];
+        return vec!["     - <none>".dim()];
     }
 
     pairs
@@ -454,7 +450,7 @@ fn render_non_file_layer_value(layer: &ConfigLayerEntry) -> Vec<Line> {
         .map(ToString::to_string)
         .unwrap_or_else(|| format_toml_value(&layer.config));
     if value.is_empty() {
-        return vec![format!("     {label}: <empty>").dim().into()];
+        return vec![format!("     {label}: <empty>").dim()];
     }
 
     if value.contains('\n') {

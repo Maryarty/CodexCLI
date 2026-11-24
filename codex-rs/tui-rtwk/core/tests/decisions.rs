@@ -111,7 +111,10 @@ fn decisions(app: &CodexApp) -> Vec<Decided> {
         .collect()
 }
 
-fn results(app: &CodexApp) -> Vec<(Vec<(String, Vec<String>)>, bool)> {
+/// One answered request: the answers by question id, and whether it was cancelled.
+type Answered = (Vec<(String, Vec<String>)>, bool);
+
+fn results(app: &CodexApp) -> Vec<Answered> {
     app.active_thread()
         .transcript()
         .iter()
@@ -359,7 +362,6 @@ fn a_question_exchange_is_recorded_with_every_question_in_its_order() {
             choice: Some(0),
             committed: true,
             notes: "because".to_owned(),
-            ..input::Draft::default()
         },
         input::Draft::default(),
     ];

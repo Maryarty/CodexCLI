@@ -9,12 +9,11 @@ use crate::screens::{ScreenCommand, ScreenReply, agents};
 use crate::threads::{Origin, ThreadAsk};
 
 use super::{
-    AppCtx, AppFx, CodexApp, Command, apply_thread, attach_thread, fetch_history, session_note,
-    show_held_thread,
+    AppCtx, AppFx, CodexApp, Command, attach_thread, fetch_history, session_note, show_held_thread,
 };
 use crate::screens::select;
 use crate::screens::select::worktree::Refusal;
-use crate::threads::{Item, Note, NoteKey, ThreadEv};
+use crate::threads::{Item, Note, NoteKey};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checkout {
@@ -174,10 +173,9 @@ impl Step {
                     _ => ThreadAsk::Start { cwd },
                 };
                 Self::Starting { checkout, chat }.request(ask, app, backend, fx);
-                return;
             }
             (Self::Creating { chat }, Answer::WorktreeCreated(Err(error))) => {
-                return finish(app, chat, Said::Failed(error), fx);
+                finish(app, chat, Said::Failed(error), fx);
             }
             (
                 Self::Starting { checkout, chat },
@@ -199,7 +197,6 @@ impl Step {
                     thread: id,
                     cwd,
                 });
-                return;
             }
             (Self::Starting { checkout, chat }, answer) => {
                 let error = match answer {
@@ -208,7 +205,7 @@ impl Step {
                 };
                 let reason = RetainedReason::Start(error);
                 let root = checkout.root;
-                return finish(app, chat, Said::Retained { root, reason }, fx);
+                finish(app, chat, Said::Retained { root, reason }, fx);
             }
             (Self::Binding { thread, chat, .. }, Answer::WorktreeBound(Ok(()))) => {
                 let agents = &mut Rc::make_mut(&mut app.screens).agents;
@@ -228,7 +225,6 @@ impl Step {
                 } else {
                     show_held_thread(app, thread, fx);
                 }
-                return;
             }
             (
                 Self::Binding {
@@ -251,11 +247,10 @@ impl Step {
                     backend,
                     fx,
                 );
-                return;
             }
             (Self::Unsubscribing { root, error, chat }, _) => {
                 let reason = RetainedReason::Bind(error);
-                return finish(app, chat, Said::Retained { root, reason }, fx);
+                finish(app, chat, Said::Retained { root, reason }, fx);
             }
             _ => {}
         }

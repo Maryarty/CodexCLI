@@ -180,7 +180,7 @@ fn owner_of(id: ThreadId, value: &serde_json::Value, archive: &Path) -> Option<O
         title,
         updated_at: thread
             .get("updatedAt")
-            .and_then(|at| at.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or_default(),
     };
     Some(if path.starts_with(archive) {

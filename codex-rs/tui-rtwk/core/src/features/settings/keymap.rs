@@ -131,7 +131,7 @@ fn summary(keymap: &Keymap, context: &str, name: &str) -> String {
         keymap
             .leaders()
             .iter()
-            .map(|stroke| stroke.spec())
+            .map(crate::keymap::Stroke::spec)
             .collect()
     } else {
         keymap
