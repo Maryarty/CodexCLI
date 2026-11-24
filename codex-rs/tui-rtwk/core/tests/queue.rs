@@ -666,3 +666,39 @@ fn opening_a_thread_with_a_gap_reads_it_again_and_a_sound_one_is_only_shown() {
     );
     assert!(resume_ticket(&fx).is_none());
 }
+
+/// A steer in flight when the stream was lost: the thread read again holds its user message, so
+/// the steer is received and no longer pending (oracle `restore_reconnected_input` with the
+/// ids the history confirms); a steer the history lacks stays as it was.
+#[test]
+fn a_steer_the_reread_history_confirms_is_no_longer_pending() {
+    let mut app = running();
+    let fx = submit(&mut app, "steer me");
+    assert!(steered(&fx));
+    submit(&mut app, "unseen");
+    assert_eq!(thread(&app).pending_steers().len(), 2);
+    notify(&mut app, lost(T));
+    notify(&mut app, restored(T));
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    let ticket = resume_ticket(&fx).expect("the gap is read");
+    let mut read = listed(T);
+    read.turns = vec![codex_tui_core::fixtures::builders::history_turn(
+        "turn-1", "steer me", "ok",
+    )];
+    run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(read)))),
+        ),
+    );
+    let pending: Vec<_> = thread(&app)
+        .pending_steers()
+        .iter()
+        .map(|steer| steer.message().text.clone())
+        .collect();
+    assert_eq!(pending, ["unseen"]);
+}
