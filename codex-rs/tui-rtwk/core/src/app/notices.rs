@@ -110,10 +110,9 @@ pub(super) fn daybreak_of(app: &CodexApp, thread: &ThreadId) -> Daybreak {
             .or(app.screens.chat.status.model.as_deref());
     // What `/daybreak` saved for the thread comes before what its metadata said.
     let enabled = app
-        .features
-        .small_cmds
-        .saved_daybreak(thread)
-        .or_else(|| slot.and_then(|chat| chat.daybreak))
+        .threads
+        .get(thread)
+        .and_then(|model| model.view().daybreak())
         .unwrap_or(false);
     app.daybreak.notice(model, enabled)
 }

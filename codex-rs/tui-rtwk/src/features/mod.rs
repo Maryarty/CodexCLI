@@ -39,6 +39,7 @@ pub mod copy;
 pub mod export;
 pub mod goal;
 pub mod plugins;
+pub mod recap;
 pub mod rename;
 pub mod settings;
 pub mod small_cmds;

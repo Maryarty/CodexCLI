@@ -50,6 +50,7 @@ pub mod copy;
 pub mod export;
 pub mod goal;
 pub mod plugins;
+pub mod recap;
 pub mod rename;
 pub mod settings;
 pub mod small_cmds;
@@ -272,6 +273,7 @@ macro_rules! feature_list {
             settings => Settings;
             copy => Copier;
             small_cmds => SmallCmds;
+            recap => Recap;
         }
     };
 }

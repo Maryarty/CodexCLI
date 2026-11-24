@@ -45,6 +45,7 @@ mod popovers;
 mod provider_error;
 mod queue;
 mod quick_dials;
+mod recap;
 mod rename_prompt;
 mod resume;
 mod review_popup;

@@ -6,8 +6,9 @@
 //! says how it went as a note of the thread in use.
 //!
 //! What is kept here is what IO needs: whether `/ide` is on (a message that goes out asks the
-//! host for the IDE's context while it is) and the Daybreak choice saved for a thread, which
-//! the thread's metadata does not know until it is read again (`State::daybreak`). The
+//! host for the IDE's context while it is) and, in each thread's part, the Daybreak choice saved
+//! for it, which the thread's metadata does not know until it is read again
+//! (`ThreadView::daybreak`). The
 //! indicator of the IDE context, the status line's Daybreak and the notes' words are the UI
 //! half's (`src/features/small_cmds/`); a logout that succeeded is a `Wish::Shutdown` the
 //! surface carries out (the oracle shows its shutdown feedback and exits).
@@ -18,11 +19,9 @@
 mod data;
 mod wire;
 
-use std::collections::BTreeMap;
-
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never};
+use super::{AppCx, Feature, Never, ThreadCx};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
@@ -46,6 +45,27 @@ pub enum Intent {
     DebugConfig,
 }
 
+/// What the app asks of a thread's part of the feature.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadIntent {
+    /// The choice `/daybreak` saved for the thread.
+    Daybreak(bool),
+}
+
+/// What the feature keeps per thread: the Daybreak choice `/daybreak` saved, which the thread's
+/// metadata does not know until it is read again (`ThreadView::daybreak` reads it first).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ThreadPart {
+    daybreak: Option<bool>,
+}
+
+impl ThreadPart {
+    /// The choice `/daybreak` saved for the thread, if it did.
+    pub fn saved(&self) -> Option<bool> {
+        self.daybreak
+    }
+}
+
 /// What `/ide` keeps: whether the IDE's context goes with the messages.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Ide {
@@ -63,16 +83,6 @@ pub struct State {
     ide_fact: Option<Result<IdeReading, IdeFailure>>,
     /// The rows of `/debug-config` as the host last built them (`Fact::DebugConfig`).
     debug_config: Vec<Row>,
-    /// The Daybreak choice saved for a thread by `/daybreak`: a request record by thread,
-    /// read before the thread's metadata (`State::saved_daybreak`).
-    daybreak: BTreeMap<ThreadId, bool>,
-}
-
-impl State {
-    /// The choice `/daybreak` saved for `thread`, if it did.
-    pub fn saved_daybreak(&self, thread: &ThreadId) -> Option<bool> {
-        self.daybreak.get(thread).copied()
-    }
 }
 
 /// What an ask of the server was for.
@@ -227,7 +237,7 @@ fn ide(state: &mut State, args: Option<String>, cx: &mut AppCx<'_>) {
 /// `SlashCommand::Daybreak`: the checks of the chat widget, then the choice saved for the
 /// thread (`persist_daybreak_selection`). Turned on needs an eligible account and a catalog
 /// that advertises Daybreak; turned off needs nothing.
-fn daybreak(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
+fn daybreak(source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let view = cx.view();
     // The command is listed only when the feature is on (`CliDaybreak`).
     if view
@@ -242,11 +252,7 @@ fn daybreak(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let thread = source.filter(|id| view.thread(id).is_some());
     let enabled = thread
         .as_ref()
-        .and_then(|id| {
-            state
-                .saved_daybreak(id)
-                .or_else(|| view.thread(id).and_then(|thread| thread.daybreak()))
-        })
+        .and_then(|id| view.thread(id).and_then(|thread| thread.daybreak()))
         .unwrap_or(false);
     if !enabled {
         let access = view.daybreak();
@@ -269,7 +275,7 @@ fn daybreak(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     };
     // an ephemeral thread has no metadata to save the choice in (`thread.ephemeral`)
     if view.thread(&thread).is_some_and(|t| t.ephemeral()) {
-        return daybreak_saved(state, thread, !enabled, cx);
+        return daybreak_saved(thread, !enabled, cx);
     }
     let at = thread.clone();
     cx.ask(
@@ -284,8 +290,8 @@ fn daybreak(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
 
 /// The choice is saved in the thread (or the thread has no metadata to save it in): the thread
 /// shows it, the default preference follows (`persist_daybreak_selection`).
-fn daybreak_saved(state: &mut State, thread: ThreadId, enabled: bool, cx: &mut AppCx<'_>) {
-    state.daybreak.insert(thread, enabled);
+fn daybreak_saved(thread: ThreadId, enabled: bool, cx: &mut AppCx<'_>) {
+    cx.thread(&thread, ThreadIntent::Daybreak(enabled));
     cx.ask(
         None,
         Command::SaveDefault(enabled),
@@ -297,10 +303,10 @@ impl Feature for SmallCmds {
     const NAME: &'static str = "small_cmds";
 
     type State = State;
-    type ThreadPart = ();
+    type ThreadPart = ThreadPart;
     type Target = Never<Self>;
     type Intent = Intent;
-    type ThreadIntent = Never<Self>;
+    type ThreadIntent = ThreadIntent;
     type Command = Command;
     type Reply = Reply;
     type Ctx = Ctx;
@@ -312,7 +318,7 @@ impl Feature for SmallCmds {
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
             Intent::Logout => cx.ask(None, Command::Logout, Ctx::Logout),
-            Intent::Daybreak { source } => daybreak(state, source, cx),
+            Intent::Daybreak { source } => daybreak(source, cx),
             Intent::Ide { args } => ide(state, args, cx),
             Intent::DebugConfig => {
                 let rows = state.debug_config.clone();
@@ -328,7 +334,7 @@ impl Feature for SmallCmds {
         }
     }
 
-    fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+    fn answered(_state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
         let failure = |error: RpcError| match error {
             RpcError::Remote(text) | RpcError::Malformed(text) | RpcError::Prepare(text) => text,
             RpcError::Mismatch | RpcError::Provider(_) => String::new(),
@@ -339,9 +345,7 @@ impl Feature for SmallCmds {
                 cx.wish(scope, Wish::Shutdown);
             }
             (Ctx::Logout, Err(error)) => cx.note(None, Note::LogoutFailed(failure(error))),
-            (Ctx::DaybreakSave { thread, enabled }, Ok(_)) => {
-                daybreak_saved(state, thread, enabled, cx)
-            }
+            (Ctx::DaybreakSave { thread, enabled }, Ok(_)) => daybreak_saved(thread, enabled, cx),
             (Ctx::DaybreakSave { .. }, Err(error)) => cx.note(
                 None,
                 Note::DaybreakFailed(DaybreakFailure::Save(failure(error))),
@@ -356,6 +360,11 @@ impl Feature for SmallCmds {
                 cx.note(None, Note::DaybreakSet(enabled));
             }
         }
+    }
+
+    fn thread_intent(part: &mut ThreadPart, intent: ThreadIntent, _cx: &mut ThreadCx<'_, '_>) {
+        let ThreadIntent::Daybreak(enabled) = intent;
+        part.daybreak = Some(enabled);
     }
 
     fn note_tone(note: &Note) -> Tone {

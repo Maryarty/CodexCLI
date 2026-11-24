@@ -52,6 +52,12 @@ fn verb(app: &mut CodexApp, intent: SmallIntent) -> AppFx {
     )
 }
 
+/// The Daybreak choice the thread shows (`ThreadView::daybreak`).
+fn saved(app: &CodexApp) -> Option<bool> {
+    app.thread(&ThreadId::new(T))
+        .and_then(|thread| thread.view().daybreak())
+}
+
 fn fact(app: &mut CodexApp, fact: Fact) {
     run(app, AppEv::Feature(fact.into()));
 }
@@ -225,10 +231,7 @@ fn daybreak_saves_the_threads_metadata_then_the_default() {
             SmallNote::DaybreakSet(true)
         ]
     );
-    assert_eq!(
-        app.features().small_cmds.saved_daybreak(&ThreadId::new(T)),
-        Some(true)
-    );
+    assert_eq!(saved(&app), Some(true));
 }
 
 #[test]
@@ -245,10 +248,7 @@ fn a_thread_that_cannot_save_says_so_and_keeps_its_choice() {
             "gone".to_owned()
         ))]
     );
-    assert_eq!(
-        app.features().small_cmds.saved_daybreak(&ThreadId::new(T)),
-        None
-    );
+    assert_eq!(saved(&app), None);
 }
 
 #[test]
