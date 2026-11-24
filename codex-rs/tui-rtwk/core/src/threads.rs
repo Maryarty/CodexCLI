@@ -822,6 +822,16 @@ pub enum ThreadCtx {
     Feature(FeatureCtx),
 }
 
+/// What a command of the turn streams (`item/commandExecution/outputDelta`) or is written to
+/// (`item/commandExecution/terminalInteraction`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommandEv {
+    /// Output of the command `key`.
+    Output { key: ItemKey, delta: String },
+    /// The model polled a background terminal (empty `stdin`) or wrote to it.
+    Interaction { process: String, stdin: String },
+}
+
 /// An event of one thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
@@ -910,16 +920,8 @@ pub enum ThreadEv {
         key: ItemKey,
         delta: String,
     },
-    CommandOutputDelta {
-        key: ItemKey,
-        delta: String,
-    },
-    /// The model polled a background terminal (empty `stdin`) or wrote to it
-    /// (`item/commandExecution/terminalInteraction`).
-    TerminalInteraction {
-        process: String,
-        stdin: String,
-    },
+    /// What a command streams or is written to (`CommandEv`).
+    Command(CommandEv),
     TurnEnded {
         turn: TurnId,
         end: TurnEnd,
@@ -975,8 +977,7 @@ impl ThreadEv {
             | Self::HookEnded { .. }
             | Self::AgentDelta { .. }
             | Self::PlanDelta { .. }
-            | Self::CommandOutputDelta { .. }
-            | Self::TerminalInteraction { .. }
+            | Self::Command(_)
             | Self::TurnEnded { .. }
             | Self::TurnCompleted { .. }
             | Self::TurnError { .. }
@@ -2066,20 +2067,20 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         )),
         ServerNotification::CommandExecutionOutputDelta(n) => Some((
             ThreadId::new(&n.thread_id),
-            ThreadEv::CommandOutputDelta {
+            ThreadEv::Command(CommandEv::Output {
                 key: ItemKey {
                     turn: TurnId::new(&n.turn_id),
                     item: ItemId::new(&n.item_id),
                 },
                 delta: n.delta.clone(),
-            },
+            }),
         )),
         ServerNotification::TerminalInteraction(n) => Some((
             ThreadId::new(&n.thread_id),
-            ThreadEv::TerminalInteraction {
+            ThreadEv::Command(CommandEv::Interaction {
                 process: n.process_id.clone(),
                 stdin: n.stdin.clone(),
-            },
+            }),
         )),
         _ => None,
     };
@@ -2765,13 +2766,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.transcript.append_plan(key, &delta);
             }
         }
-        ThreadEv::CommandOutputDelta { key, delta } => {
+        ThreadEv::Command(CommandEv::Output { key, delta }) => {
             processes::output(model, &key, &delta);
             if !model.finished_turns.contains(&key.turn) {
                 model.transcript.append_command_output(key, &delta);
             }
         }
-        ThreadEv::TerminalInteraction { process, stdin } => {
+        ThreadEv::Command(CommandEv::Interaction { process, stdin }) => {
             processes::interaction(model, &process, stdin);
         }
         ThreadEv::TurnEnded { turn, end } => {
