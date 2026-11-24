@@ -762,10 +762,7 @@ fn feedback_bracketed_paste_does_not_reach_chat_composer() {
     // The flow runs over the live chat composer: `/feedback`, the category (1 is the bug), the
     // consent (1 with the logs, 2 without), then the note.
     for logs in ["1", "2"] {
-        let mut s = Screen::build(Owner::DialogsPane)
-            .size(80, 24)
-            .live()
-            .open();
+        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
         s.type_text("/feedback");
         s.keys("enter");
         s.keys("1");

@@ -1094,13 +1094,21 @@ fn saved_quick_dials_save_and_clear_picker_snapshots() {
     s.assert_snap_region("saved_quick_dials_editor", popup_row(&s, "New preset"), 0);
     s.keys("enter");
     s.resize(80, 20);
-    s.assert_snap_region("saved_quick_dials_save", popup_row(&s, "Save preset to slot"), 0);
+    s.assert_snap_region(
+        "saved_quick_dials_save",
+        popup_row(&s, "Save preset to slot"),
+        0,
+    );
     s.keys("esc");
     s.assert_snap_region("saved_quick_dials_editor", popup_row(&s, "New preset"), 0);
     s.keys("esc");
     s.keys("ctrl+x p");
     s.keys("d");
-    s.assert_snap_region("saved_quick_dials_clear", popup_row(&s, "Delete a preset"), 0);
+    s.assert_snap_region(
+        "saved_quick_dials_clear",
+        popup_row(&s, "Delete a preset"),
+        0,
+    );
     s.keys("esc");
     // the preset of a slot, written over what the editor starts from
     let replacement = "/model gpt-5.6-terra --reasoning=high --speed=fast";
@@ -1110,7 +1118,11 @@ fn saved_quick_dials_save_and_clear_picker_snapshots() {
     s.type_text(replacement);
     s.keys("enter");
     s.resize(52, 14);
-    s.assert_snap_region("saved_quick_dials_confirm_save", popup_row(&s, "Save preset 2?"), 0);
+    s.assert_snap_region(
+        "saved_quick_dials_confirm_save",
+        popup_row(&s, "Save preset 2?"),
+        0,
+    );
     s.keys("esc esc");
     s.keys("ctrl+x p");
     s.keys("e");
@@ -1118,14 +1130,22 @@ fn saved_quick_dials_save_and_clear_picker_snapshots() {
     s.keys(&"backspace ".repeat(60));
     s.type_text(replacement);
     s.keys("enter");
-    s.assert_snap_region("saved_quick_dials_confirm_replace", popup_row(&s, "Replace preset 1?"), 0);
+    s.assert_snap_region(
+        "saved_quick_dials_confirm_replace",
+        popup_row(&s, "Replace preset 1?"),
+        0,
+    );
     s.keys("enter");
     s.feed(CODING_PRESET);
     s.keys("ctrl+x p");
     s.keys("d");
     s.keys("1");
     s.resize(80, 10);
-    s.assert_snap_region("saved_quick_dials_confirm_delete", popup_row(&s, "Delete preset 1?"), 0);
+    s.assert_snap_region(
+        "saved_quick_dials_confirm_delete",
+        popup_row(&s, "Delete preset 1?"),
+        0,
+    );
     s.keys("esc esc");
     // the menu with six presets: its columns (the rows above the queued follow-up of the oracle's
     // snapshot, which holds a recalled preset the oracle's chat never drains)
@@ -1158,7 +1178,8 @@ const MORE_PRESETS: &str = r#"{"step":"presets","slots":[{"slot":1,"input":"/mod
 const CODING_PRESET: &str = r#"{"step":"presets","slots":[{"slot":1,"input":"/model gpt-5.5 --reasoning=high --speed=fast","label":"coding","origin":"user"}]}"#;
 
 /// The chat of the quick-dial tests: a model and a project directory for the status line.
-const QUICK: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project"}}}"#;
+const QUICK: &str =
+    r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","cwd":"/tmp/project"}}}"#;
 
 // ---- oracle: chatwidget/tests/review_picker_tests.rs (1 screen-level tests here; 0 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/review_picker_tests.rs:7 review_picker_filtered_accept_and_cancel_preserve_parent_and_draft kind=ui owner=dialogs-pane

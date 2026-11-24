@@ -721,7 +721,10 @@ fn side_aliases_request_forked_questions_while_task_running() {
         if input.starts_with("/side") {
             // The status row's spinner blinks between `•` and `◦` with the clock (the snapshot
             // holds its first frame): every row but that glyph is the oracle's.
-            let want = kit::snap_rows("slash_side_requests_forked_side_question_while_task_running", "");
+            let want = kit::snap_rows(
+                "slash_side_requests_forked_side_question_while_task_running",
+                "",
+            );
             let ours = s.rows();
             for at in 0..8 {
                 let (ours, want) = (ours[at].trim_end(), want[at].trim_end());
@@ -751,7 +754,12 @@ fn side_context_label_preserves_status_line_snapshot() {
     let want = kit::snap_rows("side_context_label_preserves_status_line", "");
     let ours = s.rows();
     for at in (0..6).filter(|at| *at != 2) {
-        assert_eq!(ours[at].trim_end(), want[at].trim_end(), "row {at}:\n{}", s.text());
+        assert_eq!(
+            ours[at].trim_end(),
+            want[at].trim_end(),
+            "row {at}:\n{}",
+            s.text()
+        );
     }
     kit::pending(
         Owner::ChatLive,
@@ -775,7 +783,12 @@ fn side_context_label_shows_parent_status_snapshot() {
     let want = kit::snap_rows("side_context_label_shows_parent_status", "");
     let ours = s.rows();
     for at in (0..6).filter(|at| *at != 2) {
-        assert_eq!(ours[at].trim_end(), want[at].trim_end(), "row {at}:\n{}", s.text());
+        assert_eq!(
+            ours[at].trim_end(),
+            want[at].trim_end(),
+            "row {at}:\n{}",
+            s.text()
+        );
     }
     kit::pending(
         Owner::ChatLive,
