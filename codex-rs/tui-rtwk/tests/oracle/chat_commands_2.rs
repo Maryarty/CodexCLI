@@ -147,10 +147,6 @@ fn queued_bare_rename_drains_next_input_after_name_update() {
 // ORACLE chatwidget/tests/slash_commands.rs:673 queued_unknown_slash_reports_error_when_dequeued kind=ui owner=chat-nav-pane
 #[test]
 fn queued_unknown_slash_reports_error_when_dequeued() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "Tab does not queue an unknown slash command while a turn runs in the port: the text stays in the composer and no error shows on the turn end",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("/does-not-exist").keys("tab");
     s.assert_absent("Unrecognized command '/does-not-exist'");

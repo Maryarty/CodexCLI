@@ -5,9 +5,11 @@ use rtwk::provider::read;
 use rtwk::{Cx, Rebuild};
 
 use codex_tui_core::commands::Target;
-use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::screens::{ScreenStates, ScreenThreadIntent, chat};
+use codex_tui_core::threads::{Ran, ThreadModel};
 
+use crate::app::view::Hs;
+use crate::pages::session::actions::run_due;
 use crate::pages::session::composer::clear_sent;
 use crate::pages::session::live::{plan_mode, put_back, seed_history};
 use crate::pages::session::open::open;
@@ -52,6 +54,27 @@ impl ChatState {
                 put_back(&w.ui, &message, |n| table.image(n));
                 self.sync_draft(w);
                 Rebuild::Yes
+            }
+            // A command the queue waited for: it runs through the dispatch a typed line does and
+            // the thread hears what it opened (`submit_queued_slash_prompt`). A sheet it opened
+            // keeps the queue until the page is in front again.
+            Edge::Due(due) => {
+                let hs = read::<Hs, _>(cx);
+                let ran = run_due(&due, w, cx, &hs);
+                self.resume |= matches!(&ran, Ran::Dispatched(d) if d.modal);
+                let thread = read::<ThreadModel, _>(cx).id().clone();
+                let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(ran));
+                cx.emit(&hs.thread_screen, (thread, intent));
+                Rebuild::Yes
+            }
+            Edge::Front => {
+                if std::mem::take(&mut self.resume) {
+                    let hs = read::<Hs, _>(cx);
+                    let thread = read::<ThreadModel, _>(cx).id().clone();
+                    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueResume);
+                    cx.emit(&hs.thread_screen, (thread, intent));
+                }
+                Rebuild::No
             }
             Edge::Plan => {
                 plan_mode::ask(cx);

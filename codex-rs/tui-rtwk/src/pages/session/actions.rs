@@ -14,7 +14,10 @@ use codex_tui_core::commands::{
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
-use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, Toggle, UserMessage};
+use codex_tui_core::threads::queue::Dispatched;
+use codex_tui_core::threads::{
+    DueCommand, Failure, Note, NoteKey, Queued, Ran, ThreadModel, Toggle, UserMessage,
+};
 
 use crate::app::view::Hs;
 use crate::features;
@@ -55,6 +58,9 @@ pub(super) fn open_warnings(cx: &mut Cx<'_, ChatState>) {
 pub(super) enum Delivery {
     Submit,
     Queue,
+    /// A line of the queue that is due (`dispatch_queued`): it runs as if typed now, but it is
+    /// no draft: the composer, its history and its shell mode are the user's, as they are.
+    Drain,
 }
 
 /// A settings shortcut (`Shift+Tab`, `Alt+,`, `Alt+.`) on a thread its parent controls says so
@@ -115,12 +121,52 @@ pub(super) fn reasoning_shortcut(
 }
 
 pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, send: Delivery) {
+    run(line, None, w, cx, hs, send, &mut Ran::Submitted);
+}
+
+/// The queued command that is due runs through the dispatch a typed line does
+/// (`submit_queued_slash_prompt`); what it did is the thread's to hear of (`QueueRan`).
+pub(super) fn run_due(due: &DueCommand, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) -> Ran {
+    let mut ran = Ran::Dispatched(none_opened());
+    let line = due.line();
+    run(&line.text, Some(line), w, cx, hs, Delivery::Drain, &mut ran);
+    ran
+}
+
+/// A command that opened nothing and has no rule of its own: the queue goes on.
+fn none_opened() -> Dispatched {
+    Dispatched {
+        command: None,
+        modal: false,
+        can_change_directory: false,
+        managed_worktree: false,
+    }
+}
+
+/// `line` as the composer sends it, `queued` being the message a due command is (its images and
+/// mentions are its own, not the draft's); `ran` tells how the queue goes on.
+fn run(
+    line: &str,
+    queued: Option<&UserMessage>,
+    w: &Chat,
+    cx: &mut Cx<'_, ChatState>,
+    hs: &Hs,
+    send: Delivery,
+    ran: &mut Ran,
+) {
+    let drained = send == Delivery::Drain;
     // An empty line is nothing to run: the composer was already taken by the
     // pick or the submit that came with the same Enter. Remote images alone
     // are a message (`user_message.remote_image_urls.is_empty()`).
-    if line.trim().is_empty() && w.ui.draft.remote_count() == 0 {
+    if !drained && line.trim().is_empty() && w.ui.draft.remote_count() == 0 {
         return;
     }
+    // the composer is emptied for a line it sent, not for one the queue ran
+    let clear_sent = |ui: &_| {
+        if !drained {
+            clear_sent(ui);
+        }
+    };
     let states = read::<ScreenStates, _>(cx);
     let thread = read::<ThreadModel, _>(cx);
     let session = read::<SessionSlice, _>(cx);
@@ -154,8 +200,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
     let record = |cx: &mut Cx<'_, ChatState>| {
-        let intent = popovers::Intent::Record(line.to_string());
-        cx.emit(&hs.screen, ScreenIntent::from(intent));
+        if !drained {
+            let intent = popovers::Intent::Record(line.to_string());
+            cx.emit(&hs.screen, ScreenIntent::from(intent));
+        }
     };
     // A thread its parent controls takes the commands that do not reach the
     // agent and nothing else; the composer keeps the line
@@ -170,10 +218,30 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         say(cx, Note::from(Notice::InputTooLarge { provided }));
         return;
     }
+    // Tab behind a running turn keeps the line as it is: a command or a shell line is parsed
+    // when its turn comes, never now (`queued_input_action`).
+    if send == Delivery::Queue {
+        record(cx);
+        let table = crate::pages::session::composer::strings::of(cx);
+        let draft = w.ui.draft.submission_with(
+            &w.ui.composer,
+            |n| table.image(n),
+            states.popovers.sources().mentions,
+        );
+        let message = if draft.text.trim() == line.trim() {
+            draft
+        } else {
+            UserMessage::text(line)
+        };
+        let queued = Queued::of(message, w.ui.draft.shell());
+        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(queued));
+        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+        return;
+    }
     // A draft in shell mode runs as the user's own shell command (`!cmd`,
     // `submit_shell_command`), through the thread, a turn or none running;
     // before the first thread the app keeps it with the messages.
-    if let Some(shell) = composer::shell_line(line, w.ui.draft.shell()) {
+    if let Some(shell) = composer::shell_line(line, !drained && w.ui.draft.shell()) {
         // a thread that exists but is not taking input (no connection) keeps
         // the draft; with no thread yet the app queues it
         if !facts.thread_started && session.active.is_some() {
@@ -201,7 +269,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
             // the message; the composer clears when it has.
-            if !line.trim().is_empty() || w.ui.draft.remote_count() > 0 {
+            *ran = Ran::Submitted;
+            if let Some(message) = queued {
+                cx.emit(&hs.submit, message.clone());
+            } else if !line.trim().is_empty() || w.ui.draft.remote_count() > 0 {
                 record(cx);
                 // the draft's images go with its text; a line that is not
                 // the draft (a popup's pick) goes as text
@@ -216,22 +287,18 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 } else {
                     UserMessage::text(line)
                 };
-                match send {
-                    Delivery::Submit => cx.emit(&hs.submit, message),
-                    Delivery::Queue => {
-                        let intent =
-                            ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(message.into()));
-                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
-                    }
-                }
+                // (the queue key and the drain left before dispatch)
+                cx.emit(&hs.submit, message);
             }
         }
         // A feature's own sheet (`/plugins`, a bare `/export`): its UI half opens it with the
         // typed arguments (`features::OpenArgs`), the feature is told what it needs to be.
         Outcome::Open(Open {
             target: Target::Feature(feature),
+            command,
             ..
         }) => {
+            *ran = opened_by(command);
             record(cx);
             clear_sent(&w.ui);
             let args = features::OpenArgs::of(
@@ -243,6 +310,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             note_opened(Target::Feature(feature));
         }
         Outcome::Open(opened) => {
+            *ran = opened_by(opened.command);
             record(cx);
             clear_sent(&w.ui);
             if opened.target == Target::Usage {
@@ -336,6 +404,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             say(cx, Note::from(NoteKey::Toggled(Toggle::Vim, on)));
         }
         Outcome::Session { command, intent } => {
+            *ran = Ran::Dispatched(Dispatched {
+                command: Some(command),
+                ..none_opened()
+            });
             record(cx);
             clear_sent(&w.ui);
             screen(
@@ -361,7 +433,11 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             };
             cx.emit(&hs.screen, ScreenIntent::Select(intent));
         }
-        Outcome::Insert(text) => w.ui.composer.reset(text),
+        Outcome::Insert(text) => {
+            if !drained {
+                w.ui.composer.reset(text);
+            }
+        }
         Outcome::Quit => cx.emit(&hs.quit, ()),
         // What the composer does with the line is the oracle's: it keeps an
         // unknown command and one refused while a task runs, recalls the rest.
@@ -377,6 +453,16 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             say(cx, Note::from(notice));
         }
     }
+}
+
+/// What a command that opens a sheet or a page leaves the queue with: it waits until the page is
+/// in front again (`!no_modal_or_popup_active`).
+fn opened_by(command: SlashCommand) -> Ran {
+    Ran::Dispatched(Dispatched {
+        command: Some(command),
+        modal: true,
+        ..none_opened()
+    })
 }
 
 /// What the model is asked before the select sheet shows the confirmation of

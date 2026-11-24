@@ -94,6 +94,8 @@ pub struct ChatState {
     /// The handler the listener tells the page's edges on, made once so the listener's widget
     /// stays equal across the page's rebuilds.
     edges: Option<Handler<Edge>>,
+    /// A queued command opened a sheet: the queue goes on when the page is in front again.
+    resume: bool,
     /// The read-only thread this page asked to fork and heard no answer of
     /// (the oracle's `fork_in_progress`): its notice gives way to "Forking
     /// conversation…" and the keys wait. A failed fork ends it.
@@ -203,6 +205,7 @@ impl StatefulWidget for Chat {
     fn create_state(&self) -> ChatState {
         ChatState {
             edges: None,
+            resume: false,
             forking: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
