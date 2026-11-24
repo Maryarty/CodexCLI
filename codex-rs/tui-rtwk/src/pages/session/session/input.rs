@@ -8,8 +8,8 @@ use rtwk::focus::{Focus, KeyBindings, KeyCombo, KeyEventResult};
 use rtwk::layout::Stack;
 use rtwk::{AnyWidget, Cx, Key};
 
-use codex_tui_core::keymap::actions::GLOBAL_CHANGE_HOST;
-use codex_tui_core::keymap::{Binding, Keymap, fixed};
+use codex_tui_core::keymap::actions::{CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST};
+use codex_tui_core::keymap::{ActionId, Binding, Keymap, fixed};
 
 use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::keys;
@@ -21,11 +21,11 @@ use crate::sheets::select::hud::Step as PresetStep;
 use super::frame::Frame;
 use super::{ChatMsg, ChatState};
 
-/// The chords of `change_host` (the leader's prefix and its completion, `Ctrl+X b` by default),
-/// as the keymap resolved them.
-fn host_chords(keymap: &Keymap) -> Vec<(KeyCombo, KeyCombo)> {
+/// The chords of an action (the leader's prefix and its completion: `Ctrl+X b` for `change_host`,
+/// `Ctrl+X p` for `open_presets` by default), as the keymap resolved them.
+fn chords_of(keymap: &Keymap, action: ActionId) -> Vec<(KeyCombo, KeyCombo)> {
     keymap
-        .bindings(GLOBAL_CHANGE_HOST)
+        .bindings(action)
         .into_iter()
         .filter_map(|binding| match binding {
             Binding::Chord { prefix, completion } => {
@@ -89,22 +89,35 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             send(ChatMsg::Selection(step));
             return KeyEventResult::Handled;
         }
-        // `change_host` is the leader chord `Ctrl+X b`, live while the
-        // backend control shows (`visible_new_backend_control`), and it
-        // works with a draft in the composer.
-        if control.get() {
-            let chords = host_chords(&keymap.borrow());
-            if leader.replace(false) {
-                if chords.iter().any(|(_, done)| done.accepts_press(&key)) {
-                    send(ChatMsg::Cycle);
-                    return KeyEventResult::Handled;
-                }
-            } else if chords.iter().any(|(leader, _)| leader.accepts_press(&key)) {
-                leader.set(true);
+        // the leader chords: `change_host` (`Ctrl+X b`) is live while the backend control shows
+        // (`visible_new_backend_control`), `open_presets` (`Ctrl+X p`) opens the menu of `/presets`
+        // where the page is free (`no_modal_or_popup_active`); both work with a draft in the
+        // composer.
+        let (hosts, presets) = {
+            let keymap = keymap.borrow();
+            let hosts = if control.get() {
+                chords_of(&keymap, GLOBAL_CHANGE_HOST)
+            } else {
+                Vec::new()
+            };
+            (hosts, chords_of(&keymap, CHAT_OPEN_PRESETS))
+        };
+        if leader.replace(false) {
+            if hosts.iter().any(|(_, done)| done.accepts_press(&key)) {
+                send(ChatMsg::Cycle);
                 return KeyEventResult::Handled;
             }
-        } else {
-            leader.set(false);
+            if presets.iter().any(|(_, done)| done.accepts_press(&key)) {
+                send(ChatMsg::Presets(PresetStep::Open));
+                return KeyEventResult::Handled;
+            }
+        } else if hosts
+            .iter()
+            .chain(&presets)
+            .any(|(prefix, _)| prefix.accepts_press(&key))
+        {
+            leader.set(true);
+            return KeyEventResult::Handled;
         }
         if let Some(pages) = transcript::follow::pager_key(&key, &composer.borrow()) {
             send(ChatMsg::Page(pages));
