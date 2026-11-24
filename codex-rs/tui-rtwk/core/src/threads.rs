@@ -2766,6 +2766,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     }
                 }
             }
+            if model.core.stream_lost || model.core.history_may_be_incomplete {
+                confirm_steers(model, &turns);
+            }
             let timings: Vec<_> = turns
                 .iter()
                 .map(|entry| (entry.turn.clone(), entry.timing))
@@ -3482,6 +3485,21 @@ fn steer_echoed(model: &mut ThreadModel, item: &Item) -> bool {
         return true;
     }
     false
+}
+
+/// A thread read again after its stream was lost or its gap unread: a pending steer whose user message the server's
+/// turns hold was received, so it is no longer pending (oracle `reconcile_recovered_messages`
+/// drops the steers whose submission the history confirms). The port has no submission ids on
+/// steers; the text is the key, as for the echo (`steer_echoed`).
+fn confirm_steers(model: &mut ThreadModel, turns: &[HistoryTurn]) {
+    model.pending_steers.retain(|steer| {
+        !turns.iter().any(|turn| {
+            let (TurnSnapshot::Full(items) | TurnSnapshot::Summary(items)) = &turn.items;
+            items.iter().any(
+                |(_, item)| matches!(item, Item::User(prompt) if prompt.text == steer.message.text),
+            )
+        })
+    });
 }
 
 /// In review mode the server's user item is the review prompt, not something

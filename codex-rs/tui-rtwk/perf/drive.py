@@ -31,6 +31,7 @@ import json
 import os
 import platform
 import pty
+import random
 import re
 import resource
 import select
@@ -238,6 +239,22 @@ class Session:
     def send(self, data: bytes) -> float:
         t = self.now()
         os.write(self.fd, data)
+        return t
+
+    def resize(self, rows: int, cols: int) -> float:
+        """Resize the pty like a terminal window: TIOCSWINSZ + SIGWINCH, and the in-band
+        report when the app has set mode 2048 (the VT model queues it in `term.out`)."""
+        with self.cond:
+            fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            self.term.resize(rows, cols)
+            if self.term.out:
+                os.write(self.fd, bytes(self.term.out))
+                self.term.out.clear()
+        t = self.now()
+        try:
+            os.kill(self.pid, signal.SIGWINCH)
+        except ProcessLookupError:
+            pass
         return t
 
     def type_text(self, text: str, gap: float = 0.03) -> None:
@@ -643,7 +660,32 @@ def run_open(sess: Session, scenario: dict, kind: str, rec: dict) -> None:
     rec["cpu_s_to_open"] = a[0] if a else None
 
 
-RUNNERS = {"open": run_open, "stream": run_stream, "startup": run_startup, "idle": run_idle, "agents": run_agents}
+def run_resize(sess: Session, sc: dict, kind: str, rec: dict) -> None:
+    """Stream an answer, then a resize storm (40 random sizes, `gap` apart), then a rest."""
+    run_startup(sess, sc, kind, rec)
+    if rec["errors"] or not submit_prompt(sess, sc, rec):
+        return
+    sess.watch("end", text_pred(sc["mock"]["sentinel"]))
+    if sess.wait_hit("end", sc.get("stream_timeout", 60)) is None:
+        rec["errors"].append("sentinel never seen")
+        return
+    time.sleep(1.0)
+    rng = random.Random(7)
+    sizes = [(rng.randint(80, 200), rng.randint(24, 60)) for _ in range(39)] + [tuple(sc["size"])]
+    rec["inband_resize"] = sess.term.modes[2048]
+    t0 = sess.now()
+    last = t0
+    for k, (c, r) in enumerate(sizes):
+        sess.sleep_until(t0 + k * sc.get("gap", 0.05))
+        last = sess.resize(r, c)
+    sess.sleep_until(last + sc.get("rest", 3.0))
+    rec["storm"] = window_stats(sess, t0, sess.now())
+    after = [t for t, _ in sess.chunks if t > last]
+    rec["settle_ms"] = round((after[-1] - last) * 1000, 1) if after else 0.0
+    rec["storm_screen_tail"] = sess.screen()[-3:]
+
+
+RUNNERS = {"resize": run_resize, "open": run_open, "stream": run_stream, "startup": run_startup, "idle": run_idle, "agents": run_agents}
 
 
 def run_once(label: str, kind: str, binary: str, scenario: dict, rnd: int, out: Path, cast_dir: Path | None, load_gate: float) -> dict | None:
