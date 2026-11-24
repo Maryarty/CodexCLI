@@ -102,6 +102,7 @@ fn the_hosts_attachments_are_a_fact_of_the_model() {
             windows_sandbox_log: false,
             rollout: Some("rollout.jsonl".into()),
             auto_review: None,
+            ..Default::default()
         }
     );
 }

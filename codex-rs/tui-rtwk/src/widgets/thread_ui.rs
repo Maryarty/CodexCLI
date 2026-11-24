@@ -529,7 +529,9 @@ mod tests {
         first.0.set(7);
         // the same controller on every ask, and for every clone of the thread's controllers
         assert_eq!(one.held(make).0.get(), 7);
-        assert_eq!(one.clone().held(make).0.get(), 7);
+        let copy = one.clone();
+        copy.held(make).0.set(8);
+        assert_eq!(one.held(make).0.get(), 8);
         assert_eq!(made.get(), 1);
         // another thread has its own, and another type its own slot
         assert_eq!(other.held(make).0.get(), 0);

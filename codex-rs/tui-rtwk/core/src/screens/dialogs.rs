@@ -197,6 +197,19 @@ pub struct Attachments {
     pub rollout: Option<String>,
     #[serde(default)]
     pub auto_review: Option<String>,
+    /// The connectivity diagnostics the host collected (`FeedbackDiagnostics`): attached as a
+    /// file, and listed under "Connectivity diagnostics" for every category but a good result.
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// One connectivity diagnostic (`codex_feedback::FeedbackDiagnostic`): a headline, and the
+/// details under it (`NAME = value` for a proxy variable).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct Diagnostic {
+    pub headline: String,
+    #[serde(default)]
+    pub details: Vec<String>,
 }
 
 /// The note the flow ends in (`AppEvent::OpenFeedbackNote`): the note view

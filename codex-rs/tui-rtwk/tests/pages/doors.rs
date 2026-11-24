@@ -730,3 +730,118 @@ mod side_placeholder {
         s.assert_absent("Ask a follow-up question");
     }
 }
+
+/// `Open::draft`: the chat's composer starts with a text a script cannot type, the caret at its
+/// end (`set_text_content` of the oracle's tests).
+mod kit_draft_seed {
+    use crate::kit::{Owner, Screen};
+
+    #[test]
+    fn the_draft_is_in_the_composer_before_the_first_key() {
+        let s = Screen::build(Owner::ChatLive)
+            .size(80, 14)
+            .live()
+            .draft("first\nsecond")
+            .open();
+        s.assert_contains("› first");
+        s.assert_contains("second");
+        s.assert_absent("Ask Codex to do anything");
+    }
+
+    #[test]
+    fn what_is_typed_after_it_goes_to_its_end() {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 14)
+            .live()
+            .draft("note")
+            .open();
+        s.type_text(" more");
+        s.assert_contains("› note more");
+    }
+}
+
+/// `Attachments.diagnostics`: the host's connectivity diagnostics, a script's `attachments`
+/// seed, are listed by the consent step (`feedback_consent_params`): the file for any category,
+/// the list for every one but a good result.
+mod feedback_connectivity {
+    use crate::kit::{Owner, Screen};
+
+    const SCRIPT: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"dialogs","ev":{"kind":"attachments","can_save":true,"diagnostics":[{"headline":"Proxy environment variables are set and may affect connectivity.","details":["HTTPS_PROXY = hello"]}]}}
+"#;
+
+    fn consent(digit: &str) -> Screen {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 34)
+            .script(SCRIPT)
+            .open();
+        s.type_text("/feedback");
+        s.keys("enter");
+        s.keys(digit);
+        s.assert_contains("Include logs and session history?");
+        s
+    }
+
+    #[test]
+    fn a_bug_report_lists_the_proxy_diagnostics_under_its_files() {
+        let s = consent("1");
+        s.assert_contains("• codex-connectivity-diagnostics.txt");
+        s.assert_contains("Connectivity diagnostics");
+        s.assert_contains("- Proxy environment variables are set and may affect connectivity.");
+        s.assert_contains("- HTTPS_PROXY = hello");
+    }
+
+    #[test]
+    fn a_good_result_names_the_file_and_leaves_the_list_out() {
+        let s = consent("3");
+        s.assert_contains("• codex-connectivity-diagnostics.txt");
+        s.assert_absent("Connectivity diagnostics");
+        s.assert_absent("HTTPS_PROXY");
+    }
+
+    #[test]
+    fn without_diagnostics_neither_the_file_nor_the_list_shows() {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 34)
+            .script(r#"{"step":"seed","seed":"session","thread":"thread-1"}"#)
+            .open();
+        s.type_text("/feedback");
+        s.keys("enter");
+        s.keys("1");
+        s.assert_contains("Include logs and session history?");
+        s.assert_absent("codex-connectivity-diagnostics.txt");
+        s.assert_absent("Connectivity diagnostics");
+    }
+}
+
+/// `Screen::burst` reaches any focused widget, the feedback note's text area too: the characters
+/// of a paste arrive. A newline inside the burst is the text area's to keep (it has no paste burst
+/// detector yet: a widget need of the dialogs package), so that test waits.
+mod burst_into_the_feedback_note {
+    use crate::kit::{Owner, Screen};
+
+    fn note() -> Screen {
+        Screen::build(Owner::DialogsPane)
+            .size(60, 11)
+            .entry("feedback", "feedback_note_bug_no_logs")
+            .open()
+    }
+
+    #[test]
+    fn the_characters_of_a_burst_reach_the_note() {
+        let mut s = note();
+        s.burst("pasted text");
+        s.assert_contains("pasted text");
+        s.assert_contains("Tell us more");
+    }
+
+    #[test]
+    #[ignore = "NEED (widget): the note's TextArea has no paste-burst, a fast Enter submits (oracle feedback_paste_burst_preserves_multiline_note_until_submit)"]
+    fn a_newline_inside_a_burst_is_a_line_of_the_note() {
+        let mut s = note();
+        s.burst("foo\nbar");
+        s.assert_contains("foo");
+        s.assert_contains("bar");
+        s.assert_contains("Tell us more");
+    }
+}

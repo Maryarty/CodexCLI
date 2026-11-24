@@ -9,9 +9,11 @@ use rtwk::focus::Focus;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::overlay::Dialog;
 use rtwk::text::segmenter_of;
+use rtwk::style::Span;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
+use codex_tui_core::features::feedback;
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::dialogs::{Attachments, FeedbackCategory};
 
@@ -62,7 +64,7 @@ pub(super) fn build(
             frame(Dialog::new(column).title(s.feedback_title), 5, cx)
         }
         Step::Note { .. } => Focus::new(Text::new(String::new())),
-        Step::Consent(_) => {
+        Step::Consent(category) => {
             let rows = vec![
                 (
                     s.consent_yes.to_string(),
@@ -86,6 +88,25 @@ pub(super) fn build(
             for file in files(attachments, s) {
                 column = column.child(Text::line(format!("{}{file}", s.consent_bullet)));
             }
+            if feedback::shows_connectivity(category, attachments.diagnostics.len()) {
+                column = column
+                    .child(Text::new(String::new()))
+                    .child(Text::rich(vec![
+                        Span::new(s.consent_connectivity_title).bold(),
+                    ]));
+                for diagnostic in &attachments.diagnostics {
+                    column = column.child(Text::line(format!(
+                        "{}{}",
+                        s.consent_headline_bullet, diagnostic.headline
+                    )));
+                    for detail in &diagnostic.details {
+                        column = column.child(Text::rich(vec![
+                            Span::styled(s.consent_detail_bullet, tokens.dim()),
+                            Span::new(detail.clone()),
+                        ]));
+                    }
+                }
+            }
             let column = column
                 .child(Text::new(String::new()))
                 .child(list(rows, cx, |index| Msg::Consent(index == 0)))
@@ -108,6 +129,9 @@ fn files(attachments: &Attachments, s: &Strings) -> Vec<String> {
     }
     files.extend(attachments.rollout.clone());
     files.extend(attachments.auto_review.clone());
+    if !attachments.diagnostics.is_empty() {
+        files.push(s.consent_diagnostics_file.to_string());
+    }
     files
 }
 

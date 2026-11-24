@@ -55,6 +55,8 @@ pub struct Open {
     pub(super) env: Env,
     /// The remote image URLs the chat's draft starts with (`Open::remote_images`).
     pub(super) remote_images: Vec<String>,
+    /// The text the chat's draft starts with (`Open::draft`).
+    pub(super) draft: Option<String>,
 }
 
 impl Screen {
@@ -75,6 +77,7 @@ impl Screen {
             keymap: None,
             env: Env::default(),
             remote_images: Vec::new(),
+            draft: None,
         }
     }
 }
@@ -165,8 +168,18 @@ impl Open {
         self
     }
 
+    /// The chat's draft starts with `text`, the caret at its end: what a script of the oracle's
+    /// tests sets with `set_text_content` before the screen is looked at. For the live chat
+    /// (`live()`, `script(..)`); the images and the text of a restored message are
+    /// `remote_images`' and the keys'.
+    pub fn draft(mut self, text: &str) -> Open {
+        self.draft = Some(text.to_string());
+        self
+    }
+
     pub fn open(self) -> Screen {
         let gutter = self.gutter;
+        let draft = self.draft.clone();
         let remote = self.remote_images.clone();
         let side = self.side;
         let mut screen = match self.seed {
@@ -181,6 +194,9 @@ impl Open {
         }
         if !remote.is_empty() {
             screen.set_remote_images(remote);
+        }
+        if let Some(text) = draft {
+            screen.set_draft(&text);
         }
         screen
     }
@@ -327,6 +343,30 @@ impl Screen {
                 path.to_path_buf(),
             ))),
         );
+    }
+
+    /// The chat's draft is `text` now, the caret at its end (`Open::draft`): UI state of the open
+    /// thread, set as a handler would (what was held, attached or typed goes), then the frame
+    /// shows it.
+    pub fn draft(&mut self, text: &str) -> &mut Screen {
+        self.set_draft(text);
+        self
+    }
+
+    fn set_draft(&mut self, text: &str) {
+        assert!(
+            !self.entry,
+            "a draft seeds the live chat's composer: a debug entry has none"
+        );
+        let text = text.to_string();
+        self.h.t.update_app(move |app: &mut UiApp, _| {
+            let ui = app.ui.thread_ui.get(app.core.session().active.as_ref());
+            ui.draft.clear();
+            ui.composer.reset("");
+            ui.composer.insert(&text);
+            ui.draft.sync(&ui.composer);
+        });
+        self.h.advance(100);
     }
 
     fn set_remote_images(&mut self, urls: Vec<String>) {
