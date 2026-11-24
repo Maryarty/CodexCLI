@@ -413,3 +413,45 @@ fn a_held_queue_sends_nothing_at_the_turn_end_and_goes_on_when_the_user_sends() 
     let fx = submit(&mut app, "now");
     assert_eq!(started_texts(&fx), ["now"]);
 }
+
+/// The thread's stream is lost while the connection stands (`BackendEv::StreamLost`, the oracle's
+/// `thread_stream_disconnected`): what the user sends waits in the queue, steers included, until
+/// the stream is back, and then goes out as the next turn.
+#[test]
+fn a_lost_stream_queues_a_submit_until_it_is_back() {
+    let mut app = ready();
+    notify(&mut app, BackendEv::StreamLost(ThreadId::new(T)));
+    assert!(thread(&app).view().stream_lost());
+    let submit = |app: &mut CodexApp, text: &str| {
+        run(
+            app,
+            AppEv::Intent(Intent::Submit {
+                thread: Some(ThreadId::new(T)),
+                message: UserMessage::text(text),
+            }),
+        )
+    };
+    let fx = submit(&mut app, "hello");
+    assert_eq!(started_texts(&fx), Vec::<String>::new());
+    assert_eq!(queued(&app), ["hello"]);
+    let fx = notify(&mut app, BackendEv::StreamRestored(ThreadId::new(T)));
+    assert!(!thread(&app).view().stream_lost());
+    assert_eq!(started_texts(&fx), ["hello"]);
+    assert_eq!(queued(&app), Vec::<String>::new());
+}
+
+/// The same while a turn runs: a steer would go out, a lost stream holds it.
+#[test]
+fn a_lost_stream_holds_a_message_typed_during_a_turn_and_the_queue_waits_for_it() {
+    let mut app = running();
+    notify(&mut app, BackendEv::StreamLost(ThreadId::new(T)));
+    tab(&mut app, "later", false);
+    let fx = notify(&mut app, turn_completed(T, "turn-1"));
+    assert_eq!(
+        started_texts(&fx),
+        Vec::<String>::new(),
+        "the queue does not send while the stream is lost"
+    );
+    let fx = notify(&mut app, BackendEv::StreamRestored(ThreadId::new(T)));
+    assert_eq!(started_texts(&fx), ["later"]);
+}

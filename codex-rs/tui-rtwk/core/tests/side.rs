@@ -325,3 +325,75 @@ fn side_before_the_session_has_started_says_so() {
     assert!(forks(&fx).is_empty());
     assert!(!app.features().side.is_side(&ThreadId::new(MAIN)));
 }
+
+/// The parent's status is the slice's own reading of the stream (`Feature::project` and
+/// `project_request`, delivered to `on_event`): a notification of the parent and a request that
+/// waits for the user both reach the side conversation's footer, and a request is only observed.
+#[test]
+fn the_parents_status_follows_the_stream_through_the_slices_events() {
+    use codex_app_server_protocol::ServerRequest;
+    use codex_tui_core::app::BackendEv;
+    use codex_tui_core::features::side::ParentStatus;
+    let status = |app: &CodexApp| match app.screens().chat.facts.side.clone() {
+        Some(Footer::Side { status, .. }) => status,
+        other => panic!("a side footer: {other:?}"),
+    };
+    let (mut app, _) = opened(None);
+    assert_eq!(status(&app), None);
+    run(
+        &mut app,
+        AppEv::Backend(codex_tui_core::fixtures::builders::turn_completed(
+            MAIN, "turn-1",
+        )),
+    );
+    assert_eq!(status(&app), Some(ParentStatus::Finished));
+    let request: ServerRequest = serde_json::from_value(serde_json::json!({
+        "method": "item/commandExecution/requestApproval",
+        "id": 7,
+        "params": {
+            "threadId": MAIN, "turnId": "turn-2", "itemId": "call-7", "startedAtMs": 0,
+            "approvalId": "call-7", "environmentId": null, "command": "echo hi", "cwd": "/tmp"
+        }
+    }))
+    .expect("a request");
+    run(
+        &mut app,
+        AppEv::Backend(BackendEv::Request(Box::new(request))),
+    );
+    assert_eq!(status(&app), Some(ParentStatus::NeedsApproval));
+    // another thread's notification is not the parent's
+    run(
+        &mut app,
+        AppEv::Backend(codex_tui_core::fixtures::builders::turn_started(
+            "elsewhere",
+            "turn-9",
+        )),
+    );
+    assert_eq!(status(&app), Some(ParentStatus::NeedsApproval));
+}
+
+/// A fork asked for while another conversation is being made is refused to the slice
+/// (`Refusal::Busy`): the prompt goes back to the composer it was typed in, and no second fork
+/// is sent.
+#[test]
+fn a_second_fork_while_one_is_being_made_gives_the_prompt_back() {
+    let mut app = ready();
+    let first = start(&mut app, MAIN, None);
+    assert_eq!(forks(&first).len(), 1);
+    let second = start(&mut app, MAIN, Some("quick question"));
+    assert!(forks(&second).is_empty(), "{:?}", second.commands());
+    let restore = app
+        .thread(&ThreadId::new(MAIN))
+        .expect("the thread")
+        .restore()
+        .cloned()
+        .expect("the prompt went back");
+    assert_eq!(
+        restore
+            .messages()
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        ["quick question"]
+    );
+}
