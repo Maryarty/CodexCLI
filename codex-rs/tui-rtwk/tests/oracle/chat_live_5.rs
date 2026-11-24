@@ -296,10 +296,6 @@ fn item_completed_only_pops_front_pending_steer() {
 // ORACLE chatwidget/tests/review_mode.rs:741 steer_enter_during_final_stream_preserves_follow_up_prompts_in_order kind=ui owner=chat-live
 #[test]
 fn steer_enter_during_final_stream_preserves_follow_up_prompts_in_order() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer preview on the chat screen: two follow-ups entered during a final-answer stream are not kept in order",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));

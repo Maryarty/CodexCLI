@@ -554,10 +554,6 @@ fn reading_survives_prepend_and_new_output_then_returns_to_latest() {
 // ORACLE transcript_view_tests.rs:495 beginning_wait_keeps_live_content_through_new_output_prepend_and_resize kind=ui owner=chat-live
 #[test]
 fn beginning_wait_keeps_live_content_through_new_output_prepend_and_resize() {
-    kit::pending(
-        Owner::ChatLive,
-        "no history beginning wait (ctrl+home) and no streamed live tail in the chat yet",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
     s.keys("ctrl+home");
     let before = s.shot();
@@ -571,10 +567,6 @@ fn beginning_wait_keeps_live_content_through_new_output_prepend_and_resize() {
 // ORACLE transcript_view_tests.rs:532 transcript_interaction_cancels_pending_beginning_without_losing_received_history kind=ui owner=chat-live
 #[test]
 fn transcript_interaction_cancels_pending_beginning_without_losing_received_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no history-loading state in the chat: a pending beginning wait is not built, so the wheel, page-up, F3 and ctrl+space interactions have nothing to cancel",
-    );
     for interaction in ["wheel", "pageup", "f3", "ctrl+space"] {
         let mut s = Screen::build(Owner::ChatLive).size(24, 3).live().open();
         s.keys("ctrl+home");
@@ -874,10 +866,6 @@ fn resizing_repeated_lines_keeps_the_same_occurrence() {
 // ORACLE transcript_view_tests.rs:1208 resize_uses_the_passage_from_the_current_live_or_replaced_entry kind=ui owner=chat-live
 #[test]
 fn resize_uses_the_passage_from_the_current_live_or_replaced_entry() {
-    kit::pending(
-        Owner::ChatLive,
-        "no live tail revision and no replaced entry in the chat yet; the passage is the oracle's forty joined words",
-    );
     for _kind in ["live", "replaced"] {
         let mut s = Screen::build(Owner::ChatLive).size(18, 3).live().open();
         s.wheel_up(0, 0, 5);

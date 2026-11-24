@@ -698,10 +698,6 @@ fn generic_markdown_keeps_assistant_directives_literal() {
 fn followup_labels_render_like_ordinary_markdown_snapshot() {
     // The oracle's expected text is an inline snapshot. The streamed render and the plain render
     // are compared in the oracle; the screen shows the streamed one.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no follow-up directive rendering: a label renders as a bullet and the prompt stays hidden",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(32, 40)
         .script(include_str!(

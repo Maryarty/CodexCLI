@@ -470,10 +470,6 @@ fn slash_copy_picker_preserves_completed_source_whitespace_and_hides_directives(
 // ORACLE chatwidget/tests/slash_commands.rs:1777 slash_copy_picker_defers_queued_input_until_selection_or_cancellation_settles kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_defers_queued_input_until_selection_or_cancellation_settles() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn; Tab does not queue while a turn runs in the port",
-    );
     for queued in ["/new", "/clear", "follow-up prompt"] {
         for close_key in ["enter", "esc"] {
             let mut s = Screen::build(Owner::ChatNavPane).script(PREVIOUS).open();
@@ -686,10 +682,6 @@ fn slash_copy_picker_preserves_nested_blockquote_markdown_and_code() {
 // ORACLE chatwidget/tests/slash_commands.rs:2168 slash_copy_picker_supports_arrow_navigation_enter_and_scrolling kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_supports_arrow_navigation_enter_and_scrolling() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(SH_BLOCKS).open();
     s.type_text("/copy").keys("enter");
     for _ in 0..11 {

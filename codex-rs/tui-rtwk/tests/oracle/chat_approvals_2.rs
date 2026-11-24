@@ -423,10 +423,6 @@ fn async_question_answers_preserve_ambiguous_skill_selection_and_dismiss_remotel
 // ORACLE chatwidget/tests/questions_tests.rs:116 ordinary_follow_up_clears_unanswered_questions_after_accepted_input kind=snap owner=dialogs-pane
 #[test]
 fn ordinary_follow_up_clears_unanswered_questions_after_accepted_input() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor above the composer: an accepted follow-up clears the questions, and the question block is not drawn before it",
-    );
     // oracle: a thread with two open questions; an accepted "New prompt" (enter, not queued) clears them: the bottom
     // popup's first line is the composer placeholder (`questions_cleared_by_follow_up`).
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
