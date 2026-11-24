@@ -72,6 +72,9 @@ pub(crate) struct Shared {
     /// The first thread's start stays unanswered (a test replies with
     /// `inject`, the session is `Starting` until then).
     hold_thread_start: bool,
+    /// A turn's start stays unanswered while its images are prepared (a test ends the wait with
+    /// `inject` of the failure, the host's `prepare_images`).
+    hold_turn_start: bool,
     /// The requests of these methods are answered only once their hold is released.
     held: BTreeMap<String, Hold>,
     /// The words before a turn's number in the id the fake mints (`mint_turns_as`); `turn-`
@@ -354,6 +357,14 @@ impl FakeHandle {
         }
     }
 
+    /// Leaves every `StartTurn` unanswered: the message is in flight (its images being
+    /// prepared) until the test injects the reply.
+    pub fn hold_turn_start(&self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.hold_turn_start = true;
+        }
+    }
+
     /// The wire requests that went out (a page of the list is one per
     /// source), as JSON.
     pub fn requests(&self) -> Vec<serde_json::Value> {
@@ -540,6 +551,8 @@ async fn run_as(
                     Some(id) => format!("{FAKE_THREAD}-{}", id.0),
                 })),
             )),
+            Command::StartTurn { .. }
+                if shared.lock().is_ok_and(|guard| guard.hold_turn_start) => {}
             Command::StartTurn {
                 ticket,
                 thread,

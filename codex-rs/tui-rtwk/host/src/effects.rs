@@ -117,6 +117,7 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
         collapse_turn_details: config.tui_collapse_turn_details,
         show_tooltips: config.show_tooltips,
         vim_mode_default: config.tui_vim_mode_default,
+        hide_rate_limit_model_nudge: config.notices.hide_rate_limit_model_nudge.unwrap_or(false),
         rendering: Rendering {
             mermaid: rendering.mermaid,
             math: rendering.math,

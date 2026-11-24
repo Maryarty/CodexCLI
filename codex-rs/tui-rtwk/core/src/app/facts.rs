@@ -45,6 +45,9 @@ pub struct TuiSettings {
     /// `tui.vim_mode_default`: a new draft starts in Vim Insert mode (oracle `constructor`
     /// `enable_vim_in_insert_mode`).
     pub vim_mode_default: bool,
+    /// `notice.hide_rate_limit_model_nudge`: the rate limit prompt that offers a cheaper model
+    /// is not shown (oracle `local_settings.notices`).
+    pub hide_rate_limit_model_nudge: bool,
 }
 
 impl Default for TuiSettings {
@@ -56,6 +59,7 @@ impl Default for TuiSettings {
             copy_on_select: true,
             deselect_after_copy: false,
             vim_mode_default: false,
+            hide_rate_limit_model_nudge: false,
         }
     }
 }

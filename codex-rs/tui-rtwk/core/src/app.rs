@@ -1678,19 +1678,6 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 _ => {}
             }
-            // the account a host reads (the bootstrap) gives the limits their plan as well
-            if let ScreenEv::Status(status::Ev::Account(account)) = &ev {
-                let plan = match account {
-                    Some(status::Account::ChatGpt { plan, .. }) => *plan,
-                    _ => None,
-                };
-                Rc::make_mut(&mut app.session)
-                    .rate_snapshots
-                    .entry(origin)
-                    .or_default()
-                    .limits_mut()
-                    .set_plan(plan);
-            }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             let startup = matches!(ev, ScreenEv::Cells(screens::cells::Ev::Startup(_)));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);

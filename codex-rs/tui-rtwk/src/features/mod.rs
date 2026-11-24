@@ -214,6 +214,15 @@ pub fn pick_pet<S: 'static>(cx: &mut Cx<'_, S>, selector: String) {
     verb(cx, Intent::Request(Edit::PetSelected(selector)));
 }
 
+/// "Don't remind me again" of the rate limit prompt: `notice.hide_rate_limit_model_nudge` is
+/// written (the settings own the config writes, and the words of a refusal;
+/// `Edit::RateLimitPromptHidden`); the host's next read of the config tells the app
+/// (`TuiSettings::hide_rate_limit_model_nudge`).
+pub fn hide_rate_limit_prompt<S: 'static>(cx: &mut Cx<'_, S>) {
+    use codex_tui_core::features::settings::{Edit, Intent};
+    verb(cx, Intent::Request(Edit::RateLimitPromptHidden));
+}
+
 /// A verb of a feature, from the widget that has the user's decision: the app applies it
 /// (`Intent::Feature`). The arguments are ids (a directory, a plugin's row), never what was
 /// pressed.

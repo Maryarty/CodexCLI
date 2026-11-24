@@ -513,3 +513,69 @@ mod fake_turns {
         assert_eq!(interrupted(&s).as_deref(), Some("turn-1"));
     }
 }
+
+mod kit_doors_r1b {
+    use crate::kit::{Owner, Screen};
+
+    /// `Screen::stream_lost` / `stream_restored`: what the user sends while the stream is lost
+    /// waits in the queue, and goes out when the stream is back.
+    #[test]
+    fn a_lost_stream_holds_a_submit_until_it_is_restored() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 14).live().open();
+        s.stream_lost("Cloud stream ended. Reopen the conversation to reconnect.");
+        s.type_text("hello");
+        s.keys("enter");
+        s.assert_contains("Queued follow-up inputs");
+        s.assert_absent("Working");
+        s.stream_restored();
+        s.assert_absent("Queued follow-up inputs");
+        s.assert_contains("Working");
+    }
+
+    /// `Screen::hold_image_preparation` / `fail_image_preparation`: the turn's request is in
+    /// flight and the composer free; the failure gives the message back whole, with the words
+    /// of the host's preparation.
+    #[test]
+    fn a_failed_image_preparation_gives_the_message_back_to_the_composer() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 14).live().open();
+        s.hold_image_preparation();
+        s.attach_image_sized("shot.png", 8, 8);
+        s.type_text(" describe");
+        s.keys("enter");
+        s.assert_absent("› [Image #1] describe");
+        s.fail_image_preparation("Failed to prepare image: shot.png: gone");
+        s.assert_contains("Failed to prepare image: shot.png: gone");
+        s.assert_contains("› [Image #1] describe");
+    }
+
+    /// A `[vim_search]` key in `Open::keymap(..)` is read by the chat composer: `s` starts the
+    /// query (the letters typed after it are the query, not commands), Esc drops it.
+    #[test]
+    fn a_vim_search_key_of_the_kit_keymap_starts_the_query() {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(40, 9)
+            .live()
+            .keymap(&[
+                ("global.toggle_vim_mode", "f9"),
+                ("vim_search.forward", "s"),
+            ])
+            .open();
+        s.type_text("draft");
+        s.keys("f9 g g s");
+        s.type_text("raf");
+        s.keys("esc");
+        s.type_text("x");
+        s.assert_contains("› raft");
+    }
+
+    /// `Screen::burst`: a paste a terminal without bracketed paste sends as keys is one paste for
+    /// the composer: the newline is a line of the draft, not a submit.
+    #[test]
+    fn a_burst_of_keys_is_one_paste_with_its_newline() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 14).live().open();
+        s.burst("one\ntwo");
+        s.assert_contains("› one");
+        s.assert_contains("two");
+        s.assert_absent("Working");
+    }
+}

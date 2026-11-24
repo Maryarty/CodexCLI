@@ -1,10 +1,13 @@
 //! States the oracle sets by a widget's own setter, reached here by the route the app takes: a
 //! composer whose input is off, an image of a size, a thread with no model, the composer alone.
 
-use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::app::{AppEv, BackendEv, Command, Intent};
 use codex_tui_core::features::windows_sandbox::{Config, Fact, Host, Intent as Sandbox, Mode};
 use codex_tui_core::features::{FeatureFact, FeatureIntent};
 use codex_tui_core::fixtures::script::Answer;
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::rpc::Reply;
+use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
 use super::seed::{Open, answer};
@@ -58,6 +61,77 @@ impl Screen {
         self.paste(&path.to_string_lossy());
         self.keys("backspace");
         path
+    }
+}
+
+impl Screen {
+    /// The thread the chat shows.
+    fn active_thread(&self) -> ThreadId {
+        self.h
+            .t
+            .read_app(|app: &UiApp| app.core.session().active.clone())
+            .expect("the session has a thread")
+    }
+
+    /// The event stream of the thread is lost while the connection stands (a Cloud backend's
+    /// `ThreadStreamDisconnected`, the oracle's reconnect tests): what the user sends waits in
+    /// the queue, `error` is the server's words. The live chat only.
+    pub fn stream_lost(&mut self, error: &str) -> &mut Screen {
+        assert!(!self.entry, "a stream belongs to the live app");
+        let thread = self.active_thread();
+        let notification = serde_json::from_value(serde_json::json!({
+            "error": {"message": error, "codexErrorInfo": null, "additionalDetails": null},
+            "willRetry": false,
+            "threadId": thread.as_str(),
+            "turnId": "",
+        }))
+        .expect("an error notification");
+        self.h.inject([AppEv::Backend(BackendEv::StreamLost {
+            thread,
+            error: Box::new(notification),
+        })]);
+        self.h.advance(100);
+        self
+    }
+
+    /// The event stream of the thread is back (`ThreadStreamReconnected`).
+    pub fn stream_restored(&mut self) -> &mut Screen {
+        assert!(!self.entry, "a stream belongs to the live app");
+        let thread = self.active_thread();
+        self.h
+            .inject([AppEv::Backend(BackendEv::StreamRestored(thread))]);
+        self.h.advance(100);
+        self
+    }
+
+    /// The images of what the user sends are still being prepared: the turn's start is held in
+    /// flight (the host prepares them before it sends), so the composer is already free and the
+    /// message is not on the server. `fail_image_preparation` ends the wait.
+    pub fn hold_image_preparation(&mut self) -> &mut Screen {
+        self.h.fake.hold_turn_start();
+        self
+    }
+
+    /// The preparation of the images of the turn in flight ends in `message` (`Failed to
+    /// prepare image: ..`): the message never left, so it goes back whole to the composer.
+    pub fn fail_image_preparation(&mut self, message: &str) -> &mut Screen {
+        let ticket = self
+            .h
+            .fake
+            .commands()
+            .iter()
+            .rev()
+            .find_map(|command| match command {
+                Command::StartTurn { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a turn is in flight");
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h
+            .fake
+            .inject(epoch, AppEv::Reply(ticket, Reply::prepare_failed(message)));
+        self.h.advance(100);
+        self
     }
 }
 
