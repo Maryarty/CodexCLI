@@ -29,7 +29,9 @@ use codex_tui_core::threads::{HistoryState, ThreadModel};
 use super::history;
 use super::pager;
 use super::strings::{self, Strings};
+use super::TranscriptMode;
 use crate::app::debug::seeded::Seeded;
+use crate::app::debug::{DebugEntry, EntryOpen};
 use crate::app::view::Hs;
 use crate::pages::session::backtrack;
 use crate::pages::session::transcript_pane::Pane;
@@ -386,4 +388,46 @@ fn browsing_footer(table: &'static Strings, key: Style, accent: Style, dim: Styl
         Text::rich_line(chosen).overflow(TextOverflow::Clip).into()
     })
     .into()
+}
+
+/// The transcript sheet (Ctrl+T, F3) as a mode of the transcript (`mode_list!`).
+pub struct Mode;
+
+impl TranscriptMode for Mode {
+    const NAME: &'static str = "sheet";
+
+    fn debug_entries() -> Vec<DebugEntry> {
+        vec![
+            DebugEntry {
+                name: "sheet_basic",
+                description: "the transcript sheet over a prompt, a reasoning summary and a long answer",
+                script: include_str!("fixtures/sheet_basic.jsonl"),
+                open: EntryOpen::Route(seeded),
+            },
+            DebugEntry {
+                name: "sheet_owned",
+                description: "the transcript sheet without pager chrome (the owned full-screen Ctrl+T)",
+                script: include_str!("fixtures/sheet_basic.jsonl"),
+                open: EntryOpen::Route(seeded_bare),
+            },
+            DebugEntry {
+                name: "sheet_reveal",
+                description: "the transcript sheet over a prompt and a four-line answer",
+                script: include_str!("fixtures/sheet_reveal.jsonl"),
+                open: EntryOpen::Route(seeded),
+            },
+            DebugEntry {
+                name: "sheet_link",
+                description: "the transcript sheet over an answer that is a web link",
+                script: include_str!("fixtures/sheet_link.jsonl"),
+                open: EntryOpen::Route(seeded),
+            },
+            DebugEntry {
+                name: "sheet_prompts",
+                description: "the transcript sheet over three prompts and their answers",
+                script: include_str!("fixtures/sheet_prompts.jsonl"),
+                open: EntryOpen::Route(seeded),
+            },
+        ]
+    }
 }

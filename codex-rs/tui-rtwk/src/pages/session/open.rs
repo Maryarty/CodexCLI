@@ -57,7 +57,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
         Target::Pets => drop(pets::open(cx)),
         Target::Voice => drop(voice::open(cx)),
         Target::AgentPicker => agents::open_picker(cx),
-        Target::Pager => transcript::open_pager(cx),
+        Target::Pager => transcript::pager::open(cx),
         Target::Backtrack => push(cx, PageRoute::new(|_| backtrack::part())),
         Target::Select | Target::Settings | Target::Feature(_) => {}
     }
