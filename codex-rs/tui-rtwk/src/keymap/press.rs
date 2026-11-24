@@ -57,6 +57,8 @@ pub fn stroke_of(key: &KeyPress) -> Option<Stroke> {
         KeyCode::F10 => Key::F(10),
         KeyCode::F11 => Key::F(11),
         KeyCode::F12 => Key::F(12),
+        // A modifier, lock or media key pressed alone is no stroke (kitty reports them).
+        KeyCode::Modifier | KeyCode::Lock | KeyCode::Media => return None,
     };
     Some(Stroke::new(k, mods).canonical())
 }

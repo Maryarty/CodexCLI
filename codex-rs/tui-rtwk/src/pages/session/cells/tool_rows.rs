@@ -5,6 +5,7 @@
 //! the dim `└` rows (oracle `exec_cell/render.rs` `prefix_lines`, `mcp.rs`).
 
 use rtwk::AnyWidget;
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::TextOverflow;
@@ -60,7 +61,7 @@ pub fn branch_row(index: usize, body: AnyWidget, marker: Style) -> AnyWidget {
 pub fn glyph_row(glyph: &'static str, body: AnyWidget, marker: Style) -> AnyWidget {
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(Text::line(glyph).style(marker))
+        .child(ExcludeSelection::new(Text::line(glyph).style(marker)))
         .child(Expanded::new(1, body))
         .into()
 }

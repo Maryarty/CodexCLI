@@ -3059,7 +3059,7 @@ mod message_cells_at_tiny_widths {
 }
 
 /// The text contract (`cells::text`): the texts the app keeps of an item
-/// (rtwk's `ItemTexts`) are the strings of the `Text`s its cell builds, in
+/// (what `ListView::item_text` is given) are the strings of the `Text`s its cell builds, in
 /// tree order, joined by line breaks; what a `SelectionArea` over the mounted
 /// cell selects. Gutters (a bullet or prompt mark of its own `Text`, the
 /// disclosure control) are left out of the selection by `ExcludeSelection`,
@@ -3075,7 +3075,7 @@ mod text_contract {
         WebAction, WebActivity,
     };
     use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
-    use codex_tui_rtwk::pages::session::cells::text::{Env, GUTTERS_SELECTED, Gap, Texts, texts};
+    use codex_tui_rtwk::pages::session::cells::text::{Env, Gap, Texts, texts};
     use codex_tui_rtwk::pages::session::cells::{
         agent, deprecation, error, generated_image, hook, notice, user, viewed_image, warning, web,
     };
@@ -3193,7 +3193,7 @@ mod text_contract {
     #[track_caller]
     fn agrees_in(item: Item, detailed: bool) {
         let texts = texts(&item, &env(detailed, false));
-        let Some(want) = texts.joined(GUTTERS_SELECTED) else {
+        let Some(want) = texts.as_mounted() else {
             panic!("{item:?}: the contract names no texts for it yet: {texts:?}");
         };
         assert_eq!(want, selected(widget(&item, detailed)), "{item:?}");

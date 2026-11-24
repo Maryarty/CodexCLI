@@ -6,6 +6,7 @@
 //! as an `ExpansionTile` does.
 
 use rtwk::controls::Pressable;
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
 use rtwk::style::Style;
 use rtwk::widgets::Text;
@@ -39,7 +40,7 @@ fn control(label: String, style: Style) -> AnyWidget {
         let indent = (room.max_width / 4).min(4);
         Padding::new(
             EdgeInsets::only(indent, 0, 0, 0),
-            Text::new(label.clone()).style(style.clone()),
+            ExcludeSelection::new(Text::new(label.clone()).style(style.clone())),
         )
         .into()
     })

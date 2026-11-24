@@ -61,7 +61,7 @@ fn fallback_handles_offsets_near_maximum_height() {
 fn empty_pending_select_mode_closes_instead_of_retaining_overlay_focus() {
     kit::missing(
         Owner::ChatLive,
-        "select mode (transcript chunk step 6): it moves a caret over the texts the rows show, which need `ItemTexts` per item (chunk-cells); an empty sheet closes instead of holding it",
+        "select mode (transcript chunk step 6): it moves a caret over the texts the rows show, which need the text of each item (`ListView::item_text`: one line per item, `cells::text`; chunk-cells); an empty sheet closes instead of holding it",
     );
 }
 
@@ -70,7 +70,7 @@ fn empty_pending_select_mode_closes_instead_of_retaining_overlay_focus() {
 fn select_enter_closes_and_remapped_action_marks_in_the_inline_overlay() {
     kit::missing(
         Owner::ChatLive,
-        "select and copy modes (transcript chunk steps 6-7) over `ItemTexts` per item (chunk-cells), and a remapped `find_transcript` (the sheet's keys are the defaults until the keymap reaches the pager)",
+        "select and copy modes (transcript chunk steps 6-7) over the text of each item (`ListView::item_text`, one line per item; chunk-cells), and a remapped `find_transcript` (the sheet's keys are the defaults until the keymap reaches the pager)",
     );
 }
 
@@ -114,7 +114,7 @@ fn pager_bindings_use_rendered_page_height_and_keep_control_f_navigation() {
 fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns() {
     kit::missing(
         Owner::ChatLive,
-        "the selection, find and copy of a sheet are made over the texts the rows show (rtwk `ItemTexts`, a text per transcript item equal to what it renders); the texts are chunk-cells' and are not in the tree yet (transcript chunk steps 4-7)",
+        "the selection, find and copy of a sheet are made over the texts the rows show (rtwk `ListView::item_text`, one line per transcript row equal to what it renders, the items drawing their part through `ListView::selection_of`); the texts are chunk-cells' and are not wired on the list yet (w2-transcript wires find, select and copy on it; transcript chunk steps 4-7)",
     );
 }
 
@@ -123,7 +123,7 @@ fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns() {
 fn opening_find_retains_the_selected_mutable_revision() {
     kit::missing(
         Owner::ChatLive,
-        "the selection, find and copy of a sheet are made over the texts the rows show (rtwk `ItemTexts`, a text per transcript item equal to what it renders); the texts are chunk-cells' and are not in the tree yet (transcript chunk steps 4-7)",
+        "the selection, find and copy of a sheet are made over the texts the rows show (rtwk `ListView::item_text`, one line per transcript row equal to what it renders, the items drawing their part through `ListView::selection_of`); the texts are chunk-cells' and are not wired on the list yet (w2-transcript wires find, select and copy on it; transcript chunk steps 4-7)",
     );
 }
 

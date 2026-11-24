@@ -7,6 +7,7 @@
 //! Flutter: a `Row` of a two-column `SizedBox` for the mark and an `Expanded`
 //! `Text`.
 
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
 use rtwk::style::Attrs;
 use rtwk::widgets::Text;
@@ -51,7 +52,7 @@ impl StatelessWidget for WarningCell {
         let attention = tokens.warning().attrs(Attrs::BOLD);
         Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(SizedBox::new(
+            .child(ExcludeSelection::new(SizedBox::new(
                 Some(MARK_COLUMNS),
                 None,
                 Some(
@@ -59,7 +60,7 @@ impl StatelessWidget for WarningCell {
                         .style(attention.clone())
                         .into(),
                 ),
-            ))
+            )))
             .child(Expanded::new(
                 1,
                 Text::new(displayed(&self.message)).style(attention),
