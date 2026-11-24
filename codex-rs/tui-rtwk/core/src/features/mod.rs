@@ -50,8 +50,8 @@ pub mod copy;
 pub mod daemon;
 pub mod diff;
 pub mod export;
-pub mod feedback;
 pub mod external_editor;
+pub mod feedback;
 pub mod goal;
 pub mod mcp_inventory;
 pub mod plugins;
@@ -60,9 +60,9 @@ pub mod recap;
 pub mod rename;
 pub mod security_setup;
 pub mod settings;
+pub mod side;
 pub mod small_cmds;
 pub mod windows_sandbox;
-pub mod side;
 
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features

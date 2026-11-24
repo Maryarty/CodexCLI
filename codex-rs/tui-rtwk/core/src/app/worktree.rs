@@ -169,6 +169,7 @@ impl Step {
                     }) => ThreadAsk::ForkAt {
                         thread: source.to_string(),
                         cwd,
+                        temporary: None,
                     },
                     _ => ThreadAsk::Start { cwd },
                 };

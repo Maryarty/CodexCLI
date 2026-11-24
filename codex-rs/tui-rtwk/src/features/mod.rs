@@ -39,8 +39,8 @@ pub mod copy;
 pub mod daemon;
 pub mod diff;
 pub mod export;
-pub mod feedback;
 pub mod external_editor;
+pub mod feedback;
 pub mod goal;
 pub mod mcp_inventory;
 pub mod plugins;
@@ -49,9 +49,9 @@ pub mod recap;
 pub mod rename;
 pub mod security_setup;
 pub mod settings;
+pub mod side;
 pub mod small_cmds;
 pub mod windows_sandbox;
-pub mod side;
 
 /// How a wish of a feature is shown (ADR-013 Ж): a sheet that is open for the wish's scope
 /// shows it from its own slice of the feature's state (the data of the wish is the feature's, a
