@@ -41,9 +41,16 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
         Notice::AddCreditsNudge { nudge, outcome } => {
             row([strings.bullet, nudge_words(*nudge, *outcome, strings)].concat())
         }
-        Notice::RateLimitWarning { remaining_percent, window } => vec![
+        Notice::RateLimitWarning {
+            remaining_percent,
+            window,
+        } => vec![
             Part::gutter(strings.warning_mark),
-            Part::text(rate_limit_warning_words(*remaining_percent, *window, strings)),
+            Part::text(rate_limit_warning_words(
+                *remaining_percent,
+                *window,
+                strings,
+            )),
         ],
         Notice::ResetAvailable { count } => {
             row([strings.bullet, &reset_available_words(*count, strings)].concat())
@@ -175,7 +182,10 @@ impl StatelessWidget for NoticeCell {
                 .into()
             }
             // `new_visible_warning_event`: the mark, then the warning in the attention tone
-            Notice::RateLimitWarning { remaining_percent, window } => {
+            Notice::RateLimitWarning {
+                remaining_percent,
+                window,
+            } => {
                 let attention = tokens.warning().attrs(Attrs::BOLD);
                 let message = rate_limit_warning_words(*remaining_percent, *window, strings);
                 Row::new()
@@ -183,7 +193,11 @@ impl StatelessWidget for NoticeCell {
                     .child(SizedBox::new(
                         Some(MARK_COLUMNS),
                         None,
-                        Some(Text::new(strings.warning_mark).style(attention.clone()).into()),
+                        Some(
+                            Text::new(strings.warning_mark)
+                                .style(attention.clone())
+                                .into(),
+                        ),
                     ))
                     .child(Expanded::new(1, Text::new(message).style(attention)))
                     .into()

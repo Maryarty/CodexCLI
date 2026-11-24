@@ -38,6 +38,7 @@ pub mod reset;
 pub mod report;
 pub mod report_data;
 pub mod sections;
+pub mod thread;
 pub mod tokens;
 
 pub use activity::TokenActivityView;

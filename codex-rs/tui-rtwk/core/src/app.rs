@@ -1823,8 +1823,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     }
                     install_banner(app, backend, banner.map(|banner| *banner));
                     banners::fallback(app, backend, fx);
-                } else if let Some(store) =
-                    Rc::make_mut(&mut app.session).rate_snapshots.get_mut(&backend)
+                } else if let Some(store) = Rc::make_mut(&mut app.session)
+                    .rate_snapshots
+                    .get_mut(&backend)
                 {
                     store.limits_mut().read_failed();
                 }

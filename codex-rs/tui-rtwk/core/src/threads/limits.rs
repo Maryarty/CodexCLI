@@ -100,7 +100,11 @@ pub struct Warning {
 pub fn warning_threshold(plan: Option<PlanType>, window_minutes: Option<i64>) -> i32 {
     let five_hours = window_minutes
         .is_some_and(|minutes| window_name(Some(minutes), false) == WindowName::FiveHours);
-    if matches!(plan, Some(PlanType::Plus | PlanType::Team)) && five_hours { 50 } else { 75 }
+    if matches!(plan, Some(PlanType::Plus | PlanType::Team)) && five_hours {
+        50
+    } else {
+        75
+    }
 }
 
 /// What the account's limits left for the thread, per backend: the warnings already given and the
@@ -134,7 +138,8 @@ impl Limits {
     /// A read was answered, or failed: the next in line is over.
     fn read_ended(&mut self) -> bool {
         self.answered += 1;
-        self.stale_through.is_some_and(|through| self.answered <= through)
+        self.stale_through
+            .is_some_and(|through| self.answered <= through)
     }
 
     /// A read failed; a newer failed read does not invalidate an older successful one.
@@ -168,7 +173,8 @@ impl Limits {
         if source == Source::Read || sample.reached.is_some() {
             self.reached = sample.reached;
         }
-        let workspace_blocked = self.spend_control_reached == Some(true) || self.reached == Some(true);
+        let workspace_blocked =
+            self.spend_control_reached == Some(true) || self.reached == Some(true);
         // a rolling update without credits is judged by the credits the last read saw
         let credits = match source {
             Source::Read => sample.credits_usable,
@@ -270,6 +276,10 @@ impl Limits {
     /// The highest percent used among the windows of the sample the last read left: when it passes
     /// [`SWITCH_PROMPT_THRESHOLD`] the oracle offers a lower-cost model.
     pub fn used_percent(&self) -> Option<i32> {
-        [self.primary, self.secondary].into_iter().flatten().map(|used| used.percent).max()
+        [self.primary, self.secondary]
+            .into_iter()
+            .flatten()
+            .map(|used| used.percent)
+            .max()
     }
 }

@@ -52,12 +52,7 @@ where
 }
 
 /// The event that answers the redemption of `key`.
-pub async fn redeem<F, Fut>(
-    send: &F,
-    ids: &Ids,
-    key: String,
-    credit_id: Option<String>,
-) -> AppEv
+pub async fn redeem<F, Fut>(send: &F, ids: &Ids, key: String, credit_id: Option<String>) -> AppEv
 where
     F: Fn(ClientRequest) -> Fut + Sync,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,

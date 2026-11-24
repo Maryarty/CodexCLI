@@ -454,7 +454,15 @@ pub const EN: Strings = Strings {
         "% of your ",
         " limit left. Run /status for a breakdown.",
     ),
-    warning_windows: ["5h", "daily", "weekly", "monthly", "annual", "usage", "secondary usage"],
+    warning_windows: [
+        "5h",
+        "daily",
+        "weekly",
+        "monthly",
+        "annual",
+        "usage",
+        "secondary usage",
+    ],
     reset_available: (
         "You have ",
         " usage limit reset",
