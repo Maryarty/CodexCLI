@@ -47,6 +47,9 @@ pub(super) struct Frame {
     /// was, and the keys are the notice's.
     pub provider: Option<provider_error::Lock>,
     pub can_continue: bool,
+    /// The Windows sandbox setup runs: the composer takes no input and the status row says so
+    /// (`show_windows_sandbox_setup_status`).
+    pub setting_up: bool,
     /// What the backend estimates the thread cost (`estimated_thread_usage`).
     pub cost: Option<Figure>,
     /// The plan of the account the server is signed in to.
@@ -73,6 +76,8 @@ impl Frame {
             .provider_error()
             .and_then(|error| provider_error::Lock::of(&serde_json::to_value(error).ok()?));
         let can_continue = thread.screen_slots().chat.path.is_some();
+        let setting_up =
+            select::<FeatureStates, bool, _>(cx, |features| features.windows_sandbox.setting_up());
         let id = thread.id().clone();
         let cost = select::<FeatureStates, Option<Figure>, _>(cx, move |features| {
             features.thread_usage.figure_of(&id)
@@ -96,6 +101,7 @@ impl Frame {
             forking,
             provider,
             can_continue,
+            setting_up,
             cost,
             plan,
         }

@@ -16,10 +16,13 @@ use codex_app_server_protocol::{
 use codex_protocol::config_types::WindowsSandboxLevel;
 
 use super::{AppCx, Scope};
+use crate::screens::SeedError;
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
+
+mod seed;
 
 /// The marker of the feature (`feature_list!`).
 pub struct WindowsSandbox;
@@ -493,6 +496,7 @@ impl State {
 feature! {
     impl Feature for WindowsSandbox {
         const NAME: &'static str = "windows_sandbox";
+        const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed::seed);
         const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::ElevateSandbox, Sheet));
         type State = State;
         type Target = Sheet;

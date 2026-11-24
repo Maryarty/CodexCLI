@@ -1,0 +1,2 @@
+# The elevated setup of a required sandbox ends in failure: the fallback prompt.
+{"step":"fact","feature":"windows_sandbox","fact":{"kind":"completed","mode":"elevated","success":false,"error":"setup failed"}}

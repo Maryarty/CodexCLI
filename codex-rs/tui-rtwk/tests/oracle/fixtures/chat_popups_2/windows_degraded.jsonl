@@ -1,0 +1,4 @@
+# Windows: the non-admin sandbox is on, both modes allowed: the permissions page names Ask for approval (non-admin sandbox) and hints at /setup-default-sandbox.
+{"step":"fact","feature":"windows_sandbox","fact":{"kind":"environment","mode":"unelevated","host":"local"}}
+{"step":"respond","method":"configRequirements/read","result":{"requirements":null}}
+{"step":"respond","method":"permissionProfile/list","result":{"data":[{"id":":read-only","description":null,"allowed":true},{"id":":workspace","description":null,"allowed":true},{"id":":danger-full-access","description":null,"allowed":true}],"nextCursor":null}}

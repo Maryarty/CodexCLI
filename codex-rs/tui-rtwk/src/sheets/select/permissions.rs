@@ -25,6 +25,7 @@ use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::select::permissions::{
     self, Chosen, Disabled, Notice, Page, PermissionsMenu, Phase, Preset, Recommend, Reviewer,
 };
@@ -34,6 +35,7 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
+use crate::features::windows_sandbox;
 use crate::widgets::picker::list::{Item, List, Role, Span};
 use crate::widgets::picker::{Event, Picker};
 use crate::widgets::sheet::bottom;
@@ -99,6 +101,16 @@ struct Facts {
     scope: u64,
     /// An inline pick waits on the catalog (`Profiles::inline_waits`).
     inline: bool,
+    /// The non-admin Windows sandbox is on: `Ask for approval` says so, and the page hints at
+    /// `/setup-default-sandbox` when the organization allows the admin one
+    /// (`windows_degraded_sandbox_enabled`, `show_elevate_sandbox_hint`).
+    sandbox: Sandbox,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Sandbox {
+    degraded: bool,
+    elevate_hint: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -125,15 +137,26 @@ impl StepState {
     /// whichever ran last leaves the registration right.
     fn facts(&self, w: &Step, cx: &mut Cx<'_, Self>) -> Facts {
         let menu = w.menu.clone();
-        select::<ScreenStates, Facts, _>(cx, move |states| {
+        let (page, phase, scope, inline) = select::<ScreenStates, _, _>(cx, move |states| {
             let select = &states.select;
-            Facts {
-                page: menu.page(&select.profiles, &select.catalog),
-                phase: menu.phase(&select.profiles),
-                scope: select.profiles.scope,
-                inline: select.profiles.inline_waits(),
-            }
-        })
+            (
+                menu.page(&select.profiles, &select.catalog),
+                menu.phase(&select.profiles),
+                select.profiles.scope,
+                select.profiles.inline_waits(),
+            )
+        });
+        let sandbox = select::<FeatureStates, Sandbox, _>(cx, |features| Sandbox {
+            degraded: features.windows_sandbox.degraded(),
+            elevate_hint: features.windows_sandbox.elevate_hint(),
+        });
+        Facts {
+            page,
+            phase,
+            scope,
+            inline,
+            sandbox,
+        }
     }
 
     fn close(&mut self, cx: &mut Cx<'_, Self>) {
@@ -208,8 +231,11 @@ impl State for StepState {
     fn build(&self, w: &Step, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let facts = self.facts(w, cx);
         let words = strings::of(cx);
-        let picker: AnyWidget =
-            Picker::new(Rc::new(list(&facts.page, words)), cx.map(Msg::Picked)).into();
+        let picker: AnyWidget = Picker::new(
+            Rc::new(list(&facts.page, facts.sandbox, words)),
+            cx.map(Msg::Picked),
+        )
+        .into();
         // The catalog that came is a new picker with its own cursor; a refresh of the same page
         // keeps cursor and scroll.
         picker.with_key(shape(facts.phase))
@@ -229,7 +255,7 @@ fn shape(phase: Phase) -> u32 {
 
 /// A menu of the `/permissions` family (`permissions_menu.rs`,
 /// `permission_popups.rs`, `permission_discovery.rs`).
-fn list(page: &Page, s: &Strings) -> List {
+fn list(page: &Page, sandbox: Sandbox, s: &Strings) -> List {
     let (title, subtitle, header) = match &page.heading {
         permissions::Heading::Permissions { notice } => (
             s.permissions_title.to_string(),
@@ -250,7 +276,9 @@ fn list(page: &Page, s: &Strings) -> List {
         subtitle,
         header,
         standard_hint: true,
-        items: page.rows.iter().map(|row| item(row, s)).collect(),
+        items: page.rows.iter().map(|row| item(row, sandbox, s)).collect(),
+        footer_note: (sandbox.elevate_hint && page.rows.iter().any(is_mode_row))
+            .then(windows_sandbox::strings::elevate_hint),
         ..List::default()
     }
 }
@@ -287,13 +315,23 @@ fn full_access_header(cyber: Option<&Recommend>, s: &Strings) -> Vec<Vec<Span>> 
     }
 }
 
-fn item(row: &permissions::Row, s: &Strings) -> Item {
+/// A row of the legacy presets (`Ask for approval`, `Read Only`, ...): the page that hints at the
+/// elevated setup is theirs, not the full access question's.
+fn is_mode_row(row: &permissions::Row) -> bool {
+    matches!(row.kind, permissions::Kind::Mode { .. })
+}
+
+fn item(row: &permissions::Row, sandbox: Sandbox, s: &Strings) -> Item {
     let words = |name: &str, description: &str| (name.to_string(), Some(description.to_string()));
     let (name, description) = match &row.kind {
         permissions::Kind::Mode { preset, reviewer } => match (preset, reviewer) {
             (Preset::Auto, Reviewer::AutoReview) => {
                 words(s.mode_approve, s.mode_approve_description)
             }
+            (Preset::Auto, _) if sandbox.degraded => (
+                windows_sandbox::strings::degraded_label(s.mode_ask),
+                Some(s.mode_ask_description.to_string()),
+            ),
             (Preset::Auto, _) => words(s.mode_ask, s.mode_ask_description),
             (Preset::FullAccess, _) => words(s.mode_full, s.mode_full_description),
             (Preset::ReadOnly, _) => words(s.mode_read, s.mode_read_description),

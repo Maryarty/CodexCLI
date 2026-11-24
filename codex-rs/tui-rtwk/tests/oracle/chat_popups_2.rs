@@ -26,7 +26,8 @@ fn row_starting(s: &Screen, text: &str) -> usize {
 }
 
 const NO_DISCOVERY: &str = "the discovery menus (loading, the server's catalog, failure with Retry, empty) are built (core `select::permissions`, entries `permission_discovery_*`, the 30 state tests of core/tests/permissions.rs, the sheet tests) but `/permissions` does not open them: the opener (src/pages/session) and the app's `permissionProfile/list` + `configRequirements/read` routing are other owners' files (parity/popups.md, Needs); the wait behind a covering modal is the app's hold, not the picker's";
-const NO_WINDOWS: &str = "the Windows sandbox prompts, setup status and degraded-sandbox labels are not built (the oracle runs these tests on Windows only)";
+const NO_AUTO_PICK: &str = "the Ask for approval pick does not lead to the Windows enable prompt: a pick, the prompt, then the preset applied once the setup ends (`Pending::preset`) is not wired between the /permissions sheet and the windows_sandbox slice";
+const NO_HEADER_LINK: &str = "the Learn more url is plain text: a Picker header run is a `Span { text, role }` with no hyperlink (the oracle writes the `<url>` as an OSC 8 link over its wrapped lines); a `link` on `picker::list::Span` is another owner's brick (src/widgets/picker, Needs)";
 const NO_FULL_ACCESS: &str = "the confirmation's rows are built (`Enable full access?`, Yes, continue anyway / Cancel, the cyber text) but its header is plain subtitle text (the oracle's header is a Paragraph: bold title, the caution sentence in red) and its Centered presentation over the retained composer (`› As` / `GP` at the left edge) is not in the Picker brick; the live open waits on the /permissions opener (parity/popups.md, Needs)";
 const NO_HISTORY: &str = "the /permissions selection history cells (`Permissions updated to ...`) are not built: no transcript cell comes from a permissions pick";
 const NO_AUTO_REVIEW: &str = "the Approve for me row, its feature gate and its (current) marker are built (core `select::permissions`, `Current.guardian`/`reviewer`, entry `permissions_unnamed_server_profile`) but `/permissions` does not open the menu: the opener (src/pages/session) reads the thread's policy and the feature gate (parity/popups.md, Needs)";
@@ -267,12 +268,20 @@ fn profile_permissions_full_access_always_opens_confirmation() {
 // ORACLE chatwidget/tests/permissions.rs:792 approvals_selection_popup_snapshot_windows_degraded_sandbox kind=ui owner=dialogs-pane
 #[test]
 fn approvals_selection_popup_snapshot_windows_degraded_sandbox() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_popups_2/windows_degraded.jsonl"
+        ))
+        .open();
     s.type_text("/permissions").keys("enter");
     s.assert_contains("Ask for approval (non-admin sandbox)");
     s.assert_contains("/setup-default-sandbox");
-    s.assert_contains("non-admin sandbox");
+    // The oracle's snapshot is the legacy preset list (no thread); `/permissions` here opens the
+    // server's catalog (its rows are in the catalog order), so the words are compared, not the
+    // rows.
+    s.assert_contains("The non-admin sandbox protects your files and prevents network access");
+    s.assert_contains("upgrade to the default sandbox, run /setup-default-sandbox");
 }
 
 // ORACLE chatwidget/tests/permissions.rs:890 full_access_confirmation_popup_snapshot kind=snap owner=dialogs-pane snap=full_access_confirmation_popup
@@ -294,7 +303,7 @@ fn full_access_confirmation_popup_snapshot() {
 // ORACLE chatwidget/tests/permissions.rs:907 windows_auto_mode_prompt_requests_enabling_sandbox_feature kind=ui owner=dialogs-pane
 #[test]
 fn windows_auto_mode_prompt_requests_enabling_sandbox_feature() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
+    kit::pending(Owner::DialogsPane, NO_AUTO_PICK);
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
@@ -307,10 +316,9 @@ fn windows_auto_mode_prompt_requests_enabling_sandbox_feature() {
 // ORACLE chatwidget/tests/permissions.rs:928 startup_prompts_for_windows_sandbox_when_agent_requested kind=snap owner=dialogs-pane snap=projectless_windows_sandbox_setup
 #[test]
 fn startup_prompts_for_windows_sandbox_when_agent_requested() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
-        .live()
+        .script(include_str!("fixtures/chat_popups_2/windows_enable.jsonl"))
         .open();
     s.assert_contains("requires Administrator permissions");
     s.assert_contains("Set up default sandbox");
@@ -326,10 +334,11 @@ fn startup_prompts_for_windows_sandbox_when_agent_requested() {
 // ORACLE chatwidget/tests/permissions.rs:991 startup_windows_sandbox_prompt_blocks_disallowed_unelevated_fallback kind=ui owner=dialogs-pane
 #[test]
 fn startup_windows_sandbox_prompt_blocks_disallowed_unelevated_fallback() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_popups_2/windows_required.jsonl"
+        ))
         .open();
     s.assert_contains("Your organization requires the default Codex agent sandbox");
     s.assert_absent("Use non-admin sandbox");
@@ -338,22 +347,29 @@ fn startup_windows_sandbox_prompt_blocks_disallowed_unelevated_fallback() {
 // ORACLE chatwidget/tests/permissions.rs:1011 windows_sandbox_help_links_keep_complete_wrapped_destinations kind=snap owner=dialogs-pane
 #[test]
 fn windows_sandbox_help_links_keep_complete_wrapped_destinations() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
-    let s = Screen::build(Owner::DialogsPane).size(40, 24).live().open();
-    s.assert_snap("windows_sandbox_wrapped_help_url");
+    kit::pending(Owner::DialogsPane, NO_HEADER_LINK);
+    let s = Screen::build(Owner::DialogsPane)
+        .size(40, 24)
+        .script(include_str!("fixtures/chat_popups_2/windows_enable.jsonl"))
+        .open();
+    s.assert_links_spell("https://developers.openai.com/codex/windows");
 }
 
 // ORACLE chatwidget/tests/permissions.rs:1054 windows_sandbox_required_enable_prompt_snapshot kind=snap owner=dialogs-pane snap=windows_sandbox_required_enable_prompt
 #[test]
 fn windows_sandbox_required_enable_prompt_snapshot() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_popups_2/windows_required.jsonl"
+        ))
         .open();
     s.assert_snap_region(
         "windows_sandbox_required_enable_prompt",
-        row_of(&s, "Set up the Codex agent sandbox"),
+        row_of(
+            &s,
+            "Your organization requires the default Codex agent sandbox",
+        ),
         0,
     );
 }
@@ -370,10 +386,9 @@ fn windows_sandbox_required_enable_prompt_reopens_on_cancel_when_unelevated_allo
 // ORACLE chatwidget/tests/permissions.rs:1095 fragmented_terminal_response_cannot_select_non_admin_windows_sandbox kind=ui owner=dialogs-pane
 #[test]
 fn fragmented_terminal_response_cannot_select_non_admin_windows_sandbox() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
-        .live()
+        .script(include_str!("fixtures/chat_popups_2/windows_enable.jsonl"))
         .open();
     // The fragment is typed into the prompt: the prompt stays on screen and no choice is made.
     s.type_text("20;rgb:2222/ffff/ffff");
@@ -384,8 +399,12 @@ fn fragmented_terminal_response_cannot_select_non_admin_windows_sandbox() {
 // ORACLE chatwidget/tests/permissions.rs:1130 windows_sandbox_setup_starts_a_fresh_status_clock kind=snap owner=dialogs-pane snap=windows_sandbox_setup_fresh_clock
 #[test]
 fn windows_sandbox_setup_starts_a_fresh_status_clock() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    // The default sandbox is chosen: the setup runs and the status says so.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_popups_2/windows_enable.jsonl"))
+        .open();
+    s.keys("enter");
     s.assert_contains("Setting up sandbox");
     s.assert_contains("(0s");
     // The snapshot `windows_sandbox_setup_fresh_clock` holds `[CWD]` for the test cwd; it is not
@@ -395,17 +414,20 @@ fn windows_sandbox_setup_starts_a_fresh_status_clock() {
 // ORACLE chatwidget/tests/permissions.rs:1250 windows_sandbox_required_fallback_prompt_snapshot kind=snap owner=dialogs-pane snap=windows_sandbox_required_fallback_prompt
 #[test]
 fn windows_sandbox_required_fallback_prompt_snapshot() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
-    let s = Screen::build(Owner::DialogsPane)
+    // The required prompt's setup is chosen and ends in failure: the fallback prompt comes.
+    let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_popups_2/windows_required.jsonl"
+        ))
         .open();
+    s.keys("enter");
+    s.feed(include_str!(
+        "fixtures/chat_popups_2/windows_elevated_failed.jsonl"
+    ));
     s.assert_snap_region(
         "windows_sandbox_required_fallback_prompt",
-        row_of(
-            &s,
-            "Your organization requires the default Codex agent sandbox",
-        ),
+        row_of(&s, "Couldn't set up your sandbox with Administrator"),
         0,
     );
 }
@@ -583,10 +605,11 @@ fn permissions_full_access_history_cell_emitted_only_after_confirmation() {
 // ORACLE chatwidget/tests/permissions.rs:1888 windows_sandbox_unelevated_policy_hides_admin_setup kind=snap owner=dialogs-pane snap=windows_sandbox_unelevated_policy
 #[test]
 fn windows_sandbox_unelevated_policy_hides_admin_setup() {
-    kit::pending(Owner::DialogsPane, NO_WINDOWS);
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 24)
-        .live()
+        .script(include_str!(
+            "fixtures/chat_popups_2/windows_unelevated.jsonl"
+        ))
         .open();
     s.assert_snap_region(
         "windows_sandbox_unelevated_policy",

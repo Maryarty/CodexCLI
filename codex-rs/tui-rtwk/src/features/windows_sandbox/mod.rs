@@ -2,9 +2,11 @@
 //! `codex_tui_core::features::windows_sandbox` (the sandbox facts, the prompt that is due and its
 //! `Page` data, the setup that runs, the verbs). The two prompt sheets (enable, fallback: header
 //! with the learn-more link, the rows of `State::page`, Esc coming back while `choice_required`)
-//! are `sheet.rs`, shown for the feature's `Wish::Prompt`. UI LEFT: the `Setting up sandbox...` status with the composer disabled while
-//! `State::setting_up`, the `(non-admin sandbox)` row label and the `/setup-default-sandbox`
-//! hint of the permissions page (`State::degraded`, `State::elevate_hint`).
+//! are `sheet.rs`, shown for the feature's `Wish::Prompt`. The `Setting up sandbox...` status and
+//! the disabled composer while `State::setting_up` are the session page's
+//! (`pages/session/activity.rs`, `session/slot.rs`, with the words of `strings.rs`); the
+//! `(non-admin sandbox)` row label and the `/setup-default-sandbox` hint of the permissions page
+//! (`State::degraded`, `State::elevate_hint`) are `sheets/select/permissions.rs`'s.
 
 pub mod sheet;
 pub mod strings;

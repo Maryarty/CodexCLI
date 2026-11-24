@@ -21,6 +21,7 @@ use rtwk::{
 
 use crate::widgets::picker::list::{Columns, Item, List};
 use codex_tui_core::app::SessionSlice;
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::keymap::actions::{LIST_ACCEPT, LIST_CANCEL};
 use codex_tui_core::screens::cells::{ClockFormat, ViewerClock};
@@ -85,20 +86,48 @@ impl BannerHint {
 }
 
 /// The banner on screen: the backend it is of and its occurrence's ticket, which together are the
-/// banner's id (the entity is keyed by the request that raised it). The page carries it between the
-/// number key and the app's answer without reading either.
+/// banner's id (the entity is keyed by the request that raised it), or the security-setup
+/// reminder of an occurrence. The page carries it between the number key and the app's answer
+/// without reading either.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct BannerId(BackendId, Ticket);
+pub(crate) enum BannerId {
+    Backend(BackendId, Ticket),
+    /// The reminder (`features::security_setup`): its action is the feature's verb, its dismissal
+    /// is the page's (`BannerGate::dismissed`).
+    Security(u64),
+}
 
 impl BannerId {
-    /// The app's pick of the banner's row `row`.
-    pub(crate) fn picked(self, row: usize) -> (BackendId, Ticket, usize) {
-        (self.0, self.1, row)
+    /// The pick of the banner's row `row`: the app's, or the feature's verb.
+    pub(crate) fn pick<S: 'static>(self, row: usize, hs: &Hs, cx: &mut Cx<'_, S>) {
+        match self {
+            BannerId::Backend(backend, ticket) => cx.emit(&hs.pick_banner, (backend, ticket, row)),
+            BannerId::Security(_) => crate::features::verb_by(
+                cx,
+                hs,
+                codex_tui_core::features::security_setup::Intent::Open,
+            ),
+        }
     }
 
-    /// The app's dismissal of the banner.
-    pub(crate) fn dismissed(self) -> (BackendId, Ticket) {
-        (self.0, self.1)
+    /// The dismissal of the banner: the app's, or the page's own record of the occurrence, which
+    /// asks for a new build (the answer is whether it does).
+    pub(crate) fn dismiss<S: 'static>(
+        self,
+        gate: &BannerGate,
+        hs: &Hs,
+        cx: &mut Cx<'_, S>,
+    ) -> Rebuild {
+        match self {
+            BannerId::Backend(backend, ticket) => {
+                cx.emit(&hs.dismiss_banner, (backend, ticket));
+                Rebuild::No
+            }
+            BannerId::Security(occurrence) => {
+                gate.dismissed.set(gate.dismissed.get().max(occurrence));
+                Rebuild::Yes
+            }
+        }
     }
 }
 
@@ -119,6 +148,9 @@ pub(crate) struct BannerKeys {
 pub(crate) struct BannerGate {
     pub(crate) keys: Rc<Cell<BannerKeys>>,
     pub(crate) options: Options,
+    /// The newest occurrence of the security reminder the user dismissed (0: none): kept here, so
+    /// the dismissal survives the usage banner's replacement and the thread switches.
+    pub(crate) dismissed: Rc<Cell<u64>>,
 }
 
 impl BannerGate {
@@ -126,6 +158,7 @@ impl BannerGate {
         Self {
             keys: Rc::new(Cell::new(BannerKeys::default())),
             options: Options::new(),
+            dismissed: Rc::new(Cell::new(0)),
         }
     }
 }
@@ -147,6 +180,9 @@ impl std::fmt::Debug for BannerGate {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct BackendBanners {
     pub(super) gate: BannerGate,
+    /// What the page keeps of the dismissed reminders (`gate.dismissed`), told by the page's
+    /// build: a dismissal asks the page for a build, and this is what reaches the banner by it.
+    pub(super) dismissed: u64,
 }
 
 impl_widget!(stateful eq BackendBanners);
@@ -174,7 +210,7 @@ impl State for BackendBannersState {
     fn update(&mut self, msg: BannerMsg, _: &BackendBanners, cx: &mut Cx<'_, Self>) -> Rebuild {
         let BannerMsg::Pick(banner, row) = msg;
         let hs = read::<Hs, _>(cx);
-        cx.emit(&hs.pick_banner, banner.picked(row));
+        banner.pick(row, &hs, cx);
         Rebuild::No
     }
 
@@ -193,6 +229,14 @@ impl State for BackendBannersState {
         let place = place_of(cx, &id);
         let backend = place.backend;
         let active_model = model.as_deref().or(place.status_model.as_deref());
+        let dismissed = widget.dismissed.max(widget.gate.dismissed.get());
+        let security = select::<FeatureStates, _, _>(cx, move |features| {
+            let setup = &features.security_setup;
+            setup
+                .notice()
+                .filter(|_| setup.occurrence() > dismissed)
+                .map(|notice| (notice.clone(), setup.occurrence()))
+        });
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
@@ -224,69 +268,42 @@ impl State for BackendBannersState {
                 .enumerate()
                 .map(|(index, cta)| format!("{}. {}", index + 1, cta.label))
                 .collect();
-            let ticket = occurrence.ticket;
+            let id = BannerId::Backend(backend, occurrence.ticket);
             keys = BannerKeys {
-                backend: Some(BannerId(backend, ticket)),
+                backend: Some(id),
                 actions: labels.len().min(9),
                 dismissible: occurrence.is_dismissible(),
             };
             let hint = words.banner_hint(BannerHint::of(!labels.is_empty(), keys.dismissible));
-            let header = header(title, description, &tokens);
-            let block = if labels.is_empty() {
-                // information only: a blank row above and below, the hint two rows under
-                let mut block = Column::new()
-                    .main_axis_size(MainAxisSize::Min)
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(SizedBox::new(None, Some(1), None))
-                    .child(header);
-                if let Some(hint) = hint {
-                    block = block
-                        .child(SizedBox::new(None, Some(1), None))
-                        .child(inset(Text::new(hint.to_owned()).style(tokens.dim()).into()));
-                }
-                block.child(SizedBox::new(None, Some(1), None))
-            } else {
-                let rows = Rc::new(
-                    labels
-                        .into_iter()
-                        .map(|label| OptionRow {
-                            label,
-                            description: None,
-                        })
-                        .collect::<Vec<_>>(),
-                );
-                let options = widget.gate.options.on_accept(
-                    cx.map(move |row: usize| BannerMsg::Pick(BannerId(backend, ticket), row)),
-                );
-                let styles = OptionStyles {
-                    cursor: tokens.accent().attrs(Attrs::BOLD),
-                    label: Style::new(),
-                    description: Style::new(),
-                };
-                let mut block = Column::new()
-                    .main_axis_size(MainAxisSize::Min)
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(SizedBox::new(None, Some(1), None))
-                    .child(header)
-                    .child(SizedBox::new(None, Some(1), None))
-                    .child(
-                        // the rows as tall as they are (`Options` would take
-                        // all the room it is given)
-                        IntrinsicHeight::new(
-                            Column::new()
-                                .main_axis_size(MainAxisSize::Min)
-                                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                                .child(options.view(rows, styles, 0)),
-                        ),
-                    );
-                if let Some(hint) = hint {
-                    block = block
-                        .child(SizedBox::new(None, Some(1), None))
-                        .child(inset(Text::new(hint.to_owned()).style(tokens.dim()).into()));
-                }
-                block
+            let block = banner_block(
+                cx,
+                &widget.gate,
+                &tokens,
+                id,
+                header(title, description, &tokens),
+                labels,
+                hint,
+            );
+            column = column.child(block.with_key(Key::value(occurrence.ticket)));
+        } else if let Some((notice, occurrence)) = security {
+            // the reminder shows while no banner of the backend applies and the user has not
+            // dismissed this occurrence of it (`show_security_setup`)
+            let id = BannerId::Security(occurrence);
+            keys = BannerKeys {
+                backend: Some(id),
+                actions: 1,
+                dismissible: true,
             };
-            column = column.child(AnyWidget::from(block).with_key(Key::value(ticket)));
+            let block = banner_block(
+                cx,
+                &widget.gate,
+                &tokens,
+                id,
+                header(notice.title, notice.description, &tokens),
+                vec![format!("1. {}", notice.action.label)],
+                words.banner_hint(BannerHint::ChooseOrDismiss),
+            );
+            column = column.child(block.with_key(Key::value(("security", occurrence))));
         }
         widget.gate.keys.set(keys);
         if let Some(notice) = session.backend_notices.get(&backend) {
@@ -294,6 +311,71 @@ impl State for BackendBannersState {
         }
         column.into()
     }
+}
+
+/// A banner's block: a blank row above, the header, its numbered actions (a tap picks a row; none:
+/// an information banner) and the hint under them (`set_inline_banner`).
+fn banner_block(
+    cx: &mut Cx<'_, BackendBannersState>,
+    gate: &BannerGate,
+    tokens: &theme::Tokens,
+    id: BannerId,
+    header: AnyWidget,
+    labels: Vec<String>,
+    hint: Option<&str>,
+) -> AnyWidget {
+    if labels.is_empty() {
+        // information only: a blank row above and below, the hint two rows under
+        let mut block = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .child(SizedBox::new(None, Some(1), None))
+            .child(header);
+        if let Some(hint) = hint {
+            block = block
+                .child(SizedBox::new(None, Some(1), None))
+                .child(inset(Text::new(hint.to_owned()).style(tokens.dim()).into()));
+        }
+        return block.child(SizedBox::new(None, Some(1), None)).into();
+    }
+    let rows = Rc::new(
+        labels
+            .into_iter()
+            .map(|label| OptionRow {
+                label,
+                description: None,
+            })
+            .collect::<Vec<_>>(),
+    );
+    let options = gate
+        .options
+        .on_accept(cx.map(move |row: usize| BannerMsg::Pick(id, row)));
+    let styles = OptionStyles {
+        cursor: tokens.accent().attrs(Attrs::BOLD),
+        label: Style::new(),
+        description: Style::new(),
+    };
+    let mut block = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .child(SizedBox::new(None, Some(1), None))
+        .child(header)
+        .child(SizedBox::new(None, Some(1), None))
+        .child(
+            // the rows as tall as they are (`Options` would take all the room it is given)
+            IntrinsicHeight::new(
+                Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(options.view(rows, styles, 0)),
+            ),
+        );
+    if let Some(hint) = hint {
+        block = block
+            .child(SizedBox::new(None, Some(1), None))
+            .child(inset(Text::new(hint.to_owned()).style(tokens.dim()).into()));
+    }
+    block.into()
 }
 
 /// The viewer's clock and the host's zone and time, which the banner's `{time}` is read in.

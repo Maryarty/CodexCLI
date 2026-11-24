@@ -12,13 +12,14 @@
 
 use super::AppCx;
 use crate::app::effects::{Ask, Done};
+use crate::screens::SeedError;
 use crate::threads::Tone;
 
 /// The marker of the feature (`feature_list!`).
 pub struct SecuritySetup;
 
 /// Who the notice was fetched for (oracle `Identity`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct Identity {
     pub account: String,
     pub user: String,
@@ -26,14 +27,14 @@ pub struct Identity {
 
 /// The server's notice: a title, a description and one action that opens a page (oracle `Notice`).
 /// The host sends only a valid one (`valid`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct Notice {
     pub title: String,
     pub description: String,
     pub action: Action,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct Action {
     pub label: String,
     pub url: String,
@@ -55,8 +56,11 @@ impl Notice {
     }
 }
 
-/// What the host tells the feature unasked (and a script seeds).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What the host tells the feature unasked (and a script seeds: `{"kind":"loaded","identity":
+/// {"account":"a","user":"u"},"notice":{"title":..,"description":..,"action":{"label":..,
+/// "url":..}}}`, or `{"kind":"invalidated"}`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Fact {
     /// A notice fetched and verified for `identity` (`show_security_setup`).
     Loaded { identity: Identity, notice: Notice },
@@ -144,6 +148,7 @@ impl State {
 feature! {
     impl Feature for SecuritySetup {
         const NAME: &'static str = "security_setup";
+        const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed);
         type State = State;
         type Intent = Intent;
         type Ctx = Ctx;
@@ -177,4 +182,8 @@ feature! {
             }
         }
     }
+}
+
+fn seed(value: serde_json::Value) -> Result<Fact, SeedError> {
+    serde_json::from_value(value).map_err(|error| SeedError::Bad(error.to_string()))
 }

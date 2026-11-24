@@ -15,6 +15,7 @@ use rtwk::{
 };
 
 use codex_tui_core::app::{ConnectionState, Session, SessionSlice};
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
 use codex_tui_core::screens::approvals::guardian::Reviewing;
@@ -23,6 +24,7 @@ use codex_tui_core::threads::compaction::Running as ActiveCompaction;
 use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
 
 use crate::app::theme;
+use crate::features::windows_sandbox;
 use crate::l10n::strings as l10n;
 use crate::sheets::approvals;
 
@@ -134,6 +136,8 @@ impl StatelessWidget for StatusSlot {
         let status_strings = status::strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
         let run = select::<ThreadModel, Run, _>(cx, Run::of);
+        let setting_up =
+            select::<FeatureStates, bool, _>(cx, |features| features.windows_sandbox.setting_up());
         if run.read_only {
             return SizedBox::shrink().into();
         }
@@ -174,6 +178,26 @@ impl StatelessWidget for StatusSlot {
             )
         } else if session.status == Session::Starting {
             Some(Text::new(strings.chat.starting).style(tokens.dim()).into())
+        } else if setting_up {
+            // `show_windows_sandbox_setup_status`: its own header and details, no interrupt, a
+            // clock that starts when the setup does (a new key on the run of the setup)
+            working = true;
+            Some(
+                AnyWidget::from(Activity {
+                    interrupt: None,
+                    spinner: effects(facts).0,
+                    shimmer: effects(facts).1,
+                    header: windows_sandbox::strings::SETUP_HEADER.to_string(),
+                    details: Some(chat::StatusDetails::new(
+                        windows_sandbox::strings::SETUP_DETAILS.to_string(),
+                        chat::STATUS_DETAILS_MAX_LINES,
+                    )),
+                    inline: None,
+                    hook: None,
+                    offset_seconds: 0,
+                })
+                .with_key(Key::value("windows-sandbox-setup")),
+            )
         } else if running.is_some() || compacting || review.is_some() {
             working = true;
             // the compaction has its own clock; the turn's comes back when it is over

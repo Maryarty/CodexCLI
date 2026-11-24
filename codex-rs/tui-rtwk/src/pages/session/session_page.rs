@@ -316,12 +316,11 @@ impl State for ChatState {
         }
         match msg {
             ChatMsg::BannerPick(banner, row) => {
-                cx.emit(&hs.pick_banner, banner.picked(row));
+                banner.pick(row, &hs, cx);
                 return Rebuild::No;
             }
             ChatMsg::BannerDismiss(banner) => {
-                cx.emit(&hs.dismiss_banner, banner.dismissed());
-                return Rebuild::No;
+                return banner.dismiss(&self.banner, &hs, cx);
             }
             ChatMsg::Submit(text) => self.submit(&text, w, cx, &hs, previous.primed),
             ChatMsg::Page(pages) => w.ui.follow.page(i64::from(pages)),

@@ -1068,65 +1068,233 @@ fn review_picker_filtered_accept_and_cancel_preserve_parent_and_draft() {
 }
 
 // ---- oracle: chatwidget/tests/security_setup_tests.rs (5 screen-level tests here; 0 state tests left to dialogs-pane)
+
+/// The first row that contains `text`; past the screen when none does.
+fn row_holding(s: &Screen, text: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|r| r.contains(text))
+        .unwrap_or(usize::MAX)
+}
+
+/// The host's fact: the notice fetched for `account` (`show_security_setup`).
+fn security_step(account: &str, title: &str, description: &str) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "fact", "feature": "security_setup", "fact": {
+            "kind": "loaded",
+            "identity": {"account": account, "user": "user"},
+            "notice": {
+                "title": title, "description": description,
+                "action": {"label": "Set up security", "url": "https://chatgpt.com/cyber"},
+            },
+        }})
+    )
+}
+
+/// The default notice of the oracle's tests.
+fn security_notice(account: &str) -> String {
+    security_step(
+        account,
+        "Keep using Daybreak mode",
+        "Set up Advanced Account Security with a hardware security key by October 1. Already Persona-verified? Add your key before October 15 to skip re-verification.",
+    )
+}
+
+/// `invalidate_security_setup`: the account was announced again.
+fn security_invalidated() -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "fact", "feature": "security_setup", "fact": {"kind": "invalidated"}})
+    )
+}
+
+/// The account read's answer: a dismissible `selected_model_limit` banner on `test-model-a`.
+fn usage_banner() -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "respond", "method": "account/rateLimits/read", "result": {
+            "accountId": "workspace-a", "rateLimits": {},
+            "rateLimitUpsell": {
+                "banner_type": "selected_model_limit", "model_slug": "test-model-a",
+                "title": "Selected model usage exhausted", "description": "Switch models.",
+                "presentation": "dismissible", "ctas": [],
+            },
+        }})
+    )
+}
+
+/// `set_model` (the config's model in use) and, with `read`, the account read that follows.
+fn model_step(model: &str, read: bool) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "screen", "dir": "chat", "ev": {"status": {"model": model, "account_usage": read}}})
+    )
+}
+
+/// The pages the banner's action asked the browser to open: the feature's `OpenUrl` ask, which
+/// the kit's `opened_urls` (the app's own `Command::OpenUrl`) does not list.
+fn browser_pages(s: &Screen) -> Vec<String> {
+    use codex_tui_core::app::Command;
+    use codex_tui_core::app::effects::Ask;
+    s.commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::OpenUrl { url, .. } => Some(url),
+            Command::Effect {
+                ask: Ask::OpenUrl { url },
+                ..
+            } => Some(url),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The oracle's snapshot `name` against the screen from `row`, up to and including the snapshot's
+/// first row holding `last`. What the oracle draws under that row is not the banner's: the footer
+/// (`test-model-a default · /tmp/project` over `? for shortcuts`, ours is one `← for agents` row)
+/// and the composer's gap (ours has one more blank row between an actions banner's hint and the
+/// composer, the bottom pane's layout).
+fn assert_snap_through(s: &Screen, name: &str, row: usize, last: &str) {
+    let want = kit::snap_rows(name, "");
+    let end = want
+        .iter()
+        .position(|r| r.contains(last))
+        .unwrap_or_else(|| panic!("{name}: no row holds `{last}`"));
+    let ours = s.rows();
+    assert!(
+        row < ours.len(),
+        "{name}: the banner is not on the screen:\n{}",
+        s.text()
+    );
+    let have: Vec<String> = (0..=end)
+        .map(|at| ours.get(row + at).map_or("", |r| r.trim_end()).to_owned())
+        .collect();
+    let want: Vec<String> = want[..=end]
+        .iter()
+        .map(|r| r.trim_end().to_owned())
+        .collect();
+    pretty_assertions::assert_eq!(
+        have,
+        want,
+        "{name}: ours (left) differs from the oracle (right)"
+    );
+}
+
 // ORACLE chatwidget/tests/security_setup_tests.rs:23 security_setup_preserves_draft_action_and_dismissal_across_widgets kind=snap owner=dialogs-pane
 #[test]
 fn security_setup_preserves_draft_action_and_dismissal_across_widgets() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no security-setup banner in the port: the Set up security notice with its action and Esc dismissal has no widget and no seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(70, 24).live().open();
-    s.assert_snap("security_setup_banner");
+    s.feed(&security_notice("account"));
+    assert_snap_through(
+        &s,
+        "security_setup_banner",
+        row_holding(&s, "Keep using Daybreak mode"),
+        "Press a number",
+    );
+    // 1 opens the page in the browser and the banner stays
+    s.keys("1");
+    assert_eq!(browser_pages(&s), ["https://chatgpt.com/cyber"]);
+    s.assert_contains("Set up security");
     s.keys("esc");
     s.assert_absent("Set up security");
+    // the account is announced again and the same identity is verified: the dismissal stays
+    s.feed(&(security_invalidated() + &security_notice("account")));
+    s.assert_absent("Set up security");
+    // a verified change of account starts a new notice occurrence
+    s.feed(&(security_invalidated() + &security_notice("other-account")));
+    s.assert_contains("Set up security");
 }
 
 // ORACLE chatwidget/tests/security_setup_tests.rs:69 security_setup_dismissal_survives_usage_banner_replacement kind=snap owner=dialogs-pane
 #[test]
 fn security_setup_dismissal_survives_usage_banner_replacement() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no security-setup banner in the port: a dismissed notice stays dismissed when the usage banner replaces it; no widget and no backend banner seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(70, 24).live().open();
-    s.keys("esc");
-    s.assert_snap("security_setup_dismissed_after_usage");
+    for dismiss_security in [true, false] {
+        let mut s = Screen::build(Owner::DialogsPane).size(70, 24).live().open();
+        s.feed(&security_notice("account"));
+        s.assert_contains("Set up security");
+        if dismiss_security {
+            s.keys("esc");
+        }
+        s.feed(&(usage_banner() + &model_step("test-model-a", true)));
+        s.wait_for("Selected model usage exhausted");
+        if !dismiss_security {
+            // Dismissing usage must not dismiss the security reminder instead.
+            s.assert_absent("Set up security");
+            s.keys("esc");
+        }
+        // Account refresh must not read the replacement banner's dismissal state.
+        s.feed(&(security_invalidated() + &security_notice("account")));
+        s.assert_present("Set up security", !dismiss_security);
+        if dismiss_security {
+            assert_snap_through(
+                &s,
+                "security_setup_dismissed_after_usage",
+                row_holding(&s, "Ask Codex to do anything"),
+                "Ask Codex to do anything",
+            );
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/security_setup_tests.rs:126 security_setup_after_cutoff_wraps_in_narrow_terminal kind=snap owner=dialogs-pane snap=security_setup_after_cutoff
 #[test]
 fn security_setup_after_cutoff_wraps_in_narrow_terminal() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no security-setup banner in the port: the after-cutoff notice wraps in a 48-column terminal; no widget and no seed",
+    let mut s = Screen::build(Owner::DialogsPane).size(48, 24).live().open();
+    s.feed(&security_step(
+        "account",
+        "Set up security for Daybreak mode",
+        "Set up Advanced Account Security with a hardware security key. Already Persona-verified? Add your key before October 15 to skip re-verification. You can keep using Codex while you finish setup.",
+    ));
+    assert_snap_through(
+        &s,
+        "security_setup_after_cutoff",
+        row_holding(&s, "Set up security for Daybreak mode"),
+        "type to continue",
     );
-    let s = Screen::build(Owner::DialogsPane).size(48, 24).live().open();
-    s.assert_snap("security_setup_after_cutoff");
 }
 
 // ORACLE chatwidget/tests/security_setup_tests.rs:139 security_setup_after_persona_grace_wraps_in_narrow_terminal kind=snap owner=dialogs-pane snap=security_setup_after_persona_grace
 #[test]
 fn security_setup_after_persona_grace_wraps_in_narrow_terminal() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no security-setup banner in the port: the after-Persona-grace notice wraps in a 48-column terminal; no widget and no seed",
+    let mut s = Screen::build(Owner::DialogsPane).size(48, 24).live().open();
+    s.feed(&security_step(
+        "account",
+        "Set up security for Daybreak mode",
+        "Set up Advanced Account Security with a hardware security key. Verify each new hardware security key with Persona. You can keep using Codex while you finish setup.",
+    ));
+    assert_snap_through(
+        &s,
+        "security_setup_after_persona_grace",
+        row_holding(&s, "Set up security for Daybreak mode"),
+        "type to continue",
     );
-    let s = Screen::build(Owner::DialogsPane).size(48, 24).live().open();
-    s.assert_snap("security_setup_after_persona_grace");
 }
 
 // ORACLE chatwidget/tests/security_setup_tests.rs:152 security_setup_respects_applicable_backend_banner kind=ui owner=dialogs-pane
 #[test]
 fn security_setup_respects_applicable_backend_banner() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no security-setup banner in the port: it shows or hides by the applicable backend banner and the model; no widget and no backend banner seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(70, 24).live().open();
-    s.assert_contains("Set up security");
-    s.keys("esc");
-    s.assert_absent("Set up security");
-    s.assert_contains("Selected model usage exhausted");
+    for state in ["visible", "dismissed", "another-model"] {
+        let mut s = Screen::build(Owner::DialogsPane).size(70, 24).live().open();
+        s.feed(&(usage_banner() + &model_step("test-model-a", true)));
+        s.wait_for("Selected model usage exhausted");
+        match state {
+            "dismissed" => {
+                s.keys("esc");
+            }
+            "another-model" => {
+                s.feed(&model_step("test-model-b", false));
+            }
+            _ => {}
+        }
+        s.feed(&security_notice("account"));
+        s.assert_present("Set up security", state != "visible");
+        if state == "another-model" {
+            s.keys("esc");
+            s.feed(&model_step("test-model-a", false));
+            s.assert_contains("Selected model usage exhausted");
+        }
+    }
 }
 
 // ---- oracle: chatwidget/tests/session_model_selection_tests.rs (4 screen-level tests here; 1 state tests left to dialogs-pane)

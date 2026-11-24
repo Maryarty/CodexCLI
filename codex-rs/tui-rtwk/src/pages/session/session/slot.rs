@@ -67,6 +67,9 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         match held {
             ComposerState::ParentOwned => composer = composer.worded(Placeholder::ParentOwned),
             ComposerState::ShuttingDown => composer = composer.disabled(Placeholder::ShuttingDown),
+            ComposerState::Open if frame.setting_up => {
+                composer = composer.disabled(Placeholder::SetupRunning);
+            }
             ComposerState::ReadOnly | ComposerState::Disabled | ComposerState::Open => {}
         }
         let footer = if held == ComposerState::ShuttingDown {

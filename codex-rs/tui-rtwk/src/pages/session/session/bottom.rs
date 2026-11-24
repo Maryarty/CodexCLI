@@ -88,6 +88,7 @@ pub(super) fn body(
     });
     let body = body.child(BackendBanners {
         gate: state.banner.clone(),
+        dismissed: state.banner.dismissed.get(),
     });
     let mut body = if thread.read_only() || frame.provider.is_some() {
         body.child(composer)

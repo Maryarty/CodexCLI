@@ -84,6 +84,33 @@ fn header(page: &Page) -> Vec<Vec<Span>> {
     }
 }
 
+/// One row. Its digit picks it, except the row that needs an explicit confirmation
+/// (`require_explicit_confirmation`, `Choice::explicit_confirmation`): a number a fragmented
+/// terminal response types must not choose the non-admin sandbox, so that row is numbered in its
+/// words only and Enter on it confirms (the oracle's digit moves the cursor to it: the picker has
+/// no such row, parity/popups.md Needs).
+fn row(prompt: Prompt, choice: Choice, index: usize) -> Item {
+    let number = index + 1;
+    let item = Item {
+        id: id_of(choice).to_owned(),
+        name: name(prompt, choice).to_owned(),
+        ..Item::default()
+    };
+    match (choice.explicit_confirmation(), char::from_digit(number as u32, 10)) {
+        (false, Some(digit)) => Item {
+            shortcut: Some(digit),
+            ..item
+        },
+        _ => Item {
+            prefix_spans: vec![Span {
+                text: format!("{number}. "),
+                role: Role::Plain,
+            }],
+            ..item
+        },
+    }
+}
+
 /// The list of a prompt (`SelectionViewParams::picker()` with the standard hint).
 pub fn menu(page: &Page) -> List {
     List {
@@ -92,15 +119,27 @@ pub fn menu(page: &Page) -> List {
         items: page
             .choices
             .iter()
-            .map(|choice| Item {
-                id: id_of(*choice).to_owned(),
-                name: name(page.prompt, *choice).to_owned(),
-                ..Item::default()
-            })
+            .enumerate()
+            .map(|(index, choice)| row(page.prompt, *choice, index))
             .collect(),
+        numbered: false,
         columns: Columns::AutoAllRows,
         hide_description_below: Some(24),
         panel: true,
         ..List::default()
     }
+}
+
+/// The status row while the setup runs (`show_windows_sandbox_setup_status`).
+pub const SETUP_HEADER: &str = "Setting up sandbox...";
+pub const SETUP_DETAILS: &str = "Hang tight, this may take a few minutes";
+
+/// The `Ask for approval` row while the non-admin sandbox is on (`windows_degraded_sandbox_enabled`).
+pub fn degraded_label(base: &str) -> String {
+    format!("{base} (non-admin sandbox)")
+}
+
+/// The note under the `/permissions` rows that points at the admin setup (`show_elevate_sandbox_hint`).
+pub fn elevate_hint() -> String {
+    "The non-admin sandbox protects your files and prevents network access under most circumstances. However, it carries greater risk if prompt injected. To upgrade to the default sandbox, run /setup-default-sandbox.".to_owned()
 }

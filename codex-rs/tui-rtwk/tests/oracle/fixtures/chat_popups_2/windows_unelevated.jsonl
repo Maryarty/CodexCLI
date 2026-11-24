@@ -1,0 +1,3 @@
+# Windows: the organization allows only the non-admin sandbox (requirements = [Unelevated]); the enable prompt is due.
+{"step":"fact","feature":"windows_sandbox","fact":{"kind":"environment","mode":null,"requirements":["unelevated"],"host":"local"}}
+{"step":"fact","feature":"windows_sandbox","fact":{"kind":"trusted"}}

@@ -227,6 +227,8 @@ pub enum Placeholder {
     ShuttingDown,
     /// `Input disabled.`
     Disabled,
+    /// `Input disabled until setup completes.`
+    SetupRunning,
 }
 
 impl Placeholder {
@@ -235,6 +237,7 @@ impl Placeholder {
             Placeholder::ParentOwned => strings.parent_placeholder,
             Placeholder::ShuttingDown => strings.shutting_down,
             Placeholder::Disabled => strings.input_disabled,
+            Placeholder::SetupRunning => strings.setup_running,
         }
     }
 }
