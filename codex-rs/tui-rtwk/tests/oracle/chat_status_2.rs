@@ -759,7 +759,7 @@ fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth
     s.assert_absent("refreshing limits");
     // the account's limits are asked once for it, and the card shows what came back
     s.assert_requests_of("account/rateLimits/read", startup + 1);
-    s.wait_for("8% left");
+    s.wait_for("8% left (resets");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:35 status_command_refresh_updates_cached_limits_for_future_status_outputs kind=ui owner=ui-pane
@@ -770,14 +770,15 @@ fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
     s.feed(CHATGPT).feed(&limits(92));
     s.type_text("/status");
     s.keys("enter");
-    s.wait_for("8% left");
-    s.assert_rows_with("8% left", 1);
+    s.wait_for("8% left (resets");
+    // the card's row; the usage notice in the composer gap (`⚠ 5h limit: 8% left`) is not a card
+    s.assert_rows_with("8% left (resets", 1);
     // the refresh updated the cache: the next card shows the limits as they are now
     s.feed(&limits(50));
     s.type_text("/status");
     s.keys("enter");
     s.wait_for("50% left");
-    s.assert_contains("8% left");
+    s.assert_contains("8% left (resets");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:78 status_command_renders_immediately_without_rate_limit_refresh kind=ui owner=ui-pane
@@ -847,8 +848,9 @@ fn status_command_overlapping_refreshes_update_matching_cells_only() {
     // each card has its own refresh; no card is left waiting for a reply that went to the other
     s.assert_absent("refreshing limits");
     s.assert_requests_of("account/rateLimits/read", startup + 2);
-    s.wait_for("8% left");
-    s.assert_rows_with("8% left", 2);
+    s.wait_for("8% left (resets");
+    // one row in each card; the usage notice in the composer gap is not a card
+    s.assert_rows_with("8% left (resets", 2);
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:214 status_command_renders_immediately_and_updates_first_card_without_status_line kind=snap owner=ui-pane snap=status_command_estimated_thread_usage

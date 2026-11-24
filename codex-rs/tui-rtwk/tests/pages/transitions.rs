@@ -136,8 +136,9 @@ fn a_command_picked_in_the_popup_opens_its_screen() {
     h.t.type_text("/usag");
     h.t.pump_for(ms(100));
     h.press("enter");
-    wait_shows(&mut h, "/usag + enter", "usage");
-    assert!(shows(&h, "usage"), "{}", h.t.screen());
+    // a bare `/usage` is the usage menu over the chat (`features/usage_menu`)
+    h.wait_for("the usage menu", |s| s.contains("Redeem reset"));
+    h.t.pump_for(ms(800));
     escape_closes(&mut h, &before);
     assert_chat_back(&h, None, &before);
 }

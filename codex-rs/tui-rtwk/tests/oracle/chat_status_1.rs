@@ -16,10 +16,8 @@ fn rolling(snapshot: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": snapshot}}})
 }
 
-/// How many usage warnings the transcript holds (`Heads up, you have less than ..`).
-fn warnings(s: &Screen) -> usize {
-    s.text().matches("Heads up, you have less than").count()
-}
+/// The usage warnings the transcript holds begin `Heads up, you have less than ..`.
+const WARNING: &str = "Heads up, you have less than";
 
 // ---- oracle: chatwidget/tests/computer_activity_tests.rs (4 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE chatwidget/tests/computer_activity_tests.rs:30 computer_activity_live_and_replay_group_identically kind=snap owner=ui-pane
@@ -373,35 +371,28 @@ fn rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated() {
         let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
         s.feed(&format!("{read}\n{ACCOUNT_USAGE}\n"));
         s.assert_requests_of("account/rateLimits/read", 1);
-        assert_eq!(warnings(&s), 0, "{plan:?} {minutes:?}");
+        s.assert_rows_with(WARNING, 0);
         let roll = |s: &mut Screen, used: i32| {
             s.feed(&format!("{}\n", rolling(&snapshot(used, None))));
         };
+        // the 50% crossing warns on the early-threshold plans only
         roll(&mut s, 50);
-        assert_eq!(
-            warnings(&s) == 1,
-            early,
-            "{plan:?} {minutes:?}:\n{}",
-            s.text()
-        );
+        let seen = usize::from(early);
+        s.assert_rows_with(WARNING, seen);
         if early {
             s.assert_has_row(
                 "⚠ Heads up, you have less than 50% of your 5h limit left. Run /status for a",
             );
             s.assert_has_row("  breakdown.");
         }
-        let seen = warnings(&s);
         roll(&mut s, 50);
-        assert_eq!(warnings(&s), seen);
+        s.assert_rows_with(WARNING, seen);
+        // each further threshold warns once, however often it is repeated
         for (n, used) in [75, 90, 95].into_iter().enumerate() {
             roll(&mut s, used);
-            assert_eq!(warnings(&s), seen + n + 1, "{plan:?} {minutes:?} at {used}");
+            s.assert_rows_with(WARNING, seen + n + 1);
             roll(&mut s, used);
-            assert_eq!(
-                warnings(&s),
-                seen + n + 1,
-                "{plan:?} {minutes:?} again at {used}"
-            );
+            s.assert_rows_with(WARNING, seen + n + 1);
         }
     }
 }
