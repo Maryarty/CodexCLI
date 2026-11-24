@@ -13,10 +13,16 @@ use rtwk::Cx;
 use codex_tui_core::features::windows_sandbox::{Intent, Note, Sheet, WindowsSandbox};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
-use super::FeatureView;
+use super::{FeatureSheet, FeatureView};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for WindowsSandbox {
+    fn note_words(note: &Note, _words: &SessionStrings) -> String {
+        strings::note(note)
+    }
+}
+
+impl FeatureSheet for WindowsSandbox {
     /// `/setup-default-sandbox` opens no sheet: it is the verb.
     type Args = ();
 
@@ -24,9 +30,5 @@ impl FeatureView for WindowsSandbox {
 
     fn open<S: 'static>(cx: &mut Cx<'_, S>, _args: ()) {
         super::verb(cx, Intent::Elevate);
-    }
-
-    fn note_words(note: &Note, _words: &SessionStrings) -> String {
-        strings::note(note)
     }
 }

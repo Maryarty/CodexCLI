@@ -13,10 +13,16 @@ use codex_tui_core::features::export::{Export, Note, Sheet};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
 use self::sheet::Destinations;
-use super::FeatureView;
+use super::{FeatureSheet, FeatureView};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for Export {
+    fn note_words(note: &Note, _words: &SessionStrings) -> String {
+        strings::note(note)
+    }
+}
+
+impl FeatureSheet for Export {
     type Args = Args;
 
     fn args(_target: Sheet, _cwd: Cwd, thread: Option<ThreadId>) -> Args {
@@ -25,10 +31,6 @@ impl FeatureView for Export {
 
     fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
         open(cx, args)
-    }
-
-    fn note_words(note: &Note, _words: &SessionStrings) -> String {
-        strings::note(note)
     }
 }
 

@@ -9,10 +9,16 @@ use rtwk::Cx;
 use codex_tui_core::features::mcp_inventory::{Intent, McpInventory, Note, Sheet};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
-use super::{FeatureView, verb};
+use super::{FeatureSheet, FeatureView, verb};
 use crate::pages::session::strings::Strings as SessionStrings;
 
 impl FeatureView for McpInventory {
+    fn note_words(note: &Note, _words: &SessionStrings) -> String {
+        strings::note(note)
+    }
+}
+
+impl FeatureSheet for McpInventory {
     /// The thread in use: `/mcp` draws no sheet, its `open` says the verb (the summary).
     type Args = Args;
 
@@ -28,10 +34,6 @@ impl FeatureView for McpInventory {
                 full: false,
             },
         );
-    }
-
-    fn note_words(note: &Note, _words: &SessionStrings) -> String {
-        strings::note(note)
     }
 }
 
