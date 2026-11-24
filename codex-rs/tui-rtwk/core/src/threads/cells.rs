@@ -225,6 +225,9 @@ pub enum Notice {
         nudge: crate::screens::chat::Nudge,
         outcome: crate::screens::chat::NudgeOutcome,
     },
+    /// The startup check found usage-limit resets to use (oracle
+    /// `set_rate_limit_reset_available_hint`): how many.
+    ResetAvailable { count: i64 },
     /// A request refused for biology safety (oracle `new_safety_access_block_event`).
     SafetyAccessBlock,
     /// A refused cybersecurity request, worded by the Daybreak setting at the

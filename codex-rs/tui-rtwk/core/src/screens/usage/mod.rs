@@ -34,6 +34,7 @@ pub mod normalize;
 pub mod plan;
 pub mod plot;
 pub mod profile;
+pub mod reset;
 pub mod report;
 pub mod report_data;
 pub mod sections;
@@ -87,6 +88,8 @@ pub struct Model {
     /// The Chats section's listing of a consumer account (oracle: `tasks`).
     pub tasks: Load<Rc<chats::TaskList>>,
     pub profile: Load<Rc<profile::Profile>>,
+    /// The usage-limit resets: the count, the credits, the redemption (`reset`).
+    pub reset: reset::State,
     reports_started: bool,
 }
 
@@ -119,6 +122,7 @@ impl Default for Model {
             chats: Load::Unavailable,
             tasks: Load::Unavailable,
             profile: Load::Unavailable,
+            reset: reset::State::default(),
             reports_started: false,
         }
     }
@@ -154,6 +158,10 @@ pub enum AskKind {
     Chats,
     /// The recent root chats with their task usage (a consumer account).
     Tasks,
+    /// Redeem a usage-limit reset (`account/rateLimitResetCredit/consume`) under the idempotency
+    /// `key`; `credit_id` none lets the backend choose. Answered by `Ev::Redeemed`, whatever the
+    /// session: the redemption is the account's, not the page's.
+    Redeem { key: String, credit_id: Option<String> },
 }
 
 /// The settled account: the plan, and what the host knows of the session.
@@ -224,6 +232,11 @@ pub enum Ev {
         session: u32,
         stamp: Stamp,
         result: Result<Option<chats::TaskList>, LoadError>,
+    },
+    /// The backend's answer to the redemption of `key`, or why the ask failed.
+    Redeemed {
+        key: String,
+        result: Result<reset::Outcome, String>,
     },
     /// The signed-in identity changed under the session: everything again
     /// (oracle: `identity_invalidated` -> `refresh`).
@@ -304,6 +317,16 @@ impl<T> SeedLoad<T> {
 pub enum Intent {
     /// Kept for the chat's `/usage` open (the app refreshes the rate limits).
     RefreshRateLimits,
+    /// The usage menu opened (oracle `open_usage_menu`): the app checks a count known to be zero
+    /// again. The menu's `Redeem reset` entry reads `reset`.
+    Menu,
+    /// The reset flow opened (the entry, or `Try again` of a failed list): the app reads the
+    /// credits, and `reset.listing` says how the list stands.
+    Resets,
+    /// `Yes, use reset` (`credit_id` none: the backend's next credit): a new idempotency key.
+    Redeem { credit_id: Option<String> },
+    /// `Try again` of a failed redemption: the same key.
+    Retry,
     /// The page opened: a fresh session (oracle: `open`), on the Overview's
     /// `view` when `/usage daily|weekly|cumulative` asked for one.
     Open { view: Option<TokenActivityView> },
@@ -327,6 +350,17 @@ impl Model {
     fn next_stamp(&mut self) -> Stamp {
         self.next_stamp += 1;
         Stamp(self.next_stamp)
+    }
+
+    /// The host ask a reset step made, if it made one.
+    pub fn redemption_asks(&mut self, next: reset::Next) -> Vec<Ask> {
+        match next {
+            reset::Next::Redeem { key, credit_id } => {
+                let stamp = self.next_stamp();
+                vec![self.ask(stamp, AskKind::Redeem { key, credit_id })]
+            }
+            reset::Next::Nothing | reset::Next::Read => Vec::new(),
+        }
     }
 
     fn ask(&self, stamp: Stamp, what: AskKind) -> Ask {
@@ -527,6 +561,16 @@ impl Model {
 pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
     match intent {
         Intent::RefreshRateLimits => Vec::new(),
+        // The reads are the app's (`app/reset.rs` runs these two before it gets here).
+        Intent::Menu | Intent::Resets => Vec::new(),
+        Intent::Redeem { credit_id } => {
+            let next = model.reset.redeem(credit_id);
+            model.redemption_asks(next)
+        }
+        Intent::Retry => {
+            let next = model.reset.retry();
+            model.redemption_asks(next)
+        }
         Intent::Open { view } => model.open_session(view),
         Intent::Refresh => model.open_session(None),
         Intent::Leave => {
@@ -609,6 +653,11 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
     match ev {
         Ev::Seed(seed) => {
             model.seed(*seed);
+            Vec::new()
+        }
+        Ev::Redeemed { key, result } => {
+            // The app reads the credits again after a reset (`app/reset.rs` takes this first).
+            model.reset.redeemed(&key, result);
             Vec::new()
         }
         Ev::Invalidated { session } if session == model.session && model.live => {

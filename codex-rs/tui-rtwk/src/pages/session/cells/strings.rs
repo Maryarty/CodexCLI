@@ -202,6 +202,9 @@ pub struct Strings {
     pub interrupted: &'static str,
     pub interrupted_for_steer: &'static str,
     pub goal_budget_reached: &'static str,
+    /// `You have {n} usage limit reset(s) available. Run /usage to use one.`: before the count,
+    /// the noun for one and for more, after it.
+    pub reset_available: (&'static str, &'static str, &'static str, &'static str),
     /// `NO_PREVIOUS_MESSAGE_TO_EDIT` (`app_backtrack.rs`).
     pub no_previous_message: &'static str,
     pub review_started: (&'static str, &'static str),
@@ -440,6 +443,12 @@ pub const EN: Strings = Strings {
     interrupted: "■ Conversation interrupted - use /feedback if something went wrong",
     interrupted_for_steer: "Model interrupted to submit steer instructions.",
     goal_budget_reached: "Goal budget reached - the turn was stopped.",
+    reset_available: (
+        "You have ",
+        " usage limit reset",
+        " usage limit resets",
+        " available. Run /usage to use one.",
+    ),
     no_previous_message: "No previous message to edit.",
     review_started: (">> Code review started: ", " <<"),
     review_finished: ("<< Code review finished: ", " >>"),

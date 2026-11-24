@@ -12,6 +12,7 @@ pub mod facts;
 pub(crate) mod features;
 mod mentions;
 mod notices;
+mod reset;
 mod select;
 mod session;
 mod transcript_text;
@@ -1199,6 +1200,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     {
                         store.clear();
                     }
+                    if active_backend(app) == origin {
+                        reset::clear(app);
+                    }
                     app.outgoing.retain(|ctx| {
                         !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin)
                             && !matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
@@ -1463,12 +1467,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
-                    refresh_rates(
-                        app,
-                        active_backend(app),
-                        status::RateLimitOrigin::Startup,
-                        fx,
-                    );
+                    reset::startup(app, fx);
+                }
+                // The answer to a redemption: a reset reads the credits again.
+                ScreenEv::Usage(screens::usage::Ev::Redeemed { key, result }) => {
+                    reset::redeemed(app, key, result.clone(), fx);
+                    return;
                 }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
@@ -1782,6 +1786,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend, origin } => {
+                let credits = match &answer {
+                    Answer::RateLimits { read, .. } => Ok(read.reset_credits.clone()),
+                    _ => Err(()),
+                };
+                reset::read_done(app, origin, credits, fx);
                 if let Answer::RateLimits {
                     limits,
                     banner,
@@ -2043,6 +2052,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 }
             }
         }
+        Intent::Screen(ScreenIntent::Usage(intent)) if reset::intent(app, &intent, fx) => {}
         Intent::Screen(ScreenIntent::Usage(crate::screens::usage::Intent::RefreshRateLimits)) => {
             refresh_rates(
                 app,

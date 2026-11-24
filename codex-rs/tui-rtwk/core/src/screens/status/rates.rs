@@ -19,8 +19,16 @@ pub enum RateLimitOrigin {
     Status(u64),
     /// The usage menu opened (oracle `UsageMenu`).
     UsageMenu,
-    /// The reset picker opened (oracle `ResetPicker`).
+    /// The reset picker opened (oracle `ResetPicker`): the request number the list waits for.
     ResetPicker(u64),
+    /// The usage menu opened over a count known to be zero (oracle `UsageMenu`): the request
+    /// number the menu waits for.
+    Menu(u64),
+    /// The startup prefetch that looks for resets to tell the user of (oracle
+    /// `StartupPrefetch`): the request number of the check.
+    Hint(u64),
+    /// The read after a reset was redeemed, for the count that is left (oracle `ResetConsume`).
+    ResetConsume,
     /// Nothing waits for it: the prefetch at connect and the refreshes the
     /// app starts itself, after a reconnect or a limit that was reached
     /// (oracle `StartupPrefetch`, `Recovery`).

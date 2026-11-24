@@ -40,6 +40,9 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
         Notice::AddCreditsNudge { nudge, outcome } => {
             row([strings.bullet, nudge_words(*nudge, *outcome, strings)].concat())
         }
+        Notice::ResetAvailable { count } => {
+            row([strings.bullet, &reset_available_words(*count, strings)].concat())
+        }
         Notice::SafetyAccessBlock | Notice::CyberPolicy(_) => {
             let words = safety::words(notice, strings).unwrap_or_else(|| unreachable!());
             safety::texts(&words, strings)
@@ -75,6 +78,12 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
         } => request_input::texts(questions, *interrupted, strings),
         Notice::SessionInfo(info) => session_info::texts(info, strings),
     }
+}
+
+/// `set_rate_limit_reset_available_hint`: the count, and its noun by `reset_label`.
+fn reset_available_words(count: i64, strings: &Strings) -> String {
+    let (lead, one, many, tail) = strings.reset_available;
+    format!("{lead}{count}{}{tail}", if count == 1 { one } else { many })
 }
 
 fn nudge_words(nudge: Nudge, outcome: NudgeOutcome, strings: &Strings) -> &'static str {
@@ -145,6 +154,12 @@ impl StatelessWidget for NoticeCell {
                 ])
                 .into()
             }
+            // `new_info_event`: the bullet, then the hint
+            Notice::ResetAvailable { count } => Text::rich(vec![
+                Span::styled(strings.bullet, tokens.dim()),
+                Span::styled(reset_available_words(*count, strings), Style::new()),
+            ])
+            .into(),
             Notice::SafetyAccessBlock | Notice::CyberPolicy(_) => {
                 match safety::words(&self.notice, strings) {
                     Some(words) => safety::cell(&words, &tokens, strings),
