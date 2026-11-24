@@ -1039,6 +1039,14 @@ verbs and never gestures, carried out by the app in the owner's own step (`app/v
 `Wish` is for showing something once (`KeymapConflict`); a verb changes something, so the UI no
 longer relays the slice's words to the app. `OpenThread` was already `AppCx::open_thread`.
 
+**Reachability by path (fw-hubs-c).** The adr013 draw-state scan resolves a field's type by its path
+when it has one (`safety::Ev`, `crate::threads::safety::Ev`) and by the owner file's `use` when it
+has not (`use crate::threads::safety::Ev` then `Ev`): the definitions of that name are narrowed to the
+files under the module the path names, and a path no file fits stays whole (more than the truth, never
+less). Two types of one name in two modules are therefore no longer one node, and a type is not
+renamed (`SafetyEv`, `CompactionEv`) to keep the scan apart. Test:
+`the_reachability_resolves_a_name_by_its_path`.
+
 ### Recipe: a feature as a slice
 
 For a flow that is not a screen: a slash command that opens a menu or a prompt, asks the
