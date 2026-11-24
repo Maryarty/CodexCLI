@@ -2,19 +2,6 @@
 //! ported as black-box screen tests with the kit. One test per manifest line,
 //! named as the line says. Recipe: docs/rtwk-port/refs/screen-tests.md.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
-
-use std::time::Duration;
-
-use codex_tui_rtwk::app::UiApp;
-use codex_tui_rtwk::app::run::{app_view, localized, root};
-use codex_tui_rtwk::l10n::Lang;
-use codex_tui_rtwk::services::backend::fake::FakeServer;
-use codex_tui_rtwk::services::shell::Backend;
-use rtwk::binding::ScreenMode;
-use rtwk_test::{Options, Tester};
-
-use crate::common;
 use crate::kit::{self, Owner, Screen};
 
 // ---- oracle: cwd_prompt.rs (11 screen-level tests here; 0 state tests left to startup-prompts)
@@ -344,64 +331,29 @@ fn confirmation_requires_an_accept_key() {
 
 // ---- inline presentation ----------------------------------------------------
 
-/// The app run inline (`--no-alt-screen`: rtwk's `ScreenMode::Inline`, a region
-/// of the normal screen that is as high as the visible route) under the shell
-/// row `$ codex fork saved-session` and a blank row, with the debug entry
-/// `startup/unarchive_fork` open: what the oracle's `render_inline` draws. The
+/// The app run inline (`--no-alt-screen`: a region of the normal screen that is as high as the
+/// visible route) under the shell row `$ codex fork saved-session` and a blank row, with the
+/// debug entry `startup/unarchive_fork` open: what the oracle's `render_inline` draws. The
 /// terminal is as high as the prompt plus those two rows.
-fn inline_unarchive(width: u16, height: u16) -> (Tester, tokio::runtime::EnterGuard<'static>) {
-    let runtime: &'static tokio::runtime::Runtime = Box::leak(Box::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .start_paused(true)
-            .build()
-            .expect("runtime"),
-    ));
-    let guard = rtwk_tokio::enter(runtime);
-    let (server, _fake) = FakeServer::new();
-    let app = UiApp::new(Backend::Fake(server)).with_debug_screens(true);
-    let mut t = Tester::with(
-        Options::new()
-            .size(width, height)
-            .mode(ScreenMode::Inline)
-            .history(["$ codex fork saved-session", ""]),
-    );
-    t.pump_widget(localized(root(app_view(app)), Lang::En));
-    t.pump_for(Duration::from_millis(200));
-    for _ in 0..common::debug_row("startup", Some("unarchive_fork")) {
-        t.press("down");
-    }
-    t.press("enter");
-    t.pump_for(Duration::from_millis(800));
-    (t, guard)
-}
-
-/// The inline terminal's rows against an oracle snapshot.
-fn assert_inline_snap(t: &Tester, name: &str) {
-    let grid = t.with_screen(kit::Grid::of);
-    kit::assert_snap_on(
-        &grid,
-        &kit::Want {
-            name,
-            frame: "",
-            at: None,
-        },
-    );
+fn inline_unarchive(width: u16, height: u16) -> Screen {
+    Screen::build(Owner::StartupPrompts)
+        .size(width, height)
+        .inline(&["$ codex fork saved-session", ""])
+        .entry("startup", "unarchive_fork")
+        .open()
 }
 
 // ORACLE unarchive_prompt_tests.rs:131 inline_prompt_preserves_shell_context_snapshot kind=snap owner=startup-prompts snap=inline_prompt
 #[test]
 fn inline_prompt_preserves_shell_context_snapshot() {
-    let (t, _runtime) = inline_unarchive(80, 11);
-    assert_inline_snap(&t, "inline_prompt");
+    inline_unarchive(80, 11).assert_snap("inline_prompt");
 }
 
 // ORACLE unarchive_prompt_tests.rs:136 narrow_inline_prompt_wraps_snapshot kind=snap owner=startup-prompts snap=narrow_inline_prompt
 #[test]
 fn narrow_inline_prompt_wraps_snapshot() {
     // The prompt is 12 rows high at 28 columns: a region that claimed more would scroll the shell row off.
-    let (t, _runtime) = inline_unarchive(28, 14);
-    assert_inline_snap(&t, "narrow_inline_prompt");
+    inline_unarchive(28, 14).assert_snap("narrow_inline_prompt");
 }
 
 // ORACLE unarchive_prompt_tests.rs:141 inline_prompt_only_claims_content_height kind=ui owner=startup-prompts

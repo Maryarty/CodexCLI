@@ -350,7 +350,7 @@ fn fallback_wrapping_uses_display_width_for_tabs_and_wide_chars() {
     // `abcd`, the tab as four spaces, `界` and `🙂` wrap by display width: two or more rows,
     // none wider than the screen, nothing split in the middle of a wide character.
     s.assert_in_order(&["1 +abcd", "界", "🙂"]);
-    assert!(s.rows().iter().all(|r| r.chars().count() <= 12));
+    s.assert_rows_fit(12);
 }
 
 // ORACLE diff_render.rs:2613 large_update_diff_skips_highlighting kind=ui owner=chat-live
@@ -691,9 +691,9 @@ fn dynamic_status_and_output_match_persisted_presentations() {
             "fixtures/cells_1/dynamic_status_and_output_match_persisted_presentations.jsonl"
         ))
         .open();
-    assert_eq!(
-        cell_rows(&s, 14),
-        [
+    kit::assert_rows_are(
+        &cell_rows(&s, 14),
+        &[
             "• Calling example.inspect",
             "    + Show details",
             "",
@@ -730,9 +730,9 @@ fn dynamic_preview_reports_hidden_lines_and_retains_full_output() {
     // The oracle's snapshot is the 3-line and the 4-line output at widths 20 and 80 (labelled
     // sections): a screen holds both calls at one width, 80 then 20; the control row is the shared
     // disclosure's.
-    assert_eq!(
-        cell_rows(&s, 12),
-        [
+    kit::assert_rows_are(
+        &cell_rows(&s, 12),
+        &[
             "• Called example.inspect",
             "  └ Result line 1: retained content",
             "    Result line 2: retained content",
@@ -748,9 +748,9 @@ fn dynamic_preview_reports_hidden_lines_and_retains_full_output() {
         ],
     );
     s.resize(20, 24);
-    assert_eq!(
-        cell_rows(&s, 12),
-        [
+    kit::assert_rows_are(
+        &cell_rows(&s, 12),
+        &[
             "• Called example.in…",
             "  └ Result line 1: …",
             "    Result line 2: …",
@@ -947,10 +947,9 @@ fn code_mode_output_preserves_trailing_failure_diagnostics_in_transcript() {
         .into_iter()
         .take_while(|row| !row.is_empty())
         .collect();
-    assert_eq!(
-        rows[rows.len() - 2..],
-        ["    Script error:", "    permission denied"],
-        "{rows:?}"
+    kit::assert_rows_are(
+        &rows[rows.len() - 2..],
+        &["    Script error:", "    permission denied"],
     );
 }
 

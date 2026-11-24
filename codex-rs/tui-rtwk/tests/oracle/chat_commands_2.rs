@@ -26,35 +26,6 @@ const SH_BLOCKS: &str = include_str!("fixtures/chat_commands_2/sh_blocks.jsonl")
 const TURN2_REPLY: &str = include_str!("fixtures/chat_commands_2/turn2_reply.jsonl");
 const TURN2_STARTED: &str = include_str!("fixtures/chat_commands_2/turn2_started.jsonl");
 
-/// The names the app asked the server to give the thread (`Op::SetThreadName`).
-fn set_names(s: &Screen) -> Vec<String> {
-    s.commands_named("Feature")
-        .iter()
-        .filter_map(|command| {
-            let rest = command.split("SetName(\"").nth(1)?;
-            Some(rest.split("\")").next()?.to_owned())
-        })
-        .collect()
-}
-
-/// The host answers the title suggestion `/rename` asked for (`generate_thread_title`).
-fn answer_title(s: &mut Screen, title: Option<&str>) {
-    use codex_tui_core::app::Command;
-    use codex_tui_core::app::effects::{Ask, Done};
-    let Some(ask) = s.commands().into_iter().find(|c| {
-        matches!(
-            c,
-            Command::Effect {
-                ask: Ask::SuggestTitle { .. },
-                ..
-            }
-        )
-    }) else {
-        panic!("the rename prompt asked for a title");
-    };
-    s.answer_effect(&ask, Done::Title(title.map(str::to_owned)));
-}
-
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/slash_commands.rs:110 service_tier_commands_and_saved_selection_respect_independent_speed_policy kind=snap owner=chat-nav-pane
 #[test]
@@ -329,10 +300,10 @@ fn slash_rename_prefills_existing_thread_name() {
     s.type_text("/rename").keys("enter");
     // The oracle's manual chat has no thread id, so it asks for no suggestion: here the host's
     // answer is "nothing came out", which leaves the prompt as the oracle shows it.
-    answer_title(&mut s, None);
+    s.answer_title(None);
     s.assert_snap_region("slash_rename_prefilled_prompt", 19, 0);
     s.keys("enter");
-    assert_eq!(set_names(&s), ["Current project title"]);
+    s.assert_set_names(&["Current project title"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1317 slash_rename_requests_and_prefills_an_editable_title_suggestion kind=snap owner=chat-nav-pane snap=slash_rename_suggestion_loading snap=slash_rename_suggestion_prefilled
@@ -341,10 +312,10 @@ fn slash_rename_requests_and_prefills_an_editable_title_suggestion() {
     let mut s = Screen::build(Owner::ChatNavPane).script(NAMED).open();
     s.type_text("/rename").keys("enter");
     s.assert_snap_region("slash_rename_suggestion_loading", 18, 0);
-    answer_title(&mut s, Some("Fix login timeout"));
+    s.answer_title(Some("Fix login timeout"));
     s.assert_snap_region("slash_rename_suggestion_prefilled", 18, 0);
     s.keys("enter");
-    assert_eq!(set_names(&s), ["Fix login timeout"]);
+    s.assert_set_names(&["Fix login timeout"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1354 slash_rename_preserves_manual_edits_when_suggestion_arrives kind=ui owner=chat-nav-pane
@@ -353,7 +324,7 @@ fn slash_rename_preserves_manual_edits_when_suggestion_arrives() {
     let mut s = Screen::build(Owner::ChatNavPane).script(SESSION).open();
     s.type_text("/rename").keys("enter");
     s.paste("My own title");
-    answer_title(&mut s, Some("Generated title"));
+    s.answer_title(Some("Generated title"));
     s.assert_contains("My own title");
     s.assert_absent("Generated title");
     s.assert_absent("Generating a title suggestion");

@@ -314,11 +314,11 @@ fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
     // a double click inside a placeholder selects the whole atomic element; the next edit
     // replaces it (an image) or takes it away with the pasted content it stood for (a letter)
     double_click_in(&mut s, "[Pasted Content 1001 chars]");
-    let first = s.attach_image("first.png");
+    s.attach_image("first.png");
     s.assert_absent("[Pasted Content");
     draft_rows(&s, "X[Image #1]hello\nworld");
     double_click_in(&mut s, "[Image #1]");
-    let second = s.attach_image("second.png");
+    s.attach_image("second.png");
     draft_rows(&s, "X[Image #1]hello\nworld");
     double_click_in(&mut s, "[Image #1]");
     s.type_text("\u{e9}");
@@ -326,14 +326,7 @@ fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
     // nothing is attached any more: the draft sends no image
     s.keys("enter");
     s.wait_for("› Ask Codex to do anything");
-    let turns = s.turns();
-    assert_eq!(turns.len(), 1, "{:?}", s.commands());
-    assert!(
-        turns[0].images.is_empty(),
-        "{:?} {first:?} {second:?}",
-        turns[0]
-    );
-    assert_eq!(turns[0].text, "X\u{e9}hello\nworld");
+    s.assert_sole_turn(kit::Turn::text("X\u{e9}hello\nworld").no_images());
 }
 
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:62 recovery_keeps_unselected_text_after_a_held_replace_key kind=ui owner=chat-live

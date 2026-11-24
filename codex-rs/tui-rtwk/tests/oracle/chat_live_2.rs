@@ -82,30 +82,24 @@ fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
         }
         let dismissible = presentation == Some("dismissible");
         let initial = s.shot();
-        assert_eq!(s.text().contains("esc to dismiss"), dismissible);
+        s.assert_present("esc to dismiss", dismissible);
         s.keys("1");
-        assert_eq!(s.nudges().len(), 1, "{:?}", s.nudges());
+        s.assert_nudges(1);
         s.assert_contains("Selected model usage exhausted");
         s.assert_same_rows(&initial);
         // the request is in flight: a second key 1 starts no other
         s.keys("1");
-        assert_eq!(s.nudges().len(), 1);
-        assert_eq!(s.composer_text(), "");
+        s.assert_nudges(1);
+        s.assert_composer("");
         // the same banner again changes nothing
         s.feed(&(answer(&response) + &model_step("test-model-a", true)));
         s.assert_same_rows(&initial);
         s.keys("esc");
-        assert_eq!(
-            s.text().contains("Selected model usage exhausted"),
-            !dismissible
-        );
+        s.assert_present("Selected model usage exhausted", !dismissible);
         s.feed(&model_step("test-model-b", false));
         s.assert_absent("Selected model usage exhausted");
         s.feed(&model_step("test-model-a", false));
-        assert_eq!(
-            s.text().contains("Selected model usage exhausted"),
-            !dismissible
-        );
+        s.assert_present("Selected model usage exhausted", !dismissible);
     }
 }
 
@@ -144,24 +138,9 @@ fn backend_banner_fallback_candidates_and_notice_follow_selected_model() {
     });
     s.feed(&(answer(&response) + &model_step("test-model-a", true)));
     // the first fallback the picker lists, test-model-c, is asked of the thread
-    let updates = |s: &Screen| {
-        s.commands()
-            .into_iter()
-            .filter_map(|command| match command {
-                codex_tui_core::app::Command::Screen {
-                    command:
-                        codex_tui_core::screens::ScreenCommand::Select(
-                            codex_tui_core::screens::select::Command::Settings { patch, .. },
-                        ),
-                    ..
-                } => patch.model,
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    };
     s.wait_for("Automatically switched to test-model-c");
     s.assert_contains("due to usage limits.");
-    assert_eq!(updates(&s), ["test-model-c"]);
+    s.assert_model_updates(&["test-model-c"]);
     // the server's `thread/settings/updated` brings the model; the banner shows for it
     s.feed(&model_step("test-model-c", false));
     s.assert_contains("Selected model usage exhausted");
@@ -175,7 +154,7 @@ fn backend_banner_fallback_candidates_and_notice_follow_selected_model() {
     s.assert_absent("Selected model usage exhausted");
     s.feed(&model_step("test-model-c", false));
     s.assert_contains("Selected model usage exhausted");
-    assert_eq!(updates(&s), ["test-model-c"], "no second switch");
+    s.assert_model_updates(&["test-model-c"]);
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:373 backend_banner_sparse_updates_preserve_visible_and_dismissed_occurrences kind=ui owner=chat-live
@@ -1223,14 +1202,8 @@ fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losi
                 s.assert_snap_region("luna_reserve_selector_second_choice", title, 0);
             }
         }
-        assert_eq!(
-            s.opened_urls(),
-            destination
-                .map(str::to_owned)
-                .into_iter()
-                .collect::<Vec<_>>()
-        );
-        assert!(s.turns().is_empty());
+        s.assert_opened_urls(&destination.into_iter().collect::<Vec<_>>());
+        s.assert_no_turn();
         s.assert_composer("saved draft");
         // A periodic usage reply must not reopen a selector the user just closed.
         s.feed(&(answer(&response) + &model_step("gpt-reserve", true)));
