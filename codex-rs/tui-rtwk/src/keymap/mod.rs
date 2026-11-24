@@ -375,6 +375,14 @@ pub fn event_is_fixed(id: ActionId, event: &rtwk_core::input::KeyEvent) -> bool 
     KeyPress::from_event(event).is_some_and(|key| pressed_fixed(id, &key))
 }
 
+/// What a terminal without the kitty protocol sends for Ctrl+H: the C0 byte, which arrives as
+/// Backspace holding Ctrl. The oracle's backend reads it as `Ctrl+h`, the key `ctrl-h` names, so
+/// `Some` is that press (a kitty terminal's Ctrl+H is the press itself).
+pub fn c0_ctrl_h(key: &KeyPress) -> Option<KeyPress> {
+    (key.code == KeyCode::Backspace && key.mods == PressMods::CTRL)
+        .then(|| KeyPress::char('h').with_mods(PressMods::CTRL))
+}
+
 /// The press of a hardwired action's first key (`Edit::canonical`: the key the field's own
 /// editing answers to for an action).
 pub fn press_for(id: ActionId) -> Option<KeyPress> {

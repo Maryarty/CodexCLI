@@ -169,7 +169,7 @@ pub fn apply_paste(
         && c.selection().start() == 0
         && !draft.is_plain()
         && !draft.shell()
-        && text.chars().count() < 1000
+        && codex_tui_core::kit::paste::large_paste(text).is_none()
     {
         // a `!` Replace mode puts at the start is shell mode, over the character it covered
         vim::insert_pasted(draft, c, text);

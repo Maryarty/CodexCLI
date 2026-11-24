@@ -21,7 +21,7 @@ use super::ComposerMsg;
 use super::editing::KeyData;
 use super::strings;
 use crate::app::theme;
-use crate::keymap::{pressed, unmodified};
+use crate::keymap::{press_for, pressed, unmodified};
 use codex_tui_core::keymap::fixed::{
     DEBUG_KEY, HISTORY_NEXT, HISTORY_PREVIOUS, SEARCH_ACCEPT, SEARCH_CANCEL, SEARCH_CANCEL_BYTE,
     SEARCH_CLEAR, SEARCH_ERASE,
@@ -65,14 +65,10 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     } else if pressed(&data.keymap, SEARCH_ERASE, key) {
         draft.search_edit(c, store, &mut asks, |query| {
             edited(query, |q| {
-                editing_key(
-                    q,
-                    KeyPress::BACKSPACE,
-                    &|t| q.insert(t),
-                    &StoredStops,
-                    false,
-                    None,
-                );
+                // the key the erase is, as the field's own editing reads it
+                if let Some(erase) = press_for(SEARCH_ERASE) {
+                    editing_key(q, erase, &|t| q.insert(t), &StoredStops, false, None);
+                }
             });
         });
     } else if pressed(&data.keymap, SEARCH_CLEAR, key) {
