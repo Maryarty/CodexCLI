@@ -562,7 +562,7 @@ fn a_forked_session_opens_the_copy() {
     let (_, request) = session_launch(&mut app, session_facts(Some(ResumeMode::Current)));
     let fx = launched(&mut app, request);
     let asks = thread_asks(&fx);
-    let [(ticket, ThreadAsk::ForkAt { thread, cwd })] = asks.as_slice() else {
+    let [(ticket, ThreadAsk::ForkAt { thread, cwd, .. })] = asks.as_slice() else {
         panic!("the session is forked: {asks:?}");
     };
     assert_eq!(

@@ -51,6 +51,7 @@ pub mod daemon;
 pub mod diff;
 pub mod export;
 pub mod feedback;
+pub mod external_editor;
 pub mod goal;
 pub mod mcp_inventory;
 pub mod plugins;
@@ -61,6 +62,7 @@ pub mod security_setup;
 pub mod settings;
 pub mod small_cmds;
 pub mod windows_sandbox;
+pub mod side;
 
 /// The type of a component feature `F` does not use (no RPCs, no wishes...): nothing
 /// can be made of it, so a match over it has no arms. It carries the feature, so two features
@@ -288,6 +290,8 @@ macro_rules! feature_list {
             copy => Copier;
             small_cmds => SmallCmds;
             recap => Recap;
+            external_editor => ExternalEditor;
+            side => Side;
         }
     };
 }

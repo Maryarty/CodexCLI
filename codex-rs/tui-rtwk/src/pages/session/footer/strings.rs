@@ -6,7 +6,7 @@
 
 use rtwk::l10n::{Arg, DependCx, Fmt, Msg, NumSyms, msg};
 
-use codex_tui_core::screens::chat::facts::{GoalIndicator, GoalUsage};
+use codex_tui_core::screens::chat::facts::{GoalIndicator, GoalUsage, SideFooter, SideStatus};
 
 use crate::l10n::Tables;
 use crate::l10n::lang;
@@ -200,4 +200,85 @@ pub(super) mod sample {
     pub const LINK_A: &str = "a ";
     pub const LINK_B: &str = "b ";
     pub const DRAFT: &str = "  > keep my draft exactly as typed";
+}
+
+/// The side-conversation footer's words (English until the catalog has them) (`sync_side_thread_ui`): `Side from main thread · main finished · ctrl + /
+/// to switch · ctrl + c to close` over a side conversation, `ctrl + / for side` over its parent.
+pub fn side_footer(footer: &SideFooter) -> String {
+    match footer {
+        SideFooter::Parent { switch } => format!("{switch} for side"),
+        SideFooter::Side {
+            parent_is_main,
+            parent_label,
+            status,
+            switch,
+        } => {
+            let mut parts = Vec::new();
+            if *parent_is_main {
+                parts.push("from main thread".to_owned());
+            } else {
+                parts.push(format!("from parent thread ({parent_label})"));
+            }
+            if let Some(status) = status {
+                parts.push(side_status_label(*status, *parent_is_main).to_owned());
+            }
+            if let Some(key) = switch {
+                parts.push(format!("{key} to switch"));
+            }
+            parts.push("ctrl + c to close".to_owned());
+            format!("Side {}", parts.join(" · "))
+        }
+    }
+}
+
+/// `main needs input`, `parent finished`...: a parent's status as the side footer words it.
+fn side_status_label(status: SideStatus, parent_is_main: bool) -> &'static str {
+    match (status, parent_is_main) {
+        (SideStatus::NeedsInput, true) => "main needs input",
+        (SideStatus::NeedsInput, false) => "parent needs input",
+        (SideStatus::NeedsApproval, true) => "main needs approval",
+        (SideStatus::NeedsApproval, false) => "parent needs approval",
+        (SideStatus::Failed, true) => "main failed",
+        (SideStatus::Failed, false) => "parent failed",
+        (SideStatus::Interrupted, true) => "main interrupted",
+        (SideStatus::Interrupted, false) => "parent interrupted",
+        (SideStatus::Closed, true) => "main closed",
+        (SideStatus::Closed, false) => "parent closed",
+        (SideStatus::Finished, true) => "main finished",
+        (SideStatus::Finished, false) => "parent finished",
+    }
+}
+
+#[cfg(test)]
+mod side_tests {
+    use super::*;
+    use codex_tui_core::screens::chat::facts::SideStatus;
+
+    #[test]
+    fn the_footer_words_the_label() {
+        let side = SideFooter::Side {
+            parent_is_main: true,
+            parent_label: String::new(),
+            status: Some(SideStatus::Finished),
+            switch: Some("ctrl + /".to_owned()),
+        };
+        assert_eq!(
+            side_footer(&side),
+            "Side from main thread · main finished · ctrl + / to switch · ctrl + c to close"
+        );
+        let parent = SideFooter::Side {
+            parent_is_main: false,
+            parent_label: "agent".to_owned(),
+            status: None,
+            switch: None,
+        };
+        assert_eq!(
+            side_footer(&parent),
+            "Side from parent thread (agent) · ctrl + c to close"
+        );
+        let over = SideFooter::Parent {
+            switch: "ctrl + /".to_owned(),
+        };
+        assert_eq!(side_footer(&over), "ctrl + / for side");
+    }
 }

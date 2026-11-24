@@ -97,6 +97,15 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
 
 /// An intent of a feature.
 pub(super) fn intent(app: &mut CodexApp, intent: FeatureIntent, fx: &mut AppFx) {
+    // `/side`'s lifecycle half (the fork, the discard) is the app's, run before the slice is asked
+    // (`app/side.rs`, ADR-012 "half a slice").
+    let intent = match intent {
+        FeatureIntent::Side(side) => match super::side::intent(app, side, fx) {
+            Some(side) => FeatureIntent::Side(side),
+            None => return,
+        },
+        intent => intent,
+    };
     run(app, fx, |states, cx| {
         features::apply_intent(states, intent, cx)
     });
@@ -112,6 +121,8 @@ pub(super) fn answer(app: &mut CodexApp, ctx: FeatureCtx, answer: Answer, fx: &m
     run(app, fx, |states, cx| {
         features::answered(states, ctx, result, cx)
     });
+    // A side conversation's boundary may have gone in: its `/btw` prompt is sent.
+    super::side::released(app, fx);
 }
 
 /// The host's answer to an ask a feature made (`AppCx::effect`), under the request number the

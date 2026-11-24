@@ -15,7 +15,7 @@ pub enum Kind {
     Agents,
     Shortcuts,
     Action,
-    Side,
+    SideActive,
     SideNav,
     AgentName,
     Shell,
@@ -37,7 +37,7 @@ impl Kind {
     pub fn left(self) -> bool {
         matches!(
             self,
-            Kind::Agents | Kind::Shortcuts | Kind::Action | Kind::Side | Kind::SideNav
+            Kind::Agents | Kind::Shortcuts | Kind::Action | Kind::SideActive | Kind::SideNav
         )
     }
 
@@ -123,7 +123,7 @@ pub fn desired_rows(labels: &[Label], width: usize) -> u16 {
         any_fits |= cells <= width;
         let group = if label.kind.is_input_mode() {
             &mut compact.right
-        } else if matches!(label.kind, Kind::Action | Kind::Side) {
+        } else if matches!(label.kind, Kind::Action | Kind::SideActive) {
             &mut compact.left
         } else {
             continue;
@@ -200,7 +200,7 @@ pub fn fit(labels: &[Label], width: usize, two: bool) -> Layout {
         }
         for kind in [
             Kind::Action,
-            Kind::Side,
+            Kind::SideActive,
             Kind::Shell,
             Kind::Vim,
             Kind::Plan,
@@ -299,10 +299,14 @@ mod tests {
     /// (`active_side_action_keeps_plan_expanded_on_the_other_row`).
     #[test]
     fn the_mode_stays_above_and_the_action_goes_below() {
-        let labels = [label(Kind::Side, &[58]), label(Kind::Plan, &[25, 9])];
+        let labels = [label(Kind::SideActive, &[58]), label(Kind::Plan, &[25, 9])];
         let layout = fit(&labels, 60, true);
         let plan = layout.placed.iter().find(|p| p.kind == Kind::Plan).unwrap();
-        let side = layout.placed.iter().find(|p| p.kind == Kind::Side).unwrap();
+        let side = layout
+            .placed
+            .iter()
+            .find(|p| p.kind == Kind::SideActive)
+            .unwrap();
         assert_eq!((plan.row, plan.form), (0, 0));
         assert_eq!(side.row, 1);
     }

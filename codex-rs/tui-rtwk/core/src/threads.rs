@@ -12,6 +12,7 @@ mod cells;
 pub mod citations;
 mod collab;
 pub mod compaction;
+pub mod composer;
 pub mod daybreak;
 pub mod decision;
 pub mod directives;
@@ -426,6 +427,29 @@ impl Transcript {
         self.order
             .iter()
             .filter_map(|key| self.item(key).map(|item| (key, item)))
+    }
+
+    /// Commands run in `turn` and every one of them is the user's own `!` command
+    /// (`only_user_shell_commands_running`): what the user types meanwhile waits for the turn
+    /// instead of steering it.
+    fn only_user_shell_commands_running(&self, turn: &TurnId) -> bool {
+        let mut any = false;
+        for key in self.order.iter().filter(|key| &key.turn == turn) {
+            let Some(Item::Tool(tool)) = self.item(key) else {
+                continue;
+            };
+            let ToolKind::Shell { user_shell, .. } = &tool.kind else {
+                continue;
+            };
+            if tool.status != ToolStatus::Running {
+                continue;
+            }
+            if !*user_shell {
+                return false;
+            }
+            any = true;
+        }
+        any
     }
 
     fn item(&self, key: &ItemKey) -> Option<&Item> {
@@ -1525,6 +1549,9 @@ pub enum ThreadAsk {
     ForkAt {
         thread: String,
         cwd: Option<String>,
+        /// A side conversation (`/side`): with developer instructions the fork is ephemeral and
+        /// starts empty on the screen, carrying them (the side policy).
+        temporary: Option<String>,
     },
     /// `thread/start` in `cwd` (a new task).
     Start {
@@ -1665,11 +1692,18 @@ impl ThreadAsk {
                     ..ThreadResumeParams::default()
                 },
             },
-            ThreadAsk::ForkAt { thread, cwd } => ClientRequest::ThreadFork {
+            ThreadAsk::ForkAt {
+                thread,
+                cwd,
+                temporary,
+            } => ClientRequest::ThreadFork {
                 request_id,
                 params: ThreadForkParams {
                     thread_id: thread.clone(),
                     cwd: cwd.clone(),
+                    ephemeral: temporary.is_some(),
+                    exclude_turns: temporary.is_some(),
+                    developer_instructions: temporary.clone(),
                     ..ThreadForkParams::default()
                 },
             },
@@ -2523,6 +2557,17 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // The plan's text streams: Enter queues the message behind the turn
             // (`is_plan_streaming_in_tui`).
             if model.slots.chat.plan.streaming() && model.is_running() {
+                enqueue(model, Queued::Message(message), fx);
+                return;
+            }
+            // The user's own `!` command runs: a message that is not one waits for it
+            // (`only_user_shell_commands_running`), where Enter would steer the turn.
+            if let (TurnState::Running(running), false) = (&model.turn, starting)
+                && !message.text.starts_with('!')
+                && model
+                    .transcript
+                    .only_user_shell_commands_running(&running.turn)
+            {
                 enqueue(model, Queued::Message(message), fx);
                 return;
             }

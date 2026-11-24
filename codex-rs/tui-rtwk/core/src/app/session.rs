@@ -206,6 +206,7 @@ pub(super) fn session_intent(
                     then: None,
                     plan: None,
                     draft: Some(message),
+                    side: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));
@@ -226,6 +227,11 @@ pub(super) fn session_intent(
         // `/rename`: the name prompt, or the rename itself (`features/rename`).
         S::Rename { name } => {
             let intent = crate::features::rename::Intent::Command { source, name };
+            super::features::intent(app, intent.into(), fx);
+        }
+        // `/side` and `/btw`: the slice decides, the app forks (`features/side`, `app/side.rs`).
+        S::Side { prompt } => {
+            let intent = crate::features::side::Intent::Start { source, prompt };
             super::features::intent(app, intent.into(), fx);
         }
         S::Status => status_command(app, source, fx),
@@ -363,7 +369,6 @@ pub(super) fn session_intent(
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
-        | S::Side { .. }
         | S::Mcp { .. }
         | S::Apps
         | S::Review { args: None }
@@ -490,6 +495,7 @@ pub(super) fn begin_conversation(
             then,
             plan: None,
             draft: None,
+            side: None,
         },
     );
     fx.commands.push(request);
@@ -571,6 +577,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         ThreadAsk::ForkAt {
             thread: thread.to_string(),
             cwd,
+            temporary: None,
         }
     } else {
         ThreadAsk::Start { cwd }
@@ -585,6 +592,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
             then: None,
             plan: None,
             draft: None,
+            side: None,
         },
     );
     fx.commands.push(Command::Screen {
@@ -786,6 +794,7 @@ pub(super) fn plan_answer(
                     then: None,
                     plan: Some(markdown),
                     draft: None,
+                    side: None,
                 },
             );
             fx.commands.push(super::start_thread(app, ticket, backend));

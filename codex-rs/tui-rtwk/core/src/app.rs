@@ -15,6 +15,7 @@ mod notices;
 mod reset;
 mod select;
 mod session;
+mod side;
 mod transcript_text;
 pub use transcript_text::TranscriptText;
 
@@ -523,6 +524,8 @@ enum AppCtx {
         plan: Option<String>,
         /// A text for the new thread's composer (the provider-error notice's continue key).
         draft: Option<String>,
+        /// The thread is a side conversation of this parent (`/side`, `app/side.rs`).
+        side: Option<side::Opening>,
     },
     /// `thread/archive` or `thread/delete` of the thread the chat shows
     /// (`/archive`, `/delete` after their confirmation).
@@ -1286,6 +1289,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     fx,
                 );
             }
+            side::observe(app, &notification, fx);
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
             if let ServerNotification::ServerRequestResolved(resolved) = &*notification {
@@ -1383,6 +1387,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::Backend(BackendEv::Request(request)) => {
             let (method, thread) = targets::request_target(&request);
+            side::observe_request(app, &request, thread, fx);
             let key = targets::request_key(origin, app.request_epoch(origin), thread, request.id());
             if !app.requests.contains(&key) {
                 app.effects.verifications.note(key.clone(), &request);
@@ -1742,6 +1747,7 @@ fn open_session(app: &mut CodexApp, fx: &mut AppFx) {
         Action::Fork => ThreadAsk::ForkAt {
             thread,
             cwd: opening.cwd,
+            temporary: None,
         },
     };
     fx.commands.push(Command::Screen {
@@ -1883,6 +1889,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 then,
                 plan,
                 draft,
+                side,
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread, sources } => Ok((thread, None, sources)),
@@ -1906,10 +1913,17 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         if let Some(intent) = then {
                             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
                         }
+                        // A side conversation is linked to its parent before it is shown, and
+                        // starts empty: the forked history is the model's, not the screen's.
+                        if let Some(opening) = side {
+                            side::linked(app, &thread, opening, fx);
+                        }
                         if app.session.active == source {
                             show_held_thread(app, thread.clone(), fx);
                         }
-                        fetch_history(app, &thread, fx);
+                        if !app.features.side.is_side(&thread) {
+                            fetch_history(app, &thread, fx);
+                        }
                         if let Some(markdown) = plan {
                             apply_thread(
                                 app,
@@ -1933,7 +1947,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     }
                     Err(error) => {
                         if let Some(source) = source {
-                            apply_thread(app, &source, ThreadEv::Failure(error.into()), fx);
+                            if side.is_some() {
+                                side::start_failed(app, source, error, fx);
+                            } else {
+                                apply_thread(app, &source, ThreadEv::Failure(error.into()), fx);
+                            }
                         }
                     }
                 }
@@ -2973,6 +2991,7 @@ fn show_held_thread(app: &mut CodexApp, id: ThreadId, fx: &mut AppFx) {
     let session = Rc::make_mut(&mut app.session);
     session.active = Some(id);
     session.status = Session::Ready;
+    side::sync(app, fx);
     if switched {
         select::event(app, screens::select::Ev::ScopeChanged, fx);
     }

@@ -141,10 +141,15 @@ pub enum Ev {
     /// The side conversation's footer label, or none (`set_side_conversation_context_label`:
     /// `Side from main thread · …`, `ctrl-/ for side`).
     SideLabel(Option<String>),
+    /// What the footer says of the side conversations, as data (the view words it): the app's
+    /// fact (`app/side.rs`), where `SideLabel` is a made label (a seed).
+    Side(Option<SideFooter>),
     /// The viewed agent's footer label, or none (`set_active_agent_label`).
     AgentLabel(Option<String>),
     /// The empty-prompt `←` opens the agents page (`enable_agents_navigation`).
     AgentsNavigation(bool),
+    /// The app is closing (`ChatWidget::is_shutting_down`): the composer takes nothing more.
+    ShuttingDown(bool),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -168,8 +173,10 @@ struct Headline {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Facts {
     pub side_label: Option<String>,
+    pub side: Option<SideFooter>,
     pub agent_label: Option<String>,
     pub agents_navigation: bool,
+    pub shutting_down: bool,
     cwd: Option<String>,
     now: u64,
     issued: u64,
@@ -181,9 +188,11 @@ impl Default for Facts {
     fn default() -> Self {
         Self {
             side_label: None,
+            side: None,
             agent_label: None,
             // the oracle's chat is built with agents navigation on
             agents_navigation: true,
+            shutting_down: false,
             cwd: None,
             now: 0,
             issued: 0,
@@ -237,8 +246,10 @@ impl Facts {
                 }
             }
             Ev::SideLabel(label) => self.side_label = label,
+            Ev::Side(side) => self.side = side,
             Ev::AgentLabel(label) => self.agent_label = label,
             Ev::AgentsNavigation(on) => self.agents_navigation = on,
+            Ev::ShuttingDown(on) => self.shutting_down = on,
         }
     }
 
@@ -473,6 +484,7 @@ pub struct Footer {
     pub plan_indicator: bool,
     pub side_active: bool,
     pub side_label: Option<String>,
+    pub side: Option<SideFooter>,
     pub agent_label: Option<String>,
     pub agents_navigation: bool,
     /// The resumed thread has no token usage yet: the footer hides `Context 100% left` and the
@@ -507,10 +519,49 @@ pub fn footer(chat: &Model, slots: &ThreadSlots) -> Footer {
         plan_indicator: modes && mode == ModeKind::Plan,
         side_active: chat.flags.side_conversation_active,
         side_label: chat.facts.side_label.clone(),
+        side: chat.facts.side.clone(),
         agent_label: chat.facts.agent_label.clone(),
         agents_navigation: chat.facts.agents_navigation,
         usage_pending: usage_pending(slots),
     }
+}
+
+/// A parent thread's condition that changed while its side conversation is shown
+/// (`SideParentStatus`); the words are the footer's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SideStatus {
+    NeedsInput,
+    NeedsApproval,
+    Failed,
+    Interrupted,
+    Closed,
+    Finished,
+}
+
+impl SideStatus {
+    /// A status the user can act on (an approval or a question waits): it clears when the request
+    /// is resolved or an item starts.
+    pub fn is_actionable(self) -> bool {
+        matches!(self, SideStatus::NeedsInput | SideStatus::NeedsApproval)
+    }
+}
+
+/// What the footer shows of side conversations: data; its words are the footer's strings.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SideFooter {
+    /// The shown thread has a side conversation: `ctrl + / for side`.
+    Parent { switch: String },
+    /// The shown thread is a side conversation.
+    Side {
+        parent_is_main: bool,
+        /// The parent's name when it is not the main thread.
+        parent_label: String,
+        status: Option<SideStatus>,
+        /// The toggle key's label.
+        switch: Option<String>,
+    },
 }
 
 /// What the footer says of the thread's goal (`GoalStatusIndicator`); the words are the footer's,

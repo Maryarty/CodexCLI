@@ -203,7 +203,8 @@ impl Services {
             | Ask::GitLog { .. }
             | Ask::Worktrees { .. }
             | Ask::WorktreeRemove { .. }
-            | Ask::BackgroundServer(_) => return None,
+            | Ask::BackgroundServer(_)
+            | Ask::Editor { .. } => return None,
         })
     }
 
