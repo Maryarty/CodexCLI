@@ -207,10 +207,10 @@ fn diff_is_taken_and_leaves_the_chat_as_it_was() {
 }
 
 /// The static pager over the chat (oracle `Overlay::Static` of `DiffResult`): the diff, or the
-/// note that says why there is none; Esc returns to the same chat.
+/// note that says why there is none; `q` (the pager's close key; Esc is none of its keys) returns to
+/// the same chat.
 #[test]
-#[ignore = "pending(P1): the pager page that shows the diff's document (`Wish::Pager`) is not drawn yet"]
-fn diff_shows_the_pager_and_escape_returns_to_the_chat() {
+fn diff_shows_the_pager_and_q_returns_to_the_chat() {
     let mut h = start();
     crate::chat::chat_with_history(&mut h);
     let before = h.t.screen();
@@ -219,7 +219,7 @@ fn diff_shows_the_pager_and_escape_returns_to_the_chat() {
     h.wait_for("the pager", |s| {
         s.contains("not inside a git repository") || s.contains("No changes detected")
     });
-    h.press("escape");
+    h.press("q");
     h.t.pump_for(crate::common::ms(600));
     assert_eq!(h.t.screen(), before, "back on the session page");
 }
