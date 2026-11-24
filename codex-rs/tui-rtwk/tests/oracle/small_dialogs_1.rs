@@ -846,13 +846,9 @@ fn feedback_upload_consent_lists_windows_sandbox_log_when_included() {
 // ORACLE bottom_pane/feedback_view.rs:501 feedback_success_cell_matches_external_bug_copy kind=ui owner=dialogs-pane
 #[test]
 fn feedback_success_cell_matches_external_bug_copy() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no transcript entry for the success cell of an external bug upload (`feedback_success_external_bug`, thread-1): the upload's cell is not built",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 12)
-        .entry("dialogs", "feedback_success_external_bug")
+        .entry("feedback", "feedback_success_external_bug")
         .open();
     let (row, _) = locate(
         &s,
@@ -874,13 +870,9 @@ fn feedback_success_cell_matches_external_bug_copy() {
 // ORACLE bottom_pane/feedback_view.rs:518 feedback_success_cell_matches_employee_bug_copy kind=snap owner=dialogs-pane snap=feedback_success_employee
 #[test]
 fn feedback_success_cell_matches_employee_bug_copy() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no transcript entry for the success cell of an employee bug upload (`feedback_success_employee_bug`, thread-2): the upload's cell is not built",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 12)
-        .entry("dialogs", "feedback_success_employee_bug")
+        .entry("feedback", "feedback_success_employee_bug")
         .open();
     let (row, col) = locate(
         &s,
@@ -892,13 +884,9 @@ fn feedback_success_cell_matches_employee_bug_copy() {
 // ORACLE bottom_pane/feedback_view.rs:532 feedback_success_cell_matches_good_result_copy kind=ui owner=dialogs-pane
 #[test]
 fn feedback_success_cell_matches_good_result_copy() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no transcript entry for the success cell of a good result (`feedback_success_good_result`, thread-3, no logs): the cell is not built",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 12)
-        .entry("dialogs", "feedback_success_good_result")
+        .entry("feedback", "feedback_success_good_result")
         .open();
     let (row, _) = locate(
         &s,
@@ -915,10 +903,6 @@ fn feedback_success_cell_matches_good_result_copy() {
 // ORACLE bottom_pane/feedback_view.rs:549 feedback_success_cell_uses_issue_links_for_remaining_categories kind=ui owner=dialogs-pane
 #[test]
 fn feedback_success_cell_uses_issue_links_for_remaining_categories() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no transcript entries for the success cells of bad result, safety check and other (`feedback_success_bad_result`, `feedback_success_safety_check`, `feedback_success_other`)",
-    );
     for entry in [
         "feedback_success_bad_result",
         "feedback_success_safety_check",
@@ -926,7 +910,7 @@ fn feedback_success_cell_uses_issue_links_for_remaining_categories() {
     ] {
         let s = Screen::build(Owner::DialogsPane)
             .size(120, 12)
-            .entry("dialogs", entry)
+            .entry("feedback", entry)
             .open();
         s.assert_contains("Please open an issue using the following URL:");
         s.assert_contains("thread-4");

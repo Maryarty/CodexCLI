@@ -837,7 +837,10 @@ fn parent_thread(id: &str, name: Option<&str>) -> serde_json::Value {
 fn forked_thread_history_line_includes_name_and_id_snapshot() {
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
-        .thread_start(parent_thread("e9f18a88-8081-4e51-9d4e-8af5cde2d8dd", Some("named-thread")))
+        .thread_start(parent_thread(
+            "e9f18a88-8081-4e51-9d4e-8af5cde2d8dd",
+            Some("named-thread"),
+        ))
         .script(include_str!("fixtures/chat_live_2/fork_named.jsonl"))
         .open();
     s.type_text("/fork");
@@ -888,8 +891,13 @@ fn app_server_forked_thread_history_line_uses_app_server_title_snapshot() {
     let mut s = Screen::build(Owner::ChatLive)
         // wide enough for the oracle's one-line snapshot (the line is 84 columns)
         .size(100, 24)
-        .thread_start(parent_thread("e9f18a88-8081-4e51-9d4e-8af5cde2d8dd", Some("app-server-parent-thread")))
-        .script(include_str!("fixtures/chat_live_2/fork_server_titled.jsonl"))
+        .thread_start(parent_thread(
+            "e9f18a88-8081-4e51-9d4e-8af5cde2d8dd",
+            Some("app-server-parent-thread"),
+        ))
+        .script(include_str!(
+            "fixtures/chat_live_2/fork_server_titled.jsonl"
+        ))
         .open();
     s.type_text("/fork");
     s.keys("enter");
@@ -907,7 +915,9 @@ fn app_server_forked_thread_history_line_without_app_server_name_ignores_local_s
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .thread_start(parent_thread("019c2d47-4935-7423-a190-05691f566092", None))
-        .script(include_str!("fixtures/chat_live_2/fork_server_unnamed.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_live_2/fork_server_unnamed.jsonl"
+        ))
         .open();
     s.type_text("/fork");
     s.keys("enter");
