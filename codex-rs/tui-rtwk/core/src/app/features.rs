@@ -81,7 +81,8 @@ pub(super) fn clock(app: &mut CodexApp, now: Now, fx: &mut AppFx) {
 }
 
 /// The nearest moment anything of the app wants the clock told: a feature's `wake_at`, a thread's
-/// features' `thread_wake_at`, a screen that words ages (`agents::wake_at`).
+/// features' `thread_wake_at`, a screen that words ages (`agents::wake_at`) or reads on a timer
+/// (`chat::wake_at`).
 pub(super) fn wake(app: &CodexApp) -> Option<Wake> {
     let nearest = |next: Option<Now>, at: Option<Now>| match (next, at) {
         (Some(next), Some(at)) => Some(next.min(at)),
@@ -95,6 +96,7 @@ pub(super) fn wake(app: &CodexApp) -> Option<Wake> {
         next,
         crate::screens::agents::wake_at(&app.screens.agents, app.now),
     );
+    next = nearest(next, crate::screens::chat::wake_at(&app.screens.chat));
     next.map(|at| Wake::new(app.now, at))
 }
 

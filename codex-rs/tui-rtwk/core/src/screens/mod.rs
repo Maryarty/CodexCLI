@@ -337,6 +337,9 @@ impl ScreenStates {
             self.status.now = secs;
             self.status.utc_offset_secs = now.utc_offset_secs();
         }
-        self.chat.facts.set_now(u64::try_from(secs).unwrap_or(0));
+        let secs = u64::try_from(secs).unwrap_or(0);
+        if self.chat.facts.now() != secs {
+            chat::set_now(&mut self.chat, secs);
+        }
     }
 }

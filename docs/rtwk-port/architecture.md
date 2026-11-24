@@ -878,7 +878,8 @@ subscriptions` with default no-ops.
   age (`ScreenStates::set_now`), so `Agents::Clock`, `Status::Clock`, `Resume::Clock` and the chat's
   clock event are gone. What wants to be woken says when: `Feature::wake_at(&state) -> Option<(Now,
   Intent)>` and `thread_wake_at(&part)` (the part only where this process writes the thread), and the
-  center's own `agents::wake_at` (the next minute while it lists tasks). After every step the app
+  screens' own: `agents::wake_at` (the next minute while the center lists tasks) and `chat::wake_at`
+  (the workspace headline's next read). After every step the app
   gives the nearest moment as `AppFx::wake` (a `Wake`, never less than a second ahead, so a wake
   the intent did not clear cannot spin the shell); the shell keeps ONE timer for it
   (`services/shell.rs`: armed when the moment changes, so a stream of keys does not push it back; no

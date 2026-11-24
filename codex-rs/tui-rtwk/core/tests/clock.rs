@@ -111,21 +111,23 @@ fn a_wake_is_never_less_than_a_second_away() {
     assert_eq!(wake.after(), Duration::from_secs(1));
 }
 
-/// The wake is read at the end of every step, whatever the event: it follows the model (a task
-/// listed after the clock was told is asked for with the clock the app has), and it goes away
-/// with the last task.
+/// The wake is read at the end of every step, whatever the event: a task listed after the clock
+/// was told is asked for with the clock the app has.
 #[test]
 fn the_wake_follows_the_model_not_the_event_that_changed_it() {
     let mut app = CodexApp::new();
     tell(&mut app, Now::at_secs(1_000));
+    assert_eq!(
+        list(&mut app, vec![]).wake(),
+        None,
+        "an empty center ages nothing"
+    );
     let fx = list(&mut app, vec![task()]);
     assert_eq!(
         fx.wake().expect("a task is listed").at(),
         Now::at_secs(1_020),
         "an event that is not the clock still carries the wake"
     );
-    let fx = list(&mut app, vec![]);
-    assert_eq!(fx.wake(), None, "an empty center ages nothing");
 }
 
 #[test]

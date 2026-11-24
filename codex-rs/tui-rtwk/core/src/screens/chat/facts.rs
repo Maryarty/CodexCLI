@@ -216,6 +216,11 @@ impl Facts {
         self.now = now;
     }
 
+    /// The time the facts were last told, in epoch seconds.
+    pub(crate) fn now(&self) -> u64 {
+        self.now
+    }
+
     pub(super) fn apply(&mut self, ev: Ev) {
         match ev {
             Ev::Cwd(cwd) => {

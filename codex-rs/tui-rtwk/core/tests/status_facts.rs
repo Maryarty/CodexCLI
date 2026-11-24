@@ -7,7 +7,7 @@
 //! (`chatwidget/status_surfaces.rs`, `branch_summary.rs`, `workspace_messages.rs`,
 //! `app/agent_navigation.rs`).
 
-use codex_tui_core::app::{AppFx, CodexApp, apply_thread};
+use codex_tui_core::app::{AppFx, CodexApp, Now, apply_thread};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::ThreadId;
@@ -240,6 +240,32 @@ mod workspace_headline {
         let facts = facts_of(&sandbox);
         assert_eq!(facts.headline(), Some("Ship it"));
         assert_eq!(facts.probes(), vec![Probe::Headline { request: 2 }]);
+    }
+
+    /// The chat declares the next read as a wake (`chat::wake_at`): the shell's one timer tells
+    /// the clock then, and the read is made. Without a ChatGPT sign-in no read would be made, so
+    /// no moment is asked for.
+    #[test]
+    fn the_next_read_is_a_wake_the_chat_declares() {
+        let wake = |sandbox: &Sandbox| chat::wake_at(&sandbox.app().screens().chat);
+        let sandbox = play(&[
+            clock(1_000),
+            items(&[ITEM]),
+            answer(1, json!({"available": "Ship it"})),
+        ]);
+        assert_eq!(
+            wake(&sandbox),
+            Some(Now::at_secs(1_000 + facts::HEADLINE_REFRESH_SECS as i64))
+        );
+        let sandbox = play(&[
+            clock(1_000),
+            items(&[ITEM]),
+            answer(1, json!({"available": "Ship it"})),
+            screen(json!({"signed_in": false})),
+        ]);
+        assert_eq!(wake(&sandbox), None);
+        let sandbox = play(&[clock(1_000), items(&["model"])]);
+        assert_eq!(wake(&sandbox), None, "the item is not on the line");
     }
 
     #[test]
