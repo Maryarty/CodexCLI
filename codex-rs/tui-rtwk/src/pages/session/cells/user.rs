@@ -22,8 +22,10 @@ use rtwk_rich::markdown::{MarkdownTheme, MdBlock, MdInline, parse_markdown};
 use crate::app::theme::Tokens;
 use crate::pages::session::strings::Strings as Chat;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
 use super::text::{Gap, Part, Texts};
+use codex_tui_core::threads::Item;
 
 /// What a prompt is drawn with: the surface, the colours, the tables.
 pub struct Look<'a> {
@@ -155,4 +157,25 @@ fn has_markup(text: &str) -> bool {
             }),
             _ => true,
         })
+}
+
+/// A prompt: the panel on the prompt surface; its blank row belongs to the transcript, outside the surface, and a prompt that joins the one above has none.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::User(prompt) = item else {
+        return AnyWidget::default();
+    };
+    let panel = panel(
+        prompt,
+        &Look {
+            surface: env.prompt_surface.clone(),
+            tokens: env.tokens,
+            chat: env.chat,
+            cells: env.cells,
+            markdown: env.markdown,
+            highlighted: place.highlighted,
+        },
+        place.joins_prompt,
+    );
+    below(place.separator && !place.joins_prompt, panel.into())
 }

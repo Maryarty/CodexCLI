@@ -13,10 +13,12 @@ pub use cell::StatusCell;
 
 use rtwk::AnyWidget;
 
+use super::dispatch::{CellEnv, Place, below};
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 use crate::app::debug::seeded::Seeded;
+use codex_tui_core::threads::Item;
 
 pub mod strings;
 
@@ -152,4 +154,13 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// to show.
 pub fn open_empty() -> DebugOpen {
     DebugOpen::Route(|_| AnyWidget::default())
+}
+
+/// The card of `/status`.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Status { card, .. } = item else {
+        return AnyWidget::default();
+    };
+    below(place.separator, StatusCell { card: card.clone() }.into())
 }

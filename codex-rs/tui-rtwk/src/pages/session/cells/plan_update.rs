@@ -24,9 +24,11 @@ use codex_tui_core::threads::{PlanStep, PlanUpdate, StepStatus};
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::one_row::one_row;
 use super::strings::Strings;
 use crate::widgets::measure::Measure;
+use codex_tui_core::threads::Item;
 
 /// How many steps the compact cell lists (oracle `DETAIL_PREVIEW_LINES`).
 const PREVIEW_STEPS: usize = 3;
@@ -235,4 +237,20 @@ fn revealed(update: &PlanUpdate, tokens: &Tokens, strings: &Strings) -> AnyWidge
                 .child(Expanded::new(1, body)),
         )
         .into()
+}
+
+/// An `update_plan` report.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::PlanUpdate(update) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        PlanUpdateCell {
+            update: update.clone(),
+            detailed: env.detailed,
+        }
+        .into(),
+    )
 }

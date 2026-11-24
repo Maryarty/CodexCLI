@@ -13,8 +13,10 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
 use super::text::Part;
+use codex_tui_core::threads::Item;
 
 /// The mark and its blank (oracle `"⚠ "` and `"  "`).
 const MARK_COLUMNS: i32 = 2;
@@ -63,4 +65,16 @@ impl StatelessWidget for WarningCell {
             ))
             .into()
     }
+}
+
+/// A warning: the server's, the client's own and a startup warning.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let message = match item {
+        Item::Warning { message } => message.clone(),
+        Item::LocalWarning(warning) => env.chat.local_warning(*warning).to_string(),
+        Item::StartupWarning(warning) => env.chat.mcp_warning(warning),
+        _ => return AnyWidget::default(),
+    };
+    below(place.separator, WarningCell { message }.into())
 }

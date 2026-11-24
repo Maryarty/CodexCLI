@@ -16,7 +16,9 @@ use codex_tui_core::threads::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest,
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CollabCell {
@@ -255,4 +257,19 @@ fn error_spans(message: Option<&str>, tokens: &Tokens, strings: &Strings) -> Spa
         spans.push(Span::new(message.to_owned()));
     }
     spans
+}
+
+/// A multi-agent call or a sub-agent's activity.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Collab(event) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        CollabCell {
+            event: event.clone(),
+        }
+        .into(),
+    )
 }

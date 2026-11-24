@@ -18,7 +18,9 @@ use codex_tui_core::threads::{HookEntryKind, HookRun, HookStatus};
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::threads::Item;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HookCell {
@@ -141,4 +143,13 @@ fn message_lines(text: &str) -> Vec<Vec<Span>> {
         lines.push(Vec::new());
     }
     lines
+}
+
+/// A finished hook run.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Hook(run) = item else {
+        return AnyWidget::default();
+    };
+    below(place.separator, HookCell { run: run.clone() }.into())
 }

@@ -10,10 +10,12 @@ use codex_tui_core::threads::{WebAction, WebActivity};
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::one_row::one_row;
 use super::strings::Strings;
 use super::text::Part;
 use super::tool_rows::glyph_row;
+use codex_tui_core::threads::Item;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebCell {
@@ -108,4 +110,20 @@ impl StatelessWidget for WebCell {
         }
         one_row(spans)
     }
+}
+
+/// A web search.
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Web(activity) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        WebCell {
+            activity: activity.clone(),
+            detailed: env.detailed,
+        }
+        .into(),
+    )
 }

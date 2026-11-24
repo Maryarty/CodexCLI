@@ -12,11 +12,13 @@ use codex_tui_core::threads::Notice;
 
 use crate::app::theme::Tokens;
 
+use super::dispatch::{CellEnv, Place, below};
 use super::safety;
 use super::strings::Strings;
 use super::text::Part;
 use super::update_available;
 use super::{interaction, request_input, session_info};
+use codex_tui_core::threads::Item;
 
 /// The mark and its blank (oracle `"⚠ "` and `"  "`).
 const MARK_COLUMNS: i32 = 2;
@@ -291,4 +293,19 @@ impl StatelessWidget for NoticeCell {
             }
         }
     }
+}
+
+/// A notice of the session (compacted, forked, ...).
+/// The cell of `item` when it is this file's (`cell_list!`).
+pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let Item::Notice(notice) = item else {
+        return AnyWidget::default();
+    };
+    below(
+        place.separator,
+        NoticeCell {
+            notice: notice.clone(),
+        }
+        .into(),
+    )
 }
