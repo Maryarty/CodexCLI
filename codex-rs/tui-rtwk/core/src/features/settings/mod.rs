@@ -174,6 +174,9 @@ pub enum Ctx {
     HookTrust {
         many: bool,
     },
+    /// A preference of the configuration panel was written: its row follows once the file has
+    /// it.
+    Preference(Edit),
     /// A captured shortcut was written: what the session says once the file has it.
     KeymapWrite {
         saved: Note,
@@ -299,6 +302,49 @@ impl State {
             Some(Offer::Experimental(dialog)) => Some(dialog),
             _ => None,
         }
+    }
+
+    fn config_panel_mut(&mut self) -> Option<&mut ConfigPanel> {
+        match self.offers.get_mut(&Which::Config) {
+            Some(Offer::Config(panel)) => Some(panel),
+            _ => None,
+        }
+    }
+
+    /// The file has a preference of the panel (`save_config_preference`): its row shows it, and
+    /// the panel says what the oracle says (`Saved · applies to new composers`), or why not.
+    fn preference_saved(&mut self, edit: &Edit, result: Result<(), String>) {
+        let Some(panel) = self.config_panel_mut() else {
+            return;
+        };
+        let error = match result {
+            Ok(()) => {
+                panel.notice = None;
+                match edit {
+                    Edit::Toggled(SettingId::Animations, on) => panel.effects.animations = *on,
+                    Edit::Toggled(SettingId::ComposerStars, on) => {
+                        panel.effects.composer_stars = *on;
+                    }
+                    Edit::Toggled(id, on) => {
+                        if let Some(row) = panel.rows.iter_mut().find(|row| row.id == *id) {
+                            row.value = Value::Toggle(*on);
+                        }
+                        if *id == SettingId::StartInVimMode {
+                            panel.notice = Some(PanelNotice::AppliesToNewComposers);
+                        }
+                    }
+                    Edit::Chosen(id, choice) => {
+                        if let Some(row) = panel.rows.iter_mut().find(|row| row.id == *id) {
+                            row.value = Value::Choice(choice_label(*id, choice.as_deref()));
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            Err(error) => error,
+        };
+        panel.notice = Some(PanelNotice::CouldNotSave(error));
     }
 
     /// A catalogue is offered; the theme picker's offer is the theme in force.
@@ -815,6 +861,26 @@ impl State {
                     Ctx::Skills,
                 );
             }
+            Edit::Toggled(..) | Edit::Chosen(..) => {
+                if let Some(write) = persist::preference_write(&edit) {
+                    if let Some(panel) = self.config_panel_mut() {
+                        panel.notice = None;
+                    }
+                    cx.effect(
+                        Ask::ConfigWrite { edits: vec![write] },
+                        Ctx::Preference(edit.clone()),
+                    );
+                }
+            }
+            Edit::TestNotification => {
+                if let Some(panel) = self.config_panel_mut() {
+                    panel.notice = Some(if panel.notice == Some(PanelNotice::TestScheduled) {
+                        PanelNotice::TestAlreadyScheduled
+                    } else {
+                        PanelNotice::TestScheduled
+                    });
+                }
+            }
             Edit::HookEnabled { key, enabled } => self.hook_enabled(key.clone(), *enabled, cx),
             Edit::HookTrusted { key, current_hash } => {
                 self.hook_trust(vec![(key.clone(), current_hash.clone())], false, cx);
@@ -992,6 +1058,10 @@ impl super::Feature for Settings {
             }
             return;
         }
+        if let (Ctx::Preference(edit), Done::Config(result)) = (&ctx, &done) {
+            state.preference_saved(edit, result.clone());
+            return;
+        }
         let (Ctx::Write(subject), Done::Config(result)) = (ctx, done) else {
             return;
         };
@@ -1074,7 +1144,7 @@ impl super::Feature for Settings {
             }
             Ctx::Resume { lookup } => State::resume_page(lookup, result, cx),
             Ctx::Opened { .. } => {}
-            Ctx::Write(_) | Ctx::FeaturesWrite { .. } | Ctx::KeymapWrite { .. } => {}
+            Ctx::Write(_) | Ctx::Preference(_) | Ctx::FeaturesWrite { .. } | Ctx::KeymapWrite { .. } => {}
         }
     }
 

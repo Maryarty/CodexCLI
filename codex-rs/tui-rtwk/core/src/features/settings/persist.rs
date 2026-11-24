@@ -3,7 +3,7 @@
 //! values an `Edit` stands for (the wire request of a batch is `protocol::config`). The dialogs
 //! never name a key; the feature turns the edits they recorded into one write each.
 
-use super::{Edit, MemoryFacts, SetupKind};
+use super::{Edit, MemoryFacts, SettingId, SetupKind};
 use crate::app::effects::ConfigEdit;
 
 /// What a write is for, with the values it saves: the words of its failure line are the
@@ -136,4 +136,48 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
         },
         _ => return None,
     })
+}
+
+/// The config key a preference of the panel is, and the value it takes (`ConfigPreference::edit`).
+/// A toggle is a boolean; a choice is the text the config reads (none unsets the key).
+pub fn preference_write(edit: &Edit) -> Option<ConfigEdit> {
+    let key = |setting: SettingId| -> &'static str {
+        match setting {
+            SettingId::Tips => "tui.show_tooltips",
+            SettingId::StatusLineColors => "tui.status_line_use_colors",
+            SettingId::Notifications => "tui.notifications",
+            SettingId::StartInVimMode => "tui.vim_mode_default",
+            SettingId::PasteDetection => "tui.disable_paste_burst",
+            SettingId::AutomaticRecaps => "tui.auto_recap",
+            SettingId::CollapseTurnDetails => "tui.collapse_turn_details",
+            SettingId::DeselectAfterCopy => "tui.copy_on_select_clear_selection",
+            SettingId::Animations => "tui.animations",
+            SettingId::ComposerStars => "tui.effects.starfield",
+            SettingId::CopyOnSelect => "tui.copy_on_select",
+            SettingId::NotifyWhen => "tui.notification_condition",
+            SettingId::RightClickPaste => "tui.right_click_paste",
+            SettingId::SessionPickerLayout => "tui.session_picker_view",
+            SettingId::ResumeDirectory => "tui.resume_cwd",
+            _ => "",
+        }
+    };
+    match edit {
+        Edit::Toggled(setting, enabled) => {
+            let path = key(*setting);
+            (!path.is_empty()).then(|| {
+                // "Paste detection" is the inverse of the key (`disable_paste_burst`).
+                let value = if *setting == SettingId::PasteDetection {
+                    !enabled
+                } else {
+                    *enabled
+                };
+                replace(path, serde_json::json!(value))
+            })
+        }
+        Edit::Chosen(setting, choice) => {
+            let path = key(*setting);
+            (!path.is_empty()).then(|| replace(path, serde_json::json!(choice)))
+        }
+        _ => None,
+    }
 }

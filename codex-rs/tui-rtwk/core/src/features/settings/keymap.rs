@@ -183,8 +183,12 @@ impl Row {
             action: action.name,
             unbound: binding == "unbound",
             item: ActionItem {
+                context: action.context.to_owned(),
+                context_label: action.context_label.to_owned(),
+                action: action.name.to_owned(),
                 name: label,
                 binding,
+                custom,
                 search,
             },
             custom,

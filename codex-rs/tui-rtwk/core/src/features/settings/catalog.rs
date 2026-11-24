@@ -65,6 +65,9 @@ pub enum SettingId {
     CopyOnSelect,
     DeselectAfterCopy,
     RightClickPaste,
+    /// The toggles of the effects editor (`ConfigToggle::Animations`, `ComposerStars`).
+    Animations,
+    ComposerStars,
 }
 
 /// The value column of a row (`ConfigSettingValue`).
@@ -118,11 +121,42 @@ pub struct Row {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigPanel {
     pub rows: Vec<Row>,
+    /// The two switches of the effects editor (`tui.animations`, `tui.effects.starfield`).
+    pub effects: Effects,
+    /// The line under the title while it has one (`ConfigPanelUpdate::notice`).
+    pub notice: Option<PanelNotice>,
+}
+
+/// The switches of the effects editor (`ConfigToggle::Animations`, `ComposerStars`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Effects {
+    pub animations: bool,
+    pub composer_stars: bool,
+}
+
+/// What the panel says of its last save under its title (the words are the view's).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PanelNotice {
+    /// `Could not save: {error}`.
+    CouldNotSave(String),
+    /// `Saved · applies to new composers`.
+    AppliesToNewComposers,
+    /// `Test scheduled in 5s · switch apps`.
+    TestScheduled,
+    /// `Test already scheduled · switch apps`.
+    TestAlreadyScheduled,
 }
 
 impl ConfigPanel {
     pub fn new(rows: Vec<Row>) -> Self {
-        Self { rows }
+        Self {
+            rows,
+            effects: Effects {
+                animations: true,
+                composer_stars: true,
+            },
+            notice: None,
+        }
     }
 
     /// The row editing `id`.
@@ -349,8 +383,19 @@ impl Setup {
 /// One action of the keymap picker (`keymap_setup.rs`).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct ActionItem {
+    /// The context as the config names it (`global`) and its label (`Global`).
+    #[serde(default)]
+    pub context: String,
+    #[serde(default)]
+    pub context_label: String,
+    /// The action as the config names it (`open_agents`).
+    #[serde(default)]
+    pub action: String,
     pub name: String,
     pub binding: String,
+    /// The user's config sets the action (`*` in the list).
+    #[serde(default)]
+    pub custom: bool,
     /// What a search matches: context, action and description.
     pub search: String,
 }
@@ -660,8 +705,12 @@ impl Facts {
 /// What a settings dialog asked the app to do (the oracle's `AppEvent`s): a request record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Edit {
-    /// A toggle row was flipped (`PersistConfig`).
+    /// A toggle row was flipped (`SaveConfigPreference`): the setting and its new value.
     Toggled(SettingId, bool),
+    /// A choice was made in the editor of a row (`SaveConfigPreference`): the setting and
+    /// the value as the config writes it (none: the key is unset, the resume directory's
+    /// "Ask").
+    Chosen(SettingId, Option<String>),
     TestNotification,
     /// Enter on a row that opens an editor of its own.
     Editor(SettingId),
@@ -775,4 +824,28 @@ pub(super) fn setup(
         items,
         values,
     }
+}
+
+/// The label a row shows for the value just chosen (`ConfigEditor::value`); an "Auto" keeps
+/// no effective state here: the host's next facts say it.
+pub fn choice_label(id: SettingId, choice: Option<&str>) -> String {
+    match (id, choice) {
+        (SettingId::ResumeDirectory, None) => "Ask",
+        (SettingId::ResumeDirectory, Some("current")) => "Current directory",
+        (SettingId::ResumeDirectory, Some("session")) => "Session directory",
+        (SettingId::SessionPickerLayout, Some("dense")) => "Dense",
+        (SettingId::SessionPickerLayout, Some("comfortable")) => "Comfortable",
+        (SettingId::NotifyWhen, Some("always")) => "Always",
+        (SettingId::NotifyWhen, Some("unfocused")) => "Unfocused",
+        (SettingId::CopyOnSelect, Some("always")) | (SettingId::RightClickPaste, Some("on")) => {
+            "On"
+        }
+        (SettingId::CopyOnSelect, Some("never")) | (SettingId::RightClickPaste, Some("off")) => {
+            "Off"
+        }
+        (_, Some("auto")) => "Auto",
+        (_, Some(other)) => return other.to_owned(),
+        (_, None) => "Ask",
+    }
+    .to_owned()
 }

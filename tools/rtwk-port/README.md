@@ -1,0 +1,1 @@
+- w2-settings/keymap_fixture.py: context, context_label and action on the items of keymap fixtures (settings keymap picker rows).
