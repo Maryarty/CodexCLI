@@ -1064,3 +1064,228 @@ fn config_panel_groups_search_and_toggle() {
     h.t.pump_for(ms(200));
     assert!(!h.t.screen().contains("Search ›"), "{}", h.t.screen());
 }
+
+// ---- the keymap editor (`keymap_editor/`): picker, action menu, capture, inspector.
+// Oracle: `keymap_setup/*` and its snapshots `keymap_*`.
+
+fn keymap() -> Harness {
+    open_sized("keymap_picker", 120, 40)
+}
+
+#[test]
+fn keymap_picker_wide_matches_the_oracle_frame() {
+    let h = keymap();
+    let screen = h.t.screen();
+    for text in [
+        "Keymap",
+        "All configurable shortcuts.",
+        "153 actions, 0 customized, 5 unbound.",
+        "Customized (0)",
+        "Unbound (5)",
+        "Type to search shortcuts",
+        "› Global       - Open Agents                unbound",
+        "  Global         Open Transcript            ctrl-t",
+        "  Chat           Decrease Reasoning Effort  alt-,, shift-down",
+        "  Chat           Open Presets               leader p (ctrl-x p)",
+        "left/right group · enter edit shortcut · * custom · - unbound · esc close",
+    ] {
+        assert!(screen.contains(text), "{text}\n{screen}");
+    }
+}
+
+#[test]
+fn keymap_picker_narrow_keeps_the_rows_readable() {
+    let h = open_sized("keymap_picker", 78, 40);
+    let screen = h.t.screen();
+    assert!(screen.contains("Keymap"), "{screen}");
+    assert!(screen.contains("Open Transcript"), "{screen}");
+    assert!(screen.contains("ctrl-t"), "{screen}");
+}
+
+#[test]
+fn keymap_picker_tabs_and_search() {
+    let mut h = keymap();
+    h.t.press("right");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(screen.contains("Frequently customized shortcuts."), "{screen}");
+    h.t.press("left");
+    h.t.type_text("transcript");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(screen.contains("Open Transcript"), "{screen}");
+    assert!(!screen.contains("Open Agents"), "{screen}");
+    h.t.press("esc");
+    h.t.pump_for(ms(100));
+}
+
+#[test]
+fn keymap_action_menu_opens_for_a_bound_action() {
+    let mut h = keymap();
+    h.t.press("down");
+    h.t.press("enter");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(screen.contains("Edit Shortcut"), "{screen}");
+    assert!(screen.contains("ctrl-t"), "{screen}");
+    assert!(screen.contains("Replace binding"), "{screen}");
+    assert!(
+        screen.contains("Capture a replacement key for `ctrl-t`"),
+        "{screen}"
+    );
+    assert!(screen.contains("Add alternate binding"), "{screen}");
+    assert!(screen.contains("Back to shortcuts"), "{screen}");
+    h.t.press("esc");
+    h.t.pump_for(ms(200));
+    assert!(
+        h.t.screen().contains("All configurable shortcuts."),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn keymap_action_menu_for_an_unbound_action_offers_set_key() {
+    let mut h = keymap();
+    h.t.press("enter");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(screen.contains("Set key"), "{screen}");
+    assert!(
+        screen.contains("Capture a key for this unbound action"),
+        "{screen}"
+    );
+    assert!(screen.contains("Set key chord"), "{screen}");
+    assert!(!screen.contains("Replace binding"), "{screen}");
+}
+
+#[test]
+fn keymap_capture_view_lists_action_and_current_key() {
+    let mut h = keymap();
+    h.t.press("down");
+    h.t.press("enter");
+    h.t.pump_for(ms(100));
+    h.t.press("enter");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(screen.contains("Remap Shortcut"), "{screen}");
+    assert!(screen.contains("Current: ctrl-t"), "{screen}");
+    assert!(
+        screen.contains("Press the new key now. Esc cancels."),
+        "{screen}"
+    );
+    h.t.press("esc");
+    h.t.pump_for(ms(200));
+}
+
+#[test]
+fn keymap_inspector_reports_the_pressed_key() {
+    let mut h = open_sized("keymap_inspector", 100, 24);
+    let screen = h.t.screen();
+    assert!(screen.contains("Keypress Inspector"), "{screen}");
+    assert!(screen.contains("Waiting for a keypress..."), "{screen}");
+    h.t.press("f8");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(screen.contains("Detected: f8"), "{screen}");
+    assert!(screen.contains("Config key: f8"), "{screen}");
+    assert!(
+        screen.contains("chat.toggle_voice (Toggle Voice) - Start or stop a voice conversation."),
+        "{screen}"
+    );
+}
+
+#[test]
+fn keymap_inspector_shows_the_delayed_hint() {
+    let mut h = open_sized("keymap_inspector", 100, 24);
+    assert!(
+        h.t.screen().contains("Tip: Codex can only inspect keys"),
+        "{}",
+        h.t.screen()
+    );
+    h.t.pump_for(ms(3500));
+    let screen = h.t.screen();
+    assert!(screen.contains("Still waiting? If nothing changes"), "{screen}");
+    assert!(screen.contains("Waiting for a keypress..."), "{screen}");
+}
+
+/// `/keymap` on a driven harness over the real model: the host's facts carry the resolved
+/// keymap, a captured key's intent travels to the shell and back.
+fn keymap_driven() -> Harness {
+    let mut h = start_driven(false, 120, 40);
+    h.wait_idle();
+    let tabs = codex_tui_core::features::settings::keymap::picker(
+        &codex_tui_core::keymap::Keymap::defaults(),
+        codex_tui_core::features::settings::keymap::Filter::default(),
+    )
+    .tabs;
+    h.inject([AppEv::Feature(FeatureFact::from(SettingsFact::Facts(
+        Facts {
+            keymap_tabs: tabs,
+            ..Facts::default()
+        },
+    )))]);
+    h.t.type_text("/keymap");
+    h.press("enter");
+    h.wait_for("the picker", |screen| {
+        screen.contains("All configurable shortcuts.")
+    });
+    h.advance(600);
+    h
+}
+
+/// Row of Open Transcript, then the menu's Replace binding, then the capture view.
+fn keymap_capturing() -> Harness {
+    let mut h = keymap_driven();
+    h.press("down");
+    h.press("enter");
+    h.press("enter");
+    assert!(
+        h.t.screen().contains("Remap Shortcut"),
+        "{}",
+        h.t.screen()
+    );
+    h
+}
+
+#[test]
+fn keymap_capturing_a_free_key_writes_the_binding() {
+    let mut h = keymap_capturing();
+    h.press("f12");
+    h.wait_until("the write", |h| !edits(h).is_empty());
+    h.advance(600);
+    let edits = edits(&h);
+    assert!(
+        matches!(
+            edits.as_slice(),
+            [Edit::KeymapBound { context, action, keys }]
+                if context == "global" && action == "open_transcript" && keys == &vec!["f12".to_string()]
+        ),
+        "{edits:?}"
+    );
+}
+
+#[test]
+fn keymap_capturing_a_taken_key_opens_the_conflict_sheet() {
+    let mut h = keymap_capturing();
+    h.press("ctrl+l");
+    h.advance(400);
+    let screen = h.t.screen();
+    assert!(screen.contains("Shortcut Conflict"), "{screen}");
+    assert!(screen.contains("global.open_transcript cannot use `ctrl-l`."), "{screen}");
+    assert!(screen.contains("Pick another key"), "{screen}");
+    assert_eq!(edits(&h), vec![]);
+    h.press("enter");
+    h.advance(400);
+    assert!(h.t.screen().contains("Remap Shortcut"), "{}", h.t.screen());
+}
+
+#[test]
+fn keymap_capture_esc_returns_to_the_menu() {
+    let mut h = keymap_capturing();
+    h.press("esc");
+    h.advance(300);
+    let screen = h.t.screen();
+    assert!(screen.contains("Edit Shortcut"), "{screen}");
+    assert_eq!(edits(&h), vec![]);
+}

@@ -119,7 +119,7 @@ pub fn captured(
     }
     let refs: Vec<&str> = next.iter().map(String::as_str).collect();
     let edited = spec.clone().with(context, action, &refs);
-    Keymap::resolve(&edited).map_err(|error| Failure::Conflict(error.message().to_owned()))?;
+    Keymap::resolve(&edited).map_err(|error| Failure::Conflict(error.message()))?;
     Ok(Outcome::Updated {
         spec: edited,
         keys: next,

@@ -224,12 +224,12 @@ fn bad_seeds_are_refused() {
 }
 
 /// What a dialog asks of the app is a record, in order; the model changes nothing else for the
-/// plain ones, and none of these is a write of the config file.
+/// plain ones, and none of these is a write of the config file (a preference that is one,
+/// `Toggled`, writes its key).
 #[test]
 fn requests_are_recorded_in_order_and_the_plain_ones_write_nothing() {
     let mut rig = Rig::play(CONFIG).expect("plays");
     let requests = vec![
-        Edit::Toggled(SettingId::Tips, true),
         Edit::Editor(SettingId::Effects),
         Edit::TestNotification,
         Edit::KeymapPicked("Open Transcript".into()),
@@ -676,6 +676,86 @@ fn the_keymap_picker_filters_a_tab() {
     assert_eq!(
         names,
         vec!["Open Transcript", "Find Transcript", "Focus Activity"]
+    );
+}
+
+const KEYMAP_DEFAULT: &str =
+    include_str!("../../src/features/settings/fixtures/keymap_default.jsonl");
+
+fn captured(
+    context: &str,
+    action: &str,
+    key: &str,
+    intent: codex_tui_core::features::settings::capture::Intent,
+) -> SettingsIntent {
+    SettingsIntent::KeymapCaptured {
+        context: context.to_owned(),
+        action: action.to_owned(),
+        key: key.to_owned(),
+        intent,
+    }
+}
+
+/// A captured free key writes the binding the picker's menu asked for.
+#[test]
+fn a_captured_free_key_replaces_the_binding_and_writes_the_config() {
+    use codex_tui_core::features::settings::capture::Intent as How;
+    let mut rig = Rig::play(KEYMAP_DEFAULT).expect("plays");
+    let commands = send(
+        &mut rig,
+        captured(
+            "global",
+            "open_transcript",
+            "f12",
+            How::ReplaceOne {
+                old_key: "ctrl-t".to_owned(),
+            },
+        ),
+    );
+    assert_eq!(
+        model(&rig).edits,
+        vec![Edit::KeymapBound {
+            context: "global".to_owned(),
+            action: "open_transcript".to_owned(),
+            keys: vec!["f12".to_owned()],
+        }]
+    );
+    let (_, edits) = config_write(&commands).expect("the config is written");
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    assert_eq!(edits[0].0, "tui.keymap.global.open_transcript");
+}
+
+/// A key another action of the context holds is refused, nothing is written.
+#[test]
+fn a_captured_taken_key_is_a_conflict_and_writes_nothing() {
+    use codex_tui_core::features::settings::capture::Intent as How;
+    let mut rig = Rig::play(KEYMAP_DEFAULT).expect("plays");
+    let commands = send(
+        &mut rig,
+        captured("global", "open_transcript", "ctrl-l", How::ReplaceAll),
+    );
+    assert!(config_write(&commands).is_none());
+    assert_eq!(model(&rig).edits, vec![]);
+}
+
+/// Removing a custom binding writes a null (the default comes back).
+#[test]
+fn a_cleared_binding_writes_a_null() {
+    let mut rig = Rig::play(KEYMAP_DEFAULT).expect("plays");
+    let commands = send(
+        &mut rig,
+        SettingsIntent::KeymapCleared {
+            context: "global".to_owned(),
+            action: "open_transcript".to_owned(),
+        },
+    );
+    let (_, edits) = config_write(&commands).expect("the config is written");
+    assert_eq!(
+        edits,
+        vec![(
+            "tui.keymap.global.open_transcript".to_owned(),
+            serde_json::Value::Null
+        )]
     );
 }
 
