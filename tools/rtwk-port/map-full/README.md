@@ -13,3 +13,8 @@ python3 -I tools/rtwk-port/map-full/check.py      # no file in two packages, eve
 
 Rerunnable. A change of owner is an edit of one data line and a rerun; `pending-tests.tsv` is re-cut from
 `summary.py --list pending` when the shards change.
+
+Since 2026-11-24 the W2 UI packages are the 8 `w2-*` of `docs/rtwk-port/research/w2-packages/briefs.md` §A: their own-lists in
+`packages.py` are the `area` of the tm tasks of the same name (a directory is `dir/**`, a `dir.rs` beside it joins it); the landed
+W1 packages (fw1-c*) own nothing; the doors (`feature_list!` etc.) are in `check.py` `DOORS`. A change of a tm area is an edit of
+one list here and a rerun of `build.py` + `check.py`. Un-pending of stale tests: `tools/rtwk-port/unpend-stale/`.
