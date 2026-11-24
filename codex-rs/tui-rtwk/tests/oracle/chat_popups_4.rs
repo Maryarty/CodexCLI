@@ -1132,24 +1132,6 @@ fn model_step(model: &str, read: bool) -> String {
     )
 }
 
-/// The pages the banner's action asked the browser to open: the feature's `OpenUrl` ask, which
-/// the kit's `opened_urls` (the app's own `Command::OpenUrl`) does not list.
-fn browser_pages(s: &Screen) -> Vec<String> {
-    use codex_tui_core::app::Command;
-    use codex_tui_core::app::effects::Ask;
-    s.commands()
-        .into_iter()
-        .filter_map(|command| match command {
-            Command::OpenUrl { url, .. } => Some(url),
-            Command::Effect {
-                ask: Ask::OpenUrl { url },
-                ..
-            } => Some(url),
-            _ => None,
-        })
-        .collect()
-}
-
 /// The oracle's snapshot `name` against the screen from `row`, up to and including the snapshot's
 /// first row holding `last`. What the oracle draws under that row is not the banner's: the footer
 /// (`test-model-a default · /tmp/project` over `? for shortcuts`, ours is one `← for agents` row)
@@ -1194,7 +1176,7 @@ fn security_setup_preserves_draft_action_and_dismissal_across_widgets() {
     );
     // 1 opens the page in the browser and the banner stays
     s.keys("1");
-    assert_eq!(browser_pages(&s), ["https://chatgpt.com/cyber"]);
+    assert_eq!(s.opened_urls(), ["https://chatgpt.com/cyber"]);
     s.assert_contains("Set up security");
     s.keys("esc");
     s.assert_absent("Set up security");

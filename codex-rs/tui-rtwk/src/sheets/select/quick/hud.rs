@@ -12,6 +12,7 @@ use rtwk::layout::{
 };
 use rtwk::provider::select;
 use rtwk::style::Span;
+use rtwk::text::TextWrap;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
@@ -159,10 +160,15 @@ pub fn view<S: 'static>(cx: &mut Cx<'_, S>) -> AnyWidget {
     let (accent, dim, bold) = (tokens.accent(), tokens.dim(), tokens.bold());
     let item = |key: &str, label: &str| -> AnyWidget {
         Row::new()
-            .child(Text::rich(vec![
-                Span::styled(key.to_owned(), accent.clone()),
-                Span::styled(words.hud_separator, dim.clone()),
-            ]))
+            .child(
+                Text::rich(vec![
+                    Span::styled(key.to_owned(), accent.clone()),
+                    Span::styled(words.hud_separator, dim.clone()),
+                ])
+                // the separator ends in a space that is the label's gap: a word-wrapped text
+                // lets it hang
+                .wrap(TextWrap::None),
+            )
             .child(Expanded::new(
                 1,
                 dots_end(label.to_owned(), Default::default()),

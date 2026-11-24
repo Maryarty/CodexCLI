@@ -24,7 +24,7 @@ fn chat() -> Screen {
 fn f3_opens_the_query_line_and_the_newest_match_is_drawn_reversed() {
     let mut s = chat();
     s.keys("f3");
-    s.assert_contains("Find: ");
+    s.assert_contains("Find:");
     s.assert_contains("Type to find");
     s.type_text("needle two");
     s.assert_contains("Find: needle two");
@@ -41,18 +41,33 @@ fn the_query_is_found_whatever_its_case() {
     s.assert_text_style("Needle two", "reversed");
 }
 
+/// The match is the query's range (`needle`), not its whole line: the word `Needle` of the answer
+/// on `row` is drawn reversed, or not.
+fn matched(s: &Screen, row: usize, reversed: bool) {
+    let spec = if reversed { "reversed" } else { "!reversed" };
+    for x in 2..8 {
+        s.assert_style(x, row, spec);
+    }
+}
+
+const ONE: usize = 11;
+const TWO: usize = 15;
+
 #[test]
 fn ctrl_p_and_ctrl_n_step_older_and_newer_and_stop_at_the_ends() {
     let mut s = chat();
     s.keys("f3");
     s.type_text("needle");
+    matched(&s, TWO, true);
     s.keys("ctrl+p");
-    s.assert_text_style("Needle one", "reversed");
+    matched(&s, ONE, true);
+    matched(&s, TWO, false);
     s.keys("ctrl+p");
     s.assert_contains("No more matches");
-    s.assert_text_style("Needle one", "reversed");
+    matched(&s, ONE, true);
     s.keys("ctrl+n");
-    s.assert_text_style("Needle two", "reversed");
+    matched(&s, TWO, true);
+    matched(&s, ONE, false);
     s.keys("ctrl+n");
     s.assert_contains("No more matches");
 }
@@ -94,7 +109,8 @@ fn enter_reads_the_match_and_esc_then_goes_back_to_the_latest() {
     s.assert_composer("my draft");
     // read: the keys of the match are Find's, the draft is not touched
     s.keys("ctrl+p");
-    s.assert_text_style("Needle one", "reversed");
+    // reading takes one row less of footer than the query does: the answers are a row lower
+    matched(&s, ONE + 1, true);
     s.keys("enter");
     s.assert_composer("my draft");
     s.keys("esc");

@@ -17,7 +17,7 @@ use rtwk::focus::{Focus, FocusNode};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::{Span, Style};
-use rtwk::text::{Text, TextOverflow, segmenter_of};
+use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::ThreadId;
@@ -191,7 +191,12 @@ pub fn status_row(table: &'static Strings, status: Status, key: Style, dim: Styl
 /// The query row: the dim label and the editor after it, which takes the rest.
 pub fn query_row(table: &'static Strings, label: Style, editor: AnyWidget) -> AnyWidget {
     Row::new()
-        .child(Text::new(table.find_prefix).style(label))
+        .child(
+            Text::new(table.find_prefix)
+                .style(label)
+                // the space after the colon is the field's gap: a word-wrapped text lets it hang
+                .wrap(TextWrap::None),
+        )
         .child(Expanded::new(1, editor))
         .into()
 }

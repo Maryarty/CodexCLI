@@ -176,14 +176,20 @@ impl Screen {
         self.h.fake.commands()
     }
 
-    /// The pages the app asked the browser to open (`AppEvent::OpenUrlInBrowser`), oldest first.
+    /// The pages the app asked the browser to open (`AppEvent::OpenUrlInBrowser`), oldest first:
+    /// the app's own `Command::OpenUrl` and a feature's `Ask::OpenUrl` effect.
     pub fn opened_urls(&self) -> Vec<String> {
+        use codex_tui_core::app::effects::Ask;
         self.h
             .fake
             .commands()
             .into_iter()
             .filter_map(|c| match c {
                 codex_tui_core::app::Command::OpenUrl { url, .. } => Some(url),
+                codex_tui_core::app::Command::Effect {
+                    ask: Ask::OpenUrl { url },
+                    ..
+                } => Some(url),
                 _ => None,
             })
             .collect()
