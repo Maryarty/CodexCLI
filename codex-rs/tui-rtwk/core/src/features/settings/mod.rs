@@ -25,8 +25,8 @@ pub mod keymap;
 mod keymap_actions;
 pub mod persist;
 pub mod resume;
+pub mod rpcs;
 mod seed;
-pub mod wire;
 
 use std::collections::BTreeMap;
 
@@ -41,7 +41,7 @@ use crate::threads::Tone;
 
 pub use catalog::*;
 pub use persist::Setting;
-pub use wire::{Command, Reply, Skill};
+pub use rpcs::{Command, Reply, Skill};
 
 /// What the server said, as the notes quote it.
 fn text(error: &RpcError) -> String {
@@ -433,7 +433,7 @@ impl State {
                 None => Ok(None),
                 Some(cursor)
                     if cursors.contains(&cursor)
-                        || cursors.len() >= usize::from(wire::MAX_PAGES) =>
+                        || cursors.len() >= usize::from(rpcs::MAX_PAGES) =>
                 {
                     Err(cursor)
                 }
@@ -1113,10 +1113,10 @@ impl super::Feature for Settings {
     }
 
     fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-        wire::request(command, thread, id)
+        command.request(thread, id)
     }
 
     fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-        wire::decode(command, result).map_err(RpcError::Malformed)
+        command.reply(result)
     }
 }

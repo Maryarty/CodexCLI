@@ -17,7 +17,7 @@
 //! available in TUI yet.`, `Stub::MemoryMaintenance`) and stay so.
 
 mod data;
-mod wire;
+mod rpcs;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
@@ -28,7 +28,7 @@ use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 pub use data::{DaybreakFailure, DefaultFailure, IdeFailure, IdeReading, Row, Style};
-pub use wire::{Command, Reply};
+pub use rpcs::{Command, Reply};
 
 /// The marker type of the feature.
 pub struct SmallCmds;
@@ -424,10 +424,10 @@ impl Feature for SmallCmds {
     }
 
     fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-        wire::request(command, thread, id)
+        command.request(thread, id)
     }
 
     fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-        wire::reply(command, result)
+        command.reply(result)
     }
 }

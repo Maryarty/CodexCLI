@@ -10,6 +10,7 @@ pub mod config;
 pub mod import;
 pub mod onboarding;
 pub(crate) mod requests;
+mod rpc_list;
 pub(crate) mod targets;
 
 use codex_app_server_protocol::AddCreditsNudgeCreditType;

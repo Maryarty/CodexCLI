@@ -6,30 +6,16 @@
 use std::future::Future;
 use std::time::Duration;
 
-use codex_app_server_protocol::{
-    ClientRequest, ConsumeAccountRateLimitResetCreditParams,
-    ConsumeAccountRateLimitResetCreditResponse,
-};
+use codex_app_server_protocol::ClientRequest;
 use codex_tui_core::app::AppEv;
-use codex_tui_core::rpc::ServerError;
+use codex_tui_core::rpc::{RpcError, ServerError};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::usage::Ev;
-use codex_tui_core::screens::usage::reset::Outcome;
+use codex_tui_core::screens::usage::reset::{Consume, Outcome};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 
 /// `RATE_LIMIT_RESET_REQUEST_TIMEOUT`.
 const TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The request of one redemption.
-fn request(ids: &Ids, key: String, credit_id: Option<String>) -> ClientRequest {
-    ClientRequest::ConsumeAccountRateLimitResetCredit {
-        request_id: ids.next(),
-        params: ConsumeAccountRateLimitResetCreditParams {
-            idempotency_key: key,
-            credit_id,
-        },
-    }
-}
 
 /// What the server answered, or why the ask failed (oracle: the error texts of the ask).
 async fn consume<F, Fut>(
@@ -42,13 +28,16 @@ where
     F: Fn(ClientRequest) -> Fut + Sync,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    let answer = tokio::time::timeout(TIMEOUT, send(request(ids, key, credit_id)))
+    let redeem = Consume::Redeem { key, credit_id };
+    let answer = tokio::time::timeout(TIMEOUT, send(redeem.request(ids.next())))
         .await
         .map_err(|_| "account/rateLimitResetCredit/consume timed out in TUI".to_string())?
         .map_err(|error| error.to_string())?;
-    serde_json::from_value::<ConsumeAccountRateLimitResetCreditResponse>(answer)
-        .map(|response| Outcome::from(response.outcome))
-        .map_err(|error| error.to_string())
+    // a decode failure is the only one `reply` has: its text is the serde diagnostic
+    redeem.reply(answer).map_err(|error| match error {
+        RpcError::Malformed(text) => text,
+        other => format!("{other:?}"),
+    })
 }
 
 /// The event that answers the redemption of `key`.

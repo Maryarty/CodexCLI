@@ -14,3 +14,4 @@ mod rules;
 mod test_roots;
 mod theme;
 mod ui_registry;
+mod wire;

@@ -11,6 +11,9 @@
 //! `Ev::Redeemed`).
 
 use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditOutcome as WireOutcome;
+use codex_app_server_protocol::{
+    ConsumeAccountRateLimitResetCreditParams, ConsumeAccountRateLimitResetCreditResponse,
+};
 
 use crate::screens::status::{CreditStatus, ResetCredit, ResetCredits};
 
@@ -36,6 +39,18 @@ impl From<WireOutcome> for Outcome {
             WireOutcome::NoCredit => Self::NoCredit,
         }
     }
+}
+
+crate::rpc_list! {
+    /// The one RPC of a redemption, which the host sends (it owns the timeout).
+    pub enum Consume => Outcome;
+    /// `account/rateLimitResetCredit/consume` under the idempotency key core chose.
+    Redeem { key: String, credit_id: Option<String> }, Self::Redeem { key, credit_id }
+        => ConsumeAccountRateLimitResetCredit(ConsumeAccountRateLimitResetCreditParams {
+            idempotency_key: key.clone(),
+            credit_id: credit_id.clone(),
+        })
+        -> ConsumeAccountRateLimitResetCreditResponse, |response| Outcome::from(response.outcome);
 }
 
 /// When a credit stops being usable, as the picker's detail line needs it.

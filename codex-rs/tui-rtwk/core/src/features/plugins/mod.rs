@@ -6,12 +6,12 @@
 //! tabs and pages and their words are `src/features/plugins/`.
 //!
 //! The ADR-013 template for a feature: `mod.rs` (this: the marker, the verbs, the keys of the
-//! asks and the words said), `state.rs` (the domain), `wire.rs` (the RPCs), `catalog.rs` (the
+//! asks and the words said), `state.rs` (the domain), `rpcs.rs` (the RPCs), `catalog.rs` (the
 //! pure derivations).
 
 pub mod catalog;
+mod rpcs;
 mod state;
-mod wire;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
@@ -27,8 +27,8 @@ pub use catalog::{
     Plugin, Product, Row, RowKey, Section, SectionError, Source, Status as PluginStatus, Tab,
     Target, Toggle,
 };
+pub use rpcs::{AuthApp, Found, Want, Wanted, add_source};
 pub use state::{Gen, Market, Op, OpKey, Outcome, PluginKey, Setup, State, Status};
-pub use wire::{AuthApp, Found, Want, Wanted, add_source, decode, wire_request};
 
 /// The marker of the feature (`feature_list!`).
 pub struct Plugins;
@@ -311,10 +311,10 @@ impl Feature for Plugins {
     }
 
     fn wire(command: &Wanted, _thread: &ThreadId, id: RequestId) -> ClientRequest {
-        wire_request(command, id)
+        command.want.request(command, id)
     }
 
     fn decode(command: &Wanted, result: serde_json::Value) -> Result<Found, RpcError> {
-        decode(command, result).map_err(RpcError::Malformed)
+        command.want.reply(command, result)
     }
 }

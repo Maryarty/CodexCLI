@@ -11,23 +11,29 @@ use codex_app_server_protocol::RequestId;
 
 use crate::app::effects::ConfigEdit;
 
-/// `config/batchWrite` of `edits`: the values replace, the user's config is reloaded.
+/// The params of `config/batchWrite` of `edits`: the values replace, the user's config is
+/// reloaded.
+pub fn config_write_params(edits: &[ConfigEdit]) -> ConfigBatchWriteParams {
+    ConfigBatchWriteParams {
+        edits: edits
+            .iter()
+            .map(|edit| WireEdit {
+                key_path: edit.key_path.clone(),
+                value: edit.value.clone(),
+                merge_strategy: MergeStrategy::Replace,
+            })
+            .collect(),
+        file_path: None,
+        expected_version: None,
+        reload_user_config: true,
+    }
+}
+
+/// `config/batchWrite` of `edits`.
 pub fn config_write(edits: &[ConfigEdit], id: RequestId) -> ClientRequest {
     ClientRequest::ConfigBatchWrite {
         request_id: id,
-        params: ConfigBatchWriteParams {
-            edits: edits
-                .iter()
-                .map(|edit| WireEdit {
-                    key_path: edit.key_path.clone(),
-                    value: edit.value.clone(),
-                    merge_strategy: MergeStrategy::Replace,
-                })
-                .collect(),
-            file_path: None,
-            expected_version: None,
-            reload_user_config: true,
-        },
+        params: config_write_params(edits),
     }
 }
 

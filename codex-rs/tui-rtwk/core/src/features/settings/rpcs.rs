@@ -1,10 +1,9 @@
 //! The server RPCs of the dialogs (oracle `experimental_features.rs`, `hooks_rpc.rs`,
-//! `config_update.rs`, `app/background_requests.rs`): what is asked, how it goes out (`request`)
-//! and what comes back (`decode`). The catalogues the dialogs show are built here from the
+//! `config_update.rs`, `app/background_requests.rs`): the list of what is asked and what comes
+//! back (`rpc_list!`). The catalogues the dialogs show are built here from the
 //! protocol types, so a sheet never reads one (the protocol's `HookMetadata` is not `Eq`).
 
 use codex_app_server_protocol as wire;
-use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::catalog;
 use super::hooks::{Hook, HookIssue, Hooks};
@@ -16,21 +15,89 @@ pub const MAX_PAGES: u8 = 10;
 /// The page size of that listing.
 pub const PAGE: u32 = 100;
 
-/// What the feature asks the server.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {
+crate::rpc_list! {
+    /// What the feature asks the server.
+    pub enum Command => Reply, request thread: &ThreadId;
     /// `experimentalFeature/list`, one page.
-    Features { cursor: Option<String> },
+    Features { cursor: Option<String> }, Self::Features { cursor }
+        => ExperimentalFeatureList(wire::ExperimentalFeatureListParams {
+            cursor: cursor.clone(),
+            limit: Some(PAGE),
+            thread_id: Some(thread.as_str().to_owned()).filter(|thread| !thread.is_empty()),
+        })
+        -> wire::ExperimentalFeatureListResponse, |response| features(response);
     /// `skills/list` of a directory, read again from disk.
-    Skills { cwd: String },
+    Skills { cwd: String }, Self::Skills { cwd }
+        => SkillsList(wire::SkillsListParams {
+            cwds: Some(cwd)
+                .filter(|cwd| !cwd.is_empty())
+                .map(|cwd| vec![cwd.into()])
+                .unwrap_or_default(),
+            force_reload: true,
+        })
+        -> wire::SkillsListResponse, |response| Reply::Skills(skills(response, cwd));
     /// `skills/config/write` of one skill.
-    SkillWrite { path: String, enabled: bool },
+    SkillWrite { path: String, enabled: bool }, Self::SkillWrite { path, enabled }
+        => SkillsConfigWrite(wire::SkillsConfigWriteParams {
+            path: serde_json::from_value(serde_json::Value::String(path.clone())).ok(),
+            name: None,
+            enabled: *enabled,
+        })
+        -> serde_json::Value, |_| Reply::Written;
     /// `hooks/list` of a directory.
-    Hooks { cwd: String },
+    Hooks { cwd: String }, Self::Hooks { cwd }
+        => HooksList(wire::HooksListParams {
+            cwds: Some(cwd)
+                .filter(|cwd| !cwd.is_empty())
+                .map(|cwd| vec![cwd.into()])
+                .unwrap_or_default(),
+            ..Default::default()
+        })
+        -> wire::HooksListResponse, |response| Reply::Hooks(hooks(response, cwd));
     /// `config/batchWrite` of `hooks.state`: the value is merged into what the file has.
-    HooksWrite { value: serde_json::Value },
+    HooksWrite { value: serde_json::Value }, Self::HooksWrite { value }
+        => ConfigBatchWrite(wire::ConfigBatchWriteParams {
+            edits: vec![wire::ConfigEdit {
+                key_path: "hooks.state".to_owned(),
+                value: value.clone(),
+                merge_strategy: wire::MergeStrategy::Upsert,
+            }],
+            file_path: None,
+            expected_version: None,
+            reload_user_config: true,
+        })
+        -> serde_json::Value, |_| Reply::Written;
     /// `thread/list`, one page of the sessions `/resume <name>` looks a label up in.
-    Sessions { cursor: Option<String> },
+    Sessions { cursor: Option<String> }, Self::Sessions { cursor }
+        => ThreadList(wire::ThreadListParams {
+            include_attached_threads: false,
+            current_account_only: false,
+            excluded_thread_ids: None,
+            attached_to_thread_id: None,
+            originators: None,
+            cursor: cursor.clone(),
+            limit: Some(PAGE),
+            // Activity must not move an unread thread ahead of the cursor.
+            sort_key: Some(wire::ThreadSortKey::CreatedAt),
+            sort_direction: None,
+            model_providers: Some(Vec::new()),
+            source_kinds: Some(vec![
+                wire::ThreadSourceKind::Cli,
+                wire::ThreadSourceKind::VsCode,
+            ]),
+            archived: Some(false),
+            section_id: None,
+            project_id: None,
+            parent_thread_id: None,
+            ancestor_thread_id: None,
+            cwd: None,
+            use_state_db_only: true,
+            search_term: None,
+        })
+        -> wire::ThreadListResponse, |page| Reply::Sessions {
+            rows: page.data.iter().map(listed).collect(),
+            next: page.next_cursor,
+        };
 }
 
 /// A skill of the listing (`SkillMetadata`).
@@ -58,92 +125,6 @@ pub enum Reply {
         rows: Vec<Listed>,
         next: Option<String>,
     },
-}
-
-pub fn request(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    match command {
-        Command::Features { cursor } => ClientRequest::ExperimentalFeatureList {
-            request_id: id,
-            params: wire::ExperimentalFeatureListParams {
-                cursor: cursor.clone(),
-                limit: Some(PAGE),
-                thread_id: Some(thread.as_str().to_owned()).filter(|thread| !thread.is_empty()),
-            },
-        },
-        Command::Skills { cwd } => ClientRequest::SkillsList {
-            request_id: id,
-            params: wire::SkillsListParams {
-                cwds: Some(cwd)
-                    .filter(|cwd| !cwd.is_empty())
-                    .map(|cwd| vec![cwd.into()])
-                    .unwrap_or_default(),
-                force_reload: true,
-            },
-        },
-        Command::SkillWrite { path, enabled } => ClientRequest::SkillsConfigWrite {
-            request_id: id,
-            params: wire::SkillsConfigWriteParams {
-                path: serde_json::from_value(serde_json::Value::String(path.clone())).ok(),
-                name: None,
-                enabled: *enabled,
-            },
-        },
-        Command::Hooks { cwd } => ClientRequest::HooksList {
-            request_id: id,
-            params: wire::HooksListParams {
-                cwds: Some(cwd)
-                    .filter(|cwd| !cwd.is_empty())
-                    .map(|cwd| vec![cwd.into()])
-                    .unwrap_or_default(),
-                ..Default::default()
-            },
-        },
-        Command::HooksWrite { value } => ClientRequest::ConfigBatchWrite {
-            request_id: id,
-            params: wire::ConfigBatchWriteParams {
-                edits: vec![wire::ConfigEdit {
-                    key_path: "hooks.state".to_owned(),
-                    value: value.clone(),
-                    merge_strategy: wire::MergeStrategy::Upsert,
-                }],
-                file_path: None,
-                expected_version: None,
-                reload_user_config: true,
-            },
-        },
-        Command::Sessions { cursor } => ClientRequest::ThreadList {
-            request_id: id,
-            params: wire::ThreadListParams {
-                include_attached_threads: false,
-                current_account_only: false,
-                excluded_thread_ids: None,
-                attached_to_thread_id: None,
-                originators: None,
-                cursor: cursor.clone(),
-                limit: Some(PAGE),
-                // Activity must not move an unread thread ahead of the cursor.
-                sort_key: Some(wire::ThreadSortKey::CreatedAt),
-                sort_direction: None,
-                model_providers: Some(Vec::new()),
-                source_kinds: Some(vec![
-                    wire::ThreadSourceKind::Cli,
-                    wire::ThreadSourceKind::VsCode,
-                ]),
-                archived: Some(false),
-                section_id: None,
-                project_id: None,
-                parent_thread_id: None,
-                ancestor_thread_id: None,
-                cwd: None,
-                use_state_db_only: true,
-                search_term: None,
-            },
-        },
-    }
-}
-
-fn parse<T: serde::de::DeserializeOwned>(result: serde_json::Value) -> Result<T, String> {
-    serde_json::from_value(result).map_err(|error| error.to_string())
 }
 
 /// `camelCase` as the protocol writes an enum to `snake_case` as the models read it.
@@ -301,20 +282,4 @@ fn listed(thread: &wire::Thread) -> Listed {
         id: thread.id.clone(),
         label: display_label(thread.name.as_deref(), &thread.preview),
     }
-}
-
-pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, String> {
-    Ok(match command {
-        Command::Features { .. } => features(parse(result)?),
-        Command::Skills { cwd } => Reply::Skills(skills(parse(result)?, cwd)),
-        Command::Hooks { cwd } => Reply::Hooks(hooks(parse(result)?, cwd)),
-        Command::SkillWrite { .. } | Command::HooksWrite { .. } => Reply::Written,
-        Command::Sessions { .. } => {
-            let page: wire::ThreadListResponse = parse(result)?;
-            Reply::Sessions {
-                rows: page.data.iter().map(listed).collect(),
-                next: page.next_cursor,
-            }
-        }
-    })
 }
