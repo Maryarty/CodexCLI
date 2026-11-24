@@ -896,7 +896,7 @@ impl State for ComposerState {
         if let Some(off) = w.off {
             // `render_ref`: the dim `›` and the placeholder, the draft not drawn, no caret
             let table = chat_strings::of(cx);
-            return Text::new(format!("{}{}", table.prompt, off.text(strings::of(cx))))
+            return Text::new([table.prompt, off.text(strings::of(cx))].concat())
                 .style(tokens.dim())
                 .into();
         }
