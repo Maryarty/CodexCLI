@@ -922,6 +922,10 @@ pub enum ThreadEv {
         next: Option<String>,
         submissions: Vec<replay::Submission>,
         replace: bool,
+        /// The thread runs (the server's status is `active`, or the page is not the resume's
+        /// own): a turn without an end is the running one. An idle thread's unfinished turn
+        /// never recorded its end and starts nothing until a live `turn/started`.
+        running: bool,
     },
     /// The app asked for the next older page (`HistoryState::Loading` until it answers).
     HistoryRequested,
@@ -2548,6 +2552,32 @@ pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<Stri
         next,
         submissions,
         replace: false,
+        running: true,
+    }
+}
+
+/// The first page of a thread the server answered a resume, fork or start with: its turns, and
+/// its own status decides whether a turn without an end is running.
+pub fn history_page_of(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
+    let running = matches!(
+        thread.status,
+        codex_app_server_protocol::ThreadStatus::Active { .. }
+    );
+    match history_page(&thread.turns, None) {
+        ThreadEv::HistoryPage {
+            turns,
+            next,
+            submissions,
+            replace,
+            ..
+        } => ThreadEv::HistoryPage {
+            turns,
+            next,
+            submissions,
+            replace,
+            running,
+        },
+        other => other,
     }
 }
 
@@ -2559,6 +2589,7 @@ pub fn history_reset() -> ThreadEv {
         next: None,
         submissions: Vec::new(),
         replace: true,
+        running: true,
     }
 }
 
@@ -2695,6 +2726,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             next,
             submissions,
             replace,
+            running,
         } => {
             if replace {
                 reset_history(model);
@@ -2724,7 +2756,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     if matches!(snapshot.items, TurnSnapshot::Full(_)) {
                         Rc::make_mut(&mut model.authoritative_turns).insert(snapshot.turn.clone());
                     }
-                } else {
+                } else if running {
                     start_turn(model, snapshot.turn.clone(), fx.now());
                     if let TurnState::Running(running) = &mut model.turn
                         && running.turn == snapshot.turn

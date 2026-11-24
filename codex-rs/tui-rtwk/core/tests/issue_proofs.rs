@@ -94,7 +94,6 @@ fn resumed(thread: Thread) -> CodexApp {
 /// turn's end was never recorded) starts no turn: nothing runs, nothing can be interrupted,
 /// until a live `turn/started` comes.
 #[test]
-#[ignore = "RED #43952: an idle thread resumed with an in-progress turn shows Working"]
 fn issue_43952_an_idle_thread_resumed_with_an_unfinished_turn_does_not_work_until_a_live_start() {
     let mut app = resumed(thread(json!({"type": "idle"}), vec![unfinished_turn()]));
     let model = app.active_thread();
