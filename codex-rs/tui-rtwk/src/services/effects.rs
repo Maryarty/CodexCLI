@@ -194,7 +194,8 @@ impl Services {
             | Ask::GitBranches { .. }
             | Ask::GitLog { .. }
             | Ask::Worktrees { .. }
-            | Ask::WorktreeRemove { .. } => return None,
+            | Ask::WorktreeRemove { .. }
+            | Ask::ExternalEditor { .. } => return None,
         })
     }
 

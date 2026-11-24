@@ -47,6 +47,7 @@ pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 // not macro expansions) formats the slices too. A feature of the list without its module does not
 // compile: `feature_dirs!` names `$name::$variant`.
 pub mod export;
+pub mod external_editor;
 pub mod goal;
 pub mod plugins;
 pub mod rename;
@@ -268,6 +269,7 @@ macro_rules! feature_list {
             export => Export;
             plugins => Plugins;
             settings => Settings;
+            external_editor => ExternalEditor;
         }
     };
 }

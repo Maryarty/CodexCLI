@@ -126,6 +126,11 @@ pub enum Ask {
     Worktrees { cwd: String },
     /// Removes the worktree at `root` (oracle `worktree_browser::remove`, `cwd` is the session's).
     WorktreeRemove { cwd: String, root: String },
+    /// The external editor (oracle `external_editor::run_editor`): `draft` is written to a
+    /// temporary file, `$VISUAL` / `$EDITOR` runs on it with the terminal handed over, and the
+    /// file's text comes back. `cwd` is the thread's directory (the sandbox policy is read
+    /// against it). Answered by `Done::ExternalEditor`.
+    ExternalEditor { draft: String, cwd: String },
 }
 
 impl Ask {
@@ -167,6 +172,19 @@ pub enum Done {
     Worktrees(Result<Vec<WorktreeEntry>, String>),
     /// Nothing, or why the worktree could not be removed.
     WorktreeRemoved(Result<(), String>),
+    /// What the editor left in the file, or why it could not run.
+    ExternalEditor(Result<String, EditorFailure>),
+}
+
+/// Why the external editor did not give a text back (oracle `EditorError` and the failures of
+/// `run_editor`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EditorFailure {
+    /// Neither `VISUAL` nor `EDITOR` is set.
+    Missing,
+    /// The host's reason: a command that does not parse, a file that could not be written or
+    /// read, an editor that exited with a failure.
+    Failed(String),
 }
 
 impl Done {
