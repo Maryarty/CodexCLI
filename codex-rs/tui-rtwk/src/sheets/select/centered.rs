@@ -3,9 +3,10 @@
 //! wide and two cells in from its sides, over what was there: the page under it (the retained
 //! parent) and the composer under the sheet, which the sheet's own barrier leaves unshaded.
 //! `centered` is the page for a home or a replacement, `route` the page pushed over another one:
-//! a route that is not opaque, so the page under it keeps showing around it. A page that
-//! confirms what the page under it chose (`SelectionViewParams::confirmation`, the confirmation
-//! of a recalled preset) is shown this way.
+//! a route that is not opaque, so the page under it keeps showing around it. A sheet whose
+//! oracle view is `SelectionViewParams::confirmation()` shows its confirmation this way; the
+//! quick-dial confirmations are not one (`confirm_quick_dial` asks for `picker()`: the bottom
+//! pane's own rows, which `select::quick` keeps).
 
 use std::rc::Rc;
 
@@ -44,5 +45,51 @@ impl RouteBehavior for Floating {
 
     fn opaque(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use rtwk::navigation::{Navigator, RouteBehavior};
+    use rtwk::text::Text;
+    use rtwk_test::{Options, Tester};
+
+    use super::{Floating, centered};
+
+    const LONG: &str =
+        "Replace the saved preset with the line below and keep the others as they are";
+
+    #[test]
+    fn a_centered_page_floats_in_the_middle_two_cells_in_from_the_sides() {
+        let mut t = Tester::with(Options::new().size(40, 16));
+        t.pump_widget(Navigator::new().home(centered(Text::new(LONG))));
+        let lines = t.lines();
+        let drawn: Vec<(usize, &String)> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| !row.trim().is_empty())
+            .collect();
+        let first = drawn.first().map_or(0, |(row, _)| *row);
+        assert!(
+            (4..=8).contains(&first),
+            "the middle of 16 rows, not an edge: row {first}\n{}",
+            lines.join("\n")
+        );
+        for (_, row) in &drawn {
+            let indent = row.chars().take_while(|c| *c == ' ').count();
+            let width = row.trim_end().chars().count();
+            assert!(
+                indent >= 2 && width <= 38,
+                "two cells in from both sides: {row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_pushed_as_a_route_is_not_opaque_so_the_page_under_it_shows() {
+        let floating = Floating(Rc::new(|| Text::new(LONG).into()));
+        assert!(!floating.opaque());
     }
 }

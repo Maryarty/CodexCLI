@@ -32,9 +32,17 @@ Needs for the packages (what a door opens, left to them):
   `PublicVerb::NotifyOwner` (6, 7, 8, 9); its own `Ask::Nudge` path is removable.
 - permissions: the Windows auto-pick test needs the Windows facts in the live fake (5).
 - side (w2-commands): call `cx.quiet_interrupts(&thread, true)` for its thread (19); the composer placeholder
-  and the centered confirmations (18, 20) are in.
+  and `select::centered` / `centered_route` (20) are in. The quick-dial confirmations are NOT Centered: the
+  oracle's `confirm_quick_dial` asks for `SelectionViewParams::picker()` (the snapshots of
+  `saved_quick_dials_confirm_*` are the bottom pane), so `select::quick` keeps them at the bottom; the door is
+  for the sheets whose oracle view is `SelectionViewParams::confirmation()`.
 - `TuiSettings` gained `transcript_owned`: struct literals need `..Default::default()` (13).
 - feedback note: the text area has no paste burst (the `#[ignore]`d test in `burst_into_the_feedback_note`):
   core's `kit::paste_burst::PasteBurst` is the detector to put in front of it (21).
-- item 10: the `fake.rs`/`follow.rs`/`bottom.rs` hooks could not be told apart from the task's text; the kit's
-  request hold exists (`Screen::hold_request`), the plan fallback is in.
+- item 10 (w2-status): the plan fallback is NOT in. An account read filling the limits' plan (the status model's
+  `Account::ChatGpt { plan }`) contradicts the oracle test `rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated`
+  (its ACCOUNT_USAGE fact is a Plus account, the case `(None, 300, false)` wants no early warning): r1b's 9acaece01
+  removed the same hunk. The `account/updated` notification's plan (`set_plan`) stays. Left to w2-status: say which
+  fact the oracle's `update_account_state` has in that test, or make the test's account plan-less. The kit's request
+  hold exists (`Screen::hold_request`); the `fake.rs`/`follow.rs`/`bottom.rs` hooks could not be told apart from
+  the task's text.
