@@ -65,6 +65,13 @@ pub fn assert_labelled(grid: &Grid, want: &Want<'_>, labels: &[&str], dialog: bo
     }
 }
 
+/// `assert_snap` for a snapshot of states of one screen glued by a blank row with no header
+/// (`oracle_snap::state`): the screen equals state `index`, each state `height` rows.
+pub fn assert_state(grid: &Grid, want: &Want<'_>, height: usize, index: usize) {
+    let frame = oracle_snap::state(&oracle_snap::find(want.name), height, index);
+    assert_frame(grid, want, frame, want.at);
+}
+
 /// `assert_snap` for a frame the oracle drew into the whole area (spare rows
 /// above its footer on the last row) where ours is a dialog as tall as its
 /// content (`dialog_region`).

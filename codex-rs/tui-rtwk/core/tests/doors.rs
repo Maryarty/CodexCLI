@@ -121,3 +121,58 @@ fn a_permissions_pick_waits_for_the_windows_sandbox_setup() {
     assert_eq!(applied(&app), []);
     assert_eq!(app.features().windows_sandbox.then(), Some(&pick));
 }
+
+/// The kit's `presets` and `note` steps are events the host or a feature makes (`AppEv::Presets`,
+/// the chat's `Intent::Note`), read from a script line: a refusal names the line.
+#[test]
+fn a_script_seeds_the_presets_and_refuses_a_note_no_feature_seeds() {
+    use codex_tui_core::fixtures::script;
+    use codex_tui_core::screens::select::quick_dials::{Dial, Origin, Slot};
+
+    let parsed = script::parse(
+        r#"{"step":"presets","slots":[{"slot":2,"input":"/status","label":"Status","origin":"shadowing"},{"slot":5,"input":"hello"}]}"#,
+    )
+    .expect("a presets line");
+    let (_, step) = &parsed.steps[0];
+    let Some(Ok(AppEv::Presets(slots))) = step.event() else {
+        panic!("a `presets` step is `AppEv::Presets`");
+    };
+    assert_eq!(
+        slots,
+        [
+            Slot {
+                slot: 2,
+                dial: Dial {
+                    input: "/status".into(),
+                    label: Some("Status".into())
+                },
+                origin: Origin::Shadowing,
+            },
+            Slot {
+                slot: 5,
+                dial: Dial::new("hello"),
+                origin: Origin::User,
+            },
+        ]
+    );
+    // The set goes through the router like the host's.
+    let played = script::build(
+        r#"{"step":"presets","slots":[{"slot":1,"input":"/status"}]}"#,
+    )
+    .expect("the presets are told to the app");
+    played.app.assert_consistent();
+
+    // A feature that seeds no note, and a name no feature has, are refused with their line.
+    for (feature, want) in [("settings", "NoSeeds"), ("nothing", "UnknownDir")] {
+        let line = format!(
+            "{}\n{}",
+            r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+            serde_json::json!({"step": "note", "feature": feature, "note": {}})
+        );
+        let Err(err) = script::build(&line) else {
+            panic!("`{feature}` seeds no note");
+        };
+        assert_eq!(err.line, 2);
+        assert!(err.message.contains(want), "{}", err.message);
+    }
+}

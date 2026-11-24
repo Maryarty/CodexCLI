@@ -3,6 +3,7 @@
 //! future the shell runs on the tokio runtime and talks to the app only
 //! through the ingress, as the real one does.
 
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -30,6 +31,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 use crate::services::agents::search::Gate;
 use crate::services::agents::search::Latest;
@@ -70,6 +72,37 @@ pub(crate) struct Shared {
     /// The first thread's start stays unanswered (a test replies with
     /// `inject`, the session is `Starting` until then).
     hold_thread_start: bool,
+    /// The requests of these methods are answered only once their hold is released.
+    held: BTreeMap<String, Hold>,
+}
+
+/// A request the fake holds in flight (`FakeBackend::hold_request`): it is logged when the app
+/// sends it, and answered as the responder says only after `release`. Cloned, every copy is the
+/// same hold; once released it stays released.
+#[derive(Clone, Debug)]
+pub struct Hold(Arc<watch::Sender<bool>>);
+
+impl Default for Hold {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Hold {
+    pub fn new() -> Self {
+        Self(Arc::new(watch::channel(false).0))
+    }
+
+    /// Lets the held requests (and the later ones of the method) be answered.
+    pub fn release(&self) {
+        self.0.send_replace(true);
+    }
+
+    async fn released(&self) {
+        let mut state = self.0.subscribe();
+        // The sender is held by this hold, so the wait cannot fail.
+        let _ = state.wait_for(|open| *open).await;
+    }
 }
 
 /// What the scripted server answers to a wire request (as JSON): `None`
@@ -288,6 +321,16 @@ impl FakeHandle {
     pub fn hold_searches(&self, gate: &Gate) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.search_gate = Some(gate.clone());
+        }
+    }
+
+    /// Holds every request of wire `method` (`account/rateLimits/read`) in flight: the app has
+    /// sent it (it is in `requests`) and gets its answer only after `hold.release()`, as the
+    /// responder says it then. The state of a screen waiting on one request (`Refreshing...`,
+    /// `Loading`) is then a state a test can look at while other requests are answered at once.
+    pub fn hold_request(&self, method: &str, hold: &Hold) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.held.insert(method.to_string(), hold.clone());
         }
     }
 
@@ -663,6 +706,21 @@ fn request_sender(
         let json = serde_json::to_value(&request).unwrap_or_default();
         if let Ok(mut guard) = log.lock() {
             guard.requests.push(json.clone());
+        }
+        let held = json["method"]
+            .as_str()
+            .and_then(|method| log.lock().ok()?.held.get(method).cloned());
+        if let Some(hold) = held {
+            let (log, responder) = (log.clone(), responder.clone());
+            return Box::pin(async move {
+                hold.released().await;
+                // The table as it is by then: a test may have changed an answer while it held.
+                let now = log.lock().ok().and_then(|guard| guard.responder.clone());
+                match now.unwrap_or(responder)(&json) {
+                    Some(result) => result,
+                    None => std::future::pending().await,
+                }
+            });
         }
         let answered = responder(&json);
         Box::pin(async move {

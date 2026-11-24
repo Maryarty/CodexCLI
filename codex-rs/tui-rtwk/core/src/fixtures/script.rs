@@ -10,6 +10,12 @@
 //! - `fact`: a fact the host tells a feature unasked, read by that feature's own `SEED`
 //!   (`core/src/features/<f>/`, `Feature::SEED`): `{"step":"fact","feature":"settings",
 //!   "fact":{"kind":"theme_picker",..}}`. It is `AppEv::Feature`, the path the host's facts take.
+//! - `note`: a line a feature says in a transcript, read by that feature's own `SEED_NOTE`
+//!   (`Feature::SEED_NOTE`): `{"step":"note","feature":"goal","note":{..}}`, and `"thread"` for a
+//!   thread other than the one in use. It is the chat's own `Intent::Note`.
+//! - `presets`: the presets of the config, `AppEv::Presets` (`{"step":"presets","slots":[{"slot":1,
+//!   "input":"/status","label":"Status","origin":"user"}]}`; `origin` `user`, `shadowing` or
+//!   `outside`).
 //! - `clock`: the time now (`{"step":"clock","secs":968250720}`, or `"millis"`, and an
 //!   optional `"utc_offset"` in seconds east of UTC): the app is told it as the shell tells it
 //!   (`AppEv::Clock`), so a script says what time it is and nothing waits for a real second. The
@@ -47,11 +53,16 @@ use crate::app::BackendEv;
 use crate::app::CodexApp;
 use crate::app::Command;
 use crate::app::Ingress;
+use crate::app::Intent;
 use crate::app::Now;
 use crate::app::Session;
 use crate::ids::ThreadId;
 use crate::rpc::Reply;
 use crate::screens;
+use crate::screens::ScreenIntent;
+use crate::screens::chat;
+use crate::screens::select::quick_dials::{Dial, Origin, Slot};
+use crate::threads::{Note, NoteKey};
 
 /// One line of a script.
 #[derive(Clone, Debug, Deserialize)]
@@ -78,6 +89,19 @@ pub enum Step {
         millis: Option<i64>,
         #[serde(default)]
         utc_offset: Option<i32>,
+    },
+    /// A line a feature says in a transcript (`{"step":"note","feature":"goal","note":{..}}`),
+    /// read by the feature's own `SEED_NOTE`; `thread` none is the thread in use.
+    Note {
+        feature: String,
+        #[serde(default)]
+        thread: Option<String>,
+        note: serde_json::Value,
+    },
+    /// The presets of the config (`AppEv::Presets`: `{"step":"presets","slots":[{"slot":1,
+    /// "input":"/status","label":"Status","origin":"user"}]}`); a step replaces the set.
+    Presets {
+        slots: Vec<PresetLine>,
     },
     Notify {
         message: Box<ServerNotification>,
@@ -106,7 +130,75 @@ pub enum Step {
     },
 }
 
+/// A saved preset of a `presets` step.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PresetLine {
+    pub slot: u8,
+    pub input: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub origin: PresetOrigin,
+}
+
+/// Which configuration layers hold a preset (`quick_dials::Origin`).
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PresetOrigin {
+    /// Only the user config has it.
+    #[default]
+    User,
+    /// The user config has it, and so does a layer below.
+    Shadowing,
+    /// A layer above the user config has it.
+    Outside,
+}
+
+impl PresetLine {
+    fn slot(&self) -> Slot {
+        Slot {
+            slot: self.slot,
+            dial: Dial {
+                input: self.input.clone(),
+                label: self.label.clone(),
+            },
+            origin: match self.origin {
+                PresetOrigin::User => Origin::User,
+                PresetOrigin::Shadowing => Origin::Shadowing,
+                PresetOrigin::Outside => Origin::Outside,
+            },
+        }
+    }
+}
+
 impl Step {
+    /// The event a `note` or `presets` step is, for the router (`ingest`) of a script or the
+    /// events a test injects; none for any other step. The error is the feature's own refusal of
+    /// the note's JSON (`SeedError`).
+    pub fn event(&self) -> Option<Result<AppEv, String>> {
+        match self {
+            Step::Presets { slots } => Some(Ok(AppEv::Presets(
+                slots.iter().map(PresetLine::slot).collect(),
+            ))),
+            Step::Note {
+                feature,
+                thread,
+                note,
+            } => Some(
+                crate::features::seed_note(feature, note.clone())
+                    .map(|note| {
+                        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Note {
+                            thread: thread.as_deref().map(ThreadId::new),
+                            note: Note::from(NoteKey::Feature(note)),
+                        })))
+                    })
+                    .map_err(|err| format!("note `{feature}`: {err:?}")),
+            ),
+            _ => None,
+        }
+    }
+
     /// The moment of a `clock` step; none for any other step or a step that names no time.
     pub fn now(&self) -> Option<Now> {
         let Step::Clock {
@@ -370,6 +462,16 @@ impl Script {
                         .now()
                         .ok_or_else(|| fail("a `clock` step names a time"))?;
                     ingest(app, AppEv::Clock(now));
+                }
+                Step::Note { .. } | Step::Presets { .. } => {
+                    let ev = step
+                        .event()
+                        .ok_or_else(|| fail("a `note` or `presets` step is an event"))?
+                        .map_err(|message| ScriptError {
+                            line: *line,
+                            message,
+                        })?;
+                    ingest(app, ev);
                 }
                 Step::Fact { feature, fact } => {
                     let fact =

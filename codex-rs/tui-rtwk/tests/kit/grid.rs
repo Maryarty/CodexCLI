@@ -112,6 +112,41 @@ impl Grid {
         Some((first, after))
     }
 
+    /// The cells of the first `text` on the screen, as (column, row): the cells of one row when
+    /// `locate` finds it there, else of a text the screen wrapped over several rows, found with
+    /// its spaces and the row breaks not counted (a wrapped text loses or gains blanks where it
+    /// breaks): then only the cells that hold the text's own non-blank characters.
+    pub fn locate_cells(&self, text: &str) -> Option<Vec<(usize, usize)>> {
+        if let Some((x0, x1, y)) = self.locate(text) {
+            return Some((x0..x1).map(|x| (x, y)).collect());
+        }
+        let needle: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        if needle.is_empty() {
+            return None;
+        }
+        let mut stream = String::new();
+        let mut cells = Vec::new(); // (byte offset in `stream`, column, row)
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let cell = self.cell(x, y);
+                if cell.tail || cell.text.chars().all(char::is_whitespace) {
+                    continue;
+                }
+                cells.push((stream.len(), x, y));
+                stream.push_str(&cell.text);
+            }
+        }
+        let byte = stream.find(&needle)?;
+        let end = byte + needle.len();
+        Some(
+            cells
+                .into_iter()
+                .filter(|(b, _, _)| (byte..end).contains(b))
+                .map(|(_, x, y)| (x, y))
+                .collect(),
+        )
+    }
+
     pub fn has_wide(&self) -> bool {
         self.cells.iter().any(|c| c.tail)
     }
@@ -499,10 +534,10 @@ impl Grid {
     }
 
     pub fn assert_link(&self, text: &str, url: &str) {
-        let Some((x0, x1, y)) = self.locate(text) else {
+        let Some(cells) = self.locate_cells(text) else {
             panic!("no `{text}` on the screen:\n{}", self.text());
         };
-        for x in x0..x1 {
+        for (x, y) in cells {
             let link = self.cell(x, y).link.as_deref();
             assert!(
                 self.cell(x, y).tail || link == Some(url),
@@ -512,10 +547,10 @@ impl Grid {
     }
 
     pub fn assert_no_link(&self, text: &str) {
-        let Some((x0, x1, y)) = self.locate(text) else {
+        let Some(cells) = self.locate_cells(text) else {
             panic!("no `{text}` on the screen:\n{}", self.text());
         };
-        for x in x0..x1 {
+        for (x, y) in cells {
             let link = self.cell(x, y).link.as_deref();
             assert!(
                 link.is_none(),

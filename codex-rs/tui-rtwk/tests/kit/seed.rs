@@ -381,6 +381,12 @@ fn feed(h: &mut Harness, text: &str) {
                 let now = step.now().expect("`parse` checked the step");
                 h.fake.inject(epoch, AppEv::Clock(now));
             }
+            step @ (Step::Note { .. } | Step::Presets { .. }) => {
+                match step.event().expect("a `note` or `presets` step is an event") {
+                    Ok(ev) => h.fake.inject(epoch, ev),
+                    Err(err) => panic!("script line {line}: {err}"),
+                }
+            }
             Step::Fact { feature, fact } => {
                 match codex_tui_core::features::seed_fact(&feature, fact) {
                     Ok(fact) => h.fake.inject(epoch, AppEv::Feature(fact)),
@@ -423,7 +429,7 @@ thread_local! {
 /// `{"step":"respond"}`: the backend answers requests of `method` with the step's `result` (or
 /// refuses them with its `error`) from now on (the responder reads this test's table, later
 /// steps replace an entry).
-fn answer(h: &mut Harness, method: String, result: script::Answer) {
+pub(super) fn answer(h: &mut Harness, method: String, result: script::Answer) {
     let answers = ANSWERS.with(std::sync::Arc::clone);
     answers.lock().expect("answers").insert(method, result);
     h.fake.respond(move |request| {

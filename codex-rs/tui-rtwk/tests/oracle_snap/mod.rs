@@ -250,6 +250,34 @@ fn header(
     {
         return Some((line.to_string(), None));
     }
+    // `40x12 initial`, `80x8 scrolled:`: the size a frame was drawn at and what the test did
+    // before it, first in the snapshot or under a blank row, over the rows of that render.
+    if let Some((size, what)) = line.trim_end_matches(':').split_once(' ')
+        && let Some((w, h)) = size.split_once(['x', '×'])
+        && !w.is_empty()
+        && !h.is_empty()
+        && w.chars().all(|c| c.is_ascii_digit())
+        && h.chars().all(|c| c.is_ascii_digit())
+        && !what.is_empty()
+        && what.chars().all(|c| c.is_ascii_lowercase() || c == ' ')
+        && prev.is_none_or(|p| p.trim().is_empty())
+        && next.is_some()
+    {
+        return Some((line.to_string(), None));
+    }
+    // `external (80 columns)`, `empty (48 columns):`: who was drawn and at which width, first in
+    // the snapshot or under a blank row, over the rows of that render.
+    if let Some((who, tail)) = line.trim_end_matches(':').split_once(" (")
+        && let Some(n) = tail.strip_suffix(" columns)")
+        && !who.is_empty()
+        && who.chars().all(|c| c.is_ascii_lowercase() || c == ' ')
+        && !n.is_empty()
+        && n.chars().all(|c| c.is_ascii_digit())
+        && prev.is_none_or(|p| p.trim().is_empty())
+        && next.is_some()
+    {
+        return Some((line.to_string(), None));
+    }
     // `(255, 255, 255): Buffer {`: a label and the dump's first line on one row.
     if let Some(name) = line.strip_suffix(": Buffer {")
         && !name.is_empty()
@@ -301,10 +329,31 @@ fn header(
 
 /// The frames of the snapshot `rel`, in order. A snapshot the test made of
 /// several screens marks each with a header line (`--- x ---`,
-/// `---- x ----`, `N columns:`, `width=N..`, `height=N`, `80x24`, a bare label such as
-/// `before scroll:`, a label above a `Buffer {` dump); one without is a single frame with an empty name.
+/// `---- x ----`, `N columns:`, `width=N..`, `height=N`, `80x24`, `40x12 initial`,
+/// `external (80 columns)`, a bare label such as `before scroll:`, a label above a `Buffer {`
+/// dump); one without is a single frame with an empty name.
 pub fn frames(rel: &str) -> Vec<Frame> {
     frames_with(rel, &header)
+}
+
+/// State `index` (from 0) of a snapshot the test glued of states of one screen with a blank row
+/// between and no header (`format!("{initial}\n\n{scrolled}")`): `height` rows each, the states
+/// `height + 1` lines apart. Panics when the snapshot has no such state.
+pub fn state(rel: &str, height: usize, index: usize) -> Frame {
+    let body = body(rel);
+    let start = index * (height + 1);
+    assert!(
+        start < body.len(),
+        "{rel}: no state {index} of {height} rows; the snapshot has {} lines",
+        body.len()
+    );
+    let end = (start + height).min(body.len());
+    if let Some(sep) = body.get(end)
+        && !sep.trim().is_empty()
+    {
+        panic!("{rel}: state {index} of {height} rows is not followed by a blank row: `{sep}`");
+    }
+    parse_frame(format!("state {index}"), &body[start..end])
 }
 
 /// What a header reader answers for a line: the frame's name and the row the header line also is.

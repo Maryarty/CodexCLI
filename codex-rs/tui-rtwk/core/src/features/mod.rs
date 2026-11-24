@@ -105,8 +105,8 @@ macro_rules! feature_no_rpcs {
 /// }
 /// ```
 ///
-/// The constants are `NAME`, then `SEED`, `OPENS`, `RUNS`; the types are `State`, `ThreadPart`,
-/// `Target`, `Intent`, `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Note`, `Fact`, `Wish`,
+/// The constants are `NAME`, then `SEED`, `SEED_NOTE`, `OPENS`, `RUNS`; the types are `State`,
+/// `ThreadPart`, `Target`, `Intent`, `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Note`, `Fact`, `Wish`,
 /// `Interest`, `Event`; the methods are the items of the last braces. Each is written as in the
 /// trait (rules scan these lines); a doc comment goes on a method, not on a constant or a type.
 /// rustfmt does not format the inside of a macro call: keep the layout of the trait's methods.
@@ -115,6 +115,7 @@ macro_rules! feature {
         impl Feature for $marker:ty {
             const NAME: &'static str = $name:expr;
             $(const SEED: $seed_ty:ty = $seed:expr;)?
+            $(const SEED_NOTE: $seed_note_ty:ty = $seed_note:expr;)?
             $(const OPENS: $opens_ty:ty = $opens:expr;)?
             $(const RUNS: $runs_ty:ty = $runs:expr;)?
             $(type State = $state:ty;)?
@@ -136,6 +137,7 @@ macro_rules! feature {
         impl $crate::features::Feature for $marker {
             const NAME: &'static str = $name;
             $(const SEED: $seed_ty = $seed;)?
+            $(const SEED_NOTE: $seed_note_ty = $seed_note;)?
             $(const OPENS: $opens_ty = $opens;)?
             $(const RUNS: $runs_ty = $runs;)?
             type State = feature_or!((); $($state)?);
@@ -250,6 +252,12 @@ pub trait Feature: 'static {
     /// own reading of the JSON, so a slice seeds its facts without editing the shared loader.
     /// None: the feature has no seedable fact.
     const SEED: Option<SeedFn<Self::Fact>> = None;
+
+    /// How a script's `note` step makes one of the feature's notes (`seed_note`): the line the
+    /// feature says in a transcript (`AppCx::note`), read from the step's JSON by the feature
+    /// itself, so a test sees how a note is drawn without running the flow that says it. None:
+    /// the feature has no seedable note.
+    const SEED_NOTE: Option<SeedFn<Self::Note>> = None;
 
     /// The slash command that opens the feature's own sheet and what it names
     /// (`Target::Feature`; the generated `FeatureTarget` and `target_of`). None: no command opens
@@ -611,6 +619,21 @@ macro_rules! feature_dirs {
             $(if feature == <$name::$variant as Feature>::NAME {
                 return match <$name::$variant as Feature>::SEED {
                     Some(seed) => seed(value).map(FeatureFact::$variant),
+                    None => Err($crate::screens::SeedError::NoSeeds),
+                };
+            })*
+            Err($crate::screens::SeedError::UnknownDir)
+        }
+
+        /// The note a script's `note` step makes: `value` is read by the feature's own `SEED_NOTE`.
+        #[allow(dead_code)]
+        pub fn seed_note(
+            feature: &str,
+            value: serde_json::Value,
+        ) -> Result<FeatureNote, $crate::screens::SeedError> {
+            $(if feature == <$name::$variant as Feature>::NAME {
+                return match <$name::$variant as Feature>::SEED_NOTE {
+                    Some(seed) => seed(value).map(FeatureNote::$variant),
                     None => Err($crate::screens::SeedError::NoSeeds),
                 };
             })*

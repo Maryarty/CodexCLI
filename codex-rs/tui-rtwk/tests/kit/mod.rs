@@ -21,6 +21,7 @@ mod env;
 mod expect;
 mod grid;
 mod handles;
+mod hold;
 mod input;
 mod labels;
 mod markdown_gutter;
@@ -30,6 +31,7 @@ mod seed;
 mod settings;
 mod side;
 mod sparkle;
+mod states;
 mod verdict;
 
 #[allow(unused_imports)]
@@ -46,6 +48,8 @@ pub use input::event_bytes_of;
 pub use settings::Renderers;
 #[allow(unused_imports)]
 pub use side::SIDE_THREAD;
+#[allow(unused_imports)]
+pub use states::image_file_sized;
 #[allow(unused_imports)]
 pub use sparkle::{Dots, split_frames};
 
@@ -449,6 +453,7 @@ impl Screen {
             name,
             frame: "",
             labels: &[],
+            state: None,
             at: None,
             dialog: false,
         }
@@ -664,6 +669,7 @@ pub struct Snap<'a> {
     labels: &'a [&'a str],
     at: Option<(usize, usize)>,
     dialog: bool,
+    state: Option<(usize, usize)>,
 }
 
 impl<'a> Snap<'a> {
@@ -680,6 +686,14 @@ impl<'a> Snap<'a> {
     /// the snapshot is a header.
     pub fn labelled(mut self, labels: &'a [&'a str]) -> Snap<'a> {
         self.labels = labels;
+        self
+    }
+
+    /// The snapshot is one the test glued of states of one screen with a blank row and no header
+    /// (`format!("{initial}\n\n{scrolled}")`), each `height` rows: this compares state `index`
+    /// (from 0, in the order the test wrote them).
+    pub fn state(mut self, height: usize, index: usize) -> Snap<'a> {
+        self.state = Some((height, index));
         self
     }
 
@@ -706,7 +720,9 @@ impl<'a> Snap<'a> {
             frame: self.frame,
             at: self.at,
         };
-        if !self.labels.is_empty() {
+        if let Some((height, index)) = self.state {
+            compare::assert_state(&grid, &want, height, index);
+        } else if !self.labels.is_empty() {
             compare::assert_labelled(&grid, &want, self.labels, self.dialog);
         } else if self.dialog {
             compare::assert_dialog(&grid, &want);

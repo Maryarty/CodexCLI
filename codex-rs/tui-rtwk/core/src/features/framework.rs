@@ -19,8 +19,8 @@ use codex_app_server_protocol::ThreadClosedNotification;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
 use super::{
-    AppCx, AppView, Connection, Feature, Never, Out, Refusal, Slash, StructuredFailure, ThreadCx,
-    Tone, TurnEnd,
+    AppCx, AppView, Connection, Feature, Never, Out, Refusal, SeedFn, Slash, StructuredFailure,
+    ThreadCx, Tone, TurnEnd,
 };
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
@@ -28,7 +28,7 @@ use crate::app::{AppFx, Now};
 use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TicketMint};
 use crate::rpc::RpcError;
-use crate::screens::ScreenStates;
+use crate::screens::{ScreenStates, SeedError};
 use crate::threads::{Origin, ThreadEv, ThreadFx, ThreadSet, UserMessage};
 
 /// What a hook saw.
@@ -235,6 +235,12 @@ macro_rules! probe {
         pub type Event = Never<$marker>;
     };
     (@steps full) => {
+        const SEED_NOTE: Option<SeedFn<Note>> = Some(|value| match value.as_str() {
+            Some("error") => Ok(Note("error")),
+            Some("fine") => Ok(Note("fine")),
+            _ => Err(SeedError::Bad("a note is `error` or `fine`".to_owned())),
+        });
+
         fn note_tone(note: &Note) -> Tone {
             if note.0 == "error" { Tone::Error } else { Tone::Info }
         }
@@ -293,7 +299,7 @@ use probe_list::{
     answered, apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode,
     effect_done, names, next_thread_wake, next_wake, note_tone, on_connection, on_event, on_fact,
     on_interest, on_interrupted, on_resumed, on_shown, on_turn_end, project, project_request,
-    runs_of, structured_done, thread_opened, thread_wakes_due, wakes_due, wire,
+    runs_of, seed_note, structured_done, thread_opened, thread_wakes_due, wakes_due, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.
@@ -542,6 +548,24 @@ fn a_feature_asks_the_host_through_the_outbox() {
         ],
         "in the order they were said"
     );
+}
+
+/// A script's `note` step: the feature reads its own note from the JSON; a feature with none to
+/// seed, and a name no feature has, are told apart.
+#[test]
+fn a_note_is_seeded_by_the_feature_that_says_it() {
+    use crate::screens::SeedError;
+    use serde_json::json;
+    assert_eq!(
+        seed_note("alpha", json!("error")),
+        Ok(FeatureNote::from(alpha::Note("error")))
+    );
+    assert!(matches!(
+        seed_note("alpha", json!(3)),
+        Err(SeedError::Bad(_))
+    ));
+    assert_eq!(seed_note("beta", json!("error")), Err(SeedError::NoSeeds));
+    assert_eq!(seed_note("gamma", json!("error")), Err(SeedError::UnknownDir));
 }
 
 #[test]
