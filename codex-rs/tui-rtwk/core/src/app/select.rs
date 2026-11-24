@@ -477,6 +477,8 @@ pub(super) fn permissions_pick(
         permissions::Selection::Preset { .. } => {
             settings(app, patch, select::Setting::Permissions, None, fx);
             notes(app, [select::Note::PermissionsUpdated(label)]);
+            // a verb is no select step: nothing else drains the line
+            drain(app, fx);
         }
     }
 }

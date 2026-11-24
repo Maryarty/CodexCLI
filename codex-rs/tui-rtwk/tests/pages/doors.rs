@@ -62,9 +62,11 @@ mod picker {
     use std::cell::RefCell;
     use std::rc::Rc;
 
+    use rtwk::provider::{MultiProvider, Provider};
     use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
     use rtwk_test::{Options, Tester};
 
+    use codex_tui_core::keymap::Keymap;
     use codex_tui_rtwk::widgets::picker::list::{Item, List, Role, Span};
     use codex_tui_rtwk::widgets::picker::{Event, Picker};
 
@@ -96,7 +98,11 @@ mod picker {
         type Msg = Event;
 
         fn build(&self, w: &Host, cx: &mut Cx<'_, Self>) -> AnyWidget {
-            Picker::new(w.list.clone(), cx.map(|event: Event| event)).into()
+            // the app provides its keymap above every widget (`app/view.rs`)
+            MultiProvider::new()
+                .with(Provider::value_shared(Rc::new(Keymap::defaults())))
+                .child(Picker::new(w.list.clone(), cx.map(|event: Event| event)))
+                .into()
         }
 
         fn update(&mut self, event: Event, w: &Host, _: &mut Cx<'_, Self>) -> Rebuild {
@@ -288,9 +294,11 @@ mod blocks {
     use codex_tui_rtwk::pages::session::cells::citation::blocks_of;
     use codex_tui_rtwk::pages::session::cells::strings::EN;
     use codex_tui_rtwk::pages::session::transcript::markdown_text;
+    use rtwk_rich::markdown::{MdBlock, MdInline};
 
-    /// `blocks_of` is what the cell draws, and the text model reads it: a source with two
-    /// paragraphs and a heading is three blocks, whose text is the source's.
+    /// `blocks_of` is what the cell draws: a source with a heading and two paragraphs is three
+    /// blocks, the heading with its `#` marker as drawn text (a text model over them adds none),
+    /// and the paragraphs read as the source's.
     #[test]
     fn blocks_of_is_the_document_the_cell_draws() {
         let blocks = blocks_of(
@@ -301,9 +309,13 @@ mod blocks {
             Rendering::default(),
         );
         assert_eq!(blocks.len(), 3);
+        let MdBlock::Heading { children, .. } = &*blocks[0] else {
+            panic!("a heading, got {:?}", blocks[0]);
+        };
+        assert!(matches!(&children[0], MdInline::Text(marker) if &**marker == "# "));
         assert_eq!(
-            markdown_text::text(&blocks).as_deref(),
-            Some("# Title\n\npara one\n\npara two")
+            markdown_text::text(&blocks[1..]).as_deref(),
+            Some("para one\n\npara two")
         );
     }
 }
@@ -442,15 +454,18 @@ mod kit_states {
         assert_eq!(image::image_dimensions(&path).unwrap(), (200, 50));
     }
 
-    /// `Open::unavailable_model()`: the thread's model is empty, the footer has none to name.
+    /// `Open::unavailable_model()`: the server's `thread/start` answer names an empty model, and
+    /// the status card has none to name (`Model: loading`).
     #[test]
     fn the_unavailable_model_seed_leaves_the_thread_without_a_model() {
-        let s = Screen::build(Owner::ChatLive)
-            .size(80, 12)
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 24)
             .unavailable_model()
             .live()
             .open();
-        s.assert_contains("loading");
+        s.type_text("/status");
+        s.keys("enter").wait(300);
+        s.assert_contains("Model:               loading");
     }
 
     /// `Open::composer_alone()` is the oracle's bare composer: the empty one of the
@@ -487,12 +502,14 @@ mod fake_turns {
             .live()
             .open();
         s.type_text("hello");
-        s.keys("enter ctrl+c");
+        s.keys("enter").wait_for("esc to interrupt");
+        s.keys("esc").wait(200);
         assert_eq!(interrupted(&s).as_deref(), Some("fake-turn-1"));
 
         let mut s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
         s.type_text("hello");
-        s.keys("enter ctrl+c");
+        s.keys("enter").wait_for("esc to interrupt");
+        s.keys("esc").wait(200);
         assert_eq!(interrupted(&s).as_deref(), Some("turn-1"));
     }
 }

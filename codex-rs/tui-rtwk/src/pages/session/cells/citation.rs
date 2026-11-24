@@ -191,9 +191,9 @@ pub fn view_with(
 
 /// The blocks the cell draws for `source` (what `view_with` hands the view: the directives read,
 /// the user's `rendering` applied, the links and headings rewritten as the oracle reads them).
-/// What find, the select mode and copy read as text of a message that is not mounted
-/// (`transcript::markdown_text`), and what a cell that wraps this body (the proposed plan, a
-/// delegated message) takes its text from, so that the text is the one the cell draws.
+/// A heading carries its `#` marker as drawn text; `transcript::markdown_text` writes its own,
+/// so a text model over these blocks (find, the select mode and copy of a message that is not
+/// mounted, a cell that wraps this body) takes the marker off the heading first.
 pub fn blocks_of(
     source: &str,
     live: bool,
