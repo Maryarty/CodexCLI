@@ -273,7 +273,8 @@ fn a_completed_context_compaction_is_a_notice_made_on_completion() {
         .active_thread()
         .transcript()
         .iter()
-        .filter_map(|(_, item)| matches!(item, Item::Notice(_)).then(|| item.clone()))
+        .filter(|(_, item)| matches!(item, Item::Notice(_)))
+        .map(|(_, item)| item.clone())
         .collect();
     assert_eq!(notices, [Item::Notice(Notice::ContextCompacted)]);
 }

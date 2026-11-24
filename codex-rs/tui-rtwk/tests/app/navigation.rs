@@ -181,25 +181,47 @@ fn import_is_a_step_of_the_startup_page() {
     assert!(h.t.screen().contains("• Hello"));
 }
 
-const NOT_YET: &str = "Not implemented yet: expanded transcript";
-
-/// The diff action opens a placeholder until the patch view is available.
-/// Esc and Enter close it and return to the same chat.
+/// `/diff` is a feature now (oracle `SlashCommand::Diff`): the command is taken, the diff is
+/// asked of the host, and the chat stays as it was under it. The pager that shows the answer is
+/// drawn by the pager page (UI LEFT, P1 of the full-port map): its test follows.
 #[test]
-fn diff_opens_the_not_implemented_popup() {
+fn diff_is_taken_and_leaves_the_chat_as_it_was() {
+    let mut h = start();
+    crate::chat::chat_with_history(&mut h);
+    h.t.type_text("/diff");
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(800));
+    let screen = h.t.screen();
+    for refused in [
+        "Unrecognized command",
+        "not available yet",
+        "Not implemented",
+    ] {
+        assert!(!screen.contains(refused), "{refused}:\n{screen}");
+    }
+    assert!(screen.contains("• Hello"), "{screen}");
+    assert!(
+        screen.contains("Ask Codex to do anything"),
+        "the draft went:\n{screen}"
+    );
+}
+
+/// The static pager over the chat (oracle `Overlay::Static` of `DiffResult`): the diff, or the
+/// note that says why there is none; Esc returns to the same chat.
+#[test]
+#[ignore = "pending(P1): the pager page that shows the diff's document (`Wish::Pager`) is not drawn yet"]
+fn diff_shows_the_pager_and_escape_returns_to_the_chat() {
     let mut h = start();
     crate::chat::chat_with_history(&mut h);
     let before = h.t.screen();
-    for close in ["escape", "enter"] {
-        h.t.type_text("/diff");
-        h.press("enter");
-        h.wait_for("the popup", |s| s.contains(NOT_YET));
-        h.t.pump_for(crate::common::ms(800));
-        assert!(h.t.screen().contains(NOT_YET), "{}", h.t.screen());
-        h.press(close);
-        h.t.pump_for(crate::common::ms(600));
-        assert_eq!(h.t.screen(), before, "back on the session page");
-    }
+    h.t.type_text("/diff");
+    h.press("enter");
+    h.wait_for("the pager", |s| {
+        s.contains("not inside a git repository") || s.contains("No changes detected")
+    });
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(h.t.screen(), before, "back on the session page");
 }
 
 /// The session page's bottom menu: the oracle's idle footer
