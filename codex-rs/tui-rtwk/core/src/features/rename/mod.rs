@@ -24,8 +24,8 @@ use std::collections::BTreeMap;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never, Remote, Slash, ThreadCx};
-use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, Done};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;

@@ -331,14 +331,14 @@ pub(super) fn session_intent(
         }
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
-        S::Review { args: None }
-        | S::Permissions { args: None }
-        | S::VoiceControl(_) => session_note(
-            app,
-            source,
-            Note::from(crate::commands::Notice::NotAvailable(command)),
-            fx,
-        ),
+        S::Review { args: None } | S::Permissions { args: None } | S::VoiceControl(_) => {
+            session_note(
+                app,
+                source,
+                Note::from(crate::commands::Notice::NotAvailable(command)),
+                fx,
+            )
+        }
     }
 }
 

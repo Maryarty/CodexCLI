@@ -6,8 +6,8 @@
 //! answers. Cursor, checks and pages are the sheets' own.
 
 use codex_tui_core::app::effects::{Ask, Done};
-use codex_tui_core::commands::SessionIntent;
 use codex_tui_core::app::{AppEv, CodexApp, Command, Ingress, Intent};
+use codex_tui_core::commands::SessionIntent;
 use codex_tui_core::features::settings::{
     Command as SettingsCommand, Edit, Intent as SettingsIntent, Note, Offer, SetupKind, Which, Wish,
 };

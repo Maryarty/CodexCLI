@@ -302,7 +302,12 @@ fn daybreak_saved(thread: ThreadId, enabled: bool, cx: &mut AppCx<'_>) {
 
 impl Feature for SmallCmds {
     const NAME: &'static str = "small_cmds";
-    const RUNS: &'static [SlashCommand] = &[SlashCommand::Logout, SlashCommand::Ide, SlashCommand::Daybreak, SlashCommand::DebugConfig];
+    const RUNS: &'static [SlashCommand] = &[
+        SlashCommand::Logout,
+        SlashCommand::Ide,
+        SlashCommand::Daybreak,
+        SlashCommand::DebugConfig,
+    ];
 
     type State = State;
     type ThreadPart = ThreadPart;

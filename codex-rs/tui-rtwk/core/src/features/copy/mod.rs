@@ -16,8 +16,8 @@ mod visible;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, AppView, Feature, Never, Slash};
-use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
@@ -128,7 +128,13 @@ impl Feature for Copier {
 
     /// `/copy`: the picker of what the last response holds, asked of the surface.
     fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
-        Self::intent(state, Intent::Command { source: slash.source }, cx);
+        Self::intent(
+            state,
+            Intent::Command {
+                source: slash.source,
+            },
+            cx,
+        );
     }
 
     fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {

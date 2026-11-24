@@ -16,10 +16,10 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadGoalGetParams;
 
 use super::{AppCx, AppView, Feature, Never, Out, Slash, ThreadCx, Tone, TurnEnd};
-use crate::commands::SlashCommand;
 use crate::app::AppFx;
 use crate::app::effects::{Ask, Done};
 use crate::app::facts::TuiSettings;
+use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TicketMint};
 use crate::rpc::RpcError;
 use crate::screens::ScreenStates;
@@ -221,8 +221,8 @@ mod probe_list {
 use probe_list::{
     FeatureCommand, FeatureCtx, FeatureFact, FeatureIntent, FeatureInterest, FeatureNote,
     FeatureReply, FeatureStates, FeatureThreadIntent, FeatureThreadParts, alpha, answered,
-    apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode, effect_done, names,
-    note_tone, on_fact, on_interest, on_interrupted, on_resumed, on_turn_end, runs_of, wire,
+    apply_intent, apply_slash, apply_thread_intent, apply_thread_reply, beta, decode, effect_done,
+    names, note_tone, on_fact, on_interest, on_interrupted, on_resumed, on_turn_end, runs_of, wire,
 };
 
 /// Runs `step` with an `AppCx` over empty facts; what it asked for is nothing here.

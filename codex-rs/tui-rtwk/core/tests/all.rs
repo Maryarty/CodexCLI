@@ -71,6 +71,7 @@ mod selection;
 mod settings;
 mod settings_feeds;
 mod side;
+mod slash_door;
 mod small_cmds;
 mod sparkle;
 mod status;

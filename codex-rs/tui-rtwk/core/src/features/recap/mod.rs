@@ -23,8 +23,8 @@ use codex_app_server_protocol::{ClientRequest, RequestId};
 use serde_json::{Value, json};
 
 use super::{AppCx, Feature, Never, Slash};
-use crate::commands::SlashCommand;
 use crate::app::effects::{Ask, Done};
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
@@ -196,7 +196,13 @@ impl Feature for Recap {
 
     /// `/recap`: a summary of the conversation in use.
     fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
-        Self::intent(state, Intent::Command { source: slash.source }, cx);
+        Self::intent(
+            state,
+            Intent::Command {
+                source: slash.source,
+            },
+            cx,
+        );
     }
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {

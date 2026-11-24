@@ -38,9 +38,9 @@ pub struct Sheet;
 /// What the user asks of `/mcp`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// `/mcp` (`full: false`, the UI half's `open`) and `/mcp verbose` (`full: true`: the verb waits for
-    /// the router to carry the command's text to a feature's `open`), typed in the thread `source` (none before the
-    /// session has started: the app's own servers).
+    /// `/mcp` (`full: false`, the UI half's `open`) and `/mcp verbose` (`full: true`, `slash`),
+    /// typed in the thread `source` (none before the session has started: the app's own
+    /// servers).
     Show {
         source: Option<ThreadId>,
         full: bool,
