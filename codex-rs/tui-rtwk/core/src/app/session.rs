@@ -330,6 +330,12 @@ pub(super) fn session_intent(
             let intent = crate::features::export::Intent::Command { path };
             super::features::intent(app, intent.into(), fx);
         }
+        // `/copy`: the picker of what the last response holds, asked of the surface
+        // (`features/copy`).
+        S::Copy => {
+            let intent = crate::features::copy::Intent::Command { source };
+            super::features::intent(app, intent.into(), fx);
+        }
         // `/goal`: the goal shown, set, paused, resumed, cleared or edited (`features/goal`).
         S::Goal { args } => {
             let intent = crate::features::goal::Intent::Command { source, args };
@@ -361,7 +367,6 @@ pub(super) fn session_intent(
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
         | S::Side { .. }
-        | S::Copy
         | S::Tui
         | S::Mcp { .. }
         | S::Apps

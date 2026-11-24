@@ -28,6 +28,7 @@ mod composer_shell;
 mod composer_vim;
 mod dialogs;
 mod directives;
+mod copy;
 mod export;
 mod goal;
 mod import;

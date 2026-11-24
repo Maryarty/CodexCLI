@@ -1436,6 +1436,11 @@ impl ThreadCore {
         &self.id
     }
 
+    /// The transcript, for a feature's view of the thread (`ThreadView`).
+    pub(crate) fn transcript(&self) -> &Transcript {
+        &self.transcript
+    }
+
     pub fn is_running(&self) -> bool {
         matches!(self.turn, TurnState::Running(_))
     }

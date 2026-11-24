@@ -13,7 +13,7 @@ use crate::ids::{ThreadId, Ticket};
 use crate::screens::ScreenStates;
 use crate::screens::ThreadSlots;
 use crate::screens::select::collaboration::Mask;
-use crate::threads::{ThreadCore, ThreadFx, ThreadSet};
+use crate::threads::{Item, ThreadCore, ThreadFx, ThreadSet};
 
 /// The app, read-only: the facts a feature decides by. It holds references to parts of the
 /// app, so a feature's own state can be `&mut` at the same time.
@@ -139,6 +139,21 @@ impl<'a> ThreadView<'a> {
     /// provider.
     pub fn has_writer(&self) -> bool {
         self.core.attached() && self.slots.chat.provider_error.is_none()
+    }
+
+    /// The messages a copy can take, oldest first: an assistant message or a plan, as the server
+    /// sent it (oracle `record_agent_markdown`'s callers).
+    pub fn response_sources(&self) -> std::vec::IntoIter<&'a str> {
+        let sources: Vec<&'a str> = self
+            .core
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Agent { text, .. } | Item::Plan { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        sources.into_iter()
     }
 
     /// The thread's name, when it has one (`/rename`).
