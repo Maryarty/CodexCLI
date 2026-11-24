@@ -810,15 +810,38 @@ fn replayed_user_message_with_only_local_images_renders_history_cell() {
     );
 }
 
+/// The session's `thread/start` answer for a conversation `id` that the server named `name`: the
+/// thread `/fork` copies from (`emit_forked_thread_event` reads its title).
+fn parent_thread(id: &str, name: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "thread": {
+            "id": id, "environments": null, "extra": null, "sessionId": id,
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+            "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000,
+            "status": {"type": "idle"}, "path": null, "cwd": "/work", "cliVersion": "0.0.0",
+            "originator": null, "source": "cli", "canAcceptDirectInput": true,
+            "threadSource": null, "agentNickname": null, "agentRole": null, "gitInfo": null,
+            "name": name, "daybreakEnabled": null, "turns": []
+        },
+        "model": "gpt-5", "modelProvider": "openai", "serviceTier": null, "cwd": "/work",
+        "instructionSources": [], "approvalPolicy": "on-request", "approvalsReviewer": "user",
+        "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null
+    })
+}
+
 // ORACLE chatwidget/tests/history_replay.rs:973 forked_thread_history_line_includes_name_and_id_snapshot kind=snap owner=chat-live snap=forked_thread_history_line
 #[test]
 fn forked_thread_history_line_includes_name_and_id_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // needs: the fork of `named-thread` (e9f18a88-8081-4e51-9d4e-8af5cde2d8dd) opened
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .thread_start(parent_thread("e9f18a88-8081-4e51-9d4e-8af5cde2d8dd", Some("named-thread")))
+        .script(include_str!("fixtures/chat_live_2/fork_named.jsonl"))
+        .open();
+    s.type_text("/fork");
+    s.keys("enter");
     s.assert_snap_region(
         "forked_thread_history_line",
         row_of(&s, "• Thread forked from"),
@@ -829,12 +852,13 @@ fn forked_thread_history_line_includes_name_and_id_snapshot() {
 // ORACLE chatwidget/tests/history_replay.rs:1003 forked_thread_history_line_without_name_shows_id_once_snapshot kind=snap owner=chat-live snap=forked_thread_history_line_without_name
 #[test]
 fn forked_thread_history_line_without_name_shows_id_once_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // needs: the fork of 019c2d47-4935-7423-a190-05691f566092 opened, the parent without a title
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .thread_start(parent_thread("019c2d47-4935-7423-a190-05691f566092", None))
+        .script(include_str!("fixtures/chat_live_2/fork_unnamed.jsonl"))
+        .open();
+    s.type_text("/fork");
+    s.keys("enter");
     s.assert_snap_region(
         "forked_thread_history_line_without_name",
         row_of(&s, "• Thread forked from"),
@@ -861,12 +885,14 @@ fn prompt_edit_thread_history_line_snapshot() {
 // ORACLE chatwidget/tests/history_replay.rs:1113 app_server_forked_thread_history_line_uses_app_server_title_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line
 #[test]
 fn app_server_forked_thread_history_line_uses_app_server_title_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // needs: the fork of e9f18a88-8081-4e51-9d4e-8af5cde2d8dd titled `app-server-parent-thread` by the server
+    let mut s = Screen::build(Owner::ChatLive)
+        // wide enough for the oracle's one-line snapshot (the line is 84 columns)
+        .size(100, 24)
+        .thread_start(parent_thread("e9f18a88-8081-4e51-9d4e-8af5cde2d8dd", Some("app-server-parent-thread")))
+        .script(include_str!("fixtures/chat_live_2/fork_server_titled.jsonl"))
+        .open();
+    s.type_text("/fork");
+    s.keys("enter");
     s.assert_snap_region(
         "app_server_forked_thread_history_line",
         row_of(&s, "• Thread forked from"),
@@ -878,12 +904,13 @@ fn app_server_forked_thread_history_line_uses_app_server_title_snapshot() {
 // ORACLE chatwidget/tests/history_replay.rs:1153 app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line_without_app_server_name
 #[test]
 fn app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `Thread forked from` history line: a fork opens the copy without the line the oracle's `emit_forked_thread_event` inserts (the name from the server's title, else the id)",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // needs: the fork of 019c2d47-4935-7423-a190-05691f566092, the server names no title; the local session index names it `stale-local-thread`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .thread_start(parent_thread("019c2d47-4935-7423-a190-05691f566092", None))
+        .script(include_str!("fixtures/chat_live_2/fork_server_unnamed.jsonl"))
+        .open();
+    s.type_text("/fork");
+    s.keys("enter");
     s.assert_absent("stale-local-thread");
     s.assert_snap_region(
         "app_server_forked_thread_history_line_without_app_server_name",

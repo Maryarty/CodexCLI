@@ -323,11 +323,10 @@ fn mcp_inventory_loading_without_animations_is_stable() {
 // ORACLE history_cell/tests.rs:1619 thread_recap_loading_without_animations_snapshot kind=snap owner=chat-live
 #[test]
 fn thread_recap_loading_without_animations_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the row is built (cells::notice, Notice::RecapLoading, equal in tests/pages/cells.rs notice_cells); need: /recap appends it while the recap generates (the host), which the kit cannot seed",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 6)
+        .script(include_str!("fixtures/cells_4/recap_generating.jsonl"))
+        .open();
     s.type_text("/recap");
     s.keys("enter");
     s.assert_has_row("• Generating conversation recap…");
