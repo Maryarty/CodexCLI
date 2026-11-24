@@ -21,13 +21,14 @@ use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
 use codex_tui_core::screens::approvals::guardian::Reviewing;
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::compaction::Running as ActiveCompaction;
-use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
+use codex_tui_core::threads::{Failure, Notice, ThreadModel, TurnState};
 
 use crate::app::theme;
 use crate::l10n::strings as l10n;
 use crate::sheets::approvals;
 
 use super::actions::failure_text;
+use super::cells::notice::NoticeCell;
 use super::status::{self, Pending, PendingInput, TerminalsLine};
 
 /// What a thread's run looks like to the status row and to the status line:
@@ -141,6 +142,11 @@ impl StatelessWidget for StatusSlot {
         if run.read_only {
             return SizedBox::shrink().into();
         }
+        // `/recap` generating: the oracle's `ThreadRecapLoadingCell` stands at the transcript's tail
+        let recapping = {
+            let thread = run.id.clone();
+            select::<FeatureStates, bool, _>(cx, move |features| features.recap.generating(&thread))
+        };
         let owner = run.id.clone();
         let (backend, now, facts) = select::<ScreenStates, _, _>(cx, move |states| {
             (
@@ -265,7 +271,8 @@ impl StatelessWidget for StatusSlot {
         // the hook line and the terminals' line stand in for a missing activity row
         let hook_line = run.hook.as_deref().filter(|_| !working);
         let terminals_line = run.terminals > 0 && !working;
-        if status.is_none() && hook_line.is_none() && !terminals_line && !run.pending {
+        if status.is_none() && hook_line.is_none() && !terminals_line && !run.pending && !recapping
+        {
             return SizedBox::shrink().into();
         }
         let blank = || -> AnyWidget { SizedBox::new(None, Some(1), None).into() };
@@ -274,6 +281,14 @@ impl StatelessWidget for StatusSlot {
             .main_axis_size(MainAxisSize::Min)
             .overflow_intended(true)
             .cross_axis_alignment(CrossAxisAlignment::Start);
+        if recapping {
+            if !run.transcript_empty {
+                column = column.child(blank());
+            }
+            column = column.child(NoticeCell {
+                notice: Notice::RecapLoading,
+            });
+        }
         if let Some(status) = status {
             if !run.transcript_empty {
                 column = column.child(blank());

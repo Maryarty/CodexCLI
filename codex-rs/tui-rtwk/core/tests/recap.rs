@@ -139,6 +139,60 @@ fn an_empty_conversation_has_nothing_to_recap() {
     assert_eq!(notes(&app), vec![RecapNote::EmptyHistory]);
 }
 
+/// `request_recap` with `ThreadSettingsOwner::Server`: the cloud owns the settings of its
+/// conversations, so a manual recap says so and asks nothing (the first check, before the in-flight
+/// and the empty-history ones).
+#[test]
+fn a_cloud_conversation_has_no_recap() {
+    use codex_tui_core::app::{BackendEv, Command, apply_app_from};
+    use codex_tui_core::ids::BackendId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::agents::Ev;
+    const CLOUD: BackendId = BackendId(1);
+    let mut app = app(&[]);
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(Ev::CloudBackend(CLOUD))),
+    );
+    let fx = run(&mut app, AppEv::Intent(Intent::CycleBackend));
+    let ticket = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::StartThread { ticket, .. } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a StartThread");
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("cloud-1"))),
+    );
+    let mut fx = AppFx::default();
+    let note: codex_app_server_protocol::ServerNotification =
+        serde_json::from_value(json!({"method": "item/completed",
+        "params": {"threadId": "cloud-1", "turnId": "turn-1", "completedAtMs": 0,
+        "startedAtMs": 0, "item": {"type": "userMessage", "id": "u1", "clientId": null,
+        "content": [{"type": "text", "text": "fix it", "text_elements": []}]}}}))
+        .unwrap();
+    apply_app_from(
+        &mut app,
+        CLOUD,
+        AppEv::Backend(BackendEv::Notification(Box::new(note))),
+        &mut fx,
+    );
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Feature(FeatureIntent::Recap(
+            RecapIntent::Command {
+                source: Some(ThreadId::new("cloud-1")),
+            },
+        ))),
+    );
+    assert!(thread_asks(&fx).is_empty(), "{:?}", fx.commands());
+    assert_eq!(notes(&app), vec![RecapNote::Cloud]);
+}
+
 #[test]
 fn a_recap_asks_one_structured_turn_and_says_the_answer() {
     let mut app = app(&[("fix the bug", "done"), ("ship it", "shipped")]);

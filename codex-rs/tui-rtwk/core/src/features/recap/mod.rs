@@ -5,9 +5,9 @@
 //!
 //! Only the manual `/recap` is here. What the oracle schedules after the user has been away
 //! (`RecapState`: focus lost, completed turns, the 30 minute delay, the retry) needs the window's
-//! focus and a timer, which are the surface's: UI LEFT. So is the cloud refusal
-//! (`Conversation recaps are not available for cloud conversations.`), which needs the thread's
-//! settings owner.
+//! focus and a timer, which are the surface's: UI LEFT. The cloud refusal is here: a conversation
+//! of a cloud backend (`Agents::is_cloud`, the oracle's `ThreadSettingsOwner::Server`) says
+//! `Conversation recaps are not available for cloud conversations.` and asks nothing.
 //!
 //! What is kept here is what IO needs: the request in flight (a record by thread, so a second
 //! `/recap` says it is already generating, and the "Recapping..." row is drawn while
@@ -86,6 +86,8 @@ pub enum Note {
     InProgress,
     /// `There is no conversation history to recap.` (error)
     EmptyHistory,
+    /// `Conversation recaps are not available for cloud conversations.` (error)
+    Cloud,
 }
 
 /// The answer the model is asked for (`recap_output_schema`).
@@ -160,8 +162,17 @@ fn excerpt(cx: &AppCx<'_>, thread: &ThreadId) -> String {
     recap_history(&messages)
 }
 
-/// `request_recap` for a manual recap.
+/// `request_recap` for a manual recap: a conversation of a cloud backend is refused first (the
+/// server owns its settings), then a recap already generating.
 fn request(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
+    let cloud = source.as_ref().is_some_and(|thread| {
+        let view = cx.view();
+        let agents = &view.screens().agents;
+        agents.is_cloud(agents.owner_of(thread.as_str()))
+    });
+    if cloud {
+        return cx.note(source, Note::Cloud);
+    }
     if state.in_flight.is_some() {
         return cx.note(None, Note::InProgress);
     }
@@ -250,7 +261,7 @@ feature! {
             fn note_tone(note: &Note) -> Tone {
                 match note {
                     Note::Recap { .. } => Tone::Info,
-                    Note::Failed | Note::InProgress | Note::EmptyHistory => Tone::Error,
+                    Note::Failed | Note::InProgress | Note::EmptyHistory | Note::Cloud => Tone::Error,
                 }
             }
         }

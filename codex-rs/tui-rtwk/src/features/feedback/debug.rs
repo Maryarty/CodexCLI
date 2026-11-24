@@ -3,8 +3,10 @@
 
 use rtwk::AnyWidget;
 
+use codex_tui_core::features::feedback::{Audience, Note};
 use codex_tui_core::screens::dialogs::FeedbackCategory;
 
+use super::cell;
 use super::sheet::FeedbackSheet;
 use super::steps::Step;
 use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
@@ -23,6 +25,26 @@ macro_rules! entry {
                     turn_id: None,
                 }
                 .into()
+            }),
+        }
+    };
+}
+
+/// An entry that shows the success cell of a delivered report (a transcript row), over the menu.
+macro_rules! success {
+    ($name:literal, $category:ident, $logs:literal, $report:literal, $audience:ident) => {
+        DebugEntry {
+            name: $name,
+            description: "the cell of a delivered report",
+            script: include_str!("fixtures/categories.jsonl"),
+            open: EntryOpen::Route(|_| {
+                cell::of(&Note::Uploaded {
+                    category: FeedbackCategory::$category,
+                    include_logs: $logs,
+                    report: $report.to_owned(),
+                    audience: Audience::$audience,
+                })
+                .unwrap_or_default()
             }),
         }
     };
@@ -179,6 +201,12 @@ pub fn entries() -> Vec<DebugEntry> {
             note!(Bug),
             ""
         ),
+        success!("feedback_success_external_bug", Bug, true, "thread-1", External),
+        success!("feedback_success_employee_bug", Bug, true, "thread-2", OpenAiEmployee),
+        success!("feedback_success_good_result", GoodResult, false, "thread-3", External),
+        success!("feedback_success_bad_result", BadResult, true, "thread-4", External),
+        success!("feedback_success_safety_check", SafetyCheck, true, "thread-4", External),
+        success!("feedback_success_other", Other, true, "thread-4", External),
     ]
 }
 
