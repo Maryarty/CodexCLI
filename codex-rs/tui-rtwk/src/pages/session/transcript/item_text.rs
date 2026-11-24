@@ -13,7 +13,7 @@ use codex_tui_core::threads::Item;
 use rtwk_rich::markdown::parse_markdown;
 
 use super::markdown_text;
-use crate::pages::session::cells::text::{Env, Gap, Texts, texts};
+use crate::pages::session::cells::text::{Env, Gap, Part, Texts, texts};
 
 /// The text of `item` as a `SelectionArea` over its mounted cell selects it:
 /// the marks the cells draw as gutters (the assistant's bullet too) are in an
@@ -36,12 +36,24 @@ pub fn item_text(item: &Item, env: &Env<'_>) -> Option<String> {
 /// on the cells it names; `item_text` is the text that is the item's own (copy). The assistant's
 /// bullet (`bullet`) is the first part of its message.
 pub fn mounted_text(item: &Item, env: &Env<'_>, bullet: &str) -> Option<String> {
+    mounted_parts(item, env, bullet).map(|parts| {
+        parts
+            .iter()
+            .map(|part| part.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
+/// The parts of [`mounted_text`], each with whether it is a gutter: what the select mode reads
+/// (a caret never stops on a gutter, a copy leaves it out).
+pub fn mounted_parts(item: &Item, env: &Env<'_>, bullet: &str) -> Option<Vec<Part>> {
     match texts(item, env) {
-        exact @ Texts::Exact(_) => exact.joined(true),
+        Texts::Exact(parts) => Some(parts),
         Texts::Gap(Gap::Markdown) => match item {
             Item::Agent { text, .. } => {
                 let body = markdown_text::text(&parse_markdown(text))?;
-                Some(format!("{bullet}\n{body}"))
+                Some(vec![Part::gutter(bullet), Part::text(body)])
             }
             _ => None,
         },

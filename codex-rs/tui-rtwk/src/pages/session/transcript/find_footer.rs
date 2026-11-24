@@ -21,6 +21,7 @@ use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use super::find::{self, Finder, Mode};
+use super::select;
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 pub use crate::widgets::finder::{Progress, Status};
@@ -89,7 +90,19 @@ pub fn candidates(table: &Strings, status: &Status) -> Vec<String> {
 /// The status line as spans (`navigation_line`): the key of a hint bold and its action dim, the
 /// plain words dim, `esc` alone bold.
 pub fn navigation_spans(table: &Strings, line: &str, key: &Style, dim: &Style) -> Vec<Span> {
+    // select mode's words come first where one ends in another (`copy & latest`)
     let actions = [
+        "copy & latest",
+        "move",
+        "ends",
+        "page",
+        "mark",
+        "find",
+        "swap",
+        "copy",
+        "clear",
+        "next",
+        "close",
         table.find_older,
         table.find_newer,
         table.find_retry,
@@ -154,13 +167,21 @@ pub fn query_row(table: &'static Strings, label: Style, editor: AnyWidget) -> An
 }
 
 /// The footer under the composer: while Find is open its query row (editing only) and its status
-/// row, two cells in, in the place of `normal`, the footer the page would draw (Flutter: a
-/// `ListenableBuilder` on the finder). One call from the page's footer slot.
+/// row, two cells in, in the place of `normal`, the footer the page would draw; while select mode
+/// is on and Find is not, its hint row (`select_hints`) (Flutter: a `ListenableBuilder` on the
+/// finder and on the select mode). One call from the page's footer slot.
 pub fn slot<S>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = Tokens::of(cx);
     let (dim, bold) = (tokens.dim(), tokens.bold());
     let finder = finder.clone();
+    let normal = select_hints(
+        table,
+        &select::of(&finder),
+        normal,
+        bold.clone(),
+        dim.clone(),
+    );
     ListenableBuilder::new(finder.listenable(), move |_, _| {
         let mode = finder.mode();
         if mode == Mode::Closed {
@@ -178,6 +199,50 @@ pub fn slot<S>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWid
             bold.clone(),
             dim.clone(),
         )))
+        .into()
+    })
+    .into()
+}
+
+/// The hint row of select mode in the place of `normal` while the mode is on: the first spelling
+/// that fits (`first_fitting_line`), the copy chord spelled `⌃c`.
+fn select_hints(
+    table: &'static Strings,
+    select: &select::Select,
+    normal: AnyWidget,
+    key: Style,
+    dim: Style,
+) -> AnyWidget {
+    let select = select.clone();
+    ListenableBuilder::new(select.listenable(), move |_, _| {
+        let Some(marked) = select.hints() else {
+            return normal.clone();
+        };
+        let spellings = if marked {
+            &table.select_marked_hints
+        } else {
+            &table.select_hints
+        };
+        let spellings: Vec<String> = spellings
+            .iter()
+            .map(|spelling| spelling.replace("{copy}", "⌃c"))
+            .collect();
+        let (key, dim) = (key.clone(), dim.clone());
+        LayoutBuilder::new(move |cx, constraints| {
+            let segmenter = segmenter_of(cx);
+            let fits = |text: &&String| {
+                i32::try_from(segmenter.width(text)).unwrap_or(i32::MAX) <= constraints.max_width
+            };
+            let text = spellings
+                .iter()
+                .find(fits)
+                .or(spellings.last())
+                .cloned()
+                .unwrap_or_default();
+            row(Text::rich_line(navigation_spans(table, &text, &key, &dim))
+                .overflow(TextOverflow::Clip)
+                .into())
+        })
         .into()
     })
     .into()

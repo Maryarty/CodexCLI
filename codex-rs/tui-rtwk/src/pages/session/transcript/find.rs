@@ -44,6 +44,9 @@ pub fn reading(ui: &ThreadUi) -> Option<Finder> {
 pub struct RowTexts {
     /// The text of each row, oldest first.
     texts: Vec<String>,
+    /// Per row, per line of its text: the line is a gutter (a bullet, a prompt mark) the select
+    /// mode's caret never stops on and a copy leaves out. Empty when no row has one.
+    gutters: Vec<Vec<bool>>,
     reverse: bool,
     revision: u64,
 }
@@ -52,9 +55,40 @@ impl RowTexts {
     pub fn new(texts: Vec<String>, reverse: bool, revision: u64) -> RowTexts {
         RowTexts {
             texts,
+            gutters: Vec::new(),
             reverse,
             revision,
         }
+    }
+
+    /// The rows with their gutter lines (`gutters[row][line]`).
+    pub fn with_gutters(mut self, gutters: Vec<Vec<bool>>) -> RowTexts {
+        self.gutters = gutters;
+        self
+    }
+
+    /// How many rows there are.
+    pub fn row_count(&self) -> usize {
+        self.texts.len()
+    }
+
+    /// The text of row `row` (oldest first): empty past the last.
+    pub fn row_text(&self, row: usize) -> &str {
+        self.texts.get(row).map_or("", String::as_str)
+    }
+
+    /// Whether line `line` of row `row` is a gutter.
+    pub fn is_gutter(&self, row: usize, line: usize) -> bool {
+        self.gutters
+            .get(row)
+            .and_then(|lines| lines.get(line))
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// The revision of the transcript the rows were read from.
+    pub fn revision_of(&self) -> u64 {
+        self.revision
     }
 
     /// The `ListController`'s index of row `row` (oldest first): a reverse list counts from its

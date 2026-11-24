@@ -31,7 +31,8 @@ use super::cells::text::Env;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
 use super::transcript::find::{Finder, RowTexts};
-use super::transcript::item_text::mounted_text;
+use super::transcript::item_text::mounted_parts;
+use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
@@ -74,6 +75,9 @@ pub(super) struct ViewportState {
     /// The finder of the thread shown, and what it told this list to listen with: the list
     /// builds again when Find moves.
     finding: RefCell<Option<(Finder, VoidCallback)>>,
+    /// The select mode of the thread shown, and its listener: the list builds again when the
+    /// caret moves.
+    selecting: RefCell<Option<(Select, VoidCallback)>>,
     /// The texts of the rows Find reads, kept while they are the same so that what the selection
     /// area was asked to select stays named by the same model.
     texts: RefCell<Option<Rc<RowTexts>>>,
@@ -226,6 +230,21 @@ impl ViewportState {
         *held = Some((finder.clone(), listener));
     }
 
+    /// The list builds again when `select` moves: one listener, on the select mode of the thread
+    /// shown.
+    fn listen_select(&self, select: &Select, send: Rc<dyn Fn(Msg)>) {
+        let mut held = self.selecting.borrow_mut();
+        if held.as_ref().is_some_and(|(held, _)| held == select) {
+            return;
+        }
+        if let Some((old, listener)) = held.take() {
+            old.listenable().remove_listener(&listener);
+        }
+        let listener: VoidCallback = Rc::new(move || send(Msg::Find));
+        select.listenable().add_listener(listener.clone());
+        *held = Some((select.clone(), listener));
+    }
+
     /// The rows of the list as text, what Find reads and the selection area selects its match in:
     /// the same model while the texts are the same.
     fn row_texts(
@@ -239,16 +258,41 @@ impl ViewportState {
     ) -> Rc<RowTexts> {
         let transcript = thread.transcript();
         let mut texts: Vec<String> = Vec::with_capacity(rows.len() + usize::from(header));
+        // per row, per line: a gutter (the caret of select mode skips it); a row with no text
+        // (the cells that have none yet) is one line the caret skips too
+        let mut gutters: Vec<Vec<bool>> = Vec::with_capacity(texts.capacity());
         if header {
             texts.push(String::new());
+            gutters.push(vec![true]);
         }
-        texts.extend(rows.iter().map(|row| {
-            transcript
+        for row in rows {
+            let parts = transcript
                 .get(row.range.start)
-                .and_then(|(_, item)| mounted_text(item, env, bullet))
-                .unwrap_or_default()
-        }));
-        let fresh = RowTexts::new(texts, reverse, transcript.layout_revision());
+                .and_then(|(_, item)| mounted_parts(item, env, bullet));
+            match parts {
+                Some(parts) => {
+                    texts.push(
+                        parts
+                            .iter()
+                            .map(|part| part.text.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    );
+                    gutters.push(
+                        parts
+                            .iter()
+                            .flat_map(|part| part.text.split('\n').map(|_| part.gutter))
+                            .collect(),
+                    );
+                }
+                None => {
+                    texts.push(String::new());
+                    gutters.push(vec![true]);
+                }
+            }
+        }
+        let fresh =
+            RowTexts::new(texts, reverse, transcript.layout_revision()).with_gutters(gutters);
         let mut kept = self.texts.borrow_mut();
         if let Some(old) = kept.as_ref()
             && **old == fresh
@@ -384,6 +428,7 @@ impl StatefulWidget for Pane {
             left: Vec::new(),
             restoring: None,
             finding: RefCell::default(),
+            selecting: RefCell::default(),
             texts: RefCell::default(),
         }
     }
@@ -427,6 +472,9 @@ impl State for ViewportState {
         }
         if let Some((finder, listener)) = self.finding.get_mut().take() {
             finder.listenable().remove_listener(&listener);
+        }
+        if let Some((select, listener)) = self.selecting.get_mut().take() {
+            select.listenable().remove_listener(&listener);
         }
     }
 
@@ -519,9 +567,12 @@ impl State for ViewportState {
         let folds = transcript_strings::of(cx);
         let search = widget.find.clone();
         self.listen(&search, cx.local_sender());
-        // while Find is open the list reads its rows as text: the scan runs over them, and the
-        // match it found is scrolled to and selected, which is how the oracle draws it (REVERSED)
-        let texts = search.active().then(|| {
+        let caret = select::of(&search);
+        self.listen_select(&caret, cx.local_sender());
+        // while Find is open or select mode is on the list reads its rows as text: the scan runs
+        // over them, and the match it found (or the caret, or the range marked) is scrolled to and
+        // selected, which is how the oracle draws it (REVERSED)
+        let texts = (search.active() || caret.active()).then(|| {
             let env = Env {
                 cells,
                 chat: table,
@@ -531,19 +582,39 @@ impl State for ViewportState {
             self.row_texts(&thread, &rows, header.is_some(), reverse, &bullet, &env)
         });
         if let Some(texts) = &texts {
-            if let Some(hit) = search.advance(&**texts) {
-                // the controller counts a reverse list's items from its bottom; the selection
-                // area's model counts the rows of the render list, from the top
-                widget
-                    .follow
-                    .scroll()
-                    .ensure_index_visible(texts.index_of(hit.row));
-                widget.selection.controller().select(
-                    SelectionTarget::of(texts),
-                    hit.row,
-                    hit.range.start,
-                    hit.range.end,
-                );
+            // the caret goes where an accepted match is, and Find is done (`accept_search_into_select_mode`)
+            if caret.read(texts) && search.reading() {
+                if let Some(hit) = search.current() {
+                    caret.land(Pos {
+                        row: hit.row,
+                        offset: hit.range.start,
+                    });
+                }
+                search.cancel();
+            }
+            if search.active() {
+                if let Some(hit) = search.advance(&**texts) {
+                    // the controller counts a reverse list's items from its bottom; the selection
+                    // area's model counts the rows of the render list, from the top
+                    widget
+                        .follow
+                        .scroll()
+                        .ensure_index_visible(texts.index_of(hit.row));
+                    widget.selection.controller().select(
+                        SelectionTarget::of(texts),
+                        hit.row,
+                        hit.range.start,
+                        hit.range.end,
+                    );
+                }
+            } else if caret.active() {
+                caret.apply(texts, &widget.selection);
+                if let Some(row) = caret.reveal() {
+                    widget
+                        .follow
+                        .scroll()
+                        .ensure_index_visible(texts.index_of(row));
+                }
             }
         } else {
             *self.texts.borrow_mut() = None;
@@ -730,6 +801,7 @@ impl State for ViewportState {
             child: list,
             selection: widget.selection.clone(),
             follow: widget.follow.clone(),
+            caret: caret.caret(),
         }
         .into()
     }
